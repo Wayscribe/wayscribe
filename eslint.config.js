@@ -18,7 +18,18 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
-      "@typescript-eslint/explicit-function-return-type": ["error", { allowExpressions: true }]
+      "@typescript-eslint/explicit-function-return-type": ["error", { allowExpressions: true }],
+      // Underscore prefix marks a deliberately unused binding. ignoreRestSiblings
+      // supports the `const { secret: _omitted, ...rest }` omit idiom.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          ignoreRestSiblings: true
+        }
+      ]
     }
   },
   prettier
