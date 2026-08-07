@@ -20,7 +20,27 @@ Authentication for SDK ingestion:
 Authorization: Bearer <project-environment-api-key>
 ```
 
-The initial web interface may use a local session or development authentication mechanism. Public production authentication is not finalized in V0 planning.
+Authentication for reads:
+
+```text
+Authorization: Bearer <admin-token>
+x-flight-project-id: <project-id>
+```
+
+An API key is scoped to one project and one environment and may ingest. An admin
+token reads across every environment of one **named** project and may not ingest
+(ADR-029).
+
+`x-flight-project-id` selects that project. It may be omitted when the
+installation has exactly one project, in which case the API resolves it; with
+more than one, omitting it is a `404 project_not_found` rather than a guess. The
+web interface stores the selection in its session.
+
+`GET /v1/projects` lists them. It takes the admin token alone, because it
+answers the question a caller has before it can name a project.
+
+The web interface authenticates a person with `ADMIN_TOKEN` and holds an
+HMAC-signed session cookie. The admin token itself never reaches the browser.
 
 All timestamps are UTC ISO 8601 strings.
 
@@ -182,16 +202,6 @@ Response:
           "id": "18492"
         },
         "status": "failed",
-        "aliases": [
-          {
-            "type": "salesforceAccountId",
-            "displayValue": "0018…ABC"
-          }
-        ],
-        "services": [
-          "customer-integration",
-          "customer-sync-worker"
-        ],
         "eventCount": 8,
         "startedAt": "2026-08-06T18:31:02.000Z",
         "lastEventAt": "2026-08-06T18:34:38.000Z"
@@ -252,7 +262,7 @@ Response:
         "operation": "received",
         "name": "receive-salesforce-webhook",
         "service": "customer-integration",
-        "timestamp": "2026-08-06T18:31:02.000Z",
+        "eventTimestamp": "2026-08-06T18:31:02.000Z",
         "durationMs": 18,
         "hasInput": true,
         "hasOutput": false,

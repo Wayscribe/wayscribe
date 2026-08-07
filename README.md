@@ -34,9 +34,57 @@ became null, and the 422 that followed.
 Nothing to instrument, no account, no telemetry leaving the machine. See
 [docs/DEMO_SCENARIO.md](docs/DEMO_SCENARIO.md).
 
+The interface is at `http://localhost:3000`. It asks for an admin token, which
+is `ADMIN_TOKEN` from your environment — a development default until you set
+your own:
+
+```bash
+cp .env.example .env && printf 'ENCRYPTION_KEY=%s\nADMIN_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
+```
+
+The API logs a warning at every boot while the published defaults are in use.
+
+## Instrument your own service
+
+```bash
+npm install @flight-recorder/node
+```
+
+```typescript
+import { createRecorder } from "@flight-recorder/node";
+
+const recorder = createRecorder({
+  endpoint: "http://localhost:8080",
+  apiKey: process.env.FLIGHT_RECORDER_API_KEY,
+  serviceName: "billing-api",
+  environment: "development"
+});
+
+const journey = recorder.startJourney({
+  entity: { type: "customer", id: account.Id }
+});
+
+const customer = await journey.transform("map-account", account, () =>
+  toCustomer(account)
+);
+```
+
+Then search for `account.Id`.
+
+`examples/instrument-a-service` is a standalone project that does this end to
+end in about thirty lines, including the part where a value goes missing. The
+SDK has **no runtime dependencies** and is built so that a recorder failure
+cannot break the application it is recording — see
+[its README](packages/sdk-node/README.md).
+
 ## Status
 
-**Planning and initial implementation.**
+**Working, pre-release. Not yet published.**
+
+Ingestion, search, journey timelines, field-level diffs, the Node SDK,
+cross-process propagation, and the demo are built, tested, and running. Replay
+is specified but not yet implemented, and no images or packages are published
+yet, so today you install by cloning this repository.
 
 The first release is intentionally narrow:
 
@@ -64,6 +112,12 @@ ADR-011 and ADR-014 in [the decision log](docs/DECISIONS.md).
 ## Core product promise
 
 > Find where a record was changed, lost, duplicated, delayed, or rejected across a distributed workflow.
+
+Of those five, **changed** and **rejected** are demonstrated end to end today —
+the demo finds the transformation that dropped a phone number and the 422 that
+followed. Delay is visible in the timeline as recorded durations and gaps.
+Duplication and loss are not yet first-class: ingestion deduplicates SDK
+retries, which is not the same as telling you a record was processed twice.
 
 ## Product commitment
 
@@ -130,10 +184,10 @@ to:
 
 The target API rejects the record. Flight Recorder must reveal the exact transformation that introduced the invalid value and show all downstream consequences.
 
-## Planned technology stack
+## Technology stack
 
 - TypeScript
-- Node.js active LTS, pinned in the repository
+- Node.js 24, pinned in `.nvmrc`
 - pnpm workspaces
 - Fastify
 - Next.js
@@ -160,39 +214,42 @@ The target API rejects the record. Flight Recorder must reveal the exact transfo
 | [Replay specification](docs/REPLAY_SPEC.md) | Development replay rules and safeguards |
 | [Demo scenario](docs/DEMO_SCENARIO.md) | End-to-end acceptance workflow |
 | [Testing strategy](docs/TESTING_STRATEGY.md) | Unit, integration, contract, and E2E testing |
-| [Local development](docs/LOCAL_DEVELOPMENT.md) | Intended setup and commands |
+| [Local development](docs/LOCAL_DEVELOPMENT.md) | Setup, commands, keys, and troubleshooting |
 | [Decision log](docs/DECISIONS.md) | Architecture decisions and rationale |
-| [Task list](docs/TASKS.md) | Build-ready implementation checklist |
+| [Task list](docs/TASKS.md) | Implementation checklist and current state |
 | [Roadmap](docs/ROADMAP.md) | Growth path beyond the first release |
 | [Glossary](docs/GLOSSARY.md) | Shared terminology |
 | [Agent instructions](AGENTS.md) | Rules for coding agents and LLMs |
 | [Contributing](CONTRIBUTING.md) | Contribution and pull-request expectations |
 
-## Planned repository layout
+## Repository layout
 
 ```text
 flight-recorder/
 ├── apps/
-│   ├── api/
-│   ├── web/
-│   ├── demo-source/
-│   ├── demo-integration/
-│   ├── demo-worker/
-│   └── demo-target/
+│   ├── api/                  ingestion, query, and replay API
+│   ├── web/                  developer interface
+│   └── demo/                 five entry points, one image (see docs/DEMO_SCENARIO.md)
 ├── packages/
-│   ├── protocol/
-│   ├── sdk-node/
-│   ├── database/
-│   ├── payload-security/
-│   ├── payload-diff/
-│   └── config/
-├── infrastructure/
+│   ├── protocol/             event schema and version
+│   ├── sdk-node/             published as @flight-recorder/node
+│   ├── database/             migrations, repositories, CLI
+│   ├── payload-security/     redaction, encryption, keys, search tokens
+│   ├── payload-diff/         structural field-level diffs
+│   └── config/               environment parsing
+├── examples/
+│   └── instrument-a-service/ standalone; the smallest real instrumentation
+├── infrastructure/           Compose files and queue configuration
 ├── docs/
 ├── AGENTS.md
 ├── CONTRIBUTING.md
 ├── pnpm-workspace.yaml
 └── README.md
 ```
+
+The four demo services are five entry points in one `apps/demo` package rather
+than four directories: they share the fixture, the queue helpers, and the
+recorder setup, and Compose runs the one image with different commands.
 
 ## V0 definition of done
 

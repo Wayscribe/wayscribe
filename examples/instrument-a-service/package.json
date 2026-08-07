@@ -1,0 +1,13 @@
+{
+  "name": "flight-recorder-example-instrument-a-service",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The smallest real instrumentation of a service with Flight Recorder.",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@flight-recorder/node": "file:../../packages/sdk-node"
+  }
+}
