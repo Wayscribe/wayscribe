@@ -10,6 +10,11 @@
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./redaction": {
+      "development": "./src/redaction.ts",
+      "types": "./dist/redaction.d.ts",
+      "default": "./dist/redaction.js"
     }
   },
   "scripts": {
