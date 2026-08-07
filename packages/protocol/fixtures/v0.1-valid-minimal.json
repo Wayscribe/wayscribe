@@ -1,0 +1,13 @@
+{
+  "protocolVersion": "0.1",
+  "event": {
+    "id": "evt_minimal_01",
+    "journeyId": "jrn_minimal_01",
+    "environment": "development",
+    "service": "customer-integration",
+    "entity": { "type": "customer", "id": "18492" },
+    "operation": "received",
+    "name": "receive-salesforce-webhook",
+    "timestamp": "2026-08-06T18:31:02.000Z"
+  }
+}

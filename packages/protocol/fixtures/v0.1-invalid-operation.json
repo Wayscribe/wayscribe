@@ -1,0 +1,13 @@
+{
+  "protocolVersion": "0.1",
+  "event": {
+    "id": "evt_bad_operation",
+    "journeyId": "jrn_bad_operation",
+    "environment": "development",
+    "service": "customer-integration",
+    "entity": { "type": "customer", "id": "18492" },
+    "operation": "teleported",
+    "name": "receive-salesforce-webhook",
+    "timestamp": "2026-08-06T18:31:02.000Z"
+  }
+}
