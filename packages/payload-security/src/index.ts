@@ -4,6 +4,9 @@ export {
   verifyApiKey,
   type GeneratedApiKey
 } from "./api-key.js";
+export { applyCapture, type CaptureMode, type CapturePolicy } from "./capture.js";
+export { contentHash } from "./content-hash.js";
+export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
 export { decryptField, encryptField } from "./encryption.js";
 export { deriveSubkeys, type Subkeys } from "./keys.js";
 export {
