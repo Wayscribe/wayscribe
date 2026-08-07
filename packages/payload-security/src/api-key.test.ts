@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { API_KEY_PREFIX_LENGTH, generateApiKey, verifyApiKey } from "./api-key.js";
+import { API_KEY_PREFIX_LENGTH, apiKeyRecord, generateApiKey, verifyApiKey } from "./api-key.js";
 import { deriveSubkeys } from "./keys.js";
 
 const key = deriveSubkeys("0123456789abcdef0123456789abcdef").apiKey;
@@ -21,6 +21,23 @@ describe("generateApiKey", () => {
   it("does not store the key itself in the verifier", () => {
     const generated = generateApiKey(key);
     expect(generated.verifier).not.toContain(generated.apiKey.slice(3));
+  });
+});
+
+describe("apiKeyRecord", () => {
+  const demoKey = "fr_demo00000000000000000000000000000";
+
+  it("produces a record that verifies the same key", () => {
+    expect(verifyApiKey(key, demoKey, apiKeyRecord(key, demoKey).verifier)).toBe(true);
+  });
+
+  it("rejects a different key", () => {
+    const other = "fr_other0000000000000000000000000000";
+    expect(verifyApiKey(key, other, apiKeyRecord(key, demoKey).verifier)).toBe(false);
+  });
+
+  it("takes the prefix from the key itself", () => {
+    expect(apiKeyRecord(key, demoKey).keyPrefix).toBe("fr_demo00000");
   });
 });
 

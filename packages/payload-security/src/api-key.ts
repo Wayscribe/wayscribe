@@ -12,13 +12,31 @@ export interface GeneratedApiKey {
   verifier: string;
 }
 
-export function generateApiKey(pepper: Buffer): GeneratedApiKey {
-  const apiKey = `fr_${randomBytes(KEY_BYTES).toString("base64url")}`;
+export interface StoredApiKey {
+  /** Stored for lookup and safe display. */
+  keyPrefix: string;
+  /** Stored verifier. */
+  verifier: string;
+}
+
+/**
+ * The stored form of a key the caller already holds.
+ *
+ * `generateApiKey` is the entry point everywhere a key is issued to a person:
+ * it supplies the entropy, which a caller-chosen key does not. This exists for
+ * the demo, whose services need a key fixed in advance because there is nobody
+ * to read one off a terminal.
+ */
+export function apiKeyRecord(pepper: Buffer, apiKey: string): StoredApiKey {
   return {
-    apiKey,
     keyPrefix: apiKey.slice(0, API_KEY_PREFIX_LENGTH),
     verifier: computeVerifier(pepper, apiKey)
   };
+}
+
+export function generateApiKey(pepper: Buffer): GeneratedApiKey {
+  const apiKey = `fr_${randomBytes(KEY_BYTES).toString("base64url")}`;
+  return { apiKey, ...apiKeyRecord(pepper, apiKey) };
 }
 
 /**

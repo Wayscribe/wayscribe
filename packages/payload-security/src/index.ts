@@ -1,8 +1,10 @@
 export {
   API_KEY_PREFIX_LENGTH,
+  apiKeyRecord,
   generateApiKey,
   verifyApiKey,
-  type GeneratedApiKey
+  type GeneratedApiKey,
+  type StoredApiKey
 } from "./api-key.js";
 export { applyCapture, type CaptureMode, type CapturePolicy } from "./capture.js";
 export { contentHash } from "./content-hash.js";
