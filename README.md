@@ -14,6 +14,26 @@ A developer should be able to search for a customer, order, invoice, claim, or o
 - What happened downstream?
 - Can the original input be tested again safely?
 
+## Try it
+
+```bash
+docker compose -f infrastructure/compose.yaml \
+               -f infrastructure/compose.demo.yaml up --build
+```
+
+```bash
+pnpm demo:trigger
+```
+
+Four demo services move a Salesforce account through a webhook, a
+transformation, PostgreSQL, a queue, a worker, and a third-party API — and the
+transformation contains a real defect. The trigger prints a link to the journey;
+about ten seconds later it shows you the step where the customer's phone number
+became null, and the 422 that followed.
+
+Nothing to instrument, no account, no telemetry leaving the machine. See
+[docs/DEMO_SCENARIO.md](docs/DEMO_SCENARIO.md).
+
 ## Status
 
 **Planning and initial implementation.**

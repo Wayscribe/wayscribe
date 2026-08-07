@@ -739,3 +739,49 @@ and a debugging tool that guesses is worse than one that reports.
   than one, and the documentation says so.
 - Comparing an expected shape against an actual one remains available through
   replay, where both sides genuinely share a shape.
+
+## ADR-031: A wrapped event is timestamped when its operation started
+
+**Status:** Accepted
+
+### Context
+
+The SDK wrappers (`transform`, `persist`, `publish`, `deliver`) recorded an event
+after their callback resolved, and stamped it with the time of that recording.
+
+Running the Phase 5 demo showed the consequence immediately. `demo-integration`
+published to the queue, and `demo-worker` consumed the message, recorded it, and had
+it ingested before the publish wrapper had finished stamping its own event. The
+timeline read:
+
+```text
+consumed     consume-customer-updated    demo-worker
+published    publish-customer-updated    demo-integration
+```
+
+A step sorted after the work it caused. Ordering is by `(event_timestamp,
+received_at, id)`, so nothing downstream could fix it.
+
+This is not specific to a fast local queue. Any step whose recorded duration exceeds
+the latency of what it triggers inverts the same way, and those are precisely the
+slow steps a developer opens the timeline to investigate.
+
+### Decision
+
+A wrapped event carries the moment its callback started. Duration is already a
+separate field, so no information is lost, and the pair states plainly that the
+operation began at one time and took a measured span.
+
+This matches how tracing systems order spans, which are ordered by start time for
+the same reason.
+
+`record()` and the other unwrapped entry points continue to stamp at call time,
+which for them is the same moment.
+
+### Consequences
+
+- The demo's ten-event sequence matches `DEMO_SCENARIO.md` section 6 exactly.
+- A step and the work it caused can share a timestamp to the millisecond; the
+  `(timestamp, received_at, id)` ordering already tie-breaks.
+- `RecordInput` gains an optional `startedAt`, which also gives a caller recording
+  historical events a way to say when they happened.

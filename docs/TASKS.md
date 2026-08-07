@@ -211,21 +211,26 @@ This checklist is ordered to produce a working vertical slice early.
 
 ## Epic 12: Demo workflow
 
-- [ ] Build source webhook simulator.
-- [ ] Build integration API.
-- [ ] Add customer table.
-- [ ] Implement defective transformation.
-- [ ] Persist customer.
-- [ ] Publish queue message.
-- [ ] Build worker.
-- [ ] Build target API.
-- [ ] Reject missing phone.
-- [ ] Add retry behavior.
-- [ ] Add dead-letter behavior.
-- [ ] Instrument all steps.
-- [ ] Add trigger script.
-- [ ] Verify search and timeline manually.
+- [x] Build source webhook simulator.
+- [x] Build integration API.
+- [x] Add customer table.
+- [x] Implement defective transformation.
+- [x] Persist customer.
+- [x] Publish queue message.
+- [x] Build worker.
+- [x] Build target API.
+- [x] Reject missing phone.
+- [x] Add retry behavior.
+- [x] Add dead-letter behavior.
+- [x] Instrument all steps.
+- [x] Add trigger script.
+- [x] Verify search and timeline manually.
+- [x] Automate the acceptance test (`pnpm test:demo`).
 - [ ] Record time to first useful journey on a clean machine.
+
+Deliberately uninstrumented: `demo-source` and `demo-target`. They stand in for
+systems the team does not own, and a timeline covering only your own services is
+the honest picture.
 
 ## Epic 13: Replay
 

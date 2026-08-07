@@ -64,10 +64,16 @@ genuinely fails each time, and genuinely arrives in the dead-letter queue.
 The worker polls both queues. A message arriving on the DLQ continues its journey and
 records `move-message-to-dead-letter`.
 
-This depends on message attributes surviving redrive, which is how SQS behaves. **If
-ElasticMQ does not preserve them, the worker records the dead-letter event from the main
-queue on its final receive instead, and this document is updated to say so.** The
-behaviour is verified during implementation rather than assumed.
+This depends on message attributes surviving redrive, which is how SQS behaves, and on
+`ApproximateReceiveCount` being reported so the worker can tell a retry from a first
+attempt.
+
+**Both were verified against a running stack rather than assumed.** ElasticMQ preserves
+message attributes across redrive, so the dead-letter event joins the journey it belongs
+to, and it reports the receive count, so the retries record as `retried` (ADR-022). The
+worker keeps an in-process tally as a fallback for the receive count; it was written
+before the check and kept afterwards, because it costs two lines and the failure it
+guards against is silent.
 
 ## 5. Two decisions the documents do not cover
 
