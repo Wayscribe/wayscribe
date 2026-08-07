@@ -1,0 +1,69 @@
+import { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
+import { redact } from "./redact.js";
+
+export type CaptureMode =
+  "metadata-only" | "allowlisted-fields" | "redacted-payload" | "full-payload";
+
+export interface CapturePolicy {
+  mode: CaptureMode;
+  redactionPaths?: readonly string[];
+  allowlist?: readonly string[];
+}
+
+/**
+ * Apply an environment's capture policy to a payload.
+ *
+ * Server policy may capture less than the SDK requested; it never captures more.
+ * Built-in secret paths are appended to whatever the operator configured, and
+ * apply in every mode that stores a payload at all.
+ */
+export function applyCapture(payload: unknown, policy: CapturePolicy): unknown {
+  if (payload === undefined) return undefined;
+  if (policy.mode === "metadata-only") return undefined;
+
+  if (policy.mode === "allowlisted-fields") {
+    return pickAllowlisted(payload, policy.allowlist ?? []);
+  }
+
+  return redact(payload, [...(policy.redactionPaths ?? []), ...DEFAULT_SECRET_PATHS]);
+}
+
+function pickAllowlisted(payload: unknown, allowlist: readonly string[]): unknown {
+  if (typeof payload !== "object" || payload === null) return {};
+
+  const result: Record<string, unknown> = {};
+  for (const path of allowlist) {
+    const segments = path.split(".");
+    const value = readPath(payload, segments);
+    if (value !== undefined) writePath(result, segments, value);
+  }
+
+  // Built-in secrets still apply: an operator can allowlist a path that happens
+  // to hold a token, and an allowlist must not override secret filtering.
+  return redact(result, DEFAULT_SECRET_PATHS);
+}
+
+function readPath(source: unknown, segments: readonly string[]): unknown {
+  let current: unknown = source;
+  for (const segment of segments) {
+    if (typeof current !== "object" || current === null) return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function writePath(
+  target: Record<string, unknown>,
+  segments: readonly string[],
+  value: unknown
+): void {
+  let current = target;
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    const segment = segments[i] ?? "";
+    const existing = current[segment];
+    if (typeof existing !== "object" || existing === null) current[segment] = {};
+    current = current[segment] as Record<string, unknown>;
+  }
+  const last = segments[segments.length - 1] ?? "";
+  current[last] = value;
+}

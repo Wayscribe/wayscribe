@@ -1,6 +1,9 @@
+import { deriveSubkeys } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
+
+const subkeys = deriveSubkeys("0123456789abcdef0123456789abcdef");
 
 function fakeDb(): Knex {
   return {
@@ -11,7 +14,7 @@ function fakeDb(): Knex {
 
 describe("GET /health", () => {
   it("returns 200 while the process is serving", async () => {
-    const app = buildApp({ db: fakeDb(), logLevel: "silent" });
+    const app = buildApp({ subkeys, db: fakeDb(), logLevel: "silent" });
     const response = await app.inject({ method: "GET", url: "/health" });
 
     expect(response.statusCode).toBe(200);
@@ -30,7 +33,7 @@ describe("GET /health", () => {
       migrate: { list: () => Promise.resolve([[], []]) }
     } as unknown as Knex;
 
-    const app = buildApp({ db, logLevel: "silent" });
+    const app = buildApp({ subkeys, db, logLevel: "silent" });
     await app.inject({ method: "GET", url: "/health" });
 
     expect(dbWasCalled).toBe(false);
