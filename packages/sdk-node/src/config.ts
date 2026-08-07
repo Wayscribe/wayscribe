@@ -1,5 +1,6 @@
 import { DEFAULT_SECRET_PATHS } from "@flight-recorder/payload-security/redaction";
 import type { Diagnostic } from "./diagnostics.js";
+import type { PropagationLevel } from "./propagation.js";
 
 export interface RecorderConfig {
   endpoint: string;
@@ -13,6 +14,8 @@ export interface RecorderConfig {
   requestTimeoutMs?: number;
   maxBufferedEvents?: number;
   maxPayloadBytes?: number;
+  /** Default 'journey-and-type'. The entity ID propagates only at 'full' (SECURITY section 10). */
+  propagate?: PropagationLevel;
   onDiagnostic?: (diagnostic: Diagnostic) => void;
 }
 
@@ -28,6 +31,7 @@ export interface ResolvedConfig {
   requestTimeoutMs: number;
   maxBufferedEvents: number;
   maxPayloadBytes: number;
+  propagate: PropagationLevel;
   onDiagnostic: ((diagnostic: Diagnostic) => void) | undefined;
 }
 
@@ -49,6 +53,7 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     requestTimeoutMs: config.requestTimeoutMs ?? 1_500,
     maxBufferedEvents: config.maxBufferedEvents ?? 1_000,
     maxPayloadBytes: config.maxPayloadBytes ?? 262_144,
+    propagate: config.propagate ?? "journey-and-type",
     onDiagnostic: config.onDiagnostic
   };
 }

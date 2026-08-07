@@ -2,6 +2,15 @@ import { randomUUID } from "node:crypto";
 import { DEFAULT_LIMITS, checkLimits, redact } from "@flight-recorder/payload-security/redaction";
 import { resolveConfig, type RecorderConfig } from "./config.js";
 import { createDiagnostics, type Counters } from "./diagnostics.js";
+import {
+  extractHttpContext,
+  fromQueueAttributes,
+  injectHttpHeaders,
+  toQueueAttributes,
+  unwrapPayload,
+  wrapPayload,
+  type PropagatedContext
+} from "./propagation.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
 import { createTraceReader } from "./trace.js";
@@ -69,9 +78,22 @@ export interface Recorder {
   }): Journey;
   continueJourney(context: JourneyContext): Journey;
   consume(options: {
-    context?: JourneyContext;
+    context?: PropagatedContext | undefined;
     entityFallback?: { type: string; id: string };
   }): Journey;
+  injectHttpHeaders(
+    headers: Record<string, string>,
+    context: PropagatedContext
+  ): Record<string, string>;
+  extractHttpContext(
+    headers: Record<string, string | string[] | undefined> | undefined
+  ): PropagatedContext | undefined;
+  toQueueAttributes(
+    context: PropagatedContext
+  ): Record<string, { DataType: string; StringValue: string }>;
+  fromQueueAttributes(attributes: unknown): PropagatedContext | undefined;
+  wrapPayload(payload: unknown, context: PropagatedContext): { _flight: unknown; data: unknown };
+  unwrapPayload(body: unknown): { context?: PropagatedContext; data: unknown };
   flush(): Promise<void>;
   shutdown(options?: { timeoutMs?: number }): Promise<Counters>;
   diagnostics(): Counters;
@@ -312,13 +334,22 @@ export function createRecorder(config: RecorderConfig): Recorder {
       return journey;
     },
     continueJourney: (context) => makeJourney(context),
+    // At the default propagation level the journey ID crosses the boundary and
+    // the entity does not, so the consumer supplies the entity it already has
+    // from the message body.
     consume: (options) =>
-      makeJourney(
-        options.context ?? {
-          journeyId: `jrn_${randomUUID()}`,
-          entity: options.entityFallback ?? { type: "unknown", id: "unknown" }
-        }
-      ),
+      makeJourney({
+        journeyId: options.context?.journeyId ?? `jrn_${randomUUID()}`,
+        entity: options.context?.entity ??
+          options.entityFallback ?? { type: "unknown", id: "unknown" }
+      }),
+    injectHttpHeaders: (headers, context) =>
+      injectHttpHeaders(headers, context, resolved.propagate),
+    extractHttpContext,
+    toQueueAttributes: (context) => toQueueAttributes(context, resolved.propagate),
+    fromQueueAttributes,
+    wrapPayload: (payload, context) => wrapPayload(payload, context, resolved.propagate),
+    unwrapPayload,
     async flush() {
       await safelyAsync(diagnostics, "transport_error", flush);
     },
