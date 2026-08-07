@@ -52,7 +52,12 @@ services:
       context: ..
       dockerfile: apps/web/Dockerfile
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080
+      # Server-side only. The browser never contacts the API (ADR-029), so this
+      # is the internal service name, not a host-reachable address.
+      API_URL: http://api:8080
+      # Must match the API's. The web app derives its session signing key from
+      # this, so rotating it invalidates sessions on both sides at once.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
