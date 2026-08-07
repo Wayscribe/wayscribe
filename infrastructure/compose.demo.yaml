@@ -1,26 +1,98 @@
-# Demo profile. Adds the SQS-compatible queue and the four demo services that
-# prove the reference journey. Layer it over the core stack:
+# Demo profile. Adds the SQS-compatible queue and the demo services that prove
+# the reference journey. Layer it over the core stack:
 #
 #   docker compose -f infrastructure/compose.yaml \
 #                  -f infrastructure/compose.demo.yaml up --build
 #
-# The demo services are implemented in Phase 5 (see docs/DEMO_SCENARIO.md).
-# ElasticMQ is defined now because ADR-015 settles the queue choice, and the
-# core compose.yaml must keep PostgreSQL as its only backing service.
+# Then:
+#
+#   pnpm demo:trigger
+#
+# ADR-015 keeps this file separate from compose.yaml so PostgreSQL remains the
+# core stack's only required backing service.
 
 name: flight-recorder
+
+x-demo: &demo
+  image: flight-recorder-demo:local
+  build:
+    context: ..
+    dockerfile: apps/demo/Dockerfile
+  environment: &demo-env
+    FLIGHT_ENDPOINT: http://api:8080
+    # A placeholder, and safe to commit: it authorises writing demo events to a
+    # local stack and nothing else. Real keys come from `pnpm db:seed`, which
+    # generates them and prints each one exactly once.
+    FLIGHT_API_KEY: ${DEMO_API_KEY:-fr_demo00000000000000000000000000000}
+    FLIGHT_ENVIRONMENT: development
+    QUEUE_ENDPOINT: http://elasticmq:9324
+    QUEUE_URL: http://elasticmq:9324/000000000000/customer-updates
+    DLQ_URL: http://elasticmq:9324/000000000000/customer-updates-dlq
+    AWS_REGION: us-east-1
+    DEMO_DATABASE_URL: postgresql://flight:flight@postgres:5432/demo
+    TARGET_URL: http://demo-target:3300
+    INTEGRATION_URL: http://demo-integration:3200
 
 services:
   elasticmq:
     image: softwaremill/elasticmq-native:latest
+    volumes:
+      - ./elasticmq.conf:/opt/elasticmq.conf:ro
     ports:
       - "127.0.0.1:9324:9324"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- 'http://localhost:9324/?Action=ListQueues' || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-  # demo-source:       Phase 5 — simulates a Salesforce account webhook
-  # demo-integration:  Phase 5 — receives, transforms, persists, publishes
-  # demo-worker:       Phase 5 — consumes the queue, delivers to the target
-  # demo-target:       Phase 5 — simulates HubSpot, rejects a missing phone
+
+  # Runs once and exits. Everything after it can assume a migrated schema, a
+  # registered API key, and a customer table.
+  demo-bootstrap:
+    <<: *demo
+    environment:
+      <<: *demo-env
+      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+      DEMO_DATABASE_NAME: demo
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-for-local-development-0000}
+    command: ["node", "apps/demo/dist/bootstrap.js"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  demo-target:
+    <<: *demo
+    command: ["node", "apps/demo/dist/target.js"]
+    ports:
+      - "127.0.0.1:3300:3300"
+
+  demo-integration:
+    <<: *demo
+    command: ["node", "apps/demo/dist/integration.js"]
+    ports:
+      - "127.0.0.1:3200:3200"
+    depends_on:
+      demo-bootstrap:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+      elasticmq:
+        condition: service_started
+
+  demo-worker:
+    <<: *demo
+    command: ["node", "apps/demo/dist/worker.js"]
+    depends_on:
+      demo-bootstrap:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+      elasticmq:
+        condition: service_started
+      demo-target:
+        condition: service_started
+
+  demo-source:
+    <<: *demo
+    command: ["node", "apps/demo/dist/source.js"]
+    ports:
+      - "127.0.0.1:3100:3100"
+    depends_on:
+      demo-integration:
+        condition: service_started
