@@ -28,7 +28,12 @@ function fakeDb({ reachable = true, pendingMigrations = 0 }: FakeDbOptions = {})
 
 describe("GET /ready", () => {
   it("returns 200 when the database is reachable and the schema is current", async () => {
-    const app = buildApp({ subkeys, db: fakeDb(), logLevel: "silent" });
+    const app = buildApp({
+      subkeys,
+      adminToken: "admin-token-for-tests-0000000000",
+      db: fakeDb(),
+      logLevel: "silent"
+    });
     const response = await app.inject({ method: "GET", url: "/ready" });
 
     expect(response.statusCode).toBe(200);
@@ -38,7 +43,12 @@ describe("GET /ready", () => {
   });
 
   it("returns 503 with a reason when the database is unreachable", async () => {
-    const app = buildApp({ subkeys, db: fakeDb({ reachable: false }), logLevel: "silent" });
+    const app = buildApp({
+      subkeys,
+      adminToken: "admin-token-for-tests-0000000000",
+      db: fakeDb({ reachable: false }),
+      logLevel: "silent"
+    });
     const response = await app.inject({ method: "GET", url: "/ready" });
 
     expect(response.statusCode).toBe(503);
@@ -51,7 +61,12 @@ describe("GET /ready", () => {
   });
 
   it("returns 503 when migrations are pending", async () => {
-    const app = buildApp({ subkeys, db: fakeDb({ pendingMigrations: 3 }), logLevel: "silent" });
+    const app = buildApp({
+      subkeys,
+      adminToken: "admin-token-for-tests-0000000000",
+      db: fakeDb({ pendingMigrations: 3 }),
+      logLevel: "silent"
+    });
     const response = await app.inject({ method: "GET", url: "/ready" });
 
     expect(response.statusCode).toBe(503);
@@ -65,7 +80,12 @@ describe("GET /ready", () => {
   });
 
   it("reports database_unreachable rather than leaking the driver error", async () => {
-    const app = buildApp({ subkeys, db: fakeDb({ reachable: false }), logLevel: "silent" });
+    const app = buildApp({
+      subkeys,
+      adminToken: "admin-token-for-tests-0000000000",
+      db: fakeDb({ reachable: false }),
+      logLevel: "silent"
+    });
     const response = await app.inject({ method: "GET", url: "/ready" });
 
     expect(response.body).not.toContain("ECONNREFUSED");

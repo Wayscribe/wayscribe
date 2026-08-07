@@ -34,7 +34,12 @@ describe("query endpoints", () => {
       key_hash: generated.verifier
     });
 
-    app = buildApp({ db, subkeys, logLevel: "silent" });
+    app = buildApp({
+      db,
+      subkeys,
+      adminToken: "admin-token-for-tests-0000000000",
+      logLevel: "silent"
+    });
 
     // Build the fixture through the real write path, so these tests exercise
     // what ingestion actually produces rather than hand-inserted rows that could

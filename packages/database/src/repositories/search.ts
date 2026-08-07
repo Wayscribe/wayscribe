@@ -3,7 +3,11 @@ import { decodeSearchCursor, encodeCursor, type SearchCursor } from "./cursors.j
 
 export interface SearchScope {
   projectId: string;
-  environmentId: string;
+  /**
+   * Absent means every environment of this one project — never every project.
+   * The query always filters on project_id regardless (ADR-029).
+   */
+  environmentId?: string | undefined;
 }
 
 export interface SearchHit {
@@ -51,7 +55,11 @@ export async function searchJourneys(
         .select("j.id")
         .from({ j: "journeys" })
         .where("j.project_id", scope.projectId)
-        .andWhere("j.environment_id", scope.environmentId)
+        .modify((scoped) => {
+          if (scope.environmentId !== undefined) {
+            void scoped.andWhere("j.environment_id", scope.environmentId);
+          }
+        })
         .andWhere((where) => {
           void where
             .where("j.id", query)

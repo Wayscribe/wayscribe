@@ -14,7 +14,12 @@ function fakeDb(): Knex {
 
 describe("GET /health", () => {
   it("returns 200 while the process is serving", async () => {
-    const app = buildApp({ subkeys, db: fakeDb(), logLevel: "silent" });
+    const app = buildApp({
+      subkeys,
+      adminToken: "admin-token-for-tests-0000000000",
+      db: fakeDb(),
+      logLevel: "silent"
+    });
     const response = await app.inject({ method: "GET", url: "/health" });
 
     expect(response.statusCode).toBe(200);
@@ -33,7 +38,12 @@ describe("GET /health", () => {
       migrate: { list: () => Promise.resolve([[], []]) }
     } as unknown as Knex;
 
-    const app = buildApp({ subkeys, db, logLevel: "silent" });
+    const app = buildApp({
+      subkeys,
+      adminToken: "admin-token-for-tests-0000000000",
+      db,
+      logLevel: "silent"
+    });
     await app.inject({ method: "GET", url: "/health" });
 
     expect(dbWasCalled).toBe(false);
