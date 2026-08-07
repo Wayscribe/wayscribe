@@ -697,3 +697,45 @@ sessions.
 - A single global admin secret is a guessing target, so login is throttled in-process.
   That does not survive horizontal scaling and is documented as a single-instance
   limitation.
+
+---
+
+## ADR-030: Transformation diffs compare input to output, and nothing else
+
+**Status:** Accepted
+
+### Context
+
+`DEMO_SCENARIO.md` section 7 documented an expected transformation diff showing
+`phone` changing from a value to `null` with `name` unchanged — both sides using
+internal field names.
+
+That diff cannot be produced by the step it describes. The transformation's input is
+the Salesforce account (`Name`, `Phone`, `Status__c`) and its output is the internal
+customer (`name`, `phone`, `status`), so comparing them renames every field and
+yields only removals and additions.
+
+The documented diff was in fact an expected-versus-actual comparison, which is the
+replay comparison in `REPLAY_SPEC.md` section 11.
+
+Found by running the interface against real ingested data rather than by reading.
+
+### Decision
+
+A transformation diff compares exactly what a step received against what it
+produced. Nothing is inferred about renamed fields.
+
+`DEMO_SCENARIO.md` section 7 is corrected to show the real diff. The defect remains
+legible: `Phone` enters with a value and `phone` leaves as `null`, while every other
+field arrives intact.
+
+Rename-aware diffing is rejected. Inferring that `Phone` became `phone` is guessing,
+and a debugging tool that guesses is worse than one that reports.
+
+### Consequences
+
+- Phase 5's demo acceptance asserts the corrected diff, not the original.
+- The differentiator in ADR-013 stands, but its demonstration is two rows rather
+  than one, and the documentation says so.
+- Comparing an expected shape against an actual one remains available through
+  replay, where both sides genuinely share a shape.
