@@ -55,7 +55,12 @@ describe("event ingestion", () => {
       key_hash: generated.verifier
     });
 
-    app = buildApp({ db, subkeys, logLevel: "silent" });
+    app = buildApp({
+      db,
+      subkeys,
+      adminToken: "admin-token-for-tests-0000000000",
+      logLevel: "silent"
+    });
   });
 
   afterAll(async () => {
@@ -126,6 +131,13 @@ describe("event ingestion", () => {
       url: "/v1/events",
       payload: event() as object
     });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("rejects the admin token at ingestion", async () => {
+    // An admin token names no environment, and ingestion must write into a
+    // specific one, so accepting it here would mean guessing (ADR-029).
+    const response = await send(event({ id: "evt_admin" }), "admin-token-for-tests-0000000000");
     expect(response.statusCode).toBe(401);
   });
 

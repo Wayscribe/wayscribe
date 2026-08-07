@@ -14,6 +14,7 @@ declare module "fastify" {
 export interface BuildAppOptions {
   db: Knex;
   subkeys: Subkeys;
+  adminToken: string;
   logLevel?: string;
 }
 
@@ -25,7 +26,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   app.decorate("db", options.db);
   registerHealthRoutes(app);
   registerEventRoutes(app, options.subkeys);
-  registerQueryRoutes(app, options.subkeys);
+  registerQueryRoutes(app, options.subkeys, options.adminToken);
 
   return app;
 }

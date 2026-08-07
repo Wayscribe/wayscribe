@@ -10,7 +10,7 @@ const env = loadServerEnv(process.env);
 
 const db = knex(createKnexConfig(env.DATABASE_URL));
 const subkeys = deriveSubkeys(env.ENCRYPTION_KEY);
-const app = buildApp({ db, subkeys, logLevel: env.LOG_LEVEL });
+const app = buildApp({ db, subkeys, adminToken: env.ADMIN_TOKEN, logLevel: env.LOG_LEVEL });
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");

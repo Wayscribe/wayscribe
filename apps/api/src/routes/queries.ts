@@ -1,39 +1,51 @@
 import {
   InvalidCursorError,
-  findApiKeyByPrefix,
   findEventDetail,
   findJourneyDetail,
   listJourneyEvents,
-  searchJourneys,
-  type ApiKeyContext
+  searchJourneys
 } from "@flight-recorder/database";
 import { searchToken, type Subkeys } from "@flight-recorder/payload-security";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { resolveApiKey } from "../auth.js";
+import {
+  principalEnvironmentId,
+  principalProjectId,
+  resolvePrincipal,
+  type Principal
+} from "../principal.js";
 import { presentAliases, presentEntityId } from "./present.js";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
 
-export function registerQueryRoutes(app: FastifyInstance, subkeys: Subkeys): void {
+export function registerQueryRoutes(
+  app: FastifyInstance,
+  subkeys: Subkeys,
+  adminToken: string
+): void {
   /** Returns undefined and sends the error response when authentication fails. */
   async function authenticate(
     request: FastifyRequest,
     reply: FastifyReply
-  ): Promise<ApiKeyContext | undefined> {
-    const auth = await resolveApiKey(request.headers.authorization, subkeys.apiKey, (prefix) =>
-      findApiKeyByPrefix(app.db, prefix)
-    );
+  ): Promise<Principal | undefined> {
+    const auth = await resolvePrincipal({
+      db: app.db,
+      apiKeyPepper: subkeys.apiKey,
+      adminToken,
+      authorizationHeader: request.headers.authorization,
+      requestedProjectId:
+        (request.headers["x-flight-project-id"] as string | undefined) ?? undefined
+    });
     if (!auth.ok) {
       await reply.code(auth.status).send(errorBody(auth.code, auth.message, request.id));
       return undefined;
     }
-    return auth.context;
+    return auth.principal;
   }
 
   app.get("/v1/search", async (request, reply) => {
-    const context = await authenticate(request, reply);
-    if (context === undefined) return reply;
+    const principal = await authenticate(request, reply);
+    if (principal === undefined) return reply;
 
     const query = (request.query as { q?: string }).q?.trim();
     if (query === undefined || query === "") {
@@ -43,7 +55,10 @@ export function registerQueryRoutes(app: FastifyInstance, subkeys: Subkeys): voi
     try {
       const page = await searchJourneys(
         app.db,
-        { projectId: context.projectId, environmentId: context.environmentId },
+        {
+          projectId: principalProjectId(principal),
+          environmentId: principalEnvironmentId(principal)
+        },
         query,
         searchToken(subkeys.searchToken, query),
         parseLimit(request.query),
@@ -72,11 +87,11 @@ export function registerQueryRoutes(app: FastifyInstance, subkeys: Subkeys): voi
   });
 
   app.get("/v1/journeys/:journeyId", async (request, reply) => {
-    const context = await authenticate(request, reply);
-    if (context === undefined) return reply;
+    const principal = await authenticate(request, reply);
+    if (principal === undefined) return reply;
 
     const { journeyId } = request.params as { journeyId: string };
-    const detail = await findJourneyDetail(app.db, context.projectId, journeyId);
+    const detail = await findJourneyDetail(app.db, principalProjectId(principal), journeyId);
     // 404 rather than 403: confirming existence to an unauthorized caller is
     // itself a disclosure.
     if (detail === undefined) {
@@ -102,11 +117,11 @@ export function registerQueryRoutes(app: FastifyInstance, subkeys: Subkeys): voi
   });
 
   app.get("/v1/journeys/:journeyId/events", async (request, reply) => {
-    const context = await authenticate(request, reply);
-    if (context === undefined) return reply;
+    const principal = await authenticate(request, reply);
+    if (principal === undefined) return reply;
 
     const { journeyId } = request.params as { journeyId: string };
-    const journey = await findJourneyDetail(app.db, context.projectId, journeyId);
+    const journey = await findJourneyDetail(app.db, principalProjectId(principal), journeyId);
     if (journey === undefined) {
       return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
     }
@@ -114,7 +129,7 @@ export function registerQueryRoutes(app: FastifyInstance, subkeys: Subkeys): voi
     try {
       const page = await listJourneyEvents(
         app.db,
-        context.projectId,
+        principalProjectId(principal),
         journeyId,
         parseLimit(request.query),
         (request.query as { cursor?: string }).cursor
@@ -135,11 +150,11 @@ export function registerQueryRoutes(app: FastifyInstance, subkeys: Subkeys): voi
   });
 
   app.get("/v1/events/:eventId", async (request, reply) => {
-    const context = await authenticate(request, reply);
-    if (context === undefined) return reply;
+    const principal = await authenticate(request, reply);
+    if (principal === undefined) return reply;
 
     const { eventId } = request.params as { eventId: string };
-    const detail = await findEventDetail(app.db, context.projectId, eventId);
+    const detail = await findEventDetail(app.db, principalProjectId(principal), eventId);
     if (detail === undefined) {
       return reply.code(404).send(errorBody("not_found", "Event not found.", request.id));
     }
