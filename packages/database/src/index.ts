@@ -14,6 +14,14 @@ export {
 } from "./repositories/journeys.js";
 export { maskDisplayValue } from "./mask.js";
 export { listProjects, type ProjectSummary } from "./repositories/projects.js";
+export {
+  KeyAdminError,
+  issueKey,
+  listKeys,
+  revokeKey,
+  type IssuedKey,
+  type KeyListing
+} from "./repositories/key-admin.js";
 export { seedDemo, type DemoSeedResult } from "./seed-demo.js";
 export {
   InvalidCursorError,

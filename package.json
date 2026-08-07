@@ -21,7 +21,10 @@
     "db:seed-demo": "pnpm --filter @flight-recorder/database seed-demo",
     "test:e2e": "playwright test",
     "test:demo": "vitest run --config vitest.demo.config.ts",
-    "demo:trigger": "node scripts/demo-trigger.mjs"
+    "demo:trigger": "node scripts/demo-trigger.mjs",
+    "key:create": "pnpm --filter @flight-recorder/database \"key:create\" --",
+    "key:revoke": "pnpm --filter @flight-recorder/database \"key:revoke\" --",
+    "key:list": "pnpm --filter @flight-recorder/database \"key:list\" --"
   },
   "packageManager": "pnpm@11.20.0+sha512.9a6f330a95b66446ea088faf1521405a8a01f07fde7124cc9958dfed52d4bb436737e65b08f85f37b46fcba375092558ac51262b816844b22f63406ed166bfee",
   "devDependencies": {
