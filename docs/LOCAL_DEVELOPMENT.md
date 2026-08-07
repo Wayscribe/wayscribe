@@ -2,20 +2,17 @@
 
 ## 1. Prerequisites
 
-The default local setup is intentionally lightweight and requires no hosted account or paid service.
-
-Planned local prerequisites:
+The setup is intentionally lightweight and requires no hosted account or paid service.
 
 - Git
 - Docker with Docker Compose
-- Node.js active LTS
-- pnpm
+- Node.js 24 (see `.nvmrc`)
+- pnpm 11, via corepack
 
-Pin exact Node.js and pnpm versions in the repository before implementation begins.
+## 2. Setup
 
-## 2. Intended setup
-
-The released quick start should provide one primary Compose command that starts the required platform services. Repository contributors may still run applications directly for hot reload.
+One Compose command starts the platform services. Contributors may still run
+applications directly for hot reload.
 
 ```bash
 git clone https://gitlab.com/jojithedev/flight-recorder.git
@@ -144,40 +141,72 @@ Naming the variables in your own application is a convention this repository
 suggests, not one the SDK enforces — a library that reads `process.env` behind
 your back is a library that behaves differently in tests.
 
-## 6. Planned commands
+## 6. Commands
 
-```text
-pnpm dev
-pnpm build
-pnpm lint
-pnpm format
-pnpm typecheck
-pnpm test
-pnpm test:integration
-pnpm test:e2e
-pnpm test:demo
-pnpm db:migrate
-pnpm db:rollback
-pnpm db:seed
-pnpm demo:trigger
+| Command | |
+|---|---|
+| `pnpm build` | compile every package |
+| `pnpm lint` · `pnpm format` · `pnpm typecheck` | the three verify gates |
+| `pnpm test` | unit; starts nothing, needs nothing running |
+| `pnpm test:integration` | real PostgreSQL via Testcontainers; needs Docker |
+| `pnpm test:e2e` | Playwright browser suite; needs the API and web running |
+| `pnpm test:demo` | the product acceptance test; needs the demo stack up |
+| `pnpm db:migrate` · `pnpm db:rollback` · `pnpm db:seed` | schema and local seed |
+| `pnpm key:create <project> <environment> [name]` | issue an API key |
+| `pnpm key:revoke <prefix>` | revoke one; `key:list` shows prefixes |
+| `pnpm key:list [project]` | scope, name, and last use |
+| `pnpm demo:trigger` | fire the reference journey |
+
+## 7. Projects, environments, and keys
+
+`pnpm db:seed` creates a `local` project with a `development` environment and
+prints one API key. **The key is shown once and cannot be recovered** — only a
+peppered HMAC of it is stored.
+
+Issue further keys with `key:create`, which creates the environment if it does
+not exist yet:
+
+```bash
+pnpm key:create local staging staging-worker
 ```
 
-## 7. Development data
+A key is scoped to one project *and one environment*. Ingestion returns 403 when
+the event's `environment` does not match the key's, so a service that writes to
+both needs two keys.
 
-Provide a deterministic local project, environment, and API key seed.
+Revocation takes the prefix rather than the key, because the full value is not
+stored and whoever is revoking it usually does not have it:
 
-The full key may be printed only in local seed output and must not be persisted in plaintext.
+```bash
+pnpm key:list
+pnpm key:revoke fr_AbCdEfGhIjK
+```
+
+### Provisioning without a source checkout
+
+The database CLI is inside the API image, so an operator running from published
+images does not need this repository:
+
+```bash
+docker run --rm --network flight-recorder_default \
+  -e DATABASE_URL=postgresql://flight:flight@postgres:5432/flight \
+  -e ENCRYPTION_KEY="$ENCRYPTION_KEY" \
+  --entrypoint node flight-recorder-api packages/database/dist/cli.js migrate
+```
 
 ## 8. Resetting local state
 
-Planned:
+`down -v` removes the volume, so this discards every recorded event.
 
 ```bash
 docker compose -f infrastructure/compose.yaml down -v
-docker compose -f infrastructure/compose.yaml up -d
+docker compose -f infrastructure/compose.yaml up -d --build
 pnpm db:migrate
 pnpm db:seed
 ```
+
+The demo profile needs none of this: `demo-bootstrap` migrates and seeds itself
+on every start.
 
 ## 9. Troubleshooting principles
 
@@ -201,9 +230,18 @@ Check:
 Check:
 
 - normalization rules
-- alias type
-- HMAC key consistency
+- HMAC key consistency — rotating `ENCRYPTION_KEY` orphans every existing token
 - project and environment scope
+
+Alias search is deliberately independent of alias *type* (ADR-028): a developer
+typing an identifier into a search box does not know which type it was stored
+under.
+
+### Every search returns nothing at all
+
+Check which project the session is reading. An admin token reads one named
+project, and with more than one project present the interface asks you to choose
+before it will search. `/projects` is that page.
 
 ### Replay cannot reach host application
 

@@ -2,212 +2,223 @@
 
 This checklist is ordered to produce a working vertical slice early.
 
+**State as of 2026-08-07.** Epics 0 through 12 are complete and merged; the boxes
+below were audited against the code rather than ticked from memory. What remains
+for V0 is Epic 13 (replay), Epic 14 (retention and operations), and Epic 15
+(release readiness), plus the handful of items left open inside earlier epics.
+
 ## Product gates applied to every epic
 
-- [ ] Preserve the free, fully useful self-hosted core.
-- [ ] Keep PostgreSQL as the only required backing service.
-- [ ] Do not add a mandatory external account, cloud service, observability platform, or AI provider.
-- [ ] Keep the default path understandable to a developer without tracing expertise.
+Standing constraints, re-checked as each epic lands, rather than work that is
+ever finished.
+
+- [x] Preserve the free, fully useful self-hosted core.
+- [x] Keep PostgreSQL as the only required backing service. ElasticMQ is demo-only
+      and lives in a separate Compose file (ADR-015).
+- [x] Do not add a mandatory external account, cloud service, observability platform, or AI provider.
+- [x] Keep the default path understandable to a developer without tracing expertise.
 - [ ] Measure impact on the approximately 15-minute time-to-first-journey target.
-- [ ] Preserve record-first navigation, aliases, transformation diffs, existing-architecture support, and journey-linked safe replay.
+      Not measurable until images are published; see Epic 15.
+- [x] Preserve record-first navigation, aliases, transformation diffs, and
+      existing-architecture support. Journey-linked safe replay is Epic 13.
 
 ## Epic 0: Repository foundation
 
-- [ ] Create repository.
-- [ ] Select and add an established open-source license.
-- [ ] Document that the self-hosted core is free to use.
-- [ ] Pin Node.js active LTS.
-- [ ] Pin pnpm version.
-- [ ] Create pnpm workspace.
-- [ ] Add root scripts.
-- [ ] Add shared TypeScript config.
-- [ ] Add lint and formatting config.
-- [ ] Create `apps/api`.
-- [ ] Create `apps/web`.
-- [ ] Create package directories.
-- [ ] Add PostgreSQL Compose service.
-- [ ] Confirm PostgreSQL is the only required backing service.
-- [ ] Add one-command local Compose startup.
-- [ ] Add API and web Compose services.
-- [ ] Add `/health`.
-- [ ] Add `/ready`.
-- [ ] Add CI for format, lint, type check, and unit tests.
+- [x] Create repository.
+- [x] Select and add an established open-source license.
+- [x] Document that the self-hosted core is free to use.
+- [x] Pin Node.js active LTS.
+- [x] Pin pnpm version.
+- [x] Create pnpm workspace.
+- [x] Add root scripts.
+- [x] Add shared TypeScript config.
+- [x] Add lint and formatting config.
+- [x] Create `apps/api`.
+- [x] Create `apps/web`.
+- [x] Create package directories.
+- [x] Add PostgreSQL Compose service.
+- [x] Confirm PostgreSQL is the only required backing service.
+- [x] Add one-command local Compose startup.
+- [x] Add API and web Compose services.
+- [x] Add `/health`.
+- [x] Add `/ready`.
+- [x] Add CI for format, lint, type check, and unit tests.
 - [ ] Run a clean-machine onboarding check.
 
 ## Epic 1: Protocol
 
-- [ ] Create `protocolVersion` constant.
-- [ ] Define operation enum.
-- [ ] Define entity schema.
-- [ ] Define alias schema.
-- [ ] Define error schema.
-- [ ] Define runtime metadata schema.
-- [ ] Define deployment metadata schema.
-- [ ] Define journey event schema.
-- [ ] Define envelope schema.
-- [ ] Add valid minimal fixture.
-- [ ] Add valid complete fixture.
-- [ ] Add invalid fixtures.
-- [ ] Add protocol tests.
-- [ ] Document compatibility rules.
+- [x] Create `protocolVersion` constant.
+- [x] Define operation enum.
+- [x] Define entity schema.
+- [x] Define alias schema.
+- [x] Define error schema.
+- [x] Define runtime metadata schema.
+- [x] Define deployment metadata schema.
+- [x] Define journey event schema.
+- [x] Define envelope schema.
+- [x] Add valid minimal fixture.
+- [x] Add valid complete fixture.
+- [x] Add invalid fixtures.
+- [x] Add protocol tests.
+- [x] Document compatibility rules.
 
 ## Epic 2: Database
 
-- [ ] Configure Knex.
-- [ ] Add projects migration.
-- [ ] Add environments migration.
-- [ ] Add API keys migration.
-- [ ] Add journeys migration.
-- [ ] Add entity aliases migration.
-- [ ] Add journey events migration.
-- [ ] Add replay destinations migration.
-- [ ] Add replay runs migration.
-- [ ] Add audit events migration.
-- [ ] Add indexes.
-- [ ] Add local project and environment seed.
-- [ ] Add migration integration tests.
-- [ ] Add reset script.
+- [x] Configure Knex.
+- [x] Add projects migration.
+- [x] Add environments migration.
+- [x] Add API keys migration.
+- [x] Add journeys migration.
+- [x] Add entity aliases migration.
+- [x] Add journey events migration.
+- [x] Add replay destinations migration.
+- [x] Add replay runs migration.
+- [x] Add audit events migration.
+- [x] Add indexes.
+- [x] Add local project and environment seed.
+- [x] Add migration integration tests.
+- [x] Add reset script.
 
 ## Epic 3: Security primitives
 
-- [ ] Define capture modes.
-- [ ] Implement payload size calculator.
-- [ ] Implement JSON depth and key limits.
-- [ ] Implement path-based redaction.
-- [ ] Add default secret paths.
-- [ ] Implement alias normalization.
-- [ ] Implement HMAC search token.
-- [ ] Implement API-key generation.
-- [ ] Implement API-key verification.
-- [ ] Add security tests.
+- [x] Define capture modes.
+- [x] Implement payload size calculator.
+- [x] Implement JSON depth and key limits.
+- [x] Implement path-based redaction.
+- [x] Add default secret paths.
+- [x] Implement alias normalization.
+- [x] Implement HMAC search token.
+- [x] Implement API-key generation.
+- [x] Implement API-key verification.
+- [x] Add security tests.
 - [ ] Ensure logs omit secrets.
 
 ## Epic 4: Event ingestion
 
-- [ ] Add API-key authentication hook.
-- [ ] Implement `POST /v1/events`.
-- [ ] Validate protocol version.
-- [ ] Enforce project and environment.
-- [ ] Enforce request limits.
-- [ ] Apply server redaction.
-- [ ] Insert event transactionally.
-- [ ] Create journey if missing.
-- [ ] Update journey summary.
-- [ ] Upsert aliases.
-- [ ] Return idempotent duplicate result.
-- [ ] Implement conflicting duplicate policy.
-- [ ] Implement `POST /v1/events/batch`.
-- [ ] Return per-event batch results.
-- [ ] Add ingestion tests.
+- [x] Add API-key authentication hook.
+- [x] Implement `POST /v1/events`.
+- [x] Validate protocol version.
+- [x] Enforce project and environment.
+- [x] Enforce request limits.
+- [x] Apply server redaction.
+- [x] Insert event transactionally.
+- [x] Create journey if missing.
+- [x] Update journey summary.
+- [x] Upsert aliases.
+- [x] Return idempotent duplicate result.
+- [x] Implement conflicting duplicate policy.
+- [x] Implement `POST /v1/events/batch`.
+- [x] Return per-event batch results.
+- [x] Add ingestion tests.
 
 ## Epic 5: Query API
 
-- [ ] Implement journey repository.
-- [ ] Implement event repository.
-- [ ] Implement alias search.
-- [ ] Implement technical ID search.
-- [ ] Add `GET /v1/search`.
-- [ ] Add `GET /v1/journeys/:id`.
-- [ ] Add `GET /v1/journeys/:id/events`.
-- [ ] Add `GET /v1/events/:id`.
-- [ ] Add cursor pagination.
-- [ ] Add project-isolation tests.
-- [ ] Add deterministic ordering tests.
+- [x] Implement journey repository.
+- [x] Implement event repository.
+- [x] Implement alias search.
+- [x] Implement technical ID search.
+- [x] Add `GET /v1/search`.
+- [x] Add `GET /v1/journeys/:id`.
+- [x] Add `GET /v1/journeys/:id/events`.
+- [x] Add `GET /v1/events/:id`.
+- [x] Add cursor pagination.
+- [x] Add project-isolation tests.
+- [x] Add deterministic ordering tests.
 
 ## Epic 6: Payload diff
 
-- [ ] Define diff output schema.
-- [ ] Compare primitive values.
-- [ ] Compare objects.
-- [ ] Compare arrays with documented policy.
-- [ ] Mark added fields.
-- [ ] Mark removed fields.
-- [ ] Mark changed fields.
-- [ ] Support ignored paths.
-- [ ] Handle redacted values.
-- [ ] Enforce complexity limits.
-- [ ] Add comprehensive tests.
-- [ ] Store or derive diff according to performance decision.
+- [x] Define diff output schema.
+- [x] Compare primitive values.
+- [x] Compare objects.
+- [x] Compare arrays with documented policy.
+- [x] Mark added fields.
+- [x] Mark removed fields.
+- [x] Mark changed fields.
+- [x] Support ignored paths.
+- [x] Handle redacted values.
+- [x] Enforce complexity limits.
+- [x] Add comprehensive tests.
+- [x] Store or derive diff according to performance decision.
 
 ## Epic 7: Web UI
 
-- [ ] Add application shell.
-- [ ] Add entity-first search page.
-- [ ] Ensure primary search does not require trace terminology.
-- [ ] Add search results.
-- [ ] Add journey header.
-- [ ] Add chronological timeline.
-- [ ] Add operation and status display.
-- [ ] Add event detail panel or page.
-- [ ] Add payload JSON viewer.
-- [ ] Add transformation-focused diff viewer.
-- [ ] Add error display.
-- [ ] Add alias display and identity-map summary.
+- [x] Add application shell.
+- [x] Add entity-first search page.
+- [x] Ensure primary search does not require trace terminology.
+- [x] Add search results.
+- [x] Add journey header.
+- [x] Add chronological timeline.
+- [x] Add operation and status display.
+- [x] Add event detail panel or page.
+- [x] Add payload JSON viewer.
+- [x] Add transformation-focused diff viewer.
+- [x] Add error display.
+- [x] Add alias display and identity-map summary.
 - [ ] Add loading and empty states.
 - [ ] Add plain-language explanations for journey, alias, transformation, and replay.
-- [ ] Add browser tests.
+- [x] Add browser tests.
 
 ## Epic 8: Node SDK foundation
 
-- [ ] Create public package exports.
-- [ ] Define recorder config.
-- [ ] Define journey context.
-- [ ] Implement event ID generation.
-- [ ] Implement journey ID generation.
-- [ ] Implement `createRecorder`.
-- [ ] Implement `startJourney`.
-- [ ] Implement `continueJourney`.
-- [ ] Implement `record`.
-- [ ] Implement `identify`.
-- [ ] Implement client redaction.
-- [ ] Implement safe serialization.
-- [ ] Add SDK unit tests.
-- [ ] Create a minimal quick-start example requiring only initialization and one recorded operation.
-- [ ] Verify useful partial instrumentation before every service is instrumented.
+- [x] Create public package exports.
+- [x] Define recorder config.
+- [x] Define journey context.
+- [x] Implement event ID generation.
+- [x] Implement journey ID generation.
+- [x] Implement `createRecorder`.
+- [x] Implement `startJourney`.
+- [x] Implement `continueJourney`.
+- [x] Implement `record`.
+- [x] Implement `identify`.
+- [x] Implement client redaction.
+- [x] Implement safe serialization.
+- [x] Add SDK unit tests.
+- [x] Create a minimal quick-start example requiring only initialization and one recorded operation.
+- [x] Verify useful partial instrumentation before every service is instrumented.
 
 ## Epic 9: Node SDK wrappers
 
-- [ ] Implement `transform`.
-- [ ] Implement `persist`.
-- [ ] Implement `publish`.
-- [ ] Implement `consume`.
-- [ ] Implement `deliver`.
-- [ ] Implement `fail`.
-- [ ] Implement `finish`.
-- [ ] Preserve callback return values.
-- [ ] Preserve callback errors.
-- [ ] Capture duration.
-- [ ] Capture optional active trace context.
-- [ ] Add wrapper tests.
+- [x] Implement `transform`.
+- [x] Implement `persist`.
+- [x] Implement `publish`.
+- [x] Implement `consume`.
+- [x] Implement `deliver`.
+- [x] Implement `fail`.
+- [x] Implement `finish`.
+- [x] Preserve callback return values.
+- [x] Preserve callback errors.
+- [x] Capture duration.
+- [x] Capture optional active trace context.
+- [x] Add wrapper tests.
 
 ## Epic 10: SDK transport reliability
 
-- [ ] Implement bounded queue.
-- [ ] Implement batch flush.
-- [ ] Implement interval flush.
-- [ ] Implement explicit flush.
-- [ ] Implement transport timeout.
-- [ ] Implement capped retry.
-- [ ] Add jitter.
-- [ ] Implement circuit breaker.
-- [ ] Add dropped-event diagnostics.
-- [ ] Implement graceful shutdown.
-- [ ] Test recorder outage.
-- [ ] Test full buffer.
-- [ ] Test shutdown timeout.
+- [x] Implement bounded queue.
+- [x] Implement batch flush.
+- [x] Implement interval flush.
+- [x] Implement explicit flush.
+- [x] Implement transport timeout.
+- [x] Implement capped retry.
+- [x] Add jitter.
+- [x] Implement circuit breaker.
+- [x] Add dropped-event diagnostics.
+- [x] Implement graceful shutdown.
+- [x] Test recorder outage.
+- [x] Test full buffer.
+- [x] Test shutdown timeout.
 
 ## Epic 11: Propagation
 
-- [ ] Define HTTP header names.
-- [ ] Implement HTTP injection.
-- [ ] Implement HTTP extraction.
-- [ ] Define SQS attribute names.
-- [ ] Implement SQS injection.
-- [ ] Implement SQS extraction.
-- [ ] Add optional payload envelope.
-- [ ] Ensure aliases are not propagated.
-- [ ] Add round-trip tests.
-- [ ] Add tampered-context tests.
+- [x] Define HTTP header names.
+- [x] Implement HTTP injection.
+- [x] Implement HTTP extraction.
+- [x] Define SQS attribute names.
+- [x] Implement SQS injection.
+- [x] Implement SQS extraction.
+- [x] Add optional payload envelope.
+- [x] Ensure aliases are not propagated.
+- [x] Add round-trip tests.
+- [x] Add tampered-context tests.
 
 ## Epic 12: Demo workflow
 
@@ -257,18 +268,18 @@ the honest picture.
 - [ ] Add cleanup metrics.
 - [ ] Add backup documentation.
 - [ ] Add restore documentation.
-- [ ] Add structured logs.
+- [x] Add structured logs.
 - [ ] Add basic internal metrics endpoint or diagnostics.
-- [ ] Add readiness dependency checks.
+- [x] Add readiness dependency checks.
 
 ## Epic 15: Release readiness
 
 - [ ] Complete quick start.
-- [ ] Complete SDK docs.
-- [ ] Complete API docs.
+- [x] Complete SDK docs.
+- [x] Complete API docs.
 - [ ] Complete security docs.
-- [ ] Add contribution guide.
-- [ ] Add issue templates.
+- [x] Add contribution guide.
+- [x] Add issue templates.
 - [ ] Add release workflow.
 - [ ] Publish `api` and `web` images to a container registry.
 - [ ] Publish `@flight-recorder/node` to npm.
