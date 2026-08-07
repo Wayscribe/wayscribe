@@ -22,7 +22,7 @@ describe("migrations", () => {
     // Exact, not greater-than: a loose assertion here hid a defect where
     // declaration files were counted as migrations, because `.d.ts` ends in
     // `.ts`. Update this number when a migration is added.
-    expect(await pendingMigrationCount(db)).toBe(1);
+    expect(await pendingMigrationCount(db)).toBe(9);
   });
 
   it("applies migrations and creates the projects table", async () => {

@@ -32,8 +32,20 @@ try {
       break;
     }
     case "seed": {
-      await db.seed.run();
-      console.log("Seeds applied.");
+      const masterKey = process.env["ENCRYPTION_KEY"];
+      if (masterKey === undefined || masterKey === "") {
+        console.error("ENCRYPTION_KEY is not set.");
+        process.exitCode = 1;
+        break;
+      }
+      const { seedLocal } = await import("./seed-local.js");
+      const result = await seedLocal(db, masterKey);
+      console.log("Local seed applied.");
+      console.log(`  project:     ${result.projectId}`);
+      console.log(`  environment: ${result.environmentId}`);
+      console.log("");
+      console.log("  API key (shown once, not recoverable):");
+      console.log(`    ${result.apiKey}`);
       break;
     }
     default: {

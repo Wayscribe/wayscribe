@@ -20,6 +20,7 @@
     "seed": "tsx src/cli.ts seed"
   },
   "dependencies": {
+    "@flight-recorder/payload-security": "workspace:*",
     "knex": "^3",
     "pg": "^8"
   },

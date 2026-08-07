@@ -82,6 +82,9 @@ importers:
 
   packages/database:
     dependencies:
+      '@flight-recorder/payload-security':
+        specifier: workspace:*
+        version: link:../payload-security
       knex:
         specifier: ^3
         version: 3.3.0(pg@8.22.0)(supports-color@7.2.0)
