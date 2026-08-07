@@ -13,7 +13,8 @@ export default defineConfig({
         new URL("./packages/payload-security/src/redaction.ts", import.meta.url)
       ),
       "@flight-recorder/config": packageSource("config"),
-      "@flight-recorder/database": packageSource("database")
+      "@flight-recorder/database": packageSource("database"),
+      "@flight-recorder/sdk-node": packageSource("sdk-node")
     }
   },
   test: {

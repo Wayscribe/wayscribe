@@ -16,7 +16,8 @@ export default defineConfig({
       "@flight-recorder/database": packageSource("database"),
       "@flight-recorder/protocol": packageSource("protocol"),
       "@flight-recorder/payload-security": packageSource("payload-security"),
-      "@flight-recorder/payload-diff": packageSource("payload-diff")
+      "@flight-recorder/payload-diff": packageSource("payload-diff"),
+      "@flight-recorder/sdk-node": packageSource("sdk-node")
     }
   },
   test: {
