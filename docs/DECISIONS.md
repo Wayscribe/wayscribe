@@ -624,3 +624,38 @@ in a container — both exactly one level below the package root.
 - Migrations need no build step, so `pnpm db:migrate` works on a fresh clone.
 - Schema changes carrying non-trivial logic must be written in JavaScript, which
   is an accepted trade for deterministic migration identity.
+
+---
+
+## ADR-028: Search tokens are type-independent
+
+**Status:** Accepted
+
+### Context
+
+Phase 1a computed search tokens as `HMAC(key, aliasType + ":" + value)`. That makes
+value-only lookup impossible: computing the hash requires already knowing the alias
+type. The `(project_id, alias_value_hash)` index exists specifically for value-only
+lookup and was therefore unusable, and the product's central promise — type an
+identifier into a search box and find the record — could not work, because a developer
+holding an ID from a log line does not know which alias type it was stored under.
+
+`DATABASE_SCHEMA.md` section 4 says to include the alias type "when appropriate".
+Reading that as "always" broke the primary use case.
+
+### Decision
+
+`searchToken(key, value)` hashes the normalized value alone. `alias_type` remains a
+plaintext column for display and type-qualified filtering. Migration 011 adds
+`(project_id, primary_entity_id_hash)` to `journeys`, which had the same
+type-dependency problem for entity search.
+
+### Consequences
+
+- Value-only search works, and both alias indexes become useful.
+- Two alias types sharing a value hash identically. That is correct for "find anything
+  matching this value"; `alias_type` disambiguates at read time.
+- Existing tokens are invalidated. No production data exists, so no backfill is needed;
+  the seed and tests regenerate.
+- An attacker with the search key can still only confirm guessed values, not enumerate
+  them, so the security property HMAC provides is unchanged.
