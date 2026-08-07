@@ -25,6 +25,7 @@ stages:
   - integration
   - build
   - browser
+  - demo
 
 format:
   stage: verify
@@ -96,3 +97,40 @@ e2e:
     - npx wait-on http://localhost:8080/health http://localhost:3000/login
     - export FLIGHT_API_KEY=$(pnpm db:seed | grep -oE 'fr_[A-Za-z0-9_-]+' | tail -1)
     - pnpm test:e2e
+
+# The demo is the product acceptance test (DEMO_SCENARIO.md section 1). It needs
+# Docker Compose rather than a process, and it builds and boots eight containers,
+# so it runs manually for the same reason the browser job does: a red pipeline on
+# every push for a suite needing the whole stack trains people to ignore it.
+demo:
+  stage: demo
+  image: docker:27-cli
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    # Ports are published by containers under the dind daemon, so they are
+    # reachable at the `docker` host rather than at localhost. See
+    # infrastructure/compose.ci.yaml.
+    FLIGHT_API_URL: http://docker:8080
+    DEMO_SOURCE_URL: http://docker:3100
+  before_script:
+    - apk add --no-cache nodejs npm
+    - corepack enable
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
+    - pnpm install --frozen-lockfile
+  when: manual
+  allow_failure: true
+  script:
+    - >-
+      docker compose -f infrastructure/compose.yaml
+      -f infrastructure/compose.demo.yaml
+      -f infrastructure/compose.ci.yaml up --build -d
+    - npx wait-on "$FLIGHT_API_URL/health" "$DEMO_SOURCE_URL/health"
+    - pnpm test:demo
+  after_script:
+    - >-
+      docker compose -f infrastructure/compose.yaml
+      -f infrastructure/compose.demo.yaml
+      -f infrastructure/compose.ci.yaml down -v

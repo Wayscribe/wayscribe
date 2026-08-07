@@ -1,0 +1,21 @@
+# CI overlay for the demo acceptance test. Not for developer use.
+#
+# The other Compose files bind every published port to 127.0.0.1, which is the
+# Compose half of ADR-016: a default `up` on a cloud host must not expose the
+# stack to the internet.
+#
+# Under GitLab's docker-in-docker service, that loopback is the *dind
+# container's* loopback, and the job running the test lives in a different
+# container. The two ports the test needs are republished on all interfaces so
+# it can reach them at the `docker` host, and nothing else is.
+
+name: flight-recorder
+
+services:
+  api:
+    ports:
+      - "8080:8080"
+
+  demo-source:
+    ports:
+      - "3100:3100"
