@@ -18,6 +18,7 @@
     "db:migrate": "pnpm --filter @flight-recorder/database migrate",
     "db:rollback": "pnpm --filter @flight-recorder/database rollback",
     "db:seed": "pnpm --filter @flight-recorder/database seed",
+    "db:seed-demo": "pnpm --filter @flight-recorder/database seed-demo",
     "test:e2e": "playwright test",
     "test:demo": "vitest run --config vitest.demo.config.ts",
     "demo:trigger": "node scripts/demo-trigger.mjs"

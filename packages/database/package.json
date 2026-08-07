@@ -15,9 +15,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "migrate": "tsx src/cli.ts migrate",
-    "rollback": "tsx src/cli.ts rollback",
-    "seed": "tsx src/cli.ts seed"
+    "migrate": "tsx --env-file-if-exists=../../.env src/cli.ts migrate",
+    "rollback": "tsx --env-file-if-exists=../../.env src/cli.ts rollback",
+    "seed": "tsx --env-file-if-exists=../../.env src/cli.ts seed",
+    "seed-demo": "tsx --env-file-if-exists=../../.env src/cli.ts seed-demo"
   },
   "dependencies": {
     "@flight-recorder/payload-security": "workspace:*",

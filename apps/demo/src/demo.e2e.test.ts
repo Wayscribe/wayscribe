@@ -40,15 +40,37 @@ interface DiffChange {
   after?: unknown;
 }
 
+/**
+ * Set once the demo project is resolved.
+ *
+ * The admin token reads one named project. Relying on the "only project"
+ * fallback would make this suite pass or fail depending on whether anything
+ * else had ever been seeded into the same stack.
+ */
+let projectId = "";
+
 async function get(path: string): Promise<Record<string, unknown>> {
   const response = await fetch(`${API}${path}`, {
-    headers: { authorization: `Bearer ${ADMIN}` }
+    headers: {
+      authorization: `Bearer ${ADMIN}`,
+      ...(projectId === "" ? {} : { "x-flight-project-id": projectId })
+    }
   });
   if (!response.ok) {
     throw new Error(`GET ${path} responded ${String(response.status)}.`);
   }
   const body = (await response.json()) as { data?: Record<string, unknown> };
   return body.data ?? {};
+}
+
+async function resolveDemoProject(): Promise<string> {
+  const page = await get("/v1/projects");
+  const items = (page["items"] ?? []) as { id: string; slug: string }[];
+  const demo = items.find((project) => project.slug === "demo");
+  if (demo === undefined) {
+    throw new Error(`No project with slug "demo". Found: ${items.map((p) => p.slug).join(", ")}`);
+  }
+  return demo.id;
 }
 
 function journeyIdsIn(page: Record<string, unknown>): string[] {
@@ -60,6 +82,8 @@ let events: EventItem[] = [];
 
 describe("the reference journey", () => {
   beforeAll(async () => {
+    projectId = await resolveDemoProject();
+
     const triggered = await fetch(`${SOURCE}/trigger`, { method: "POST" });
     expect(triggered.status).toBe(202);
     journeyId = ((await triggered.json()) as { journeyId: string }).journeyId;

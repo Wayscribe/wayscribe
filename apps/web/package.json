@@ -5,7 +5,8 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev --port 3000",
-    "start": "next start --port 3000"
+    "start": "next start --port 3000",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "next": "^15",

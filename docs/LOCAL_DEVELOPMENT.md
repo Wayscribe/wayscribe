@@ -100,32 +100,49 @@ compose up` on a cloud host does not expose the stack to the internet.
 
 ## 5. Environment variables
 
-Initial server variables:
+Copy the template and generate your own secrets:
 
-```env
-DATABASE_URL=postgresql://flight:flight@localhost:5432/flight
-APP_URL=http://localhost:3000
-API_URL=http://localhost:8080
-ENCRYPTION_KEY=replace-for-local-development
-ADMIN_TOKEN=generated-local-admin-token
-DEFAULT_RETENTION_DAYS=7
-MAX_EVENT_PAYLOAD_BYTES=262144
-ALLOW_FULL_PAYLOAD_CAPTURE=false
-REPLAY_ALLOWED_HOSTS=localhost,host.docker.internal,demo-integration
+```bash
+cp .env.example .env
 ```
 
-Initial SDK variables:
-
-```env
-FLIGHT_RECORDER_URL=http://localhost:8080
-FLIGHT_RECORDER_API_KEY=generated-local-key
-FLIGHT_RECORDER_CAPTURE_MODE=redacted-payload
-FLIGHT_RECORDER_BATCH_SIZE=20
-FLIGHT_RECORDER_FLUSH_INTERVAL_MS=1000
-FLIGHT_RECORDER_REQUEST_TIMEOUT_MS=1500
+```bash
+printf 'ENCRYPTION_KEY=%s\nADMIN_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
 ```
 
-Never commit real secrets.
+`.env.example` is the authoritative list; it is not reproduced here, because two
+copies of the same list drift and the copy in the documentation is the one that
+goes stale.
+
+**`ENCRYPTION_KEY` and `ADMIN_TOKEN` must each be at least 32 characters.** The
+API validates them before it does anything else, so a short value fails at boot
+with a message naming the variable.
+
+The repository ships development defaults so `docker compose up` works with
+nothing configured. They are published values, and the API logs a warning at
+every boot while they are in use.
+
+**Rotating `ENCRYPTION_KEY` is not a routine operation.** Search tokens and API
+key verifiers are both derived from it, so rotating it orphans every existing
+alias index and invalidates every issued key.
+
+### SDK configuration is explicit, not environmental
+
+The SDK reads no environment variables. `createRecorder` takes its endpoint and
+key as arguments:
+
+```typescript
+const recorder = createRecorder({
+  endpoint: process.env.FLIGHT_RECORDER_URL ?? "http://localhost:8080",
+  apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? "",
+  serviceName: "checkout-api",
+  environment: "development"
+});
+```
+
+Naming the variables in your own application is a convention this repository
+suggests, not one the SDK enforces — a library that reads `process.env` behind
+your back is a library that behaves differently in tests.
 
 ## 6. Planned commands
 

@@ -24,6 +24,13 @@ services:
     build:
       context: ..
       dockerfile: apps/api/Dockerfile
+    # Compose's project directory is `infrastructure/`, so the repository-root
+    # .env is not picked up automatically. Without this, `cp .env.example .env`
+    # appears to configure the stack and in fact does nothing, leaving it on the
+    # committed development defaults below.
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
       APP_URL: http://localhost:3000
@@ -51,6 +58,9 @@ services:
     build:
       context: ..
       dockerfile: apps/web/Dockerfile
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       # Server-side only. The browser never contacts the API (ADR-029), so this
       # is the internal service name, not a host-reachable address.

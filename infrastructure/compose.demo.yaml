@@ -45,6 +45,9 @@ services:
   # registered API key, and a customer table.
   demo-bootstrap:
     <<: *demo
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       <<: *demo-env
       DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
