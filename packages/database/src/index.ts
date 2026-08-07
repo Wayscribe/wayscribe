@@ -27,3 +27,15 @@ export {
   type SearchPage,
   type SearchScope
 } from "./repositories/search.js";
+export {
+  findEventDetail,
+  listJourneyEvents,
+  type EventDetail,
+  type EventListItem,
+  type EventPage
+} from "./repositories/event-reads.js";
+export {
+  findJourneyDetail,
+  type JourneyAlias,
+  type JourneyDetail
+} from "./repositories/journey-reads.js";
