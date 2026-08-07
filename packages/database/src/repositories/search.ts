@@ -1,0 +1,120 @@
+import type { Knex } from "knex";
+import { decodeSearchCursor, encodeCursor, type SearchCursor } from "./cursors.js";
+
+export interface SearchScope {
+  projectId: string;
+  environmentId: string;
+}
+
+export interface SearchHit {
+  journeyId: string;
+  entityType: string;
+  encryptedPrimaryEntityId: string | null;
+  status: string;
+  eventCount: number;
+  startedAt: Date;
+  lastEventAt: Date;
+}
+
+export interface SearchPage {
+  items: SearchHit[];
+  nextCursor: string | null;
+}
+
+/**
+ * Resolve one query string against every identifier a developer might paste.
+ *
+ * A single UNION rather than seven sequential probes: each branch uses its own
+ * index, and one round trip keeps the p95 target reachable. Technical
+ * identifiers compare as plaintext; entity and alias compare as search tokens,
+ * which the caller has already computed (ADR-028 makes that token
+ * type-independent, so a bare value is enough).
+ *
+ * Scoping is inside the query, not applied to the results. A post-filter still
+ * fetches the rows, and a later refactor that drops it leaks silently instead of
+ * failing.
+ */
+export async function searchJourneys(
+  db: Knex,
+  scope: SearchScope,
+  query: string,
+  token: string,
+  limit: number,
+  cursor?: string
+): Promise<SearchPage> {
+  const after: SearchCursor | undefined =
+    cursor === undefined ? undefined : decodeSearchCursor(cursor);
+
+  const rows: unknown = await db
+    .with("matches", (builder) => {
+      void builder
+        .select("j.id")
+        .from({ j: "journeys" })
+        .where("j.project_id", scope.projectId)
+        .andWhere("j.environment_id", scope.environmentId)
+        .andWhere((where) => {
+          void where
+            .where("j.id", query)
+            .orWhere("j.primary_entity_id_hash", token)
+            .orWhereExists((exists) => {
+              void exists
+                .select(db.raw("1"))
+                .from({ a: "entity_aliases" })
+                .whereRaw("a.project_id = j.project_id and a.journey_id = j.id")
+                .andWhere("a.alias_value_hash", token);
+            })
+            .orWhereExists((exists) => {
+              void exists
+                .select(db.raw("1"))
+                .from({ e: "journey_events" })
+                .whereRaw("e.project_id = j.project_id and e.journey_id = j.id")
+                .andWhere((technical) => {
+                  void technical
+                    .where("e.trace_id", query)
+                    .orWhere("e.span_id", query)
+                    .orWhere("e.message_id", query)
+                    .orWhere("e.correlation_id", query);
+                });
+            });
+        });
+    })
+    .select(
+      "j.id as journeyId",
+      "j.entity_type as entityType",
+      "j.encrypted_primary_entity_id as encryptedPrimaryEntityId",
+      "j.status as status",
+      "j.event_count as eventCount",
+      "j.started_at as startedAt",
+      "j.last_event_at as lastEventAt"
+    )
+    .from({ j: "journeys" })
+    .join("matches", "matches.id", "j.id")
+    .where("j.project_id", scope.projectId)
+    .modify((builder) => {
+      if (after !== undefined) {
+        // Keyset: strictly after the cursor in (last_event_at desc, id desc).
+        void builder.whereRaw("(j.last_event_at, j.id) < (?::timestamptz, ?)", [
+          after.lastEventAt,
+          after.id
+        ]);
+      }
+    })
+    .orderBy([
+      { column: "j.last_event_at", order: "desc" },
+      { column: "j.id", order: "desc" }
+    ])
+    .limit(limit + 1);
+
+  const items = rows as SearchHit[];
+  const hasMore = items.length > limit;
+  const page = hasMore ? items.slice(0, limit) : items;
+  const last = page.at(-1);
+
+  return {
+    items: page,
+    nextCursor:
+      hasMore && last !== undefined
+        ? encodeCursor({ lastEventAt: last.lastEventAt.toISOString(), id: last.journeyId })
+        : null
+  };
+}

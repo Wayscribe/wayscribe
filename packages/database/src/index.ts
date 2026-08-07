@@ -12,3 +12,18 @@ export {
   type JourneyEventFacts,
   type JourneySummary
 } from "./repositories/journeys.js";
+export { maskDisplayValue } from "./mask.js";
+export {
+  InvalidCursorError,
+  decodeEventCursor,
+  decodeSearchCursor,
+  encodeCursor,
+  type EventCursor,
+  type SearchCursor
+} from "./repositories/cursors.js";
+export {
+  searchJourneys,
+  type SearchHit,
+  type SearchPage,
+  type SearchScope
+} from "./repositories/search.js";
