@@ -1,6 +1,4 @@
-/**
- * Node.js recorder SDK.
- *
- * Implemented in Phase 3. See docs/NODE_SDK_SPEC.md.
- */
-export const PACKAGE_NAME = "@flight-recorder/sdk-node";
+export type { RecorderConfig } from "./config.js";
+export type { Counters, Diagnostic } from "./diagnostics.js";
+export { createRecorder } from "./recorder.js";
+export type { Journey, JourneyContext, RecordInput, Recorder } from "./recorder.js";

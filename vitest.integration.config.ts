@@ -7,6 +7,11 @@ const packageSource = (name: string): string =>
 export default defineConfig({
   resolve: {
     alias: {
+      // Subpath first: Vite matches aliases in order, and the bare
+      // specifier would otherwise shadow it.
+      "@flight-recorder/payload-security/redaction": fileURLToPath(
+        new URL("./packages/payload-security/src/redaction.ts", import.meta.url)
+      ),
       "@flight-recorder/config": packageSource("config"),
       "@flight-recorder/database": packageSource("database")
     }

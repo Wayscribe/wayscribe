@@ -130,7 +130,11 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
-  packages/sdk-node: {}
+  packages/sdk-node:
+    dependencies:
+      '@flight-recorder/payload-security':
+        specifier: workspace:*
+        version: link:../payload-security
 
 packages:
 
