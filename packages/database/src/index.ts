@@ -13,6 +13,7 @@ export {
   type JourneySummary
 } from "./repositories/journeys.js";
 export { maskDisplayValue } from "./mask.js";
+export { seedDemo, type DemoSeedResult } from "./seed-demo.js";
 export {
   InvalidCursorError,
   decodeEventCursor,

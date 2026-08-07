@@ -32,22 +32,58 @@ pnpm db:migrate
 the intended answer, not a fault: a process serving against a schema older than its
 build expects must not take traffic.
 
-## 3. Planned services
+## 3. Services
 
-| Service | Planned purpose |
-|---|---|
-| `postgres` | Flight Recorder metadata and events |
-| `elasticmq` | SQS-compatible queue, demo profile only |
-| `api` | Ingestion, query, and replay API |
-| `web` | Developer interface |
-| `demo-source` | Source webhook simulator |
-| `demo-integration` | Integration API |
-| `demo-worker` | Queue consumer |
-| `demo-target` | Target API simulator |
+| Service | Purpose | Profile |
+|---|---|---|
+| `postgres` | Flight Recorder metadata and events | core |
+| `api` | Ingestion, query, and replay API | core |
+| `web` | Developer interface | core |
+| `elasticmq` | SQS-compatible queue | demo |
+| `demo-bootstrap` | One-shot setup; runs and exits | demo |
+| `demo-source` | Source webhook simulator | demo |
+| `demo-integration` | Integration API | demo |
+| `demo-worker` | Queue consumer | demo |
+| `demo-target` | Target API simulator | demo |
 
-## 4. Planned local URLs
+### Running the demo
 
-Choose final ports during Phase 0. Suggested starting values:
+```bash
+docker compose -f infrastructure/compose.yaml \
+               -f infrastructure/compose.demo.yaml up --build
+```
+
+```bash
+pnpm demo:trigger
+```
+
+The trigger prints a direct link to the journey. It takes about ten seconds to
+finish, because the queue's retries are real; only the waiting is compressed.
+
+Three things are worth knowing about the demo profile:
+
+- **No manual migration step.** `demo-bootstrap` runs the migrations, registers
+  the demo API key, and creates the demo database and its customer table, then
+  exits. Everything after it waits for it to succeed.
+- **The demo has its own `demo` database** inside the same PostgreSQL container,
+  so its customer table never mixes with Flight Recorder's own schema.
+- **The demo API key is fixed and committed.** It is a placeholder that
+  authorises writing demo events to a local stack and nothing else. Keys for
+  anything real come from `pnpm db:seed`, which generates them and prints each
+  one exactly once.
+
+`demo-source` and `demo-target` are deliberately uninstrumented: they stand in
+for Salesforce and HubSpot, which a team using Flight Recorder does not own. The
+timeline covers `demo-integration` and `demo-worker` only.
+
+### Running the acceptance test
+
+`pnpm test:demo` asserts the whole reference journey against a **running** stack:
+the ten events and their order, the phone diff, the target's 422, the retries,
+and the dead-letter state. Bring the stack up first — unlike `pnpm test` and
+`pnpm test:integration`, it starts nothing itself.
+
+## 4. Local URLs
 
 ```text
 Web: http://localhost:3000
@@ -56,7 +92,11 @@ Demo source: http://localhost:3100
 Demo integration: http://localhost:3200
 Demo target: http://localhost:3300
 PostgreSQL: localhost:5432
+ElasticMQ: localhost:9324
 ```
+
+Every one binds to `127.0.0.1` rather than to all interfaces, so a `docker
+compose up` on a cloud host does not expose the stack to the internet.
 
 ## 5. Environment variables
 
@@ -98,6 +138,7 @@ pnpm typecheck
 pnpm test
 pnpm test:integration
 pnpm test:e2e
+pnpm test:demo
 pnpm db:migrate
 pnpm db:rollback
 pnpm db:seed

@@ -194,4 +194,32 @@ describe("recorded events", () => {
     expect(transformed?.["input"]).toEqual({ Phone: "+1 919 555 1234" });
     expect(transformed?.["output"]).toEqual({ phone: null });
   });
+
+  it("puts aliases where the protocol reads them", async () => {
+    // EVENT_PROTOCOL: aliases are a top-level field on the event. Nesting them
+    // under metadata is silently accepted by ingestion and then ignored, which
+    // costs the journey every alias-based search.
+    const events = await recordAnd((journey) => {
+      journey.identify({ internalCustomerId: "18492" });
+    });
+    const identified = events.find((e) => e["operation"] === "identified");
+    expect(identified?.["aliases"]).toEqual({ internalCustomerId: "18492" });
+  });
+
+  it("timestamps a wrapped operation when it started, not when it finished", async () => {
+    // Cross-service ordering is by timestamp. Stamping at completion inverts
+    // causality whenever the work a step triggers finishes faster than the step
+    // itself: a publish that takes 50ms sorts after the consume it caused.
+    const startedAt = Date.now();
+    const events = await recordAnd((journey) =>
+      journey.publish("p", {}, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      })
+    );
+
+    const published = events.find((e) => e["operation"] === "published");
+    const stamped = new Date(String(published?.["timestamp"])).getTime();
+    expect(stamped).toBeGreaterThanOrEqual(startedAt);
+    expect(stamped).toBeLessThan(startedAt + 50);
+  });
 });

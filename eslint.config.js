@@ -54,6 +54,26 @@ export default tseslint.config(
     }
   },
   {
+    // Developer commands, run with plain `node` and belonging to no TypeScript
+    // project, so type-aware rules have nothing to work from.
+    files: ["scripts/**/*.mjs"],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      // The project service is switched off explicitly. Disabling the
+      // type-aware *rules* is not enough on its own: the parser still tries to
+      // place the file in a TypeScript project and fails, because this one
+      // belongs to none.
+      parserOptions: { projectService: false, project: null },
+      // Declared rather than pulled from the `globals` package: three names is
+      // not worth a dependency.
+      globals: { console: "readonly", fetch: "readonly", process: "readonly" }
+    },
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      "@typescript-eslint/explicit-function-return-type": "off"
+    }
+  },
+  {
     // Integration tests deliberately assert against untyped values: raw database
     // rows and parsed HTTP JSON. Casting those to hand-written types would make
     // the test verify our assumptions about a column rather than the column

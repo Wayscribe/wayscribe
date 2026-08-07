@@ -48,9 +48,27 @@ try {
       console.log(`    ${result.apiKey}`);
       break;
     }
+    case "seed-demo": {
+      const masterKey = process.env["ENCRYPTION_KEY"];
+      const apiKey = process.env["DEMO_API_KEY"];
+      if (masterKey === undefined || masterKey === "") {
+        console.error("ENCRYPTION_KEY is not set.");
+        process.exitCode = 1;
+        break;
+      }
+      if (apiKey === undefined || apiKey === "") {
+        console.error("DEMO_API_KEY is not set.");
+        process.exitCode = 1;
+        break;
+      }
+      const { seedDemo } = await import("./seed-demo.js");
+      const result = await seedDemo(db, masterKey, apiKey);
+      console.log(`Demo seed applied for project ${result.projectId} (${result.keyPrefix}).`);
+      break;
+    }
     default: {
       console.error(`Unknown command: ${command ?? "(none)"}`);
-      console.error("Usage: tsx src/cli.ts <migrate|rollback|seed>");
+      console.error("Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo>");
       process.exitCode = 1;
       break;
     }

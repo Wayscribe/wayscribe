@@ -27,8 +27,17 @@ export interface RecordInput {
   input?: unknown;
   output?: unknown;
   error?: { message: string; type?: string; code?: string };
+  aliases?: Record<string, string>;
   metadata?: Record<string, unknown>;
   durationMs?: number;
+  /**
+   * When the operation began, in epoch milliseconds. Defaults to now.
+   *
+   * The wrappers set this to the moment the callback started, because the
+   * timeline orders by timestamp and a step must not sort after the work it
+   * caused.
+   */
+  startedAt?: number;
 }
 
 export interface WrapOptions {
@@ -173,12 +182,13 @@ export function createRecorder(config: RecorderConfig): Recorder {
         entity,
         operation: input.operation,
         name: input.name,
-        timestamp: new Date().toISOString(),
+        timestamp: new Date(input.startedAt ?? Date.now()).toISOString(),
         ...(readTrace() ?? {}),
         ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
         ...(input.input === undefined ? {} : { input: capture(input.input) }),
         ...(input.output === undefined ? {} : { output: capture(input.output) }),
         ...(input.error === undefined ? {} : { error: input.error }),
+        ...(input.aliases === undefined ? {} : { aliases: input.aliases }),
         ...(input.metadata === undefined ? {} : { metadata: input.metadata })
       }
     });
@@ -247,6 +257,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
           operation,
           name,
           input,
+          startedAt,
           durationMs: Date.now() - startedAt,
           error: toErrorRecord(error),
           ...(metadata === undefined ? {} : { metadata })
@@ -264,6 +275,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         name,
         input,
         output: result,
+        startedAt,
         durationMs: Date.now() - startedAt,
         ...(failed
           ? { error: { message: `${name} reported a failed result.`, code: "result_failed" } }
@@ -288,7 +300,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
           enqueue(context.journeyId, context.entity, {
             operation: "identified",
             name: "identify",
-            metadata: { aliases }
+            // Top-level, not under metadata: EVENT_PROTOCOL puts aliases on the
+            // event itself, and ingestion reads them from there. Nested, they
+            // are accepted and then ignored, costing every alias-based search.
+            aliases
           });
         });
       },
