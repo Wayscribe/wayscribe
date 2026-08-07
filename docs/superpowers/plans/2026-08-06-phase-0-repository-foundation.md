@@ -50,6 +50,24 @@ Verify `node -v` reports v24.x before continuing. Docker 29.4.1 is already prese
 
 `config` depends on nothing. `database` depends on nothing. `apps/api` depends on both. Nothing depends on `apps/api`.
 
+### TypeScript configuration convention
+
+Every package carries **two** configs, and every task below follows this pattern:
+
+- `tsconfig.json` — includes `src/**/*.ts`, tests included. Type-aware ESLint
+  requires every linted file to belong to a project, so excluding tests here makes
+  `eslint .` fail with "was not found by the project service". Used by `typecheck`.
+- `tsconfig.build.json` — extends `./tsconfig.json` and excludes
+  `src/**/*.test.ts` and `src/**/*.integration.test.ts`. Used by `build`, so tests
+  never reach `dist` or a runtime image.
+
+Scripts are therefore `"build": "tsc -p tsconfig.build.json"` and
+`"typecheck": "tsc -p tsconfig.json --noEmit"`.
+
+The repository root additionally carries a `tsconfig.json` covering `*.config.ts`,
+because `vitest.config.ts` and `vitest.integration.config.ts` belong to no package
+and would otherwise fail the same project-service check.
+
 ---
 
 ## Task 1: Workspace root and toolchain pins
@@ -684,8 +702,18 @@ Add to the end of Epic 12:
 
 - [ ] **Step 7: Verify no stale values remain**
 
-Run: `grep -rn 'metadata, allowlist, redacted, full' docs/ ; grep -rn 'replay/customer' docs/API_SPEC.md`
-Expected: no output from either. Any output means a correction was missed.
+```bash
+grep -rn 'metadata, allowlist, redacted, full' docs/ --exclude-dir=superpowers
+grep -n '"url": "http' docs/API_SPEC.md
+```
+
+Expected: no output from either.
+
+Both greps are deliberately narrow. `--exclude-dir=superpowers` skips this plan, which
+quotes the old capture-mode values as the "before" side of the correction. And the
+second grep targets a `url` key rather than the string `replay/customer`, because
+section 11's `"path": "/replay/customer"` is *correct* under ADR-019 — a relative path
+appended to the destination base — and must not be flagged.
 
 - [ ] **Step 8: Commit**
 
@@ -793,6 +821,17 @@ export default tseslint.config(
       "@typescript-eslint/explicit-function-return-type": [
         "error",
         { allowExpressions: true }
+      ],
+      // Underscore prefix marks a deliberately unused binding. ignoreRestSiblings
+      // supports the `const { secret: _omitted, ...rest }` omit idiom.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          ignoreRestSiblings: true
+        }
       ]
     }
   },
@@ -829,11 +868,16 @@ pnpm-lock.yaml
 LICENSE
 ```
 
-- [ ] **Step 4: Verify both run clean**
+- [ ] **Step 4: Verify formatting is clean**
 
-Run: `pnpm format:check && pnpm lint`
-Expected: both exit 0. If Prettier reports files needing formatting, run
-`pnpm format` and re-check.
+Run: `pnpm format` then `pnpm format:check`
+Expected: "All matched files use Prettier code style!"
+
+Do **not** run `pnpm lint` yet. No TypeScript sources exist at this point in the
+plan, and `eslint.config.js` is excluded by its own `**/*.config.js` ignore pattern,
+so ESLint exits 2 with "all of the files matching the glob pattern are ignored."
+That is expected here. Lint is first verified in Task 8, once `packages/config` gives
+it something to check.
 
 - [ ] **Step 5: Commit**
 
@@ -955,7 +999,7 @@ Create `packages/config/package.json`:
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -1187,7 +1231,7 @@ Create `packages/database/package.json`:
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "migrate": "tsx src/cli.ts migrate",
     "rollback": "tsx src/cli.ts rollback",
@@ -1446,7 +1490,7 @@ For each of `protocol`, `sdk-node`, `payload-security`, `payload-diff`, create
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }
@@ -1542,7 +1586,7 @@ Create `apps/api/package.json`:
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js"
@@ -2523,7 +2567,7 @@ Expected: `postgres`, `api`, `web` — no queue, no cache, no third-party servic
 
 ```bash
 grep -c '^## ADR-' docs/DECISIONS.md
-grep -rn 'metadata, allowlist, redacted, full' docs/ || echo "capture modes corrected"
+grep -rn 'metadata, allowlist, redacted, full' docs/ --exclude-dir=superpowers || echo "capture modes corrected"
 grep -n 'demo-worker' README.md docs/IMPLEMENTATION_PLAN.md
 grep -n 'identified' docs/EVENT_PROTOCOL.md
 head -3 LICENSE

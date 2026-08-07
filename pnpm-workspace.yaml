@@ -1,0 +1,21 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Build scripts are denied by default in pnpm 11; each must be decided explicitly.
+#
+#   esbuild     — Vitest's bundler. Its postinstall fetches the platform binary,
+#                 so it must run.
+#   cpu-features
+#   ssh2        — pulled in by dockerode via Testcontainers. Both native builds are
+#   protobufjs    optional; Testcontainers talks to Docker over the local socket and
+#                 works without them. Denied to keep installs lean and to avoid
+#                 running compilers we do not need.
+#   sharp       — Next.js image optimization. Its postinstall fetches the platform
+#                 binary, and Next requires it for next/image in production.
+allowBuilds:
+  esbuild: true
+  sharp: true
+  cpu-features: false
+  protobufjs: false
+  ssh2: false

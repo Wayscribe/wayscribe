@@ -1,0 +1,11 @@
+// Tooling and type-check project: includes tests so ESLint's project service
+// can resolve them. Emit is driven by tsconfig.build.json, which excludes tests
+// so they never reach dist or a runtime image.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"]
+}

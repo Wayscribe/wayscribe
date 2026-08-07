@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.next/
+coverage/
+pnpm-lock.yaml
+LICENSE
+
+# Authored prose, not generated code. Prettier reformats markdown tables and
+# rewrites code samples inside fenced blocks, which would churn the planning
+# documents and make the implementation plan's code diverge from what was
+# actually written. Documentation formatting is reviewed by humans.
+docs/
+*.md
