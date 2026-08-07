@@ -1,3 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+# Build scripts are denied by default in pnpm 11. esbuild is Vitest's own
+# bundler dependency and needs its postinstall to fetch the platform binary.
+allowBuilds:
+  esbuild: true
