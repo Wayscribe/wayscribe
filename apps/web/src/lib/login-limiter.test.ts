@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LoginLimiter } from "./login-limiter.js";
+import { LoginLimiter } from "./login-limiter";
 
 const options = { maxFailures: 3, windowMs: 60_000, cooldownMs: 300_000 };
 const NOW = 1_800_000_000_000;
