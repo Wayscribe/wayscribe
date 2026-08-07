@@ -1,0 +1,26 @@
+# Demo profile. Adds the SQS-compatible queue and the four demo services that
+# prove the reference journey. Layer it over the core stack:
+#
+#   docker compose -f infrastructure/compose.yaml \
+#                  -f infrastructure/compose.demo.yaml up --build
+#
+# The demo services are implemented in Phase 5 (see docs/DEMO_SCENARIO.md).
+# ElasticMQ is defined now because ADR-015 settles the queue choice, and the
+# core compose.yaml must keep PostgreSQL as its only backing service.
+
+name: flight-recorder
+
+services:
+  elasticmq:
+    image: softwaremill/elasticmq-native:latest
+    ports:
+      - "127.0.0.1:9324:9324"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://localhost:9324/?Action=ListQueues' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  # demo-source:       Phase 5 — simulates a Salesforce account webhook
+  # demo-integration:  Phase 5 — receives, transforms, persists, publishes
+  # demo-worker:       Phase 5 — consumes the queue, delivers to the target
+  # demo-target:       Phase 5 — simulates HubSpot, rejects a missing phone

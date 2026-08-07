@@ -1,0 +1,63 @@
+default:
+  image: node:24-alpine
+  before_script:
+    - corepack enable
+    - pnpm install --frozen-lockfile
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - .pnpm-store
+
+variables:
+  PNPM_HOME: "$CI_PROJECT_DIR/.pnpm-store"
+
+stages:
+  - verify
+  - test
+  - integration
+  - build
+
+format:
+  stage: verify
+  script:
+    - pnpm format:check
+
+lint:
+  stage: verify
+  script:
+    - pnpm lint
+
+typecheck:
+  stage: verify
+  script:
+    - pnpm typecheck
+
+unit:
+  stage: test
+  script:
+    - pnpm test
+
+database:
+  stage: integration
+  # Full node image, not Alpine: Testcontainers needs a Docker client, and this
+  # job talks to a docker-in-docker service.
+  image: node:24
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    TESTCONTAINERS_HOST_OVERRIDE: docker
+  script:
+    - pnpm test:integration
+
+build:
+  stage: build
+  script:
+    - pnpm build
+
+# Browser and end-to-end stages are deliberately absent rather than declared and
+# skipped: GitLab treats a job with no script as a configuration error. They are
+# added in Phase 2 and Phase 5, when they have something to run.

@@ -18,19 +18,26 @@ Pin exact Node.js and pnpm versions in the repository before implementation begi
 The released quick start should provide one primary Compose command that starts the required platform services. Repository contributors may still run applications directly for hot reload.
 
 ```bash
-git clone <repository-url>
+git clone https://gitlab.com/jojithedev/flight-recorder.git
 cd flight-recorder
+nvm use            # Node 24, per .nvmrc
+corepack enable
 pnpm install
-docker compose -f infrastructure/compose.yaml up -d
+cp .env.example .env
+docker compose -f infrastructure/compose.yaml up -d --build
+pnpm db:migrate
 ```
 
-These commands are targets for the implementation. Update this file when actual commands exist.
+`/ready` returns 503 with `migrations_pending` until `pnpm db:migrate` runs. That is
+the intended answer, not a fault: a process serving against a schema older than its
+build expects must not take traffic.
 
 ## 3. Planned services
 
 | Service | Planned purpose |
 |---|---|
 | `postgres` | Flight Recorder metadata and events |
+| `elasticmq` | SQS-compatible queue, demo profile only |
 | `api` | Ingestion, query, and replay API |
 | `web` | Developer interface |
 | `demo-source` | Source webhook simulator |
@@ -60,9 +67,10 @@ DATABASE_URL=postgresql://flight:flight@localhost:5432/flight
 APP_URL=http://localhost:3000
 API_URL=http://localhost:8080
 ENCRYPTION_KEY=replace-for-local-development
+ADMIN_TOKEN=generated-local-admin-token
 DEFAULT_RETENTION_DAYS=7
 MAX_EVENT_PAYLOAD_BYTES=262144
-ALLOW_FULL_PAYLOAD_CAPTURE=true
+ALLOW_FULL_PAYLOAD_CAPTURE=false
 REPLAY_ALLOWED_HOSTS=localhost,host.docker.internal,demo-integration
 ```
 
@@ -147,16 +155,18 @@ When Flight Recorder runs in Docker and the destination runs on the host, use th
 
 Server capture policy may be stricter than SDK configuration. Server policy wins.
 
-## 10. Before first implementation commit
+## 10. Resolved before implementation
 
-- [ ] Choose exact Node.js version.
-- [ ] Choose exact pnpm version.
-- [ ] Choose an established open-source license.
-- [ ] Confirm the complete self-hosted core is free to use.
-- [ ] Validate the approximately 15-minute time-to-first-journey target.
-- [ ] Create repository.
-- [ ] Add root package manifest.
-- [ ] Add workspace file.
-- [ ] Add TypeScript base configuration.
-- [ ] Add Compose file.
-- [ ] Add CI.
+| Decision | Outcome | Record |
+|---|---|---|
+| Node.js version | 24.x active LTS | ADR-017 |
+| pnpm version | 11.x via corepack | ADR-017 |
+| License | Apache-2.0 | ADR-014 |
+| Free self-hosted core | Confirmed | ADR-011, ADR-014 |
+| Queue technology | ElasticMQ, demo profile only | ADR-015 |
+| Web interface authentication | Single admin token | ADR-016 |
+| Migration file format | Plain ESM JavaScript | ADR-027 |
+
+The time-to-first-journey target is measured in Epic 12, once the demo workflow makes
+it a real number. Phase 0 verifies only that the documented Compose command brings up
+the stack on a clean machine.
