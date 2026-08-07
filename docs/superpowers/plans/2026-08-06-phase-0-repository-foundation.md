@@ -162,7 +162,7 @@ Flight Recorder
 Copyright 2026 Jorge Polanco
 
 This product includes software developed as part of the Flight Recorder
-project (https://gitlab.com/jorgepolanco/flight-recorder).
+project (https://gitlab.com/jojithedev/flight-recorder).
 
 Licensed under the Apache License, Version 2.0. You may obtain a copy of
 the License at http://www.apache.org/licenses/LICENSE-2.0
