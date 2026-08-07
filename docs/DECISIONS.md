@@ -659,3 +659,41 @@ type-dependency problem for entity search.
   the seed and tests regenerate.
 - An attacker with the search key can still only confirm guessed values, not enumerate
   them, so the security property HMAC provides is unchanged.
+
+---
+
+## ADR-029: Admin principal is project-wide; API keys stay environment-scoped
+
+**Status:** Accepted
+
+### Context
+
+ADR-016 settled that the web interface authenticates with a single admin token and
+deferred implementation. The API accepts only environment-scoped API keys, but a
+developer investigating a record should not need to know which environment it landed in
+before they can search for it.
+
+### Decision
+
+Authentication resolves to one of two principals. An API key identifies one project and
+one environment, unchanged. An admin token identifies the operator and grants reads
+across every environment of a named project.
+
+Read scopes become `{ projectId, environmentId? }`, where an absent environment means
+every environment of that one project and never more than one project.
+
+An admin principal cannot ingest: ingestion writes into a specific environment and an
+admin token names none, so accepting it there would mean guessing.
+
+The web application signs its session cookie with a key derived from `ADMIN_TOKEN`
+through HKDF, so it needs one secret rather than two and rotating the token invalidates
+sessions.
+
+### Consequences
+
+- The interface can search a project without an environment selector.
+- Every read query must still filter on project_id; the optional environment widens one
+  dimension only, and tests assert an admin cannot cross projects.
+- A single global admin secret is a guessing target, so login is throttled in-process.
+  That does not survive horizontal scaling and is documented as a single-instance
+  limitation.
