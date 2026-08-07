@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { signSession, verifySession } from "./session.js";
+import { signSession, verifySession } from "./session";
 
 const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
 const NOW = 1_800_000_000_000;

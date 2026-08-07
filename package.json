@@ -17,11 +17,13 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "pnpm --filter @flight-recorder/database migrate",
     "db:rollback": "pnpm --filter @flight-recorder/database rollback",
-    "db:seed": "pnpm --filter @flight-recorder/database seed"
+    "db:seed": "pnpm --filter @flight-recorder/database seed",
+    "test:e2e": "playwright test"
   },
   "packageManager": "pnpm@11.20.0+sha512.9a6f330a95b66446ea088faf1521405a8a01f07fde7124cc9958dfed52d4bb436737e65b08f85f37b46fcba375092558ac51262b816844b22f63406ed166bfee",
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.13.3",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^9.1.2",
