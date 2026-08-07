@@ -41,6 +41,13 @@ export default tseslint.config(
     }
   },
   {
+    // Migrations are plain JavaScript with JSDoc types (ADR-027) and live outside
+    // any TypeScript project, so type-aware rules cannot apply to them. They are
+    // still linted for ordinary correctness.
+    files: ["packages/database/migrations/**/*.js", "packages/database/seeds/**/*.js"],
+    ...tseslint.configs.disableTypeChecked
+  },
+  {
     // React components return JSX and the ecosystem conventionally omits the
     // annotation. Requiring it here buys nothing and fights every example a
     // contributor will have seen.
