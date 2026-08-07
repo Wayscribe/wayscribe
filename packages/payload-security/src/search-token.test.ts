@@ -27,31 +27,25 @@ describe("normalizeSearchValue", () => {
 
 describe("searchToken", () => {
   it("is deterministic", () => {
-    expect(searchToken(key, "internalCustomerId", "18492")).toBe(
-      searchToken(key, "internalCustomerId", "18492")
-    );
+    expect(searchToken(key, "18492")).toBe(searchToken(key, "18492"));
   });
 
   it("normalizes before hashing", () => {
-    expect(searchToken(key, "internalCustomerId", " 18492 ")).toBe(
-      searchToken(key, "internalCustomerId", "18492")
-    );
+    expect(searchToken(key, " 18492 ")).toBe(searchToken(key, "18492"));
   });
 
-  it("differs across alias types for the same value", () => {
-    expect(searchToken(key, "internalCustomerId", "18492")).not.toBe(
-      searchToken(key, "salesforceAccountId", "18492")
-    );
-  });
+  // Type-independence (ADR-028) is now enforced by the signature — there is no
+  // type parameter to pass — so a unit test here could only assert that a value
+  // equals itself. The property that matters is that two aliases of different
+  // types sharing a value are both found by one value-only search, which is
+  // covered in the search integration tests.
 
   it("differs across keys", () => {
     const other = deriveSubkeys("fedcba9876543210fedcba9876543210").searchToken;
-    expect(searchToken(key, "internalCustomerId", "18492")).not.toBe(
-      searchToken(other, "internalCustomerId", "18492")
-    );
+    expect(searchToken(key, "18492")).not.toBe(searchToken(other, "18492"));
   });
 
   it("returns lowercase hex of fixed length", () => {
-    expect(searchToken(key, "t", "v")).toMatch(/^[0-9a-f]{64}$/);
+    expect(searchToken(key, "v")).toMatch(/^[0-9a-f]{64}$/);
   });
 });

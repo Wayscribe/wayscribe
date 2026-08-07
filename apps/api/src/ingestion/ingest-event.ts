@@ -73,7 +73,7 @@ export async function ingestEvent(
     journeyId: event.journeyId,
     environmentId: context.environmentId,
     entityType: event.entity.type,
-    primaryEntityIdHash: searchToken(subkeys.searchToken, event.entity.type, event.entity.id),
+    primaryEntityIdHash: searchToken(subkeys.searchToken, event.entity.id),
     encryptedPrimaryEntityId: encryptField(subkeys.fieldEncryption, event.entity.id),
     eventTimestamp: new Date(event.timestamp),
     operation: event.operation,
@@ -138,7 +138,7 @@ export async function ingestEvent(
       Object.entries(event.aliases ?? {}).map(([aliasType, value]) => ({
         journeyId: event.journeyId,
         aliasType,
-        aliasValueHash: searchToken(subkeys.searchToken, aliasType, value),
+        aliasValueHash: searchToken(subkeys.searchToken, value),
         encryptedDisplayValue: encryptField(subkeys.fieldEncryption, value)
       }))
     );
