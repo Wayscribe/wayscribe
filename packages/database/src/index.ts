@@ -6,7 +6,9 @@ export { upsertAliases, type AliasRow } from "./repositories/aliases.js";
 export { insertEvent, type EventRow, type InsertOutcome } from "./repositories/events.js";
 export {
   applyJourneyEvent,
+  ensureJourney,
   findJourney,
+  updateJourneySummary,
   type JourneyEventFacts,
   type JourneySummary
 } from "./repositories/journeys.js";

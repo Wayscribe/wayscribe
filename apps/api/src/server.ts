@@ -1,5 +1,6 @@
 import { loadServerEnv } from "@flight-recorder/config";
 import { createKnexConfig } from "@flight-recorder/database";
+import { deriveSubkeys } from "@flight-recorder/payload-security";
 import knex from "knex";
 import { buildApp } from "./app.js";
 
@@ -8,7 +9,8 @@ import { buildApp } from "./app.js";
 const env = loadServerEnv(process.env);
 
 const db = knex(createKnexConfig(env.DATABASE_URL));
-const app = buildApp({ db, logLevel: env.LOG_LEVEL });
+const subkeys = deriveSubkeys(env.ENCRYPTION_KEY);
+const app = buildApp({ db, subkeys, logLevel: env.LOG_LEVEL });
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");

@@ -63,9 +63,20 @@ Per event, inside one transaction:
 2. Compute the content hash.
 3. Apply capture policy and server-side redaction.
 4. Compute the payload diff.
-5. Insert the event, or detect a duplicate or conflict.
-6. Create the journey if absent; update its summary.
-7. Upsert aliases.
+5. **Create the journey if absent.**
+6. Insert the event, or detect a duplicate or conflict.
+7. Update the journey summary — only for genuinely new events.
+8. Upsert aliases.
+
+**Correction to `ARCHITECTURE.md` section 8.** That section orders the transaction as
+"insert the event, then create the journey if missing." That ordering cannot work:
+`journey_events` carries a composite foreign key to `journeys` (ADR-020), so inserting
+an event before its journey exists violates the constraint.
+
+The journey row is therefore created first, at `event_count` 0, and the summary is
+advanced afterwards and only for events that were genuinely new — so a duplicate never
+inflates the count. A conflict rolls the whole transaction back, so a rejected event
+never leaves an orphaned journey behind.
 
 ### Routes
 

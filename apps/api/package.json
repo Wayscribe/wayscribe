@@ -12,11 +12,15 @@
   "dependencies": {
     "@flight-recorder/config": "workspace:*",
     "@flight-recorder/database": "workspace:*",
+    "@flight-recorder/payload-diff": "workspace:*",
+    "@flight-recorder/payload-security": "workspace:*",
+    "@flight-recorder/protocol": "workspace:*",
     "fastify": "^5",
     "knex": "^3",
     "pg": "^8"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "^11.14.0",
     "tsx": "^4"
   }
 }

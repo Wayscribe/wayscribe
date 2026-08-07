@@ -41,6 +41,15 @@ importers:
       '@flight-recorder/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@flight-recorder/payload-diff':
+        specifier: workspace:*
+        version: link:../../packages/payload-diff
+      '@flight-recorder/payload-security':
+        specifier: workspace:*
+        version: link:../../packages/payload-security
+      '@flight-recorder/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       fastify:
         specifier: ^5
         version: 5.11.2
@@ -51,6 +60,9 @@ importers:
         specifier: ^8
         version: 8.22.0
     devDependencies:
+      '@testcontainers/postgresql':
+        specifier: ^11.14.0
+        version: 11.14.0(supports-color@7.2.0)
       tsx:
         specifier: ^4
         version: 4.23.9

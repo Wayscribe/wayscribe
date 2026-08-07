@@ -55,6 +55,38 @@ export async function findJourney(
  * identifier, which collides with the `::type` casts these NULL-able parameters
  * require.
  */
+/**
+ * Create the journey row if it does not exist yet.
+ *
+ * This must run *before* the event insert. `journey_events` carries a composite
+ * foreign key to `journeys`, so ARCHITECTURE.md section 8's ordering — insert
+ * the event, then create the journey — cannot work as written.
+ *
+ * The row starts at event_count 0; the count is advanced by
+ * updateJourneySummary, and only for events that were genuinely new.
+ */
+export async function ensureJourney(
+  db: Knex,
+  projectId: string,
+  facts: JourneyEventFacts
+): Promise<void> {
+  await db("journeys")
+    .insert({
+      id: facts.journeyId,
+      project_id: projectId,
+      environment_id: facts.environmentId,
+      entity_type: facts.entityType,
+      primary_entity_id_hash: facts.primaryEntityIdHash,
+      encrypted_primary_entity_id: facts.encryptedPrimaryEntityId,
+      status: "active",
+      started_at: facts.eventTimestamp,
+      last_event_at: facts.eventTimestamp,
+      event_count: 0
+    })
+    .onConflict(["project_id", "id"])
+    .ignore();
+}
+
 export async function applyJourneyEvent(
   db: Knex,
   projectId: string,
@@ -76,6 +108,18 @@ export async function applyJourneyEvent(
     .onConflict(["project_id", "id"])
     .ignore();
 
+  await updateJourneySummary(db, projectId, facts);
+}
+
+/**
+ * Advance the summary for one newly stored event. Never called for duplicates,
+ * so event_count cannot drift.
+ */
+export async function updateJourneySummary(
+  db: Knex,
+  projectId: string,
+  facts: JourneyEventFacts
+): Promise<void> {
   const status = deriveStatus(facts);
   const at = facts.eventTimestamp;
 

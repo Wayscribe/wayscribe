@@ -54,6 +54,20 @@ export default tseslint.config(
     }
   },
   {
+    // Integration tests deliberately assert against untyped values: raw database
+    // rows and parsed HTTP JSON. Casting those to hand-written types would make
+    // the test verify our assumptions about a column rather than the column
+    // itself, which is the one thing an integration test exists to check.
+    files: ["**/*.integration.test.ts"],
+    rules: {
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/explicit-function-return-type": "off"
+    }
+  },
+  {
     // React components return JSX and the ecosystem conventionally omits the
     // annotation. Requiring it here buys nothing and fights every example a
     // contributor will have seen.
