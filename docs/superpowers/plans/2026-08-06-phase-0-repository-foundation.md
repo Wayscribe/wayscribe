@@ -6,7 +6,7 @@
 
 **Architecture:** A pnpm workspace with two applications (`apps/api` on Fastify, `apps/web` on Next.js) and six packages. Two packages are fully implemented here: `config` (Zod-parsed environment, fails fast at boot) and `database` (Knex migrations plus a schema-currency check that `/ready` depends on). Four packages are scaffolded so the workspace graph and type checking are genuinely exercised without implying completeness. PostgreSQL is the only required backing service.
 
-**Tech Stack:** TypeScript 5.x, Node.js 24 LTS, pnpm 10, Fastify 5, Next.js 15, Knex, Zod 4, Vitest, Testcontainers, Docker Compose, GitLab CI.
+**Tech Stack:** TypeScript 5.x, Node.js 24 LTS, pnpm 11, Fastify 5, Next.js 15, Knex, Zod 4, Vitest, Testcontainers, Docker Compose, GitLab CI.
 
 **Source spec:** `docs/superpowers/specs/2026-08-06-phase-0-foundation-design.md`
 
@@ -94,13 +94,15 @@ Create `package.json`:
 }
 ```
 
-- [ ] **Step 3: Pin pnpm to the current 10.x**
+- [ ] **Step 3: Pin pnpm to the current 11.x**
 
-Run: `corepack use pnpm@10`
+Run: `corepack use pnpm@11`
 
-This resolves the latest 10.x and writes the exact version into `packageManager`. Do not hand-write a patch version — let corepack pin what actually exists.
+This resolves the latest 11.x and writes the exact version into `packageManager`. Do not hand-write a patch version — let corepack pin what actually exists.
 
-Expected: `package.json` gains a `"packageManager": "pnpm@10.x.y+sha512..."` field.
+Expected: `package.json` gains a `"packageManager": "pnpm@11.x.y+sha512..."` field.
+
+pnpm 11 requires Node.js >= 22.13, which the pinned Node 24 satisfies.
 
 - [ ] **Step 4: Define workspace members**
 
@@ -136,7 +138,7 @@ Expected: `v24.x.y` and `10.x.y`. If node reports v20, stop and complete the Pre
 
 ```bash
 git add .nvmrc package.json pnpm-workspace.yaml .gitignore
-git commit -m "chore: pin Node 24 and pnpm 10, add workspace root"
+git commit -m "chore: pin Node 24 and pnpm 11, add workspace root"
 ```
 
 ---
@@ -286,19 +288,21 @@ the environment variable and the Compose binding.
 
 ---
 
-## ADR-017: Pin Node.js 24 and pnpm 10
+## ADR-017: Pin Node.js 24 and pnpm 11
 
 **Status:** Accepted
 
 ### Context
 
 The documents required "Node.js active LTS, pinned" without naming a version.
-Node.js 20 reached end of life in April 2026.
+Node.js 20 reached end of life in April 2026. At the time of writing, the current
+stable pnpm is 11.x; 10.x is superseded.
 
 ### Decision
 
-Node.js 24.x, pinned through `.nvmrc` and `engines`. pnpm 10.x, pinned through
-`packageManager` and resolved by corepack.
+Node.js 24.x, pinned through `.nvmrc` and `engines`. pnpm 11.x, pinned through
+`packageManager` and resolved by corepack. pnpm 11 requires Node.js >= 22.13, which
+Node 24 satisfies.
 
 ### Consequences
 

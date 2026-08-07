@@ -79,11 +79,14 @@ endpoint.
 variable is defined in `packages/config`. The token exchange and session handling land
 in Phase 2, alongside the first interface that displays real data.
 
-### ADR-017: Node.js 24.x and pnpm 10.x, pinned
+### ADR-017: Node.js 24.x and pnpm 11.x, pinned
 
 Node.js 24.x is the current active LTS; Node.js 20 reached end of life in April 2026.
 Pinned through `.nvmrc` and the `engines` field, with pnpm pinned through
-`packageManager`.
+`packageManager` and resolved by corepack.
+
+pnpm 11.x is the current stable release; 10.x is superseded. pnpm 11 requires
+Node.js >= 22.13, which Node 24 satisfies.
 
 ### ADR-018: Capture-mode names use the protocol form
 
