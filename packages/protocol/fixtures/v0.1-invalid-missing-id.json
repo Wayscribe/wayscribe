@@ -1,0 +1,12 @@
+{
+  "protocolVersion": "0.1",
+  "event": {
+    "journeyId": "jrn_missing_id",
+    "environment": "development",
+    "service": "customer-integration",
+    "entity": { "type": "customer", "id": "18492" },
+    "operation": "received",
+    "name": "receive-salesforce-webhook",
+    "timestamp": "2026-08-06T18:31:02.000Z"
+  }
+}

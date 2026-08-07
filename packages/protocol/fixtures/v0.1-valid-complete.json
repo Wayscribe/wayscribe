@@ -1,0 +1,38 @@
+{
+  "protocolVersion": "0.1",
+  "event": {
+    "id": "evt_complete_01",
+    "journeyId": "jrn_complete_01",
+    "environment": "development",
+    "service": "customer-integration",
+    "entity": { "type": "customer", "id": "0018Z00002ABC" },
+    "operation": "transformed",
+    "name": "transform-salesforce-account",
+    "timestamp": "2026-08-06T18:31:04.120Z",
+    "aliases": {
+      "salesforceAccountId": "0018Z00002ABC",
+      "internalCustomerId": "18492"
+    },
+    "durationMs": 18,
+    "parentEventId": "evt_complete_00",
+    "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "spanId": "00f067aa0ba902b7",
+    "messageId": "msg_complete_01",
+    "correlationId": "cor_complete_01",
+    "input": { "Id": "0018Z00002ABC", "Name": "Jorge Polanco", "Phone": "+1 919 555 1234" },
+    "output": { "externalId": "0018Z00002ABC", "name": "Jorge Polanco", "phone": null },
+    "error": {
+      "type": "ValidationError",
+      "message": "A phone number is required.",
+      "code": "phone_required"
+    },
+    "runtime": {
+      "language": "node",
+      "version": "24.19.0",
+      "hostname": "worker-1",
+      "processId": 42
+    },
+    "deployment": { "gitCommit": "abc123def456", "version": "1.2.3", "image": "app:1.2.3" },
+    "metadata": { "attempt": 2, "queue": "customer-updates", "httpStatus": 422 }
+  }
+}

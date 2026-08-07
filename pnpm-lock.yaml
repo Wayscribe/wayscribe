@@ -103,7 +103,11 @@ importers:
 
   packages/payload-security: {}
 
-  packages/protocol: {}
+  packages/protocol:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/sdk-node: {}
 
