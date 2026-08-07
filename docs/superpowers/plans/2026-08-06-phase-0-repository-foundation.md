@@ -50,6 +50,24 @@ Verify `node -v` reports v24.x before continuing. Docker 29.4.1 is already prese
 
 `config` depends on nothing. `database` depends on nothing. `apps/api` depends on both. Nothing depends on `apps/api`.
 
+### TypeScript configuration convention
+
+Every package carries **two** configs, and every task below follows this pattern:
+
+- `tsconfig.json` — includes `src/**/*.ts`, tests included. Type-aware ESLint
+  requires every linted file to belong to a project, so excluding tests here makes
+  `eslint .` fail with "was not found by the project service". Used by `typecheck`.
+- `tsconfig.build.json` — extends `./tsconfig.json` and excludes
+  `src/**/*.test.ts` and `src/**/*.integration.test.ts`. Used by `build`, so tests
+  never reach `dist` or a runtime image.
+
+Scripts are therefore `"build": "tsc -p tsconfig.build.json"` and
+`"typecheck": "tsc -p tsconfig.json --noEmit"`.
+
+The repository root additionally carries a `tsconfig.json` covering `*.config.ts`,
+because `vitest.config.ts` and `vitest.integration.config.ts` belong to no package
+and would otherwise fail the same project-service check.
+
 ---
 
 ## Task 1: Workspace root and toolchain pins
@@ -803,6 +821,17 @@ export default tseslint.config(
       "@typescript-eslint/explicit-function-return-type": [
         "error",
         { allowExpressions: true }
+      ],
+      // Underscore prefix marks a deliberately unused binding. ignoreRestSiblings
+      // supports the `const { secret: _omitted, ...rest }` omit idiom.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          ignoreRestSiblings: true
+        }
       ]
     }
   },
@@ -970,7 +999,7 @@ Create `packages/config/package.json`:
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -1202,7 +1231,7 @@ Create `packages/database/package.json`:
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "migrate": "tsx src/cli.ts migrate",
     "rollback": "tsx src/cli.ts rollback",
@@ -1461,7 +1490,7 @@ For each of `protocol`, `sdk-node`, `payload-security`, `payload-diff`, create
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }
@@ -1557,7 +1586,7 @@ Create `apps/api/package.json`:
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js"
