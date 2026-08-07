@@ -839,11 +839,16 @@ pnpm-lock.yaml
 LICENSE
 ```
 
-- [ ] **Step 4: Verify both run clean**
+- [ ] **Step 4: Verify formatting is clean**
 
-Run: `pnpm format:check && pnpm lint`
-Expected: both exit 0. If Prettier reports files needing formatting, run
-`pnpm format` and re-check.
+Run: `pnpm format` then `pnpm format:check`
+Expected: "All matched files use Prettier code style!"
+
+Do **not** run `pnpm lint` yet. No TypeScript sources exist at this point in the
+plan, and `eslint.config.js` is excluded by its own `**/*.config.js` ignore pattern,
+so ESLint exits 2 with "all of the files matching the glob pattern are ignored."
+That is expected here. Lint is first verified in Task 8, once `packages/config` gives
+it something to check.
 
 - [ ] **Step 5: Commit**
 
