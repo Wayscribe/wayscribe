@@ -56,7 +56,7 @@ export default tseslint.config(
   {
     // Developer commands, run with plain `node` and belonging to no TypeScript
     // project, so type-aware rules have nothing to work from.
-    files: ["scripts/**/*.mjs"],
+    files: ["**/scripts/**/*.mjs"],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       // The project service is switched off explicitly. Disabling the
@@ -64,9 +64,14 @@ export default tseslint.config(
       // place the file in a TypeScript project and fails, because this one
       // belongs to none.
       parserOptions: { projectService: false, project: null },
-      // Declared rather than pulled from the `globals` package: three names is
+      // Declared rather than pulled from the `globals` package: four names is
       // not worth a dependency.
-      globals: { console: "readonly", fetch: "readonly", process: "readonly" }
+      globals: {
+        URL: "readonly",
+        console: "readonly",
+        fetch: "readonly",
+        process: "readonly"
+      }
     },
     rules: {
       ...tseslint.configs.disableTypeChecked.rules,

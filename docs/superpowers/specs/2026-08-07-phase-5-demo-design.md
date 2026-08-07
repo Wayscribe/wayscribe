@@ -22,7 +22,7 @@ without instrumenting anything themselves.
 | `demo-worker` | — | Consumes, delivers to the target, and watches the dead-letter queue. |
 | `demo-target` | 3300 | Simulates HubSpot. `POST /contacts` returns 422 when `phone` is null. |
 
-`demo-integration` and `demo-worker` are instrumented with `@flight-recorder/sdk-node`.
+`demo-integration` and `demo-worker` are instrumented with `@flight-recorder/node`.
 The queue hop carries context through SQS message attributes, exercising the Phase 4 path
 for real.
 

@@ -1,0 +1,54 @@
+import { build } from "esbuild";
+import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Produce a publishable `dist/` with no runtime dependencies.
+ *
+ * The SDK is embedded in other companies' applications, so every dependency it
+ * declares becomes a dependency they carry and a version they may have to
+ * reconcile. It needs four pure functions from `@flight-recorder/payload-security`
+ * — `redact`, `checkLimits`, `DEFAULT_LIMITS`, `DEFAULT_SECRET_PATHS` — and
+ * nothing else, so those are bundled in.
+ *
+ * That also removes a defect rather than only an inconvenience: the dependency
+ * is declared `workspace:*`, which `pnpm pack` rewrites to `"0.0.0"` — a version
+ * published nowhere. Every install of the resulting tarball would fail.
+ *
+ * Types come from tsc rather than esbuild, which does not emit them. Nothing in
+ * the public surface refers to an imported type, so the declarations come out
+ * self-contained.
+ */
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+
+rmSync(new URL("../dist", import.meta.url), { recursive: true, force: true });
+
+// Declarations first: tsc writes .js alongside .d.ts, and the bundle overwrites
+// the entry point afterwards.
+execFileSync(
+  "npx",
+  ["tsc", "-p", "tsconfig.build.json", "--declaration", "--emitDeclarationOnly"],
+  {
+    cwd: packageRoot,
+    stdio: "inherit"
+  }
+);
+
+await build({
+  entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
+  outfile: fileURLToPath(new URL("../dist/index.js", import.meta.url)),
+  bundle: true,
+  platform: "node",
+  target: "node20",
+  format: "esm",
+  // Resolved through the source condition so the workspace package is inlined
+  // rather than left as an import of a package that will not exist.
+  conditions: ["development"],
+  // `createRequire` is used to reach OpenTelemetry when it is present. Bundling
+  // must not try to follow that: the whole point is that it may be absent.
+  external: ["node:*"],
+  legalComments: "none"
+});
+
+console.log("bundled dist/index.js with no runtime dependencies");

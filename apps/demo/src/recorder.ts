@@ -1,4 +1,4 @@
-import { createRecorder, type Recorder } from "@flight-recorder/sdk-node";
+import { createRecorder, type Recorder } from "@flight-recorder/node";
 import { optionalEnv, requiredEnv } from "./env.js";
 
 /**
