@@ -21,7 +21,9 @@ const ENVIRONMENT_NAME = "development";
 export async function seedDemo(
   db: Knex,
   masterKey: string,
-  apiKey: string
+  apiKey: string,
+  /** From DEFAULT_RETENTION_DAYS. */
+  retentionDays = 7
 ): Promise<DemoSeedResult> {
   const subkeys = deriveSubkeys(masterKey);
 
@@ -39,7 +41,7 @@ export async function seedDemo(
     {
       project_id: project.id,
       name: ENVIRONMENT_NAME,
-      retention_days: 7,
+      retention_days: retentionDays,
       capture_mode: "redacted-payload"
     }
   );

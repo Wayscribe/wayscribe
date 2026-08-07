@@ -14,6 +14,11 @@ if (databaseUrl === undefined || databaseUrl === "") {
 
 const db = knex(createKnexConfig(databaseUrl));
 
+/** DEFAULT_RETENTION_DAYS, applied to any environment these commands create. */
+const retentionDays = Number.parseInt(process.env["DEFAULT_RETENTION_DAYS"] ?? "7", 10);
+const defaultRetentionDays =
+  Number.isInteger(retentionDays) && retentionDays > 0 ? retentionDays : 7;
+
 /** Returns undefined and sets a failing exit code when the master key is absent. */
 function requireEncryptionKey(): string | undefined {
   const masterKey = process.env["ENCRYPTION_KEY"];
@@ -53,7 +58,7 @@ try {
         break;
       }
       const { seedLocal } = await import("./seed-local.js");
-      const result = await seedLocal(db, masterKey);
+      const result = await seedLocal(db, masterKey, defaultRetentionDays);
       console.log("Local seed applied.");
       console.log(`  project:     ${result.projectId}`);
       console.log(`  environment: ${result.environmentId}`);
@@ -76,7 +81,7 @@ try {
         break;
       }
       const { seedDemo } = await import("./seed-demo.js");
-      const result = await seedDemo(db, masterKey, apiKey);
+      const result = await seedDemo(db, masterKey, apiKey, defaultRetentionDays);
       console.log(`Demo seed applied for project ${result.projectId} (${result.keyPrefix}).`);
       break;
     }
@@ -96,7 +101,8 @@ try {
         const issued = await issueKey(db, masterKey, {
           projectSlug,
           environmentName,
-          name: name ?? `${environmentName}-key`
+          name: name ?? `${environmentName}-key`,
+          retentionDays: defaultRetentionDays
         });
         console.log(`Key issued for ${issued.projectSlug}/${issued.environmentName}.`);
         console.log("");
@@ -149,10 +155,20 @@ try {
       }
       break;
     }
+    case "retention:sweep": {
+      const { sweepExpiredJourneys } = await import("./repositories/retention.js");
+      const result = await sweepExpiredJourneys(db);
+      console.log(
+        result.ran
+          ? `Deleted ${String(result.journeysDeleted)} journeys in ${String(result.batches)} batches across ${String(result.environmentsExamined)} environments.`
+          : "Another process holds the retention lock; nothing was examined."
+      );
+      break;
+    }
     default: {
       console.error(`Unknown command: ${command ?? "(none)"}`);
       console.error(
-        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|key:create|key:revoke|key:list>"
+        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|key:create|key:revoke|key:list|retention:sweep>"
       );
       process.exitCode = 1;
       break;

@@ -21,7 +21,8 @@
     "seed-demo": "tsx --env-file-if-exists=../../.env src/cli.ts seed-demo",
     "key:create": "tsx --env-file-if-exists=../../.env src/cli.ts key:create",
     "key:revoke": "tsx --env-file-if-exists=../../.env src/cli.ts key:revoke",
-    "key:list": "tsx --env-file-if-exists=../../.env src/cli.ts key:list"
+    "key:list": "tsx --env-file-if-exists=../../.env src/cli.ts key:list",
+    "retention:sweep": "tsx --env-file-if-exists=../../.env src/cli.ts retention:sweep"
   },
   "dependencies": {
     "@flight-recorder/payload-security": "workspace:*",

@@ -211,6 +211,8 @@ The target API rejects the record. Flight Recorder must reveal the exact transfo
 | [Database schema](docs/DATABASE_SCHEMA.md) | Tables, indexes, constraints, and retention |
 | [Node SDK specification](docs/NODE_SDK_SPEC.md) | Initial SDK surface and reliability rules |
 | [Security](docs/SECURITY.md) | Threat model and data-handling requirements |
+| [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention |
+| [Security policy](SECURITY.md) | How to report a vulnerability, and what is in scope |
 | [Replay specification](docs/REPLAY_SPEC.md) | Development replay rules and safeguards |
 | [Demo scenario](docs/DEMO_SCENARIO.md) | End-to-end acceptance workflow |
 | [Testing strategy](docs/TESTING_STRATEGY.md) | Unit, integration, contract, and E2E testing |

@@ -19,7 +19,12 @@ const ENVIRONMENT_NAME = "development";
  * change is safe. A fresh API key is issued on every run: the full key is shown
  * once and never stored, so there is no way to reprint an existing one.
  */
-export async function seedLocal(db: Knex, masterKey: string): Promise<SeedResult> {
+export async function seedLocal(
+  db: Knex,
+  masterKey: string,
+  /** From DEFAULT_RETENTION_DAYS. The knob was inert before this. */
+  retentionDays = 7
+): Promise<SeedResult> {
   const subkeys = deriveSubkeys(masterKey);
 
   const project = await findOrInsert(
@@ -36,7 +41,7 @@ export async function seedLocal(db: Knex, masterKey: string): Promise<SeedResult
     {
       project_id: project.id,
       name: ENVIRONMENT_NAME,
-      retention_days: 7,
+      retention_days: retentionDays,
       capture_mode: "redacted-payload"
     }
   );

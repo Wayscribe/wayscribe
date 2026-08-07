@@ -3,6 +3,7 @@ import { createKnexConfig } from "@flight-recorder/database";
 import { deriveSubkeys } from "@flight-recorder/payload-security";
 import knex from "knex";
 import { buildApp } from "./app.js";
+import { startRetentionJob } from "./retention-job.js";
 
 // Parsed before anything else, so a misconfigured process fails immediately with
 // a message naming the offending variable rather than at first use.
@@ -10,7 +11,16 @@ const env = loadServerEnv(process.env);
 
 const db = knex(createKnexConfig(env.DATABASE_URL));
 const subkeys = deriveSubkeys(env.ENCRYPTION_KEY);
-const app = buildApp({ db, subkeys, adminToken: env.ADMIN_TOKEN, logLevel: env.LOG_LEVEL });
+const app = buildApp({
+  db,
+  subkeys,
+  adminToken: env.ADMIN_TOKEN,
+  logLevel: env.LOG_LEVEL,
+  maxEventPayloadBytes: env.MAX_EVENT_PAYLOAD_BYTES,
+  allowFullPayloadCapture: env.ALLOW_FULL_PAYLOAD_CAPTURE
+});
+
+const retention = startRetentionJob(app);
 
 // Warned at every boot, not once: an operator who scrolls past this on day one
 // should meet it again on day thirty. It does not refuse to start, because the
@@ -21,6 +31,7 @@ for (const finding of findInsecureDefaults(process.env)) {
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");
+  retention.stop();
   await app.close();
   await db.destroy();
   process.exit(0);

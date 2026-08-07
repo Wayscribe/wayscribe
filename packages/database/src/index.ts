@@ -15,6 +15,11 @@ export {
 export { maskDisplayValue } from "./mask.js";
 export { listProjects, type ProjectSummary } from "./repositories/projects.js";
 export {
+  sweepExpiredJourneys,
+  type SweepOptions,
+  type SweepResult
+} from "./repositories/retention.js";
+export {
   KeyAdminError,
   issueKey,
   listKeys,

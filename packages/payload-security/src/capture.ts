@@ -8,6 +8,15 @@ export interface CapturePolicy {
   mode: CaptureMode;
   redactionPaths?: readonly string[];
   allowlist?: readonly string[];
+  /**
+   * From ALLOW_FULL_PAYLOAD_CAPTURE. Defaults to false.
+   *
+   * `full-payload` stores payloads with only the built-in secret paths removed,
+   * so an operator has to opt in at the process level before any environment
+   * can select it. Without this the setting is inert, which is worse than
+   * absent: it reads as a control and is not one.
+   */
+  allowFullPayload?: boolean;
 }
 
 /**
@@ -25,7 +34,15 @@ export function applyCapture(payload: unknown, policy: CapturePolicy): unknown {
     return pickAllowlisted(payload, policy.allowlist ?? []);
   }
 
-  return redact(payload, [...(policy.redactionPaths ?? []), ...DEFAULT_SECRET_PATHS]);
+  // An environment set to full-payload on an installation that has not allowed
+  // it degrades to redacted-payload rather than failing. Refusing the event
+  // would lose data to protect data.
+  const paths =
+    policy.mode === "full-payload" && policy.allowFullPayload === true
+      ? DEFAULT_SECRET_PATHS
+      : [...(policy.redactionPaths ?? []), ...DEFAULT_SECRET_PATHS];
+
+  return redact(payload, paths);
 }
 
 function pickAllowlisted(payload: unknown, allowlist: readonly string[]): unknown {
