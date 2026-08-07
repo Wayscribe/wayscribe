@@ -31,6 +31,16 @@ The first release is intentionally narrow:
 
 There are **no AI capabilities in V0**. A future bring-your-own-key intelligence layer may be added as an optional, disabled-by-default module.
 
+## License
+
+Apache-2.0. The self-hosted core is free to use and always will be: event
+ingestion, entity and alias search, journey timelines, transformation diffs,
+error and retry inspection, development replay, and retention controls require
+no payment and no hosted Flight Recorder account.
+
+See [Product principles and non-negotiables](docs/PRODUCT_PRINCIPLES.md) and
+ADR-011 and ADR-014 in [the decision log](docs/DECISIONS.md).
+
 ## Core product promise
 
 > Find where a record was changed, lost, duplicated, delayed, or rejected across a distributed workflow.
