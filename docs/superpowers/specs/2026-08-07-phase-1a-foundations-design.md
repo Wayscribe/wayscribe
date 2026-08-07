@@ -40,11 +40,16 @@ and the API agree on, and a dependency here would leak implementation into the c
 
 ### `packages/database`
 
-Migrations 002 through 010, plus a local development seed.
+Migrations 002 through 009, plus a local development seed.
 
 Migration order: environments, api_keys, journeys, entity_aliases, journey_events,
-replay_destinations, replay_runs, audit_events, then a final migration for indexes not
-safely created inline.
+replay_destinations, replay_runs, audit_events.
+
+`DATABASE_SCHEMA.md` section 7 suggests a tenth migration for "indexes and constraints
+not safely created inline." That applies to concurrent index creation against a live
+table; every index here is created alongside its own table on an empty schema, so each
+lives in the migration that creates the table it serves. Splitting them out would
+separate an index from the table it belongs to for no benefit.
 
 Migrations remain plain ESM JavaScript per ADR-027.
 
