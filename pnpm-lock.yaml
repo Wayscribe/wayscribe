@@ -58,6 +58,14 @@ importers:
         specifier: ^4
         version: 4.23.9
 
+  packages/payload-diff: {}
+
+  packages/payload-security: {}
+
+  packages/protocol: {}
+
+  packages/sdk-node: {}
+
 packages:
 
   '@balena/dockerignore@1.0.2':
