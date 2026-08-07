@@ -40,7 +40,12 @@ interface BatchResult {
   error?: { code: string | undefined; message: string | undefined };
 }
 
-export function registerEventRoutes(app: FastifyInstance, subkeys: Subkeys): void {
+export function registerEventRoutes(
+  app: FastifyInstance,
+  subkeys: Subkeys,
+  maxEventPayloadBytes: number,
+  allowFullPayload: boolean
+): void {
   app.post("/v1/events", async (request, reply) => {
     const auth = await resolveApiKey(request.headers.authorization, subkeys.apiKey, (prefix) =>
       findApiKeyByPrefix(app.db, prefix)
@@ -51,7 +56,14 @@ export function registerEventRoutes(app: FastifyInstance, subkeys: Subkeys): voi
 
     touch(app, auth.context.id);
 
-    const result = await ingestEvent(app.db, subkeys, auth.context, request.body);
+    const result = await ingestEvent(
+      app.db,
+      subkeys,
+      auth.context,
+      request.body,
+      maxEventPayloadBytes,
+      allowFullPayload
+    );
     if (result.status === "rejected") {
       return reply
         .code(result.httpStatus)
@@ -102,7 +114,14 @@ export function registerEventRoutes(app: FastifyInstance, subkeys: Subkeys): voi
     const results: BatchResult[] = [];
     for (const event of events) {
       // Sequential and independent: one event's failure never affects another's.
-      const result = await ingestEvent(app.db, subkeys, auth.context, event);
+      const result = await ingestEvent(
+        app.db,
+        subkeys,
+        auth.context,
+        event,
+        maxEventPayloadBytes,
+        allowFullPayload
+      );
       results.push(
         result.status === "accepted"
           ? {

@@ -91,7 +91,7 @@ ever finished.
 - [x] Implement API-key generation.
 - [x] Implement API-key verification.
 - [x] Add security tests.
-- [ ] Ensure logs omit secrets.
+- [x] Ensure logs omit secrets.
 
 ## Epic 4: Event ingestion
 
@@ -263,13 +263,16 @@ the honest picture.
 
 ## Epic 14: Retention and operations
 
-- [ ] Implement retention selection.
-- [ ] Implement bounded deletion.
-- [ ] Add cleanup metrics.
-- [ ] Add backup documentation.
-- [ ] Add restore documentation.
+- [x] Implement retention selection.
+- [x] Implement bounded deletion.
+- [x] Add cleanup metrics. One structured log line per sweep; ADR-012 rules out
+      a metrics dependency, and the number is read while reading logs anyway.
+- [x] Add backup documentation.
+- [x] Add restore documentation.
 - [x] Add structured logs.
-- [ ] Add basic internal metrics endpoint or diagnostics.
+- [x] Add basic internal metrics endpoint or diagnostics. Covered by `/health`,
+      `/ready`, the retention log line, and the SDK's shutdown counters. A
+      Prometheus endpoint is a V1 item.
 - [x] Add readiness dependency checks.
 
 ## Epic 15: Release readiness
@@ -277,7 +280,7 @@ the honest picture.
 - [ ] Complete quick start.
 - [x] Complete SDK docs.
 - [x] Complete API docs.
-- [ ] Complete security docs.
+- [x] Complete security docs.
 - [x] Add contribution guide.
 - [x] Add issue templates.
 - [ ] Add release workflow.

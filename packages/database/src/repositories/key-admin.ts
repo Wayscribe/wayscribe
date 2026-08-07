@@ -39,7 +39,13 @@ export class KeyAdminError extends Error {
 export async function issueKey(
   db: Knex,
   masterKey: string,
-  options: { projectSlug: string; environmentName: string; name: string }
+  options: {
+    projectSlug: string;
+    environmentName: string;
+    name: string;
+    /** From DEFAULT_RETENTION_DAYS, when this call creates the environment. */
+    retentionDays?: number;
+  }
 ): Promise<IssuedKey> {
   const subkeys = deriveSubkeys(masterKey);
 
@@ -61,7 +67,7 @@ export async function issueKey(
     (await insertReturningId(db, "environments", {
       project_id: project.id,
       name: options.environmentName,
-      retention_days: 7,
+      retention_days: options.retentionDays ?? 7,
       capture_mode: "redacted-payload"
     }));
 

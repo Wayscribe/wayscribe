@@ -24,7 +24,8 @@
     "demo:trigger": "node scripts/demo-trigger.mjs",
     "key:create": "pnpm --filter @flight-recorder/database \"key:create\" --",
     "key:revoke": "pnpm --filter @flight-recorder/database \"key:revoke\" --",
-    "key:list": "pnpm --filter @flight-recorder/database \"key:list\" --"
+    "key:list": "pnpm --filter @flight-recorder/database \"key:list\" --",
+    "retention:sweep": "pnpm --filter @flight-recorder/database \"retention:sweep\" --"
   },
   "packageManager": "pnpm@11.20.0+sha512.9a6f330a95b66446ea088faf1521405a8a01f07fde7124cc9958dfed52d4bb436737e65b08f85f37b46fcba375092558ac51262b816844b22f63406ed166bfee",
   "devDependencies": {

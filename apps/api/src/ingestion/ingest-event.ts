@@ -42,9 +42,13 @@ export async function ingestEvent(
   db: Knex,
   subkeys: Subkeys,
   context: ApiKeyContext,
-  body: unknown
+  body: unknown,
+  /** From MAX_EVENT_PAYLOAD_BYTES. Defaults to the shared limit for callers that have none. */
+  maxPayloadBytes: number = DEFAULT_LIMITS.maxBytes,
+  /** From ALLOW_FULL_PAYLOAD_CAPTURE. */
+  allowFullPayload = false
 ): Promise<IngestResult> {
-  const limits = checkLimits(body, DEFAULT_LIMITS);
+  const limits = checkLimits(body, { ...DEFAULT_LIMITS, maxBytes: maxPayloadBytes });
   if (!limits.ok) {
     return reject(400, limits.reason, "The event exceeded a configured limit.");
   }
@@ -62,7 +66,8 @@ export async function ingestEvent(
   const policy = {
     mode: context.captureMode as CaptureMode,
     redactionPaths: context.redactionPaths,
-    allowlist: context.captureAllowlist
+    allowlist: context.captureAllowlist,
+    allowFullPayload
   };
   const input = applyCapture(event.input, policy);
   const output = applyCapture(event.output, policy);

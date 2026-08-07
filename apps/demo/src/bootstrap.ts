@@ -39,10 +39,12 @@ try {
       : `[bootstrap] applied ${String(applied.length)} migrations`
   );
 
+  const retention = Number.parseInt(process.env["DEFAULT_RETENTION_DAYS"] ?? "7", 10);
   const seeded = await seedDemo(
     flight,
     requiredEnv("ENCRYPTION_KEY"),
-    requiredEnv("FLIGHT_API_KEY")
+    requiredEnv("FLIGHT_API_KEY"),
+    Number.isInteger(retention) && retention > 0 ? retention : 7
   );
   console.log(`[bootstrap] demo project ${seeded.projectId} ready`);
 
