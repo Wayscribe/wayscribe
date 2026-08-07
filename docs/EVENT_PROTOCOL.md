@@ -27,6 +27,7 @@ Every request event is wrapped in an envelope so future protocol versions can be
 ```typescript
 type JourneyOperation =
   | "received"
+  | "identified"
   | "transformed"
   | "validated"
   | "persisted"
@@ -187,6 +188,10 @@ Examples:
 - API request accepted
 - file received
 
+### `identified`
+
+New aliases were associated with the entity. Emitted by `journey.identify()`.
+
 ### `transformed`
 
 The shape or values of data were intentionally changed.
@@ -213,7 +218,10 @@ A message or event was received by a worker or subscriber.
 
 Data was sent to an external or downstream system.
 
-A failed delivery should still use `delivered` with an error or emit a separate `failed` event according to the SDK helper design. The choice must remain consistent.
+A failed delivery attempt uses `delivered` — or `retried` for subsequent attempts —
+with `error` populated and the HTTP status in `metadata`. The `failed` operation is
+reserved for terminal journey or branch failure, such as a dead-letter transition.
+See ADR-022.
 
 ### `failed`
 

@@ -291,13 +291,17 @@ Request:
 ```json
 {
   "name": "Local integration API",
-  "url": "http://host.docker.internal:3000/replay/customer",
+  "baseUrl": "http://host.docker.internal:3200",
   "environmentType": "development",
   "headers": {
     "x-replay-key": "configured-secret"
   }
 }
 ```
+
+`baseUrl` is an origin with an optional base path. The relative `path` supplied on a
+replay request is appended to it. Path traversal, absolute URLs, and protocol-relative
+URLs are rejected. See ADR-019.
 
 The server must validate the destination against configured host policy.
 

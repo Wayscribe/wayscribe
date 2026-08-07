@@ -684,8 +684,18 @@ Add to the end of Epic 12:
 
 - [ ] **Step 7: Verify no stale values remain**
 
-Run: `grep -rn 'metadata, allowlist, redacted, full' docs/ ; grep -rn 'replay/customer' docs/API_SPEC.md`
-Expected: no output from either. Any output means a correction was missed.
+```bash
+grep -rn 'metadata, allowlist, redacted, full' docs/ --exclude-dir=superpowers
+grep -n '"url": "http' docs/API_SPEC.md
+```
+
+Expected: no output from either.
+
+Both greps are deliberately narrow. `--exclude-dir=superpowers` skips this plan, which
+quotes the old capture-mode values as the "before" side of the correction. And the
+second grep targets a `url` key rather than the string `replay/customer`, because
+section 11's `"path": "/replay/customer"` is *correct* under ADR-019 — a relative path
+appended to the destination base — and must not be flagged.
 
 - [ ] **Step 8: Commit**
 
@@ -2523,7 +2533,7 @@ Expected: `postgres`, `api`, `web` — no queue, no cache, no third-party servic
 
 ```bash
 grep -c '^## ADR-' docs/DECISIONS.md
-grep -rn 'metadata, allowlist, redacted, full' docs/ || echo "capture modes corrected"
+grep -rn 'metadata, allowlist, redacted, full' docs/ --exclude-dir=superpowers || echo "capture modes corrected"
 grep -n 'demo-worker' README.md docs/IMPLEMENTATION_PLAN.md
 grep -n 'identified' docs/EVENT_PROTOCOL.md
 head -3 LICENSE

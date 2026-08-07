@@ -52,7 +52,7 @@ Indexes and constraints:
 | `project_id` | uuid | FK to projects |
 | `name` | text | `local`, `development`, `staging`, `production` |
 | `retention_days` | integer | Positive |
-| `capture_mode` | text | metadata, allowlist, redacted, full |
+| `capture_mode` | text | `metadata-only`, `allowlisted-fields`, `redacted-payload`, `full-payload` |
 | `created_at` | timestamptz | Required |
 | `updated_at` | timestamptz | Required |
 
@@ -101,7 +101,7 @@ Constraints:
 
 Constraints and indexes:
 
-- primary key or unique `(project_id, id)`
+- composite primary key `(project_id, id)`
 - index `(project_id, environment_id, last_event_at desc)`
 - index `(project_id, entity_type, primary_entity_id_hash)`
 - check event count is nonnegative
@@ -112,7 +112,7 @@ Constraints and indexes:
 |---|---|---|
 | `id` | uuid | Primary key |
 | `project_id` | uuid | Denormalized for safe scoping |
-| `journey_id` | text | FK relationship |
+| `journey_id` | text | Composite FK `(project_id, journey_id)` to journeys |
 | `alias_type` | text | Developer-defined stable name |
 | `alias_value_hash` | text | Normalized search hash |
 | `encrypted_display_value` | bytea or text | Optional |
@@ -136,6 +136,7 @@ An alias value may intentionally map to more than one journey over time. Do not 
 | `journey_id` | text | Required |
 | `parent_event_id` | text | Nullable |
 | `protocol_version` | text | Required |
+| `content_hash` | text | Canonical hash for duplicate-conflict detection |
 | `operation` | text | Required |
 | `name` | text | Required |
 | `service` | text | Required |
@@ -157,7 +158,7 @@ An alias value may intentionally map to more than one journey over time. Do not 
 
 Constraints and indexes:
 
-- unique `(project_id, id)` for idempotency
+- composite primary key `(project_id, id)`, which provides idempotency
 - index `(project_id, journey_id, event_timestamp, received_at, id)`
 - index `(project_id, trace_id)` where trace ID is not null
 - index `(project_id, message_id)` where message ID is not null

@@ -33,7 +33,6 @@ This checklist is ordered to produce a working vertical slice early.
 - [ ] Add `/ready`.
 - [ ] Add CI for format, lint, type check, and unit tests.
 - [ ] Run a clean-machine onboarding check.
-- [ ] Record time to first useful journey.
 
 ## Epic 1: Protocol
 
@@ -226,6 +225,7 @@ This checklist is ordered to produce a working vertical slice early.
 - [ ] Instrument all steps.
 - [ ] Add trigger script.
 - [ ] Verify search and timeline manually.
+- [ ] Record time to first useful journey on a clean machine.
 
 ## Epic 13: Replay
 

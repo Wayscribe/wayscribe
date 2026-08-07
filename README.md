@@ -157,6 +157,7 @@ flight-recorder/
 │   ├── web/
 │   ├── demo-source/
 │   ├── demo-integration/
+│   ├── demo-worker/
 │   └── demo-target/
 ├── packages/
 │   ├── protocol/
