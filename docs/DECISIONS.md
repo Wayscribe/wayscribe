@@ -583,3 +583,44 @@ Retention runs on an interval inside the API process, guarded by
 - No additional container, preserving ADR-012.
 - Multiple API replicas do not delete concurrently.
 - Retention stops when the API is down, which is acceptable for a cleanup job.
+
+---
+
+## ADR-027: Migrations are plain JavaScript in a package-root directory
+
+**Status:** Accepted
+
+### Context
+
+Knex records the migration *filename* in the `knex_migrations` table. With
+TypeScript migrations compiled to `dist`, the same migration is named
+`001_projects.ts` when applied from source through tsx and `001_projects.js` when
+the API loads it from compiled output. A database migrated in one context then
+reports the migration directory as corrupt in the other.
+
+A related defect appeared first: because `.d.ts` declaration files end in `.ts`, a
+`loadExtensions: [".ts", ".js"]` list counted every compiled migration twice, so
+`/ready` reported migrations pending forever.
+
+Both are the same underlying problem — migration identity must not depend on how
+the process was started.
+
+### Decision
+
+Migrations and seeds are plain ESM JavaScript in `packages/database/migrations` and
+`packages/database/seeds`, at the package root rather than under `src`. Knex is
+configured with `loadExtensions: [".js"]` only. Knex types are supplied through
+JSDoc.
+
+The directories resolve as `../migrations` relative to the Knex configuration
+module, which sits at `src/knex-config.ts` in development and `dist/knex-config.js`
+in a container — both exactly one level below the package root.
+
+### Consequences
+
+- One migration file has one name in every execution context: tsx, node, Vitest,
+  and Docker.
+- Migrations are not type checked by `tsc`; JSDoc gives editor support instead.
+- Migrations need no build step, so `pnpm db:migrate` works on a fresh clone.
+- Schema changes carrying non-trivial logic must be written in JavaScript, which
+  is an accepted trade for deterministic migration identity.

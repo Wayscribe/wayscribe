@@ -18,8 +18,11 @@ describe("migrations", () => {
     await container.stop();
   });
 
-  it("reports pending migrations before running them", async () => {
-    expect(await pendingMigrationCount(db)).toBeGreaterThan(0);
+  it("counts each migration exactly once before running them", async () => {
+    // Exact, not greater-than: a loose assertion here hid a defect where
+    // declaration files were counted as migrations, because `.d.ts` ends in
+    // `.ts`. Update this number when a migration is added.
+    expect(await pendingMigrationCount(db)).toBe(1);
   });
 
   it("applies migrations and creates the projects table", async () => {
