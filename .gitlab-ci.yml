@@ -24,6 +24,7 @@ stages:
   - test
   - integration
   - build
+  - browser
 
 format:
   stage: verify
@@ -64,6 +65,34 @@ build:
   script:
     - pnpm build
 
-# Browser and end-to-end stages are deliberately absent rather than declared and
-# skipped: GitLab treats a job with no script as a configuration error. They are
-# added in Phase 2 and Phase 5, when they have something to run.
+# Browser coverage. TESTING_STRATEGY.md section 8 puts these on protected branches
+# or the release workflow rather than every push, and this job builds and boots two
+# applications — a red pipeline on every commit for a suite needing the whole stack
+# trains people to ignore it.
+#
+# The image tag must track the @playwright/test version in package.json; a mismatch
+# between the browser image and the client is a common and confusing failure.
+e2e:
+  stage: browser
+  image: mcr.microsoft.com/playwright:v1.62.1-noble
+  services:
+    - name: postgres:17-alpine
+      alias: postgres
+  variables:
+    POSTGRES_USER: flight
+    POSTGRES_PASSWORD: flight
+    POSTGRES_DB: flight
+    DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+    ENCRYPTION_KEY: ci-encryption-key-00000000000000000
+    ADMIN_TOKEN: ci-admin-token-0000000000000000000
+    API_URL: http://localhost:8080
+  when: manual
+  allow_failure: true
+  script:
+    - pnpm db:migrate
+    - pnpm build
+    - node apps/api/dist/server.js &
+    - pnpm --filter @flight-recorder/web start &
+    - npx wait-on http://localhost:8080/health http://localhost:3000/login
+    - export FLIGHT_API_KEY=$(pnpm db:seed | grep -oE 'fr_[A-Za-z0-9_-]+' | tail -1)
+    - pnpm test:e2e
