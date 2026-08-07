@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx --env-file-if-exists=../../.env watch src/server.ts",
     "start": "node dist/server.js"
   },
   "dependencies": {

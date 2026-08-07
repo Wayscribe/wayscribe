@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type { Knex } from "knex";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerProjectRoutes } from "./routes/projects.js";
 import { registerQueryRoutes } from "./routes/queries.js";
 
 declare module "fastify" {
@@ -26,6 +27,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   app.decorate("db", options.db);
   registerHealthRoutes(app);
   registerEventRoutes(app, options.subkeys);
+  registerProjectRoutes(app, options.adminToken);
   registerQueryRoutes(app, options.subkeys, options.adminToken);
 
   return app;

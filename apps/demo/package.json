@@ -10,7 +10,7 @@
   "dependencies": {
     "@aws-sdk/client-sqs": "^3",
     "@flight-recorder/database": "workspace:*",
-    "@flight-recorder/sdk-node": "workspace:*",
+    "@flight-recorder/node": "workspace:*",
     "fastify": "^5",
     "knex": "^3",
     "pg": "^8"

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EventDetail } from "../../../components/EventDetail";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
+import { requireProjectId } from "../../../../src/lib/current-project";
 
 export default async function JourneyPage({
   params,
@@ -13,14 +14,16 @@ export default async function JourneyPage({
   const { journeyId } = await params;
   const { event: selectedId } = await searchParams;
 
+  const projectId = await requireProjectId();
+
   try {
-    const journey = await getJourney(journeyId);
+    const journey = await getJourney(journeyId, projectId);
     if (journey === null) notFound();
 
-    const events = await listEvents(journeyId);
+    const events = await listEvents(journeyId, projectId);
     // Default to the first event so the detail panel is never empty on arrival.
     const activeId = selectedId ?? events[0]?.id;
-    const active = activeId === undefined ? null : await getEvent(activeId);
+    const active = activeId === undefined ? null : await getEvent(activeId, projectId);
 
     return (
       <main>

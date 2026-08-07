@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ApiUnavailableError, search } from "../../src/lib/api";
+import { ApiUnavailableError, ProjectNotSelectedError, search } from "../../src/lib/api";
+import { requireProjectId } from "../../src/lib/current-project";
 
 export default async function SearchPage({
   searchParams
@@ -32,12 +33,23 @@ export default async function SearchPage({
 }
 
 async function Results({ query }: { query: string }) {
+  const projectId = await requireProjectId();
+
   let items;
   try {
-    items = await search(query);
+    items = await search(query, projectId);
   } catch (error) {
     if (error instanceof ApiUnavailableError) {
       return <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>;
+    }
+    if (error instanceof ProjectNotSelectedError) {
+      // The session names a project that no longer exists. Say so, rather
+      // than reporting it as a record that does not exist.
+      return (
+        <p className="error">
+          The selected project is no longer available. <a href="/projects">Choose another</a>.
+        </p>
+      );
     }
     throw error;
   }

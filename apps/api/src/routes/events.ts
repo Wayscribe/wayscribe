@@ -1,10 +1,37 @@
-import { findApiKeyByPrefix } from "@flight-recorder/database";
+import { findApiKeyByPrefix, touchApiKey } from "@flight-recorder/database";
 import type { Subkeys } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
 import { resolveApiKey } from "../auth.js";
 import { ingestEvent } from "../ingestion/ingest-event.js";
 
 const MAX_BATCH_SIZE = 100;
+
+/**
+ * How stale `last_used_at` is allowed to get.
+ *
+ * Ingestion is the hot path and a key is presented on every event, so writing
+ * this row per request would add a write to a request that already has one. An
+ * operator deciding whether a key is still in use does not need the last minute;
+ * they need to know it was not last year.
+ */
+const TOUCH_INTERVAL_MS = 60_000;
+const lastTouched = new Map<string, number>();
+
+/**
+ * Record that a key was used, at most once a minute, without blocking the reply.
+ *
+ * Errors are swallowed deliberately: failing an accepted ingestion because a
+ * bookkeeping write failed would trade real data for a timestamp.
+ */
+function touch(app: FastifyInstance, id: string): void {
+  const now = Date.now();
+  if (now - (lastTouched.get(id) ?? 0) < TOUCH_INTERVAL_MS) return;
+  lastTouched.set(id, now);
+
+  void touchApiKey(app.db, id).catch((error: unknown) => {
+    app.log.debug({ err: error }, "failed to record API key usage");
+  });
+}
 
 interface BatchResult {
   eventId: string | null;
@@ -21,6 +48,8 @@ export function registerEventRoutes(app: FastifyInstance, subkeys: Subkeys): voi
     if (!auth.ok) {
       return reply.code(auth.status).send(errorBody(auth.code, auth.message, request.id));
     }
+
+    touch(app, auth.context.id);
 
     const result = await ingestEvent(app.db, subkeys, auth.context, request.body);
     if (result.status === "rejected") {
@@ -46,6 +75,8 @@ export function registerEventRoutes(app: FastifyInstance, subkeys: Subkeys): voi
     if (!auth.ok) {
       return reply.code(auth.status).send(errorBody(auth.code, auth.message, request.id));
     }
+
+    touch(app, auth.context.id);
 
     const body = request.body as { events?: unknown } | undefined;
     const events = body?.events;

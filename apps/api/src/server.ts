@@ -1,4 +1,4 @@
-import { loadServerEnv } from "@flight-recorder/config";
+import { findInsecureDefaults, loadServerEnv } from "@flight-recorder/config";
 import { createKnexConfig } from "@flight-recorder/database";
 import { deriveSubkeys } from "@flight-recorder/payload-security";
 import knex from "knex";
@@ -11,6 +11,13 @@ const env = loadServerEnv(process.env);
 const db = knex(createKnexConfig(env.DATABASE_URL));
 const subkeys = deriveSubkeys(env.ENCRYPTION_KEY);
 const app = buildApp({ db, subkeys, adminToken: env.ADMIN_TOKEN, logLevel: env.LOG_LEVEL });
+
+// Warned at every boot, not once: an operator who scrolls past this on day one
+// should meet it again on day thirty. It does not refuse to start, because the
+// demo has to run with nothing configured.
+for (const finding of findInsecureDefaults(process.env)) {
+  app.log.warn({ variable: finding.variable }, finding.message);
+}
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");

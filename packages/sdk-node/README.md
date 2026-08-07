@@ -1,0 +1,200 @@
+# @flight-recorder/node
+
+Record what happened to one customer record as it crossed your services, and see
+where a value changed.
+
+This is the Node.js SDK for [Flight Recorder](https://gitlab.com/jojithedev/flight-recorder),
+a self-hosted, record-level debugging tool. You run the server yourself; nothing
+leaves your infrastructure.
+
+- **No runtime dependencies.** This package is embedded in your application, so
+  it brings nothing with it.
+- **Cannot break your application.** Every entry point is wrapped so that a
+  recorder failure is counted, not thrown. Details below.
+- Apache-2.0.
+
+## Install
+
+```bash
+npm install @flight-recorder/node
+```
+
+## Record a journey
+
+```typescript
+import { createRecorder } from "@flight-recorder/node";
+
+const recorder = createRecorder({
+  endpoint: process.env.FLIGHT_RECORDER_URL ?? "http://localhost:8080",
+  apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? "",
+  serviceName: "billing-api",
+  environment: "production"
+});
+
+async function handleWebhook(account) {
+  const journey = recorder.startJourney({
+    entity: { type: "customer", id: account.Id }
+  });
+
+  journey.record({
+    operation: "received",
+    name: "receive-account-webhook",
+    input: account
+  });
+
+  const customer = await journey.transform("map-account", account, () =>
+    toCustomer(account)
+  );
+
+  const id = await journey.persist("save-customer", customer, () =>
+    db.customers.insert(customer)
+  );
+
+  // Aliases are the other identifiers this record is known by. They make the
+  // journey findable by any of them.
+  journey.identify({ internalCustomerId: String(id) });
+}
+```
+
+Then search your Flight Recorder for `account.Id` and read the timeline.
+
+## Wrappers
+
+`transform`, `persist`, `publish`, and `deliver` each run your callback, return
+its value unchanged, and rethrow its exact error object. They differ only in the
+operation they record, which is what makes the timeline readable.
+
+```typescript
+await journey.deliver("send-to-crm", payload, () => post(payload));
+```
+
+**A failure that does not throw.** An HTTP 422 is a failure your code inspects
+rather than catches, so say so:
+
+```typescript
+const response = await journey.deliver("send-to-crm", payload, () => post(payload), {
+  isFailure: (result) => result.status >= 400
+});
+```
+
+**Retries.** Pass the attempt number and the wrapper records `retried` instead of
+the natural verb. The SDK cannot count attempts itself: a retry usually happens
+in a different process consuming a redelivered message.
+
+```typescript
+await journey.deliver("send-to-crm", payload, () => post(payload), { attempt: 2 });
+```
+
+## Crossing a process boundary
+
+A journey that stops at a service boundary is three unrelated timelines. Inject
+context on the way out and extract it on the way in.
+
+```typescript
+// Producer
+await fetch(url, { headers: recorder.injectHttpHeaders({}, journey.context()) });
+
+await sqs.send(
+  new SendMessageCommand({
+    QueueUrl: url,
+    MessageBody: JSON.stringify(message),
+    MessageAttributes: recorder.toQueueAttributes(journey.context())
+  })
+);
+```
+
+```typescript
+// Consumer
+const journey = recorder.consume({
+  context: recorder.fromQueueAttributes(message.MessageAttributes),
+  entityFallback: { type: "customer", id: body.customer.externalId }
+});
+```
+
+`entityFallback` is not optional in practice. By default the entity **ID does not
+propagate** — it is often a real customer identifier, and sending it by default
+would write it into the headers, queue metadata, and logs of systems you may not
+control. The consumer supplies the ID it already has from the message body.
+
+| `propagate` | Emits |
+| --- | --- |
+| `journey-only` | journey ID |
+| `journey-and-type` (default) | journey ID, entity type |
+| `full` | journey ID, entity type, entity ID |
+
+**Aliases never propagate, at any level.** Not configurable.
+
+## It cannot break your application
+
+An observability library that takes down the service it observes is worse than
+no library. This one is built so that cannot happen:
+
+- Every public entry point is wrapped. A failure inside the recorder increments a
+  counter and returns; it never propagates to your code.
+- Wrappers return your callback's value unchanged and rethrow its exact error
+  object — the same instance, so `instanceof` checks and custom properties on
+  your errors keep working.
+- The event queue is bounded. Under backpressure it drops the oldest events and
+  counts the drops rather than growing without limit.
+- The transport retries with a circuit breaker, and gives up rather than piling
+  up.
+- `shutdown()` never hangs; it races the final flush against a timeout.
+- Nothing is written to your console. Pass `onDiagnostic` if you want to hear
+  about failures.
+
+```typescript
+const recorder = createRecorder({
+  // ...
+  onDiagnostic: (d) => logger.warn({ kind: d.kind }, d.reason)
+});
+
+const counters = await recorder.shutdown();
+// { dropped, transportErrors, captureErrors, breakerOpened, sent }
+```
+
+## Redaction
+
+Payloads are redacted before they leave your process, against a built-in list of
+secret-looking paths. Paths you add are appended to that list rather than
+replacing it, so adding one cannot silently disable the rest.
+
+```typescript
+createRecorder({
+  // ...
+  captureMode: "redacted-payload", // default; "metadata-only" captures no payloads
+  redact: ["customer.taxId"]
+});
+```
+
+## Configuration
+
+| Option | Default | |
+| --- | --- | --- |
+| `endpoint` | — | required |
+| `apiKey` | — | required |
+| `serviceName` | — | required |
+| `environment` | — | required; must match the API key's environment |
+| `captureMode` | `redacted-payload` | or `metadata-only`, `full-payload` |
+| `redact` | `[]` | appended to the built-in secret paths |
+| `propagate` | `journey-and-type` | see above |
+| `batchSize` | `20` | |
+| `flushIntervalMs` | `1000` | |
+| `requestTimeoutMs` | `1500` | |
+| `maxBufferedEvents` | `1000` | oldest are dropped past this |
+| `maxPayloadBytes` | `262144` | larger payloads record a marker instead |
+| `onDiagnostic` | — | |
+
+The SDK reads no environment variables. A library that changes behaviour based on
+ambient state is a library that behaves differently in your tests.
+
+## OpenTelemetry
+
+If OpenTelemetry is installed, the SDK reads the active trace and span IDs onto
+each event. It is resolved once, optional, and absent it degrades silently.
+
+The SDK does not write `traceparent`. OpenTelemetry owns that header and has its
+own propagator.
+
+## License
+
+Apache-2.0

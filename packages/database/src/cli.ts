@@ -2,6 +2,9 @@ import knex from "knex";
 import { createKnexConfig } from "./knex-config.js";
 
 const command = process.argv[2];
+// pnpm forwards a literal `--` separator through to the script when a run is
+// filtered to one package, so it arrives as an argument rather than as syntax.
+const args = process.argv.slice(3).filter((argument) => argument !== "--");
 const databaseUrl = process.env["DATABASE_URL"];
 
 if (databaseUrl === undefined || databaseUrl === "") {
@@ -10,6 +13,17 @@ if (databaseUrl === undefined || databaseUrl === "") {
 }
 
 const db = knex(createKnexConfig(databaseUrl));
+
+/** Returns undefined and sets a failing exit code when the master key is absent. */
+function requireEncryptionKey(): string | undefined {
+  const masterKey = process.env["ENCRYPTION_KEY"];
+  if (masterKey === undefined || masterKey === "") {
+    console.error("ENCRYPTION_KEY is not set.");
+    process.exitCode = 1;
+    return undefined;
+  }
+  return masterKey;
+}
 
 try {
   switch (command) {
@@ -66,9 +80,80 @@ try {
       console.log(`Demo seed applied for project ${result.projectId} (${result.keyPrefix}).`);
       break;
     }
+    case "key:create": {
+      const masterKey = requireEncryptionKey();
+      if (masterKey === undefined) break;
+
+      const [projectSlug, environmentName, name] = args;
+      if (projectSlug === undefined || environmentName === undefined) {
+        console.error("Usage: key:create <project-slug> <environment> [name]");
+        process.exitCode = 1;
+        break;
+      }
+
+      const { issueKey, KeyAdminError } = await import("./repositories/key-admin.js");
+      try {
+        const issued = await issueKey(db, masterKey, {
+          projectSlug,
+          environmentName,
+          name: name ?? `${environmentName}-key`
+        });
+        console.log(`Key issued for ${issued.projectSlug}/${issued.environmentName}.`);
+        console.log("");
+        console.log("  API key (shown once, not recoverable):");
+        console.log(`    ${issued.apiKey}`);
+        console.log("");
+        console.log(`  prefix: ${issued.keyPrefix}`);
+      } catch (error) {
+        if (!(error instanceof KeyAdminError)) throw error;
+        console.error(error.message);
+        process.exitCode = 1;
+      }
+      break;
+    }
+    case "key:revoke": {
+      const keyPrefix = args[0];
+      if (keyPrefix === undefined) {
+        console.error("Usage: key:revoke <key-prefix>    (see `key:list`)");
+        process.exitCode = 1;
+        break;
+      }
+
+      const { revokeKey, KeyAdminError } = await import("./repositories/key-admin.js");
+      try {
+        const revoked = await revokeKey(db, keyPrefix);
+        console.log(
+          `Revoked ${revoked.keyPrefix} (${revoked.name}) on ${revoked.projectSlug}/${revoked.environmentName}.`
+        );
+        console.log("Requests presenting it are refused from now on.");
+      } catch (error) {
+        if (!(error instanceof KeyAdminError)) throw error;
+        console.error(error.message);
+        process.exitCode = 1;
+      }
+      break;
+    }
+    case "key:list": {
+      const { listKeys } = await import("./repositories/key-admin.js");
+      const keys = await listKeys(db, args[0]);
+      if (keys.length === 0) {
+        console.log("No API keys. Create one with `key:create <project-slug> <environment>`.");
+        break;
+      }
+      console.log("PREFIX        PROJECT/ENVIRONMENT            NAME                 LAST USED");
+      for (const key of keys) {
+        const scope = `${key.projectSlug}/${key.environmentName}`;
+        const used = key.lastUsedAt?.toISOString().slice(0, 19).replace("T", " ") ?? "never";
+        const state = key.revokedAt === null ? "" : "  [REVOKED]";
+        console.log(`${key.keyPrefix}  ${scope.padEnd(30)} ${key.name.padEnd(20)} ${used}${state}`);
+      }
+      break;
+    }
     default: {
       console.error(`Unknown command: ${command ?? "(none)"}`);
-      console.error("Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo>");
+      console.error(
+        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|key:create|key:revoke|key:list>"
+      );
       process.exitCode = 1;
       break;
     }

@@ -14,7 +14,7 @@ export default defineConfig({
       ),
       "@flight-recorder/config": packageSource("config"),
       "@flight-recorder/database": packageSource("database"),
-      "@flight-recorder/sdk-node": packageSource("sdk-node")
+      "@flight-recorder/node": packageSource("sdk-node")
     }
   },
   test: {
