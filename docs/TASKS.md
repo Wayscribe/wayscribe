@@ -265,11 +265,17 @@ This checklist is ordered to produce a working vertical slice early.
 - [ ] Add contribution guide.
 - [ ] Add issue templates.
 - [ ] Add release workflow.
+- [ ] Publish `api` and `web` images to a container registry.
+- [ ] Publish `@flight-recorder/node` to npm.
+- [ ] Change the quick start to pull published images rather than build from source.
 - [ ] Run security review.
 - [ ] Run full E2E test.
 - [ ] Test clean-machine installation.
 - [ ] Verify no paid account or external hosted service is required.
-- [ ] Verify first useful journey can be recorded in approximately 15 minutes.
+- [ ] Verify first useful journey can be recorded in approximately 15 minutes,
+      measured from a pulled image rather than a source build. Building two Node
+      images consumes a meaningful share of that budget before the user sees
+      anything, so the target is only honest against published artifacts.
 - [ ] Verify record-first search, identity mapping, transformation diff, existing-architecture flow, and safe replay together.
 - [ ] Conduct a clarity review with a developer unfamiliar with tracing tools.
 - [ ] Tag first development release.
