@@ -2,6 +2,11 @@ default:
   image: node:24-alpine
   before_script:
     - corepack enable
+    # GitLab can only cache paths inside the project directory, so the pnpm store
+    # lives there. Every tool that walks the tree must therefore ignore it — see
+    # .prettierignore, eslint.config.js, and .gitignore. Prettier will otherwise
+    # try to parse the content-addressed store and fail.
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
     - pnpm install --frozen-lockfile
   cache:
     key:
@@ -11,7 +16,8 @@ default:
       - .pnpm-store
 
 variables:
-  PNPM_HOME: "$CI_PROJECT_DIR/.pnpm-store"
+  # Not PNPM_HOME: that is the global binary directory, not the content store.
+  PNPM_STORE_DIR: "$CI_PROJECT_DIR/.pnpm-store"
 
 stages:
   - verify
