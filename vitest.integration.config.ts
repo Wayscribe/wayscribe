@@ -19,6 +19,7 @@ export default defineConfig({
   },
   test: {
     include: ["{apps,packages}/*/src/**/*.integration.test.ts"],
+    exclude: ["**/node_modules/**", "**/*.e2e.test.ts"],
     environment: "node",
     testTimeout: 120_000,
     hookTimeout: 120_000,
