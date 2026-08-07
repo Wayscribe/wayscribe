@@ -45,7 +45,12 @@ export default tseslint.config(
     // any TypeScript project, so type-aware rules cannot apply to them. They are
     // still linted for ordinary correctness.
     files: ["packages/database/migrations/**/*.js", "packages/database/seeds/**/*.js"],
-    ...tseslint.configs.disableTypeChecked
+    ...tseslint.configs.disableTypeChecked,
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      // JSDoc supplies the return types in migrations.
+      "@typescript-eslint/explicit-function-return-type": "off"
+    }
   },
   {
     // React components return JSX and the ecosystem conventionally omits the
