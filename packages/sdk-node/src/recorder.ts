@@ -4,6 +4,7 @@ import { resolveConfig, type RecorderConfig } from "./config.js";
 import { createDiagnostics, type Counters } from "./diagnostics.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
+import { createTraceReader } from "./trace.js";
 import { Transport } from "./transport.js";
 
 export interface JourneyContext {
@@ -21,10 +22,44 @@ export interface RecordInput {
   durationMs?: number;
 }
 
+export interface WrapOptions {
+  /** Marks a result that did not throw but represents a failure, e.g. HTTP 422. */
+  isFailure?: (result: unknown) => boolean;
+  /** 1 for a first attempt. Anything higher records `retried` (ADR-022). */
+  attempt?: number;
+  metadata?: Record<string, unknown>;
+}
+
 export interface Journey {
   context(): JourneyContext;
   record(input: RecordInput): void;
   identify(aliases: Record<string, string>): void;
+  transform<T>(
+    name: string,
+    input: unknown,
+    fn: () => T | Promise<T>,
+    options?: WrapOptions
+  ): Promise<T>;
+  persist<T>(
+    name: string,
+    input: unknown,
+    fn: () => T | Promise<T>,
+    options?: WrapOptions
+  ): Promise<T>;
+  publish<T>(
+    name: string,
+    message: unknown,
+    fn: () => T | Promise<T>,
+    options?: WrapOptions
+  ): Promise<T>;
+  deliver<T>(
+    name: string,
+    payload: unknown,
+    fn: () => T | Promise<T>,
+    options?: WrapOptions
+  ): Promise<T>;
+  fail(name: string, error: unknown, metadata?: Record<string, unknown>): void;
+  finish(options?: { status?: "completed" | "failed" }): void;
 }
 
 export interface Recorder {
@@ -33,6 +68,10 @@ export interface Recorder {
     aliases?: Record<string, string>;
   }): Journey;
   continueJourney(context: JourneyContext): Journey;
+  consume(options: {
+    context?: JourneyContext;
+    entityFallback?: { type: string; id: string };
+  }): Journey;
   flush(): Promise<void>;
   shutdown(options?: { timeoutMs?: number }): Promise<Counters>;
   diagnostics(): Counters;
@@ -44,6 +83,8 @@ export function createRecorder(config: RecorderConfig): Recorder {
   const resolved = resolveConfig(config);
   const diagnostics = createDiagnostics(resolved.onDiagnostic);
   const queue = new BoundedQueue<unknown>(resolved.maxBufferedEvents, diagnostics);
+  // Resolved once: record() is synchronous, so this cannot be an async import.
+  const readTrace = createTraceReader();
   let stopped = false;
 
   const transport = new Transport(
@@ -111,6 +152,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         operation: input.operation,
         name: input.name,
         timestamp: new Date().toISOString(),
+        ...(readTrace() ?? {}),
         ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
         ...(input.input === undefined ? {} : { input: capture(input.input) }),
         ...(input.output === undefined ? {} : { output: capture(input.output) }),
@@ -137,6 +179,80 @@ export function createRecorder(config: RecorderConfig): Recorder {
   // Never hold the host's event loop open on our account.
   interval.unref();
 
+  function toErrorRecord(error: unknown): { message: string; type?: string; code?: string } {
+    if (error instanceof Error) {
+      const code = (error as { code?: unknown }).code;
+      return {
+        message: error.message,
+        type: error.name,
+        ...(typeof code === "string" ? { code } : {})
+      };
+    }
+    return { message: String(error) };
+  }
+
+  /**
+   * One implementation behind all the public wrappers, so the contract cannot
+   * drift between them.
+   *
+   * Returns the callback's value unchanged and rethrows its exact error object.
+   * Everything the recorder does sits inside `safely`, so a recording failure
+   * cannot reach the caller.
+   */
+  async function wrap<T>(
+    context: JourneyContext,
+    naturalOperation: string,
+    name: string,
+    input: unknown,
+    fn: () => T | Promise<T>,
+    options: WrapOptions = {}
+  ): Promise<T> {
+    const startedAt = Date.now();
+    const attempt = options.attempt ?? 1;
+    // ADR-022: a retry records as `retried` rather than the natural verb.
+    const operation = attempt > 1 ? "retried" : naturalOperation;
+    const metadata =
+      options.metadata === undefined && attempt === 1
+        ? undefined
+        : { ...options.metadata, attempt };
+
+    let result: T;
+    try {
+      result = await fn();
+    } catch (error) {
+      safely(diagnostics, "capture_error", () => {
+        enqueue(context.journeyId, context.entity, {
+          operation,
+          name,
+          input,
+          durationMs: Date.now() - startedAt,
+          error: toErrorRecord(error),
+          ...(metadata === undefined ? {} : { metadata })
+        });
+      });
+      // The original object, not a copy: application code branches on instanceof
+      // and on custom properties.
+      throw error;
+    }
+
+    safely(diagnostics, "capture_error", () => {
+      const failed = options.isFailure === undefined ? false : options.isFailure(result);
+      enqueue(context.journeyId, context.entity, {
+        operation,
+        name,
+        input,
+        output: result,
+        durationMs: Date.now() - startedAt,
+        ...(failed
+          ? { error: { message: `${name} reported a failed result.`, code: "result_failed" } }
+          : {}),
+        ...(metadata === undefined ? {} : { metadata })
+      });
+    });
+
+    return result;
+  }
+
   function makeJourney(context: JourneyContext): Journey {
     return {
       context: () => context,
@@ -151,6 +267,31 @@ export function createRecorder(config: RecorderConfig): Recorder {
             operation: "identified",
             name: "identify",
             metadata: { aliases }
+          });
+        });
+      },
+      transform: (name, input, fn, options) =>
+        wrap(context, "transformed", name, input, fn, options),
+      persist: (name, input, fn, options) => wrap(context, "persisted", name, input, fn, options),
+      publish: (name, message, fn, options) =>
+        wrap(context, "published", name, message, fn, options),
+      deliver: (name, payload, fn, options) =>
+        wrap(context, "delivered", name, payload, fn, options),
+      fail(name, error, metadata) {
+        safely(diagnostics, "capture_error", () => {
+          enqueue(context.journeyId, context.entity, {
+            operation: "failed",
+            name,
+            error: toErrorRecord(error),
+            ...(metadata === undefined ? {} : { metadata })
+          });
+        });
+      },
+      finish(options) {
+        safely(diagnostics, "capture_error", () => {
+          enqueue(context.journeyId, context.entity, {
+            operation: options?.status === "failed" ? "failed" : "completed",
+            name: "finish"
           });
         });
       }
@@ -171,6 +312,13 @@ export function createRecorder(config: RecorderConfig): Recorder {
       return journey;
     },
     continueJourney: (context) => makeJourney(context),
+    consume: (options) =>
+      makeJourney(
+        options.context ?? {
+          journeyId: `jrn_${randomUUID()}`,
+          entity: options.entityFallback ?? { type: "unknown", id: "unknown" }
+        }
+      ),
     async flush() {
       await safelyAsync(diagnostics, "transport_error", flush);
     },
