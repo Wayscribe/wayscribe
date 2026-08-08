@@ -1,29 +1,88 @@
 # Flight Recorder
 
-> Free, lightweight, self-hosted record-level debugging for APIs, queues, databases, workers, and third-party integrations.
+[![pipeline](https://gitlab.com/jojithedev/flight-recorder/badges/main/pipeline.svg)](https://gitlab.com/jojithedev/flight-recorder/-/pipelines)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![node](https://img.shields.io/badge/node-24-brightgreen.svg)](.nvmrc)
 
-Flight Recorder is an early-stage developer tool for reconstructing what happened to a business entity as it moved through a distributed workflow.
+**Find out what happened to one customer record as it crossed your services — and
+where its data changed.**
 
-A developer should be able to search for a customer, order, invoice, claim, or other entity and answer:
+Free, self-hosted, and small enough to run on a laptop. No account, no hosted
+service, nothing captured leaves your machine.
 
-- Where did this record come from?
-- Which services processed it?
-- Where did its data change?
-- Which step failed?
-- Was it retried, duplicated, or dropped?
-- What happened downstream?
-- Can the original input be tested again safely?
+---
+
+## The problem
+
+A customer calls. Their phone number is missing in your CRM.
+
+That record arrived through a webhook, went through a transformation, landed in
+PostgreSQL, went onto a queue, was picked up by a worker, and was pushed to a
+third-party API. Six services. Somewhere in there the phone number became
+`null`.
+
+You have logs. They are in six places, keyed by request ID, and none of them
+knows that customer by name. You may have traces — spans and latencies, which
+tell you the call succeeded and nothing about what it carried.
+
+So you start grepping.
+
+**Flight Recorder is built for that exact half hour.** Search the customer. Read
+the timeline. Look at the step where the value changed.
+
+---
+
+## What you actually get
+
+Search `0018Z00002ABC` and you get one record's history, in order, across every
+service that touched it:
+
+```text
+received      receive-salesforce-webhook     integration-api
+transformed   transform-salesforce-account   integration-api
+persisted     persist-customer               integration-api
+identified    identify                       integration-api
+published     publish-customer-updated       integration-api
+consumed      consume-customer-updated       sync-worker
+delivered     deliver-customer-to-target     sync-worker      422
+retried       retry-customer-delivery        sync-worker      422
+retried       retry-customer-delivery        sync-worker      422
+failed        move-message-to-dead-letter    sync-worker
+```
+
+Open the transformation and you get a **field-level diff** of what that step
+received against what it produced:
+
+| Field | Before | After |
+| --- | --- | --- |
+| `Id` | `"0018Z00002ABC"` | — |
+| `Name` | `"Jorge Polanco"` | — |
+| `Phone` | `"+1 919 555 1234"` | — |
+| `Status__c` | `"Active"` | — |
+| `externalId` | — | `"0018Z00002ABC"` |
+| `name` | — | `"Jorge Polanco"` |
+| `phone` | — | **`null`** |
+| `status` | — | `"active"` |
+
+There it is. `Phone` went in carrying a value and `phone` came out `null`, while
+every other field arrived intact. That pair is the bug — a mapping reading
+`Phone__c` from a payload that carries `Phone`.
+
+Then **replay the original input** against your corrected code and compare:
+
+| Field | Before | After |
+| --- | --- | --- |
+| `phone` | `null` | `"+1 919 555 1234"` |
+
+One changed field. The fix works, tested against the input that actually failed.
+
+That is the whole loop: **find where the value was lost, then prove the fix.**
+
+---
 
 ## Try it
 
-Once images are published, this is the whole install — no clone, no build:
-
-```bash
-curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml && docker compose -f compose.published.yaml up -d
-```
-
-**The images are not published yet**, so today you clone this repository and
-build. That also gets you the demo, which the published file leaves out:
+One command, and it brings its own broken integration to investigate:
 
 ```bash
 docker compose -f infrastructure/compose.yaml \
@@ -35,23 +94,22 @@ pnpm demo:trigger
 ```
 
 Four demo services move a Salesforce account through a webhook, a
-transformation, PostgreSQL, a queue, a worker, and a third-party API — and the
-transformation contains a real defect. The trigger prints a link to the journey;
-about ten seconds later it shows you the step where the customer's phone number
-became null, and the 422 that followed.
+transformation, PostgreSQL, a queue, a worker, and a third-party API. The
+transformation contains a real defect, the queue really retries, and the target
+really rejects the result with a 422. The trigger prints a link; about ten
+seconds later the journey shows you everything above.
 
-Nothing to instrument, no account, no telemetry leaving the machine. See
-[docs/DEMO_SCENARIO.md](docs/DEMO_SCENARIO.md).
-
-The interface is at `http://localhost:3000`. It asks for an admin token, which
-is `ADMIN_TOKEN` from your environment — a development default until you set
-your own:
+The interface is at `http://localhost:3000` and asks for `ADMIN_TOKEN`. Set your
+own before this holds anything real:
 
 ```bash
 cp .env.example .env && printf 'ENCRYPTION_KEY=%s\nADMIN_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
 ```
 
-The API logs a warning at every boot while the published defaults are in use.
+The API logs a warning at every boot while the published development defaults
+are still in use.
+
+---
 
 ## Instrument your own service
 
@@ -69,82 +127,160 @@ const recorder = createRecorder({
   environment: "development"
 });
 
+// A journey is one record's history. The entity is what you will search for.
 const journey = recorder.startJourney({
   entity: { type: "customer", id: account.Id }
 });
 
+// Each wrapper runs your code, returns its value unchanged, and records what
+// went in and what came out. The difference between those two is the point.
 const customer = await journey.transform("map-account", account, () =>
   toCustomer(account)
 );
+
+const id = await journey.persist("save-customer", customer, () =>
+  db.customers.insert(customer)
+);
+
+// Aliases are the other identifiers this record answers to. Now a colleague who
+// only has the internal ID can still find this journey.
+journey.identify({ internalCustomerId: String(id) });
 ```
 
-Then search for `account.Id`.
+Then search for `account.Id`. Or the internal ID. Or any other identifier you
+attached.
 
-`examples/instrument-a-service` is a standalone project that does this end to
-end in about thirty lines, including the part where a value goes missing. The
-SDK has **no runtime dependencies** and is built so that a recorder failure
-cannot break the application it is recording — see
-[its README](packages/sdk-node/README.md).
+[`examples/instrument-a-service`](examples/instrument-a-service) is a standalone
+project that does this end to end in about thirty lines, including the part
+where a value goes missing.
+
+### The SDK cannot break your application
+
+An observability library that takes down the service it observes is worse than
+no library. This one is built so that cannot happen:
+
+- **No runtime dependencies.** It brings nothing with it.
+- Every entry point is wrapped. A recorder failure increments a counter and
+  returns; it never reaches your code.
+- Wrappers rethrow your **exact** error object, so `instanceof` checks and
+  custom properties on your errors keep working.
+- The event queue is bounded, and drops oldest under backpressure rather than
+  growing without limit.
+- The transport retries behind a circuit breaker and gives up rather than piling
+  up.
+- `shutdown()` races the final flush against a timeout and never hangs.
+- Nothing is written to your console unless you ask for it.
+
+---
+
+## Why this is not tracing
+
+Tracing answers *"which call was slow, and did it succeed?"* Flight Recorder
+answers *"what happened to this record, and where did its data change?"* Both
+are useful. They are not the same question.
+
+| | Flight Recorder | APM / tracing |
+| --- | --- | --- |
+| You search by | a customer, order, or invoice ID | a trace ID or a service |
+| The unit is | one record's journey | one request's spans |
+| It shows you | what the payload **was**, field by field | latency, status, structure |
+| Correlation is | deterministic, by entity and alias | by propagated trace context |
+| It answers | "where did this value change?" | "which call was slow?" |
+
+Five things this does that a tracing tool does not:
+
+1. **Record-first navigation.** You search for a customer, not a trace.
+2. **Identity mapping.** One record is a Salesforce ID here, an internal ID
+   there, a queue message ID in between. Search any of them and get the same
+   journey.
+3. **Field-level transformation diffs.** Structural rather than textual —
+   `{path, kind, before, after}` — because input and output routinely use
+   different field names, and a unified `−/+` view would have to pick one and
+   mislead about the other.
+4. **Works with the architecture you already have.** Webhooks, PostgreSQL,
+   queues, workers, third-party APIs. No rewrite, no service mesh, no agent.
+5. **Journey-linked safe replay.** Rerun the exact recorded input against a
+   development destination and diff the result.
+
+**It is not a replacement for OpenTelemetry.** When OTel is present, the SDK
+reads the active trace and span IDs onto each event so you can pivot between the
+two. It does not write `traceparent` — OTel owns that header.
+
+---
+
+## How it works
+
+```text
+your services ──SDK──▶  API  ──▶  PostgreSQL
+                         │
+                         └──▶  web interface
+```
+
+That is the entire architecture. **PostgreSQL is the only required backing
+service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
+
+- Events are captured **synchronously**, so the recorded payload is what the
+  step actually saw, then batched and sent in the background.
+- Payloads are **redacted inside your process**, before they leave it, against a
+  built-in list of secret-looking paths. Paths you add are appended to that
+  list rather than replacing it, so adding one cannot silently disable the rest.
+- Payload fields and entity identifiers are **encrypted at rest**.
+- Search uses HMAC tokens, so an identifier is findable without being stored in
+  the clear.
+- Cross-project isolation is **structural**: composite primary and foreign keys
+  make one project's key reaching another project's data unrepresentable, rather
+  than something every query has to remember to check.
+- Replay resolves a hostname once and connects to **that address**, so a name
+  that passes the allowlist cannot answer differently a moment later.
+- Retention sweeps per environment, on an interval, inside the API process.
+
+Every non-obvious decision is written down with its reasoning in
+[the decision log](docs/DECISIONS.md) — 33 ADRs, including the several that were
+wrong the first time and say so.
+
+---
 
 ## Status
 
 **Working, pre-release. Not yet published.**
 
 Ingestion, search, journey timelines, field-level diffs, the Node SDK,
-cross-process propagation, and the demo are built, tested, and running. Replay
-is specified but not yet implemented, and no images or packages are published
-yet, so today you install by cloning this repository.
+cross-process propagation, retention, the demo, and development replay are built,
+tested, and running. Container images and the npm package are **not published
+yet**, so today you install by cloning this repository.
 
-The first release is intentionally narrow:
+Put plainly: the software works and the distribution does not exist yet.
+[CHANGELOG.md](CHANGELOG.md) lists what is done and what is known to be missing.
 
-- Node.js and TypeScript applications
-- HTTP APIs and webhooks
-- PostgreSQL
-- queue-based asynchronous processing
-- third-party HTTP APIs
-- deterministic event correlation
-- field-level payload diffs
-- development-only replay
+The install that replaces the clone is already written and waiting on that
+publish — [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml),
+which pulls images, migrates on first boot, and needs no checkout:
 
-There are **no AI capabilities in V0**. A future bring-your-own-key intelligence layer may be added as an optional, disabled-by-default module.
+```bash
+curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml && docker compose -f compose.published.yaml up -d
+```
 
-## License
+**No AI features in V0.** A future bring-your-own-key layer may be added as an
+optional, disabled-by-default module. It will never be required, and nothing
+will be sent anywhere by default.
 
-Apache-2.0. The self-hosted core is free to use and always will be: event
-ingestion, entity and alias search, journey timelines, transformation diffs,
-error and retry inspection, development replay, and retention controls require
-no payment and no hosted Flight Recorder account.
+### What "done" means for the first release
 
-See [Product principles and non-negotiables](docs/PRODUCT_PRINCIPLES.md) and
-ADR-011 and ADR-014 in [the decision log](docs/DECISIONS.md).
+> A developer can instrument an existing Node.js integration, search for one
+> customer, reconstruct its journey across an API, database, queue, worker, and
+> external service, see exactly where its data changed, understand the recorded
+> failure, and safely rerun the original input against a development endpoint.
 
-## Core product promise
+Anything not required to make that sentence true is postponed.
 
-> Find where a record was changed, lost, duplicated, delayed, or rejected across a distributed workflow.
+The promise this is built toward is *find where a record was changed, lost,
+duplicated, delayed, or rejected.* Of those five, **changed** and **rejected**
+are demonstrated end to end today, and delay is visible in the timeline as
+recorded durations and gaps. Duplication and loss are not yet first-class.
 
-Of those five, **changed** and **rejected** are demonstrated end to end today —
-the demo finds the transformation that dropped a phone number and the 422 that
-followed. Delay is visible in the timeline as recorded durations and gaps.
-Duplication and loss are not yet first-class: ingestion deduplicates SDK
-retries, which is not the same as telling you a record was processed twice.
-
-## Product commitment
-
-Flight Recorder is intended to be a tool that any developer or development team can adopt without purchasing or operating a large observability stack.
-
-The self-hosted core will be:
-
-- **Free:** the complete core debugging workflow is available without payment.
-- **Lightweight:** Docker Compose, bundled PostgreSQL, and an application SDK are sufficient.
-- **Easy to implement:** the target is a first useful journey within approximately 15 minutes.
-- **Clear:** the interface centers on entities, journeys, transformations, failures, and replay rather than observability jargon.
-- **Private by default:** no captured data is sent to an external service.
-
-The complete product principles and release gates are defined in [Product principles and non-negotiables](docs/PRODUCT_PRINCIPLES.md).
+---
 
 ## What Flight Recorder is not
-
-Flight Recorder is not:
 
 - an application performance monitoring platform
 - a log aggregator
@@ -157,118 +293,87 @@ Flight Recorder is not:
 
 It observes workflows that already exist.
 
-## V0 reference journey
+**One caution worth reading.** Flight Recorder records the contents of your
+integration payloads. Treat its database as holding whatever your workflows
+carry. If that includes regulated data, review `captureMode` first —
+`metadata-only` records the shape of a journey without storing payloads at all.
 
-```text
-Simulated Salesforce
-        ↓
-Webhook API
-        ↓
-Customer transformation
-        ↓
-PostgreSQL
-        ↓
-Queue
-        ↓
-Background worker
-        ↓
-Simulated HubSpot
-```
+---
 
-A deliberate defect changes:
+## Free, and staying that way
 
-```json
-{
-  "phone": "+1 919 555 1234"
-}
-```
+Apache-2.0. The self-hosted core is free and always will be: event ingestion,
+entity and alias search, journey timelines, transformation diffs, error and
+retry inspection, development replay, and retention controls require no payment
+and no hosted account.
 
-to:
+**Private by default.** No captured data is sent to an external service. There
+is no telemetry, no analytics, and no outbound connection other than the ones
+your own configuration creates.
 
-```json
-{
-  "phone": null
-}
-```
+The reasoning is recorded in [product
+principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
+[the decision log](docs/DECISIONS.md).
 
-The target API rejects the record. Flight Recorder must reveal the exact transformation that introduced the invalid value and show all downstream consequences.
-
-## Technology stack
-
-- TypeScript
-- Node.js 24, pinned in `.nvmrc`
-- pnpm workspaces
-- Fastify
-- Next.js
-- PostgreSQL
-- Knex
-- Zod
-- Vitest
-- Playwright
-- Docker Compose
+---
 
 ## Documentation
 
 | Document | Purpose |
-|---|---|
-| [Product specification](docs/PRODUCT_SPEC.md) | Problem, users, requirements, and V0 boundaries |
-| [Product principles and non-negotiables](docs/PRODUCT_PRINCIPLES.md) | Free, lightweight, easy, clear, and differentiated product constraints |
-| [Implementation plan](docs/IMPLEMENTATION_PLAN.md) | Ordered build phases and acceptance criteria |
-| [Architecture](docs/ARCHITECTURE.md) | Components, flows, boundaries, and scaling path |
-| [Event protocol](docs/EVENT_PROTOCOL.md) | Journey event contract and propagation |
-| [API specification](docs/API_SPEC.md) | Initial HTTP API contracts |
-| [Database schema](docs/DATABASE_SCHEMA.md) | Tables, indexes, constraints, and retention |
-| [Node SDK specification](docs/NODE_SDK_SPEC.md) | Initial SDK surface and reliability rules |
-| [Security](docs/SECURITY.md) | Threat model and data-handling requirements |
+| --- | --- |
+| [Local development](docs/LOCAL_DEVELOPMENT.md) | Setup, commands, keys, troubleshooting |
 | [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention |
-| [Security policy](SECURITY.md) | How to report a vulnerability, and what is in scope |
-| [Replay specification](docs/REPLAY_SPEC.md) | Development replay rules and safeguards |
-| [Demo scenario](docs/DEMO_SCENARIO.md) | End-to-end acceptance workflow |
-| [Testing strategy](docs/TESTING_STRATEGY.md) | Unit, integration, contract, and E2E testing |
-| [Local development](docs/LOCAL_DEVELOPMENT.md) | Setup, commands, keys, and troubleshooting |
-| [Decision log](docs/DECISIONS.md) | Architecture decisions and rationale |
+| [Node SDK](packages/sdk-node/README.md) | The SDK's full surface |
+| [Demo scenario](docs/DEMO_SCENARIO.md) | The reference journey, end to end |
+| [Architecture](docs/ARCHITECTURE.md) | Components, flows, boundaries, scaling path |
+| [Event protocol](docs/EVENT_PROTOCOL.md) | The journey event contract |
+| [API specification](docs/API_SPEC.md) | HTTP API contracts |
+| [Database schema](docs/DATABASE_SCHEMA.md) | Tables, indexes, constraints, retention |
+| [Replay specification](docs/REPLAY_SPEC.md) | Replay rules and safeguards |
+| [Security](docs/SECURITY.md) | Threat model and data handling |
+| [Security policy](SECURITY.md) | Reporting a vulnerability, and what is in scope |
+| [Decision log](docs/DECISIONS.md) | Every architectural decision, and why |
+| [Product principles](docs/PRODUCT_PRINCIPLES.md) | The non-negotiables |
+| [Product specification](docs/PRODUCT_SPEC.md) | Problem, users, requirements, V0 boundaries |
+| [Testing strategy](docs/TESTING_STRATEGY.md) | Unit, integration, browser, acceptance |
 | [Task list](docs/TASKS.md) | Implementation checklist and current state |
-| [Roadmap](docs/ROADMAP.md) | Growth path beyond the first release |
-| [Glossary](docs/GLOSSARY.md) | Shared terminology |
-| [Agent instructions](AGENTS.md) | Rules for coding agents and LLMs |
-| [Contributing](CONTRIBUTING.md) | Contribution and pull-request expectations |
+| [Roadmap](docs/ROADMAP.md) | Beyond the first release |
 | [Changelog](CHANGELOG.md) | What changed, and what does not work yet |
+| [Contributing](CONTRIBUTING.md) | How to help |
+| [Glossary](docs/GLOSSARY.md) | Shared terminology |
 
-## Repository layout
+---
+
+## Built with
+
+TypeScript · Node 24 · pnpm workspaces · Fastify · Next.js · PostgreSQL 17 ·
+Knex · Zod · Vitest · Playwright · Docker Compose
 
 ```text
-flight-recorder/
-├── apps/
-│   ├── api/                  ingestion, query, and replay API
-│   ├── web/                  developer interface
-│   └── demo/                 five entry points, one image (see docs/DEMO_SCENARIO.md)
-├── packages/
-│   ├── protocol/             event schema and version
-│   ├── sdk-node/             published as @flight-recorder/node
-│   ├── database/             migrations, repositories, CLI
-│   ├── payload-security/     redaction, encryption, keys, search tokens
-│   ├── payload-diff/         structural field-level diffs
-│   └── config/               environment parsing
-├── examples/
-│   └── instrument-a-service/ standalone; the smallest real instrumentation
-├── infrastructure/           Compose files and queue configuration
-├── docs/
-├── AGENTS.md
-├── CONTRIBUTING.md
-├── pnpm-workspace.yaml
-└── README.md
+apps/
+  api/                  ingestion, query, and replay API
+  web/                  developer interface
+  demo/                 the reference journey, five entry points in one image
+packages/
+  protocol/             event schema and version
+  sdk-node/             published as @flight-recorder/node
+  database/             migrations, repositories, CLI
+  payload-security/     redaction, encryption, keys, search tokens
+  payload-diff/         structural field-level diffs
+  config/               environment parsing
+examples/
+  instrument-a-service/ standalone; the smallest real instrumentation
+infrastructure/         Compose files and queue configuration
 ```
 
-The four demo services are five entry points in one `apps/demo` package rather
-than four directories: they share the fixture, the queue helpers, and the
-recorder setup, and Compose runs the one image with different commands.
+---
 
-## V0 definition of done
+## Contributing
 
-Flight Recorder V0 is complete when:
+Issues and merge requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers
+the expectations; the short version is that this codebase explains **why**
+rather than what, and a change that alters a decision should update
+[the decision log](docs/DECISIONS.md) alongside the code.
 
-> A developer can instrument an existing Node.js integration, search for one customer, reconstruct its journey across an API, database, queue, worker, and external service, see exactly where its data changed, understand the recorded failure, and safely rerun the original input against a development endpoint.
-
-Anything not required to make that statement true should be postponed.
-
-The release must also remain free to self-host, require no paid or hosted account, use PostgreSQL as its only required backing service, and let a new developer record a first useful journey in approximately 15 minutes.
+Security issues go through [SECURITY.md](SECURITY.md) rather than a public
+issue.
