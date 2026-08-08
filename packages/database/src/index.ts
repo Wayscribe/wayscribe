@@ -14,6 +14,20 @@ export {
 } from "./repositories/journeys.js";
 export { maskDisplayValue } from "./mask.js";
 export { listProjects, type ProjectSummary } from "./repositories/projects.js";
+export { listAudit, recordAudit, type AuditEntry, type AuditRecord } from "./repositories/audit.js";
+export {
+  createDestination,
+  destinationHeaders,
+  findDestination,
+  findRun,
+  finishRun,
+  listDestinations,
+  startRun,
+  type EnvironmentType,
+  type ReplayDestination,
+  type ReplayRun,
+  type ReplayStatus
+} from "./repositories/replay.js";
 export {
   sweepExpiredJourneys,
   type SweepOptions,

@@ -5,6 +5,7 @@ import { registerEventRoutes } from "./routes/events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerQueryRoutes } from "./routes/queries.js";
+import { registerReplayRoutes } from "./routes/replays.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -21,6 +22,8 @@ export interface BuildAppOptions {
   bodyLimit?: number;
   maxEventPayloadBytes?: number;
   allowFullPayloadCapture?: boolean;
+  /** From REPLAY_ALLOWED_HOSTS. Empty means replay can reach nothing. */
+  replayAllowedHosts?: readonly string[];
   /** Destination for log lines. Exists so a test can assert on what is written. */
   logStream?: { write: (line: string) => void };
 }
@@ -99,6 +102,11 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   );
   registerProjectRoutes(app, options.adminToken);
   registerQueryRoutes(app, options.subkeys, options.adminToken);
+  registerReplayRoutes(app, {
+    adminToken: options.adminToken,
+    subkeys: options.subkeys,
+    allowedHosts: options.replayAllowedHosts ?? []
+  });
 
   return app;
 }

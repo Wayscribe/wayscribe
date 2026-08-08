@@ -94,6 +94,25 @@ async function resolveAdminProject(
   return { ok: true, principal: { kind: "admin", projectId } };
 }
 
+/**
+ * The project an admin is asking about, or undefined when it cannot be settled.
+ *
+ * Exported for callers that authenticate the admin token themselves — replay
+ * does, because it must refuse an API key outright rather than resolve one
+ * (ADR-032), and `/v1/projects` does because it answers before a project can be
+ * named.
+ */
+export async function resolveAdminProjectId(
+  db: Knex,
+  requestedProjectId: string | undefined
+): Promise<string | undefined> {
+  const projectId = requestedProjectId ?? (await onlyProjectId(db));
+  if (projectId === undefined) return undefined;
+
+  const exists: unknown = await db("projects").where({ id: projectId }).first("id");
+  return exists === undefined ? undefined : projectId;
+}
+
 /** Convenience for the common single-project install: no selector needed. */
 async function onlyProjectId(db: Knex): Promise<string | undefined> {
   const rows: unknown = await db("projects").select("id").limit(2);

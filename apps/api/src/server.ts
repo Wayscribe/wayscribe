@@ -17,7 +17,8 @@ const app = buildApp({
   adminToken: env.ADMIN_TOKEN,
   logLevel: env.LOG_LEVEL,
   maxEventPayloadBytes: env.MAX_EVENT_PAYLOAD_BYTES,
-  allowFullPayloadCapture: env.ALLOW_FULL_PAYLOAD_CAPTURE
+  allowFullPayloadCapture: env.ALLOW_FULL_PAYLOAD_CAPTURE,
+  replayAllowedHosts: env.REPLAY_ALLOWED_HOSTS
 });
 
 const retention = startRetentionJob(app);
