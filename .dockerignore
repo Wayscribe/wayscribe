@@ -9,3 +9,16 @@ coverage
 .env
 .env.local
 *.tsbuildinfo
+
+# Nothing below is needed to build or run an image, and every one of them ends
+# up in a layer if it reaches the context.
+.git
+.gitlab
+docs
+examples
+test-results
+playwright-report
+.superpowers
+.pnpm-store
+*.md
+!README.md

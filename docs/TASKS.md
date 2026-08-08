@@ -283,10 +283,14 @@ the honest picture.
 - [x] Complete security docs.
 - [x] Add contribution guide.
 - [x] Add issue templates.
-- [ ] Add release workflow.
-- [ ] Publish `api` and `web` images to a container registry.
-- [ ] Publish `@flight-recorder/node` to npm.
-- [ ] Change the quick start to pull published images rather than build from source.
+- [x] Add release workflow.
+- [ ] Publish `api` and `web` images to a container registry. **Pipeline built and
+      gated on a tag; needs someone to run the manual job.**
+- [ ] Publish `@flight-recorder/node` to npm. **Dry run passes; needs NPM_TOKEN and
+      ownership of the @flight-recorder scope.**
+- [x] Change the quick start to pull published images rather than build from source.
+      `infrastructure/compose.published.yaml` exists and the README leads with it;
+      it becomes the real path the moment the images are pushed.
 - [ ] Run security review.
 - [ ] Run full E2E test.
 - [ ] Test clean-machine installation.

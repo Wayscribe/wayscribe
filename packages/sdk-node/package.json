@@ -38,10 +38,9 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "bundle": "node scripts/bundle.mjs",
+    "build": "node scripts/bundle.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepack": "pnpm run bundle"
+    "prepack": "pnpm run build"
   },
   "devDependencies": {
     "@flight-recorder/payload-security": "workspace:*",

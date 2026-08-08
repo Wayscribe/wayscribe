@@ -1,0 +1,88 @@
+# Run Flight Recorder from published images, without cloning this repository.
+#
+#   curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml
+#   docker compose -f compose.published.yaml up -d
+#
+# Then open http://localhost:3000.
+#
+# This is the quick start. `compose.yaml` builds from source instead and is for
+# people working on Flight Recorder itself.
+#
+# Set your own secrets before this holds anything real:
+#
+#   ENCRYPTION_KEY=$(openssl rand -hex 32) ADMIN_TOKEN=$(openssl rand -hex 32) \
+#     docker compose -f compose.published.yaml up -d
+#
+# The API logs a warning at every boot while the published defaults are in use.
+# Rotating ENCRYPTION_KEY later is destructive — see docs/OPERATIONS.md.
+
+name: flight-recorder
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: flight
+      POSTGRES_PASSWORD: flight
+      POSTGRES_DB: flight
+    ports:
+      # Loopback only: a `docker compose up` on a cloud host must not expose the
+      # stack to the internet.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flight -d flight"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Runs once and exits. Applies migrations so the API is ready on first boot
+  # rather than reporting migrations_pending until somebody reads the docs.
+  migrate:
+    image: registry.gitlab.com/jojithedev/flight-recorder/api:${FLIGHT_RECORDER_VERSION:-latest}
+    environment:
+      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+    entrypoint: ["node", "packages/database/dist/cli.js", "migrate"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: registry.gitlab.com/jojithedev/flight-recorder/api:${FLIGHT_RECORDER_VERSION:-latest}
+    environment:
+      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+      APP_URL: http://localhost:3000
+      API_URL: http://localhost:8080
+      PORT: "8080"
+      LOG_LEVEL: info
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-for-local-development-0000}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
+      DEFAULT_RETENTION_DAYS: "7"
+      MAX_EVENT_PAYLOAD_BYTES: "262144"
+      ALLOW_FULL_PAYLOAD_CAPTURE: "false"
+      REPLAY_ALLOWED_HOSTS: localhost,host.docker.internal
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: registry.gitlab.com/jojithedev/flight-recorder/web:${FLIGHT_RECORDER_VERSION:-latest}
+    environment:
+      # Server-side only. The browser never contacts the API, so this is the
+      # internal service name rather than a host-reachable address.
+      API_URL: http://api:8080
+      # Must match the API's: the web app derives its session signing key from
+      # this, so rotating it invalidates sessions on both sides at once.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres-data:
