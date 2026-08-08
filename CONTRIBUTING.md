@@ -1,5 +1,12 @@
 # Contributing
 
+> **Where to contribute.** Development happens on
+> [GitLab](https://gitlab.com/jojithedev/flight-recorder). If you found this on
+> GitHub, that is a read-only mirror: it is force-pushed from GitLab on every
+> green pipeline, so a pull request opened there cannot be merged and would be
+> overwritten. Please open a merge request on GitLab instead.
+
+
 Flight Recorder is in early development. Contributions should protect the narrow V0 scope and the reliability of applications being observed.
 
 ## Before contributing

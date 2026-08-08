@@ -10,6 +10,10 @@ where its data changed.**
 Free, self-hosted, and small enough to run on a laptop. No account, no hosted
 service, nothing captured leaves your machine.
 
+> **Development happens on [GitLab](https://gitlab.com/jojithedev/flight-recorder).**
+> Issues and merge requests go there. Any GitHub repository is a read-only
+> mirror — see [docs/MIRRORING.md](docs/MIRRORING.md).
+
 ---
 
 ## The problem
@@ -340,6 +344,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Roadmap](docs/ROADMAP.md) | Beyond the first release |
 | [Changelog](CHANGELOG.md) | What changed, and what does not work yet |
 | [Contributing](CONTRIBUTING.md) | How to help |
+| [Mirroring](docs/MIRRORING.md) | How the GitHub mirror works, and why it is a CI job |
 | [Glossary](docs/GLOSSARY.md) | Shared terminology |
 
 ---
