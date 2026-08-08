@@ -63,6 +63,23 @@ async function get(path: string): Promise<Record<string, unknown>> {
   return body.data ?? {};
 }
 
+async function post(
+  path: string,
+  body: unknown
+): Promise<{ status: number; data: Record<string, unknown> }> {
+  const response = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${ADMIN}`,
+      "content-type": "application/json",
+      ...(projectId === "" ? {} : { "x-flight-project-id": projectId })
+    },
+    body: JSON.stringify(body)
+  });
+  const parsed = (await response.json()) as { data?: Record<string, unknown> };
+  return { status: response.status, data: parsed.data ?? {} };
+}
+
 async function resolveDemoProject(): Promise<string> {
   const page = await get("/v1/projects");
   const items = (page["items"] ?? []) as { id: string; slug: string }[];
@@ -152,6 +169,61 @@ describe("the reference journey", () => {
     };
     expect(output.status).toBe(422);
     expect(output.body.error.code).toBe("phone_required");
+  });
+
+  it("replays the recorded input against the corrected endpoint", async () => {
+    // DEMO_SCENARIO.md section 11, steps 10 through 12. This is the second half
+    // of the product: find where the value was lost, then check a fix against
+    // the input that actually failed.
+    const destination = await post("/v1/replay-destinations", {
+      name: `corrected-${journeyId.slice(4, 12)}`,
+      baseUrl: "http://demo-integration:3200",
+      environmentType: "development"
+    });
+    expect(destination.status).toBe(201);
+
+    const transformed = events.find((event) => event.name === "transform-salesforce-account");
+    const replay = await post("/v1/replays", {
+      eventId: transformed?.id,
+      destinationId: destination.data["id"],
+      path: "/replay/customer"
+    });
+
+    expect(replay.status).toBe(200);
+    expect(replay.data["status"]).toBe("completed");
+    expect(replay.data["responseStatus"]).toBe(200);
+
+    const body = replay.data["responsePayload"] as { phone: string };
+    // The corrected mapping reads `Phone`, which is what arrives.
+    expect(body.phone).toBe("+1 919 555 1234");
+
+    // And the comparison names the one field that changed. Both sides share a
+    // shape here, which the transformation diff could not (ADR-030).
+    const comparison = replay.data["comparison"] as {
+      changes: { path: string; before?: unknown; after?: unknown }[];
+    };
+    const phone = comparison.changes.find((change) => change.path === "phone");
+    expect(phone?.before).toBeNull();
+    expect(phone?.after).toBe("+1 919 555 1234");
+  });
+
+  it("refuses a destination outside the allowlist and records the refusal", async () => {
+    const destination = await post("/v1/replay-destinations", {
+      name: `blocked-${journeyId.slice(4, 12)}`,
+      baseUrl: "http://169.254.169.254",
+      environmentType: "development"
+    });
+    const transformed = events.find((event) => event.name === "transform-salesforce-account");
+
+    const replay = await post("/v1/replays", {
+      eventId: transformed?.id,
+      destinationId: destination.data["id"],
+      path: "/latest/meta-data/"
+    });
+
+    expect(replay.status).toBe(422);
+    expect(replay.data["status"]).toBe("blocked");
+    expect((replay.data["error"] as { reason: string }).reason).toBe("host_not_allowed");
   });
 
   it("is findable by the Salesforce ID and by the internal customer ID", async () => {

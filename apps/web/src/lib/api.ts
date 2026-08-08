@@ -57,6 +57,29 @@ export interface ProjectSummary {
   slug: string;
 }
 
+export interface ReplayDestination {
+  id: string;
+  name: string;
+  baseUrl: string;
+  environmentType: string;
+  enabled: boolean;
+}
+
+export interface ReplayRun {
+  id: string;
+  eventId: string;
+  method: string;
+  path: string;
+  requestPayload: unknown;
+  requestHeaders: Record<string, string>;
+  status: "queued" | "running" | "completed" | "failed" | "blocked";
+  responseStatus: number | null;
+  responsePayload: unknown;
+  durationMs: number | null;
+  error: { reason?: string; message?: string } | null;
+  comparison: { changes: DiffChange[]; truncated: boolean } | null;
+}
+
 export class ApiUnavailableError extends Error {
   public override readonly name = "ApiUnavailableError";
 }
@@ -139,3 +162,65 @@ export async function listEvents(journeyId: string, projectId: string): Promise<
 
 export const getEvent = (eventId: string, projectId: string): Promise<EventDetailData | null> =>
   get<EventDetailData>(`/v1/events/${encodeURIComponent(eventId)}`, projectId);
+
+/**
+ * The one write path in this application.
+ *
+ * Server-side like every other call here: the admin token is project-wide and
+ * must never reach the browser (ADR-029). A 4xx is returned rather than thrown,
+ * because a refused replay is a result the operator needs to read, not an error
+ * page — the whole point of the safety checks is that the reason is visible.
+ */
+export interface PostResult<T> {
+  ok: boolean;
+  status: number;
+  data: T | null;
+  error?: { code: string; message: string };
+}
+
+async function post(path: string, body: unknown, projectId: string): Promise<PostResult<unknown>> {
+  const config = webConfig();
+  let response: Response;
+  try {
+    response = await fetch(`${config.API_URL}${path}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.ADMIN_TOKEN}`,
+        "content-type": "application/json",
+        ...(projectId === "" ? {} : { "x-flight-project-id": projectId })
+      },
+      body: JSON.stringify(body),
+      cache: "no-store"
+    });
+  } catch (cause) {
+    throw new ApiUnavailableError("The Flight Recorder API is unreachable.", { cause });
+  }
+
+  const parsed = (await response.json().catch(() => ({}))) as {
+    data?: unknown;
+    error?: { code: string; message: string };
+  };
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data: parsed.data ?? null,
+    ...(parsed.error === undefined ? {} : { error: parsed.error })
+  };
+}
+
+export async function listReplayDestinations(projectId: string): Promise<ReplayDestination[]> {
+  const data = await get<{ items: ReplayDestination[] }>("/v1/replay-destinations", projectId);
+  return data?.items ?? [];
+}
+
+export const createReplay = (
+  input: { eventId: string; destinationId: string; path: string; method: string },
+  projectId: string
+): Promise<PostResult<ReplayRun>> =>
+  // The API's shape for this route is known; `post` deliberately does not
+  // pretend to know it, so the narrowing happens once, here.
+  post("/v1/replays", input, projectId) as Promise<PostResult<ReplayRun>>;
+
+export const getReplay = (replayId: string, projectId: string): Promise<ReplayRun | null> =>
+  get<ReplayRun>(`/v1/replays/${encodeURIComponent(replayId)}`, projectId);

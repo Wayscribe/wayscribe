@@ -245,21 +245,21 @@ the honest picture.
 
 ## Epic 13: Replay
 
-- [ ] Implement replay destination repository.
-- [ ] Implement destination API.
+- [x] Implement replay destination repository.
+- [x] Implement destination API.
 - [x] Implement hostname allowlist.
 - [x] Implement URL resolution checks.
 - [x] Implement blocked-header filter.
 - [x] Implement request timeout.
 - [x] Implement response size limit.
-- [ ] Implement replay creation API.
-- [ ] Store sanitized request and response.
-- [ ] Create audit event.
-- [ ] Build replay preparation UI.
-- [ ] Build replay result UI.
-- [ ] Add original-versus-replay diff.
+- [x] Implement replay creation API.
+- [x] Store sanitized request and response.
+- [x] Create audit event.
+- [x] Build replay preparation UI.
+- [x] Build replay result UI.
+- [x] Add original-versus-replay diff.
 - [x] Add SSRF and redirect tests.
-- [ ] Add corrected demo endpoint.
+- [x] Add corrected demo endpoint.
 
 ## Epic 14: Retention and operations
 
@@ -292,7 +292,7 @@ the honest picture.
       `infrastructure/compose.published.yaml` exists and the README leads with it;
       it becomes the real path the moment the images are pushed.
 - [ ] Run security review.
-- [ ] Run full E2E test.
+- [x] Run full E2E test.
 - [ ] Test clean-machine installation.
 - [ ] Verify no paid account or external hosted service is required.
 - [ ] Verify first useful journey can be recorded in approximately 15 minutes,

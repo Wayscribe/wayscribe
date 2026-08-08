@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { redirectTarget } from "../../../src/lib/redirect-url";
 import { webConfig } from "../../../src/lib/config";
 import { LoginLimiter } from "../../../src/lib/login-limiter";
 import { SESSION_COOKIE_NAME, signSession } from "../../../src/lib/session";
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // The login form is a plain HTML POST, so failures must redirect back to the
   // page. Returning JSON would render a raw error object in the browser.
   if (limiter.isLocked(key, now)) {
-    return NextResponse.redirect(new URL("/login?error=throttled", request.url), {
+    return NextResponse.redirect(redirectTarget(request, "/login?error=throttled"), {
       status: 303
     });
   }
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     limiter.recordFailure(key, now);
     // One outcome regardless of cause: a near-miss must not read differently
     // from a wild guess.
-    return NextResponse.redirect(new URL("/login?error=invalid", request.url), {
+    return NextResponse.redirect(redirectTarget(request, "/login?error=invalid"), {
       status: 303
     });
   }
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Empty project means "the API resolves it", which it does when exactly one
   // project exists. Multi-project selection belongs in the session payload when
   // it arrives.
-  const response = NextResponse.redirect(new URL("/", request.url), { status: 303 });
+  const response = NextResponse.redirect(redirectTarget(request, "/"), { status: 303 });
   response.cookies.set(
     SESSION_COOKIE_NAME,
     signSession(config.ADMIN_TOKEN, { projectId: "", expiresAt: now + SESSION_DURATION_MS }),
