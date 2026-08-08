@@ -169,6 +169,20 @@ describe("sendReplay", () => {
     }
   });
 
+  it("reaches an IPv4-only listener through a name that resolves to IPv6 first", async () => {
+    // `localhost` answers ::1 before 127.0.0.1 on many machines, and the
+    // resolver's order is not guaranteed. Taking the first address made this
+    // suite pass or fail depending on which one came back — and would have made
+    // a real destination intermittently unreachable. Every resolved address is
+    // tried.
+    const { lookup } = await import("node:dns/promises");
+    const addresses = await lookup("localhost", { all: true });
+    expect(addresses.length).toBeGreaterThan(1);
+
+    const result = await send("/replay/customer");
+    expect(result.ok).toBe(true);
+  });
+
   it("refuses a name that does not resolve", async () => {
     const result = await sendReplay({
       baseUrl: "http://does-not-exist.invalid",
