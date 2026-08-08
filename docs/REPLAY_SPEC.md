@@ -25,7 +25,9 @@ Flight Recorder shows:
 ## 3. V0 goals
 
 - make historical inputs reusable for debugging
-- allow payload review and editing
+- allow payload review and editing — **narrowed by ADR-032: V0 reviews but does not
+  edit.** The prepare screen shows exactly what will be sent; changing it before sending
+  moves to V1.
 - restrict targets to approved development destinations
 - remove unsafe headers
 - record an audit history

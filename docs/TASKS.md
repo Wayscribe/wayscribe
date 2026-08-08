@@ -77,7 +77,7 @@ ever finished.
 - [x] Add indexes.
 - [x] Add local project and environment seed.
 - [x] Add migration integration tests.
-- [x] Add reset script.
+- [ ] Add reset script.
 
 ## Epic 3: Security primitives
 
@@ -247,18 +247,18 @@ the honest picture.
 
 - [ ] Implement replay destination repository.
 - [ ] Implement destination API.
-- [ ] Implement hostname allowlist.
-- [ ] Implement URL resolution checks.
-- [ ] Implement blocked-header filter.
-- [ ] Implement request timeout.
-- [ ] Implement response size limit.
+- [x] Implement hostname allowlist.
+- [x] Implement URL resolution checks.
+- [x] Implement blocked-header filter.
+- [x] Implement request timeout.
+- [x] Implement response size limit.
 - [ ] Implement replay creation API.
 - [ ] Store sanitized request and response.
 - [ ] Create audit event.
 - [ ] Build replay preparation UI.
 - [ ] Build replay result UI.
 - [ ] Add original-versus-replay diff.
-- [ ] Add SSRF and redirect tests.
+- [x] Add SSRF and redirect tests.
 - [ ] Add corrected demo endpoint.
 
 ## Epic 14: Retention and operations
@@ -283,10 +283,14 @@ the honest picture.
 - [x] Complete security docs.
 - [x] Add contribution guide.
 - [x] Add issue templates.
-- [ ] Add release workflow.
-- [ ] Publish `api` and `web` images to a container registry.
-- [ ] Publish `@flight-recorder/node` to npm.
-- [ ] Change the quick start to pull published images rather than build from source.
+- [x] Add release workflow.
+- [ ] Publish `api` and `web` images to a container registry. **Pipeline built and
+      gated on a tag; needs someone to run the manual job.**
+- [ ] Publish `@flight-recorder/node` to npm. **Dry run passes; needs NPM_TOKEN and
+      ownership of the @flight-recorder scope.**
+- [x] Change the quick start to pull published images rather than build from source.
+      `infrastructure/compose.published.yaml` exists and the README leads with it;
+      it becomes the real path the moment the images are pushed.
 - [ ] Run security review.
 - [ ] Run full E2E test.
 - [ ] Test clean-machine installation.

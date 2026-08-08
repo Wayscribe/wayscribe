@@ -4,7 +4,14 @@ import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /**
- * Produce a publishable `dist/` with no runtime dependencies.
+ * Build `dist/` — for the container images and for npm alike.
+ *
+ * This is the package's only build. An earlier version left `build` as plain
+ * tsc and bundled only at pack time, which meant the artifact running in a
+ * container was not the artifact published to npm. That difference bit
+ * immediately: tsc's output keeps `import "@flight-recorder/payload-security"`,
+ * and the moment that dependency became dev-only so it would not appear in the
+ * published manifest, every demo container failed to start.
  *
  * The SDK is embedded in other companies' applications, so every dependency it
  * declares becomes a dependency they carry and a version they may have to

@@ -785,3 +785,109 @@ which for them is the same moment.
   `(timestamp, received_at, id)` ordering already tie-breaks.
 - `RecordInput` gains an optional `startedAt`, which also gives a caller recording
   historical events a way to say when they happened.
+
+## ADR-032: Replay is an admin capability, and V0 sends the payload as recorded
+
+**Status:** Accepted
+
+### Context
+
+`REPLAY_SPEC.md` specifies replay's safety machinery in detail but leaves two questions
+open: who may invoke it, and whether the payload can be edited first.
+
+`apps/api/src/principal.ts` resolves exactly two principals. An API key identifies one
+project and one environment and may ingest. An admin token identifies the operator and
+reads across a named project. Replay is a third capability and belongs to neither by
+default.
+
+`REPLAY_SPEC.md` section 3 lists "allow payload review and editing" among V0 goals.
+
+### Decision
+
+**Replay requires the admin token. An API key is refused.**
+
+An API key sits in application configuration on servers many people can reach, and it
+exists to write events. Letting it also make Flight Recorder issue outbound requests to
+configured destinations would turn a leaked telemetry key into a request-forgery
+primitive aimed at the operator's own development network. The admin token is already an
+operator credential.
+
+This mirrors ADR-029, which refuses admin tokens at ingestion.
+
+**V0 sends the recorded payload unmodified. The editor moves to V1.**
+
+Review stays and is mandatory — the prepare screen shows exactly what will be sent, which
+is what makes section 13's prohibition on one-click replay mean anything. What is deferred
+is changing it.
+
+An editable payload needs a JSON editor with validation, error states, and a
+recorded-versus-edited diff. That is a substantial interface, and it is not required for
+the loop replay exists to close: fix the code, replay the original input, compare. Editing
+the input tests something other than the recorded failure.
+
+**A payload that was never captured cannot be replayed.** Ingestion applies capture policy
+before storing, so `metadata-only` environments hold nothing to send. Replay refuses with
+that reason. It does **not** refuse a payload containing `[REDACTED]` markers: sending one
+to a development endpoint still reproduces a shape, and the prepare screen shows it.
+
+### Consequences
+
+- This narrows a documented V0 goal, which is why it is an ADR rather than a quiet
+  omission. `REPLAY_SPEC.md` section 3 is annotated.
+- The web application needs no payload editor, removing the largest interface in Phase 6.
+- The comparison view must state that two `[REDACTED]` values compare as unchanged, so a
+  replay diff cannot prove a redacted field was fixed.
+- A future editor is additive: the endpoint already takes a payload, so V1 changes the
+  interface rather than the contract.
+
+---
+
+## ADR-033: Replay connects to a resolved address, not to a hostname
+
+**Status:** Accepted
+
+### Context
+
+Replay adds the first outbound HTTP client in `apps/api`, in a tool that exists to be
+pointed at internal services. That is a server-side request forgery surface inside a
+development network.
+
+`REPLAY_SPEC.md` section 10 requires resolving the host before the request and
+revalidating after DNS resolution.
+
+Checking a hostname and then handing that same hostname to an HTTP client does not satisfy
+this. The client resolves the name again, and a name that answered with an allowed address
+during validation may answer with another address a moment later. That is DNS rebinding,
+and it defeats hostname-only allowlisting completely.
+
+`fetch` offers no hook between resolution and connection.
+
+### Decision
+
+The host is resolved once, the resolved addresses are validated, and the connection is
+made **to an address** rather than to the name, using `undici` with a custom `connect`.
+`undici` is added to `apps/api` for this.
+
+Redirects are not followed: `redirect: "manual"`, and a 3xx is recorded as the result.
+Following one would repeat the whole resolution problem at a destination the operator
+never approved.
+
+**Private address ranges are permitted.** Section 10 suggests considering a block, and
+this decision declines: every destination the feature exists for — `localhost`,
+`host.docker.internal`, a Compose service name — resolves into a private range. Blocking
+them would leave replay unable to reach anything it is for. `REPLAY_ALLOWED_HOSTS` is the
+control, and an explicit allowlist is a better control than a heuristic.
+
+The header blocklist is its own list rather than a reuse of `DEFAULT_SECRET_PATHS`, which
+is a payload path list and omits three of the eight headers `SECURITY.md` section 8
+requires blocked.
+
+### Consequences
+
+- `apps/api` gains one runtime dependency, justified by the hook it provides.
+- TLS to an IP address must carry the original hostname for SNI and certificate
+  verification, so the `Host` header and servername are set explicitly.
+- The allowlist becomes load-bearing. An operator who adds a wildcard or a host they do
+  not control reopens the surface, and the documentation says so.
+- IPv4-mapped IPv6 forms are normalised before comparison, so `::ffff:127.0.0.1` cannot
+  slip past a check written for `127.0.0.1`.

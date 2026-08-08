@@ -16,6 +16,15 @@ A developer should be able to search for a customer, order, invoice, claim, or o
 
 ## Try it
 
+Once images are published, this is the whole install — no clone, no build:
+
+```bash
+curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml && docker compose -f compose.published.yaml up -d
+```
+
+**The images are not published yet**, so today you clone this repository and
+build. That also gets you the demo, which the published file leaves out:
+
 ```bash
 docker compose -f infrastructure/compose.yaml \
                -f infrastructure/compose.demo.yaml up --build
@@ -223,6 +232,7 @@ The target API rejects the record. Flight Recorder must reveal the exact transfo
 | [Glossary](docs/GLOSSARY.md) | Shared terminology |
 | [Agent instructions](AGENTS.md) | Rules for coding agents and LLMs |
 | [Contributing](CONTRIBUTING.md) | Contribution and pull-request expectations |
+| [Changelog](CHANGELOG.md) | What changed, and what does not work yet |
 
 ## Repository layout
 
