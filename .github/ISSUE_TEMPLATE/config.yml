@@ -1,0 +1,23 @@
+# Only read by GitHub. GitLab ignores this file.
+#
+# Issues should be disabled outright in this mirror's settings. This exists as a
+# second line of defence: if they are ever enabled by accident, nobody gets to
+# file into a tracker nobody reads.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Report a bug
+    url: https://gitlab.com/jojithedev/flight-recorder/-/issues/new
+    about: This GitHub repository is a read-only mirror. Bugs are tracked on GitLab.
+
+  - name: Request a feature
+    url: https://gitlab.com/jojithedev/flight-recorder/-/issues/new
+    about: Ideas and feature requests belong on GitLab, where development happens.
+
+  - name: Report a security vulnerability
+    url: https://gitlab.com/jojithedev/flight-recorder/-/blob/main/SECURITY.md
+    about: Please report privately rather than in any public tracker.
+
+  - name: Read the documentation
+    url: https://gitlab.com/jojithedev/flight-recorder#readme
+    about: Setup, operations, architecture, and the decision log.
