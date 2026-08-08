@@ -77,7 +77,7 @@ ever finished.
 - [x] Add indexes.
 - [x] Add local project and environment seed.
 - [x] Add migration integration tests.
-- [x] Add reset script.
+- [ ] Add reset script.
 
 ## Epic 3: Security primitives
 
@@ -247,18 +247,18 @@ the honest picture.
 
 - [ ] Implement replay destination repository.
 - [ ] Implement destination API.
-- [ ] Implement hostname allowlist.
-- [ ] Implement URL resolution checks.
-- [ ] Implement blocked-header filter.
-- [ ] Implement request timeout.
-- [ ] Implement response size limit.
+- [x] Implement hostname allowlist.
+- [x] Implement URL resolution checks.
+- [x] Implement blocked-header filter.
+- [x] Implement request timeout.
+- [x] Implement response size limit.
 - [ ] Implement replay creation API.
 - [ ] Store sanitized request and response.
 - [ ] Create audit event.
 - [ ] Build replay preparation UI.
 - [ ] Build replay result UI.
 - [ ] Add original-versus-replay diff.
-- [ ] Add SSRF and redirect tests.
+- [x] Add SSRF and redirect tests.
 - [ ] Add corrected demo endpoint.
 
 ## Epic 14: Retention and operations
