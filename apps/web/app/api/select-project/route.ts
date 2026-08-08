@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { redirectTarget } from "../../../src/lib/redirect-url";
 import { webConfig } from "../../../src/lib/config";
 import { listProjects } from "../../../src/lib/api";
 import { SESSION_COOKIE_NAME, signSession, verifySession } from "../../../src/lib/session";
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const session = cookie === undefined ? null : verifySession(config.ADMIN_TOKEN, cookie, now);
   if (session === null) {
-    return NextResponse.redirect(new URL("/login", request.url), { status: 303 });
+    return NextResponse.redirect(redirectTarget(request, "/login"), { status: 303 });
   }
 
   const form = await request.formData();
@@ -28,10 +29,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const projects = await listProjects();
   if (!projects.some((project) => project.id === projectId)) {
-    return NextResponse.redirect(new URL("/projects", request.url), { status: 303 });
+    return NextResponse.redirect(redirectTarget(request, "/projects"), { status: 303 });
   }
 
-  const response = NextResponse.redirect(new URL("/", request.url), { status: 303 });
+  const response = NextResponse.redirect(redirectTarget(request, "/"), { status: 303 });
   response.cookies.set(
     SESSION_COOKIE_NAME,
     signSession(config.ADMIN_TOKEN, { projectId, expiresAt: session.expiresAt }),

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { EventDetailData } from "../../src/lib/api";
 import { DiffTable } from "./DiffTable";
 
@@ -21,6 +22,17 @@ export function EventDetail({ event }: { event: EventDetailData }) {
             <p className="muted">Comparison truncated: too many changes to show.</p>
           ) : null}
         </>
+      )}
+
+      {!event.hasInput ? null : (
+        <p>
+          {/* A link, not a button. REPLAY_SPEC section 13 prohibits one-click
+              replay from the timeline: sending a recorded request is a
+              deliberate act and gets its own screen. */}
+          <Link href={`/journeys/${event.journeyId}/replay?event=${event.id}`}>
+            Replay this input →
+          </Link>
+        </p>
       )}
 
       {event.error === null ? null : (

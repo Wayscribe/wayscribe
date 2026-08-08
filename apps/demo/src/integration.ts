@@ -55,4 +55,26 @@ app.post("/webhooks/salesforce", async (request, reply) => {
   return reply.code(202).send({ journeyId: journey.context().journeyId });
 });
 
+/**
+ * The corrected transformation, reachable for replay only.
+ *
+ * A separate handler rather than a fix to `transformAccount`: the demo, the
+ * end-to-end test, and the whole point of the replay comparison all depend on
+ * the original staying broken. This is what `DEMO_SCENARIO.md` section 10 means
+ * by "after correcting the transformation" — the correction lives beside the
+ * defect so both can be observed at once.
+ *
+ * Not instrumented. A replay is not a journey; it is an experiment about one.
+ */
+app.post("/replay/customer", (request, reply) => {
+  const account = request.body as SalesforceAccount;
+  return reply.code(200).send({
+    externalId: account.Id,
+    name: account.Name,
+    // The fix: `Phone`, which is the field that actually arrives.
+    phone: account.Phone,
+    status: account.Status__c.toLowerCase()
+  });
+});
+
 await app.listen({ host: "0.0.0.0", port: 3200 });
