@@ -64,30 +64,37 @@ export interface Journey {
   context(): JourneyContext;
   record(input: RecordInput): void;
   identify(aliases: Record<string, string>): void;
+  /**
+   * Each wrapper returns whatever shape its callback returns.
+   *
+   * A callback returning a value returns a value; one returning a promise
+   * returns a promise. Instrumenting a synchronous call therefore does not
+   * change the control flow around it — which it used to, silently, turning a
+   * handled error into an unhandled rejection.
+   */
   transform<T>(
     name: string,
     input: unknown,
-    fn: () => T | Promise<T>,
+    fn: () => Promise<T>,
     options?: WrapOptions
   ): Promise<T>;
-  persist<T>(
-    name: string,
-    input: unknown,
-    fn: () => T | Promise<T>,
-    options?: WrapOptions
-  ): Promise<T>;
+  transform<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions): T;
+  persist<T>(name: string, input: unknown, fn: () => Promise<T>, options?: WrapOptions): Promise<T>;
+  persist<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions): T;
   publish<T>(
     name: string,
     message: unknown,
-    fn: () => T | Promise<T>,
+    fn: () => Promise<T>,
     options?: WrapOptions
   ): Promise<T>;
+  publish<T>(name: string, message: unknown, fn: () => T, options?: WrapOptions): T;
   deliver<T>(
     name: string,
     payload: unknown,
-    fn: () => T | Promise<T>,
+    fn: () => Promise<T>,
     options?: WrapOptions
   ): Promise<T>;
+  deliver<T>(name: string, payload: unknown, fn: () => T, options?: WrapOptions): T;
   fail(name: string, error: unknown, metadata?: Record<string, unknown>): void;
   finish(options?: { status?: "completed" | "failed" }): void;
 }
@@ -125,6 +132,15 @@ const UNCAPTURABLE = "[UNCAPTURABLE]";
 
 /** Simultaneous in-flight batches. Four keeps a burst moving without a socket storm. */
 const MAX_CONCURRENT_SENDS = 4;
+
+/** Duck-typed rather than `instanceof Promise`: a thenable from any library counts. */
+function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
 
 interface BatchOutcome {
   status: "accepted" | "rejected";
@@ -420,14 +436,31 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * Everything the recorder does sits inside `safely`, so a recording failure
    * cannot reach the caller.
    */
-  async function wrap<T>(
+  /**
+   * One implementation behind all the public wrappers.
+   *
+   * **Synchronous in, synchronous out.** The wrappers used to be `async`
+   * unconditionally, which meant instrumenting a synchronous call inside a
+   * synchronous handler silently changed its control flow: adding
+   * `journey.transform("parse-body", raw, () => JSON.parse(raw))` to a handler
+   * that correctly returned 400 on malformed input turned it into a 200 with an
+   * empty body and an unhandled rejection, from one bad request. The README's
+   * three promises — returns the value unchanged, rethrows the exact error,
+   * cannot break the application — were all false for a sync callback.
+   *
+   * So the shape of the return follows the shape of the callback: a callback
+   * that returns a value returns a value, and one that returns a promise
+   * returns a promise. A synchronous throw still propagates synchronously,
+   * which is what the caller's try/catch is waiting for.
+   */
+  function wrap<T>(
     context: JourneyContext,
     naturalOperation: Operation,
     name: string,
     input: unknown,
     fn: () => T | Promise<T>,
     options: WrapOptions = {}
-  ): Promise<T> {
+  ): T | Promise<T> {
     const startedAt = Date.now();
     const attempt = options.attempt ?? 1;
     // ADR-022: a retry records as `retried` rather than the natural verb.
@@ -437,10 +470,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ? undefined
         : { ...options.metadata, attempt };
 
-    let result: T;
-    try {
-      result = await fn();
-    } catch (error) {
+    const recordFailure = (error: unknown): void => {
       safely(diagnostics, "capture_error", () => {
         enqueue(context.journeyId, context.entity, {
           operation,
@@ -452,28 +482,51 @@ export function createRecorder(config: RecorderConfig): Recorder {
           ...(metadata === undefined ? {} : { metadata })
         });
       });
-      // The original object, not a copy: application code branches on instanceof
-      // and on custom properties.
+    };
+
+    const recordSuccess = (result: T): void => {
+      safely(diagnostics, "capture_error", () => {
+        const failed = options.isFailure === undefined ? false : options.isFailure(result);
+        enqueue(context.journeyId, context.entity, {
+          operation,
+          name,
+          input,
+          output: result,
+          startedAt,
+          durationMs: Date.now() - startedAt,
+          ...(failed
+            ? { error: { message: `${name} reported a failed result.`, code: "result_failed" } }
+            : {}),
+          ...(metadata === undefined ? {} : { metadata })
+        });
+      });
+    };
+
+    let produced: T | Promise<T>;
+    try {
+      produced = fn();
+    } catch (error) {
+      recordFailure(error);
+      // The original object, not a copy: application code branches on
+      // instanceof and on custom properties.
       throw error;
     }
 
-    safely(diagnostics, "capture_error", () => {
-      const failed = options.isFailure === undefined ? false : options.isFailure(result);
-      enqueue(context.journeyId, context.entity, {
-        operation,
-        name,
-        input,
-        output: result,
-        startedAt,
-        durationMs: Date.now() - startedAt,
-        ...(failed
-          ? { error: { message: `${name} reported a failed result.`, code: "result_failed" } }
-          : {}),
-        ...(metadata === undefined ? {} : { metadata })
-      });
-    });
+    if (!isThenable(produced)) {
+      recordSuccess(produced);
+      return produced;
+    }
 
-    return result;
+    return produced.then(
+      (result) => {
+        recordSuccess(result);
+        return result;
+      },
+      (error: unknown) => {
+        recordFailure(error);
+        throw error;
+      }
+    );
   }
 
   function makeJourney(context: JourneyContext): Journey {

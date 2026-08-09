@@ -64,6 +64,20 @@ Then search your Flight Recorder for `account.Id` and read the timeline.
 its value unchanged, and rethrow its exact error object. They differ only in the
 operation they record, which is what makes the timeline readable.
 
+**They preserve the shape of your callback.** A callback that returns a value
+returns a value; one that returns a promise returns a promise. So wrapping a
+synchronous call does not change the control flow around it:
+
+```typescript
+try {
+  // Returns the parsed value, and throws synchronously on bad input.
+  const parsed = journey.transform("parse-body", raw, () => JSON.parse(raw));
+  return { status: 200, body: parsed };
+} catch {
+  return { status: 400, body: { error: "malformed json" } };
+}
+```
+
 ```typescript
 await journey.deliver("send-to-crm", payload, () => post(payload));
 ```

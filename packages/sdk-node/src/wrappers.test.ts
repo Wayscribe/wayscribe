@@ -23,9 +23,12 @@ function journeyFor(): Journey {
 }
 
 describe("wrapper contract", () => {
-  it("returns the callback's value unchanged", async () => {
+  it("returns a synchronous callback's value synchronously", () => {
+    // Not `await` and not `.resolves`: a sync callback must produce a value,
+    // not a promise. This test asserted the opposite until the wrappers stopped
+    // being unconditionally async — it was encoding the defect.
     const value = { id: 7, nested: { ok: true } };
-    await expect(journeyFor().transform("t", {}, () => value)).resolves.toBe(value);
+    expect(journeyFor().transform("t", {}, () => value)).toBe(value);
   });
 
   it("awaits an async callback and returns its value", async () => {
@@ -34,16 +37,29 @@ describe("wrapper contract", () => {
     );
   });
 
-  it("rethrows the callback's exact error object", async () => {
+  it("rethrows a synchronous callback's exact error synchronously", () => {
     const thrown = new DomainError("phone_required");
-    // Identity, not shape: application code branches on instanceof and on custom
-    // properties, and a wrapped error would break handling that worked before
-    // instrumentation was added.
-    await expect(
+    // Identity, not shape: application code branches on instanceof and on
+    // custom properties, and a wrapped error would break handling that worked
+    // before instrumentation was added.
+    //
+    // Synchronously, because that is what the caller's try/catch is waiting
+    // for. Named "rethrows the exact error" while asserting `.rejects`, this
+    // test used to document the bug: a handler that correctly returned 400 on
+    // malformed input became a 200 with an empty body the moment a transform
+    // was wrapped around its JSON.parse.
+    expect(() =>
       journeyFor().deliver("d", {}, () => {
         throw thrown;
       })
-    ).rejects.toBe(thrown);
+    ).toThrow(thrown);
+  });
+
+  it("still rejects for an async callback", () => {
+    // The other half of the contract, so the shape genuinely follows the
+    // callback rather than always being one or the other.
+    const thrown = new DomainError("async");
+    return expect(journeyFor().deliver("d", {}, () => Promise.reject(thrown))).rejects.toBe(thrown);
   });
 
   it("preserves a rejected promise's error object", async () => {
@@ -53,23 +69,25 @@ describe("wrapper contract", () => {
     );
   });
 
-  it("returns the value untouched even when isFailure marks it failed", async () => {
+  it("returns the value untouched even when isFailure marks it failed", () => {
     const response = { status: 422 };
-    const returned = await journeyFor().deliver("d", {}, () => response, {
+    const returned = journeyFor().deliver("d", {}, () => response, {
       isFailure: (r) => (r as { status: number }).status >= 400
     });
     // isFailure changes what is recorded, never what the application receives.
     expect(returned).toBe(response);
   });
 
-  it("survives an isFailure predicate that throws", async () => {
-    await expect(
+  it("survives an isFailure predicate that throws", () => {
+    // Sync callback, so a sync return: the recorder's own failure must not
+    // reach the caller either way.
+    expect(
       journeyFor().deliver("d", {}, () => "value", {
         isFailure: () => {
           throw new Error("predicate exploded");
         }
       })
-    ).resolves.toBe("value");
+    ).toBe("value");
   });
 
   it("fail and finish do not throw", () => {
@@ -166,12 +184,15 @@ describe("recorded events", () => {
   });
 
   it("records the thrown error's message, type, and code", async () => {
-    const events = await recordAnd(async (journey) => {
-      await journey
-        .persist("p", {}, () => {
+    const events = await recordAnd((journey) => {
+      // Synchronous throw, so a synchronous catch.
+      try {
+        journey.persist("p", {}, () => {
           throw new DomainError("phone_required");
-        })
-        .catch(() => undefined);
+        });
+      } catch {
+        // Expected: the wrapper rethrows the caller's own error.
+      }
     });
     expect(events.find((e) => e["operation"] === "persisted")?.["error"]).toMatchObject({
       type: "Error",
@@ -407,12 +428,14 @@ describe("payloads the application cannot serialize", () => {
       }
     };
 
-    const events = await collect(async (journey) => {
-      await journey
-        .persist("save", hostile, () => {
+    const events = await collect((journey) => {
+      try {
+        journey.persist("save", hostile, () => {
           throw new Error("insert failed");
-        })
-        .catch(() => undefined);
+        });
+      } catch {
+        // Expected.
+      }
     });
 
     const persisted = events.find((e) => e["operation"] === "persisted");
@@ -510,5 +533,52 @@ describe("after shutdown", () => {
     expect(seen.some((line) => line.startsWith("dropped|"))).toBe(true);
     expect(seen.join()).toContain("shut down");
     expect(recorder.diagnostics().dropped).toBe(1);
+  });
+});
+
+describe("instrumenting a synchronous handler", () => {
+  /**
+   * The failure the audit found, reduced to its essentials: a handler that
+   * correctly returns 400 on malformed input, with one wrapper added around its
+   * JSON.parse. Before the wrappers preserved shape, the throw became a
+   * rejected promise nobody awaited — the handler returned 200 with an empty
+   * body and the process took an unhandled rejection, from one bad request.
+   */
+  function handle(raw: string): { status: number; body: unknown } {
+    const journey = createRecorder({
+      endpoint: "http://127.0.0.1:1",
+      apiKey: "fr_test",
+      serviceName: "api",
+      environment: "development"
+    }).startJourney({ entity: { type: "customer", id: "1" } });
+
+    try {
+      const parsed = journey.transform("parse-body", raw, () => JSON.parse(raw) as unknown);
+      return { status: 200, body: parsed };
+    } catch {
+      return { status: 400, body: { error: "malformed json" } };
+    }
+  }
+
+  it("leaves the caller's try/catch working", () => {
+    expect(handle("{not json")).toEqual({ status: 400, body: { error: "malformed json" } });
+  });
+
+  it("still returns the parsed value on the happy path", () => {
+    // The control: a wrapper that always threw would pass the test above.
+    expect(handle('{"ok":true}')).toEqual({ status: 200, body: { ok: true } });
+  });
+
+  it("produces a value, not a promise", () => {
+    const journey = createRecorder({
+      endpoint: "http://127.0.0.1:1",
+      apiKey: "fr_test",
+      serviceName: "api",
+      environment: "development"
+    }).startJourney({ entity: { type: "customer", id: "1" } });
+
+    const result = journey.transform("double", 2, () => 4);
+    expect(result).toBe(4);
+    expect(typeof (result as unknown as { then?: unknown }).then).toBe("undefined");
   });
 });
