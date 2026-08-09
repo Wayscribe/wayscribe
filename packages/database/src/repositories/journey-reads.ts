@@ -1,4 +1,5 @@
 import type { Knex } from "knex";
+import { scoped, type ReadScope } from "./read-scope.js";
 
 export interface JourneyAlias {
   aliasType: string;
@@ -25,17 +26,17 @@ export interface JourneyDetail {
  * row multiplies it by both, and the caller would have to undo a fan-out the
  * database had just performed.
  *
- * Returns undefined rather than throwing when the journey belongs to another
- * project, so the route can answer 404 — confirming existence to an
+ * Returns undefined rather than throwing when the journey is outside the
+ * caller's scope, so the route can answer 404 — confirming existence to an
  * unauthorized caller is itself a disclosure.
  */
 export async function findJourneyDetail(
   db: Knex,
-  projectId: string,
+  scope: ReadScope,
   journeyId: string
 ): Promise<JourneyDetail | undefined> {
-  const row: unknown = await db("journeys")
-    .where({ project_id: projectId, id: journeyId })
+  const row: unknown = await scoped(db("journeys"), scope)
+    .where({ id: journeyId })
     .first(
       "id as journeyId",
       "entity_type as entityType",
@@ -49,13 +50,16 @@ export async function findJourneyDetail(
 
   if (row === undefined) return undefined;
 
+  // Project alone, deliberately: the journey above already had to be inside the
+  // caller's scope for this line to be reached, and `entity_aliases` carries no
+  // environment of its own.
   const aliases: unknown = await db("entity_aliases")
-    .where({ project_id: projectId, journey_id: journeyId })
+    .where({ project_id: scope.projectId, journey_id: journeyId })
     .select("alias_type as aliasType", "encrypted_display_value as encryptedDisplayValue")
     .orderBy("alias_type");
 
   const services: unknown = await db("journey_events")
-    .where({ project_id: projectId, journey_id: journeyId })
+    .where({ project_id: scope.projectId, journey_id: journeyId })
     .distinct("service")
     .orderBy("service");
 

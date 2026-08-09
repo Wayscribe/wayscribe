@@ -57,9 +57,14 @@ docker compose -f infrastructure/compose.yaml exec -T postgres \
   pg_dump -U flight -d flight --format=custom > flight-$(date +%F).dump
 ```
 
-Payload fields and entity identifiers are encrypted at rest with a key derived
-from `ENCRYPTION_KEY`, which is **not** in the dump. A backup without that key
-restores a database whose payloads cannot be read. Store the key separately, and
+**Treat the dump as if it contained your customers' request bodies, because it
+does.** Payloads are stored as `jsonb` in the clear; redaction, not encryption,
+is what keeps secrets out of them. A dump is readable by anyone who holds it.
+
+Entity identifiers and alias values *are* encrypted, with a key derived from
+`ENCRYPTION_KEY`, which is **not** in the dump — so a backup taken without that
+key restores a database whose journeys cannot be searched or attributed to a
+customer, while their payloads remain readable. Store the key separately, and
 store it somewhere you will still have it when you need the backup.
 
 ## 3. Restore

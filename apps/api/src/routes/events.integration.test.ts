@@ -126,6 +126,32 @@ describe("event ingestion", () => {
     expect(row.input_payload.orderTotal).toBe(4210);
   });
 
+  it("redacts secrets in custom metadata", async () => {
+    // `applyCapture` ran on `input` and `output` and on nothing else, so
+    // `metadata` — the one free-form record among the remaining fields — went
+    // to jsonb verbatim. The Node SDK redacts it client-side, but ingestion is
+    // public HTTP and a non-SDK client runs none of that.
+    await send(
+      event({
+        id: "evt_meta_secrets",
+        journeyId: "jrn_meta",
+        input: { ok: true },
+        output: { ok: true },
+        metadata: { authorization: "Bearer sk_live_META", tenant: "acme" }
+      })
+    );
+
+    const row = await db("journey_events")
+      .where({ project_id: projectId, id: "evt_meta_secrets" })
+      .first();
+
+    expect(JSON.stringify(row.custom_metadata)).not.toContain("sk_live_META");
+    // The control: redaction, not deletion — the rest of the metadata is why
+    // somebody attached it.
+    expect(row.custom_metadata.tenant).toBe("acme");
+    expect(row.custom_metadata.authorization).toBe("[REDACTED]");
+  });
+
   it("stores a diff identifying the changed field", async () => {
     const row = await db("journey_events").where({ project_id: projectId, id: "evt_1" }).first();
     expect(row.payload_diff.changes).toContainEqual({

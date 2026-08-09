@@ -1,4 +1,5 @@
 import type { Knex } from "knex";
+import { scoped, type ReadScope } from "./read-scope.js";
 import { decodeEventCursor, encodeCursor } from "./cursors.js";
 
 export interface EventListItem {
@@ -59,15 +60,15 @@ export interface EventDetail extends EventListItem {
  */
 export async function listJourneyEvents(
   db: Knex,
-  projectId: string,
+  scope: ReadScope,
   journeyId: string,
   limit: number,
   cursor?: string
 ): Promise<EventPage> {
   const after = cursor === undefined ? undefined : decodeEventCursor(cursor);
 
-  const rows: unknown = await db("journey_events")
-    .where({ project_id: projectId, journey_id: journeyId })
+  const rows: unknown = await scoped(db("journey_events"), scope)
+    .where({ journey_id: journeyId })
     .modify((builder) => {
       if (after !== undefined) {
         void builder.whereRaw(
@@ -111,11 +112,11 @@ export async function listJourneyEvents(
 
 export async function findEventDetail(
   db: Knex,
-  projectId: string,
+  scope: ReadScope,
   eventId: string
 ): Promise<EventDetail | undefined> {
-  const row: unknown = await db("journey_events")
-    .where({ project_id: projectId, id: eventId })
+  const row: unknown = await scoped(db("journey_events"), scope)
+    .where({ id: eventId })
     .first(
       "id",
       "journey_id as journeyId",

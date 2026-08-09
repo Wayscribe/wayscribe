@@ -9,6 +9,7 @@ import { diffPayloads } from "@flight-recorder/payload-diff";
 import {
   DEFAULT_LIMITS,
   applyCapture,
+  redactAlways,
   checkLimits,
   contentHash,
   encryptField,
@@ -120,10 +121,10 @@ export async function ingestEvent(
       inputPayload: input,
       outputPayload: output,
       payloadDiff: diff,
-      error: event.error,
-      runtimeMetadata: event.runtime,
-      deploymentMetadata: event.deployment,
-      customMetadata: event.metadata
+      error: redactAlways(event.error, policy),
+      runtimeMetadata: redactAlways(event.runtime, policy),
+      deploymentMetadata: redactAlways(event.deployment, policy),
+      customMetadata: redactAlways(event.metadata, policy)
     });
 
     if (outcome.kind === "conflict") {

@@ -1,14 +1,7 @@
 import type { Knex } from "knex";
 import { decodeSearchCursor, encodeCursor, type SearchCursor } from "./cursors.js";
 
-export interface SearchScope {
-  projectId: string;
-  /**
-   * Absent means every environment of this one project — never every project.
-   * The query always filters on project_id regardless (ADR-029).
-   */
-  environmentId?: string | undefined;
-}
+import type { ReadScope } from "./read-scope.js";
 
 export interface SearchHit {
   journeyId: string;
@@ -47,7 +40,7 @@ export interface SearchPage {
 // debtwatch:end
 export async function searchJourneys(
   db: Knex,
-  scope: SearchScope,
+  scope: ReadScope,
   query: string,
   token: string,
   limit: number,

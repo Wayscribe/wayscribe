@@ -84,3 +84,28 @@ function writePath(
   const last = segments[segments.length - 1] ?? "";
   defineKey(current, last, value);
 }
+
+/**
+ * Redaction that applies whatever the capture mode is.
+ *
+ * {@link applyCapture} answers "how much of the business payload may we store",
+ * and for `metadata-only` the answer is none. The fields this covers are not
+ * business payloads — SECURITY.md section 3 keeps identifiers and operation
+ * metadata in that mode — so they have to survive the mode and still lose their
+ * secrets.
+ *
+ * `applyCapture` ran on `input` and `output` and on nothing else, so `metadata`
+ * reached jsonb verbatim. The Node SDK redacts it before sending, but ingestion
+ * is public HTTP and a client that is not the SDK runs none of that.
+ *
+ * For `error`, `runtime` and `deployment` this is defence against the schema
+ * growing rather than a fix for today: their keys are fixed (`message`, `code`,
+ * `hostname` …) so no path rule matches one. It also cannot reach a secret
+ * pasted *inside* `error.message` or `error.stack`, because those are free text
+ * and path redaction matches names. SECURITY.md is explicit that stack traces
+ * carry credentials; treat that as unsolved rather than covered.
+ */
+export function redactAlways(value: unknown, policy: CapturePolicy): unknown {
+  if (value === undefined) return undefined;
+  return redact(value, [...(policy.redactionPaths ?? []), ...DEFAULT_SECRET_PATHS]);
+}
