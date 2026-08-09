@@ -116,6 +116,7 @@ export interface Recorder {
 }
 
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
+const UNCAPTURABLE = "[UNCAPTURABLE]";
 
 interface BatchOutcome {
   status: "accepted" | "rejected";
@@ -219,13 +220,28 @@ export function createRecorder(config: RecorderConfig): Recorder {
     if (value === undefined) return undefined;
     if (resolved.captureMode === "metadata-only") return undefined;
 
-    const limits = checkLimits(value, {
-      ...DEFAULT_LIMITS,
-      maxBytes: resolved.maxPayloadBytes
-    });
-    if (!limits.ok) return TOO_LARGE;
+    // Walking a payload runs the application's own code: `checkLimits` calls
+    // Object.values, which invokes every own enumerable getter. A getter that
+    // throws — `get total() { return this.lines.reduce(...) }` on an object
+    // whose `lines` is undefined — used to escape from inside the event literal,
+    // before queue.push, taking the whole event with it. The counters read
+    // `dropped: 0` while OPERATIONS.md tells the operator that a non-zero
+    // `dropped` is what means events were shed.
+    //
+    // Degrading to a marker keeps the event, and an event that says its payload
+    // was uncapturable is far more useful than no event at all — especially
+    // since the step being recorded is often the one that failed.
+    try {
+      const limits = checkLimits(value, {
+        ...DEFAULT_LIMITS,
+        maxBytes: resolved.maxPayloadBytes
+      });
+      if (!limits.ok) return TOO_LARGE;
 
-    return redact(value, resolved.redact);
+      return redact(value, resolved.redact);
+    } catch {
+      return UNCAPTURABLE;
+    }
   }
 
   function enqueue(journeyId: string, entity: JourneyContext["entity"], input: RecordInput): void {

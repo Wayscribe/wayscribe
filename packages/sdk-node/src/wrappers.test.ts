@@ -339,3 +339,82 @@ describe("the server's verdict", () => {
     await server.close();
   });
 });
+
+describe("payloads the application cannot serialize", () => {
+  /** Its own collector: `recordAnd` above is scoped to another block. */
+  async function collect(use: (journey: Journey) => unknown): Promise<Record<string, unknown>[]> {
+    const received: Record<string, unknown>[] = [];
+    const server = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk: Buffer) => {
+        body += chunk.toString();
+      });
+      request.on("end", () => {
+        const parsed = JSON.parse(body) as { events: { event: Record<string, unknown> }[] };
+        received.push(...parsed.events.map((entry) => entry.event));
+        response.writeHead(202, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            data: { results: parsed.events.map(() => ({ status: "accepted" })) }
+          })
+        );
+      });
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const { port } = server.address() as AddressInfo;
+
+    const recorder = createRecorder({ ...base, endpoint: `http://127.0.0.1:${String(port)}` });
+    await use(recorder.startJourney({ entity: { type: "customer", id: "1" } }));
+    await recorder.shutdown({ timeoutMs: 2_000 });
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    return received;
+  }
+
+  it("keeps the event when a getter throws", async () => {
+    // Verified failing before the guard: the throw escaped from inside the
+    // event literal, before queue.push, so the event vanished with dropped: 0.
+    const order = {
+      id: "ord_1",
+      lines: undefined as unknown[] | undefined,
+      get total(): number {
+        return (this.lines ?? (undefined as unknown as unknown[])).length;
+      }
+    };
+
+    const events = await collect((journey) => {
+      journey.record({ operation: "received", name: "receive-order", input: order });
+    });
+
+    const received = events.find((e) => e["name"] === "receive-order");
+    expect(received).toBeDefined();
+    expect(received?.["input"]).toBe("[UNCAPTURABLE]");
+  });
+
+  it("keeps the event, and its error, when the failing step is the one recorded", async () => {
+    // The case that matters most: the payload that cannot be captured belongs
+    // to the step that just failed. Losing it loses the failure.
+    const hostile = {
+      get boom(): never {
+        throw new Error("getter exploded");
+      }
+    };
+
+    const events = await collect(async (journey) => {
+      await journey
+        .persist("save", hostile, () => {
+          throw new Error("insert failed");
+        })
+        .catch(() => undefined);
+    });
+
+    const persisted = events.find((e) => e["operation"] === "persisted");
+    expect(persisted?.["input"]).toBe("[UNCAPTURABLE]");
+    expect((persisted?.["error"] as { message: string }).message).toBe("insert failed");
+  });
+});
