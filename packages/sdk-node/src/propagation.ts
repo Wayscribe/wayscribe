@@ -32,6 +32,13 @@ interface Fields {
  * downstream system should not receive incidentally.
  */
 function fieldsFor(context: PropagatedContext, level: PropagationLevel): Fields {
+  // Guarded: this used to dereference `context.journeyId` on whatever it was
+  // handed, and callers hand it the result of `extractHttpContext`, which
+  // returns undefined for any request that did not carry context.
+  if ((context as PropagatedContext | undefined) === undefined) {
+    throw new TypeError("A journey context is required to propagate.");
+  }
+
   if (level === "journey-only") return { journeyId: context.journeyId };
 
   if (level === "journey-and-type") {
@@ -45,7 +52,16 @@ function fieldsFor(context: PropagatedContext, level: PropagationLevel): Fields 
     journeyId: context.journeyId,
     ...(context.entity === undefined
       ? {}
-      : { entityType: context.entity.type, entityId: context.entity.id })
+      : {
+          entityType: context.entity.type,
+          // Validated on the way out, not just on the way in. An entity id is
+          // whatever the application's data contains: "José-42" and
+          // "ORD/2024/12" were injected happily and then silently dropped by
+          // the consumer's own validation, so `full` quietly did nothing, while
+          // "顧客-42" threw a TypeError out of the caller's fetch and "C123\r"
+          // threw ERR_INVALID_CHAR from node:http.
+          ...(isSafe(context.entity.id) ? { entityId: context.entity.id } : {})
+        })
   };
 }
 

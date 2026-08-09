@@ -253,9 +253,24 @@ export function createRecorder(config: RecorderConfig): Recorder {
     try {
       const limits = checkLimits(value, {
         ...DEFAULT_LIMITS,
-        maxBytes: resolved.maxPayloadBytes
+        maxBytes: resolved.maxPayloadBytes,
+        // Scaled with the budget the operator actually set. Overriding only
+        // maxBytes left maxStringLength pinned at 64 KiB, so raising
+        // maxPayloadBytes to 5 MB still discarded a 70 KB HTML email body —
+        // while the README documents maxPayloadBytes as the knob for exactly
+        // that. A single string cannot exceed the whole payload anyway.
+        maxStringLength: Math.max(DEFAULT_LIMITS.maxStringLength, resolved.maxPayloadBytes)
       });
-      if (!limits.ok) return TOO_LARGE;
+      if (!limits.ok) {
+        // Discarding a payload silently made a full timeline look like a step
+        // that genuinely carried nothing.
+        diagnostics.report({
+          kind: "dropped",
+          reason: `A payload was not captured: ${limits.reason}.`,
+          detail: { reason: limits.reason }
+        });
+        return TOO_LARGE;
+      }
 
       // Sanitized last, so redaction markers are untouched and every string
       // that leaves this process is one PostgreSQL will accept.
@@ -532,13 +547,33 @@ export function createRecorder(config: RecorderConfig): Recorder {
         entity: options.context?.entity ??
           options.entityFallback ?? { type: "unknown", id: "unknown" }
       }),
+    // These six were the only public entry points not going through `safely`,
+    // which contradicted safely.ts's own claim that every one does. The
+    // consequence was not theoretical: a plain-JavaScript relay calling
+    // `injectHttpHeaders({}, extractHttpContext(req.headers))` works for an
+    // instrumented caller and kills the process on the first un-instrumented
+    // one, because extract returns undefined and inject dereferences it. It
+    // passes in testing and dies during rollout.
+    //
+    // The fallbacks are chosen so a failure degrades rather than breaks: no
+    // headers rather than no request, and no context rather than no consumer.
     injectHttpHeaders: (headers, context) =>
-      injectHttpHeaders(headers, context, resolved.propagate),
-    extractHttpContext,
-    toQueueAttributes: (context) => toQueueAttributes(context, resolved.propagate),
-    fromQueueAttributes,
-    wrapPayload: (payload, context) => wrapPayload(payload, context, resolved.propagate),
-    unwrapPayload,
+      safely(diagnostics, "capture_error", () =>
+        injectHttpHeaders(headers, context, resolved.propagate)
+      ) ?? headers,
+    extractHttpContext: (headers) =>
+      safely(diagnostics, "capture_error", () => extractHttpContext(headers)),
+    toQueueAttributes: (context) =>
+      safely(diagnostics, "capture_error", () => toQueueAttributes(context, resolved.propagate)) ??
+      {},
+    fromQueueAttributes: (attributes) =>
+      safely(diagnostics, "capture_error", () => fromQueueAttributes(attributes)),
+    wrapPayload: (payload, context) =>
+      safely(diagnostics, "capture_error", () =>
+        wrapPayload(payload, context, resolved.propagate)
+      ) ?? { _flight: {}, data: payload },
+    unwrapPayload: (body) =>
+      safely(diagnostics, "capture_error", () => unwrapPayload(body)) ?? { data: body },
     async flush() {
       await safelyAsync(diagnostics, "transport_error", drainAll);
     },

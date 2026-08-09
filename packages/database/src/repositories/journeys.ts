@@ -129,7 +129,20 @@ export async function updateJourneySummary(
       event_count = event_count + 1,
       started_at = least(started_at, ?),
       last_event_at = greatest(last_event_at, ?),
+      -- A failure always registers, whatever its timestamp says.
+      --
+      -- The watermark rule below is right for ordinary status changes and
+      -- wrong for failures. last_event_at advances on every event, including
+      -- status-less ones, so an earlier-stamped failure arriving afterwards
+      -- failed the watermark test and was discarded -- leaving a journey at
+      -- 'active' with a failed event in its own timeline, which the search list
+      -- paints in the ordinary colour so nobody opens it.
+      --
+      -- ADR-031 makes this the common case rather than a race: a wrapped event
+      -- is stamped when its callback starts and enqueued when it finishes, so a
+      -- slow failing step is always stamped earlier than it arrives.
       status = case
+        when ?::text = 'failed' then 'failed'
         when ?::timestamptz >= last_event_at and ?::text is not null then ?::text
         else status
       end,
@@ -140,7 +153,7 @@ export async function updateJourneySummary(
       updated_at = now()
     where project_id = ? and id = ?
     `,
-    [at, at, at, status, status, at, status, at, projectId, facts.journeyId]
+    [at, at, status, at, status, status, at, status, at, projectId, facts.journeyId]
   );
 }
 
