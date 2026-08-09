@@ -303,6 +303,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
   }
 
+  /** Captured metadata, or nothing at all when it cannot be represented. */
+  function metadataFor(metadata: Record<string, unknown> | undefined): {
+    metadata?: Record<string, unknown>;
+  } {
+    if (metadata === undefined) return {};
+    const captured = capture(metadata);
+    if (typeof captured !== "object" || captured === null) return {};
+    return { metadata: captured as Record<string, unknown> };
+  }
+
   function enqueue(journeyId: string, entity: JourneyContext["entity"], input: RecordInput): void {
     if (stopped) {
       // Silent until now: after shutdown the wrappers still ran the callback
@@ -338,7 +348,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
         // Through capture like input and output: metadata used to go in raw,
         // so a Prisma BigInt or a circular request object threw inside
         // JSON.stringify at flush time and took the whole batch with it.
-        ...(input.metadata === undefined ? {} : { metadata: capture(input.metadata) })
+        //
+        // Omitted rather than replaced when capture cannot represent it. The
+        // protocol types metadata as a record, so substituting a marker string
+        // makes the whole event fail validation — trading a lost payload for a
+        // lost event, which is the worse half of the trade.
+        ...metadataFor(input.metadata)
       }
     });
 
