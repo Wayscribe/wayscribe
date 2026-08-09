@@ -1,3 +1,5 @@
+import { CIRCULAR } from "./redact.js";
+
 /** NUL. PostgreSQL rejects it in `text` and in `jsonb` alike. */
 const NUL = "\u0000";
 
@@ -26,18 +28,45 @@ export function toStorableText(text: string): string {
   return withoutNul.toWellFormed();
 }
 
-/** Applies {@link toStorableText} to every string in a structure. */
+/**
+ * Applies {@link toStorableText} to every string in a structure, and renders the
+ * two remaining values `JSON.stringify` refuses.
+ *
+ * A BigInt throws outright — and a Postgres `bigint` column, a Prisma `BigInt`,
+ * and a snowflake id are all ordinary. Rendering one as a decimal string keeps
+ * the digits BigInt exists to protect; a Number would round them away.
+ *
+ * A cycle overflows the stack. `redact` marks cycles already, but only when the
+ * caller configured at least one path, so this is the path a bare
+ * `toStorable(value)` takes.
+ */
 export function toStorable(value: unknown): unknown {
+  return walk(value, new Set());
+}
+
+/**
+ * `seen` is the ancestor chain, not everything visited: two fields pointing at
+ * one address object is ordinary, and calling the second [CIRCULAR] would show
+ * up in the diff as a change to a field that never changed.
+ */
+function walk(value: unknown, seen: Set<object>): unknown {
   if (typeof value === "string") return toStorableText(value);
+  if (typeof value === "bigint") return value.toString();
   if (value === null || typeof value !== "object") return value;
 
-  if (Array.isArray(value)) return value.map(toStorable);
+  if (seen.has(value)) return CIRCULAR;
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) return value.map((child) => walk(child, seen));
 
-  const result: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
-    // Keys too: a NUL in a key is as unstorable as one in a value, and jsonb
-    // rejects the whole document either way.
-    result[toStorableText(key)] = toStorable(child);
+    const result: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value)) {
+      // Keys too: a NUL in a key is as unstorable as one in a value, and jsonb
+      // rejects the whole document either way.
+      result[toStorableText(key)] = walk(child, seen);
+    }
+    return result;
+  } finally {
+    seen.delete(value);
   }
-  return result;
 }

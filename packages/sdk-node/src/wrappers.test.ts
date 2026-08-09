@@ -442,6 +442,59 @@ describe("payloads the application cannot serialize", () => {
     expect(persisted?.["input"]).toBe("[UNCAPTURABLE]");
     expect((persisted?.["error"] as { message: string }).message).toBe("insert failed");
   });
+
+  it("stores an ORM row that points back at its parent", async () => {
+    // Found by instrumenting a real application rather than by a unit test: a
+    // parent/child graph is what every ORM hands back, and the whole payload
+    // was dropped as `payload_too_large`. `redact` cuts the loop to a marker
+    // and keeps the rest — the byte check simply ran first and never let it.
+    const run: Record<string, unknown> = { id: "run_1", status: "completed" };
+    const child: Record<string, unknown> = { label: "step one", parent: run };
+    run["steps"] = [child];
+
+    const events = await collect((journey) => {
+      journey.record({ operation: "received", name: "load-run", input: run });
+    });
+
+    const input = events.find((e) => e["name"] === "load-run")?.["input"] as
+      Record<string, unknown> | undefined;
+    expect(input?.["status"]).toBe("completed");
+    expect((input?.["steps"] as Record<string, unknown>[])[0]?.["label"]).toBe("step one");
+    expect((input?.["steps"] as Record<string, unknown>[])[0]?.["parent"]).toBe("[CIRCULAR]");
+  });
+
+  it("stores a bigint id as digits rather than dropping the payload", async () => {
+    // A Postgres `bigint` column and a snowflake id are both routine. The
+    // diagnostic said `payload_too_large`, which sends an operator to raise
+    // maxPayloadBytes — a setting that could never have helped.
+    const events = await collect((journey) => {
+      journey.record({
+        operation: "received",
+        name: "load-row",
+        input: { id: 9_007_199_254_740_993n, name: "Dana" }
+      });
+    });
+
+    const input = events.find((e) => e["name"] === "load-row")?.["input"] as
+      Record<string, unknown> | undefined;
+    // The digits BigInt exists to preserve: a Number would render ...992.
+    expect(input?.["id"]).toBe("9007199254740993");
+    expect(input?.["name"]).toBe("Dana");
+  });
+
+  it("still refuses a payload that is genuinely too large", async () => {
+    // The control for both tests above. Tolerating cycles and bigints must not
+    // turn the size guard off.
+    const events = await collect((journey) => {
+      journey.record({
+        operation: "received",
+        name: "load-blob",
+        input: { blob: "x".repeat(400_000) }
+      });
+    });
+
+    expect(events.find((e) => e["name"] === "load-blob")?.["input"]).toBe("[PAYLOAD_TOO_LARGE]");
+  });
 });
 
 describe("burst behaviour", () => {
