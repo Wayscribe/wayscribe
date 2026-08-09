@@ -92,6 +92,40 @@ describe("event ingestion", () => {
     expect(row.input_payload.phone).toBe("+1 919 555 1234");
   });
 
+  it("redacts built-in secrets wherever they are nested", async () => {
+    // This assertion used to read only the top level, and the built-in list
+    // only reached one below it. A payload carrying an axios error's request
+    // config was written to `journey_events.input_payload` as plaintext — read
+    // back out of PostgreSQL to confirm, not inferred from the function.
+    await send(
+      event({
+        id: "evt_nested_secrets",
+        // Its own journey: `jrn_1`'s event_count is asserted elsewhere.
+        journeyId: "jrn_secrets",
+        input: {
+          config: { headers: { authorization: "Bearer sk_live_NESTED" } },
+          request: { body: { user: { password: "hunter2-NESTED" } } },
+          batch: [{ api_key: "ak_IN_AN_ARRAY" }],
+          orderTotal: 4210
+        },
+        output: { ok: true }
+      })
+    );
+
+    const row = await db("journey_events")
+      .where({ project_id: projectId, id: "evt_nested_secrets" })
+      .first();
+    const stored = JSON.stringify(row.input_payload);
+
+    expect(stored).not.toContain("sk_live_NESTED");
+    expect(stored).not.toContain("hunter2-NESTED");
+    expect(stored).not.toContain("ak_IN_AN_ARRAY");
+    // Evidence is preserved, and the business data around it survives — a
+    // redaction that stored nothing would satisfy the three assertions above.
+    expect(row.input_payload.config.headers.authorization).toBe("[REDACTED]");
+    expect(row.input_payload.orderTotal).toBe(4210);
+  });
+
   it("stores a diff identifying the changed field", async () => {
     const row = await db("journey_events").where({ project_id: projectId, id: "evt_1" }).first();
     expect(row.payload_diff.changes).toContainEqual({

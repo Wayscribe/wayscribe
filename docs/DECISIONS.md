@@ -943,3 +943,71 @@ measures the rendering rather than the original.
 - `LimitViolation` gains a variant. The API passes the reason through as an error code, but
   cannot produce this one: its input is already-parsed JSON, which has no cycles, no
   BigInt, and no getters.
+
+## ADR-035: A secret is identified by its key name, at any depth
+
+**Status:** Accepted
+
+### Context
+
+`DEFAULT_SECRET_PATHS` shipped each name twice — `authorization` and `*.authorization` —
+which reached the top level of a payload and one level below it. Nothing deeper, and
+nothing inside an array, because an array with no matching `x[*]` rule was walked with no
+rules at all.
+
+Verified against the running stack and read back out of PostgreSQL, this was stored as
+plaintext in `journey_events.input_payload`:
+
+```json
+{"items": [{"api_key": "ak_ARRAY_PROOF"}],
+ "config": {"headers": {"authorization": "Bearer sk_live_DEPTH3_PROOF"}},
+ "request": {"body": {"user": {"password": "hunter2-DEPTH3"}}}}
+```
+
+`config.headers.authorization` is the shape every axios error carries, and it is the most
+common way a live key reaches a captured payload at all. This applied in every capture
+mode, including the default, and at both redaction points — the SDK before buffering and
+the server before persistence — because both append the same list.
+
+`SECURITY.md` section 2 names secret capture as a primary threat and lists API keys, OAuth
+tokens, cookies and passwords; section 3 requires that `full-payload` never mean "skip
+secret detection". The filtering ran everywhere section 4 asks for it. It simply could not
+reach.
+
+The unit tests passed throughout, because each asked whether a configured rule matches a
+payload built to fit it. None asked the question that mattered: whether the shipped list
+reaches where real secrets sit.
+
+### Decision
+
+A rule of the form `**.name` matches that key name at every level, and the built-in list
+is written entirely in that form. Twenty-two rules covering two levels became eleven
+covering all of them.
+
+It is implemented as a set of key names checked on every key of every object, never
+narrowed while descending — not as a general glob. The security property is then a single
+sentence a reviewer can confirm in one reading: *a key whose name is on the list is
+replaced wherever it is filed.* A `**` segment threaded through the existing path matcher
+would have put the same guarantee behind path-matching edge cases, which is where this
+class of bug lives.
+
+Only a plain key name is accepted after the prefix. `**.a.b`, `**.*` and `**.a[*]` are
+dropped rather than reinterpreted, so a malformed rule protects nothing instead of quietly
+matching something its author did not mean.
+
+The existing grammar is untouched. A bare `authorization` still matches the top level only
+and `*.password` still matches one below it, so nobody who wrote a rule to mask one field
+finds every field of that name masked instead.
+
+### Consequences
+
+- Redaction now descends into arrays. An array previously terminated the walk for its
+  contents unless an explicit `x[*]` rule existed.
+- Over-redaction is possible where a key name is only sometimes a secret, and the built-in
+  list is deliberately narrow for that reason: each name means a secret in essentially
+  every payload it appears in. A name that is sometimes a secret belongs in an operator's
+  own `redact` list, where the trade is theirs to make.
+- Breadth remains a separate question from reach. This decision changes only what the
+  eleven existing names can reach.
+- The regression test is a payload shape from a real library, asserted against the row in
+  PostgreSQL rather than against the function's return value.

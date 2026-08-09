@@ -66,6 +66,107 @@ describe("redact", () => {
   });
 });
 
+describe("keys caught at any depth", () => {
+  const SECRET = "Bearer sk_live_LEAKED";
+
+  it("redacts the key however deep it sits", () => {
+    // The defect this form exists for. `authorization` matched depth one and
+    // `*.authorization` matched depth two, so `config.headers.authorization` —
+    // the shape every axios error carries — was stored in the clear.
+    expect(
+      redact({ config: { headers: { authorization: SECRET } } }, ["**.authorization"])
+    ).toEqual({ config: { headers: { authorization: REDACTED } } });
+    expect(redact({ a: { b: { c: { d: { password: "x" } } } } }, ["**.password"])).toEqual({
+      a: { b: { c: { d: { password: REDACTED } } } }
+    });
+  });
+
+  it("redacts inside an array that has no configured array path", () => {
+    // Worse than depth: an array was a hard stop. Without a matching `x[*]`
+    // path the elements were walked with no paths at all, so nothing inside an
+    // array was ever redacted by the built-in list.
+    expect(redact({ items: [{ api_key: "ak_1" }, { api_key: "ak_2" }] }, ["**.api_key"])).toEqual({
+      items: [{ api_key: REDACTED }, { api_key: REDACTED }]
+    });
+  });
+
+  it("redacts through a mix of arrays and objects", () => {
+    expect(redact({ batch: [{ req: { headers: { cookie: "sid=1" } } }] }, ["**.cookie"])).toEqual({
+      batch: [{ req: { headers: { cookie: REDACTED } } }]
+    });
+  });
+
+  it("matches case-insensitively at depth", () => {
+    expect(
+      redact({ config: { headers: { Authorization: SECRET } } }, ["**.authorization"])
+    ).toEqual({ config: { headers: { Authorization: REDACTED } } });
+  });
+
+  it("redacts the whole value when the key holds a structure", () => {
+    expect(
+      redact({ a: { credentials: { user: "dana", password: "x" } } }, ["**.credentials"])
+    ).toEqual({ a: { credentials: REDACTED } });
+  });
+
+  it("still redacts inside whatever toJSON returns", () => {
+    // A custom toJSON must not become a way to smuggle a secret past a rule
+    // that applies everywhere.
+    const holder = { toJSON: () => ({ nested: { password: "hunter2" } }) };
+    const value = JSON.stringify(redact({ account: holder }, ["**.password"]));
+    expect(value).not.toContain("hunter2");
+    expect(value).toContain(REDACTED);
+  });
+
+  it("preserves evidence that the value existed", () => {
+    const result = redact({ a: { token: "x" } }, ["**.token"]) as {
+      a: Record<string, unknown>;
+    };
+    expect("token" in result.a).toBe(true);
+    expect(result.a["token"]).toBe(REDACTED);
+  });
+
+  it("leaves a bare name matching only at the top level", () => {
+    // Control: the existing grammar must not silently widen. Someone who wrote
+    // `id` to mask one top-level field must not find every id in the payload
+    // masked after this change.
+    expect(redact({ id: "top", nested: { id: "deep" } }, ["id"])).toEqual({
+      id: REDACTED,
+      nested: { id: "deep" }
+    });
+  });
+
+  it("leaves a single wildcard matching only at depth two", () => {
+    // The other half of that control.
+    expect(redact({ a: { pin: "1" }, b: { c: { pin: "2" } } }, ["*.pin"])).toEqual({
+      a: { pin: REDACTED },
+      b: { c: { pin: "2" } }
+    });
+  });
+
+  it("leaves keys that are not configured untouched at every depth", () => {
+    // The control that a rule matching everything would fail.
+    expect(redact({ a: { b: { name: "Jorge", note: "keep" } } }, ["**.password"])).toEqual({
+      a: { b: { name: "Jorge", note: "keep" } }
+    });
+  });
+
+  it("does not treat an unsupported ** form as matching everything", () => {
+    // Only `**.<name>` is supported. `**.a.b` and `**.*` are not, and must fail
+    // closed to matching nothing rather than open to matching anything.
+    for (const path of ["**.a.b", "**.*", "**.a[*]", "**."]) {
+      expect(redact({ a: { b: "keep" } }, [path])).toEqual({ a: { b: "keep" } });
+    }
+  });
+
+  it("still finds a cycle underneath an any-depth rule", () => {
+    const node: Record<string, unknown> = { password: "x" };
+    node["self"] = node;
+    const result = redact(node, ["**.password"]) as Record<string, unknown>;
+    expect(result["password"]).toBe(REDACTED);
+    expect(result["self"]).toBe("[CIRCULAR]");
+  });
+});
+
 describe("values that serialize themselves", () => {
   /**
    * The object rebuild that makes redaction possible also destroyed anything
