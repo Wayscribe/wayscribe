@@ -1,7 +1,15 @@
 import type { Diagnostics } from "./diagnostics.js";
 
 export interface TransportOptions {
-  send: (batch: readonly unknown[]) => Promise<void>;
+  /**
+   * Delivers a batch and returns how many events the server actually accepted.
+   *
+   * Returning a count rather than void is the whole point: the ingestion route
+   * replies 202 for a batch in which every event was refused, so "the request
+   * succeeded" and "the events were stored" are different facts and only the
+   * body distinguishes them.
+   */
+  send: (batch: readonly unknown[]) => Promise<number>;
   maxAttempts: number;
   baseBackoffMs: number;
   maxBackoffMs: number;
@@ -45,12 +53,25 @@ export class Transport {
     let lastError: unknown;
     for (let attempt = 1; attempt <= this.options.maxAttempts; attempt += 1) {
       try {
-        await this.options.send(batch);
+        const accepted = await this.options.send(batch);
         this.consecutiveFailures = 0;
-        this.diagnostics.recordSent(batch.length);
+        // `accepted`, not `batch.length`. Counting the batch would report a
+        // clean bill of health for events the server threw away.
+        this.diagnostics.recordSent(accepted);
         return;
       } catch (error) {
         lastError = error;
+        // A permanent failure is not retried and does not count toward the
+        // breaker: the batch is unsendable, and pretending otherwise turns one
+        // bad payload into total loss.
+        if (isPermanent(error)) {
+          this.diagnostics.report({
+            kind: "rejected",
+            reason: error instanceof Error ? error.message : String(error),
+            detail: { permanent: true, events: batch.length }
+          });
+          return;
+        }
         if (attempt < this.options.maxAttempts) await this.backoff(attempt);
       }
     }
@@ -86,4 +107,9 @@ export class Transport {
     // together and the server sees the same thundering herd repeatedly.
     await sleep(Math.floor(random() * capped));
   }
+}
+
+/** Marked by the sender when the server refused the batch outright. */
+function isPermanent(error: unknown): boolean {
+  return (error as { permanent?: boolean } | null)?.permanent === true;
 }

@@ -24,7 +24,8 @@ app.post("/webhooks/salesforce", async (request, reply) => {
     input: account
   });
 
-  const customer = await journey.transform("transform-salesforce-account", account, () =>
+  // No `await`: the callback is synchronous, so the wrapper returns a value.
+  const customer = journey.transform("transform-salesforce-account", account, () =>
     transformAccount(account)
   );
 

@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_LIMITS, checkLimits, redact } from "@flight-recorder/payload-security/redaction";
+import {
+  DEFAULT_LIMITS,
+  checkLimits,
+  redact,
+  toStorable
+} from "@flight-recorder/payload-security/redaction";
 import { resolveConfig, type RecorderConfig } from "./config.js";
-import { createDiagnostics, type Counters } from "./diagnostics.js";
+import { createDiagnostics, type Counters, type Diagnostics } from "./diagnostics.js";
+import type { Operation } from "./operations.js";
 import {
   extractHttpContext,
   fromQueueAttributes,
@@ -22,7 +28,13 @@ export interface JourneyContext {
 }
 
 export interface RecordInput {
-  operation: string;
+  /**
+   * One of the eleven operations the server accepts.
+   *
+   * A union rather than `string`: anything else is refused at ingestion, and a
+   * refused event leaves a timeline that is not empty but wrong.
+   */
+  operation: Operation;
   name: string;
   input?: unknown;
   output?: unknown;
@@ -52,30 +64,37 @@ export interface Journey {
   context(): JourneyContext;
   record(input: RecordInput): void;
   identify(aliases: Record<string, string>): void;
+  /**
+   * Each wrapper returns whatever shape its callback returns.
+   *
+   * A callback returning a value returns a value; one returning a promise
+   * returns a promise. Instrumenting a synchronous call therefore does not
+   * change the control flow around it — which it used to, silently, turning a
+   * handled error into an unhandled rejection.
+   */
   transform<T>(
     name: string,
     input: unknown,
-    fn: () => T | Promise<T>,
+    fn: () => Promise<T>,
     options?: WrapOptions
   ): Promise<T>;
-  persist<T>(
-    name: string,
-    input: unknown,
-    fn: () => T | Promise<T>,
-    options?: WrapOptions
-  ): Promise<T>;
+  transform<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions): T;
+  persist<T>(name: string, input: unknown, fn: () => Promise<T>, options?: WrapOptions): Promise<T>;
+  persist<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions): T;
   publish<T>(
     name: string,
     message: unknown,
-    fn: () => T | Promise<T>,
+    fn: () => Promise<T>,
     options?: WrapOptions
   ): Promise<T>;
+  publish<T>(name: string, message: unknown, fn: () => T, options?: WrapOptions): T;
   deliver<T>(
     name: string,
     payload: unknown,
-    fn: () => T | Promise<T>,
+    fn: () => Promise<T>,
     options?: WrapOptions
   ): Promise<T>;
+  deliver<T>(name: string, payload: unknown, fn: () => T, options?: WrapOptions): T;
   fail(name: string, error: unknown, metadata?: Record<string, unknown>): void;
   finish(options?: { status?: "completed" | "failed" }): void;
 }
@@ -109,6 +128,72 @@ export interface Recorder {
 }
 
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
+const UNCAPTURABLE = "[UNCAPTURABLE]";
+
+// debtwatch:start
+// id: DEBT-WGN0N4
+// owner: flight-recorder
+// expires: 2026-12-01
+// reason: Four is a guess; every measurement so far was over loopback, never a real network
+// tags: sdk, performance
+// debtwatch:end
+/** Simultaneous in-flight batches. Four keeps a burst moving without a socket storm. */
+const MAX_CONCURRENT_SENDS = 4;
+
+/** Duck-typed rather than `instanceof Promise`: a thenable from any library counts. */
+function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
+interface BatchOutcome {
+  status: "accepted" | "rejected";
+  eventId?: string | null;
+  error?: {
+    code?: string;
+    message?: string;
+    httpStatus?: number;
+    details?: { path: string; message: string }[];
+  };
+}
+
+/**
+ * How many events the server stored, reporting each refusal on the way.
+ *
+ * A rejection is permanent — the event was understood and refused — so it is
+ * counted separately from a transport failure and never retried. The server's
+ * own message is passed through verbatim, because it is far more specific than
+ * anything this side could reconstruct: "event.entity.id: expected string,
+ * received number" ends the investigation that "invalid_event" begins.
+ *
+ * A body this cannot parse is treated as full acceptance. The alternative —
+ * assuming the worst — would report phantom data loss whenever a proxy rewrote
+ * a response, and the request did return 2xx.
+ */
+function countAccepted(body: unknown, diagnostics: Diagnostics): number {
+  const results = (body as { data?: { results?: BatchOutcome[] } } | null)?.data?.results;
+  if (!Array.isArray(results)) return 0;
+
+  let accepted = 0;
+  for (const result of results) {
+    if (result.status === "accepted") {
+      accepted += 1;
+      continue;
+    }
+
+    const where = result.error?.details?.[0];
+    const detail = where === undefined ? "" : ` (${where.path}: ${where.message})`;
+    diagnostics.report({
+      kind: "rejected",
+      reason: `${result.error?.code ?? "rejected"}: ${result.error?.message ?? "The server refused this event."}${detail}`,
+      detail: result.error
+    });
+  }
+  return accepted;
+}
 
 export function createRecorder(config: RecorderConfig): Recorder {
   const resolved = resolveConfig(config);
@@ -135,7 +220,24 @@ export function createRecorder(config: RecorderConfig): Recorder {
             body: JSON.stringify({ events: batch }),
             signal: controller.signal
           });
-          if (!response.ok) throw new Error(`Ingestion responded ${String(response.status)}.`);
+          if (!response.ok) {
+            // A 4xx is permanent: the server understood the request and
+            // refused it. Retrying burns three attempts, drives the breaker
+            // open, and requeues the batch to the FRONT — so one malformed
+            // batch used to block every event behind it for the life of the
+            // process. Marked so the transport can tell the two apart.
+            const error = new Error(`Ingestion responded ${String(response.status)}.`);
+            if (response.status >= 400 && response.status < 500) {
+              (error as { permanent?: boolean }).permanent = true;
+            }
+            throw error;
+          }
+
+          // The batch route replies 202 with a per-event verdict, so a request
+          // that "succeeded" may have stored nothing. Reading the body is the
+          // only way to know, and not reading it is how a misconfigured
+          // environment name looked exactly like a healthy recorder.
+          return countAccepted(await response.json(), diagnostics);
         } finally {
           clearTimeout(timer);
         }
@@ -160,17 +262,71 @@ export function createRecorder(config: RecorderConfig): Recorder {
     if (value === undefined) return undefined;
     if (resolved.captureMode === "metadata-only") return undefined;
 
-    const limits = checkLimits(value, {
-      ...DEFAULT_LIMITS,
-      maxBytes: resolved.maxPayloadBytes
-    });
-    if (!limits.ok) return TOO_LARGE;
+    // Walking a payload runs the application's own code: `checkLimits` calls
+    // Object.values, which invokes every own enumerable getter. A getter that
+    // throws — `get total() { return this.lines.reduce(...) }` on an object
+    // whose `lines` is undefined — used to escape from inside the event literal,
+    // before queue.push, taking the whole event with it. The counters read
+    // `dropped: 0` while OPERATIONS.md tells the operator that a non-zero
+    // `dropped` is what means events were shed.
+    //
+    // Degrading to a marker keeps the event, and an event that says its payload
+    // was uncapturable is far more useful than no event at all — especially
+    // since the step being recorded is often the one that failed.
+    try {
+      const limits = checkLimits(value, {
+        ...DEFAULT_LIMITS,
+        maxBytes: resolved.maxPayloadBytes,
+        // Scaled with the budget the operator actually set. Overriding only
+        // maxBytes left maxStringLength pinned at 64 KiB, so raising
+        // maxPayloadBytes to 5 MB still discarded a 70 KB HTML email body —
+        // while the README documents maxPayloadBytes as the knob for exactly
+        // that. A single string cannot exceed the whole payload anyway.
+        maxStringLength: Math.max(DEFAULT_LIMITS.maxStringLength, resolved.maxPayloadBytes)
+      });
+      if (!limits.ok) {
+        // Discarding a payload silently made a full timeline look like a step
+        // that genuinely carried nothing.
+        diagnostics.report({
+          kind: "dropped",
+          reason: `A payload was not captured: ${limits.reason}.`,
+          detail: { reason: limits.reason }
+        });
+        return TOO_LARGE;
+      }
 
-    return redact(value, resolved.redact);
+      // Sanitized last, so redaction markers are untouched and every string
+      // that leaves this process is one PostgreSQL will accept.
+      return toStorable(redact(value, resolved.redact));
+    } catch {
+      return UNCAPTURABLE;
+    }
+  }
+
+  /** Captured metadata, or nothing at all when it cannot be represented. */
+  function metadataFor(metadata: Record<string, unknown> | undefined): {
+    metadata?: Record<string, unknown>;
+  } {
+    if (metadata === undefined) return {};
+    const captured = capture(metadata);
+    if (typeof captured !== "object" || captured === null) return {};
+    return { metadata: captured as Record<string, unknown> };
   }
 
   function enqueue(journeyId: string, entity: JourneyContext["entity"], input: RecordInput): void {
-    if (stopped) return;
+    if (stopped) {
+      // Silent until now: after shutdown the wrappers still ran the callback
+      // and returned the right value, the server received nothing, and the
+      // counters kept reporting a clean bill of health. Reachable by ordinary
+      // reading, because `flush()` appears in no user-facing documentation and
+      // the example calls shutdown "flush".
+      diagnostics.report({
+        kind: "dropped",
+        reason: "The recorder was shut down; this event was not recorded.",
+        detail: { name: input.name, operation: input.operation }
+      });
+      return;
+    }
 
     queue.push({
       protocolVersion: "0.1",
@@ -189,11 +345,52 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ...(input.output === undefined ? {} : { output: capture(input.output) }),
         ...(input.error === undefined ? {} : { error: input.error }),
         ...(input.aliases === undefined ? {} : { aliases: input.aliases }),
-        ...(input.metadata === undefined ? {} : { metadata: input.metadata })
+        // Through capture like input and output: metadata used to go in raw,
+        // so a Prisma BigInt or a circular request object threw inside
+        // JSON.stringify at flush time and took the whole batch with it.
+        //
+        // Omitted rather than replaced when capture cannot represent it. The
+        // protocol types metadata as a record, so substituting a marker string
+        // makes the whole event fail validation — trading a lost payload for a
+        // lost event, which is the worse half of the trade.
+        ...metadataFor(input.metadata)
       }
     });
 
-    if (queue.size() >= resolved.batchSize) void flush();
+    // Capped, because N events recorded in one turn of the event loop used to
+    // start floor(N / batchSize) simultaneous requests: 1,000 records opened
+    // 200 concurrent sockets, sent 12,000 events for the 4,000 produced, and
+    // reported dropped: 3000 while the database held every one of them.
+    //
+    // Skipping a flush is safe: the queue is bounded and drops oldest if it
+    // fills, the interval timer drains what is left, and shutdown drains the
+    // rest.
+    if (queue.size() >= resolved.batchSize) maybeFlush();
+  }
+
+  /**
+   * Flushes started in the background, so `flush()` and `shutdown()` can wait
+   * for them.
+   *
+   * Without this set, `enqueue`'s fire-and-forget flush was unobservable:
+   * `shutdown()` drained an already-empty queue, returned immediately, and read
+   * the counters before the in-flight send had recorded anything. A run of
+   * exactly `batchSize` events reported `sent: 0` while the server held all of
+   * them, and `process.exit(0)` straight after `shutdown()` abandoned the batch
+   * for real.
+   */
+  const inFlight = new Set<Promise<void>>();
+
+  function track(promise: Promise<void>): void {
+    inFlight.add(promise);
+    void promise.finally(() => inFlight.delete(promise));
+  }
+
+  /** Waits for every background flush, including ones started by those flushes. */
+  async function settle(): Promise<void> {
+    while (inFlight.size > 0) {
+      await Promise.allSettled([...inFlight]);
+    }
   }
 
   async function flush(): Promise<void> {
@@ -207,7 +404,37 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
   }
 
-  const interval = setInterval(() => void flush(), resolved.flushIntervalMs);
+  /**
+   * Drains everything currently queued, not just one batch.
+   *
+   * Stops as soon as a pass makes no progress. A failed send requeues its
+   * batch, so looping on `size > 0` alone spins forever against an endpoint
+   * that is refusing connections — which is precisely the situation where the
+   * SDK must not hold the host process.
+   */
+  async function drainAll(): Promise<void> {
+    // Background flushes finish first, so this does not add a request on top of
+    // the ones already in flight and push past the concurrency cap. What
+    // follows is sequential by construction.
+    await settle();
+
+    let previous = Number.POSITIVE_INFINITY;
+    while (queue.size() > 0 && queue.size() < previous) {
+      previous = queue.size();
+      await flush();
+    }
+    await settle();
+  }
+
+  /** Starts a background flush unless the cap is already reached. */
+  function maybeFlush(): void {
+    if (inFlight.size < MAX_CONCURRENT_SENDS) track(flush());
+  }
+
+  // The interval goes through the same cap. Without that it could add a fifth
+  // request on top of four already in flight, which is exactly what the burst
+  // test caught.
+  const interval = setInterval(maybeFlush, resolved.flushIntervalMs);
   // Never hold the host's event loop open on our account.
   interval.unref();
 
@@ -231,14 +458,31 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * Everything the recorder does sits inside `safely`, so a recording failure
    * cannot reach the caller.
    */
-  async function wrap<T>(
+  /**
+   * One implementation behind all the public wrappers.
+   *
+   * **Synchronous in, synchronous out.** The wrappers used to be `async`
+   * unconditionally, which meant instrumenting a synchronous call inside a
+   * synchronous handler silently changed its control flow: adding
+   * `journey.transform("parse-body", raw, () => JSON.parse(raw))` to a handler
+   * that correctly returned 400 on malformed input turned it into a 200 with an
+   * empty body and an unhandled rejection, from one bad request. The README's
+   * three promises — returns the value unchanged, rethrows the exact error,
+   * cannot break the application — were all false for a sync callback.
+   *
+   * So the shape of the return follows the shape of the callback: a callback
+   * that returns a value returns a value, and one that returns a promise
+   * returns a promise. A synchronous throw still propagates synchronously,
+   * which is what the caller's try/catch is waiting for.
+   */
+  function wrap<T>(
     context: JourneyContext,
-    naturalOperation: string,
+    naturalOperation: Operation,
     name: string,
     input: unknown,
     fn: () => T | Promise<T>,
     options: WrapOptions = {}
-  ): Promise<T> {
+  ): T | Promise<T> {
     const startedAt = Date.now();
     const attempt = options.attempt ?? 1;
     // ADR-022: a retry records as `retried` rather than the natural verb.
@@ -248,10 +492,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ? undefined
         : { ...options.metadata, attempt };
 
-    let result: T;
-    try {
-      result = await fn();
-    } catch (error) {
+    const recordFailure = (error: unknown): void => {
       safely(diagnostics, "capture_error", () => {
         enqueue(context.journeyId, context.entity, {
           operation,
@@ -263,28 +504,51 @@ export function createRecorder(config: RecorderConfig): Recorder {
           ...(metadata === undefined ? {} : { metadata })
         });
       });
-      // The original object, not a copy: application code branches on instanceof
-      // and on custom properties.
+    };
+
+    const recordSuccess = (result: T): void => {
+      safely(diagnostics, "capture_error", () => {
+        const failed = options.isFailure === undefined ? false : options.isFailure(result);
+        enqueue(context.journeyId, context.entity, {
+          operation,
+          name,
+          input,
+          output: result,
+          startedAt,
+          durationMs: Date.now() - startedAt,
+          ...(failed
+            ? { error: { message: `${name} reported a failed result.`, code: "result_failed" } }
+            : {}),
+          ...(metadata === undefined ? {} : { metadata })
+        });
+      });
+    };
+
+    let produced: T | Promise<T>;
+    try {
+      produced = fn();
+    } catch (error) {
+      recordFailure(error);
+      // The original object, not a copy: application code branches on
+      // instanceof and on custom properties.
       throw error;
     }
 
-    safely(diagnostics, "capture_error", () => {
-      const failed = options.isFailure === undefined ? false : options.isFailure(result);
-      enqueue(context.journeyId, context.entity, {
-        operation,
-        name,
-        input,
-        output: result,
-        startedAt,
-        durationMs: Date.now() - startedAt,
-        ...(failed
-          ? { error: { message: `${name} reported a failed result.`, code: "result_failed" } }
-          : {}),
-        ...(metadata === undefined ? {} : { metadata })
-      });
-    });
+    if (!isThenable(produced)) {
+      recordSuccess(produced);
+      return produced;
+    }
 
-    return result;
+    return produced.then(
+      (result) => {
+        recordSuccess(result);
+        return result;
+      },
+      (error: unknown) => {
+        recordFailure(error);
+        throw error;
+      }
+    );
   }
 
   function makeJourney(context: JourneyContext): Journey {
@@ -358,15 +622,35 @@ export function createRecorder(config: RecorderConfig): Recorder {
         entity: options.context?.entity ??
           options.entityFallback ?? { type: "unknown", id: "unknown" }
       }),
+    // These six were the only public entry points not going through `safely`,
+    // which contradicted safely.ts's own claim that every one does. The
+    // consequence was not theoretical: a plain-JavaScript relay calling
+    // `injectHttpHeaders({}, extractHttpContext(req.headers))` works for an
+    // instrumented caller and kills the process on the first un-instrumented
+    // one, because extract returns undefined and inject dereferences it. It
+    // passes in testing and dies during rollout.
+    //
+    // The fallbacks are chosen so a failure degrades rather than breaks: no
+    // headers rather than no request, and no context rather than no consumer.
     injectHttpHeaders: (headers, context) =>
-      injectHttpHeaders(headers, context, resolved.propagate),
-    extractHttpContext,
-    toQueueAttributes: (context) => toQueueAttributes(context, resolved.propagate),
-    fromQueueAttributes,
-    wrapPayload: (payload, context) => wrapPayload(payload, context, resolved.propagate),
-    unwrapPayload,
+      safely(diagnostics, "capture_error", () =>
+        injectHttpHeaders(headers, context, resolved.propagate)
+      ) ?? headers,
+    extractHttpContext: (headers) =>
+      safely(diagnostics, "capture_error", () => extractHttpContext(headers)),
+    toQueueAttributes: (context) =>
+      safely(diagnostics, "capture_error", () => toQueueAttributes(context, resolved.propagate)) ??
+      {},
+    fromQueueAttributes: (attributes) =>
+      safely(diagnostics, "capture_error", () => fromQueueAttributes(attributes)),
+    wrapPayload: (payload, context) =>
+      safely(diagnostics, "capture_error", () =>
+        wrapPayload(payload, context, resolved.propagate)
+      ) ?? { _flight: {}, data: payload },
+    unwrapPayload: (body) =>
+      safely(diagnostics, "capture_error", () => unwrapPayload(body)) ?? { data: body },
     async flush() {
-      await safelyAsync(diagnostics, "transport_error", flush);
+      await safelyAsync(diagnostics, "transport_error", drainAll);
     },
     async shutdown(options) {
       stopped = true;
@@ -375,11 +659,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // Never hang: a process that cannot exit because of a telemetry library is
       // the same failure ADR-007 forbids, arriving later.
       await Promise.race([
-        safelyAsync(diagnostics, "transport_error", flush),
+        safelyAsync(diagnostics, "transport_error", drainAll),
         new Promise((resolve) => {
           setTimeout(resolve, timeoutMs);
         })
       ]);
+      // Read after the race, so the counters describe what actually landed.
       return diagnostics.counters();
     },
     diagnostics: () => diagnostics.counters()

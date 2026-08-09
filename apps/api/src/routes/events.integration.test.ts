@@ -219,4 +219,51 @@ describe("event ingestion", () => {
     expect(rows.length).toBe(2);
     expect(new Set(rows.map((r: { project_id: string }) => r.project_id)).size).toBe(2);
   });
+
+  describe("an event PostgreSQL cannot store", () => {
+    const NUL = "\u0000";
+
+    it("rejects only the poisoned event, and keeps the rest of the batch", async () => {
+      // The comment in the batch loop claimed events were independent. Before
+      // the try/catch it was not true: the throw escaped the loop and returned
+      // a 500 that discarded the whole batch, including events already stored.
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events/batch",
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: {
+          events: [
+            event({ id: "evt_ok_1" }),
+            event({ id: "evt_nul", input: { name: `Dana${NUL}` } }),
+            event({ id: "evt_ok_2" })
+          ]
+        }
+      });
+
+      expect(response.statusCode).toBe(202);
+      const results = response.json<{ data: { results: { status: string }[] } }>().data.results;
+      expect(results).toHaveLength(3);
+      expect(results[0]?.status).toBe("accepted");
+      expect(results[2]?.status).toBe("accepted");
+      // The poisoned one must be refused, not quietly accepted — otherwise
+      // this test would pass on a build that never exercised the guard.
+      expect(results[1]?.status).toBe("rejected");
+      expect(JSON.stringify(results[1])).toContain("unstorable_payload");
+    });
+
+    it("never publishes a raw SQLSTATE as the API error code", async () => {
+      // A pg error carries .code — a SQLSTATE like 22P05 — and no .statusCode,
+      // so the shared error handler used to publish it verbatim. "22P05" tells
+      // an SDK user nothing about what to change.
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events/batch",
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: { events: [event({ id: "evt_nul_2", input: { name: `X${NUL}` } })] }
+      });
+
+      const body = JSON.stringify(response.json());
+      expect(body).not.toMatch(/"22P05"|"22021"/);
+    });
+  });
 });

@@ -19,4 +19,5 @@ export {
   type Limits
 } from "./limits.js";
 export { CIRCULAR, REDACTED, redact } from "./redact.js";
+export { toStorable, toStorableText } from "./storable.js";
 export { normalizeSearchValue, searchToken } from "./search-token.js";

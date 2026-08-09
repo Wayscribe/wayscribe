@@ -65,3 +65,78 @@ describe("redact", () => {
     expect(redact(null, ["a"])).toBe(null);
   });
 });
+
+describe("values that serialize themselves", () => {
+  /**
+   * The object rebuild that makes redaction possible also destroyed anything
+   * whose meaning lives on its prototype. A `Date` has no own enumerable
+   * properties, so it became `{}` — and because this happens inside the host
+   * process, before the wire, the diff then reported "No fields changed" for a
+   * step that moved a timestamp by a year.
+   */
+  it("keeps a Date", () => {
+    const value = redact({ expiresAt: new Date("2026-01-01T00:00:00.000Z") }, ["secret"]);
+    expect(JSON.stringify(value)).toBe('{"expiresAt":"2026-01-01T00:00:00.000Z"}');
+  });
+
+  it("lets two different Dates still differ", () => {
+    // The property that actually matters: the diff has to be able to see it.
+    const before = redact({ at: new Date("2026-01-01T00:00:00.000Z") }, ["secret"]);
+    const after = redact({ at: new Date("2027-01-01T00:00:00.000Z") }, ["secret"]);
+    expect(JSON.stringify(before)).not.toBe(JSON.stringify(after));
+  });
+
+  it("keeps a Buffer's own representation", () => {
+    const value = redact({ blob: Buffer.from("hi") }, ["secret"]);
+    expect(JSON.stringify(value)).toContain("Buffer");
+  });
+
+  it("still redacts inside whatever toJSON returns", () => {
+    // A custom toJSON must not become a way to smuggle a secret past redaction.
+    const holder = { toJSON: () => ({ password: "hunter2", user: "dana" }) };
+    const value = redact({ account: holder }, ["account.password"]);
+    expect(JSON.stringify(value)).toContain("[REDACTED]");
+    expect(JSON.stringify(value)).not.toContain("hunter2");
+    expect(JSON.stringify(value)).toContain("dana");
+  });
+
+  it("survives a toJSON that throws", () => {
+    const holder = {
+      toJSON: () => {
+        throw new Error("nope");
+      }
+    };
+    expect(() => redact({ account: holder }, ["secret"])).not.toThrow();
+  });
+});
+
+describe("shared references are not cycles", () => {
+  it("keeps a sibling reference intact", () => {
+    // Two fields pointing at one address object is ordinary. Reporting the
+    // second as [CIRCULAR] is a phantom change on a field that did not change.
+    const address = { city: "Durham" };
+    const value = redact({ billing: address, shipping: address }, ["secret"]);
+    expect(value).toEqual({ billing: { city: "Durham" }, shipping: { city: "Durham" } });
+  });
+
+  it("keeps a repeated element in an array", () => {
+    const line = { sku: "A" };
+    expect(redact({ lines: [line, line] }, ["secret"])).toEqual({
+      lines: [{ sku: "A" }, { sku: "A" }]
+    });
+  });
+
+  it("still catches a real cycle", () => {
+    // The control. Without it, deleting cycle detection entirely would pass
+    // both tests above and then hang on a self-referential object.
+    const node: Record<string, unknown> = { name: "root" };
+    node["self"] = node;
+    expect(JSON.stringify(redact(node, ["secret"]))).toContain("[CIRCULAR]");
+  });
+
+  it("still catches a cycle through an array", () => {
+    const list: unknown[] = [];
+    list.push(list);
+    expect(JSON.stringify(redact({ list }, ["secret"]))).toContain("[CIRCULAR]");
+  });
+});

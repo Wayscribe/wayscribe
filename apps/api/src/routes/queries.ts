@@ -139,7 +139,8 @@ export function registerQueryRoutes(
         data: {
           items: page.items.map((item) => ({
             ...item,
-            eventTimestamp: item.eventTimestamp.toISOString()
+            eventTimestamp: item.eventTimestamp.toISOString(),
+            receivedAt: item.receivedAt.toISOString()
           })),
           nextCursor: page.nextCursor
         }

@@ -114,4 +114,78 @@ describe("journey summary", () => {
     const other = await insertReturningId(db, "projects", { name: "O", slug: "o" });
     expect(await findJourney(db, other, "jrn_a")).toBeUndefined();
   });
+
+  describe("a failure that arrives out of order", () => {
+    it("still marks the journey failed", async () => {
+      // ADR-031 stamps a wrapped event when its callback starts and enqueues it
+      // when the callback finishes, so a slow failing step is always stamped
+      // earlier than it arrives. A status-less event advancing last_event_at in
+      // between used to discard the failure entirely, leaving the journey
+      // 'active' with a failed event in its own timeline — which the search
+      // list paints in the ordinary colour, so nobody opens it.
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_late_failure",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:10Z"),
+        operation: "transformed",
+        hasError: false
+      });
+
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_late_failure",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:05Z"),
+        operation: "delivered",
+        hasError: true
+      });
+
+      expect((await findJourney(db, projectId, "jrn_late_failure"))?.status).toBe("failed");
+    });
+
+    it("marks it failed even when the watermark is far ahead", async () => {
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_far_ahead",
+        environmentId,
+        eventTimestamp: new Date("2026-08-07T00:00:00Z"),
+        operation: "received",
+        hasError: false
+      });
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_far_ahead",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T00:00:00Z"),
+        operation: "failed",
+        hasError: false
+      });
+
+      expect((await findJourney(db, projectId, "jrn_far_ahead"))?.status).toBe("failed");
+    });
+
+    it("leaves an ordinary journey active", async () => {
+      // The control: a change that marked everything failed would pass both
+      // tests above.
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_ordinary",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:00Z"),
+        operation: "received",
+        hasError: false
+      });
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_ordinary",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:01Z"),
+        operation: "transformed",
+        hasError: false
+      });
+
+      expect((await findJourney(db, projectId, "jrn_ordinary"))?.status).toBe("active");
+    });
+  });
 });

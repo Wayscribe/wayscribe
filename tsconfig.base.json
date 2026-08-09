@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
-    "target": "ES2023",
-    "lib": ["ES2023"],
+    "target": "ES2024",
+    // ES2024 for String.prototype.toWellFormed, which repairs the lone
+    // surrogates PostgreSQL refuses. Verified present on Node 20.20, 22.23,
+    // and 24.19 — the whole range the SDK claims to support.
+    "lib": ["ES2024"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     // Resolve workspace packages to their TypeScript sources rather than to dist.

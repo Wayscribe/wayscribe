@@ -48,7 +48,7 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     environment: config.environment,
     captureMode: config.captureMode ?? "redacted-payload",
     redact: [...(config.redact ?? []), ...DEFAULT_SECRET_PATHS],
-    batchSize: config.batchSize ?? 20,
+    batchSize: clampBatchSize(config.batchSize),
     flushIntervalMs: config.flushIntervalMs ?? 1_000,
     requestTimeoutMs: config.requestTimeoutMs ?? 1_500,
     maxBufferedEvents: config.maxBufferedEvents ?? 1_000,
@@ -56,4 +56,23 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     propagate: config.propagate ?? "journey-and-type",
     onDiagnostic: config.onDiagnostic
   };
+}
+
+/**
+ * The server refuses a batch of more than 100 events, and that refusal was
+ * invisible: an unclamped `batchSize: 150` produced a 400 the SDK read as a
+ * transport failure, retried three times, and requeued to the front of the
+ * queue — so 170 events were lost while the counters read like a brief blip.
+ *
+ * Clamped rather than thrown, because a recorder that refuses to start over a
+ * tuning value would break the application it is meant to observe (ADR-007).
+ * The default rises to 50: the old 20 meant five times more requests than the
+ * protocol needs.
+ */
+export const MAX_BATCH_SIZE = 100;
+
+function clampBatchSize(configured: number | undefined): number {
+  if (configured === undefined) return 50;
+  if (!Number.isInteger(configured) || configured < 1) return 50;
+  return Math.min(configured, MAX_BATCH_SIZE);
 }

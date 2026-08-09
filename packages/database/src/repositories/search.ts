@@ -28,8 +28,7 @@ export interface SearchPage {
 /**
  * Resolve one query string against every identifier a developer might paste.
  *
- * A single UNION rather than seven sequential probes: each branch uses its own
- * index, and one round trip keeps the p95 target reachable. Technical
+ * One round trip rather than seven sequential probes. Technical
  * identifiers compare as plaintext; entity and alias compare as search tokens,
  * which the caller has already computed (ADR-028 makes that token
  * type-independent, so a bare value is enough).
@@ -38,6 +37,14 @@ export interface SearchPage {
  * fetches the rows, and a later refactor that drops it leaks silently instead of
  * failing.
  */
+// debtwatch:start
+// id: DEBT-82X79Y
+// owner: flight-recorder
+// expires: 2027-05-01
+// reason: Cost scales with journey count, not with the query; measured 33ms at 12k and 1.1s at 120k
+// issue: needs a UNION rewrite, not an index
+// tags: database, performance
+// debtwatch:end
 export async function searchJourneys(
   db: Knex,
   scope: SearchScope,

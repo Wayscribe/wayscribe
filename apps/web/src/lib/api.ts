@@ -27,6 +27,8 @@ export interface EventListItem {
   name: string;
   service: string;
   eventTimestamp: string;
+  /** Server-side arrival. The only thing that can expose a wrong service clock. */
+  receivedAt: string;
   durationMs: number | null;
   hasInput: boolean;
   hasOutput: boolean;
@@ -128,6 +130,14 @@ async function get<T>(path: string, projectId?: string): Promise<T | null> {
     }
     return null;
   }
+  if (response.status === 401 || response.status === 403) {
+    // A token mismatch is a configuration problem with a specific fix, not an
+    // outage. Collapsing it into "unreachable" sent people to check whether the
+    // API was running when it was running and refusing them.
+    throw new ApiUnavailableError(
+      "The API rejected this request. The web and API containers may hold different ADMIN_TOKEN values."
+    );
+  }
   if (!response.ok) {
     throw new ApiUnavailableError(`API responded ${String(response.status)}.`);
   }
@@ -152,12 +162,49 @@ export async function search(query: string, projectId: string): Promise<SearchIt
 export const getJourney = (journeyId: string, projectId: string): Promise<JourneyDetail | null> =>
   get<JourneyDetail>(`/v1/journeys/${encodeURIComponent(journeyId)}`, projectId);
 
-export async function listEvents(journeyId: string, projectId: string): Promise<EventListItem[]> {
-  const data = await get<{ items: EventListItem[] }>(
-    `/v1/journeys/${encodeURIComponent(journeyId)}/events?limit=100`,
-    projectId
-  );
-  return data?.items ?? [];
+/**
+ * A journey's events, following the cursor.
+ *
+ * The API paginates at 100 and always has; the web layer used to request one
+ * page, discard `nextCursor`, and render the result under a header stating the
+ * true count. Because the ordering is ascending, the hundred shown were the
+ * *oldest* — so a journey with a retry loop displayed everything except the
+ * failure someone opened the page to find.
+ *
+ * `maxPages` bounds the work rather than the truth: whatever is not fetched is
+ * reported to the caller instead of quietly dropped.
+ */
+// debtwatch:start
+// id: DEBT-43WEMV
+// owner: flight-recorder
+// expires: 2027-02-01
+// reason: A journey past 600 events still truncates; needs a real pager, not a bigger number
+// tags: web, pagination
+// debtwatch:end
+export async function listEvents(
+  journeyId: string,
+  projectId: string,
+  maxPages = 6
+): Promise<{ items: EventListItem[]; complete: boolean }> {
+  const items: EventListItem[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const query = new URLSearchParams({ limit: "100" });
+    if (cursor !== null) query.set("cursor", cursor);
+
+    const data: { items: EventListItem[]; nextCursor: string | null } | null = await get<{
+      items: EventListItem[];
+      nextCursor: string | null;
+    }>(`/v1/journeys/${encodeURIComponent(journeyId)}/events?${query.toString()}`, projectId);
+
+    if (data === null) break;
+    items.push(...data.items);
+    cursor = data.nextCursor;
+    if (cursor === null) return { items, complete: true };
+  }
+
+  return { items, complete: cursor === null };
 }
 
 export const getEvent = (eventId: string, projectId: string): Promise<EventDetailData | null> =>

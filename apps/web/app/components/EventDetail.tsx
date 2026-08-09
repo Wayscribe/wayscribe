@@ -17,7 +17,7 @@ export function EventDetail({ event }: { event: EventDetailData }) {
           <p className="muted">
             The difference between what this step received and what it produced.
           </p>
-          <DiffTable changes={event.payloadDiff.changes} />
+          <DiffTable changes={event.payloadDiff.changes} compared={wasCaptured(event)} />
           {event.payloadDiff.truncated ? (
             <p className="muted">Comparison truncated: too many changes to show.</p>
           ) : null}
@@ -61,4 +61,17 @@ export function EventDetail({ event }: { event: EventDetailData }) {
       )}
     </section>
   );
+}
+
+/** Markers the SDK stores in place of a payload it could not capture. */
+const MARKERS = new Set(["[PAYLOAD_TOO_LARGE]", "[UNCAPTURABLE]"]);
+
+/**
+ * Whether both sides of this step hold real payloads.
+ *
+ * ADR-032 required this caveat and it was implemented — but only in the replay
+ * view, not in the event detail view that shares the same component.
+ */
+function wasCaptured(event: EventDetailData): boolean {
+  return !MARKERS.has(String(event.inputPayload)) && !MARKERS.has(String(event.outputPayload));
 }

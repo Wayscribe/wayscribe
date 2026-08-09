@@ -6,14 +6,17 @@ const envelope = { protocolVersion: "0.1", event: { id: "evt_1" } };
 
 /** A controllable clock, so breaker timing is deterministic rather than slept through. */
 function harness(
-  send: (batch: readonly unknown[]) => Promise<void>,
+  // Returns the accepted count. Existing cases resolve void, which TypeScript
+  // will not accept, so they are adapted at the call site below rather than
+  // rewritten — what they assert about retries and the breaker is unchanged.
+  send: (batch: readonly unknown[]) => Promise<number | undefined>,
   overrides: Record<string, unknown> = {}
 ): { transport: Transport; diagnostics: Diagnostics; advance: (ms: number) => void } {
   let currentTime = 1_000_000;
   const diagnostics = createDiagnostics();
   const transport = new Transport(
     {
-      send,
+      send: async (batch) => (await send(batch)) ?? batch.length,
       maxAttempts: 3,
       baseBackoffMs: 10,
       maxBackoffMs: 100,

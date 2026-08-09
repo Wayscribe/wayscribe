@@ -1,5 +1,7 @@
 export type { RecorderConfig } from "./config.js";
 export type { Counters, Diagnostic } from "./diagnostics.js";
+export { OPERATIONS } from "./operations.js";
+export type { Operation } from "./operations.js";
 export { createRecorder } from "./recorder.js";
 export type { Journey, JourneyContext, RecordInput, Recorder, WrapOptions } from "./recorder.js";
 export type { PropagatedContext, PropagationLevel } from "./propagation.js";

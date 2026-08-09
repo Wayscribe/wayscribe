@@ -1,0 +1,43 @@
+/** NUL. PostgreSQL rejects it in `text` and in `jsonb` alike. */
+const NUL = "\u0000";
+
+/**
+ * Make a string storable as PostgreSQL `jsonb`.
+ *
+ * Two ordinary strings are not storable: one containing a NUL byte, and one
+ * containing a lone surrogate — the trailing half of an emoji or CJK character
+ * left behind by a `name.slice(0, 20)` upstream, or a NUL from a fixed-width
+ * export.
+ *
+ * Neither is exotic and neither is the instrumented application's fault, but
+ * both reach the database as an invalid cast, and that failure used to take the
+ * whole batch with it.
+ *
+ * Repairing is better than refusing. The point of recording a payload is to
+ * show what actually arrived, and "this name held a broken character" is
+ * precisely the sort of thing somebody is trying to debug.
+ */
+export function toStorableText(text: string): string {
+  // Removed rather than replaced: no substitute round-trips, and a marker in
+  // the middle of a value would be a worse lie than a missing byte.
+  const withoutNul = text.includes(NUL) ? text.replaceAll(NUL, "") : text;
+  // Lone surrogates become U+FFFD, which is what the replacement character is
+  // for and what a reader needs to see.
+  return withoutNul.toWellFormed();
+}
+
+/** Applies {@link toStorableText} to every string in a structure. */
+export function toStorable(value: unknown): unknown {
+  if (typeof value === "string") return toStorableText(value);
+  if (value === null || typeof value !== "object") return value;
+
+  if (Array.isArray(value)) return value.map(toStorable);
+
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    // Keys too: a NUL in a key is as unstorable as one in a value, and jsonb
+    // rejects the whole document either way.
+    result[toStorableText(key)] = toStorable(child);
+  }
+  return result;
+}

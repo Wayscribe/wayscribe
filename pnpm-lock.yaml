@@ -159,6 +159,9 @@ importers:
       '@flight-recorder/payload-security':
         specifier: workspace:*
         version: link:../payload-security
+      '@flight-recorder/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       esbuild:
         specifier: ^0.25.0
         version: 0.25.12
