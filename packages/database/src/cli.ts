@@ -8,7 +8,10 @@ const args = process.argv.slice(3).filter((argument) => argument !== "--");
 const databaseUrl = process.env["DATABASE_URL"];
 
 if (databaseUrl === undefined || databaseUrl === "") {
-  console.error("DATABASE_URL is not set.");
+  console.error(
+    "DATABASE_URL is not set. Point it at your PostgreSQL database, or add " +
+      "`-f compose.bundled.yaml` to run one alongside."
+  );
   process.exit(1);
 }
 
@@ -83,6 +86,42 @@ try {
       const { seedDemo } = await import("./seed-demo.js");
       const result = await seedDemo(db, masterKey, apiKey, defaultRetentionDays);
       console.log(`Demo seed applied for project ${result.projectId} (${result.keyPrefix}).`);
+      break;
+    }
+    case "project:create": {
+      const [slug, ...nameParts] = args;
+      const name = nameParts.join(" ");
+      if (slug === undefined || name === "") {
+        console.error(
+          'Usage: project:create <slug> <name>    e.g. project:create acme "Acme Payments"'
+        );
+        process.exitCode = 1;
+        break;
+      }
+
+      const { createProject, ProjectAdminError } = await import("./repositories/project-admin.js");
+      try {
+        const project = await createProject(db, { slug, name });
+        console.log(`Created project ${project.name} (${project.slug}).`);
+        console.log("");
+        console.log("  Issue a key for it with:");
+        console.log(`    key:create ${project.slug} production ${project.slug}-worker`);
+      } catch (error) {
+        if (!(error instanceof ProjectAdminError)) throw error;
+        console.error(error.message);
+        process.exitCode = 1;
+      }
+      break;
+    }
+    case "project:list": {
+      const { listProjects } = await import("./repositories/project-admin.js");
+      const projects = await listProjects(db);
+      if (projects.length === 0) {
+        console.log("No projects yet. Create one with: project:create <slug> <name>");
+        break;
+      }
+      console.log("SLUG".padEnd(24) + "NAME");
+      for (const project of projects) console.log(project.slug.padEnd(24) + project.name);
       break;
     }
     case "key:create": {
@@ -168,7 +207,7 @@ try {
     default: {
       console.error(`Unknown command: ${command ?? "(none)"}`);
       console.error(
-        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|key:create|key:revoke|key:list|retention:sweep>"
+        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep>"
       );
       process.exitCode = 1;
       break;

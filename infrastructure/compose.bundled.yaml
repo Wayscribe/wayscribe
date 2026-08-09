@@ -1,0 +1,47 @@
+# A PostgreSQL container, for trying Flight Recorder without standing a database
+# up first. Overlay it on the quick start:
+#
+#   docker compose -f compose.published.yaml -f compose.bundled.yaml up -d
+#
+# It supplies DATABASE_URL, so you do not set one. Everything lives in the
+# `postgres-data` volume.
+#
+# This is for evaluation and for local work. A real installation should point
+# DATABASE_URL at the database your team already runs, because that is the one
+# somebody backs up, monitors, and can restore — see docs/OPERATIONS.md. Nothing
+# here is unsuitable for production except that it is invisible to whoever is
+# responsible for your data.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: flight
+      POSTGRES_PASSWORD: flight
+      POSTGRES_DB: flight
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flight -d flight"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    environment:
+      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    environment:
+      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

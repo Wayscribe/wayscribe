@@ -19,6 +19,8 @@
     "rollback": "tsx --env-file-if-exists=../../.env src/cli.ts rollback",
     "seed": "tsx --env-file-if-exists=../../.env src/cli.ts seed",
     "seed-demo": "tsx --env-file-if-exists=../../.env src/cli.ts seed-demo",
+    "project:create": "tsx --env-file-if-exists=../../.env src/cli.ts project:create",
+    "project:list": "tsx --env-file-if-exists=../../.env src/cli.ts project:list",
     "key:create": "tsx --env-file-if-exists=../../.env src/cli.ts key:create",
     "key:revoke": "tsx --env-file-if-exists=../../.env src/cli.ts key:revoke",
     "key:list": "tsx --env-file-if-exists=../../.env src/cli.ts key:list",

@@ -1086,3 +1086,56 @@ closing.
 - `packages/database/src/repositories/audit.ts` is the one caller with no `checkLimits` in
   front and no `toStorable` behind. Audit metadata is server-built plain strings, so it is
   not reachable today; it is newly reachable in principle, and belongs in its own change.
+
+## ADR-037: The database is the operator's, and a project is something they create
+
+**Status:** Accepted
+
+### Context
+
+The quick start bundled PostgreSQL and offered no way to point at another one, which
+inverted the relationship a self-hosted tool should have with a team's data. Flight
+Recorder stores captured request payloads. The database holding them is exactly the one an
+operations team wants inside their own backup schedule, their own monitoring, and their own
+credential rotation — not in a container the tool brought with it.
+
+Worse, an installation could not be used at all. `key:create` requires a project, and the
+only two projects that could ever exist came from the two hardcoded seeds, `local` and
+`demo`, neither of which the published stack ran. A team following the documented quick
+start reached "No projects yet", had no command to create one, and stopped there. Nothing
+downstream — SDK, timeline, diff, replay — was reachable from a fresh install.
+
+`key:create` was also documented only as `pnpm key:create`, which needs the repository
+cloned, contradicting a quick start whose premise is that no checkout is required.
+
+### Decision
+
+`DATABASE_URL` is required and points at the operator's PostgreSQL. The bundled database
+moves to `infrastructure/compose.bundled.yaml`, an overlay for evaluation and local work.
+
+An overlay rather than a Compose profile: a profiled service cannot be the target of
+`depends_on`, and `docker compose config` refuses the file outright — *service "app"
+depends on undefined service "postgres"*. Compose also interpolates each file before
+merging them, so `${DATABASE_URL:?...}` in the base would refuse to start even when the
+overlay is about to supply the value. The variable is therefore permissive in the file, and
+both the API's config loader and the migration CLI say what to do when it is unset.
+
+`project:create` and `project:list` join the CLI, which the published image already
+carries — `migrate` runs from it. The documented invocation is the container one, so the
+no-clone path is complete.
+
+A slug is `^[a-z0-9]+(-[a-z0-9]+)*$`, validated at creation. It reaches project selection,
+the CLI, and the interface, and creation is the only cheap moment to reject one.
+
+### Consequences
+
+- Upgrading an installation that used the bundled database means adding
+  `-f compose.bundled.yaml` or moving the data. The CHANGELOG says so.
+- Flight Recorder needs an ordinary database and an ordinary role. It installs no
+  extensions and touches nothing outside the tables its migrations create, so it can share
+  a database with other things.
+- A team that manages its own schema changes can leave the `migrate` service out and run
+  the same command when it suits them. `/ready` reports `migrations_pending` until they do,
+  so the API will not serve reads against a schema it does not recognise.
+- Seeds keep their hardcoded slugs. They exist for the demo and for local development, and
+  they are no longer the only way a project can come into being.
