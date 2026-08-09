@@ -1,3 +1,4 @@
+import { renderExotic } from "./exotic.js";
 import { CIRCULAR } from "./redact.js";
 
 export interface Limits {
@@ -65,15 +66,36 @@ export function checkLimits(value: unknown, limits: Limits): LimitResult {
  */
 function asStored(): (this: unknown, key: string, value: unknown) => unknown {
   const ancestors: object[] = [];
+  // One rendering per value, reused. Not an optimisation: the cycle check below
+  // compares by identity, and rendering the same Map twice would produce two
+  // objects, so a loop through a Map would never close and the measurement
+  // would recurse until the stack gave out.
+  const renders = new WeakMap<object, object>();
 
   return function replace(this: unknown, _key: string, value: unknown): unknown {
     if (typeof value === "bigint") return value.toString();
     if (value === null || typeof value !== "object") return value;
 
+    let target: object = value;
+    const memo = renders.get(value);
+    if (memo !== undefined) {
+      target = memo;
+    } else {
+      // JSON.stringify sees no own enumerable properties on a Map, so it
+      // measured one as `{}` — two bytes for something now stored in full. The
+      // guard has to weigh what will be stored, not what the value looks like.
+      const exotic = renderExotic(value);
+      if (exotic !== undefined) {
+        if (typeof exotic.value !== "object" || exotic.value === null) return exotic.value;
+        target = exotic.value;
+        renders.set(value, target);
+      }
+    }
+
     while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) ancestors.pop();
-    if (ancestors.includes(value)) return CIRCULAR;
-    ancestors.push(value);
-    return value;
+    if (ancestors.includes(target)) return CIRCULAR;
+    ancestors.push(target);
+    return target;
   };
 }
 
@@ -94,9 +116,15 @@ function checkStructure(
   if (value === null || typeof value !== "object") return { ok: true };
 
   // A cycle is not itself a violation here; it is cut so traversal terminates.
-  // JSON.stringify below rejects it if it survives to serialization.
   if (seen.has(value)) return { ok: true };
   seen.add(value);
+
+  // Same reason as the byte check: a 200,000-entry Map has no own enumerable
+  // properties, so the depth, width and string caps all saw an empty object and
+  // waved it through. Rendered at the same depth, because a Map and the object
+  // standing in for it occupy one level between them.
+  const exotic = renderExotic(value);
+  if (exotic !== undefined) return checkStructure(exotic.value, limits, depth, seen);
 
   const entries = Array.isArray(value) ? value : Object.values(value);
   const width = Array.isArray(value) ? value.length : Object.keys(value).length;

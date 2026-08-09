@@ -1,3 +1,4 @@
+import { renderExotic } from "./exotic.js";
 import { CIRCULAR, defineKey } from "./redact.js";
 
 /** NUL. PostgreSQL rejects it in `text` and in `jsonb` alike. */
@@ -55,6 +56,20 @@ function walk(value: unknown, seen: Set<object>): unknown {
   if (value === null || typeof value !== "object") return value;
 
   if (seen.has(value)) return CIRCULAR;
+
+  // Defence in depth. In the SDK pipeline `redact` runs first and has already
+  // rendered these, but `toStorable` is exported on its own and must not be the
+  // one step that turns a Map back into `{}`.
+  const exotic = renderExotic(value);
+  if (exotic !== undefined) {
+    seen.add(value);
+    try {
+      return walk(exotic.value, seen);
+    } finally {
+      seen.delete(value);
+    }
+  }
+
   seen.add(value);
   try {
     if (Array.isArray(value)) return value.map((child) => walk(child, seen));

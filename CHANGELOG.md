@@ -13,6 +13,47 @@ changes far less often.
 
 ## [Unreleased]
 
+### Security
+
+- **Built-in secret redaction now applies at any depth.** The shipped list paired
+  each name with its `*.name` form, which together reached the top level of a
+  payload and one level below it — and nothing inside an array, since an array
+  with no matching `x[*]` rule was walked with no rules at all. A payload
+  carrying `config.headers.authorization`, the shape every axios error has, was
+  written to `journey_events.input_payload` as plaintext, in every capture mode
+  and at both redaction points. Rules of the form `**.name` match a key name
+  wherever it appears, and the built-in list is written entirely that way
+  (ADR-035). The existing grammar is unchanged: a bare `authorization` still
+  matches the top level only, and `*.password` still matches one below it.
+
+### Fixed
+
+- **`Map`, `Set`, `Error`, `RegExp`, `Headers` and `URLSearchParams` keep their
+  contents.** All six store their data in internal slots, so the rebuild that
+  makes redaction possible turned each into `{}` — including an `Error`, whose
+  `name` and `message` are the two fields a reader most needs. They are now
+  rendered inside the redaction walk, so redaction reaches into them, and the
+  size guard measures them (ADR-036).
+- **Cyclic and `BigInt` payloads are stored rather than discarded.** Both were
+  reported as `payload_too_large`, which sent operators to a setting that could
+  not help. A cycle becomes `[CIRCULAR]` and a `BigInt` its decimal string; a
+  genuinely unserialisable value now reports `unserialisable_payload` (ADR-034).
+- **A `__proto__` key in a payload survives.** `JSON.parse` makes it an ordinary
+  own key, and rebuilding with assignment spent it on the object's prototype, so
+  the field disappeared from the recorded payload.
+
+### Upgrade notes
+
+- A payload holding any of the values above now hashes differently, and
+  `contentHash` is computed over what the SDK sent. Resending the same event id
+  from a mixed-version fleet mid-rollout returns 409 `event_id_conflict`.
+- A `Map` that measured as `{}` may now exceed `maxPayloadBytes` and record
+  `[PAYLOAD_TOO_LARGE]` with a `dropped` diagnostic. That is the size guard
+  seeing the data for the first time, not a regression.
+- Redaction reaching further means more `[REDACTED]` than before. If a key name
+  on the built-in list appears somewhere it is not a secret, scope it with a
+  dotted path in your own `redact` list.
+
 ### Added
 
 - Replay's outbound safety module: destination and path validation, an exact

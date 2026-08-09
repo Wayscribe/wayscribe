@@ -220,13 +220,31 @@ Every row below is what the SDK actually stored, not what it intends to.
 | a NUL byte in a string | removed — PostgreSQL rejects it in `jsonb` |
 | half an emoji left by `slice()` | repaired to `U+FFFD` |
 | `Buffer` | `{"type": "Buffer", "data": [...]}` |
-| `Map`, `Set`, `Error`, `RegExp` | `{}` — none has own enumerable properties |
+| `Map`, `Headers`, `URLSearchParams` | an object, under the keys the data already had |
+| `Set` | an array |
+| `Error` | `{name, message}` plus its own properties and its `cause` — no `stack` |
+| `RegExp` | the literal, `"/secret-(\\d+)/gi"` |
 | over `maxPayloadBytes` | `"[PAYLOAD_TOO_LARGE]"`, and a `dropped` diagnostic |
 | a getter that throws | `"[UNCAPTURABLE]"`, and the event is still recorded |
 
-`Map`, `Set`, and `Error` are the sharp edge: they arrive empty rather than
-wrong, and nothing warns you. Convert them at the call site if their contents
-matter — `Object.fromEntries(map)`, `[...set]`, `{message: err.message}`.
+Redaction runs *inside* all of these, so an `authorization` entry in a header
+`Map` and an axios error's `config.headers.authorization` are both `[REDACTED]`
+before anything leaves your process.
+
+Two consequences worth knowing:
+
+- A `Map` is stored as an ordinary object and a `Set` as an ordinary array, so
+  neither is distinguishable from one once it reaches the timeline. That is the
+  price of storing them under their own keys: any wrapper that recorded the type
+  would push the data a level down, and the redaction rule that looked right
+  would match nothing.
+- A `Map` may be keyed by anything, and two keys can render to one name — `1`
+  and `"1"`, or two different objects. When that happens the entry is reported
+  as `"[COLLIDED_KEYS]": n` rather than lost quietly.
+
+An `Error`'s `stack` is left out: it is the largest field on a typical error and
+the timeline already carries the failure. An error with its own `toJSON` is
+asked first, so a library that chooses to include its stack still does.
 
 A value that cannot be captured never costs you the event. The step is recorded
 either way, with a marker in place of the payload, because the step whose payload

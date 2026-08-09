@@ -167,6 +167,105 @@ describe("keys caught at any depth", () => {
   });
 });
 
+describe("redaction reaches inside values that hide their contents", () => {
+  const SECRET = "Bearer sk_live_LEAKED";
+  const text = (value: unknown, paths: readonly string[]): string =>
+    JSON.stringify(redact(value, paths));
+
+  /**
+   * Every `not.toContain(secret)` below is paired with a contents assertion.
+   * On its own each would pass vacuously, because these values stored as `{}`
+   * and an empty object contains no secret either. The contents half is the one
+   * that fails before the change; do not delete it as redundant.
+   */
+
+  it("redacts inside a Map used as a header bag", () => {
+    const headers = new Map([
+      ["authorization", SECRET],
+      ["x-request-id", "req_123"]
+    ]);
+    const stored = text({ headers }, ["**.authorization"]);
+    expect(stored).toContain("req_123");
+    expect(stored).not.toContain(SECRET);
+  });
+
+  it("redacts inside a Set", () => {
+    const stored = text({ sessions: new Set([{ password: "hunter2", user: "dana" }]) }, [
+      "**.password"
+    ]);
+    expect(stored).toContain("dana");
+    expect(stored).not.toContain("hunter2");
+  });
+
+  it("redacts inside an error's request config", () => {
+    const failure = Object.assign(new Error("Request failed with status code 401"), {
+      config: { url: "https://api.stripe.com/v1/charges", headers: { authorization: SECRET } }
+    });
+    const stored = text({ failure }, ["**.authorization"]);
+    expect(stored).toContain("api.stripe.com");
+    expect(stored).toContain("status code 401");
+    expect(stored).not.toContain(SECRET);
+  });
+
+  it("redacts down a chain of causes", () => {
+    const inner = Object.assign(new Error("upstream"), { headers: { authorization: SECRET } });
+    const stored = text({ failure: new Error("sync failed", { cause: inner }) }, [
+      "**.authorization"
+    ]);
+    expect(stored).toContain("upstream");
+    expect(stored).not.toContain(SECRET);
+  });
+
+  it("addresses a Map entry by the path it is stored under", () => {
+    // The property that makes a wrapper frame unacceptable: an operator reads
+    // `headers.authorization` out of a stored payload and writes exactly that
+    // rule. If the render nested the entries under a frame, the rule that looks
+    // right would match nothing and the secret would keep flowing.
+    const value = { headers: new Map([["authorization", SECRET]]) };
+    expect(text(value, ["headers.authorization"])).toBe(
+      '{"headers":{"authorization":"[REDACTED]"}}'
+    );
+  });
+
+  it("replaces a whole container matched by name without rendering it", () => {
+    expect(text({ secret: new Map([["a", 1]]) }, ["**.secret"])).toBe('{"secret":"[REDACTED]"}');
+  });
+
+  it("reaches a secret in a Map inside a Map", () => {
+    const inner = new Map([["password", "hunter2"]]);
+    const stored = text({ a: new Map([["b", inner]]) }, ["a.b.password"]);
+    expect(stored).toBe('{"a":{"b":{"password":"[REDACTED]"}}}');
+  });
+
+  it("marks a cycle through a Map and still redacts its siblings", () => {
+    const node: Record<string, unknown> = { name: "root" };
+    node["bag"] = new Map<string, unknown>([
+      ["parent", node],
+      ["password", "hunter2"]
+    ]);
+    const stored = text(node, ["**.password"]);
+    expect(stored).toContain("[CIRCULAR]");
+    expect(stored).not.toContain("hunter2");
+  });
+
+  it("expands the same Map under two sibling keys", () => {
+    // The control against over-eager cycle detection: a shared reference is not
+    // a loop, and reporting the second as [CIRCULAR] would show the diff a
+    // change to a field that did not change.
+    const shared = new Map([["city", "Durham"]]);
+    expect(redact({ billing: shared, shipping: shared }, ["nothing"])).toEqual({
+      billing: { city: "Durham" },
+      shipping: { city: "Durham" }
+    });
+  });
+
+  it("leaves a plain object's rebuild exactly as it was", () => {
+    // The control that a renderer firing too broadly would fail.
+    const payload = { customer: { name: "Jorge" }, items: [{ sku: "A-1" }] };
+    expect(redact(payload, ["nothing"])).toEqual(payload);
+  });
+});
+
 describe("a payload with a __proto__ key", () => {
   /**
    * `JSON.parse` makes `__proto__` an ordinary own enumerable key, so any
