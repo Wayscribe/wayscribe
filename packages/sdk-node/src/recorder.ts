@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_LIMITS, checkLimits, redact } from "@flight-recorder/payload-security/redaction";
+import {
+  DEFAULT_LIMITS,
+  checkLimits,
+  redact,
+  toStorable
+} from "@flight-recorder/payload-security/redaction";
 import { resolveConfig, type RecorderConfig } from "./config.js";
 import { createDiagnostics, type Counters, type Diagnostics } from "./diagnostics.js";
 import type { Operation } from "./operations.js";
@@ -189,7 +194,18 @@ export function createRecorder(config: RecorderConfig): Recorder {
             body: JSON.stringify({ events: batch }),
             signal: controller.signal
           });
-          if (!response.ok) throw new Error(`Ingestion responded ${String(response.status)}.`);
+          if (!response.ok) {
+            // A 4xx is permanent: the server understood the request and
+            // refused it. Retrying burns three attempts, drives the breaker
+            // open, and requeues the batch to the FRONT — so one malformed
+            // batch used to block every event behind it for the life of the
+            // process. Marked so the transport can tell the two apart.
+            const error = new Error(`Ingestion responded ${String(response.status)}.`);
+            if (response.status >= 400 && response.status < 500) {
+              (error as { permanent?: boolean }).permanent = true;
+            }
+            throw error;
+          }
 
           // The batch route replies 202 with a per-event verdict, so a request
           // that "succeeded" may have stored nothing. Reading the body is the
@@ -238,7 +254,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
       });
       if (!limits.ok) return TOO_LARGE;
 
-      return redact(value, resolved.redact);
+      // Sanitized last, so redaction markers are untouched and every string
+      // that leaves this process is one PostgreSQL will accept.
+      return toStorable(redact(value, resolved.redact));
     } catch {
       return UNCAPTURABLE;
     }
@@ -264,7 +282,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ...(input.output === undefined ? {} : { output: capture(input.output) }),
         ...(input.error === undefined ? {} : { error: input.error }),
         ...(input.aliases === undefined ? {} : { aliases: input.aliases }),
-        ...(input.metadata === undefined ? {} : { metadata: input.metadata })
+        // Through capture like input and output: metadata used to go in raw,
+        // so a Prisma BigInt or a circular request object threw inside
+        // JSON.stringify at flush time and took the whole batch with it.
+        ...(input.metadata === undefined ? {} : { metadata: capture(input.metadata) })
       }
     });
 

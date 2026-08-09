@@ -2,7 +2,7 @@ import { findApiKeyByPrefix, touchApiKey } from "@flight-recorder/database";
 import type { Subkeys } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
 import { resolveApiKey } from "../auth.js";
-import { ingestEvent } from "../ingestion/ingest-event.js";
+import { ingestEvent, type IngestResult } from "../ingestion/ingest-event.js";
 
 const MAX_BATCH_SIZE = 100;
 
@@ -125,14 +125,26 @@ export function registerEventRoutes(
     const results: BatchResult[] = [];
     for (const event of events) {
       // Sequential and independent: one event's failure never affects another's.
-      const result = await ingestEvent(
-        app.db,
-        subkeys,
-        auth.context,
-        event,
-        maxEventPayloadBytes,
-        allowFullPayload
-      );
+      //
+      // That was a claim rather than a fact until this try/catch existed. An
+      // unstorable value — a NUL byte from a fixed-width export, a lone
+      // surrogate from a sliced emoji — threw out of ingestEvent, escaped the
+      // loop, and returned a 500 that discarded every event in the batch,
+      // including the ones already stored.
+      let result;
+      try {
+        result = await ingestEvent(
+          app.db,
+          subkeys,
+          auth.context,
+          event,
+          maxEventPayloadBytes,
+          allowFullPayload
+        );
+      } catch (error) {
+        app.log.warn({ err: error }, "event rejected by storage");
+        result = storageRejection(error);
+      }
       results.push(
         result.status === "accepted"
           ? {
@@ -159,4 +171,28 @@ export function registerEventRoutes(
 
 function errorBody(code: string, message: string, requestId: string): unknown {
   return { error: { code, message, requestId } };
+}
+
+/**
+ * A storage failure, described without leaking the database's own vocabulary.
+ *
+ * A pg error carries `.code` — a SQLSTATE like `22P05` — and no `.statusCode`,
+ * so the shared error handler used to publish it verbatim as the API's error
+ * code. `22P05` tells an SDK user nothing; naming the likely cause tells them
+ * where to look.
+ */
+function storageRejection(error: unknown): IngestResult {
+  const sqlState = (error as { code?: unknown } | null)?.code;
+  const unsupportedText = sqlState === "22P05" || sqlState === "22021";
+
+  return {
+    eventId: null,
+    journeyId: null,
+    status: "rejected",
+    code: unsupportedText ? "unstorable_payload" : "storage_error",
+    message: unsupportedText
+      ? "The payload contains characters PostgreSQL cannot store, such as a NUL byte or an unpaired surrogate."
+      : "The event could not be stored.",
+    httpStatus: unsupportedText ? 400 : 500
+  };
 }

@@ -15,3 +15,4 @@ export {
 } from "./limits.js";
 export { CIRCULAR, REDACTED, redact } from "./redact.js";
 export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
+export { toStorable, toStorableText } from "./storable.js";

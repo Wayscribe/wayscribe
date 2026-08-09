@@ -61,6 +61,17 @@ export class Transport {
         return;
       } catch (error) {
         lastError = error;
+        // A permanent failure is not retried and does not count toward the
+        // breaker: the batch is unsendable, and pretending otherwise turns one
+        // bad payload into total loss.
+        if (isPermanent(error)) {
+          this.diagnostics.report({
+            kind: "rejected",
+            reason: error instanceof Error ? error.message : String(error),
+            detail: { permanent: true, events: batch.length }
+          });
+          return;
+        }
         if (attempt < this.options.maxAttempts) await this.backoff(attempt);
       }
     }
@@ -96,4 +107,9 @@ export class Transport {
     // together and the server sees the same thundering herd repeatedly.
     await sleep(Math.floor(random() * capped));
   }
+}
+
+/** Marked by the sender when the server refused the batch outright. */
+function isPermanent(error: unknown): boolean {
+  return (error as { permanent?: boolean } | null)?.permanent === true;
 }
