@@ -13,7 +13,7 @@ type Segment = { kind: "literal"; value: string } | { kind: "any" } | { kind: "a
  *   customer.ssn          literal segments
  *   *.password            one level of anything
  *   items[*].cardNumber   array elements
- *   authorization         matched case-insensitively, at the top level
+ *   authorization         at the top level; case and separators ignored
  *   {@link ANY_DEPTH_PREFIX}authorization   that key name wherever it appears
  *
  * Regular-expression paths and conditional rules are out of scope, so operators
@@ -57,7 +57,25 @@ const ANY_DEPTH_PREFIX = "**.";
 /** The key name in an any-depth rule, or undefined if the rule is malformed. */
 function anyDepthName(path: string): string | undefined {
   const name = path.slice(ANY_DEPTH_PREFIX.length);
-  return name === "" || /[.*[\]]/.test(name) ? undefined : name.toLowerCase();
+  return name === "" || /[.*[\]]/.test(name) ? undefined : normaliseName(name);
+}
+
+/**
+ * A key name reduced to what identifies it, ignoring how it was written.
+ *
+ * `apiKey`, `api_key`, `api-key` and `APIKey` are one name in four
+ * conventions, and a payload usually contains whichever one its author
+ * preferred. Matching the literal spelling meant the built-in list caught
+ * `api_key` and `access_token` while storing `apiKey` and `accessToken` in the
+ * clear — most of what a JavaScript payload actually holds.
+ *
+ * Only case and separators are removed. `secret` still does not match
+ * `secretary`, because the point is one name spelled differently, not one name
+ * resembling another.
+ */
+function normaliseName(name: string): string {
+  const lower = name.toLowerCase();
+  return lower.includes("_") || lower.includes("-") ? lower.replace(/[-_]/g, "") : lower;
 }
 
 function parsePath(path: string): Segment[] {
@@ -71,7 +89,7 @@ function parsePath(path: string): Segment[] {
 }
 
 function toSegment(raw: string): Segment {
-  return raw === "*" ? { kind: "any" } : { kind: "literal", value: raw.toLowerCase() };
+  return raw === "*" ? { kind: "any" } : { kind: "literal", value: normaliseName(raw) };
 }
 
 /**
@@ -139,7 +157,7 @@ function walk(
       // `anyDepth` is checked at every level and never narrowed on the way
       // down, which is the whole of its guarantee: a key on this list is
       // replaced wherever it is filed.
-      if (anyDepth.has(key.toLowerCase())) {
+      if (anyDepth.has(normaliseName(key))) {
         defineKey(result, key, REDACTED);
         continue;
       }
@@ -218,5 +236,5 @@ function matches(segment: Segment | undefined, key: string): boolean {
   if (segment === undefined) return false;
   if (segment.kind === "any") return true;
   if (segment.kind === "arrayAny") return false;
-  return segment.value === key.toLowerCase();
+  return segment.value === normaliseName(key);
 }

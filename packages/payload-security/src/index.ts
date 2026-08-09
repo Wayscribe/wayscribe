@@ -6,7 +6,7 @@ export {
   type GeneratedApiKey,
   type StoredApiKey
 } from "./api-key.js";
-export { applyCapture, type CaptureMode, type CapturePolicy } from "./capture.js";
+export { applyCapture, redactAlways, type CaptureMode, type CapturePolicy } from "./capture.js";
 export { contentHash } from "./content-hash.js";
 export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
 export { decryptField, encryptField } from "./encryption.js";

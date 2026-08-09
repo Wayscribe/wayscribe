@@ -1,11 +1,12 @@
-// Root project for tooling only. ESLint's type-aware rules require every linted
-// file to belong to a TypeScript project, and the root-level Vitest configs are
-// not part of any package. Builds and type checks run per package.
+// Root project for tooling and for repository-wide tests. ESLint's type-aware
+// rules require every linted file to belong to a TypeScript project, and
+// neither the root-level Vitest configs nor `tests/` are part of any package.
+// Builds and type checks run per package.
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["*.config.ts"]
+  "include": ["*.config.ts", "tests/**/*.ts"]
 }

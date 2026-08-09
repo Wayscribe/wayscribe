@@ -21,7 +21,7 @@ export default defineConfig({
     }
   },
   test: {
-    include: ["{apps,packages}/*/src/**/*.test.ts"],
+    include: ["{apps,packages}/*/src/**/*.test.ts", "tests/**/*.test.ts"],
     // The demo suite needs a running Compose stack, so it must never join this
     // run: `pnpm test` has to work on a laptop with nothing up.
     exclude: ["**/node_modules/**", "**/*.integration.test.ts", "**/*.e2e.test.ts"],

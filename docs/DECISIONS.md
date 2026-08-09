@@ -1186,3 +1186,80 @@ to run, and `entity_aliases` carries no environment.
   all three routes, with a control that the production key still reads its own data.
 - `SearchScope` is gone rather than aliased. A deprecated name in a pre-1.0 internal
   package is cruft that outlives the reason for it.
+
+## ADR-039: A secret is one name, however it is spelled
+
+**Status:** Accepted
+
+### Context
+
+Matching compared a lowercased key against a lowercased rule. `api_key` was on the built-in
+list and matched; `apiKey` was the same secret and was stored in the clear. Half of
+JavaScript writes one and half writes the other, and a payload usually contains whichever
+its author preferred.
+
+Two further fields had no redaction at all. `applyCapture` ran on `event.input` and
+`event.output`, and `error`, `runtime`, `deployment` and `metadata` went to `jsonb`
+verbatim. The Node SDK redacts `metadata` before sending, but ingestion is public HTTP and
+a client that is not the SDK runs none of that.
+
+### Decision
+
+Key names are normalised — lowercased, with `-` and `_` removed — on both sides of the
+comparison. `apiKey`, `api_key`, `api-key` and `APIKey` are one name. Only case and
+separators go; `secret` still does not match `secretary`, because the point is one name
+spelled differently rather than one name resembling another.
+
+Normalisation applies to operator-configured paths too, so a rule written in either
+convention reaches both.
+
+`redactAlways` applies the operator's paths plus the built-in list regardless of capture
+mode, and covers the four fields `applyCapture` never saw. It is a separate function
+because `applyCapture` answers a different question — *how much of the business payload may
+we store* — and for `metadata-only` that answer is none, while SECURITY.md section 3 keeps
+identifiers and operation metadata in that mode.
+
+### Consequences
+
+- For `error`, `runtime` and `deployment` this is defence against the schema growing rather
+  than a fix for today: their keys are fixed, so no path rule matches one.
+- **It cannot reach a secret pasted inside `error.message` or `error.stack`.** Those are
+  free text and path redaction matches names. SECURITY.md section 2 names stack traces as
+  carriers of credentials, so this is recorded as unsolved rather than covered.
+- Normalisation runs on every key of every object. The lowercase result is tested for a
+  separator before any replacement, so the common case allocates once.
+
+## ADR-040: The documentation's checkable claims are tested
+
+**Status:** Accepted
+
+### Context
+
+The README asserted that payload fields are encrypted at rest. They are `jsonb`.
+`docs/OPERATIONS.md` went further and told an operator that a `pg_dump` taken without
+`ENCRYPTION_KEY` restores a database whose payloads cannot be read — so following the
+documented backup procedure exported every captured customer payload in the clear, while
+the document said it had not.
+
+The same README counted 33 ADRs when there were 37, and its status text has been wrong in
+both directions inside one week. An onboarding truth pass was already done once, in Phase 6,
+and had drifted again by this one.
+
+### Decision
+
+Claims the repository can check for itself are checked, in `tests/docs-truth.test.ts`: the
+stated ADR count matches the decision log, ADR numbers run without gaps or repeats, and no
+document claims payloads are encrypted at rest.
+
+The prose is corrected to what is true. Entity identifiers and alias values *are* encrypted
+with a key derived from `ENCRYPTION_KEY`; payloads are not, which is precisely why redaction
+is the control that matters. The backup section now says to treat a dump as if it contained
+customers' request bodies, because it does.
+
+### Consequences
+
+- `tests/` needs a home in the root `tsconfig.json`, since ESLint's type-aware rules require
+  every linted file to belong to a project and it belongs to no package.
+- This tests the claims a machine can check. It does not test whether the prose is *useful*,
+  which still needs a person who has not seen the project before.
+- A fourth truth pass is now a test failure rather than an audit finding.

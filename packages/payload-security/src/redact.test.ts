@@ -167,6 +167,41 @@ describe("keys caught at any depth", () => {
   });
 });
 
+describe("names written in a different convention", () => {
+  it("matches a secret however it is cased or separated", () => {
+    // Half of JavaScript writes `apiKey` and half writes `api_key`. The list
+    // held the snake_case spellings, matched them exactly, and stored the
+    // camelCase ones in the clear — which is most of what a JavaScript payload
+    // actually contains.
+    for (const key of ["apiKey", "api_key", "api-key", "APIKey", "ApiKey"]) {
+      expect(JSON.stringify(redact({ a: { [key]: "SECRET" } }, ["**.api_key"]))).not.toContain(
+        "SECRET"
+      );
+    }
+  });
+
+  it("matches whichever spelling the rule itself uses", () => {
+    // Normalisation is symmetric: an operator who writes the rule in camelCase
+    // gets the same reach as one who writes it in snake_case.
+    expect(JSON.stringify(redact({ a: { access_token: "SECRET" } }, ["**.accessToken"]))).toContain(
+      REDACTED
+    );
+  });
+
+  it("normalises scoped paths too", () => {
+    expect(redact({ customer: { taxId: "111-22-3333" } }, ["customer.tax_id"])).toEqual({
+      customer: { taxId: REDACTED }
+    });
+  });
+
+  it("does not merge names that merely look similar", () => {
+    // The control. Normalisation removes separators and case; it must not make
+    // `secret` match `secretary` or `apiKey` match `api`.
+    const payload = { a: { secretary: "Dana", api: "v2", tokenizer: "bpe" } };
+    expect(redact(payload, ["**.secret", "**.api_key", "**.token"])).toEqual(payload);
+  });
+});
+
 describe("redaction reaches inside values that hide their contents", () => {
   const SECRET = "Bearer sk_live_LEAKED";
   const text = (value: unknown, paths: readonly string[]): string =>

@@ -228,7 +228,9 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Payloads are **redacted inside your process**, before they leave it, against a
   built-in list of secret-looking paths. Paths you add are appended to that
   list rather than replacing it, so adding one cannot silently disable the rest.
-- Payload fields and entity identifiers are **encrypted at rest**.
+- Entity identifiers and alias values are **encrypted at rest**. Payloads are
+  not — they are stored as `jsonb`, which is exactly why redaction runs before
+  they leave your process and again before they are written.
 - Search uses HMAC tokens, so an identifier is findable without being stored in
   the clear.
 - Cross-project isolation is **structural**: composite primary and foreign keys
@@ -239,7 +241,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 33 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 40 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
