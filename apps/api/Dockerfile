@@ -51,6 +51,9 @@ USER node
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:8080/health || exit 1
+  # 127.0.0.1, not localhost: localhost resolves to ::1 first here and the
+  # server binds 0.0.0.0, so the check is refused and the container reports
+  # unhealthy while serving traffic perfectly.
+  CMD wget -qO- http://127.0.0.1:8080/health || exit 1
 
 CMD ["node", "apps/api/dist/server.js"]
