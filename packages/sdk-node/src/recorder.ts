@@ -123,6 +123,9 @@ export interface Recorder {
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
 const UNCAPTURABLE = "[UNCAPTURABLE]";
 
+/** Simultaneous in-flight batches. Four keeps a burst moving without a socket storm. */
+const MAX_CONCURRENT_SENDS = 4;
+
 interface BatchOutcome {
   status: "accepted" | "rejected";
   eventId?: string | null;
@@ -263,7 +266,19 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   function enqueue(journeyId: string, entity: JourneyContext["entity"], input: RecordInput): void {
-    if (stopped) return;
+    if (stopped) {
+      // Silent until now: after shutdown the wrappers still ran the callback
+      // and returned the right value, the server received nothing, and the
+      // counters kept reporting a clean bill of health. Reachable by ordinary
+      // reading, because `flush()` appears in no user-facing documentation and
+      // the example calls shutdown "flush".
+      diagnostics.report({
+        kind: "dropped",
+        reason: "The recorder was shut down; this event was not recorded.",
+        detail: { name: input.name, operation: input.operation }
+      });
+      return;
+    }
 
     queue.push({
       protocolVersion: "0.1",
@@ -289,7 +304,15 @@ export function createRecorder(config: RecorderConfig): Recorder {
       }
     });
 
-    if (queue.size() >= resolved.batchSize) track(flush());
+    // Capped, because N events recorded in one turn of the event loop used to
+    // start floor(N / batchSize) simultaneous requests: 1,000 records opened
+    // 200 concurrent sockets, sent 12,000 events for the 4,000 produced, and
+    // reported dropped: 3000 while the database held every one of them.
+    //
+    // Skipping a flush is safe: the queue is bounded and drops oldest if it
+    // fills, the interval timer drains what is left, and shutdown drains the
+    // rest.
+    if (queue.size() >= resolved.batchSize) maybeFlush();
   }
 
   /**
@@ -337,6 +360,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * SDK must not hold the host process.
    */
   async function drainAll(): Promise<void> {
+    // Background flushes finish first, so this does not add a request on top of
+    // the ones already in flight and push past the concurrency cap. What
+    // follows is sequential by construction.
+    await settle();
+
     let previous = Number.POSITIVE_INFINITY;
     while (queue.size() > 0 && queue.size() < previous) {
       previous = queue.size();
@@ -345,7 +373,15 @@ export function createRecorder(config: RecorderConfig): Recorder {
     await settle();
   }
 
-  const interval = setInterval(() => track(flush()), resolved.flushIntervalMs);
+  /** Starts a background flush unless the cap is already reached. */
+  function maybeFlush(): void {
+    if (inFlight.size < MAX_CONCURRENT_SENDS) track(flush());
+  }
+
+  // The interval goes through the same cap. Without that it could add a fifth
+  // request on top of four already in flight, which is exactly what the burst
+  // test caught.
+  const interval = setInterval(maybeFlush, resolved.flushIntervalMs);
   // Never hold the host's event loop open on our account.
   interval.unref();
 

@@ -418,3 +418,95 @@ describe("payloads the application cannot serialize", () => {
     expect((persisted?.["error"] as { message: string }).message).toBe("insert failed");
   });
 });
+
+describe("burst behaviour", () => {
+  /** Counts concurrent requests, so fan-out is measured rather than assumed. */
+  async function burst(
+    count: number
+  ): Promise<{ peak: number; requests: number; received: number }> {
+    let inFlight = 0;
+    let peak = 0;
+    let requests = 0;
+    let received = 0;
+
+    const server = createServer((request, response) => {
+      inFlight += 1;
+      requests += 1;
+      peak = Math.max(peak, inFlight);
+      let body = "";
+      request.on("data", (chunk: Buffer) => {
+        body += chunk.toString();
+      });
+      request.on("end", () => {
+        const parsed = JSON.parse(body) as { events: unknown[] };
+        received += parsed.events.length;
+        // A real send takes time; resolving instantly would hide the fan-out.
+        setTimeout(() => {
+          inFlight -= 1;
+          response.writeHead(202, { "content-type": "application/json" });
+          response.end(
+            JSON.stringify({
+              data: { results: parsed.events.map(() => ({ status: "accepted" })) }
+            })
+          );
+        }, 15);
+      });
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const { port } = server.address() as AddressInfo;
+
+    const recorder = createRecorder({
+      ...base,
+      endpoint: `http://127.0.0.1:${String(port)}`,
+      batchSize: 10
+    });
+    const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
+    for (let i = 0; i < count; i += 1) {
+      journey.record({ operation: "received", name: `n${String(i)}` });
+    }
+    await recorder.shutdown({ timeoutMs: 10_000 });
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    return { peak, requests, received };
+  }
+
+  it("bounds concurrent requests during a burst", async () => {
+    // 400 events at batchSize 10 used to open 40 sockets at once. The queue is
+    // bounded and the interval drains the remainder, so capping costs nothing
+    // but a little latency.
+    const { peak } = await burst(400);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it("still delivers every event", async () => {
+    // The control. A cap that simply dropped work would pass the test above.
+    const { received } = await burst(120);
+    expect(received).toBe(120);
+  });
+});
+
+describe("after shutdown", () => {
+  it("says so instead of silently discarding", async () => {
+    // shutdown() was a permanent kill switch with no signal: wrappers kept
+    // returning the right value while nothing reached the server.
+    const seen: string[] = [];
+    const recorder = createRecorder({
+      ...base,
+      onDiagnostic: (d) => seen.push(`${d.kind}|${d.reason}`)
+    });
+    const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
+    const counters = await recorder.shutdown({ timeoutMs: 500 });
+    expect(counters.dropped).toBe(0);
+
+    journey.record({ operation: "received", name: "too-late" });
+
+    expect(seen.some((line) => line.startsWith("dropped|"))).toBe(true);
+    expect(seen.join()).toContain("shut down");
+    expect(recorder.diagnostics().dropped).toBe(1);
+  });
+});
