@@ -187,7 +187,7 @@ describe("recorded events", () => {
     const events = await recordAnd((journey) => {
       // Synchronous throw, so a synchronous catch.
       try {
-        journey.persist("p", {}, () => {
+        journey.persist("p", {}, (): string => {
           throw new DomainError("phone_required");
         });
       } catch {
@@ -430,7 +430,7 @@ describe("payloads the application cannot serialize", () => {
 
     const events = await collect((journey) => {
       try {
-        journey.persist("save", hostile, () => {
+        journey.persist("save", hostile, (): string => {
           throw new Error("insert failed");
         });
       } catch {
