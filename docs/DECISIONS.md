@@ -935,11 +935,9 @@ measures the rendering rather than the original.
 
 - The byte limit still applies to cyclic payloads; tolerating a cycle is not skipping the
   check.
-- `Map`, `Set`, `Error`, and `RegExp` still store as `{}`. None has own enumerable
-  properties, so the redaction walk rebuilds them empty. They arrive empty rather than
-  wrong and nothing warns, which the SDK README states plainly. Rendering them would mean
-  changing the redaction walk itself, and that is security-critical code that deserves its
-  own change rather than a rider on this one.
+- `Map`, `Set`, `Error`, and `RegExp` stored as `{}` when this was written, because none
+  has own enumerable properties and the redaction walk rebuilt them empty. **Superseded by
+  ADR-036**, which renders them inside the walk.
 - `LimitViolation` gains a variant. The API passes the reason through as an error code, but
   cannot produce this one: its input is already-parsed JSON, which has no cycles, no
   BigInt, and no getters.
@@ -1011,3 +1009,80 @@ finds every field of that name masked instead.
   eleven existing names can reach.
 - The regression test is a payload shape from a real library, asserted against the row in
   PostgreSQL rather than against the function's return value.
+
+## ADR-036: Values that hide their contents are rendered inside the redaction walk
+
+**Status:** Accepted
+
+### Context
+
+A `Map`, a `Set`, an `Error`, a `RegExp` and a `Headers` keep their data in internal slots
+rather than in own enumerable properties. The object rebuild that makes redaction possible
+therefore turned every one of them into `{}`. The event was still recorded and the field
+was simply empty, with nothing to say so — the same failure ADR-030 fixed for `Date`, in
+the values `toJSON` does not cover.
+
+An `Error` is the sharp case. This is a debugging tool, and an error stored as `{}` is the
+one payload a reader most needs. An axios failure carries `config` and `response` as
+assigned own properties, so those survived, while `name` and `message` — the two fields
+that say what went wrong — did not.
+
+### Decision
+
+One shallow `renderExotic` step, placed in `walk` immediately after the `toJSON` step it
+mirrors, returning through the same single exit: `walk(rendered, paths, anyDepth, seen)`.
+
+Two properties carry the whole security argument, and both are pinned by tests.
+
+**Shallow.** A render never recurses. Its values are the *original* references, handed
+straight back to the walk that called it, with the paths un-advanced. Converting a subtree
+inside the renderer would carry it past every remaining match site and past the ancestor
+set that detects cycles — that single change would turn this from a fix into a leak.
+
+**Plain.** A render emits ordinary objects and arrays under the keys the data already had,
+with no wrapper frame and no type marker. The path a reader sees in a stored payload is
+therefore the path a redaction rule matches. A `{__type, entries}` wrapper would push every
+key one level down, so `headers.authorization` in the interface would need a rule written
+against `headers.entries.authorization`, and the rule that looked right would silently
+match nothing while the secret kept flowing. A marker is also a stored `jsonb` shape: once
+payloads land it propagates into `payload_diff` and the interface, and reverting the code
+would not revert the data.
+
+Detection is two-stage. `Object.prototype.toString` is a fast candidate filter, and each
+branch then confirms by reaching for the intrinsic itself — `Map.prototype.entries`, the
+`RegExp.prototype.source` getter — which a forgery cannot satisfy and which works across
+realms, where `instanceof` fails. `RegExp.prototype.toString` is *not* a brand check: it is
+specified to work on any object, and an impostor came back as `/undefined/undefined`.
+
+`Error` is the one branch with no unforgeable brand, since the tag is what makes a
+cross-realm error recognisable at all. That is acceptable only because its rendering is
+non-destructive: it copies own enumerable properties under their own names, so a forged tag
+produces the fields the ordinary rebuild would have produced anyway.
+
+`stack` is excluded. It is the largest field on a typical error, `EVENT_PROTOCOL.md` gives
+thrown errors their own structured fields, and an error's own `toJSON` is honoured first.
+
+`checkLimits` renders too, in both halves. A `Map` has no own enumerable properties, so the
+depth, width and string caps saw an empty object and `JSON.stringify` measured two bytes.
+That was harmless only while a Map also *stored* as two bytes; keeping the contents without
+teaching the guard would have let a 200,000-entry Map walk through a limit written to stop
+exactly that. The measurement memoises each rendering in a `WeakMap`, because its cycle
+check compares by identity and rendering the same Map twice would leave the loop never
+closing.
+
+### Consequences
+
+- A `Map` is indistinguishable from an object once stored, and a `Set` from an array. This
+  is the deliberate cost of storing them under their own keys, and the SDK README says so.
+- Map keys are stringified, so two distinct keys can collapse onto one name. The count is
+  reported as `[COLLIDED_KEYS]`, and an application already using that name keeps its own
+  value — the marker is dropped rather than the data.
+- A payload holding one of these now hashes differently, and `contentHash` is computed over
+  what the SDK sent. Resending the same event id from a mixed-version fleet during a
+  rollout returns 409 `event_id_conflict`.
+- A `Map` that measured as `{}` may now exceed `maxPayloadBytes` and record
+  `[PAYLOAD_TOO_LARGE]` with a `dropped` diagnostic. That is the guard working for the
+  first time, but it will be experienced as payloads disappearing after an upgrade.
+- `packages/database/src/repositories/audit.ts` is the one caller with no `checkLimits` in
+  front and no `toStorable` behind. Audit metadata is server-built plain strings, so it is
+  not reachable today; it is newly reachable in principle, and belongs in its own change.

@@ -482,6 +482,50 @@ describe("payloads the application cannot serialize", () => {
     expect(input?.["name"]).toBe("Dana");
   });
 
+  it("keeps a header Map's contents and redacts the secret in it", async () => {
+    // Asserted on the raw body the server received, not on what `redact`
+    // returns: this is the whole pipeline — capture, redact, sanitise,
+    // serialise — and it is where the earlier defects actually lived.
+    const events = await collect((journey) => {
+      journey.record({
+        operation: "delivered",
+        name: "call-upstream",
+        input: {
+          headers: new Map([
+            ["authorization", "Bearer sk_live_WIRE"],
+            ["x-request-id", "req_42"]
+          ])
+        }
+      });
+    });
+
+    const raw = JSON.stringify(events.find((e) => e["name"] === "call-upstream"));
+    // Both halves matter. The first fails before the render, when a Map stored
+    // as {} and the second assertion passed for the wrong reason.
+    expect(raw).toContain("req_42");
+    expect(raw).not.toContain("sk_live_WIRE");
+  });
+
+  it("keeps an error's request config and redacts its authorization header", async () => {
+    const failure = Object.assign(new Error("Request failed with status code 401"), {
+      config: {
+        url: "https://api.stripe.com/v1/charges",
+        headers: { authorization: "Bearer sk_live_ERR" }
+      }
+    });
+
+    const events = await collect((journey) => {
+      journey.record({ operation: "failed", name: "charge", input: { failure } });
+    });
+
+    const raw = JSON.stringify(events.find((e) => e["name"] === "charge"));
+    expect(raw).toContain("api.stripe.com");
+    expect(raw).toContain("status code 401");
+    expect(raw).not.toContain("sk_live_ERR");
+    // The largest field on an error, and one the timeline already covers.
+    expect(raw).not.toContain("stack");
+  });
+
   it("still refuses a payload that is genuinely too large", async () => {
     // The control for both tests above. Tolerating cycles and bigints must not
     // turn the size guard off.

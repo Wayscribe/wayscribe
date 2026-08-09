@@ -1,3 +1,5 @@
+import { renderExotic } from "./exotic.js";
+
 export const REDACTED = "[REDACTED]";
 export const CIRCULAR = "[CIRCULAR]";
 
@@ -100,6 +102,21 @@ function walk(
     seen.add(value);
     try {
       return walk(serialized.value, paths, anyDepth, seen);
+    } finally {
+      seen.delete(value);
+    }
+  }
+
+  // Values whose contents live in internal slots rather than in own enumerable
+  // properties. Rendered shallowly and fed straight back through this same
+  // walk, with the paths un-advanced, so a secret inside a Map is matched by
+  // the code that matches one inside an object — and the key it is stored under
+  // is the key a rule can name.
+  const exotic = renderExotic(value);
+  if (exotic !== undefined) {
+    seen.add(value);
+    try {
+      return walk(exotic.value, paths, anyDepth, seen);
     } finally {
       seen.delete(value);
     }

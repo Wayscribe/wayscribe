@@ -83,6 +83,61 @@ describe("checkLimits", () => {
     if (!result.ok) expect(result.reason).toBe("payload_too_large");
   });
 
+  it("measures what is inside a Map rather than waving it through", () => {
+    // A Map has no own enumerable properties, so every cap saw `{}` and passed
+    // it. That was harmless only while a Map also stored as `{}`; now that its
+    // contents are kept, a guard that cannot see them is a guard in name only.
+    const wide = new Map(Array.from({ length: 2_000 }, (_, i) => [`k${String(i)}`, i]));
+    const wideResult = checkLimits({ wide }, { ...DEFAULT_LIMITS, maxKeys: 100 });
+    expect(wideResult.ok).toBe(false);
+    if (!wideResult.ok) expect(wideResult.reason).toBe("max_keys_exceeded");
+
+    const bulky = new Map([["blob", "x".repeat(5_000)]]);
+    const bulkyResult = checkLimits({ bulky }, { ...DEFAULT_LIMITS, maxBytes: 500 });
+    expect(bulkyResult.ok).toBe(false);
+    if (!bulkyResult.ok) expect(bulkyResult.reason).toBe("payload_too_large");
+  });
+
+  it("measures a chain of Maps for depth", () => {
+    let nested: unknown = "leaf";
+    for (let i = 0; i < 40; i += 1) nested = new Map([["next", nested]]);
+    const result = checkLimits(nested, { ...DEFAULT_LIMITS, maxDepth: 10 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("max_depth_exceeded");
+  });
+
+  it("measures inside a Set and an error's config", () => {
+    const set = new Set([{ blob: "x".repeat(2_000) }]);
+    expect(checkLimits({ set }, { ...DEFAULT_LIMITS, maxBytes: 500 }).ok).toBe(false);
+
+    const failure = Object.assign(new Error("boom"), { config: { blob: "x".repeat(2_000) } });
+    expect(checkLimits({ failure }, { ...DEFAULT_LIMITS, maxBytes: 500 }).ok).toBe(false);
+  });
+
+  it("does not recurse forever on a cycle through a Map", () => {
+    // The measurement renders each value once and reuses it. Rendering twice
+    // would produce two objects, so the loop would never close on identity and
+    // this would run until the stack gave out.
+    const loop = new Map<string, unknown>();
+    loop.set("self", loop);
+    expect(checkLimits({ loop }, DEFAULT_LIMITS).ok).toBe(true);
+  });
+
+  it("still expands the same Map under two sibling keys", () => {
+    // The control on the memo: reusing a rendering must not turn a shared
+    // reference into a cycle, or a payload twice the size measures as half.
+    const shared = new Map([["blob", "x".repeat(200)]]);
+    const result = checkLimits({ a: shared, b: shared }, { ...DEFAULT_LIMITS, maxBytes: 300 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("payload_too_large");
+  });
+
+  it("still accepts a small Map", () => {
+    // The control: a change that rejected every exotic value would pass all of
+    // the above.
+    expect(checkLimits({ m: new Map([["a", 1]]), s: new Set([1]) }, DEFAULT_LIMITS).ok).toBe(true);
+  });
+
   it("names the real problem when a value cannot be serialized at all", () => {
     // A getter or toJSON that throws is not a size problem, and reporting one
     // sends the operator to a setting that will not fix it.
