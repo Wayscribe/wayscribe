@@ -1,4 +1,4 @@
-import { CIRCULAR } from "./redact.js";
+import { CIRCULAR, defineKey } from "./redact.js";
 
 /** NUL. PostgreSQL rejects it in `text` and in `jsonb` alike. */
 const NUL = "\u0000";
@@ -63,7 +63,7 @@ function walk(value: unknown, seen: Set<object>): unknown {
     for (const [key, child] of Object.entries(value)) {
       // Keys too: a NUL in a key is as unstorable as one in a value, and jsonb
       // rejects the whole document either way.
-      result[toStorableText(key)] = walk(child, seen);
+      defineKey(result, toStorableText(key), walk(child, seen));
     }
     return result;
   } finally {

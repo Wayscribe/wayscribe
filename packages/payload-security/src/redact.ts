@@ -123,15 +123,19 @@ function walk(
       // down, which is the whole of its guarantee: a key on this list is
       // replaced wherever it is filed.
       if (anyDepth.has(key.toLowerCase())) {
-        result[key] = REDACTED;
+        defineKey(result, key, REDACTED);
         continue;
       }
 
       const matching = paths.filter((path) => matches(path[0], key)).map((path) => path.slice(1));
 
-      result[key] = matching.some((path) => path.length === 0)
-        ? REDACTED
-        : walkOrRedact(child, matching, anyDepth, seen);
+      defineKey(
+        result,
+        key,
+        matching.some((path) => path.length === 0)
+          ? REDACTED
+          : walkOrRedact(child, matching, anyDepth, seen)
+      );
     }
     return result;
   } finally {
@@ -164,6 +168,33 @@ function walkOrRedact(
   seen: Set<object>
 ): unknown {
   return paths.some((path) => path.length === 0) ? REDACTED : walk(value, paths, anyDepth, seen);
+}
+
+/**
+ * Writes a key onto a rebuilt object, including the one key assignment cannot.
+ *
+ * `JSON.parse` makes `__proto__` an ordinary own enumerable key, so any webhook
+ * body can carry one, and `result[key] = child` then spends it on the object's
+ * prototype rather than storing it. The field disappeared from the recorded
+ * payload — silently, and from a tool whose entire promise is showing what the
+ * payload actually was.
+ *
+ * The name is compared before the slow path so ordinary keys stay a plain
+ * assignment. `Object.create(null)` for every rebuilt object would fix the same
+ * bug at more than ten times the cost, in a walk that runs inside the
+ * instrumented application's own process.
+ */
+export function defineKey(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (key === "__proto__") {
+    Object.defineProperty(target, key, {
+      value,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return;
+  }
+  target[key] = value;
 }
 
 function matches(segment: Segment | undefined, key: string): boolean {

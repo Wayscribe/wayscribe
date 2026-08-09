@@ -167,6 +167,47 @@ describe("keys caught at any depth", () => {
   });
 });
 
+describe("a payload with a __proto__ key", () => {
+  /**
+   * `JSON.parse` makes `__proto__` an ordinary own enumerable key, so any
+   * webhook body can carry one. Rebuilding with `result[key] = child` then
+   * spends it on the object's prototype instead of storing it: the field
+   * vanished from the recorded payload entirely, which for a tool whose whole
+   * promise is showing what the payload was is the promise broken.
+   */
+  const parsed = (): Record<string, unknown> =>
+    JSON.parse('{"__proto__":{"injected":1},"keep":2}') as Record<string, unknown>;
+
+  it("keeps the field instead of silently dropping it", () => {
+    const result = redact(parsed(), ["nothing"]) as Record<string, unknown>;
+    expect(Object.keys(result)).toEqual(["__proto__", "keep"]);
+    expect(result["keep"]).toBe(2);
+  });
+
+  it("leaves the result an ordinary object", () => {
+    const result = redact(parsed(), ["nothing"]) as object;
+    expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>)["injected"]).toBeUndefined();
+  });
+
+  it("survives serialization, which is what storage does", () => {
+    // Asserted on the JSON text, not against an object literal: `__proto__` in
+    // a literal sets the prototype rather than creating a key, so `toEqual`
+    // against one compares nothing and passes either way.
+    const round = JSON.stringify(redact(parsed(), ["nothing"]));
+    expect(round).toBe('{"__proto__":{"injected":1},"keep":2}');
+  });
+
+  it("still redacts underneath it", () => {
+    // The control: preserving the key must not create a place secrets hide.
+    // Both halves matter — the first fails today because the field is gone.
+    const payload = JSON.parse('{"__proto__":{"password":"hunter2"}}') as Record<string, unknown>;
+    const stored = JSON.stringify(redact(payload, ["**.password"]));
+    expect(stored).toContain("__proto__");
+    expect(stored).not.toContain("hunter2");
+  });
+});
+
 describe("values that serialize themselves", () => {
   /**
    * The object rebuild that makes redaction possible also destroyed anything
