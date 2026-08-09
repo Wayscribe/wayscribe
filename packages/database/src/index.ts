@@ -50,12 +50,8 @@ export {
   type EventCursor,
   type SearchCursor
 } from "./repositories/cursors.js";
-export {
-  searchJourneys,
-  type SearchHit,
-  type SearchPage,
-  type SearchScope
-} from "./repositories/search.js";
+export { searchJourneys, type SearchHit, type SearchPage } from "./repositories/search.js";
+export { type ReadScope } from "./repositories/read-scope.js";
 export {
   findEventDetail,
   listJourneyEvents,

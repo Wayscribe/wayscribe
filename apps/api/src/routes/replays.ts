@@ -156,7 +156,9 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
         .send(error("invalid_method", "method must be POST, PUT, or PATCH.", request.id));
     }
 
-    const event = await findEventDetail(app.db, projectId, body.eventId);
+    // Replay is admin-only (ADR-032), and an admin reads every environment of
+    // one project (ADR-029), so the scope carries no environment.
+    const event = await findEventDetail(app.db, { projectId }, body.eventId);
     if (event === undefined) {
       return reply.code(404).send(error("not_found", "Event not found.", request.id));
     }
@@ -279,7 +281,7 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
       return reply.code(404).send(error("not_found", "Replay not found.", request.id));
     }
 
-    const event = await findEventDetail(app.db, projectId, run.journeyEventId);
+    const event = await findEventDetail(app.db, { projectId }, run.journeyEventId);
     return reply.send({ data: await present(app, projectId, replayId, event) });
   });
 }

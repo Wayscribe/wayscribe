@@ -5,7 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
 import { InvalidCursorError } from "./cursors.js";
-import { searchJourneys, type SearchScope } from "./search.js";
+import { searchJourneys } from "./search.js";
+import type { ReadScope } from "./read-scope.js";
 
 const subkeys = deriveSubkeys("0123456789abcdef0123456789abcdef");
 const token = (value: string): string => searchToken(subkeys.searchToken, value);
@@ -13,8 +14,8 @@ const token = (value: string): string => searchToken(subkeys.searchToken, value)
 describe("searchJourneys", () => {
   let container: StartedPostgreSqlContainer;
   let db: Knex;
-  let scope: SearchScope;
-  let otherScope: SearchScope;
+  let scope: ReadScope;
+  let otherScope: ReadScope;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:17-alpine").start();
@@ -41,7 +42,7 @@ describe("searchJourneys", () => {
 
     const journey = async (
       id: string,
-      s: SearchScope,
+      s: ReadScope,
       entityId: string,
       lastEventAt: string
     ): Promise<void> => {

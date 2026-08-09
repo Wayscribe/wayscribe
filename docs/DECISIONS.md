@@ -1139,3 +1139,50 @@ the CLI, and the interface, and creation is the only cheap moment to reject one.
   so the API will not serve reads against a schema it does not recognise.
 - Seeds keep their hardcoded slugs. They exist for the demo and for local development, and
   they are no longer the only way a project can come into being.
+
+## ADR-038: Every read carries a scope, not a project id
+
+**Status:** Accepted
+
+### Context
+
+`principalEnvironmentId` existed and was passed to exactly one read. `/v1/search` scoped
+its query to the caller's project *and* environment; `/v1/journeys/:id`,
+`/v1/journeys/:id/events` and `/v1/events/:id` took a bare project id.
+
+Read routes accept either principal, so an API key can read. A key issued for
+`development` could therefore fetch a `production` journey, its events, and the full
+decrypted payload, by id. Verified against a running stack before the fix: the response to
+a development key carried `{"salary": 185000, "ssnLast4": "6789"}` from a production event.
+
+The boundary was real in the schema — `journeys` and `journey_events` both carry
+`environment_id` with foreign keys — enforced on one route, and absent on the three that
+return the data.
+
+The test suite contained a case that looks like it covers this and does not. *"returns 404
+for another project's journey and event"* builds a second **project**, which composite keys
+already make unreachable. Nothing tested a second environment of the same project.
+
+### Decision
+
+`ReadScope` — `{ projectId, environmentId? }` — moves out of `search.ts`, where it lived as
+`SearchScope` because search was the only read that took one, into its own module. Every
+read takes it. A single `readScope(principal)` in the route file is the one place a scope is
+constructed, so a future read cannot be written that quietly omits the environment.
+
+An absent environment still means every environment of one project, never every project.
+That is what an admin gets, and it is what replay uses (ADR-032 makes replay admin-only).
+
+Aliases and the service list inside `findJourneyDetail` filter on project alone, and say so
+in a comment: the journey they belong to has already had to pass the scope for those lines
+to run, and `entity_aliases` carries no environment.
+
+### Consequences
+
+- Two call sites in `replays.ts` were passing a bare project id and were caught by the
+  compiler when the signature changed, which is the reason the scope is a type rather than
+  an optional argument.
+- The regression test builds a second environment of the *same* project and asserts 404 on
+  all three routes, with a control that the production key still reads its own data.
+- `SearchScope` is gone rather than aliased. A deprecated name in a pre-1.0 internal
+  package is cruft that outlives the reason for it.

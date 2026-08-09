@@ -3,7 +3,8 @@ import {
   findEventDetail,
   findJourneyDetail,
   listJourneyEvents,
-  searchJourneys
+  searchJourneys,
+  type ReadScope
 } from "@flight-recorder/database";
 import { searchToken, type Subkeys } from "@flight-recorder/payload-security";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -43,6 +44,21 @@ export function registerQueryRoutes(
     return auth.principal;
   }
 
+  /**
+   * What this caller may read.
+   *
+   * Built in one place and passed to every read. It used to be constructed
+   * inline for search and nowhere else, so the three routes that return
+   * journeys, events and payloads filtered on project alone — and a key scoped
+   * to development could fetch a production payload by id.
+   */
+  function readScope(principal: Principal): ReadScope {
+    return {
+      projectId: principalProjectId(principal),
+      environmentId: principalEnvironmentId(principal)
+    };
+  }
+
   app.get("/v1/search", async (request, reply) => {
     const principal = await authenticate(request, reply);
     if (principal === undefined) return reply;
@@ -55,10 +71,7 @@ export function registerQueryRoutes(
     try {
       const page = await searchJourneys(
         app.db,
-        {
-          projectId: principalProjectId(principal),
-          environmentId: principalEnvironmentId(principal)
-        },
+        readScope(principal),
         query,
         searchToken(subkeys.searchToken, query),
         parseLimit(request.query),
@@ -91,7 +104,7 @@ export function registerQueryRoutes(
     if (principal === undefined) return reply;
 
     const { journeyId } = request.params as { journeyId: string };
-    const detail = await findJourneyDetail(app.db, principalProjectId(principal), journeyId);
+    const detail = await findJourneyDetail(app.db, readScope(principal), journeyId);
     // 404 rather than 403: confirming existence to an unauthorized caller is
     // itself a disclosure.
     if (detail === undefined) {
@@ -121,7 +134,7 @@ export function registerQueryRoutes(
     if (principal === undefined) return reply;
 
     const { journeyId } = request.params as { journeyId: string };
-    const journey = await findJourneyDetail(app.db, principalProjectId(principal), journeyId);
+    const journey = await findJourneyDetail(app.db, readScope(principal), journeyId);
     if (journey === undefined) {
       return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
     }
@@ -129,7 +142,7 @@ export function registerQueryRoutes(
     try {
       const page = await listJourneyEvents(
         app.db,
-        principalProjectId(principal),
+        readScope(principal),
         journeyId,
         parseLimit(request.query),
         (request.query as { cursor?: string }).cursor
@@ -155,7 +168,7 @@ export function registerQueryRoutes(
     if (principal === undefined) return reply;
 
     const { eventId } = request.params as { eventId: string };
-    const detail = await findEventDetail(app.db, principalProjectId(principal), eventId);
+    const detail = await findEventDetail(app.db, readScope(principal), eventId);
     if (detail === undefined) {
       return reply.code(404).send(errorBody("not_found", "Event not found.", request.id));
     }

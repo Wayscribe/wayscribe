@@ -13,13 +13,14 @@ describe("query endpoints", () => {
   let db: Knex;
   let app: FastifyInstance;
   let apiKey: string;
+  let projectId: string;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:17-alpine").start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 
-    const projectId = await insertReturningId(db, "projects", { name: "P", slug: "p" });
+    projectId = await insertReturningId(db, "projects", { name: "P", slug: "p" });
     const environmentId = await insertReturningId(db, "environments", {
       project_id: projectId,
       name: "development"
@@ -149,6 +150,60 @@ describe("query endpoints", () => {
     const data = (await get("/v1/events/evt_q1")).json().data;
     expect(data.inputPayload).toEqual({ phone: "+1 919 555 1234" });
     expect(data.payloadDiff.changes[0].path).toBe("phone");
+  });
+
+  it("returns 404 for another environment of the same project", async () => {
+    // The environment boundary was enforced on /v1/search and on nothing else.
+    // A key scoped to development could read a production journey, its events,
+    // and the full decrypted payload, by id. Verified against a running stack
+    // before this test existed: the response carried `salary` and `ssnLast4`.
+    //
+    // The test above looks like it covers this and does not — it builds a
+    // second *project*, which composite keys already make unreachable.
+    const productionEnv = await insertReturningId(db, "environments", {
+      project_id: projectId,
+      name: "production"
+    });
+    const productionKey = generateApiKey(subkeys.apiKey);
+    await db("api_keys").insert({
+      project_id: projectId,
+      environment_id: productionEnv,
+      name: "prod",
+      key_prefix: productionKey.keyPrefix,
+      key_hash: productionKey.verifier
+    });
+
+    const written = await app.inject({
+      method: "POST",
+      url: "/v1/events",
+      headers: { authorization: `Bearer ${productionKey.apiKey}` },
+      payload: {
+        protocolVersion: "0.1",
+        event: {
+          id: "evt_prod",
+          journeyId: "jrn_prod",
+          environment: "production",
+          service: "payroll",
+          entity: { type: "employee", id: "EMP-1" },
+          operation: "persisted",
+          name: "write-salary",
+          timestamp: "2026-08-06T12:00:00.000Z",
+          input: { salary: 185_000 }
+        }
+      } as object
+    });
+    expect(written.statusCode).toBe(202);
+
+    // `apiKey` is scoped to development.
+    expect((await get("/v1/journeys/jrn_prod")).statusCode).toBe(404);
+    expect((await get("/v1/journeys/jrn_prod/events")).statusCode).toBe(404);
+    expect((await get("/v1/events/evt_prod")).statusCode).toBe(404);
+
+    // The control: the production key can read its own data, so the fix is a
+    // boundary rather than a blanket refusal.
+    const own = await get("/v1/events/evt_prod", productionKey.apiKey);
+    expect(own.statusCode).toBe(200);
+    expect(own.json().data.inputPayload).toEqual({ salary: 185_000 });
   });
 
   it("returns 404 for another project's journey and event", async () => {
