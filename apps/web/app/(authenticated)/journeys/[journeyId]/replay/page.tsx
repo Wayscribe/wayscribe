@@ -9,6 +9,14 @@ import {
 } from "../../../../../src/lib/api";
 import { requireProjectId } from "../../../../../src/lib/current-project";
 
+// debtwatch:start
+// id: DEBT-GW41YJ
+// owner: flight-recorder
+// expires: 2027-02-01
+// reason: ADR-032 defers payload editing to V1; the prepare screen reviews but cannot change it
+// tags: web, replay
+// debtwatch:end
+
 /**
  * Prepare and send a replay.
  *

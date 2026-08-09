@@ -10,6 +10,13 @@
  * "created" compiled cleanly, was refused by the server, and disappeared —
  * leaving a timeline that was not empty but wrong, which is worse.
  */
+// debtwatch:start
+// id: DEBT-4PM4D3
+// owner: flight-recorder
+// expires: 2027-02-01
+// reason: Duplicated from @flight-recorder/protocol because that package is private and unpublishable
+// tags: sdk, protocol
+// debtwatch:end
 export const OPERATIONS = [
   "received",
   "identified",

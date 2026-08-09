@@ -174,6 +174,13 @@ export const getJourney = (journeyId: string, projectId: string): Promise<Journe
  * `maxPages` bounds the work rather than the truth: whatever is not fetched is
  * reported to the caller instead of quietly dropped.
  */
+// debtwatch:start
+// id: DEBT-43WEMV
+// owner: flight-recorder
+// expires: 2027-02-01
+// reason: A journey past 600 events still truncates; needs a real pager, not a bigger number
+// tags: web, pagination
+// debtwatch:end
 export async function listEvents(
   journeyId: string,
   projectId: string,

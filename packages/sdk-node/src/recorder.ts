@@ -130,6 +130,13 @@ export interface Recorder {
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
 const UNCAPTURABLE = "[UNCAPTURABLE]";
 
+// debtwatch:start
+// id: DEBT-WGN0N4
+// owner: flight-recorder
+// expires: 2026-12-01
+// reason: Four is a guess; every measurement so far was over loopback, never a real network
+// tags: sdk, performance
+// debtwatch:end
 /** Simultaneous in-flight batches. Four keeps a burst moving without a socket storm. */
 const MAX_CONCURRENT_SENDS = 4;
 
