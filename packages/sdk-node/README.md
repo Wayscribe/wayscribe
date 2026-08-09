@@ -169,16 +169,35 @@ const counters = await recorder.shutdown();
 ## Redaction
 
 Payloads are redacted before they leave your process, against a built-in list of
-secret-looking paths. Paths you add are appended to that list rather than
-replacing it, so adding one cannot silently disable the rest.
+secret names. Paths you add are appended to that list rather than replacing it,
+so adding one cannot silently disable the rest.
 
 ```typescript
 createRecorder({
   // ...
   captureMode: "redacted-payload", // default; "metadata-only" captures no payloads
-  redact: ["customer.taxId"]
+  redact: ["customer.taxId", "**.ssn"]
 });
 ```
+
+The grammar is small on purpose, so a rule never matches more than you expected:
+
+| Rule | Matches |
+| --- | --- |
+| `customer.ssn` | exactly that path |
+| `*.password` | `password` one level down, under any key |
+| `items[*].cardNumber` | `cardNumber` in every element of `items` |
+| `authorization` | that key at the top level only |
+| `**.authorization` | that key **wherever it appears**, at any depth, including inside arrays |
+
+Use the `**.` form for anything that is a secret by virtue of its name rather
+than its location. The built-in list is written entirely that way, because a
+secret is identified by the name it is filed under and not by where in a request
+somebody happened to nest it — `config.headers.authorization` is three levels
+down and is exactly what an axios error carries.
+
+Matched values are replaced with `[REDACTED]` rather than deleted, so the
+timeline still shows that the field existed.
 
 ## What happens to your values
 

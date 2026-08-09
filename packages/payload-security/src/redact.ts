@@ -11,17 +11,51 @@ type Segment = { kind: "literal"; value: string } | { kind: "any" } | { kind: "a
  *   customer.ssn          literal segments
  *   *.password            one level of anything
  *   items[*].cardNumber   array elements
- *   authorization         matched case-insensitively
+ *   authorization         matched case-insensitively, at the top level
+ *   {@link ANY_DEPTH_PREFIX}authorization   that key name wherever it appears
  *
  * Regular-expression paths and conditional rules are out of scope, so operators
  * are never left guessing what a rule will match.
+ *
+ * The any-depth form exists because a path rule cannot express the thing a
+ * secret list actually needs to say. `authorization` reached the top level and
+ * `*.authorization` reached one below it, so `config.headers.authorization` —
+ * what every axios error carries — was stored in the clear, as was anything
+ * inside an array, since an array with no matching `x[*]` rule was walked with
+ * no rules at all. A secret is identified by the name it is filed under, not by
+ * where in a request somebody happened to nest it.
+ *
+ * Only a plain key name is supported after the prefix. Anything else is dropped
+ * rather than reinterpreted, so an unsupported rule protects nothing instead of
+ * quietly matching something its author did not mean.
  *
  * Matched values are replaced rather than deleted: SECURITY.md section 4
  * requires preserving evidence that a value existed.
  */
 export function redact(value: unknown, paths: readonly string[]): unknown {
   if (paths.length === 0) return value;
-  return walk(value, paths.map(parsePath), new Set());
+
+  const anyDepth = new Set<string>();
+  const scoped: Segment[][] = [];
+  for (const path of paths) {
+    if (path.startsWith(ANY_DEPTH_PREFIX)) {
+      const name = anyDepthName(path);
+      if (name !== undefined) anyDepth.add(name);
+      continue;
+    }
+    scoped.push(parsePath(path));
+  }
+
+  return walk(value, scoped, anyDepth, new Set());
+}
+
+/** Marks a rule that applies at every level rather than at one path. */
+const ANY_DEPTH_PREFIX = "**.";
+
+/** The key name in an any-depth rule, or undefined if the rule is malformed. */
+function anyDepthName(path: string): string | undefined {
+  const name = path.slice(ANY_DEPTH_PREFIX.length);
+  return name === "" || /[.*[\]]/.test(name) ? undefined : name.toLowerCase();
 }
 
 function parsePath(path: string): Segment[] {
@@ -47,7 +81,12 @@ function toSegment(raw: string): Segment {
  * had not changed. Entries are added on the way down and removed on the way
  * back up, so only a genuine loop is caught.
  */
-function walk(value: unknown, paths: Segment[][], seen: Set<object>): unknown {
+function walk(
+  value: unknown,
+  paths: Segment[][],
+  anyDepth: ReadonlySet<string>,
+  seen: Set<object>
+): unknown {
   if (value === null || typeof value !== "object") return value;
 
   if (seen.has(value)) return CIRCULAR;
@@ -60,7 +99,7 @@ function walk(value: unknown, paths: Segment[][], seen: Set<object>): unknown {
   if (serialized !== undefined) {
     seen.add(value);
     try {
-      return walk(serialized.value, paths, seen);
+      return walk(serialized.value, paths, anyDepth, seen);
     } finally {
       seen.delete(value);
     }
@@ -72,18 +111,27 @@ function walk(value: unknown, paths: Segment[][], seen: Set<object>): unknown {
       const remaining = paths
         .filter((path) => path[0]?.kind === "arrayAny")
         .map((path) => path.slice(1));
-      return value.map((item) =>
-        remaining.length > 0 ? walkOrRedact(item, remaining, seen) : walk(item, [], seen)
-      );
+      // Descends even with nothing remaining. Returning early here is what let
+      // an array swallow the rules: elements were walked with no paths, so a
+      // secret one level inside a list was never examined again.
+      return value.map((item) => walkOrRedact(item, remaining, anyDepth, seen));
     }
 
     const result: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {
+      // `anyDepth` is checked at every level and never narrowed on the way
+      // down, which is the whole of its guarantee: a key on this list is
+      // replaced wherever it is filed.
+      if (anyDepth.has(key.toLowerCase())) {
+        result[key] = REDACTED;
+        continue;
+      }
+
       const matching = paths.filter((path) => matches(path[0], key)).map((path) => path.slice(1));
 
       result[key] = matching.some((path) => path.length === 0)
         ? REDACTED
-        : walkOrRedact(child, matching, seen);
+        : walkOrRedact(child, matching, anyDepth, seen);
     }
     return result;
   } finally {
@@ -109,8 +157,13 @@ function selfSerialized(value: object): { value: unknown } | undefined {
   }
 }
 
-function walkOrRedact(value: unknown, paths: Segment[][], seen: Set<object>): unknown {
-  return paths.some((path) => path.length === 0) ? REDACTED : walk(value, paths, seen);
+function walkOrRedact(
+  value: unknown,
+  paths: Segment[][],
+  anyDepth: ReadonlySet<string>,
+  seen: Set<object>
+): unknown {
+  return paths.some((path) => path.length === 0) ? REDACTED : walk(value, paths, anyDepth, seen);
 }
 
 function matches(segment: Segment | undefined, key: string): boolean {

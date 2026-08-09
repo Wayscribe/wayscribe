@@ -294,7 +294,12 @@ headers.cookie
 *.password
 customer.ssn
 items[*].cardNumber
+**.authorization
 ```
+
+The last form matches that key name at any depth, including inside arrays. Every
+other form is anchored at the root, which is why the built-in secret list is
+written entirely in the `**.` form — see ADR-035.
 
 The server will repeat redaction according to environment policy.
 
