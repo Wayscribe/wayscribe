@@ -223,3 +223,119 @@ describe("recorded events", () => {
     expect(stamped).toBeLessThan(startedAt + 50);
   });
 });
+
+describe("the server's verdict", () => {
+  /**
+   * The batch route replies 202 even when it stored nothing, so these assert on
+   * what the SDK does with the body. Before it read the body, an environment
+   * typo produced counters identical to a healthy run.
+   */
+  async function serverReplying(
+    results: unknown[]
+  ): Promise<{ endpoint: string; close: () => Promise<void> }> {
+    const server = createServer((request, response) => {
+      request.on("data", () => undefined);
+      request.on("end", () => {
+        response.writeHead(202, { "content-type": "application/json" });
+        response.end(JSON.stringify({ data: { results } }));
+      });
+    });
+    // listen is asynchronous; address() is null until it fires.
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const { port } = server.address() as AddressInfo;
+    return {
+      endpoint: `http://127.0.0.1:${String(port)}`,
+      close: () =>
+        new Promise<void>((resolve) => {
+          server.close(() => {
+            resolve();
+          });
+        })
+    };
+  }
+
+  it("does not count a refused event as sent", async () => {
+    const server = await serverReplying([
+      {
+        status: "rejected",
+        error: { code: "unauthorized_environment", message: "no", httpStatus: 403 }
+      }
+    ]);
+    const recorder = createRecorder({ ...base, endpoint: server.endpoint });
+    recorder.startJourney({ entity: { type: "customer", id: "1" } }).record({
+      operation: "received",
+      name: "n"
+    });
+
+    const counters = await recorder.shutdown({ timeoutMs: 2_000 });
+    expect(counters.sent).toBe(0);
+    expect(counters.rejected).toBe(1);
+    await server.close();
+  });
+
+  it("reports the server's own reason, not a generic one", async () => {
+    const seen: string[] = [];
+    const server = await serverReplying([
+      {
+        status: "rejected",
+        error: {
+          code: "invalid_event",
+          message: "The event failed validation.",
+          httpStatus: 400,
+          details: [{ path: "event.entity.id", message: "expected string, received number" }]
+        }
+      }
+    ]);
+    const recorder = createRecorder({
+      ...base,
+      endpoint: server.endpoint,
+      onDiagnostic: (d) => seen.push(`${d.kind}|${d.reason}`)
+    });
+    recorder.startJourney({ entity: { type: "customer", id: "1" } }).record({
+      operation: "received",
+      name: "n"
+    });
+    await recorder.shutdown({ timeoutMs: 2_000 });
+
+    // The specific field is what ends the investigation. "invalid_event" alone
+    // starts one.
+    expect(seen.join()).toContain("rejected|");
+    expect(seen.join()).toContain("event.entity.id");
+    expect(seen.join()).toContain("expected string, received number");
+    await server.close();
+  });
+
+  it("counts a mixed batch honestly", async () => {
+    const server = await serverReplying([
+      { status: "accepted", eventId: "evt_1" },
+      { status: "rejected", error: { code: "invalid_event", message: "no", httpStatus: 400 } },
+      { status: "accepted", eventId: "evt_3" }
+    ]);
+    const recorder = createRecorder({ ...base, endpoint: server.endpoint, batchSize: 3 });
+    const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
+    for (let i = 0; i < 3; i += 1) journey.record({ operation: "received", name: `n${String(i)}` });
+
+    const counters = await recorder.shutdown({ timeoutMs: 2_000 });
+    expect(counters.sent).toBe(2);
+    expect(counters.rejected).toBe(1);
+    await server.close();
+  });
+
+  it("still counts a fully accepted batch as sent", async () => {
+    // The control. Without it, a change that reported zero for everything would
+    // pass all three tests above.
+    const server = await serverReplying([{ status: "accepted", eventId: "evt_1" }]);
+    const recorder = createRecorder({ ...base, endpoint: server.endpoint });
+    recorder.startJourney({ entity: { type: "customer", id: "1" } }).record({
+      operation: "received",
+      name: "n"
+    });
+
+    const counters = await recorder.shutdown({ timeoutMs: 2_000 });
+    expect(counters.sent).toBe(1);
+    expect(counters.rejected).toBe(0);
+    await server.close();
+  });
+});

@@ -37,7 +37,18 @@ interface BatchResult {
   eventId: string | null;
   status: "accepted" | "rejected";
   duplicate?: boolean;
-  error?: { code: string | undefined; message: string | undefined };
+  /**
+   * `httpStatus` is what the same rejection would have returned from the
+   * single-event route. It rides along because the batch route always replies
+   * 202 — the transport succeeded — and the client needs to tell a permanent
+   * refusal (4xx, do not retry) from a transient one.
+   */
+  error?: {
+    code: string | undefined;
+    message: string | undefined;
+    httpStatus: number;
+    details?: { path: string; message: string }[];
+  };
 }
 
 export function registerEventRoutes(
@@ -132,7 +143,12 @@ export function registerEventRoutes(
           : {
               eventId: result.eventId,
               status: "rejected",
-              error: { code: result.code, message: result.message }
+              error: {
+                code: result.code,
+                message: result.message,
+                httpStatus: result.httpStatus,
+                ...(result.details === undefined ? {} : { details: result.details })
+              }
             }
       );
     }

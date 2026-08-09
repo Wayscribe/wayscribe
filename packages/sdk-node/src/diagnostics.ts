@@ -1,4 +1,12 @@
-export type DiagnosticKind = "dropped" | "transport_error" | "capture_error" | "breaker_open";
+/**
+ * `rejected` is distinct from `transport_error` on purpose. A transport error
+ * means the request did not land and will be retried. A rejection means the
+ * server received the event, understood it, and refused it — retrying changes
+ * nothing, and the event is gone. Collapsing the two would tell an operator to
+ * wait for a recovery that is never coming.
+ */
+export type DiagnosticKind =
+  "dropped" | "rejected" | "transport_error" | "capture_error" | "breaker_open";
 
 export interface Diagnostic {
   kind: DiagnosticKind;
@@ -8,9 +16,12 @@ export interface Diagnostic {
 
 export interface Counters {
   dropped: number;
+  /** Received by the server and refused. Permanent; these events do not exist. */
+  rejected: number;
   transportErrors: number;
   captureErrors: number;
   breakerOpened: number;
+  /** Accepted and stored. Not "handed to fetch" — actually stored. */
   sent: number;
 }
 
@@ -30,6 +41,7 @@ export interface Diagnostics {
 export function createDiagnostics(onDiagnostic?: (diagnostic: Diagnostic) => void): Diagnostics {
   const counters: Counters = {
     dropped: 0,
+    rejected: 0,
     transportErrors: 0,
     captureErrors: 0,
     breakerOpened: 0,
@@ -39,6 +51,7 @@ export function createDiagnostics(onDiagnostic?: (diagnostic: Diagnostic) => voi
   return {
     report(diagnostic) {
       if (diagnostic.kind === "dropped") counters.dropped += 1;
+      if (diagnostic.kind === "rejected") counters.rejected += 1;
       if (diagnostic.kind === "transport_error") counters.transportErrors += 1;
       if (diagnostic.kind === "capture_error") counters.captureErrors += 1;
       if (diagnostic.kind === "breaker_open") counters.breakerOpened += 1;

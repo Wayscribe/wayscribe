@@ -17,6 +17,7 @@ import {
   type Subkeys
 } from "@flight-recorder/payload-security";
 import { PROTOCOL_ERROR_CODES, parseEnvelope } from "@flight-recorder/protocol";
+import type { ParseDetail } from "@flight-recorder/protocol";
 import type { Knex } from "knex";
 import { authorizeEnvironment } from "../auth.js";
 
@@ -27,6 +28,15 @@ export interface IngestResult {
   duplicate?: boolean;
   code?: string;
   message?: string;
+  /**
+   * Which fields were wrong, when the rejection came from validation.
+   *
+   * Carried rather than dropped because this is the difference between an SDK
+   * user reading "invalid_event" and reading "event.entity.id: expected string,
+   * received number". The second one ends the problem; the first starts a
+   * search.
+   */
+  details?: ParseDetail[];
   httpStatus: number;
 }
 
@@ -54,7 +64,7 @@ export async function ingestEvent(
   }
 
   const parsed = parseEnvelope(body);
-  if (!parsed.ok) return reject(400, parsed.code, parsed.message);
+  if (!parsed.ok) return reject(400, parsed.code, parsed.message, parsed.details);
 
   const event = parsed.event;
 
@@ -158,6 +168,19 @@ export async function ingestEvent(
   });
 }
 
-function reject(httpStatus: number, code: string, message: string): IngestResult {
-  return { eventId: null, journeyId: null, status: "rejected", code, message, httpStatus };
+function reject(
+  httpStatus: number,
+  code: string,
+  message: string,
+  details?: ParseDetail[]
+): IngestResult {
+  return {
+    eventId: null,
+    journeyId: null,
+    status: "rejected",
+    code,
+    message,
+    ...(details === undefined || details.length === 0 ? {} : { details }),
+    httpStatus
+  };
 }

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { DEFAULT_LIMITS, checkLimits, redact } from "@flight-recorder/payload-security/redaction";
 import { resolveConfig, type RecorderConfig } from "./config.js";
-import { createDiagnostics, type Counters } from "./diagnostics.js";
+import { createDiagnostics, type Counters, type Diagnostics } from "./diagnostics.js";
+import type { Operation } from "./operations.js";
 import {
   extractHttpContext,
   fromQueueAttributes,
@@ -22,7 +23,13 @@ export interface JourneyContext {
 }
 
 export interface RecordInput {
-  operation: string;
+  /**
+   * One of the eleven operations the server accepts.
+   *
+   * A union rather than `string`: anything else is refused at ingestion, and a
+   * refused event leaves a timeline that is not empty but wrong.
+   */
+  operation: Operation;
   name: string;
   input?: unknown;
   output?: unknown;
@@ -110,6 +117,52 @@ export interface Recorder {
 
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
 
+interface BatchOutcome {
+  status: "accepted" | "rejected";
+  eventId?: string | null;
+  error?: {
+    code?: string;
+    message?: string;
+    httpStatus?: number;
+    details?: { path: string; message: string }[];
+  };
+}
+
+/**
+ * How many events the server stored, reporting each refusal on the way.
+ *
+ * A rejection is permanent — the event was understood and refused — so it is
+ * counted separately from a transport failure and never retried. The server's
+ * own message is passed through verbatim, because it is far more specific than
+ * anything this side could reconstruct: "event.entity.id: expected string,
+ * received number" ends the investigation that "invalid_event" begins.
+ *
+ * A body this cannot parse is treated as full acceptance. The alternative —
+ * assuming the worst — would report phantom data loss whenever a proxy rewrote
+ * a response, and the request did return 2xx.
+ */
+function countAccepted(body: unknown, diagnostics: Diagnostics): number {
+  const results = (body as { data?: { results?: BatchOutcome[] } } | null)?.data?.results;
+  if (!Array.isArray(results)) return 0;
+
+  let accepted = 0;
+  for (const result of results) {
+    if (result.status === "accepted") {
+      accepted += 1;
+      continue;
+    }
+
+    const where = result.error?.details?.[0];
+    const detail = where === undefined ? "" : ` (${where.path}: ${where.message})`;
+    diagnostics.report({
+      kind: "rejected",
+      reason: `${result.error?.code ?? "rejected"}: ${result.error?.message ?? "The server refused this event."}${detail}`,
+      detail: result.error
+    });
+  }
+  return accepted;
+}
+
 export function createRecorder(config: RecorderConfig): Recorder {
   const resolved = resolveConfig(config);
   const diagnostics = createDiagnostics(resolved.onDiagnostic);
@@ -136,6 +189,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
             signal: controller.signal
           });
           if (!response.ok) throw new Error(`Ingestion responded ${String(response.status)}.`);
+
+          // The batch route replies 202 with a per-event verdict, so a request
+          // that "succeeded" may have stored nothing. Reading the body is the
+          // only way to know, and not reading it is how a misconfigured
+          // environment name looked exactly like a healthy recorder.
+          return countAccepted(await response.json(), diagnostics);
         } finally {
           clearTimeout(timer);
         }
@@ -193,7 +252,32 @@ export function createRecorder(config: RecorderConfig): Recorder {
       }
     });
 
-    if (queue.size() >= resolved.batchSize) void flush();
+    if (queue.size() >= resolved.batchSize) track(flush());
+  }
+
+  /**
+   * Flushes started in the background, so `flush()` and `shutdown()` can wait
+   * for them.
+   *
+   * Without this set, `enqueue`'s fire-and-forget flush was unobservable:
+   * `shutdown()` drained an already-empty queue, returned immediately, and read
+   * the counters before the in-flight send had recorded anything. A run of
+   * exactly `batchSize` events reported `sent: 0` while the server held all of
+   * them, and `process.exit(0)` straight after `shutdown()` abandoned the batch
+   * for real.
+   */
+  const inFlight = new Set<Promise<void>>();
+
+  function track(promise: Promise<void>): void {
+    inFlight.add(promise);
+    void promise.finally(() => inFlight.delete(promise));
+  }
+
+  /** Waits for every background flush, including ones started by those flushes. */
+  async function settle(): Promise<void> {
+    while (inFlight.size > 0) {
+      await Promise.allSettled([...inFlight]);
+    }
   }
 
   async function flush(): Promise<void> {
@@ -207,7 +291,24 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
   }
 
-  const interval = setInterval(() => void flush(), resolved.flushIntervalMs);
+  /**
+   * Drains everything currently queued, not just one batch.
+   *
+   * Stops as soon as a pass makes no progress. A failed send requeues its
+   * batch, so looping on `size > 0` alone spins forever against an endpoint
+   * that is refusing connections — which is precisely the situation where the
+   * SDK must not hold the host process.
+   */
+  async function drainAll(): Promise<void> {
+    let previous = Number.POSITIVE_INFINITY;
+    while (queue.size() > 0 && queue.size() < previous) {
+      previous = queue.size();
+      await flush();
+    }
+    await settle();
+  }
+
+  const interval = setInterval(() => track(flush()), resolved.flushIntervalMs);
   // Never hold the host's event loop open on our account.
   interval.unref();
 
@@ -233,7 +334,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
    */
   async function wrap<T>(
     context: JourneyContext,
-    naturalOperation: string,
+    naturalOperation: Operation,
     name: string,
     input: unknown,
     fn: () => T | Promise<T>,
@@ -366,7 +467,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     wrapPayload: (payload, context) => wrapPayload(payload, context, resolved.propagate),
     unwrapPayload,
     async flush() {
-      await safelyAsync(diagnostics, "transport_error", flush);
+      await safelyAsync(diagnostics, "transport_error", drainAll);
     },
     async shutdown(options) {
       stopped = true;
@@ -375,11 +476,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // Never hang: a process that cannot exit because of a telemetry library is
       // the same failure ADR-007 forbids, arriving later.
       await Promise.race([
-        safelyAsync(diagnostics, "transport_error", flush),
+        safelyAsync(diagnostics, "transport_error", drainAll),
         new Promise((resolve) => {
           setTimeout(resolve, timeoutMs);
         })
       ]);
+      // Read after the race, so the counters describe what actually landed.
       return diagnostics.counters();
     },
     diagnostics: () => diagnostics.counters()
