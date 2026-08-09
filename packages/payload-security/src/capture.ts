@@ -1,5 +1,5 @@
 import { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
-import { redact } from "./redact.js";
+import { defineKey, redact } from "./redact.js";
 
 export type CaptureMode =
   "metadata-only" | "allowlisted-fields" | "redacted-payload" | "full-payload";
@@ -78,9 +78,9 @@ function writePath(
   for (let i = 0; i < segments.length - 1; i += 1) {
     const segment = segments[i] ?? "";
     const existing = current[segment];
-    if (typeof existing !== "object" || existing === null) current[segment] = {};
+    if (typeof existing !== "object" || existing === null) defineKey(current, segment, {});
     current = current[segment] as Record<string, unknown>;
   }
   const last = segments[segments.length - 1] ?? "";
-  current[last] = value;
+  defineKey(current, last, value);
 }
