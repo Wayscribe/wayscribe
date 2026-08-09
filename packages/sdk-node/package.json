@@ -23,7 +23,7 @@
     "self-hosted"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.0"
   },
   "sideEffects": false,
   "files": [

@@ -195,6 +195,15 @@ each event. It is resolved once, optional, and absent it degrades silently.
 The SDK does not write `traceparent`. OpenTelemetry owns that header and has its
 own propagator.
 
+## Requirements
+
+Node 20.19 or later.
+
+The package is ESM. `import` works on any Node 20; `require()` of it needs the
+`require(esm)` support backported in 20.19, which is why the floor is there
+rather than at 20.0. Verified against Node 20, 22, and 24, from both ESM and
+CommonJS.
+
 ## License
 
 Apache-2.0
