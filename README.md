@@ -246,14 +246,34 @@ wrong the first time and say so.
 
 ## Status
 
-**Working, pre-release. Not yet published.**
+**Pre-release, and not yet ready for real use.**
 
 Ingestion, search, journey timelines, field-level diffs, the Node SDK,
 cross-process propagation, retention, the demo, and development replay are built,
-tested, and running. Container images and the npm package are **not published
-yet**, so today you install by cloning this repository.
+tested, and running. Container images and the npm package are not published yet,
+so today you install by cloning this repository.
 
-Put plainly: the software works and the distribution does not exist yet.
+But an adversarial audit of the first-contact experience on 2026-08-09 found
+that the demo which verified all of it was systematically narrow: ten flat
+plain-JSON events that never contained a `Date`, a shared object reference, a
+control character, a 101st event, or a rejected one. Thirty claims were raised
+and twenty-eight survived a refutation pass.
+
+The architecture holds — the server is correct where it matters and no schema
+migration is needed — but three defects affect the correctness of what you see:
+
+- **The diff can be wrong in both directions.** Redaction rebuilds objects from
+  `Object.entries()`, so a `Date` becomes `{}` and a renewal that moved an expiry
+  by a year reports *"No fields changed."* A second reference to the same object
+  becomes `"[CIRCULAR]"`, a change that never happened.
+- **A rejected event can look like a delivered one.** The batch route reports
+  per-event results; the SDK checks only the HTTP status, so a typo'd
+  `environment` yields `sent: 4`, no diagnostics, and an empty database.
+- **One unstorable value stalls the queue** rather than being dropped.
+
+Fixes are underway, sequenced by what makes the next defect observable rather
+than by severity. Until they land, treat this as a design and architecture
+reference rather than a tool to point at a real service.
 [CHANGELOG.md](CHANGELOG.md) lists what is done and what is known to be missing.
 
 The install that replaces the clone is already written and waiting on that
