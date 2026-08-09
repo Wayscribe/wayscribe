@@ -9,14 +9,6 @@ import {
 } from "../../../../../src/lib/api";
 import { requireProjectId } from "../../../../../src/lib/current-project";
 
-// debtwatch:start
-// id: DEBT-GW41YJ
-// owner: flight-recorder
-// expires: 2027-02-01
-// reason: ADR-032 defers payload editing to V1; the prepare screen reviews but cannot change it
-// tags: web, replay
-// debtwatch:end
-
 /**
  * Prepare and send a replay.
  *
@@ -106,6 +98,13 @@ export default async function ReplayPage({
             <label htmlFor="path">Path</label>
             <input id="path" name="path" defaultValue="/replay/customer" required />
 
+            {/* debtwatch:start
+                id: DEBT-GW41YJ
+                owner: flight-recorder
+                expires: 2027-02-01
+                reason: ADR-032 defers payload editing to V1; this screen reviews but cannot change it
+                tags: web, replay
+                debtwatch:end */}
             <h2>What will be sent</h2>
             <pre className="mono block">{JSON.stringify(event.inputPayload, null, 2)}</pre>
             <p className="muted">
