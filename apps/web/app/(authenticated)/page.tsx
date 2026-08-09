@@ -33,10 +33,11 @@ export default async function SearchPage({
 }
 
 async function Results({ query }: { query: string }) {
-  const projectId = await requireProjectId();
-
   let items;
   try {
+    // Inside the try for the same reason as the journey page: this reaches the
+    // API, and an unreachable API escaping here rendered a blank 500.
+    const projectId = await requireProjectId();
     items = await search(query, projectId);
   } catch (error) {
     if (error instanceof ApiUnavailableError) {

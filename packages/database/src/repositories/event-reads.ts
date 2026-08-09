@@ -7,6 +7,15 @@ export interface EventListItem {
   name: string;
   service: string;
   eventTimestamp: Date;
+  /**
+   * When the server received it, as opposed to when the instrumented service
+   * says it happened.
+   *
+   * Selected and then discarded until now, which left the interface unable to
+   * show skew even in principle: a service with a wrong clock produced a
+   * timeline that was confidently, silently out of order.
+   */
+  receivedAt: Date;
   durationMs: number | null;
   hasInput: boolean;
   hasOutput: boolean;
@@ -82,13 +91,13 @@ export async function listJourneyEvents(
     .orderBy([{ column: "event_timestamp" }, { column: "received_at" }, { column: "id" }])
     .limit(limit + 1);
 
-  const all = rows as (EventListItem & { receivedAt: Date })[];
+  const all = rows as EventListItem[];
   const hasMore = all.length > limit;
   const page = hasMore ? all.slice(0, limit) : all;
   const last = page.at(-1);
 
   return {
-    items: page.map(({ receivedAt: _omitted, ...item }) => item),
+    items: page,
     nextCursor:
       hasMore && last !== undefined
         ? encodeCursor({

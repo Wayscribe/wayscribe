@@ -383,7 +383,9 @@ describe("payloads the application cannot serialize", () => {
       id: "ord_1",
       lines: undefined as unknown[] | undefined,
       get total(): number {
-        return (this.lines ?? (undefined as unknown as unknown[])).length;
+        // Throws because `lines` is undefined — the shape a real object has
+        // when an upstream mapping did not populate a relation.
+        return (this.lines as unknown[]).length;
       }
     };
 

@@ -9,7 +9,7 @@ function harness(
   // Returns the accepted count. Existing cases resolve void, which TypeScript
   // will not accept, so they are adapted at the call site below rather than
   // rewritten — what they assert about retries and the breaker is unchanged.
-  send: (batch: readonly unknown[]) => Promise<number | void>,
+  send: (batch: readonly unknown[]) => Promise<number | undefined>,
   overrides: Record<string, unknown> = {}
 ): { transport: Transport; diagnostics: Diagnostics; advance: (ms: number) => void } {
   let currentTime = 1_000_000;
