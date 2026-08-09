@@ -11,9 +11,46 @@ Flight Recorder.
 
 The demo profile adds ElasticMQ, which holds nothing worth keeping.
 
+### Bring your own database
+
+`DATABASE_URL` is the whole coupling. Point it at the PostgreSQL your team
+already runs — the one somebody backs up, monitors, and can restore — and Flight
+Recorder needs nothing else from you.
+
+```bash
+export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
+docker compose -f compose.published.yaml up -d
+```
+
+It needs an ordinary database and an ordinary role: `CREATE`, `SELECT`,
+`INSERT`, `UPDATE`, `DELETE` on its own schema. It installs no extensions and
+touches nothing outside the tables its migrations create, so an existing
+database with other tables in it is fine.
+
+`-f compose.bundled.yaml` runs PostgreSQL in a container instead and sets
+`DATABASE_URL` for you. That is for evaluation and for local work. Nothing about
+it is unsuitable for production except that it is invisible to whoever is
+responsible for your data — no backup schedule, no monitoring, and a `docker
+compose down -v` away from gone.
+
+### Schema changes
+
+The `migrate` service applies migrations on boot, against your database, and it
+is the only thing that writes schema. If your team applies migrations through
+its own process, leave that service out and run the same command when you
+choose to:
+
+```bash
+docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js migrate
+```
+
+The API reports `/ready` 503 `migrations_pending` until they are applied, so it
+will not serve reads against a schema it does not recognise.
+
 ## 2. Backup
 
-The Compose stack keeps its data in the `postgres-data` volume.
+With the bundled overlay, the data is in the `postgres-data` volume.
 
 ```bash
 docker compose -f infrastructure/compose.yaml exec -T postgres \
@@ -65,7 +102,27 @@ docker run --rm --network flight-recorder_default \
   --entrypoint node flight-recorder-api packages/database/dist/cli.js migrate
 ```
 
-## 5. Key rotation
+## 5. Projects and keys
+
+A new installation has no projects, and a key belongs to one. Create the project
+first; the environment is created for you by `key:create`.
+
+```bash
+docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js project:create acme "Acme Payments"
+
+docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js key:create acme production checkout-worker
+```
+
+`project:list`, `key:list`, and `key:revoke` do what they say. A key is printed
+once and is not recoverable — issue another rather than hunting for it.
+
+A slug is lowercase letters, digits and hyphens, because it reaches project
+selection, the CLI, and the interface. It cannot be changed afterwards without
+touching everywhere an operator has written it down.
+
+## 6. Key rotation
 
 **`ENCRYPTION_KEY` rotation is destructive.** Three things derive from it by
 HKDF: field encryption, search tokens, and the API-key pepper. Rotating it:
@@ -89,7 +146,7 @@ pnpm key:create local production new-worker-key
 pnpm key:revoke fr_theOldOne
 ```
 
-## 6. Retention
+## 7. Retention
 
 Each environment has its own `retention_days`. A sweep runs hourly inside the
 API process, guarded by a PostgreSQL advisory lock so replicas do not delete
@@ -108,7 +165,7 @@ metrics endpoint; each sweep that deleted anything writes one line:
 `key:create`. Changing it does not alter environments that already exist —
 update `environments.retention_days` for those.
 
-## 7. Exposure
+## 8. Exposure
 
 Every published port binds to `127.0.0.1`. A `docker compose up` on a cloud host
 does not expose the stack to the internet, and that is the only thing standing
@@ -121,7 +178,7 @@ The admin token grants project-wide read of every recorded payload. It is a
 single shared secret with no user accounts and no audit of who used it — treat
 it as an operator credential, not a login.
 
-## 8. Sizing
+## 9. Sizing
 
 Event volume drives everything. One journey is one row plus one row per event,
 plus a row per alias. Payloads are stored inline as JSONB.
@@ -133,7 +190,7 @@ and shrinks the table by roughly the size of your traffic; `redacted-payload`
 Two indexes carry the read path: `journeys_entity_value_idx` for search and
 `journeys_recent_idx` for retention selection.
 
-## 9. When something is wrong
+## 10. When something is wrong
 
 | Symptom | Look at |
 | --- | --- |

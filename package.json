@@ -22,6 +22,8 @@
     "test:e2e": "playwright test",
     "test:demo": "vitest run --config vitest.demo.config.ts",
     "demo:trigger": "node scripts/demo-trigger.mjs",
+    "project:create": "pnpm --filter @flight-recorder/database \"project:create\" --",
+    "project:list": "pnpm --filter @flight-recorder/database \"project:list\" --",
     "key:create": "pnpm --filter @flight-recorder/database \"key:create\" --",
     "key:revoke": "pnpm --filter @flight-recorder/database \"key:revoke\" --",
     "key:list": "pnpm --filter @flight-recorder/database \"key:list\" --",

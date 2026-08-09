@@ -1,7 +1,17 @@
 import { z } from "zod";
 
 export const serverEnvSchema = z.object({
-  DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+  // Named rather than left to "Invalid URL": Flight Recorder expects you to
+  // bring your own database, so an unset value is the most likely mistake and
+  // the message has to say what to do about it.
+  DATABASE_URL: z.url({
+    protocol: /^postgres(ql)?$/,
+    error: (issue) =>
+      issue.input === undefined || issue.input === ""
+        ? "not set. Point it at your PostgreSQL database, or add " +
+          "`-f compose.bundled.yaml` to run one alongside."
+        : "must be a postgresql:// URL."
+  }),
   APP_URL: z.url(),
   API_URL: z.url(),
   ENCRYPTION_KEY: z.string().min(32),

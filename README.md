@@ -278,11 +278,43 @@ reference rather than a tool to point at a real service.
 
 The install that replaces the clone is already written and waiting on that
 publish — [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml),
-which pulls images, migrates on first boot, and needs no checkout:
+which pulls images, migrates on first boot, and needs no checkout.
+
+Flight Recorder keeps everything in one PostgreSQL database and expects you to
+bring your own: the one your team already backs up, monitors, and holds the
+credentials for.
 
 ```bash
-curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml && docker compose -f compose.published.yaml up -d
+curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml
+
+export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
+export ENCRYPTION_KEY=$(openssl rand -hex 32)
+export ADMIN_TOKEN=$(openssl rand -hex 32)
+docker compose -f compose.published.yaml up -d
 ```
+
+To try it without standing a database up first, add the bundled overlay, which
+runs PostgreSQL alongside and sets `DATABASE_URL` for you:
+
+```bash
+curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.bundled.yaml
+docker compose -f compose.published.yaml -f compose.bundled.yaml up -d
+```
+
+A new installation has no projects. Create the one you are about to instrument,
+and issue it a key — the same image carries the CLI, so this still needs no
+checkout:
+
+```bash
+docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js project:create acme "Acme Payments"
+
+docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js key:create acme production checkout-worker
+```
+
+The key is printed once. Give it to your service as
+`FLIGHT_RECORDER_API_KEY` and follow [Instrument your own service](#instrument-your-own-service).
 
 **No AI features in V0.** A future bring-your-own-key layer may be added as an
 optional, disabled-by-default module. It will never be required, and nothing

@@ -1,69 +1,73 @@
 # Run Flight Recorder from published images, without cloning this repository.
 #
 #   curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml
+#
+# Flight Recorder stores everything in one PostgreSQL database, and expects you
+# to bring your own — the one your team already backs up, monitors, and holds
+# the credentials for. Point it at that:
+#
+#   export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
+#   export ENCRYPTION_KEY=$(openssl rand -hex 32)
+#   export ADMIN_TOKEN=$(openssl rand -hex 32)
 #   docker compose -f compose.published.yaml up -d
 #
-# Then open http://localhost:3000.
+# To try it without standing a database up first, add the bundled overlay. It
+# runs PostgreSQL in a container beside the rest and sets DATABASE_URL for you:
 #
-# This is the quick start. `compose.yaml` builds from source instead and is for
-# people working on Flight Recorder itself.
+#   docker compose -f compose.published.yaml -f compose.bundled.yaml up -d
 #
-# Set your own secrets before this holds anything real:
+# Then open http://localhost:3000, and create the project you are going to
+# instrument — a new installation has none:
 #
-#   ENCRYPTION_KEY=$(openssl rand -hex 32) ADMIN_TOKEN=$(openssl rand -hex 32) \
-#     docker compose -f compose.published.yaml up -d
+#   docker compose -f compose.published.yaml run --rm --entrypoint node api \
+#     packages/database/dist/cli.js project:create acme "Acme Payments"
+#   docker compose -f compose.published.yaml run --rm --entrypoint node api \
+#     packages/database/dist/cli.js key:create acme production checkout-worker
 #
-# The API logs a warning at every boot while the published defaults are in use.
-# Rotating ENCRYPTION_KEY later is destructive — see docs/OPERATIONS.md.
+# `compose.yaml` builds from source instead and is for people working on Flight
+# Recorder itself.
+#
+# The API logs a warning at every boot while the published default secrets are
+# in use. Rotating ENCRYPTION_KEY later is destructive — see docs/OPERATIONS.md.
 
 name: flight-recorder
 
-services:
-  postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: flight
-      POSTGRES_PASSWORD: flight
-      POSTGRES_DB: flight
-    ports:
-      # Loopback only: a `docker compose up` on a cloud host must not expose the
-      # stack to the internet.
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flight -d flight"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+x-database: &database
+  # Empty rather than required, so that `-f compose.bundled.yaml` can supply it.
+  # Compose interpolates each file before merging them, so a `:?` here would
+  # refuse to start even when the overlay is about to set the value.
+  DATABASE_URL: ${DATABASE_URL:-}
 
+services:
   # Runs once and exits. Applies migrations so the API is ready on first boot
   # rather than reporting migrations_pending until somebody reads the docs.
+  #
+  # It runs against your database, and it is the only thing here that writes
+  # schema. If your team applies migrations through its own process, skip this
+  # service and run the same command when you choose to.
   migrate:
     image: registry.gitlab.com/jojithedev/flight-recorder/api:${FLIGHT_RECORDER_VERSION:-latest}
-    environment:
-      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+    environment: *database
     entrypoint: ["node", "packages/database/dist/cli.js", "migrate"]
     restart: "no"
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   api:
     image: registry.gitlab.com/jojithedev/flight-recorder/api:${FLIGHT_RECORDER_VERSION:-latest}
     environment:
-      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+      <<: *database
       APP_URL: http://localhost:3000
       API_URL: http://localhost:8080
       PORT: "8080"
       LOG_LEVEL: info
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-for-local-development-0000}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
-      DEFAULT_RETENTION_DAYS: "7"
+      DEFAULT_RETENTION_DAYS: ${DEFAULT_RETENTION_DAYS:-7}
       MAX_EVENT_PAYLOAD_BYTES: "262144"
       ALLOW_FULL_PAYLOAD_CAPTURE: "false"
-      REPLAY_ALLOWED_HOSTS: localhost,host.docker.internal
+      REPLAY_ALLOWED_HOSTS: ${REPLAY_ALLOWED_HOSTS:-localhost,host.docker.internal}
     ports:
+      # Loopback only: a `docker compose up` on a cloud host must not expose the
+      # stack to the internet.
       - "127.0.0.1:8080:8080"
     depends_on:
       migrate:
@@ -83,6 +87,3 @@ services:
     depends_on:
       api:
         condition: service_started
-
-volumes:
-  postgres-data:

@@ -13,6 +13,29 @@ changes far less often.
 
 ## [Unreleased]
 
+### Changed
+
+- **Bring your own database.** `DATABASE_URL` is required and points at the
+  PostgreSQL your team already runs — the one somebody backs up, monitors, and
+  can restore. The bundled database moves to
+  `infrastructure/compose.bundled.yaml`, an overlay for evaluation and local
+  work (ADR-037). An installation that used the bundled database should add
+  `-f compose.bundled.yaml` to keep the same behaviour.
+
+### Added
+
+- **`project:create` and `project:list`.** A new installation had no projects
+  and no way to create one: `key:create` requires a project, and the only two
+  that could exist came from the two hardcoded seeds, neither of which the
+  published stack ran. Following the quick start reached "No projects yet" and
+  stopped. The published image already carries the CLI, so this needs no
+  checkout:
+
+  ```bash
+  docker compose -f compose.published.yaml run --rm --entrypoint node api \
+    packages/database/dist/cli.js project:create acme "Acme Payments"
+  ```
+
 ### Security
 
 - **Built-in secret redaction now applies at any depth.** The shipped list paired
