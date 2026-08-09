@@ -891,3 +891,55 @@ requires blocked.
   not control reopens the surface, and the documentation says so.
 - IPv4-mapped IPv6 forms are normalised before comparison, so `::ffff:127.0.0.1` cannot
   slip past a check written for `127.0.0.1`.
+
+## ADR-034: Payloads JSON cannot represent are repaired, not refused
+
+**Status:** Accepted
+
+### Context
+
+`checkLimits` measured a payload by calling `JSON.stringify` on it. That throws on exactly
+two inputs — a cycle and a BigInt — and both were caught and reported as
+`payload_too_large`.
+
+Both reports were wrong, and wrong in a way that cost the payload:
+
+- A cycle is capturable. ADR-030's redaction walk marks the point where a loop closes and
+  keeps the rest of the structure. But `checkLimits` runs first, so that repair was
+  unreachable — every parent/child graph an ORM hands back was discarded before reaching
+  it. This was found by instrumenting a real application, not by a test.
+- A BigInt is capturable too. A PostgreSQL `bigint` column, a Prisma `BigInt`, and a
+  snowflake id are all ordinary values.
+
+The diagnostic compounded it. `payload_too_large` sends an operator to raise
+`maxPayloadBytes`, and no value of that setting could ever have helped.
+
+### Decision
+
+Values JSON cannot represent are rendered rather than rejected, and the size check
+measures the rendering rather than the original.
+
+- A BigInt becomes its decimal string. A Number would round away the precision BigInt
+  exists to preserve.
+- A cycle becomes `[CIRCULAR]` at the point the loop closes. `toStorable` now does this
+  itself as well, because `redact` returns early when no paths are configured and its own
+  cycle handling never runs in that case.
+- `checkLimits` measures with a replacer that mirrors both, so the measurement and what is
+  actually stored agree. It tracks the **ancestor chain**, not every object visited: two
+  fields pointing at one address object is ordinary and must be expanded twice, or an
+  oversized payload could slip through by carrying a self-reference.
+- Genuine failures — a getter or a `toJSON` that throws — get their own reason,
+  `unserialisable_payload`, so the operator is not sent to a setting that cannot help.
+
+### Consequences
+
+- The byte limit still applies to cyclic payloads; tolerating a cycle is not skipping the
+  check.
+- `Map`, `Set`, `Error`, and `RegExp` still store as `{}`. None has own enumerable
+  properties, so the redaction walk rebuilds them empty. They arrive empty rather than
+  wrong and nothing warns, which the SDK README states plainly. Rendering them would mean
+  changing the redaction walk itself, and that is security-critical code that deserves its
+  own change rather than a rider on this one.
+- `LimitViolation` gains a variant. The API passes the reason through as an error code, but
+  cannot produce this one: its input is already-parsed JSON, which has no cycles, no
+  BigInt, and no getters.

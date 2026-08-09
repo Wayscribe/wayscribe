@@ -180,6 +180,39 @@ createRecorder({
 });
 ```
 
+## What happens to your values
+
+Payloads are stored as PostgreSQL `jsonb`, so anything JSON cannot represent has
+to be rendered as something. The rule is that a value is repaired rather than
+refused: the point of recording a payload is to show what actually arrived, and
+losing the whole thing over one field would throw away the evidence you came for.
+
+Every row below is what the SDK actually stored, not what it intends to.
+
+| You pass | It is stored as |
+| --- | --- |
+| `Date` | ISO 8601 string — `"2026-01-02T03:04:05.678Z"` |
+| anything with `toJSON()` | whatever that returns, then walked again |
+| `BigInt` | decimal string — `"9007199254740993"`, digits intact |
+| a cycle | `"[CIRCULAR]"` at the point the loop closes; the rest is kept |
+| the same object twice | expanded both times — a shared reference is not a cycle |
+| `undefined`, a function, a symbol | the key is omitted, as `JSON.stringify` does |
+| `NaN`, `Infinity` | `null`, as `JSON.stringify` does |
+| a NUL byte in a string | removed — PostgreSQL rejects it in `jsonb` |
+| half an emoji left by `slice()` | repaired to `U+FFFD` |
+| `Buffer` | `{"type": "Buffer", "data": [...]}` |
+| `Map`, `Set`, `Error`, `RegExp` | `{}` — none has own enumerable properties |
+| over `maxPayloadBytes` | `"[PAYLOAD_TOO_LARGE]"`, and a `dropped` diagnostic |
+| a getter that throws | `"[UNCAPTURABLE]"`, and the event is still recorded |
+
+`Map`, `Set`, and `Error` are the sharp edge: they arrive empty rather than
+wrong, and nothing warns you. Convert them at the call site if their contents
+matter — `Object.fromEntries(map)`, `[...set]`, `{message: err.message}`.
+
+A value that cannot be captured never costs you the event. The step is recorded
+either way, with a marker in place of the payload, because the step whose payload
+would not serialize is very often the step you are trying to debug.
+
 ## Configuration
 
 | Option | Default | |
