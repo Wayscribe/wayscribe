@@ -1,5 +1,14 @@
 # Architecture
 
+> **Written before implementation, and kept as the original plan.**
+>
+> Where this and [the decision log](DECISIONS.md) disagree, the decision log
+> wins — that is the precedence `AGENTS.md` already sets, and it records what
+> was actually built, including the decisions that reversed something here.
+>
+> Kept rather than rewritten: what was planned and what was learned are more
+> useful side by side than a plan quietly edited to match the outcome.
+
 ## 1. System context
 
 Flight Recorder observes applications that already exist.
@@ -293,9 +302,10 @@ Journey identity remains a Flight Recorder concept even when trace context comes
 
 ### Team
 
-Future profile:
+Partly built:
 
-- external PostgreSQL optional
+- external PostgreSQL — **shipped**, and now the default rather than an option
+  (ADR-037)
 - TLS
 - external identity
 - S3-compatible payload storage

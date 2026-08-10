@@ -51,9 +51,11 @@ Out of scope, because they are known and documented rather than undiscovered:
 Nothing captured is sent anywhere. There is no telemetry, no analytics, and no
 outbound connection other than the ones your own configuration creates.
 
-Payload fields and entity identifiers are encrypted at rest with keys derived
-from `ENCRYPTION_KEY`. Payloads are redacted in your process, before they leave
-it, against a built-in list of secret-looking paths.
+Entity identifiers and alias values are encrypted at rest with keys derived from
+`ENCRYPTION_KEY`. **Payloads are not** — they are stored as `jsonb`, which is
+exactly why redaction matters: payloads are redacted in your process before they
+leave it, and again on the server before they are written, against a built-in
+list of secret names matched at any depth.
 
 **Flight Recorder records the contents of your integration payloads.** Treat the
 database as holding whatever your workflows carry. If that includes regulated
