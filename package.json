@@ -24,6 +24,7 @@
     "demo:trigger": "node scripts/demo-trigger.mjs",
     "project:create": "pnpm --filter @flight-recorder/database \"project:create\" --",
     "project:list": "pnpm --filter @flight-recorder/database \"project:list\" --",
+    "cli": "pnpm --filter @flight-recorder/cli exec node dist/cli.js",
     "key:create": "pnpm --filter @flight-recorder/database \"key:create\" --",
     "key:revoke": "pnpm --filter @flight-recorder/database \"key:revoke\" --",
     "key:list": "pnpm --filter @flight-recorder/database \"key:list\" --",

@@ -14,6 +14,17 @@ service, nothing captured leaves your machine.
 > Issues and merge requests go there. Any GitHub repository is a read-only
 > mirror — see [docs/MIRRORING.md](docs/MIRRORING.md).
 
+**If you only read one thing, read [the decision log](docs/DECISIONS.md).** Forty
+architecture decisions with the reasoning kept in — including
+[why redaction matches key names at any depth](docs/DECISIONS.md#adr-035-a-secret-is-identified-by-its-key-name-at-any-depth)
+after a live credential leak was found in it, and
+[why replay connects to a resolved address rather than a hostname](docs/DECISIONS.md#adr-033-replay-connects-to-a-resolved-address-not-to-a-hostname).
+Several record decisions that were wrong the first time and say so.
+
+[**What running it found**](docs/WHAT_RUNNING_IT_FOUND.md) is the companion:
+five defects that were live in `main` with a green test suite, why the tests
+missed them, and what changed in how this is tested as a result.
+
 ---
 
 ## The problem

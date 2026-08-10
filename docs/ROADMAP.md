@@ -1,121 +1,144 @@
 # Roadmap
 
-## Product guardrail
+Direction, not commitments. What is actually built is in
+[CHANGELOG.md](../CHANGELOG.md); why it is built that way is in
+[DECISIONS.md](DECISIONS.md).
 
-Every roadmap item must preserve the free, lightweight, easy-to-implement, clear, and private-by-default community experience documented in [Product Principles and Non-Negotiables](PRODUCT_PRINCIPLES.md).
+Every item has to preserve the free, self-hosted, private-by-default experience
+in [Product Principles](PRODUCT_PRINCIPLES.md). Paid hosting or enterprise
+conveniences may come later; the record-first debugging workflow stays in the
+community edition.
 
-Paid hosting or enterprise conveniences may be added later, but the core record-first debugging workflow must remain available in the self-hosted community edition.
+---
 
+## Where this actually is
 
-The roadmap describes direction, not commitments. V0 scope is controlled by the product specification and task list.
+The core loop works end to end and is tested: instrument a service, search a
+record, read its timeline across services, see the field that changed, replay
+the step against a development destination. 404 unit tests, 139 integration
+tests against a real PostgreSQL, 7 acceptance tests against a running stack.
 
-## V0: Core integration flight recorder
+Nothing is published. There is no npm package and no image in any registry, so
+every install today is `git clone` and `docker compose up`. That is deliberate
+and not currently a priority — see *If this goes public*.
 
-### Goal
+---
 
-Prove that record-level timelines and payload diffs reduce integration debugging time.
+## Next
 
-### Scope
+Presenting the work, and closing what the last review opened.
 
-- self-hosted Docker Compose deployment
-- Node.js SDK
-- explicit instrumentation
-- HTTP and SQS context propagation
-- PostgreSQL
-- entity and alias search
-- journey timeline
-- input/output diffs
-- failures and retries
-- development-only HTTP replay
-- reference Salesforce-to-HubSpot-style demo
-- no AI
+- **Screenshots in the README.** The product's whole value is visual — a
+  timeline across four services with the changed field named — and the README
+  has none. Highest return of anything on this page.
+- **Surface the decision log.** 40 ADRs of real tradeoff reasoning are linked
+  from the bottom of the README as a docs bullet. That is the most interesting
+  artifact in the repository and it reads as an afterthought.
+- **Write down what went wrong.** Dogfooding this tool against a real ORM
+  surfaced four defects in a day, including a plaintext credential leak in its
+  own redaction. That story lives in `git log`. It belongs in a page somebody
+  can read.
+- **A CLI** — `search`, `journey`, `event --diff`, `projects`, over HTTP, with
+  `--json` on everything. It is the ops-shaped answer for teams who will not
+  expose an admin console, and unlike the web interface it is testable in CI.
+- **`docker compose up` from a clean clone, verified in CI.** Every onboarding
+  defect on the record was found by a person running the README literally. That
+  is a job, not a habit.
 
-## V0.2: Developer experience
+### Known open, and honest about it
 
-Potential additions after the core proof:
+- **Free text in errors is not redacted.** Path redaction matches key names, so
+  a credential pasted inside `error.message` or `error.stack` survives it.
+  `SECURITY.md` §2 names stack traces as carriers of credentials. Needs either
+  value scanning, which is false-positive-prone, or a decision not to store
+  stacks (ADR-039).
+- **There is no way to delete captured data.** No `DELETE` route, no CLI
+  command. When a redaction miss stores something it should not have — which has
+  now happened twice — fixing the matcher does nothing about the rows already
+  written. This is also the answer to an erasure request.
+- **The ciphertext envelope has no version byte,** so rotating `ENCRYPTION_KEY`
+  is permanently destructive. Adding a key-generation prefix is hours now and a
+  re-encryption project after anyone stores data.
+- **`audit_events` is never swept.** Harmless while it holds four call sites;
+  a problem the moment reads are audited.
+- **The login limiter is per-process,** so N web replicas means N times the
+  allowed attempts.
 
-- Fastify adapter
-- Express adapter
-- native fetch and Axios helpers
-- Prisma or Knex persistence helpers
-- improved SDK diagnostics
-- importable replay fixtures
-- richer filtering
-- better masking and capture-policy UI
-- install health checks
-- local payload file export
+---
 
-## V0.3: More asynchronous workflows
+## If this goes public
 
-Potential:
+Deferred on purpose. None of it is visible to somebody evaluating the code, and
+all of it is cheap to add once there is a reason.
 
-- RabbitMQ adapter
-- generic message-envelope helper
-- scheduled job and batch identifiers
-- dead-letter queue import helpers
-- long-running journey visualization
-- branch and fan-out relationships
+- publish `@flight-recorder/node` and the images, pinned off `:latest`, with the
+  pushed tag booted on both architectures before it moves
+- a private-registry rehearsal of the documented install before the public tag
+- a `doctor` preflight — migrations applied, secrets not the published defaults,
+  an issued key that actually authenticates
+- the SDK saying something on its first successful flush, so a working install
+  is distinguishable from a broken one
+- a read-only principal: journeys and timelines without payloads, which is the
+  cheap answer to "management should see this too" and much less work than
+  accounts
+- admin endpoints (`POST /v1/projects`, key lifecycle) so the CLI's admin half
+  works remotely rather than only inside the container
+- rate limiting, quotas, and a `statement_timeout`
 
-## V1: Team-ready self-hosting
+---
 
-Potential:
+## Later
 
-- OIDC
-- team roles
-- external PostgreSQL
-- S3-compatible payload storage
-- backups and restore tools
-- stronger encryption
-- audit-log UI
-- Helm chart
+- Fastify, Express, and fetch/Axios adapters
+- a Go or Python SDK — which would also prove the protocol is genuinely
+  language-neutral rather than TypeScript-shaped
+- S3-compatible payload storage, backup and restore tooling
+- an audit-log interface, retention and legal-hold controls
 - high-availability deployment
-- retention and legal-hold controls
 
-## V1.x: Broader provenance features
+---
 
-Potential:
+## Not doing
 
-- Python SDK
-- Go SDK
-- migration and backfill mode
-- support-investigation view
-- document processing journeys
-- payment reconciliation views
-- automatic alias suggestions
-- contract drift detection
-- code-location association
-- OpenTelemetry Collector adapter
-- OTLP-derived enrichment
+Everything on the do-not-add list in `AGENTS.md` stays out. The ones worth
+restating, with reasons:
 
-## Future: BYOK intelligence
+- **Kubernetes and a Helm chart.** ADR-037 made the app stateless, so a chart is
+  now small — two Deployments, a Job, a Secret. It is still wrong to build one:
+  it points at images that do not exist, and a second install shape doubles the
+  surface where a quick start can dead-end. Revisit if a Kubernetes-shaped team
+  says Compose specifically is what stopped them.
+- **A hosted offering.** Self-hosting is the reason anybody would put customer
+  payloads in this. Running it centrally makes us custodian of exactly the data
+  the design refuses to centralise.
+- **User accounts, OIDC, team roles.** A single admin token plus per-project API
+  keys covers the real access patterns, and identity is the largest thing that
+  could be built that nobody evaluating this would notice.
+- **Bundled PostgreSQL as the default.** ADR-037 inverted this deliberately. The
+  bundle stays an evaluation overlay.
+- **Making `full-payload` easy to enable.** It keeps requiring both a
+  process-level variable and an explicit environment setting, because its
+  failure mode is silent and permanent.
+- **A second storage engine.** The search latency at 120k journeys is a query
+  and indexing problem, and a `statement_timeout` buys room to solve it
+  properly.
+- **AI features.** A future bring-your-own-key module may be added, disabled by
+  default. Nothing will be sent anywhere without being asked for.
 
-Potential optional capabilities:
+---
 
-- journey summary
-- likely failure-point suggestion
-- similar historical journeys
-- transformation explanation
-- incident report drafting
-- natural-language search assistance
+## What the old version of this file got wrong
 
-Requirements:
+Kept as a note on how planning documents drift.
 
-- user-owned model credentials
-- disabled by default
-- field-selection preview
-- redaction before transmission
-- provider-neutral interface
-- complete audit trail
-- no dependency from core product
-- deterministic evidence remains the source of truth
-
-## Not planned as core product
-
-Flight Recorder should avoid becoming:
-
-- a general log platform
-- an APM vendor
-- a workflow engine
-- an integration builder
-- a full data warehouse lineage catalog
-- an autonomous production remediation agent
+- **"External PostgreSQL" sat under V1 as a possibility.** It shipped as ADR-037,
+  and it is now the documented default.
+- **The V0 scope listed "self-hosted Docker Compose deployment" as the goal**
+  while the quick start it described could not create a project, so a new
+  installation had nothing to instrument.
+- **Four planning documents** — `PRODUCT_SPEC.md`, `IMPLEMENTATION_PLAN.md`,
+  `ARCHITECTURE.md`, and this one — predate every ADR and describe an install
+  premise that no longer holds. Reconciling four vocabularies costs more than
+  retiring three of them, which is not done yet because `AGENTS.md` ranks
+  `PRODUCT_PRINCIPLES.md` second in the source-of-truth order and deleting it
+  means editing that first.
