@@ -45,6 +45,17 @@ WORKDIR /app
 
 COPY --from=build --chown=node:node /app /app
 
+# The base image ships npm and corepack, and neither is used at runtime — the
+# container runs `node` directly. Container scanning reported seven CVEs against
+# their bundled dependencies (tar, brace-expansion, ip-address, an old undici),
+# none of them ours and none of them reachable. Removing the package managers is
+# both the honest fix and a smaller attack surface than an ignore file.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+           /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm \
+           /usr/local/bin/npx \
+           /usr/local/bin/corepack
+
 # Never root. A process that serves HTTP and talks to PostgreSQL has no reason
 # to be able to write to its own image.
 USER node

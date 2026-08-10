@@ -195,7 +195,49 @@ and shrinks the table by roughly the size of your traffic; `redacted-payload`
 Two indexes carry the read path: `journeys_entity_value_idx` for search and
 `journeys_recent_idx` for retention selection.
 
-## 10. When something is wrong
+## 10. Security scanning
+
+Three jobs run in the `security` stage, and all three block.
+
+| Job | Tool | What it gates |
+| --- | --- | --- |
+| `audit` | `pnpm audit` | dependency advisories at `high` and above |
+| `secrets` | gitleaks | credentials anywhere in the history |
+| `container-scan` | Trivy | `HIGH` and `CRITICAL` CVEs in both images |
+
+GitLab's own Dependency Scanning and Container Scanning templates are
+Ultimate-tier. On a Free project they produce an empty report, which looks
+exactly like a scanner that works — so these run the underlying tools directly.
+
+**Create a pipeline schedule.** Under *Build → Pipeline schedules*, a daily or
+weekly run on the default branch. This is the part that matters: an advisory is
+published against a dependency that has not changed, and a base-image CVE
+appears without anybody committing anything. A push-only gate reports
+yesterday's answer indefinitely.
+
+`container-scan` is deliberately not on every push — it builds two images, and
+the same reasoning that keeps `demo` and `e2e` manual applies. It runs on the
+default branch, on tags, and on the schedule.
+
+### When one of them fails
+
+**`audit`.** Prefer fixing over ignoring. A transitive advisory can usually be
+pinned forward with an entry in `overrides` in `pnpm-workspace.yaml`, which
+removes the finding rather than hiding it. Each entry says what it is for and
+should be dropped once the parent ships a version that resolves it.
+
+**`secrets`.** Assume it is real until you have read the line it matched. If it
+is genuinely a fixture, add an allowance to `.gitleaks.toml` — against the
+*value* rather than the path, so it cannot hide whatever lands in that file
+next. If it is real, the credential is already published: rotate it first, and
+treat removing it from history as cleanup rather than as the fix.
+
+**`container-scan`.** Check whether the package is ours before reaching for an
+ignore. The first run found seven CVEs in `npm` and `corepack`, which the base
+image ships and the runtime never uses; both Dockerfiles now delete them, which
+is a smaller attack surface as well as a clean scan.
+
+## 11. When something is wrong
 
 | Symptom | Look at |
 | --- | --- |

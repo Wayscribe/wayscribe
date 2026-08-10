@@ -1,0 +1,53 @@
+title = "Flight Recorder"
+
+# The default rules, plus allowances for values that are deliberately fake.
+#
+# Every entry below was checked by reading the line it matched. Nothing here is
+# allowed because it is inconvenient — a real credential in this repository is
+# the one mistake that cannot be taken back, since the history is public.
+#
+# Allowances are written against the *value* wherever possible rather than the
+# path, because a path allowance hides whatever lands there next.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures: keys that exist to be obviously not real."
+regexes = [
+  # Sequential hex, used as ENCRYPTION_KEY and ADMIN_TOKEN across the suites.
+  '''0123456789abcdef0123456789abcdef''',
+  '''fedcba9876543210fedcba9876543210''',
+  # The two in insecure-defaults.test.ts, which exist to prove a *published*
+  # default is detected — so they must not themselves look published.
+  '''5f3a9c1e7b2d8046f1a3c5e79b0d2468''',
+  '''0a1b2c3d4e5f60718293a4b5c6d7e8f9''',
+  # Committed development defaults. These are meant to be found, and the API
+  # warns at every boot while they are in use.
+  '''replace-for-local-development-0000''',
+  '''local-admin-token-000000000000000''',
+  '''admin-token-for-tests-0000000000''',
+  # API-key fixtures. A real one is 32 random characters after `fr_`.
+  '''fr_(test|validkey1|demo00000)[A-Za-z0-9_-]*'''
+]
+
+[[allowlists]]
+description = """
+Proof strings from docs/WHAT_RUNNING_IT_FOUND.md and the decision log.
+
+These document a defect that stored credentials in the clear, so the write-up
+necessarily contains things shaped like credentials. Each carries a marker that
+a real secret would not."""
+regexes = [
+  '''sk_live_[A-Z0-9_]*(PROOF|LEAKED|EXOTIC|MAP|ERR|WIRE|NESTED|META|AFTER)''',
+  '''ak_[A-Z0-9_]*(PROOF|AFTER|ARRAY)''',
+  '''hunter2[A-Za-z0-9-]*'''
+]
+
+[[allowlists]]
+description = """
+Frozen planning documents.
+
+`docs/superpowers/plans/` records how the project was built and quotes code
+verbatim, including fixture keys. It is history and is not edited, so a path
+allowance cannot hide a future mistake here — nothing new is written to it."""
+paths = ['''docs/superpowers/plans/.*''']

@@ -24,6 +24,17 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 WORKDIR /app
 
+# The base image ships npm and corepack, and neither is used at runtime — the
+# container runs `node` directly. Container scanning reported seven CVEs against
+# their bundled dependencies (tar, brace-expansion, ip-address, an old undici),
+# none of them ours and none of them reachable. Removing the package managers is
+# both the honest fix and a smaller attack surface than an ignore file.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+           /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm \
+           /usr/local/bin/npx \
+           /usr/local/bin/corepack
+
 # The standalone bundle already contains the traced subset of node_modules.
 COPY --from=build /app/apps/web/.next/standalone ./
 # Static assets are deliberately excluded from the trace and must be copied.

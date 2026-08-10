@@ -21,8 +21,8 @@ lost. Regenerate with `pnpm screenshots`.*
 > Issues and merge requests go there. Any GitHub repository is a read-only
 > mirror — see [docs/MIRRORING.md](docs/MIRRORING.md).
 
-**If you only read one thing, read [the decision log](docs/DECISIONS.md).** Forty
-architecture decisions with the reasoning kept in — including
+**If you only read one thing, read [the decision log](docs/DECISIONS.md).** Every
+architecture decision, with the reasoning kept in — including
 [why redaction matches key names at any depth](docs/DECISIONS.md#adr-035-a-secret-is-identified-by-its-key-name-at-any-depth)
 after a live credential leak was found in it, and
 [why replay connects to a resolved address rather than a hostname](docs/DECISIONS.md#adr-033-replay-connects-to-a-resolved-address-not-to-a-hostname).
@@ -259,7 +259,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 40 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 41 ADRs, including the several that were
 wrong the first time and say so.
 
 ---

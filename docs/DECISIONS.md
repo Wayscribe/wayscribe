@@ -1263,3 +1263,62 @@ customers' request bodies, because it does.
 - This tests the claims a machine can check. It does not test whether the prose is *useful*,
   which still needs a person who has not seen the project before.
 - A fourth truth pass is now a test failure rather than an audit finding.
+
+## ADR-041: Scanners run the real tools, and the baseline is cleared before they block
+
+**Status:** Accepted
+
+### Context
+
+The pipeline had nine stages and no security job, in a tool that copies customer request
+payloads into a database.
+
+GitLab's Dependency Scanning and Container Scanning templates are Ultimate-tier features.
+On a Free project they produce an empty report, which is worse than no scanner: a report
+that finds nothing is indistinguishable from one that works.
+
+### Decision
+
+Three jobs run the underlying open-source tools directly — `pnpm audit`, gitleaks, and
+Trivy — so the result is real and the pipeline stays portable off GitLab. SAST is
+deliberately absent: on a codebase this size, with type-aware lint and 423 tests, it
+produces findings that get triaged once and ignored afterwards, which is worse than not
+having it.
+
+**All three block, and the baseline was cleared first.** Turning a scanner on red is how it
+gets disabled — the same reasoning that already keeps `demo` and `e2e` manual, written down
+in this repository as *"a red pipeline on every push for a suite needing the whole stack
+trains people to ignore it."*
+
+Clearing it meant fixing rather than allowlisting:
+
+- Three high advisories reached through Next — `postcss` twice and `sharp` — are pinned
+  forward with `overrides` in `pnpm-workspace.yaml`. An override removes the finding; an
+  allowlist hides it. (The setting moved out of `package.json` in pnpm 10, and is silently
+  ignored there.)
+- Seventeen gitleaks findings were each checked by reading the matched line. All were
+  fixtures or the proof strings in `WHAT_RUNNING_IT_FOUND.md`, which necessarily contains
+  things shaped like credentials because it documents a defect that stored them. The
+  allowances in `.gitleaks.toml` are written against the *value* rather than the path
+  wherever possible, so they cannot hide whatever lands in that file next — and a planted
+  credential is still detected, which is a test rather than an assumption.
+- Trivy reported seven HIGH and one CRITICAL in both images, in `tar`, `brace-expansion`,
+  `ip-address` and an old `undici`. None were ours: they belong to `npm` and `corepack`,
+  which the `node:24-alpine` base ships and the runtime never uses. Both Dockerfiles now
+  delete them. That is a smaller attack surface as well as a clean scan.
+
+`container-scan` runs on the default branch, on tags, and on a schedule rather than on
+every push, because it builds two images.
+
+### Consequences
+
+- **A pipeline schedule has to be created in the GitLab interface**, and without it the
+  scanners only answer when somebody commits. A base-image CVE is published without anybody
+  committing anything, so the schedule is the part that makes this worth having.
+- Overrides are a standing obligation. Each entry names what it is for and should be
+  removed once the parent resolves it, or the project quietly pins itself to old
+  transitive versions.
+- Removing the package managers means a runtime container cannot `npm install` anything.
+  That is intended.
+- One moderate advisory remains, in `uuid`. `high` is the gate deliberately: a moderate
+  advisory in a transitive development dependency is not worth a red pipeline.
