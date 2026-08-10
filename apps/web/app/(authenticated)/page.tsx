@@ -37,7 +37,7 @@ async function Results({ query }: { query: string }) {
   try {
     // Inside the try for the same reason as the journey page: this reaches the
     // API, and an unreachable API escaping here rendered a blank 500.
-    const projectId = await requireProjectId();
+    const projectId = await requireProjectId(`/?q=${encodeURIComponent(query)}`);
     items = await search(query, projectId);
   } catch (error) {
     if (error instanceof ApiUnavailableError) {

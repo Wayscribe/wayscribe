@@ -50,13 +50,11 @@ try {
 
   await search();
 
-  // With more than one project the first search redirects to the picker rather
-  // than answering, and the query is not carried through — so choose, then ask
-  // again.
+  // With more than one project the first search asks which one. Choosing hands
+  // the query back, so there is nothing to retype.
   if (page.url().includes("/projects")) {
     await page.locator("button", { hasText: PROJECT }).first().click();
     await page.waitForLoadState("networkidle");
-    await search();
   }
 
   await page.waitForSelector("a[href^='/journeys/']");

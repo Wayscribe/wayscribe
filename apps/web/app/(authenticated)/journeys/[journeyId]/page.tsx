@@ -26,7 +26,7 @@ export default async function JourneyPage({
     // Inside the try: this call reaches the API, and when it threw from
     // outside there was nothing to catch it and no error boundary anywhere in
     // the app, so a booting API rendered a blank HTTP 500.
-    const projectId = await requireProjectId();
+    const projectId = await requireProjectId(`/journeys/${journeyId}`);
     const journey = await getJourney(journeyId, projectId);
     if (journey === null) notFound();
 
