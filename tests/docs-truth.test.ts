@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -7,16 +6,40 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 
 const read = (relative: string): string => readFileSync(`${root}${relative}`, "utf8");
 
-/** Every tracked markdown file, so a claim cannot reappear in an unlisted one. */
-function markdownFiles(): string[] {
-  return (
-    execFileSync("git", ["ls-files", "*.md"], { cwd: root, encoding: "utf8" })
-      .split("\n")
-      .filter((line) => line !== "")
-      // The frozen planning records quote the claim as it was, which is the point
-      // of keeping them.
-      .filter((line) => !line.startsWith("docs/superpowers/"))
-  );
+/** Directories with nothing authored in them. */
+const SKIP = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  ".next",
+  ".pnpm-store",
+  "coverage",
+  "playwright-report",
+  "test-results",
+  // The frozen planning records quote claims as they were, which is the point
+  // of keeping them.
+  "superpowers"
+]);
+
+/**
+ * Every markdown file in the repository, so a claim cannot reappear in one that
+ * nobody thought to list.
+ *
+ * Walked rather than asked of `git ls-files`. The CI image is `node:24-alpine`
+ * and has no git — GitLab clones with a separate helper container — so the first
+ * version of this passed on a clean clone and failed in the pipeline with
+ * `spawnSync git ENOENT`. A unit test should not need a tool outside Node.
+ */
+function markdownFiles(directory = "", found: string[] = []): string[] {
+  for (const entry of readdirSync(`${root}${directory}`, { withFileTypes: true })) {
+    if (entry.name.startsWith(".") && entry.name !== ".gitlab") continue;
+    if (SKIP.has(entry.name)) continue;
+
+    const relative = directory === "" ? entry.name : `${directory}/${entry.name}`;
+    if (entry.isDirectory()) markdownFiles(relative, found);
+    else if (entry.name.endsWith(".md")) found.push(relative);
+  }
+  return found;
 }
 
 /**
