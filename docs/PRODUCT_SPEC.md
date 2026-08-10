@@ -1,5 +1,14 @@
 # Product Specification
 
+> **Written before implementation, and kept as the original plan.**
+>
+> Where this and [the decision log](DECISIONS.md) disagree, the decision log
+> wins — that is the precedence `AGENTS.md` already sets, and it records what
+> was actually built, including the decisions that reversed something here.
+>
+> Kept rather than rewritten: what was planned and what was learned are more
+> useful side by side than a plan quietly edited to match the outcome.
+
 ## 1. Product summary
 
 Flight Recorder is a free, lightweight, self-hosted developer tool that reconstructs the history of a business entity across a distributed workflow.
@@ -65,7 +74,9 @@ The self-hosted community edition must provide the complete core debugging workf
 
 ### Lightweight
 
-Docker Compose, bundled PostgreSQL, and an application SDK must be sufficient for the default installation. All other infrastructure is optional.
+Docker Compose, a PostgreSQL database, and an application SDK must be sufficient for the default installation. All other infrastructure is optional.
+
+*(ADR-037 settled which database: the operator's own, with a bundled one available as an overlay for evaluation. The principle — no heavy infrastructure — is unchanged.)*
 
 ### Easy to implement
 

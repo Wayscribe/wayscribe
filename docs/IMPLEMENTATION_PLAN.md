@@ -1,5 +1,14 @@
 # Implementation Plan
 
+> **Written before implementation, and kept as the original plan.**
+>
+> Where this and [the decision log](DECISIONS.md) disagree, the decision log
+> wins — that is the precedence `AGENTS.md` already sets, and it records what
+> was actually built, including the decisions that reversed something here.
+>
+> Kept rather than rewritten: what was planned and what was learned are more
+> useful side by side than a plan quietly edited to match the outcome.
+
 ## Objective
 
 Build the smallest complete version of Flight Recorder that proves record-level debugging is useful.

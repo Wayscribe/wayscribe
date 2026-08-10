@@ -1,9 +1,23 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const read = (relative: string): string =>
-  readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8");
+const root = fileURLToPath(new URL("../", import.meta.url));
+
+const read = (relative: string): string => readFileSync(`${root}${relative}`, "utf8");
+
+/** Every tracked markdown file, so a claim cannot reappear in an unlisted one. */
+function markdownFiles(): string[] {
+  return (
+    execFileSync("git", ["ls-files", "*.md"], { cwd: root, encoding: "utf8" })
+      .split("\n")
+      .filter((line) => line !== "")
+      // The frozen planning records quote the claim as it was, which is the point
+      // of keeping them.
+      .filter((line) => !line.startsWith("docs/superpowers/"))
+  );
+}
 
 /**
  * Claims the documentation makes that the repository can check for itself.
@@ -32,14 +46,39 @@ describe("the documentation's checkable claims", () => {
     expect(numbers).toEqual(Array.from({ length: numbers.length }, (_, i) => i + 1));
   });
 
-  it("does not claim payloads are encrypted at rest", () => {
+  it("does not claim payloads are encrypted at rest, in any document", () => {
     // They are `jsonb`. The claim was in README.md and docs/OPERATIONS.md, and
     // the OPERATIONS one told operators a dump taken without ENCRYPTION_KEY
     // held nothing readable — so following the documented backup procedure
     // exported every captured payload in the clear.
-    for (const file of ["README.md", "docs/OPERATIONS.md", "docs/SECURITY.md"]) {
+    //
+    // Every markdown file rather than three named ones: the first version of
+    // this test listed the files the claim happened to be in, which would have
+    // missed it reappearing anywhere else.
+    // Two documents quote the claim in order to record that it was wrong, which
+    // is the opposite of asserting it. They are named rather than pattern-matched
+    // so that the claim reappearing anywhere *else* is still caught — the check
+    // is "every file except these two", not "these files".
+    const records = new Set(["docs/DECISIONS.md", "docs/WHAT_RUNNING_IT_FOUND.md"]);
+
+    for (const file of markdownFiles().filter((f) => !records.has(f))) {
       expect(read(file), `${file} claims payloads are encrypted at rest`).not.toMatch(
         /payload[s]?[^.\n]*\bencrypted at rest\b/i
+      );
+    }
+  });
+
+  it("keeps the pre-implementation documents marked as such", () => {
+    // They predate every ADR and describe an install premise ADR-037 inverted.
+    // They are kept for provenance, which only works if a reader is told.
+    for (const file of [
+      "docs/PRODUCT_SPEC.md",
+      "docs/ARCHITECTURE.md",
+      "docs/IMPLEMENTATION_PLAN.md",
+      "docs/PRODUCT_PRINCIPLES.md"
+    ]) {
+      expect(read(file), `${file} lost its provenance note`).toContain(
+        "Written before implementation"
       );
     }
   });
