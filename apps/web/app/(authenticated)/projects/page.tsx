@@ -1,4 +1,5 @@
 import { ApiUnavailableError, listProjects } from "../../../src/lib/api";
+import { safeReturnTo } from "../../../src/lib/return-to";
 
 /**
  * Choose which project to read.
@@ -6,7 +7,15 @@ import { ApiUnavailableError, listProjects } from "../../../src/lib/api";
  * Deliberately not reached by `requireProjectId`, which would send this page to
  * itself. It is the one authenticated page that does not need a project.
  */
-export default async function ProjectsPage() {
+export default async function ProjectsPage({
+  searchParams
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  // Validated here as well as on submission: this value is put into a form,
+  // and a page that renders an attacker's URL into a hidden field is already
+  // most of the way to following it.
+  const next = safeReturnTo((await searchParams).next);
   let projects;
   try {
     projects = await listProjects();
@@ -48,6 +57,7 @@ export default async function ProjectsPage() {
           <li key={project.id}>
             <form method="post" action="/api/select-project">
               <input type="hidden" name="projectId" value={project.id} />
+              <input type="hidden" name="next" value={next} />
               <button type="submit">
                 {project.name} <span className="mono muted">{project.slug}</span>
               </button>

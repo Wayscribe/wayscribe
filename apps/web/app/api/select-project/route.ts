@@ -2,10 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { redirectTarget } from "../../../src/lib/redirect-url";
 import { webConfig } from "../../../src/lib/config";
 import { listProjects } from "../../../src/lib/api";
+import { safeReturnTo } from "../../../src/lib/return-to";
 import { SESSION_COOKIE_NAME, signSession, verifySession } from "../../../src/lib/session";
 
 /**
- * Record which project the session reads from.
+ * Record which project the session reads from, and return where you were.
  *
  * The chosen ID is validated against the real list rather than trusted. The
  * cookie is signed, so a forged value cannot arrive this way — but the form
@@ -27,12 +28,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const field = form.get("projectId");
   const projectId = typeof field === "string" ? field : "";
 
+  // Where the picker interrupted. Re-validated rather than trusted: it arrives
+  // in a form field, so it is client input however it got there.
+  const nextField = form.get("next");
+  const next = safeReturnTo(typeof nextField === "string" ? nextField : undefined);
+
   const projects = await listProjects();
   if (!projects.some((project) => project.id === projectId)) {
     return NextResponse.redirect(redirectTarget(request, "/projects"), { status: 303 });
   }
 
-  const response = NextResponse.redirect(redirectTarget(request, "/"), { status: 303 });
+  const response = NextResponse.redirect(redirectTarget(request, next), { status: 303 });
   response.cookies.set(
     SESSION_COOKIE_NAME,
     signSession(config.ADMIN_TOKEN, { projectId, expiresAt: session.expiresAt }),
