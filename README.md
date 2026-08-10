@@ -10,6 +10,13 @@ where its data changed.**
 Free, self-hosted, and small enough to run on a laptop. No account, no hosted
 service, nothing captured leaves your machine.
 
+![A customer's journey across two services, with the transformation step open
+and a field-level diff showing Phone going in with a value and phone coming out
+null](docs/images/diff.png)
+
+*One record, every service that touched it, and the step where the value was
+lost. Regenerate with `pnpm screenshots`.*
+
 > **Development happens on [GitLab](https://gitlab.com/jojithedev/flight-recorder).**
 > Issues and merge requests go there. Any GitHub repository is a read-only
 > mirror — see [docs/MIRRORING.md](docs/MIRRORING.md).
