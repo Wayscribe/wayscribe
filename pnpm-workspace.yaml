@@ -19,3 +19,14 @@ allowBuilds:
   cpu-features: false
   protobufjs: false
   ssh2: false
+
+# Transitive advisories that the direct dependency has not yet picked up.
+# `pnpm audit --audit-level=high` gates the pipeline, so these are pinned
+# forward rather than allowlisted — an allowlist hides the finding, an override
+# removes it. Drop each entry once the parent ships a version that resolves it.
+overrides:
+  # GHSA-r28c-9q8g-f849 and one other: arbitrary file read via sourceMappingURL.
+  # Reached through next.
+  postcss@<8.5.18: ">=8.5.18"
+  # CVE-2026-333xx in libvips, inherited by sharp. Reached through next.
+  sharp@<0.35.0: ">=0.35.0"
