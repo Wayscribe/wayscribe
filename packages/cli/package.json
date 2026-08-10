@@ -1,0 +1,31 @@
+{
+  "name": "@flight-recorder/cli",
+  "version": "0.1.0",
+  "description": "Read journeys, timelines and payload diffs from a Flight Recorder installation.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "flight-recorder": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

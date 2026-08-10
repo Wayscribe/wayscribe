@@ -1,0 +1,155 @@
+#!/usr/bin/env node
+import { parseArgs } from "node:util";
+import { ApiError, Client } from "./client.js";
+import { ConfigError, resolveConfig } from "./config.js";
+import {
+  formatEvent,
+  formatJourney,
+  formatProjects,
+  formatSearch,
+  styleFor,
+  type Style
+} from "./format.js";
+
+const USAGE = `flight-recorder — read journeys from a Flight Recorder installation
+
+  flight-recorder search <value>        journeys for an entity id or alias value
+  flight-recorder journey <id>          the timeline, across every service
+  flight-recorder event <id> [--diff]   one step's payloads, or what changed
+  flight-recorder projects              projects this token can read
+
+Options
+  --url <url>        default $FLIGHT_RECORDER_URL, then http://localhost:8080
+  --token <token>    default $FLIGHT_RECORDER_TOKEN; the admin token
+  --project <id>     default $FLIGHT_RECORDER_PROJECT; an admin token must name one
+  --limit <n>        search only, default 20
+  --diff             event only, show the field-level diff instead of payloads
+  --json             raw JSON, for scripts
+  --help             this
+
+Everything reads. Nothing here writes or deletes.`;
+
+export interface Io {
+  out: (text: string) => void;
+  err: (text: string) => void;
+  isTty: boolean;
+  env: Record<string, string | undefined>;
+}
+
+/**
+ * Returns an exit code rather than calling `process.exit`, so the whole command
+ * is testable without spawning anything.
+ */
+export async function run(argv: readonly string[], io: Io): Promise<number> {
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: [...argv],
+      allowPositionals: true,
+      options: {
+        url: { type: "string" },
+        token: { type: "string" },
+        project: { type: "string" },
+        limit: { type: "string" },
+        diff: { type: "boolean" },
+        json: { type: "boolean" },
+        help: { type: "boolean", short: "h" }
+      }
+    });
+  } catch (error) {
+    io.err((error as Error).message);
+    io.err(USAGE);
+    return 2;
+  }
+
+  const [command, argument] = parsed.positionals;
+
+  if (parsed.values.help === true || command === undefined) {
+    io.out(USAGE);
+    return command === undefined && parsed.values.help !== true ? 2 : 0;
+  }
+
+  const style = parsed.values.json === true ? styleFor(false, {}) : styleFor(io.isTty, io.env);
+
+  try {
+    const config = resolveConfig(parsed.values, io.env);
+    const client = new Client(config);
+    const emit = (value: unknown, text: string): void => {
+      io.out(config.json ? JSON.stringify(value, null, 2) : text);
+    };
+
+    switch (command) {
+      case "projects": {
+        const page = await client.projects();
+        emit(page.items, formatProjects(page.items, style));
+        return 0;
+      }
+
+      case "search": {
+        if (argument === undefined) return missing("search <value>", io);
+        const limit = Number.parseInt(parsed.values.limit ?? "20", 10);
+        if (!Number.isInteger(limit) || limit < 1) {
+          io.err(`--limit must be a positive whole number, not "${parsed.values.limit ?? ""}".`);
+          return 2;
+        }
+        const page = await client.search(argument, limit);
+        emit(page.items, formatSearch(page.items, style));
+        return 0;
+      }
+
+      case "journey": {
+        if (argument === undefined) return missing("journey <id>", io);
+        // Both, because a timeline without its journey has no entity to name
+        // and a journey without its timeline is a header.
+        const [journey, events] = await Promise.all([
+          client.journey(argument),
+          client.events(argument)
+        ]);
+        emit({ ...journey, events }, formatJourney(journey, events, style));
+        return 0;
+      }
+
+      case "event": {
+        if (argument === undefined) return missing("event <id>", io);
+        const event = await client.event(argument);
+        emit(event, formatEvent(event, parsed.values.diff === true, style));
+        return 0;
+      }
+
+      default: {
+        io.err(`Unknown command "${command}".`);
+        io.err(USAGE);
+        return 2;
+      }
+    }
+  } catch (error) {
+    if (error instanceof ConfigError || error instanceof ApiError) {
+      io.err(error.message);
+      return 1;
+    }
+    throw error;
+  }
+}
+
+function missing(shape: string, io: Io): number {
+  io.err(`Usage: flight-recorder ${shape}`);
+  return 2;
+}
+
+/** Kept out of `run` so importing this module never runs a command. */
+export function isEntryPoint(argv1: string | undefined, moduleUrl: string): boolean {
+  if (argv1 === undefined) return false;
+  return moduleUrl.endsWith("/cli.js") || moduleUrl.endsWith("/cli.ts");
+}
+
+if (isEntryPoint(process.argv[1], import.meta.url)) {
+  const io: Io = {
+    out: (text) => process.stdout.write(`${text}\n`),
+    err: (text) => process.stderr.write(`${text}\n`),
+    isTty: process.stdout.isTTY,
+    env: process.env
+  };
+  process.exitCode = await run(process.argv.slice(2), io);
+}
+
+export type { Style };
