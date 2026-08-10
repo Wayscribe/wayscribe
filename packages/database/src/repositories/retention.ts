@@ -1,5 +1,12 @@
 import type { Knex } from "knex";
 
+// debtwatch:start
+// id: DEBT-N11B8K
+// owner: flight-recorder
+// expires: 2027-01-01
+// reason: The only way to delete anything is this sweep — time-based, per-environment, all-or-nothing. A redaction miss leaves rows nothing can remove, and it is also the answer to an erasure request
+// tags: operations, data-protection
+// debtwatch:end
 /**
  * An arbitrary but fixed 64-bit key for `pg_try_advisory_lock`.
  *

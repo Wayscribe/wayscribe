@@ -47,6 +47,11 @@ Presenting the work, and closing what the last review opened.
 
 ### Known open, and honest about it
 
+Each of these now carries a DebtWatch declaration where the shortcut lives, with
+an owner and a date — `npx debtwatch list`. This section says what; the
+declaration says until when, and `debt` in the pipeline says whether the
+declaration is still valid.
+
 - **Free text in errors is not redacted.** Path redaction matches key names, so
   a credential pasted inside `error.message` or `error.stack` survives it.
   `SECURITY.md` §2 names stack traces as carriers of credentials. Needs either

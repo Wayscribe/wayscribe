@@ -4,6 +4,13 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
+// debtwatch:start
+// id: DEBT-P94G8Q
+// owner: flight-recorder
+// expires: 2026-11-01
+// reason: No key identifier in the envelope, so rotating ENCRYPTION_KEY is permanently destructive; a version byte is hours now and a re-encryption project once anyone stores data
+// tags: security, encryption, irreversible
+// debtwatch:end
 /**
  * Encrypt a single field value.
  *

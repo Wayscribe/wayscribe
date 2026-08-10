@@ -88,6 +88,22 @@ secrets:
     - gitleaks detect --source=. --config=.gitleaks.toml --redact --no-banner --verbose
   allow_failure: false
 
+# Declared technical debt. `debtwatch.yml` sets the policy — every declaration
+# needs an owner, a reason and an expiry — and until now nothing ran it, so the
+# policy was written down rather than enforced. That is precisely the failure
+# DebtWatch exists to catch, in the repository that uses it.
+#
+# What blocks is `invalid_declaration`, from the config: a malformed declaration
+# silently stops tracking the thing it claims to track. An expiry passing does
+# not block, because a date is a conversation rather than an outage.
+#
+# Pinned, so a new release cannot change what the pipeline enforces without
+# somebody choosing it.
+debt:
+  stage: verify
+  script:
+    - npx --yes debtwatch@0.1.4 check
+
 unit:
   stage: test
   script:

@@ -105,6 +105,13 @@ function writePath(
  * and path redaction matches names. SECURITY.md is explicit that stack traces
  * carry credentials; treat that as unsolved rather than covered.
  */
+// debtwatch:start
+// id: DEBT-1WQHGD
+// owner: flight-recorder
+// expires: 2027-01-01
+// reason: Path redaction matches key names and cannot reach a credential pasted inside error.message or error.stack; SECURITY.md section 2 names stack traces as carriers, so this is unsolved rather than covered
+// tags: security, redaction
+// debtwatch:end
 export function redactAlways(value: unknown, policy: CapturePolicy): unknown {
   if (value === undefined) return undefined;
   return redact(value, [...(policy.redactionPaths ?? []), ...DEFAULT_SECRET_PATHS]);
