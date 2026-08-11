@@ -105,6 +105,37 @@ Not just the fixes.
 
 ---
 
+## The one that came from looking, not running
+
+A later question — can a demo application live in this repository without
+shipping? — was answered by listing the image rather than reading the Dockerfile,
+and the answer was no.
+
+The API image contained 62 test files, ten source directories, the demo
+application and the web application. `apps/api/Dockerfile` ended its build stage
+with `COPY --from=build /app /app`, and the comment above it gave a real reason —
+keeping the whole tree keeps the paths the documentation uses — that justified
+far less than it was taking, since those paths are `dist` paths.
+
+Nothing shipped was reachable. The entrypoint runs `dist`, and the workspace
+`exports` maps name `./src/index.ts` only under a `development` condition nothing
+passes. But this repository's test fixtures contain credential-shaped strings on
+purpose, because they have to look real enough to exercise the parsers, and a
+scanner reading a published image cannot tell a fixture from a leak.
+
+Trivy had been scanning these images for days. It answers which packages have
+known vulnerabilities, not what is in here that should not be — so the job that
+existed to inspect the image was structurally incapable of finding this.
+
+The guard that replaced it ([ADR-043](DECISIONS.md#adr-043-the-runtime-image-carries-only-what-the-runtime-executes))
+was then run against an image built *without* the fix, to watch it fail. It
+reported two violations and stopped, because `set -e` killed it on the third. A
+guard that reports the first problem and hides the rest is the same failure as a
+test that asserts nothing, and it was found the same way: by making it fail on
+purpose.
+
+---
+
 ## The honest remainder
 
 Fixing things is easy to write up. These are open:

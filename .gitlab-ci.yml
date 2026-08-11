@@ -218,6 +218,16 @@ container-scan:
   script:
     - docker build -f apps/api/Dockerfile -t scan/api:$CI_COMMIT_SHA .
     - docker build -f apps/web/Dockerfile -t scan/web:$CI_COMMIT_SHA .
+    # What is in the image, before what is vulnerable in it. Trivy reports CVEs
+    # in packages; it has nothing to say about our own test fixtures shipping to
+    # production, which is how 62 test files and every source directory rode
+    # along in the API image undetected.
+    #
+    # This shares container-scan's rules, so it runs on the default branch, on
+    # tags and on schedules, but not on a feature branch — the check needs a
+    # built image, and adding a docker build to every push is a worse trade than
+    # catching a regression at merge.
+    - ./scripts/verify-image-contents.sh scan/api:$CI_COMMIT_SHA
     - |
       for image in scan/api:$CI_COMMIT_SHA scan/web:$CI_COMMIT_SHA; do
         echo "=== $image ==="

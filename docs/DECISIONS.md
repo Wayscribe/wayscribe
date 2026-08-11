@@ -1361,8 +1361,13 @@ PostgreSQL follows the shape ADR-037 set for Compose. `postgresql.enabled` defau
 runs one in-cluster for evaluation. No `bitnami/postgresql` dependency: a subchart is more
 moving parts than a single StatefulSet, and its licensing has moved recently.
 
-Migrations run as a Helm hook before install and upgrade, mirroring the `migrate` service in
-Compose, so there is one answer to "who applies schema" rather than two.
+Migrations run as a Helm hook, mirroring the `migrate` service in Compose, so there is one
+answer to "who applies schema" rather than two. The hook is `post-install,post-upgrade`,
+not `pre-install`: a `pre-install` hook runs before *every* regular resource in the release,
+so the Job could not see the Secret holding `DATABASE_URL` and — with `postgresql.enabled` —
+had no database to migrate. Ordering is enforced by `/ready` returning `migrations_pending`
+instead, which keeps new pods out of service until the schema is applied and lets the
+previous pods keep serving through an upgrade.
 
 The chart is verified by installing it into a throwaway kind cluster and reading pod status
 and a live response — not by `helm lint` alone. A chart that templates cleanly and does not
@@ -1379,3 +1384,59 @@ run is the exact failure this project keeps finding.
   here. `CONTRIBUTING.md` keeps its requirement for the rest.
 - Local-first means the chart is *not* yet proof it runs on a managed cluster. That is
   stated in the chart's README rather than implied by its existence.
+
+## ADR-043: The runtime image carries only what the runtime executes
+
+**Status:** Accepted
+
+### Context
+
+"Can a demo application live in this repository without shipping?" turned out to have three
+mechanisms behind it — `private: true` in the package, absence from
+`infrastructure/compose.published.yaml` and the Helm chart, and `.dockerignore` — and
+`apps/demo` satisfied only the first two.
+
+Looking at the actual image rather than the intent made the real problem bigger than the
+demo. `apps/api/Dockerfile` ended its build stage with `COPY --from=build /app /app`, which
+is every file in the workspace: 62 test files, ten source directories, the demo application
+and the web application, all in the published API image. The comment above it explained the
+choice — keeping the whole tree keeps the paths the documentation uses — but those paths are
+`dist` paths, so the reason justified far less than it was taking.
+
+None of it is reachable. The entrypoint is `apps/api/dist/server.js`, and the workspace
+`exports` maps name `./src/index.ts` only under the `development` condition, which requires
+an explicit `--conditions=development` that nothing in the image passes.
+
+Unreachable is not the same as harmless. Test fixtures in this repository contain
+credential-shaped strings — `admin-token-for-tests-…`, a 64-character hex key — that exist
+precisely because they look real enough to exercise the parsers. A secret scanner reading a
+published image cannot tell a fixture from a leak, and neither can a person.
+
+Trivy was already scanning these images and had nothing to say about any of it. It answers
+"which packages have CVEs", not "what is in here that should not be".
+
+### Decision
+
+The build stage deletes what the runtime never executes — `apps/demo`, `apps/web`, every
+`src` directory outside `node_modules`, every `*.test.ts` and `*.spec.ts`, and the
+`tsconfig` files — after the production install and before the runtime stage copies it.
+
+`.dockerignore` is the wrong place for `apps/demo`: the root context is shared by all three
+image builds, and excluding the demo there would break `apps/demo/Dockerfile`. Exclusion
+belongs to the image that does not want the files, not to the context.
+
+`scripts/verify-image-contents.sh` asserts the result against the built image, and
+`container-scan` runs it before Trivy. It is a script rather than lines in `.gitlab-ci.yml`
+so it can be run locally, which is the same reasoning as DEBT on untested release paths.
+
+### Consequences
+
+- The check was confirmed to fail against an image built without the prune, reporting all
+  four violations rather than aborting on the first. A guard whose failure path has never
+  run is a guard in name only, which this repository has now been bitten by twice.
+- `container-scan` runs on the default branch, tags and schedules, not on feature branches.
+  A regression is caught at merge rather than before it, because the check needs a built
+  image and adding a docker build to every push is the worse trade.
+- Size was never the point and barely moved — 34.9M to 33.6M, since `node_modules` dominates
+  both. The 62 test files were the point.
+- The demo now genuinely does not ship, by all four mechanisms rather than two.

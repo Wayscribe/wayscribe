@@ -33,6 +33,22 @@ RUN pnpm --filter @flight-recorder/api... build
 RUN find . -name node_modules -type d -prune -exec rm -rf {} + \
  && CI=true pnpm --filter @flight-recorder/api... install --prod --ignore-scripts
 
+# Everything the runtime never executes. The image was carrying 61 test files
+# and 167 TypeScript sources for an application that runs `dist`, plus the whole
+# demo — which has its own image — and the web application.
+#
+# Source is unreachable in production regardless: the workspace `exports` maps
+# name `./src/index.ts` only under the `development` condition, which requires an
+# explicit `--conditions=development` that nothing here passes.
+#
+# The documented CLI paths are `dist` paths, so provisioning still works.
+RUN rm -rf apps/demo apps/web \
+ && find . -path ./node_modules -prune -o -type d -name src -print0 \
+      | xargs -0 -r rm -rf \
+ && find . -path ./node_modules -prune -o -type f \
+      \( -name '*.test.ts' -o -name '*.spec.ts' -o -name 'tsconfig*.json' \) -print0 \
+      | xargs -0 -r rm -f
+
 FROM node:24-alpine AS runtime
 LABEL org.opencontainers.image.title="Flight Recorder API"
 LABEL org.opencontainers.image.description="Ingestion, query, and replay API for record-level debugging of distributed workflows."
