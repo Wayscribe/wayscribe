@@ -1322,3 +1322,60 @@ every push, because it builds two images.
   That is intended.
 - One moderate advisory remains, in `uuid`. `high` is the gate deliberately: a moderate
   advisory in a transitive development dependency is not worth a red pipeline.
+
+## ADR-042: A Helm chart, for running it yourself rather than for distributing it
+
+**Status:** Accepted
+
+### Context
+
+`AGENTS.md` lists Kubernetes and Helm in the do-not-add list, and `CONTRIBUTING.md` requires
+an accepted decision before either. This is that decision.
+
+The list was written when adoption was the goal, and the reasoning against a chart was
+sound for that goal: it would point at images nobody had published, and a second install
+shape doubles the surface where a quick start can dead-end. `docs/ROADMAP.md` said as much
+this week.
+
+The goal changed. The owner is the primary user, deploys to a local cluster, and does not
+want to publish. Under that goal both objections fall away — a chart is not a *second*
+install shape if it is the one actually used, and "no adopter would notice" stops being an
+argument when there is no adopter to notice.
+
+ADR-037 is what makes the chart small. The application holds no state: two Deployments, a
+Job, a Secret, and a Service each. Before it, a chart would have had to carry a StatefulSet
+and a volume claim, which is the worst kind of chart to own.
+
+### Decision
+
+`deploy/helm/flight-recorder` targets a **local single-node cluster** — kind, k3s, or Docker
+Desktop. Access is by `port-forward` or NodePort; no ingress controller, cert manager, or
+storage class is assumed, because assuming any of them is how a chart fails on the machine
+it was written for.
+
+Values are structured so a managed cluster is a values file rather than a rewrite: ingress,
+resources, replica counts and image pull secrets all exist as options and are simply off.
+
+PostgreSQL follows the shape ADR-037 set for Compose. `postgresql.enabled` defaults to
+`false` and the chart expects `DATABASE_URL` for a database the operator owns; enabling it
+runs one in-cluster for evaluation. No `bitnami/postgresql` dependency: a subchart is more
+moving parts than a single StatefulSet, and its licensing has moved recently.
+
+Migrations run as a Helm hook before install and upgrade, mirroring the `migrate` service in
+Compose, so there is one answer to "who applies schema" rather than two.
+
+The chart is verified by installing it into a throwaway kind cluster and reading pod status
+and a live response — not by `helm lint` alone. A chart that templates cleanly and does not
+run is the exact failure this project keeps finding.
+
+### Consequences
+
+- Two deployment shapes now exist, and a configuration variable added to one has to reach
+  the other. The chart's values are named after the environment variables they set, so the
+  mapping is mechanical rather than remembered.
+- The chart pulls from the project's own container registry. Nothing needs to be published
+  publicly for it to work, which is the point.
+- Kubernetes and Helm come off the do-not-add list in `AGENTS.md`, replaced by a pointer
+  here. `CONTRIBUTING.md` keeps its requirement for the rest.
+- Local-first means the chart is *not* yet proof it runs on a managed cluster. That is
+  stated in the chart's README rather than implied by its existence.

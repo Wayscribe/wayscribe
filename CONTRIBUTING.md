@@ -31,7 +31,7 @@ V0 is focused on:
 - field-level diffs
 - development-only HTTP replay
 
-Please do not introduce additional SDK languages, AI features, new storage engines, Kubernetes, or production replay without an accepted architecture decision.
+Please do not introduce additional SDK languages, AI features, new storage engines, or production replay without an accepted architecture decision. Kubernetes has one — ADR-042 covers the local-cluster Helm chart, and anything beyond it needs its own.
 
 Contributions must preserve:
 

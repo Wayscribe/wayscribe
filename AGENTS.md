@@ -76,7 +76,7 @@ Do not add any of the following without an explicit architecture decision:
 - model-provider SDKs
 - BYOK configuration
 - Python, Go, Java, or .NET SDKs
-- Kubernetes or Helm
+- Kubernetes beyond the local-cluster Helm chart (ADR-042)
 - Kafka
 - ClickHouse
 - Elasticsearch

@@ -61,6 +61,25 @@ typecheck:
 # Known-vulnerable dependencies. `high` is the gate; moderate and low are
 # reported and reviewed rather than blocking, because a moderate advisory in a
 # transitive development dependency is not worth a red pipeline.
+# The chart renders and its values are valid. It does not prove the chart runs —
+# that needs a cluster, and ADR-042 records that verification as installing into
+# kind by hand. `helm lint` passed on a chart whose migrate hook could not see
+# its own Secret, which is the whole reason that distinction is written down.
+helm:
+  stage: verify
+  image:
+    name: alpine/helm:3.16.3
+    entrypoint: [""]
+  before_script: []
+  cache: {}
+  script:
+    - helm lint deploy/helm/flight-recorder
+    - helm template fr deploy/helm/flight-recorder
+      --set postgresql.enabled=true
+      --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
+      --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
+      > /dev/null
+
 audit:
   stage: security
   script:
