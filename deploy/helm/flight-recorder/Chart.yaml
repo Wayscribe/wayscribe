@@ -1,0 +1,13 @@
+apiVersion: v2
+name: flight-recorder
+description: Record-level debugging for distributed workflows, on a local cluster
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://gitlab.com/jojithedev/flight-recorder
+sources:
+  - https://gitlab.com/jojithedev/flight-recorder
+keywords:
+  - debugging
+  - observability
+  - self-hosted

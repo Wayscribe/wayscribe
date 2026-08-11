@@ -1,0 +1,68 @@
+{{- if .Values.migrations.enabled }}
+{{/*
+Schema changes.
+
+A Helm hook rather than an initContainer, because an initContainer runs once per
+replica and races itself. This mirrors the one-shot `migrate` service in Compose,
+so there is one answer to who applies schema.
+
+`post-install` rather than `pre-install`, which is not the obvious choice and was
+arrived at by watching it fail: a pre-install hook runs before *every* regular
+resource in the release, so it cannot see the Secret holding DATABASE_URL — the
+pod sits in CreateContainerConfigError — and with `postgresql.enabled` there is
+no database to migrate either. Nothing in `helm lint` or `helm template` shows
+this; the chart renders perfectly and does not run.
+
+Ordering is enforced by the API instead, which is a better place for it. `/ready`
+returns 503 `migrations_pending` until the schema is applied, so new pods are
+held out of service until this Job finishes, and on an upgrade the previous pods
+keep serving until then.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "flight-recorder.fullname" . }}-migrate
+  labels:
+    {{- include "flight-recorder.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  # The retry loop inside the container is the real one.
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        {{- include "flight-recorder.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "flight-recorder.image" (dict "Values" .Values "Chart" .Chart "component" "api") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Retries the migration itself rather than probing the database first.
+          # A probe answers a different question than the operation does, and
+          # relying on backoffLimit instead left two Error pods beside a healthy
+          # install — which reads as a broken deployment to anyone glancing at it.
+          command:
+            - sh
+            - -c
+            - |
+              for attempt in $(seq 1 30); do
+                if node packages/database/dist/cli.js migrate; then
+                  exit 0
+                fi
+                echo "database not ready (attempt $attempt); retrying in 2s"
+                sleep 2
+              done
+              echo "database never became reachable"
+              exit 1
+          env:
+            {{- include "flight-recorder.databaseEnv" . | nindent 12 }}
+{{- end }}

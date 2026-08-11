@@ -1,0 +1,34 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "flight-recorder.fullname" . }}
+  labels:
+    {{- include "flight-recorder.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # Only the interface is exposed. Ingestion is a separate concern with a
+          # separate credential, and publishing it by default would put the write
+          # path on the internet because somebody wanted to see a timeline.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "flight-recorder.fullname" . }}-web
+                port:
+                  number: {{ .Values.web.service.port }}
+{{- end }}

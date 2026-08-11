@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flight-recorder.fullname" . }}-api
+  labels:
+    {{- include "flight-recorder.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "flight-recorder.labels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api
+          image: {{ include "flight-recorder.image" (dict "Values" .Values "Chart" .Chart "component" "api") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            {{- include "flight-recorder.databaseEnv" . | nindent 12 }}
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flight-recorder.secretName" . }}
+                  key: ENCRYPTION_KEY
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flight-recorder.secretName" . }}
+                  key: ADMIN_TOKEN
+            - name: PORT
+              value: "8080"
+            - name: APP_URL
+              value: "http://{{ include "flight-recorder.fullname" . }}-web:{{ .Values.web.service.port }}"
+            - name: API_URL
+              value: "http://{{ include "flight-recorder.fullname" . }}-api:{{ .Values.api.service.port }}"
+            - name: LOG_LEVEL
+              value: {{ .Values.api.logLevel | quote }}
+            - name: DEFAULT_RETENTION_DAYS
+              value: {{ .Values.api.defaultRetentionDays | quote }}
+            - name: MAX_EVENT_PAYLOAD_BYTES
+              value: {{ .Values.api.maxEventPayloadBytes | quote }}
+            - name: ALLOW_FULL_PAYLOAD_CAPTURE
+              value: {{ .Values.api.allowFullPayloadCapture | quote }}
+            - name: REPLAY_ALLOWED_HOSTS
+              value: {{ .Values.api.replayAllowedHosts | quote }}
+          # /ready reports migrations_pending until schema is applied, so this is
+          # a real readiness answer rather than "the process started".
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flight-recorder.fullname" . }}-api
+  labels:
+    {{- include "flight-recorder.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: {{ .Values.api.service.type }}
+  ports:
+    - port: {{ .Values.api.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: api

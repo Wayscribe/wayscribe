@@ -15,3 +15,8 @@ LICENSE
 # actually written. Documentation formatting is reviewed by humans.
 docs/
 *.md
+
+# Helm templates are YAML with Go templating interleaved, which no YAML parser
+# accepts. `helm lint` and `helm template` are what check these; the chart's
+# plain values.yaml and Chart.yaml are still formatted.
+deploy/helm/*/templates/

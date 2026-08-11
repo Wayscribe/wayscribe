@@ -108,11 +108,12 @@ all of it is cheap to add once there is a reason.
 Everything on the do-not-add list in `AGENTS.md` stays out. The ones worth
 restating, with reasons:
 
-- **Kubernetes and a Helm chart.** ADR-037 made the app stateless, so a chart is
-  now small — two Deployments, a Job, a Secret. It is still wrong to build one:
-  it points at images that do not exist, and a second install shape doubles the
-  surface where a quick start can dead-end. Revisit if a Kubernetes-shaped team
-  says Compose specifically is what stopped them.
+- ~~**Kubernetes and a Helm chart.**~~ **Built** — see `deploy/helm` and ADR-042.
+  The reasoning against it held while adoption was the goal: it would point at
+  images nobody had published, and a second install shape doubles the surface
+  where a quick start can dead-end. Neither survives the owner being the primary
+  user and deploying to a local cluster. Managed clusters are still untested and
+  the chart says so.
 - **A hosted offering.** Self-hosting is the reason anybody would put customer
   payloads in this. Running it centrally makes us custodian of exactly the data
   the design refuses to centralise.

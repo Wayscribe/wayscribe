@@ -1,0 +1,75 @@
+# Values are named after the environment variables they set, so the mapping
+# between this chart and infrastructure/compose.published.yaml stays mechanical
+# rather than remembered. Two deployment shapes exist; a variable added to one
+# has to reach the other.
+
+image:
+  registry: registry.gitlab.com/jojithedev/flight-recorder
+  tag: "" # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+  # For a private registry. Empty on a local cluster that loaded images directly.
+  pullSecrets: []
+
+# Flight Recorder keeps everything in one PostgreSQL database and expects you to
+# bring your own — the one that is already backed up and monitored (ADR-037).
+#
+# Either set `databaseUrl`, or point `existingSecret` at a secret you manage, or
+# turn on `postgresql` below for evaluation.
+databaseUrl: ""
+
+secrets:
+  # Generate: openssl rand -hex 32
+  encryptionKey: ""
+  adminToken: ""
+  # A secret you manage yourself, with keys DATABASE_URL, ENCRYPTION_KEY and
+  # ADMIN_TOKEN. Set this and the three values above are ignored.
+  existingSecret: ""
+
+api:
+  replicaCount: 1
+  logLevel: info
+  defaultRetentionDays: 7
+  maxEventPayloadBytes: 262144
+  allowFullPayloadCapture: false
+  replayAllowedHosts: "localhost,host.docker.internal"
+  service:
+    type: ClusterIP
+    port: 8080
+  resources: {}
+
+web:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 3000
+  resources: {}
+
+# Applied before install and before upgrade, mirroring the `migrate` service in
+# Compose so there is one answer to who applies schema. Turn it off if your team
+# runs migrations through its own process.
+migrations:
+  enabled: true
+
+# An in-cluster PostgreSQL, for trying this without standing a database up
+# first. Off by default, deliberately: ADR-037 makes the operator's own database
+# the expected one, and a database inside the chart is invisible to whoever is
+# responsible for the data.
+postgresql:
+  enabled: false
+  image: postgres:17-alpine
+  user: flight
+  password: flight
+  database: flight
+  storage: 2Gi
+  # Empty uses the cluster default, which is what a local cluster wants.
+  storageClass: ""
+
+# Off. A local cluster reaches the interface with `kubectl port-forward`, and a
+# chart that assumes an ingress controller fails on the machine it was written
+# for. Structured so a managed cluster is a values file rather than a rewrite.
+ingress:
+  enabled: false
+  className: ""
+  host: flight-recorder.local
+  annotations: {}
+  tls: []
