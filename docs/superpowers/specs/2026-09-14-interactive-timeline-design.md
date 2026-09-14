@@ -141,6 +141,13 @@ share one implementation.
 The route handlers respond with the same shapes `src/lib/api.ts` returns. The
 client types are imported from there; nothing is duplicated.
 
+`listEvents` in `src/lib/api.ts` currently loops over up to six pages to work
+around the old hundred-row cap. It becomes a single-page call returning
+`{ items, nextCursor }`; the server page passes the cursor to the client, which
+owns pagination from then on. The DebtWatch declaration `DEBT-43WEMV` on that
+function is retired with it, because the truncation it declared no longer
+exists.
+
 ## Data flow
 
 1. Server page fetches journey, events page one, and the first event's detail.
