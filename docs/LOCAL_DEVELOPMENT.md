@@ -66,8 +66,12 @@ Three things are worth knowing about the demo profile:
   so its customer table never mixes with Flight Recorder's own schema.
 - **The demo API key is fixed and committed.** It is a placeholder that
   authorises writing demo events to a local stack and nothing else. Keys for
-  anything real come from `pnpm db:seed`, which generates them and prints each
-  one exactly once.
+  anything real come from `pnpm key:create`, which prints each one
+  exactly once.
+- **The host ports are overridable.** The API publishes on `127.0.0.1:8080` and
+  the interface on `127.0.0.1:3000`; set `API_PORT` or `WEB_PORT` in the shell
+  when either is taken. `pnpm demo:trigger` honours `WEB_PORT` in the link it
+  prints.
 
 `demo-source` and `demo-target` are deliberately uninstrumented: they stand in
 for Salesforce and HubSpot, which a team using Flight Recorder does not own. The

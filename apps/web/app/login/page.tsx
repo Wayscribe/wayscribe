@@ -15,7 +15,7 @@ export default async function LoginPage({
     <main className="centered">
       <h1>Flight Recorder</h1>
       <p className="muted">
-        Sign in with the admin token printed by <code>pnpm db:seed</code>.
+        Sign in with the <code>ADMIN_TOKEN</code> this installation was started with.
       </p>
       {message === null ? null : <p className="error">{message}</p>}
       <form method="post" action="/api/login" className="stack">

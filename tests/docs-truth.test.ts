@@ -31,13 +31,17 @@ const SKIP = new Set([
  * `spawnSync git ENOENT`. A unit test should not need a tool outside Node.
  */
 function markdownFiles(directory = "", found: string[] = []): string[] {
+  return filesEndingWith(".md", directory, found);
+}
+
+function filesEndingWith(suffix: string, directory = "", found: string[] = []): string[] {
   for (const entry of readdirSync(`${root}${directory}`, { withFileTypes: true })) {
     if (entry.name.startsWith(".") && entry.name !== ".gitlab") continue;
     if (SKIP.has(entry.name)) continue;
 
     const relative = directory === "" ? entry.name : `${directory}/${entry.name}`;
-    if (entry.isDirectory()) markdownFiles(relative, found);
-    else if (entry.name.endsWith(".md")) found.push(relative);
+    if (entry.isDirectory()) filesEndingWith(suffix, relative, found);
+    else if (entry.name.endsWith(suffix)) found.push(relative);
   }
   return found;
 }
@@ -105,6 +109,29 @@ describe("the documentation's checkable claims", () => {
         content,
         `${file} still describes payload storage as possibly relying on encryption`
       ).not.toMatch(/may initially rely on encrypted database storage/i);
+    }
+  });
+
+  it("does not present the first-contact audit's defects as still open", () => {
+    // The 2026-08-09 audit found eight defects (M1 to M8) and seven smaller
+    // ones. Every one was fixed the same day, and the fixes were then
+    // dogfooded against a real ORM (ADR-034 to ADR-036). The README's status
+    // section kept saying "fixes are underway" for five weeks afterwards,
+    // which told an evaluator the diff still lied about Dates — the exact
+    // claim WHAT_RUNNING_IT_FOUND.md records as fixed.
+    const readme = read("README.md");
+    expect(readme).not.toMatch(/fixes are underway/i);
+    expect(readme).not.toMatch(/treat this as a design and architecture reference/i);
+  });
+
+  it("does not tell users to run pnpm db:seed", () => {
+    // The seed is a development fixture. Neither the demo stack nor the
+    // published stack runs it, and ADR-037 made `project:create` the way a
+    // project comes to exist. The login page and the empty projects page both
+    // still pointed at it, so a first-time user who followed the interface's
+    // own instruction would be told to run a script the README never mentions.
+    for (const file of filesEndingWith(".tsx", "apps/web/app")) {
+      expect(read(file), `${file} tells the user to run pnpm db:seed`).not.toContain("db:seed");
     }
   });
 
