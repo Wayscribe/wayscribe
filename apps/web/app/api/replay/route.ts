@@ -15,9 +15,9 @@ import { requestSession } from "../../../src/lib/request-session";
  * group's gate.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const auth = await requestSession(request);
+  const session = requestSession(request);
 
-  if (auth === null) {
+  if (session === null) {
     return NextResponse.redirect(redirectTarget(request, "/login"), { status: 303 });
   }
 
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(redirectTarget(request, "/"), { status: 303 });
   }
 
-  const projectId = auth.projectId;
+  const projectId = session.projectId;
 
   const result = await createReplay(
     {

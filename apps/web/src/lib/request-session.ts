@@ -1,34 +1,23 @@
 import type { NextRequest } from "next/server";
-import { listProjects } from "./api";
 import { webConfig } from "./config";
 import { SESSION_COOKIE_NAME, verifySession, type SessionPayload } from "./session";
 
-export interface RequestSession {
-  session: SessionPayload;
-  /** Empty when several projects exist and the session has not chosen one. */
-  projectId: string;
-}
-
 /**
- * The signed-in operator behind a route handler request, and their project.
+ * The signed-in operator behind a route handler request.
  *
  * Route handlers are not covered by the route group's layout gate, so each one
- * verifies the cookie itself. This is the one place that does it, so a handler
- * cannot get the project resolution subtly different from the pages (which use
- * `requireProjectId`; the difference is that a handler cannot redirect to the
- * picker, so it reports an empty project instead).
+ * verifies the cookie itself. This is the one place that does it.
+ *
+ * `projectId` is passed through as-is, including empty. The API already
+ * performs the only-project fallback (`apps/api/src/principal.ts`,
+ * `resolveAdminProject`) and answers `project_not_found` when several projects
+ * exist and none was named, which the web client turns into
+ * `ProjectNotSelectedError`. Resolving it again here would call `listProjects`
+ * on every request for no different outcome — including the two-second poll
+ * the events route handler makes.
  */
-export async function requestSession(
-  request: NextRequest,
-  now = Date.now()
-): Promise<RequestSession | null> {
+export function requestSession(request: NextRequest, now = Date.now()): SessionPayload | null {
   const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const session = cookie === undefined ? null : verifySession(webConfig().ADMIN_TOKEN, cookie, now);
-  if (session === null) return null;
-
-  if (session.projectId !== "") return { session, projectId: session.projectId };
-
-  const projects = await listProjects();
-  const only = projects.length === 1 ? projects[0] : undefined;
-  return { session, projectId: only?.id ?? "" };
+  if (cookie === undefined) return null;
+  return verifySession(webConfig().ADMIN_TOKEN, cookie, now);
 }
