@@ -40,14 +40,16 @@ Option chosen: a client island inside the existing server page.
 JourneyPage (server)                       route handlers (server)
   fetch journey, first events page,          GET /api/journeys/[id]/events?cursor=
   first event detail                         GET /api/events/[id]
-  └─ <JourneyTimeline …initial data>  ──▶    both: verify session, resolve project,
+  └─ <JourneyTimeline …initial data>  ──▶    both: verify session, pass the project,
        (client)                              proxy through src/lib/api.ts
 ```
 
-The server page keeps doing what it does. It renders the header (entity,
-status, count, services, aliases) and passes the journey, the first page of
-events with its `nextCursor`, and the first event's detail to one client
-component. The client component owns everything below the header.
+The server page renders the entity heading, the timezone note, and the aliases,
+and passes the journey, the first page of events with its `nextCursor`, the
+selected event's detail, and whether live mode starts on, to one client
+component. The client component owns everything below that, including the
+status, count, and services line, because all three change as pages and polls
+arrive.
 
 ## Components
 
@@ -63,10 +65,14 @@ Exported functions, each unit-tested without a DOM:
   within the visible list. At an edge, returns the same id. If the selected
   event is not visible (it was filtered out), returns the first visible id.
 - `mergeEvents(existing, incoming)` — union by id, ordered by
-  `eventTimestamp` then `id`, so a polled page can be merged repeatedly without
-  duplicates and without reordering what is already on screen.
-- `services(events)` — distinct service names in first-seen order, for the
-  filter chips.
+  `eventTimestamp`, then `receivedAt`, then `id`, which is the order the API
+  pages in, so a polled page can be merged repeatedly without duplicates and
+  without reordering what is already on screen.
+- `distinctServices(events)` — distinct service names in first-seen order, for
+  the filter chips.
+- `describeCount(input)` — the count line, naming what each number counts.
+- `isRecent(iso, now)` — whether a journey's last event is recent enough to
+  start live mode; a future or unparsable timestamp is not recent.
 
 ### `app/components/JourneyTimeline.tsx` — `"use client"`, the state owner
 
@@ -137,7 +143,7 @@ server components.
 ### Route handlers
 
 - `app/api/journeys/[journeyId]/events/route.ts` — `GET`, optional `cursor`
-  query. Returns `{ items, nextCursor, journeyStatus }`. Fetches one page of
+  query. Returns `{ items, nextCursor, journeyStatus, journeyEventCount }`. Fetches one page of
   events and the journey in parallel through `src/lib/api.ts`.
 - `app/api/events/[eventId]/route.ts` — `GET`. Returns the event detail as
   `src/lib/api.ts` shapes it.
