@@ -56,6 +56,7 @@ export function DiffTable({
   // currently shown — this decides whether the control renders, not `hiddenCount`.
   const collapsedCount = Math.max(changes.length - COLLAPSED_ROWS, 0);
   const showToggle = collapsible && collapsedCount > 0;
+  const fieldNoun = collapsedCount === 1 ? "changed field" : "changed fields";
 
   return (
     <>
@@ -86,7 +87,9 @@ export function DiffTable({
             setExpanded((current) => !current);
           }}
         >
-          {expanded ? "Show fewer" : `Show ${String(collapsedCount)} more changed fields`}
+          {expanded
+            ? "Show fewer changed fields"
+            : `Show ${String(collapsedCount)} more ${fieldNoun}`}
         </button>
       ) : null}
     </>

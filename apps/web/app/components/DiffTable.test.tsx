@@ -56,7 +56,7 @@ describe("DiffTable", () => {
 
     await userEvent.click(toggle);
     expect(screen.getAllByRole("row")).toHaveLength(13);
-    const expandedToggle = screen.getByRole("button", { name: "Show fewer" });
+    const expandedToggle = screen.getByRole("button", { name: "Show fewer changed fields" });
     expect(expandedToggle).toHaveAttribute("aria-expanded", "true");
 
     await userEvent.click(expandedToggle);
@@ -72,7 +72,7 @@ describe("DiffTable", () => {
   it("offers to expand when exactly one row is hidden", () => {
     render(<DiffTable changes={changes(9)} collapsible />);
     expect(tbodyRows()).toHaveLength(8);
-    expect(screen.getByRole("button", { name: "Show 1 more changed fields" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show 1 more changed field" })).toBeInTheDocument();
   });
 
   it("resets its expanded state when the key changes, as EventDetail relies on for a new event", async () => {
