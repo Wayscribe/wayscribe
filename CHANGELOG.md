@@ -24,6 +24,20 @@ changes far less often.
 
 ### Added
 
+- **The timeline is interactive.** Filter a journey to one service or to its
+  failures, and move through its events with the arrow keys while the detail
+  panel follows without a reload. The address keeps `?event=` in step, so a
+  copied link still opens the event you were reading. A Live toggle follows a
+  journey that is still recording as its events arrive, and turns itself off
+  once a finished journey goes six seconds with nothing new. A journey used to
+  stop at six hundred events; the page now renders the first hundred, and a
+  "Show more events" button reads the rest. The first paint is still
+  server-rendered and the rows are still links, so nothing that worked before
+  stopped working. The browser talks only to two session-checked route
+  handlers in the web app, never to the API, so the admin token stays on the
+  server (ADR-029). Long diffs collapse to eight rows behind a button that
+  shows the rest.
+
 - **`project:create` and `project:list`.** A new installation had no projects
   and no way to create one: `key:create` requires a project, and the only two
   that could exist came from the two hardcoded seeds, neither of which the
