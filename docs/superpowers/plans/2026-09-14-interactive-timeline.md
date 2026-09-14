@@ -1179,7 +1179,6 @@ function mount(props: Partial<Parameters<typeof JourneyTimeline>[0]> = {}) {
       initialDetail={detail("evt_1")}
       totalEvents={4}
       knownServices={["webhook-api", "sync-worker"]}
-      multiDay={false}
       {...props}
     />
   );
@@ -1284,6 +1283,36 @@ describe("JourneyTimeline", () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops live mode at once when the session is refused", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(new Response("{}", { status: 401 }));
+    mount({ initialStatus: "active" });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Sign in again/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Live" })).not.toBeChecked();
+  });
+
+  it("keeps polling from the last cursor it was given, not from page one", async () => {
+    vi.useFakeTimers();
+    // First poll from c1: the tail has one new event and no further page.
+    // Second poll must still ask from c1, not refetch page one.
+    fetchMock
+      .mockResolvedValueOnce(ok(page({ items: [event("evt_5")], journeyEventCount: 5 })))
+      .mockResolvedValueOnce(ok(page({ items: [event("evt_5"), event("evt_6")], journeyEventCount: 6 })));
+    mount({ initialStatus: "active", initialCursor: "c1", totalEvents: 4 });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/journeys/jrn_1/events?cursor=c1", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/journeys/jrn_1/events?cursor=c1", expect.anything());
+    expect(screen.getAllByRole("option")).toHaveLength(6);
   });
 
   it("keeps the previous detail when a detail fetch fails", async () => {
@@ -1530,13 +1559,14 @@ export function FilterBar({
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EventDetailData, EventListItem, EventsPageResponse } from "../../src/lib/api";
+import { spansDays } from "../../src/lib/time";
 import {
   NO_FILTERS,
   applyFilters,
   describeCount,
+  distinctServices,
   mergeEvents,
   neighbour,
-  services as servicesOf,
   type TimelineFilters
 } from "../../src/lib/timeline";
 import { EventDetail } from "./EventDetail";
@@ -1553,12 +1583,13 @@ export interface JourneyTimelineProps {
   totalEvents: number;
   /** The journey's services from the server, which may include ones not yet loaded. */
   knownServices: string[];
-  multiDay: boolean;
 }
 
 const POLL_MS = 2000;
 const MAX_POLL_FAILURES = 3;
 const POLL_NOTICE = "Live updates stopped after three failed requests. Turn Live on to retry.";
+const PERMANENT_NOTICE =
+  "Live updates stopped: this session can no longer read the journey. Sign in again or choose a project.";
 const DETAIL_ERROR = "Could not load this event. Select it again to retry.";
 const LOAD_ERROR = "Could not load more events. Try again.";
 
@@ -1589,10 +1620,20 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   // must not overwrite the detail of a later one.
   const wanted = useRef(props.initialSelectedId);
   const pollFailures = useRef(0);
+  // Where live mode reads from. The API's `nextCursor` is a "more pages exist"
+  // flag, null on a partial page, so it cannot be the poll position: after the
+  // tail of a long journey it would send the poller back to page one. Live mode
+  // keeps the last cursor it was given and re-reads the tail from there, merging
+  // idempotently; when the tail grows past a page, the new cursor advances it.
+  // Under a hundred events there is no cursor, and page one is the tail.
+  const pollFrom = useRef(props.initialCursor);
 
   const visible = useMemo(() => applyFilters(events, filters), [events, filters]);
+  // From the merged list, not a server prop: a journey whose first page fell on
+  // one day can cross midnight on the second.
+  const multiDay = useMemo(() => spansDays(events.map((event) => event.eventTimestamp)), [events]);
   const services = useMemo(
-    () => [...new Set([...props.knownServices, ...servicesOf(events)])],
+    () => [...new Set([...props.knownServices, ...distinctServices(events)])],
     [props.knownServices, events]
   );
 
@@ -1602,13 +1643,13 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
       setSelectedId(id);
       window.history.replaceState(null, "", `/journeys/${journeyId}?event=${id}`);
       setDetailState("loading");
-      const next = await fetchJson<EventDetailData>(`/api/events/${encodeURIComponent(id)}`);
+      const result = await fetchJson<EventDetailData>(`/api/events/${encodeURIComponent(id)}`);
       if (wanted.current !== id) return;
-      if (next === null) {
+      if (result.kind === "failed") {
         setDetailState("error");
         return;
       }
-      setDetail(next);
+      setDetail(result.body);
       setDetailState("idle");
     },
     [journeyId]
@@ -1630,6 +1671,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const applyPage = useCallback((page: EventsPageResponse) => {
     setEvents((previous) => mergeEvents(previous, page.items));
     setCursor(page.nextCursor);
+    if (page.nextCursor !== null) pollFrom.current = page.nextCursor;
     setStatus(page.journeyStatus);
     setTotal(page.journeyEventCount);
   }, []);
@@ -1637,36 +1679,36 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const loadMore = async () => {
     if (cursor === null) return;
     setLoadError(null);
-    const page = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, cursor));
-    if (page === null) {
+    const result = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, cursor));
+    if (result.kind === "failed") {
       setLoadError(LOAD_ERROR);
       return;
     }
-    applyPage(page);
+    applyPage(result.body);
   };
 
-  // Live mode. Polls from the last cursor; when there is none it re-reads the
-  // first page and merges, which is right for a journey under a hundred events
-  // and stale past that — a journey still active after its hundredth event is
-  // best followed with load-more.
+  // Live mode: re-read the tail from `pollFrom` every two seconds and merge.
+  // A permanent refusal (signed out, no project) stops at once; anything else
+  // counts toward the three failures, so a blip does not stop it and an outage
+  // does not poll forever.
   useEffect(() => {
     if (!live) return;
     let cancelled = false;
 
     const tick = async () => {
-      const page = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, cursor));
+      const result = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, pollFrom.current));
       if (cancelled) return;
-      if (page === null) {
+      if (result.kind === "failed") {
         pollFailures.current += 1;
-        if (pollFailures.current >= MAX_POLL_FAILURES) {
+        if (result.permanent || pollFailures.current >= MAX_POLL_FAILURES) {
           setLive(false);
-          setPollNotice(POLL_NOTICE);
+          setPollNotice(result.permanent ? PERMANENT_NOTICE : POLL_NOTICE);
         }
         return;
       }
       pollFailures.current = 0;
-      applyPage(page);
-      if (page.journeyStatus !== "active") setLive(false);
+      applyPage(result.body);
+      if (result.body.journeyStatus !== "active") setLive(false);
     };
 
     const timer = setInterval(() => {
@@ -1676,7 +1718,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [live, cursor, journeyId, applyPage]);
+  }, [live, journeyId, applyPage]);
 
   const onLive = (next: boolean) => {
     pollFailures.current = 0;
@@ -1711,7 +1753,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
             journeyId={journeyId}
             events={visible}
             selectedId={selectedId}
-            multiDay={props.multiDay}
+            multiDay={multiDay}
             onSelect={(id) => {
               void select(id);
             }}
@@ -1751,14 +1793,24 @@ function eventsUrl(journeyId: string, cursor: string | null): string {
   return cursor === null ? base : `${base}?cursor=${encodeURIComponent(cursor)}`;
 }
 
-/** Null for any failure: a non-2xx, a network error, or a body that is not JSON. */
-async function fetchJson<T>(url: string): Promise<T | null> {
+type Fetched<T> =
+  | { kind: "ok"; body: T }
+  | {
+      kind: "failed";
+      /** A 401 or 409: retrying cannot help, so the caller should stop rather than count. */
+      permanent: boolean;
+    };
+
+/** Never throws: a non-2xx, a network error, and a non-JSON body are all failures. */
+async function fetchJson<T>(url: string): Promise<Fetched<T>> {
   try {
     const response = await fetch(url, { headers: { accept: "application/json" } });
-    if (!response.ok) return null;
-    return (await response.json()) as T;
+    if (!response.ok) {
+      return { kind: "failed", permanent: response.status === 401 || response.status === 409 };
+    }
+    return { kind: "ok", body: (await response.json()) as T };
   } catch {
-    return null;
+    return { kind: "failed", permanent: false };
   }
 }
 ```
@@ -1769,7 +1821,7 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 pnpm vitest run apps/web/app/components/JourneyTimeline.test.tsx
 ```
 
-Expected: 8 passed. If the fake-timer tests hang, the cause is `waitFor` under fake timers: those two tests use only `act` and `advanceTimersByTimeAsync`, as written, and must stay that way.
+Expected: 10 passed. If the fake-timer tests hang, the cause is `waitFor` under fake timers: those two tests use only `act` and `advanceTimersByTimeAsync`, as written, and must stay that way.
 
 The count line is one paragraph, so its assertions use regular expressions (a string matcher in Testing Library requires the whole text to match). The load-more test expects `Show 2 more` because `total` is 6 and 4 are loaded.
 
@@ -1801,7 +1853,6 @@ import { notFound } from "next/navigation";
 import { JourneyTimeline } from "../../../components/JourneyTimeline";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
 import { requireProjectId } from "../../../../src/lib/current-project";
-import { spansDays } from "../../../../src/lib/time";
 
 export default async function JourneyPage({
   params,
@@ -1824,9 +1875,6 @@ export default async function JourneyPage({
     const page = await listEvents(journeyId, projectId);
     if (page === null) notFound();
 
-    // Only shown when it changes something: a single-day journey does not need
-    // a date on every row, and a multi-day one is unreadable without it.
-    const multiDay = spansDays(page.items.map((event) => event.eventTimestamp));
     // Default to the first event so the detail panel is never empty on arrival.
     const activeId = selectedId ?? page.items[0]?.id ?? null;
     const active = activeId === null ? null : await getEvent(activeId, projectId);
@@ -1858,7 +1906,6 @@ export default async function JourneyPage({
           initialDetail={active}
           totalEvents={journey.eventCount}
           knownServices={journey.services}
-          multiDay={multiDay}
         />
       </main>
     );
