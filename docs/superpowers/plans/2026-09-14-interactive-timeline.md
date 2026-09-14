@@ -742,16 +742,16 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ journeyId: string }> }
 ): Promise<NextResponse> {
-  const auth = await requestSession(request);
-  if (auth === null) return json(401, "unauthenticated", "Sign in again.");
+  const session = requestSession(request);
+  if (session === null) return json(401, "unauthenticated", "Sign in again.");
 
   const { journeyId } = await params;
   const cursor = request.nextUrl.searchParams.get("cursor");
 
   try {
     const [page, journey] = await Promise.all([
-      listEvents(journeyId, auth.projectId, cursor),
-      getJourney(journeyId, auth.projectId)
+      listEvents(journeyId, session.projectId, cursor),
+      getJourney(journeyId, session.projectId)
     ]);
     if (page === null || journey === null) return json(404, "not_found", "No such journey.");
 
@@ -776,7 +776,10 @@ export function failure(error: unknown): NextResponse {
     return json(409, "project_not_selected", "Choose a project first.");
   }
   if (error instanceof ApiUnavailableError) {
-    return json(502, "api_unavailable", error.message);
+    // The message names configuration (which container holds which token) and
+    // belongs in the server log, not in a body served to a browser.
+    console.error(error.message);
+    return json(502, "api_unavailable", "The Flight Recorder API is unavailable.");
   }
   throw error;
 }
@@ -811,12 +814,12 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
 ): Promise<NextResponse> {
-  const auth = await requestSession(request);
-  if (auth === null) return json(401, "unauthenticated", "Sign in again.");
+  const session = requestSession(request);
+  if (session === null) return json(401, "unauthenticated", "Sign in again.");
 
   const { eventId } = await params;
   try {
-    const event = await getEvent(eventId, auth.projectId);
+    const event = await getEvent(eventId, session.projectId);
     if (event === null) return json(404, "not_found", "No such event.");
     return NextResponse.json(event);
   } catch (error) {
@@ -824,7 +827,8 @@ export async function GET(
       return json(409, "project_not_selected", "Choose a project first.");
     }
     if (error instanceof ApiUnavailableError) {
-      return json(502, "api_unavailable", error.message);
+      console.error(error.message);
+      return json(502, "api_unavailable", "The Flight Recorder API is unavailable.");
     }
     throw error;
   }
@@ -851,7 +855,10 @@ export function apiFailure(error: unknown): NextResponse {
     return jsonError(409, "project_not_selected", "Choose a project first.");
   }
   if (error instanceof ApiUnavailableError) {
-    return jsonError(502, "api_unavailable", error.message);
+    // The message names configuration (which container holds which token) and
+    // belongs in the server log, not in a body served to a browser.
+    console.error(error.message);
+    return jsonError(502, "api_unavailable", "The Flight Recorder API is unavailable.");
   }
   throw error;
 }
