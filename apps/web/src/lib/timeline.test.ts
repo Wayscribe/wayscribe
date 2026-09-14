@@ -4,19 +4,22 @@ import {
   NO_FILTERS,
   applyFilters,
   describeCount,
+  distinctServices,
   mergeEvents,
-  neighbour,
-  services
+  neighbour
 } from "./timeline";
 
+let eventCounter = 0;
+
 function event(id: string, overrides: Partial<EventListItem> = {}): EventListItem {
+  eventCounter += 1;
   return {
     id,
     operation: "received",
     name: `step-${id}`,
     service: "webhook-api",
-    eventTimestamp: `2026-09-14T10:00:0${id.slice(-1)}.000Z`,
-    receivedAt: `2026-09-14T10:00:0${id.slice(-1)}.500Z`,
+    eventTimestamp: `2026-09-14T10:00:0${String(eventCounter)}.000Z`,
+    receivedAt: `2026-09-14T10:00:0${String(eventCounter)}.500Z`,
     durationMs: null,
     hasInput: true,
     hasOutput: false,
@@ -91,11 +94,59 @@ describe("mergeEvents", () => {
     expect(updated.find((e) => e.id === "evt_2")?.hasError).toBe(true);
     expect(updated).toHaveLength(4);
   });
+
+  it("breaks a timestamp tie with receivedAt, then id, matching the server's order", () => {
+    // Same millisecond eventTimestamp, and ids deliberately sorted the opposite
+    // way from receivedAt: if the tie-break fell back to id instead of using
+    // receivedAt, this would sort "evt_b_earlier" second instead of first.
+    const earlier = event("evt_b_earlier", {
+      eventTimestamp: "2026-09-14T10:05:00.000Z",
+      receivedAt: "2026-09-14T10:05:00.100Z"
+    });
+    const later = event("evt_a_later", {
+      eventTimestamp: "2026-09-14T10:05:00.000Z",
+      receivedAt: "2026-09-14T10:05:00.200Z"
+    });
+
+    expect(mergeEvents([earlier, later], []).map((e) => e.id)).toEqual([
+      "evt_b_earlier",
+      "evt_a_later"
+    ]);
+    // The server's order does not depend on which array either copy arrived in.
+    expect(mergeEvents([later, earlier], []).map((e) => e.id)).toEqual([
+      "evt_b_earlier",
+      "evt_a_later"
+    ]);
+    expect(mergeEvents([later], [earlier]).map((e) => e.id)).toEqual([
+      "evt_b_earlier",
+      "evt_a_later"
+    ]);
+  });
+
+  it("does not mutate either input array", () => {
+    const existing = [evt3, evt1];
+    const incoming = [evt4, evt2];
+    const existingBefore = [...existing];
+    const incomingBefore = [...incoming];
+
+    mergeEvents(existing, incoming);
+
+    expect(existing).toEqual(existingBefore);
+    expect(incoming).toEqual(incomingBefore);
+  });
+
+  it("collapses duplicate ids within incoming to the last one", () => {
+    const older = event("evt_dup", { hasError: false });
+    const newer = event("evt_dup", { hasError: true, eventTimestamp: older.eventTimestamp });
+    const merged = mergeEvents([], [older, newer]);
+    expect(merged).toHaveLength(1);
+    expect(merged.find((e) => e.id === "evt_dup")?.hasError).toBe(true);
+  });
 });
 
-describe("services", () => {
+describe("distinctServices", () => {
   it("lists distinct services in first-seen order", () => {
-    expect(services(EVENTS)).toEqual(["webhook-api", "sync-worker"]);
+    expect(distinctServices(EVENTS)).toEqual(["webhook-api", "sync-worker"]);
   });
 });
 
@@ -119,5 +170,16 @@ describe("describeCount", () => {
   it("never reports a total below what is loaded", () => {
     // A live journey can deliver events before the count catches up.
     expect(describeCount({ visible: 12, loaded: 12, total: 10, complete: true })).toBe("12 events");
+  });
+
+  it("names the total when a filter hides some and pages remain unfetched", () => {
+    // Otherwise "3 of 100 events shown" reads as though nothing more exists.
+    expect(describeCount({ visible: 3, loaded: 100, total: 240, complete: false })).toBe(
+      "3 of 100 loaded events shown, 240 in total"
+    );
+  });
+
+  it("uses the singular for one event", () => {
+    expect(describeCount({ visible: 1, loaded: 1, total: 1, complete: true })).toBe("1 event");
   });
 });

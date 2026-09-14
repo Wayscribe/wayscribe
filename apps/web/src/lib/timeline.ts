@@ -1,17 +1,14 @@
+// Pure timeline logic, kept out of React so it can be tested without a DOM and
+// read without a component's state in the way.
 import type { EventListItem } from "./api";
-
-/**
- * Pure timeline logic, kept out of React so it can be tested without a DOM and
- * read without a component's state in the way.
- */
 
 export interface TimelineFilters {
   /** A service name, or null for all of them. */
-  service: string | null;
-  failuresOnly: boolean;
+  readonly service: string | null;
+  readonly failuresOnly: boolean;
 }
 
-export const NO_FILTERS: TimelineFilters = { service: null, failuresOnly: false };
+export const NO_FILTERS: TimelineFilters = Object.freeze({ service: null, failuresOnly: false });
 
 /** The events a reader currently sees, in the order they already had. */
 export function applyFilters(
@@ -46,15 +43,28 @@ export function neighbour(
 
   const next =
     direction === "down" ? Math.min(index + 1, visible.length - 1) : Math.max(index - 1, 0);
+  // `next` is always a valid index of `visible` here (0 <= next < visible.length);
+  // the `?? first.id` only satisfies noUncheckedIndexedAccess for the compiler
+  // and can't actually be reached.
   return visible[next]?.id ?? first.id;
 }
 
+/** Plain string comparison: `a`/`b` are fixed-form machine strings (timestamps, ids), not locale text. */
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /**
- * Union by id, ordered by timestamp then id.
+ * Union by id, in the server's order.
  *
- * Polling delivers overlapping pages, so this has to be safe to apply
- * repeatedly. The order is the API's own (ADR-031: an event carries when its
- * operation started), so merging cannot reorder what a reader has already seen.
+ * The API orders and pages events by `(event_timestamp, received_at, id)`
+ * (`packages/database/src/repositories/event-reads.ts`, the `orderBy` and the
+ * cursor comparison), so this sorts on the same three fields in the same
+ * order: two events can share a timestamp, and only `received_at` then `id`
+ * settle the tie the way the server already did. Polling delivers overlapping
+ * pages, so this also has to be safe to apply repeatedly, and it is: a
+ * repeated union changes nothing, and a newer copy of an id replaces the
+ * older one.
  */
 export function mergeEvents(
   existing: readonly EventListItem[],
@@ -64,12 +74,15 @@ export function mergeEvents(
   for (const event of existing) byId.set(event.id, event);
   for (const event of incoming) byId.set(event.id, event);
   return [...byId.values()].sort(
-    (a, b) => a.eventTimestamp.localeCompare(b.eventTimestamp) || a.id.localeCompare(b.id)
+    (a, b) =>
+      compare(a.eventTimestamp, b.eventTimestamp) ||
+      compare(a.receivedAt, b.receivedAt) ||
+      compare(a.id, b.id)
   );
 }
 
 /** Distinct service names in first-seen order, for the filter chips. */
-export function services(events: readonly EventListItem[]): string[] {
+export function distinctServices(events: readonly EventListItem[]): string[] {
   const seen: string[] = [];
   for (const event of events) {
     if (!seen.includes(event.service)) seen.push(event.service);
@@ -88,16 +101,27 @@ export interface CountInput {
   complete: boolean;
 }
 
+/** "event" or "events", depending on `count`. */
+function plural(count: number, noun: string): string {
+  return count === 1 ? noun : `${noun}s`;
+}
+
 /**
  * The count line under the heading.
  *
  * The header used to print the journey's true count above a list capped at a
  * hundred, with nothing saying so. Each case here names what the number is a
- * count of.
+ * count of, including the case where a filter is hiding rows and pages are
+ * still unfetched: without a total, that reads as though nothing more exists.
  */
 export function describeCount({ visible, loaded, total, complete }: CountInput): string {
   const all = Math.max(total, loaded);
-  if (visible !== loaded) return `${String(visible)} of ${String(loaded)} events shown`;
-  if (!complete) return `showing ${String(loaded)} of ${String(all)} events`;
-  return `${String(all)} events`;
+  if (visible !== loaded) {
+    if (!complete) {
+      return `${String(visible)} of ${String(loaded)} loaded ${plural(loaded, "event")} shown, ${String(all)} in total`;
+    }
+    return `${String(visible)} of ${String(loaded)} ${plural(loaded, "event")} shown`;
+  }
+  if (!complete) return `showing ${String(loaded)} of ${String(all)} ${plural(all, "event")}`;
+  return `${String(all)} ${plural(all, "event")}`;
 }
