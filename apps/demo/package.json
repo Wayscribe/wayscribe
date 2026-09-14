@@ -8,11 +8,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aws-sdk/client-sqs": "^3",
+    "@aws-sdk/client-sqs": "^3.1131.0",
     "@flight-recorder/database": "workspace:*",
     "@flight-recorder/node": "workspace:*",
-    "fastify": "^5",
-    "knex": "^3",
-    "pg": "^8"
+    "fastify": "^5.12.4",
+    "knex": "^3.3.0",
+    "pg": "^8.23.0"
   }
 }
