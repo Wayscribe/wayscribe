@@ -2028,10 +2028,18 @@ The spec seeds `jrn_e2e_demo` with entity id `0018Z00002ABC`, the same id every
 demo-triggered journey uses, so `finds the customer by entity id` (which expects
 exactly one result) fails on any database that has run the demo. Change the
 constant at the top of `apps/web/e2e/journey.spec.ts` to
-`const ENTITY_ID = "E2E-0018Z00002ABC";` and leave `ALIAS_VALUE` and
-`JOURNEY_ID` as they are; the transformed step's `input.Id` and
-`output.externalId` follow the constant. Re-run the existing suite before adding
-the new test: 8 passed regardless of whether the demo has run.
+`const ENTITY_ID = "E2E-0018Z00002ABC";` and leave `ALIAS_VALUE` as it is; the
+transformed step's `input.Id` and `output.externalId` follow the constant.
+
+Changing the entity id alone is not enough on a database that has already run
+the old suite: event ids are project-scoped (`ingest-event.ts` hashes the whole
+event and the repository conflicts on `[project_id, id]`), so re-posting `evt_1`
+with a new entity id answers 409, and `ensureJourney` ignores conflicts, so the
+existing `jrn_e2e_demo` keeps its old entity. Version the seed's identity as
+well: `JOURNEY_ID = "jrn_e2e_demo_v2"` and event ids `evt_v2_1` … `evt_v2_8`,
+with a comment at the top of the file saying to bump the version whenever the
+seeded data changes. Re-run the existing suite before adding the new test:
+8 passed regardless of whether the demo or the old suite has run.
 
 - [ ] **Step 1: Add the test**
 
@@ -2050,12 +2058,12 @@ test("walks the timeline with the keyboard and narrows it to failures without re
   await page.keyboard.press("ArrowDown");
 
   await expect(page.locator(".detail h2")).toHaveText("persist-customer");
-  await expect(page).toHaveURL(/event=evt_3$/);
+  await expect(page).toHaveURL(/event=evt_v2_3$/);
   await expect(page.locator(".timeline li.active")).toContainText("persisted");
 
   await page.getByRole("button", { name: "Failures only" }).click();
 
-  // evt_6 and evt_7 carry an error; the dead-letter event itself does not.
+  // evt_v2_6 and evt_v2_7 carry an error; the dead-letter event itself does not.
   await expect(page.locator(".timeline li")).toHaveCount(2);
   await expect(page.locator(".detail h2")).toHaveText("deliver-customer-to-target");
   await expect(page.getByText("2 of 8 events shown")).toBeVisible();
