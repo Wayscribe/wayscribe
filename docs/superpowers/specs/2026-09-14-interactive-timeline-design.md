@@ -186,7 +186,7 @@ exists.
   automatic runtime) included in `pnpm test`.
 - **Browser, Playwright:** one new spec against the demo journey: open it,
   press ArrowDown twice, assert the detail heading changed without navigation;
-  toggle failures only, assert four rows remain and the selection is the
+  toggle failures only, assert two rows remain (the two events that carry an error) and the selection is the
   first failure.
 - The existing eight specs must pass unchanged.
 
