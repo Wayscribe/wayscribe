@@ -68,7 +68,7 @@ services:
     ports:
       # Loopback only: a `docker compose up` on a cloud host must not expose the
       # stack to the internet.
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${API_PORT:-8080}:8080"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -83,7 +83,7 @@ services:
       # this, so rotating it invalidates sessions on both sides at once.
       ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
     depends_on:
       api:
         condition: service_started

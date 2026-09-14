@@ -36,10 +36,15 @@ export default async function ProjectsPage({
       <main>
         <h1>No projects yet</h1>
         <p className="muted">
-          Nothing has been created in this installation. Create a project and an API key with:
+          Nothing has been created in this installation. Create a project, then issue it an API key,
+          with the database CLI that ships in the API image:
         </p>
-        <pre className="mono">pnpm db:seed</pre>
-        <p className="muted">Then reload this page.</p>
+        <pre className="mono">
+          {'project:create acme "Acme Payments"\nkey:create acme production checkout-worker'}
+        </pre>
+        <p className="muted">
+          The README shows the full <code>docker compose run</code> command. Then reload this page.
+        </p>
       </main>
     );
   }

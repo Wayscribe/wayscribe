@@ -104,25 +104,49 @@ That is the whole loop: **find where the value was lost, then prove the fix.**
 
 ## Try it
 
-One command, and it brings its own broken integration to investigate:
+You need Docker with Compose. Nothing else: no Node, no database, no account.
+
+```bash
+git clone https://gitlab.com/jojithedev/flight-recorder.git && cd flight-recorder
+```
 
 ```bash
 docker compose -f infrastructure/compose.yaml \
                -f infrastructure/compose.demo.yaml up --build
 ```
 
+That builds the images and boots the API, the interface, PostgreSQL, a queue,
+and four demo services that bring their own broken integration to investigate.
+Measured from a fresh clone on a laptop with no Docker layer cache, the build
+took 38 seconds and the boot 12; the first run also downloads the base images.
+
+Then start a journey:
+
 ```bash
-pnpm demo:trigger
+curl -X POST http://localhost:3100/trigger
 ```
 
 Four demo services move a Salesforce account through a webhook, a
 transformation, PostgreSQL, a queue, a worker, and a third-party API. The
 transformation contains a real defect, the queue really retries, and the target
-really rejects the result with a 422. The trigger prints a link; about ten
-seconds later the journey shows you everything above.
+really rejects the result with a 422. About ten seconds after the trigger the
+journey has reached its dead-letter state.
 
-The interface is at `http://localhost:3000` and asks for `ADMIN_TOKEN`. Set your
-own before this holds anything real:
+Open `http://localhost:3000`, sign in with the admin token, and search
+`0018Z00002ABC`. That is the journey above. (`pnpm demo:trigger` does the same
+as the `curl` and prints the direct link, if you have Node 24 and pnpm.)
+
+The API binds `127.0.0.1:8080` and the interface `127.0.0.1:3000`. If either
+port is taken on your machine, move it:
+
+```bash
+API_PORT=8081 WEB_PORT=3001 docker compose -f infrastructure/compose.yaml \
+               -f infrastructure/compose.demo.yaml up --build
+```
+
+The interface asks for `ADMIN_TOKEN`, which is
+`replace-for-local-development-0000` until you set your own. Set your own
+before this holds anything real:
 
 ```bash
 cp .env.example .env && printf 'ENCRYPTION_KEY=%s\nADMIN_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
@@ -266,34 +290,32 @@ wrong the first time and say so.
 
 ## Status
 
-**Pre-release, and not yet ready for real use.**
+**Pre-release. It runs from a clone; nothing is published yet.**
 
 Ingestion, search, journey timelines, field-level diffs, the Node SDK,
-cross-process propagation, retention, the demo, and development replay are built,
-tested, and running. Container images and the npm package are not published yet,
-so today you install by cloning this repository.
+cross-process propagation, retention, the demo, development replay, and a
+read-only CLI are built, tested, and running. Container images and the npm
+package are not published, so today you install by cloning this repository.
 
-But an adversarial audit of the first-contact experience on 2026-08-09 found
-that the demo which verified all of it was systematically narrow: ten flat
+An adversarial audit of the first-contact experience on 2026-08-09 found that
+the demo which verified all of it was systematically narrow: ten flat
 plain-JSON events that never contained a `Date`, a shared object reference, a
-control character, a 101st event, or a rejected one. Thirty claims were raised
-and twenty-eight survived a refutation pass.
+control character, a 101st event, or a rejected one. Thirty claims were raised,
+twenty-eight survived a refutation pass, and three affected the correctness of
+what you see: the diff turned a `Date` into `{}` and reported a shared reference
+as a change, a rejected event counted as sent, and one unstorable value stalled
+the SDK's queue for the life of the process.
 
-The architecture holds — the server is correct where it matters and no schema
-migration is needed — but three defects affect the correctness of what you see:
+**Every one of them was fixed the same day**, with the twelve smaller findings.
+The fixed SDK was then pointed at a service this repository's authors had not
+written, with a real ORM, which found four more, including a credential leak in
+the redaction itself. Those are fixed too. The whole account, and what changed
+about how this is tested because of it, is in
+[What running it found](docs/WHAT_RUNNING_IT_FOUND.md). What remains open is in
+the [roadmap](docs/ROADMAP.md): free text inside error messages is not
+redacted, captured data cannot be deleted, and rotating `ENCRYPTION_KEY` is
+destructive.
 
-- **The diff can be wrong in both directions.** Redaction rebuilds objects from
-  `Object.entries()`, so a `Date` becomes `{}` and a renewal that moved an expiry
-  by a year reports *"No fields changed."* A second reference to the same object
-  becomes `"[CIRCULAR]"`, a change that never happened.
-- **A rejected event can look like a delivered one.** The batch route reports
-  per-event results; the SDK checks only the HTTP status, so a typo'd
-  `environment` yields `sent: 4`, no diagnostics, and an empty database.
-- **One unstorable value stalls the queue** rather than being dropped.
-
-Fixes are underway, sequenced by what makes the next defect observable rather
-than by severity. Until they land, treat this as a design and architecture
-reference rather than a tool to point at a real service.
 [CHANGELOG.md](CHANGELOG.md) lists what is done and what is known to be missing.
 
 The install that replaces the clone is already written and waiting on that

@@ -1,5 +1,5 @@
 const SOURCE_URL = process.env.DEMO_SOURCE_URL ?? "http://localhost:3100";
-const WEB_URL = process.env.DEMO_WEB_URL ?? "http://localhost:3000";
+const WEB_URL = process.env.DEMO_WEB_URL ?? `http://localhost:${process.env.WEB_PORT ?? "3000"}`;
 
 const response = await fetch(`${SOURCE_URL}/trigger`, { method: "POST" }).catch(() => undefined);
 

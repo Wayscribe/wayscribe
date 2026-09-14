@@ -51,6 +51,63 @@ changes far less often.
 
 ### Fixed
 
+The eight defects and seven smaller findings from the 2026-08-09 first-contact
+audit, all merged the same day. The pattern behind them is written up in
+[docs/WHAT_RUNNING_IT_FOUND.md](docs/WHAT_RUNNING_IT_FOUND.md).
+
+- **The SDK reports what the server actually stored.** The batch route replies
+  202 with a per-event verdict; the SDK checked only the HTTP status, so an
+  `environment` typo produced `sent: 4`, no diagnostics, and an empty database.
+  It now counts only accepted events and reports each refusal with the server's
+  own message under a new `rejected` counter, kept separate from
+  `transport_error` because a rejection is never retried.
+- **`operation` is a typed union**, exported as `Operation`. A plausible verb
+  like `"created"` used to compile, be refused, and vanish from the timeline.
+- **A `Date` survives redaction, and a shared reference is not a change.**
+  Redaction rebuilt objects from `Object.entries`, so every `Date` became `{}`
+  on both sides of a transformation and a renewal that moved an expiry by a year
+  diffed as "No fields changed". The cycle check never forgot a visited object,
+  so two fields pointing at one address reported the second as `[CIRCULAR]`.
+  Anything with a `toJSON` now serialises itself and the result is still walked;
+  the cycle check holds only the ancestor chain.
+- **One bad value no longer stops a service's telemetry.** A 4xx was retried
+  like a 5xx, drove the breaker open, and put the batch back at the front of
+  the queue, so one malformed payload blocked every event behind it for the
+  life of the process. A 4xx is permanent now. NUL bytes and lone surrogates
+  are repaired before they leave the SDK, a poisoned event is rejected alone
+  rather than failing its batch, `metadata` passes through capture, `batchSize`
+  is clamped to the server's ceiling, and a PostgreSQL error code no longer
+  reaches the client as the API's error code (`unstorable_payload`).
+- **Flushes are awaited and bounded.** `flush()` and `shutdown()` waited on
+  nothing, so counters were read before the send finished and the last batch
+  was lost on `process.exit`. A burst of 1,000 records opened 200 sockets and
+  posted every event three times; at most four sends run at once. `shutdown()`
+  reports an event recorded after it as dropped instead of discarding silently.
+- **The timeline shows the whole journey.** The web layer hardcoded `limit=100`
+  and discarded the cursor, so the hundred oldest events rendered and the
+  dead-letter event you opened the page for was absent, under a header stating
+  the true count. Every row now carries a full UTC timestamp, the date appears
+  when a journey spans more than one day, and an event whose recorded time is
+  more than two minutes from its arrival carries a clock warning.
+- **No blank 500s.** An API that was still booting rendered a blank page whose
+  only text was "Flight Recorder". An error boundary explains the likely cause,
+  and a 401 says the token does not match rather than "unreachable".
+- **Propagation cannot kill the host.** The six propagation helpers were the
+  only public entry points outside the failure boundary, so
+  `injectHttpHeaders({}, extractHttpContext(req.headers))` killed the process on
+  the first un-instrumented caller. Injected values are validated on the way
+  in as well as on the way out.
+- **A failure always registers.** A failed event stamped earlier than the
+  journey's watermark left the journey `active` with a failure in its own
+  timeline, which ADR-031 made the common case rather than a race.
+- **`maxPayloadBytes` scales the string limit with it**, a discarded payload
+  emits a diagnostic, and the event detail no longer claims "No fields changed"
+  when neither side was captured.
+- **Wrappers preserve the shape of their callback.** Every wrapper was async, so
+  wrapping a synchronous call inside a synchronous handler changed its control
+  flow: a handler that correctly returned 400 became a 200 with an empty body
+  and an unhandled rejection. A synchronous callback now returns and throws
+  synchronously, and the types carry overloads that say so.
 - **`Map`, `Set`, `Error`, `RegExp`, `Headers` and `URLSearchParams` keep their
   contents.** All six store their data in internal slots, so the rebuild that
   makes redaction possible turned each into `{}` — including an `Error`, whose
