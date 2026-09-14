@@ -243,6 +243,60 @@ describe("JourneyTimeline", () => {
     expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
   });
 
+  it("keeps the Live toggle when the reader switches off a finished journey that is still warm", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(() => Promise.resolve(ok(page({ journeyStatus: "failed" }))));
+    mount({ initialStatus: "failed", initialLive: true });
+
+    // Not active, not live, no notice: the old gate hid the checkbox the
+    // instant it was unticked, under the reader's own click.
+    act(() => {
+      fireEvent.click(screen.getByRole("checkbox", { name: "Live" }));
+    });
+    const toggle = screen.getByRole("checkbox", { name: "Live" });
+    expect(toggle).not.toBeChecked();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
+  });
+
+  it("says it is loading underneath the event's heading, not above it", () => {
+    fetchMock.mockImplementationOnce(() => new Promise<Response>(() => undefined));
+    mount();
+
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "ArrowDown" });
+
+    const heading = screen.getByRole("heading", { level: 2 });
+    const loading = screen.getByText("Loading…");
+    expect(
+      heading.compareDocumentPosition(loading) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("puts a failed detail request's message underneath the heading too", async () => {
+    fetchMock.mockResolvedValueOnce(failed());
+    mount();
+
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "ArrowDown" });
+
+    const message = await screen.findByText(/Could not load this event/);
+    const heading = screen.getByRole("heading", { level: 2 });
+    expect(
+      heading.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(message).toHaveClass("error");
+  });
+
   it("keeps the Live toggle reachable on a failed journey whose polls gave up", async () => {
     vi.useFakeTimers();
     fetchMock.mockResolvedValue(failed());

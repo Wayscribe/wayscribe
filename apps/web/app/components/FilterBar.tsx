@@ -13,6 +13,7 @@ export function FilterBar({
   onFilters,
   status,
   live,
+  liveOffered,
   onLive,
   notice
 }: {
@@ -21,6 +22,12 @@ export function FilterBar({
   onFilters: (filters: TimelineFilters) => void;
   status: string;
   live: boolean;
+  /**
+   * Whether the Live control is on offer even while unticked: a finished
+   * journey that is still warm keeps it until live mode's quiet stop withdraws
+   * it, so unticking it does not make it vanish under the reader's click.
+   */
+  liveOffered: boolean;
   onLive: (live: boolean) => void;
   /** Why live updates stopped, if they did. */
   notice: string | null;
@@ -65,7 +72,7 @@ export function FilterBar({
         </button>
         {/* `notice` too: it tells the reader to turn Live on to retry, and live
             is false by then on a journey whose status is already terminal. */}
-        {status === "active" || live || notice !== null ? (
+        {status === "active" || live || liveOffered || notice !== null ? (
           <label className="chip">
             <input
               type="checkbox"

@@ -13,7 +13,7 @@ import {
   neighbour,
   type TimelineFilters
 } from "../../src/lib/timeline";
-import { EventDetail } from "./EventDetail";
+import { type DetailNotice, EventDetail } from "./EventDetail";
 import { FilterBar } from "./FilterBar";
 import { TimelineList } from "./TimelineList";
 
@@ -83,6 +83,13 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const [detailState, setDetailState] = useState<"idle" | "loading" | "error">("idle");
   const [detailError, setDetailError] = useState(DETAIL_ERROR);
   const [live, setLive] = useState(props.initialLive);
+  // Whether the Live control is offered at all, which is not the same as live
+  // being on: a reader who unticks it on a finished journey that is still
+  // warm must still find it there to tick again. Only the quiet stop, which
+  // concludes the journey really has finished, withdraws it.
+  const [liveOffered, setLiveOffered] = useState(
+    props.initialLive || props.initialStatus === "active"
+  );
   const [pollNotice, setPollNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // `loadingMore` drives the disabled attribute; the guard itself has to be a
@@ -142,16 +149,20 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
       setDetail(result.body);
       setDetailState("idle");
     },
-    [journeyId]
+    // Nothing from render scope: `wanted` is a ref, the setters are stable, and
+    // `fetchJson` is a module import.
+    []
   );
 
-  // A filter that hides the selected event moves the selection to the first
-  // visible one, so the detail panel never shows something the list does not.
+  // A filter that hides the selected event, once it is loaded, moves the
+  // selection to the first visible one, so the detail panel does not keep
+  // showing a row the reader has just filtered away.
   //
-  // Only when the event is loaded, though: `?event=` can name an event on a
-  // later page (the replay screen's way back produces exactly that link), and
-  // that is not the same as being filtered out. Relocating there would throw
-  // away the detail the server already rendered and rewrite the address.
+  // An event that is not loaded is left alone, filter or no filter: `?event=`
+  // can name an event on a later page (the replay screen's way back produces
+  // exactly that link), and relocating there would throw away the detail the
+  // server already rendered and rewrite the address. In that one case the
+  // panel can show an event the list does not, which is the lesser surprise.
   useEffect(() => {
     const first = visible[0];
     if (first === undefined) return;
@@ -244,7 +255,10 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
         return;
       }
       quietPolls.current += 1;
-      if (quietPolls.current >= QUIET_POLLS_TO_STOP) setLive(false);
+      if (quietPolls.current >= QUIET_POLLS_TO_STOP) {
+        setLive(false);
+        setLiveOffered(false);
+      }
     };
 
     const timer = setInterval(() => {
@@ -267,6 +281,13 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   // journey that has recorded nothing yet: that one keeps its own wording.
   const noMatches = visible.length === 0 && events.length > 0;
 
+  const detailNotice: DetailNotice | null =
+    detailState === "loading"
+      ? { text: "Loading…", tone: "muted" }
+      : detailState === "error"
+        ? { text: detailError, tone: "error" }
+        : null;
+
   const count = describeCount({
     visible: visible.length,
     loaded: events.length,
@@ -285,6 +306,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
         onFilters={setFilters}
         status={status}
         live={live}
+        liveOffered={liveOffered}
         onLive={onLive}
         notice={pollNotice}
       />
@@ -327,16 +349,18 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
               them, so loosening the filter costs no request. */}
           {noMatches ? (
             <p className="muted">{NO_MATCHES}</p>
-          ) : (
+          ) : detail === null ? (
+            // No heading to sit under, so a notice goes first. Reached when a
+            // bad `?event=` left the server with no detail and the reader
+            // then selects a row.
             <>
-              {detailState === "loading" ? <p className="muted">Loading…</p> : null}
-              {detailState === "error" ? <p className="error">{detailError}</p> : null}
-              {detail === null ? (
-                <p className="muted">This journey has no events yet.</p>
-              ) : (
-                <EventDetail event={detail} collapsibleDiff />
+              {detailNotice === null ? null : (
+                <p className={detailNotice.tone}>{detailNotice.text}</p>
               )}
+              <p className="muted">This journey has no events yet.</p>
             </>
+          ) : (
+            <EventDetail event={detail} notice={detailNotice} />
           )}
         </div>
       </div>
