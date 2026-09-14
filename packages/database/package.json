@@ -28,12 +28,12 @@
   },
   "dependencies": {
     "@flight-recorder/payload-security": "workspace:*",
-    "knex": "^3",
-    "pg": "^8"
+    "knex": "^3.3.0",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
-    "@testcontainers/postgresql": "^11",
-    "@types/pg": "^8",
-    "tsx": "^4"
+    "@testcontainers/postgresql": "^11.14.0",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.13"
   }
 }

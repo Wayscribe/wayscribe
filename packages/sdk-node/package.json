@@ -45,7 +45,7 @@
   "devDependencies": {
     "@flight-recorder/payload-security": "workspace:*",
     "@flight-recorder/protocol": "workspace:*",
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.12"
   },
   "publishConfig": {
     "access": "public",

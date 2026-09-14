@@ -15,13 +15,13 @@
     "@flight-recorder/payload-diff": "workspace:*",
     "@flight-recorder/payload-security": "workspace:*",
     "@flight-recorder/protocol": "workspace:*",
-    "fastify": "^5",
-    "knex": "^3",
-    "pg": "^8",
-    "undici": "^8.10.0"
+    "fastify": "^5.12.4",
+    "knex": "^3.3.0",
+    "pg": "^8.23.0",
+    "undici": "^8.10.2"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^11.14.0",
-    "tsx": "^4"
+    "tsx": "^4.23.13"
   }
 }
