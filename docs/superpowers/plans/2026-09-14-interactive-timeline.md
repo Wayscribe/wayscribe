@@ -2036,9 +2036,13 @@ the old suite: event ids are project-scoped (`ingest-event.ts` hashes the whole
 event and the repository conflicts on `[project_id, id]`), so re-posting `evt_1`
 with a new entity id answers 409, and `ensureJourney` ignores conflicts, so the
 existing `jrn_e2e_demo` keeps its old entity. Version the seed's identity as
-well: `JOURNEY_ID = "jrn_e2e_demo_v2"` and event ids `evt_v2_1` … `evt_v2_8`,
-with a comment at the top of the file saying to bump the version whenever the
-seeded data changes. Re-run the existing suite before adding the new test:
+well, through one constant: `const SEED_VERSION = "v4";` (v4 because each
+content change on the development database conflicted with the previous
+version's events), with the journey id, event ids, entity id and alias value all
+derived from it, and a comment at the top of the file saying to bump it whenever
+the seeded data changes. The alias mask assertion is written out (`"SF-A…-V4"`)
+rather than derived from the masking rule, so it changes with a bump too. Re-run
+the existing suite before adding the new test:
 8 passed regardless of whether the demo or the old suite has run.
 
 - [ ] **Step 1: Add the test**
@@ -2058,12 +2062,12 @@ test("walks the timeline with the keyboard and narrows it to failures without re
   await page.keyboard.press("ArrowDown");
 
   await expect(page.locator(".detail h2")).toHaveText("persist-customer");
-  await expect(page).toHaveURL(/event=evt_v2_3$/);
+  await expect(page).toHaveURL(new RegExp(`event=evt_${SEED_VERSION}_3$`));
   await expect(page.locator(".timeline li.active")).toContainText("persisted");
 
   await page.getByRole("button", { name: "Failures only" }).click();
 
-  // evt_v2_6 and evt_v2_7 carry an error; the dead-letter event itself does not.
+  // The sixth and seventh events carry an error; the dead-letter event itself does not.
   await expect(page.locator(".timeline li")).toHaveCount(2);
   await expect(page.locator(".detail h2")).toHaveText("deliver-customer-to-target");
   await expect(page.getByText("2 of 8 events shown")).toBeVisible();
