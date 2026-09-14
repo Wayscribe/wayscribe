@@ -2022,6 +2022,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Modify: `apps/web/e2e/journey.spec.ts`
 
+- [ ] **Step 0: Make the seed independent of the demo**
+
+The spec seeds `jrn_e2e_demo` with entity id `0018Z00002ABC`, the same id every
+demo-triggered journey uses, so `finds the customer by entity id` (which expects
+exactly one result) fails on any database that has run the demo. Change the
+constant at the top of `apps/web/e2e/journey.spec.ts` to
+`const ENTITY_ID = "E2E-0018Z00002ABC";` and leave `ALIAS_VALUE` and
+`JOURNEY_ID` as they are; the transformed step's `input.Id` and
+`output.externalId` follow the constant. Re-run the existing suite before adding
+the new test: 8 passed regardless of whether the demo has run.
+
 - [ ] **Step 1: Add the test**
 
 Append to `apps/web/e2e/journey.spec.ts`:

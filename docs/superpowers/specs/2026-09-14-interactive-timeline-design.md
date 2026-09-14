@@ -70,9 +70,9 @@ Exported functions, each unit-tested without a DOM:
 
 ### `app/components/JourneyTimeline.tsx` — `"use client"`, the state owner
 
-Props: `journeyId`, `initialStatus`, `initialEvents`, `initialCursor`,
-`initialSelected` (the detail already fetched by the server, may be null),
-`multiDay`.
+Props: `journeyId`, `initialStatus`, `initialLastEventAt`, `initialEvents`,
+`initialCursor`, `initialSelectedId`, `initialDetail` (the detail already
+fetched by the server, may be null), `totalEvents`, `knownServices`.
 
 State: `events`, `cursor`, `status`, `filters`, `selectedId`, `detail`,
 `detailError`, `live`, `pollFailures`.
@@ -102,13 +102,16 @@ Behaviour:
 - **Load more.** When `cursor` is not null, a "Show N more" line at the foot of
   the list fetches the next page and merges it. The header count line already
   says "showing X of Y"; that text now comes from the client state.
-- **Live.** A toggle, on by default only when `initialStatus === "active"`.
-  While on, every two seconds it fetches the events route with the latest
-  cursor (or no cursor when there is none, in which case it refetches the
-  first page and merges). The response carries `journeyStatus`; when it is no
-  longer `active`, polling stops and the header shows the final status. After
-  three consecutive failed polls, polling stops and a one-line notice says so,
-  with the toggle available to restart it. A failed poll never clears the list.
+- **Live.** A toggle, on by default when the journey is `active` or its last
+  event is less than thirty seconds old. A journey's status turns terminal on
+  its first failure while retries are still being recorded (the demo journey
+  is `failed` at its sixth event and records four more), so status alone
+  cannot say whether events are still arriving. While on, every two seconds
+  it re-reads the tail from the last cursor it was given (page one when there
+  is none) and merges. It stops when the status is not `active` and three
+  consecutive polls have added nothing, when three consecutive polls fail
+  (with a one-line notice and the toggle available to restart), or at once on
+  a 401 or 409. A failed poll never clears the list.
 - **Errors.** A failed detail fetch shows a one-line error under the heading
   and keeps the last detail. A failed load-more shows the same line at the
   foot of the list. The page-level error boundary is not involved: nothing
