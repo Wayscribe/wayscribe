@@ -67,12 +67,12 @@ function mount(props: Partial<Parameters<typeof JourneyTimeline>[0]> = {}) {
     <JourneyTimeline
       journeyId="jrn_1"
       initialStatus={status}
-      // What the page computes: an active journey is followed, and a finished
-      // one only when a test says its last event was recent.
       initialEvents={EVENTS}
       initialCursor={null}
       initialSelectedId="evt_1"
       initialDetail={detail("evt_1")}
+      // What the page computes: an active journey is followed, and a finished
+      // one only when a test says its last event was recent.
       initialLive={status === "active"}
       totalEvents={4}
       knownServices={["webhook-api", "sync-worker"]}

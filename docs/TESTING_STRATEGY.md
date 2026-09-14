@@ -27,6 +27,10 @@ Use for:
 - journey status derivation
 - SDK buffer behavior
 - retry timing logic
+- React components rendered under jsdom with Testing Library
+  (`apps/web/**/*.test.tsx`, the `web` Vitest project)
+
+Next route handlers are tested under node with the API client mocked.
 
 ### Database integration tests
 

@@ -11,6 +11,7 @@ describe("apiFailure", () => {
     const response = apiFailure(new ProjectNotSelectedError("No project is selected."));
 
     expect(response.status).toBe(409);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     const body = (await response.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe("project_not_selected");
   });

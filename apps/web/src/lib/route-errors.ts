@@ -3,7 +3,12 @@ import { ApiUnavailableError, ProjectNotSelectedError } from "./api";
 
 /** A `{ error: { code, message } }` body at the given HTTP status. */
 export function jsonError(status: number, code: string, message: string): NextResponse {
-  return NextResponse.json({ error: { code, message } }, { status });
+  // A 404 is heuristically cacheable: an intermediary must not keep "no such
+  // event" for an event that is about to be recorded.
+  return NextResponse.json(
+    { error: { code, message } },
+    { status, headers: { "cache-control": "no-store" } }
+  );
 }
 
 /** Turns the API client's typed failures into JSON responses; rethrows anything else. */

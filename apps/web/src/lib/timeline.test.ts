@@ -15,13 +15,15 @@ let eventCounter = 0;
 
 function event(id: string, overrides: Partial<EventListItem> = {}): EventListItem {
   eventCounter += 1;
+  // Padded: the tenth call must produce `10:00:10`, not the invalid `10:00:010`.
+  const seconds = String(eventCounter).padStart(2, "0");
   return {
     id,
     operation: "received",
     name: `step-${id}`,
     service: "webhook-api",
-    eventTimestamp: `2026-09-14T10:00:0${String(eventCounter)}.000Z`,
-    receivedAt: `2026-09-14T10:00:0${String(eventCounter)}.500Z`,
+    eventTimestamp: `2026-09-14T10:00:${seconds}.000Z`,
+    receivedAt: `2026-09-14T10:00:${seconds}.500Z`,
     durationMs: null,
     hasInput: true,
     hasOutput: false,
@@ -92,7 +94,13 @@ describe("mergeEvents", () => {
   it("is idempotent, and a newer copy of an event replaces the older one", () => {
     const once = mergeEvents(EVENTS, EVENTS);
     expect(once).toHaveLength(4);
-    const updated = mergeEvents(once, [event("evt_2", { hasError: true })]);
+    // Same timestamps as the event it replaces: the API cannot move an event in time.
+    const newer = event("evt_2", {
+      hasError: true,
+      eventTimestamp: evt2.eventTimestamp,
+      receivedAt: evt2.receivedAt
+    });
+    const updated = mergeEvents(once, [newer]);
     expect(updated.find((e) => e.id === "evt_2")?.hasError).toBe(true);
     expect(updated).toHaveLength(4);
   });
