@@ -22,11 +22,34 @@ export default defineConfig({
     }
   },
   test: {
-    include: ["{apps,packages}/*/src/**/*.test.ts", "tests/**/*.test.ts"],
-    // The demo suite needs a running Compose stack, so it must never join this
-    // run: `pnpm test` has to work on a laptop with nothing up.
-    exclude: ["**/node_modules/**", "**/*.integration.test.ts", "**/*.e2e.test.ts"],
-    environment: "node",
-    testTimeout: 10_000
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "node",
+          include: ["{apps,packages}/*/src/**/*.test.ts", "tests/**/*.test.ts"],
+          // The demo suite needs a running Compose stack, so it must never join this
+          // run: `pnpm test` has to work on a laptop with nothing up.
+          exclude: ["**/node_modules/**", "**/*.integration.test.ts", "**/*.e2e.test.ts"],
+          environment: "node",
+          testTimeout: 10_000
+        }
+      },
+      {
+        // React components render into jsdom. Kept as a second project rather than
+        // a per-file environment comment so a component test cannot silently run
+        // under node and pass by never rendering.
+        extends: true,
+        esbuild: { jsx: "automatic" },
+        test: {
+          name: "web",
+          include: ["apps/web/**/*.test.tsx"],
+          exclude: ["**/node_modules/**", "**/.next/**"],
+          environment: "jsdom",
+          setupFiles: ["apps/web/vitest.setup.tsx"],
+          testTimeout: 10_000
+        }
+      }
+    ]
   }
 });
