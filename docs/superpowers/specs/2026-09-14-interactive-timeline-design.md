@@ -70,7 +70,7 @@ Exported functions, each unit-tested without a DOM:
 
 ### `app/components/JourneyTimeline.tsx` — `"use client"`, the state owner
 
-Props: `journeyId`, `initialStatus`, `initialLastEventAt`, `initialEvents`,
+Props: `journeyId`, `initialStatus`, `initialLive`, `initialEvents`,
 `initialCursor`, `initialSelectedId`, `initialDetail` (the detail already
 fetched by the server, may be null), `totalEvents`, `knownServices`.
 
@@ -103,7 +103,9 @@ Behaviour:
   the list fetches the next page and merges it. The header count line already
   says "showing X of Y"; that text now comes from the client state.
 - **Live.** A toggle, on by default when the journey is `active` or its last
-  event is less than thirty seconds old. A journey's status turns terminal on
+  event is less than thirty seconds old. That decision is made once, on the
+  server, and passed as a boolean: a clock-based check evaluated again on the
+  client would disagree under clock skew and mismatch on hydration. A journey's status turns terminal on
   its first failure while retries are still being recorded (the demo journey
   is `failed` at its sixth event and records four more), so status alone
   cannot say whether events are still arriving. While on, every two seconds
