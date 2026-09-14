@@ -102,7 +102,7 @@ describe("mergeEvents", () => {
     });
     const updated = mergeEvents(once, [newer]);
     expect(updated.find((e) => e.id === "evt_2")?.hasError).toBe(true);
-    expect(updated).toHaveLength(4);
+    expect(updated.map((e) => e.id)).toEqual(["evt_1", "evt_2", "evt_3", "evt_4"]);
   });
 
   it("breaks a timestamp tie with receivedAt, then id, matching the server's order", () => {
@@ -147,7 +147,11 @@ describe("mergeEvents", () => {
 
   it("collapses duplicate ids within incoming to the last one", () => {
     const older = event("evt_dup", { hasError: false });
-    const newer = event("evt_dup", { hasError: true, eventTimestamp: older.eventTimestamp });
+    const newer = event("evt_dup", {
+      hasError: true,
+      eventTimestamp: older.eventTimestamp,
+      receivedAt: older.receivedAt
+    });
     const merged = mergeEvents([], [older, newer]);
     expect(merged).toHaveLength(1);
     expect(merged.find((e) => e.id === "evt_dup")?.hasError).toBe(true);

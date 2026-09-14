@@ -30,7 +30,8 @@ Use for:
 - React components rendered under jsdom with Testing Library
   (`apps/web/**/*.test.tsx`, the `web` Vitest project)
 
-Next route handlers are tested under node with the API client mocked.
+Next route handlers are tested under node with the API client mocked
+(`apps/web/app/**/*.test.ts`, the `node` Vitest project).
 
 ### Database integration tests
 

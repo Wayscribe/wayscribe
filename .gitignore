@@ -10,4 +10,4 @@ coverage/
 next-env.d.ts
 .superpowers/
 examples/*/package-lock.json
-test-results/
+/test-results/

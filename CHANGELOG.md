@@ -29,14 +29,13 @@ changes far less often.
   panel follows without a reload. The address keeps `?event=` in step, so a
   copied link still opens the event you were reading. A Live toggle follows a
   journey that is still recording as its events arrive, and turns itself off
-  once a finished journey goes six seconds with nothing new. A journey used to
-  stop at six hundred events; the page now renders the first hundred, and a
-  "Show more events" button reads the rest. The first paint is still
-  server-rendered and the rows are still links, so nothing that worked before
-  stopped working. The browser talks only to two session-checked route
-  handlers in the web app, never to the API, so the admin token stays on the
-  server (ADR-029). Long diffs collapse to eight rows behind a button that
-  shows the rest.
+  once a finished journey goes six seconds with nothing new. The page renders
+  the first hundred events, however long the journey, and a "Show N more events"
+  button reads the rest. The first paint is still server-rendered and the rows
+  are still links, so nothing that worked before stopped working. The browser
+  talks only to two session-checked route handlers in the web app, never to the
+  API, so the admin token stays on the server (ADR-029). Long diffs collapse to
+  eight rows behind a button that shows the rest.
 
 - **`project:create` and `project:list`.** A new installation had no projects
   and no way to create one: `key:create` requires a project, and the only two
@@ -100,7 +99,9 @@ audit, all merged the same day. The pattern behind them is written up in
 - **The timeline shows the whole journey.** The web layer hardcoded `limit=100`
   and discarded the cursor, so the hundred oldest events rendered and the
   dead-letter event you opened the page for was absent, under a header stating
-  the true count. Every row now carries a full UTC timestamp, the date appears
+  the true count. The page now follows the cursor, loading the rest of a long
+  journey on request, and the count line says how many of the total are
+  showing. Every row now carries a full UTC timestamp, the date appears
   when a journey spans more than one day, and an event whose recorded time is
   more than two minutes from its arrival carries a clock warning.
 - **No blank 500s.** An API that was still booting rendered a blank page whose
