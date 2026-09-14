@@ -27,10 +27,28 @@ export interface JourneyTimelineProps {
   totalEvents: number;
   /** The journey's services from the server, which may include ones not yet loaded. */
   knownServices: string[];
+  /** The journey's `lastEventAt`, an ISO instant: how live mode decides a finished journey is still warm. */
+  initialLastEventAt: string;
+  /** Injectable clock, for tests. Used only to judge how recent the last event is. */
+  now?: () => number;
 }
 
 const POLL_MS = 2000;
 const MAX_POLL_FAILURES = 3;
+/**
+ * How recently the last event must have landed for live mode to start on a
+ * journey that is already marked finished, and how many polls that add nothing
+ * end it.
+ *
+ * A journey's status turns terminal on its first failure, while the retries
+ * that follow are still being recorded: the demo scenario is `failed` the
+ * instant its sixth event lands and keeps writing for ten more seconds. Status
+ * is therefore the wrong signal on both ends. Live mode starts when the
+ * journey is active *or* still warm, and stops when six seconds of polling
+ * bring nothing new.
+ */
+const RECENT_MS = 30_000;
+const QUIET_POLLS_TO_STOP = 3;
 const POLL_NOTICE = "Live updates stopped after three failed requests. Turn Live on to retry.";
 const PERMANENT_NOTICE =
   "Live updates stopped: this session can no longer read the journey. Sign in again or choose a project.";
@@ -64,7 +82,11 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const [detail, setDetail] = useState(props.initialDetail);
   const [detailState, setDetailState] = useState<"idle" | "loading" | "error">("idle");
   const [detailError, setDetailError] = useState(DETAIL_ERROR);
-  const [live, setLive] = useState(props.initialStatus === "active");
+  const { now = Date.now } = props;
+  const [live, setLive] = useState(
+    () =>
+      props.initialStatus === "active" || now() - Date.parse(props.initialLastEventAt) < RECENT_MS
+  );
   const [pollNotice, setPollNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // `loadingMore` drives the disabled attribute; the guard itself has to be a
@@ -84,6 +106,13 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   // to the newest event; the count line says how far along that is.
   const pollFrom = useRef(props.initialCursor);
   const loadingMoreRef = useRef(false);
+  // Consecutive polls that brought nothing new, once the journey is no longer
+  // active. Three of them (six seconds) end live mode.
+  const quietPolls = useRef(0);
+  // Mirrors `events`, so a poll can tell whether it actually added anything
+  // without reading state it may not see yet. `applyPage` is the only writer of
+  // both, which keeps them in step.
+  const eventsRef = useRef(props.initialEvents);
   // A poll slower than the interval must not overlap the next one: two
   // responses landing out of order would move the cursor back a page.
   const polling = useRef(false);
@@ -141,12 +170,17 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
     if (id !== null && id !== selectedId) void select(id);
   };
 
+  /** Merges a page in and reports whether it contained anything not already held. */
   const applyPage = useCallback((page: EventsPageResponse) => {
-    setEvents((previous) => mergeEvents(previous, page.items));
+    const merged = mergeEvents(eventsRef.current, page.items);
+    const added = merged.length > eventsRef.current.length;
+    eventsRef.current = merged;
+    setEvents(merged);
     setCursor(page.nextCursor);
     if (page.nextCursor !== null) pollFrom.current = page.nextCursor;
     setStatus(page.journeyStatus);
     setTotal(page.journeyEventCount);
+    return added;
   }, []);
 
   const loadMore = async () => {
@@ -197,8 +231,15 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
         return;
       }
       pollFailures.current = 0;
-      applyPage(result.body);
-      if (result.body.journeyStatus !== "active") setLive(false);
+      const added = applyPage(result.body);
+      // Not "the journey says it is finished" — that is true while retries are
+      // still arriving — but "nothing new has arrived for six seconds".
+      if (result.body.journeyStatus === "active" || added) {
+        quietPolls.current = 0;
+        return;
+      }
+      quietPolls.current += 1;
+      if (quietPolls.current >= QUIET_POLLS_TO_STOP) setLive(false);
     };
 
     const timer = setInterval(() => {
@@ -212,6 +253,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
 
   const onLive = (next: boolean) => {
     pollFailures.current = 0;
+    quietPolls.current = 0;
     setPollNotice(null);
     setLive(next);
   };

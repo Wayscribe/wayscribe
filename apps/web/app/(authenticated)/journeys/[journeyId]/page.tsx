@@ -56,6 +56,7 @@ export default async function JourneyPage({
           initialDetail={active}
           totalEvents={journey.eventCount}
           knownServices={journey.services}
+          initialLastEventAt={journey.lastEventAt}
         />
       </main>
     );

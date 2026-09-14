@@ -70,6 +70,7 @@ function mount(props: Partial<Parameters<typeof JourneyTimeline>[0]> = {}) {
       initialCursor={null}
       initialSelectedId="evt_1"
       initialDetail={detail("evt_1")}
+      initialLastEventAt="2026-01-01T00:00:00.000Z"
       totalEvents={4}
       knownServices={["webhook-api", "sync-worker"]}
       {...props}
@@ -154,25 +155,87 @@ describe("JourneyTimeline", () => {
     expect(screen.getByText(/· 6 events ·/)).toBeInTheDocument();
   });
 
-  it("polls an active journey and stops when it finishes", async () => {
+  it("polls a finished journey until it goes quiet, not until it is marked finished", async () => {
     vi.useFakeTimers();
-    fetchMock.mockResolvedValueOnce(
-      ok(page({ items: [event("evt_5")], journeyStatus: "completed", journeyEventCount: 5 }))
-    );
+    // A fresh Response each time: a body can only be read once.
+    const tail = () =>
+      Promise.resolve(
+        ok(page({ items: [event("evt_5")], journeyStatus: "completed", journeyEventCount: 5 }))
+      );
+    fetchMock.mockImplementation(tail);
     mount({ initialStatus: "active" });
 
     expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
+    // Terminal status, but it brought a new event: still following.
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getAllByRole("option")).toHaveLength(5);
     expect(screen.getByText(/^completed/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
+
+    // Three polls that add nothing: six seconds of quiet, then it stops.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(screen.queryByRole("checkbox", { name: "Live" })).not.toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps following a failed journey while events are still arriving", async () => {
+    vi.useFakeTimers();
+    // The demo journey is marked `failed` the instant its sixth event lands and
+    // keeps recording retries for ten more seconds.
+    const arriving = [event("evt_5"), event("evt_6"), event("evt_7"), event("evt_8")];
+    let served = 0;
+    fetchMock.mockImplementation(() => {
+      served += 1;
+      return Promise.resolve(
+        ok(
+          page({
+            items: arriving.slice(0, served),
+            journeyStatus: "failed",
+            journeyEventCount: 4 + served
+          })
+        )
+      );
+    });
+    mount({ initialStatus: "failed", initialLastEventAt: new Date().toISOString() });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8000);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(screen.getAllByRole("option")).toHaveLength(8);
+    expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
+  });
+
+  it("starts live on a finished journey whose last event is recent", () => {
+    mount({
+      initialStatus: "failed",
+      initialLastEventAt: "2026-09-14T10:00:20.000Z",
+      now: () => Date.parse("2026-09-14T10:00:30.000Z")
+    });
+
+    expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
+  });
+
+  it("does not start live on a finished journey that went quiet long ago", () => {
+    mount({
+      initialStatus: "failed",
+      initialLastEventAt: "2026-09-14T10:00:00.000Z",
+      now: () => Date.parse("2026-09-14T10:05:00.000Z")
+    });
+
+    expect(screen.queryByRole("checkbox", { name: "Live" })).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("gives up after three failed polls and says so", async () => {
