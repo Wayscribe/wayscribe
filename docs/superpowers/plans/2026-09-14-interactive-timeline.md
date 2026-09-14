@@ -1703,8 +1703,13 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
     const tick = async () => {
       if (polling.current) return;
       polling.current = true;
-      const result = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, pollFrom.current));
-      polling.current = false;
+      let result: Fetched<EventsPageResponse>;
+      try {
+        result = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, pollFrom.current));
+      } finally {
+        // fetchJson never throws today; the guard must still release if that changes.
+        polling.current = false;
+      }
       if (cancelled) return;
       if (result.kind === "failed") {
         pollFailures.current += 1;
