@@ -2106,12 +2106,13 @@ Under `## [Unreleased]`, in the `### Added` section that begins with the `projec
 
 - `apps/web/src/lib/route-errors.ts`: `jsonError` responses carry no `Cache-Control`, and a 404 is heuristically cacheable, so an intermediary could store "no such event" for an event about to exist. Add `headers: { "cache-control": "no-store" }` to the `NextResponse.json` call in `jsonError`, with a one-line comment, and extend `route-errors.test.ts` to assert the header on the 409 response.
 - `apps/web/src/lib/timeline.test.ts`: the shared `eventCounter` interpolates unpadded into the seconds field, so the tenth `event()` call in the file would produce the invalid instant `10:00:010.000Z`. Pad with `String(counter).padStart(2, "0")`, and pin the "newer copy of evt_2" fixture to the timestamps of the event it replaces (the API cannot change an event's timestamp).
+- `test-results/.last-run.json` is tracked, so every Playwright run dirties the tree, and failure artifacts land untracked beside it. Add `test-results/` to `.gitignore` and `git rm --cached -r test-results`.
 - `docs/TESTING_STRATEGY.md`: section 2 lists what the unit layer covers; add one bullet for React components rendered under jsdom with Testing Library (`apps/web/**/*.test.tsx`, the `web` Vitest project), and one line noting route handlers are tested under node with a mocked API client.
 
 Commit these together:
 
 ```bash
-git add apps/web/src/lib/route-errors.ts apps/web/src/lib/route-errors.test.ts apps/web/src/lib/timeline.test.ts docs/TESTING_STRATEGY.md
+git add .gitignore apps/web/src/lib/route-errors.ts apps/web/src/lib/route-errors.test.ts apps/web/src/lib/timeline.test.ts docs/TESTING_STRATEGY.md
 git commit -m "chore(web): no-store on error responses, an honest test fixture, and the testing strategy names the new layers
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
