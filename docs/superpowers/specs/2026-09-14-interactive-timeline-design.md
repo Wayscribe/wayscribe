@@ -132,11 +132,11 @@ server components.
   `src/lib/api.ts` shapes it.
 
 Both: verify the session cookie, respond 401 as JSON when absent or invalid,
-resolve the project id as the replay handler does (session project, else the
-only project), respond 404 as JSON when the API returns null, and 502 as JSON
-on `ApiUnavailableError`. The session check and project resolution move out of
-the replay handler into `src/lib/request-session.ts` so the three handlers
-share one implementation.
+pass the session's project id through even when it is empty (the API resolves
+the only project itself and reports ambiguity as `project_not_found`), respond 404 as JSON when the API returns null, and 502 as JSON
+on `ApiUnavailableError`. The session check moves out of the replay handler into
+`src/lib/request-session.ts` so every route handler shares one implementation;
+the web layer no longer resolves the project, because the API already does.
 
 The route handlers respond with the same shapes `src/lib/api.ts` returns. The
 client types are imported from there; nothing is duplicated.
