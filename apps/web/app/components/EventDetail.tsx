@@ -2,7 +2,14 @@ import Link from "next/link";
 import type { EventDetailData } from "../../src/lib/api";
 import { DiffTable } from "./DiffTable";
 
-export function EventDetail({ event }: { event: EventDetailData }) {
+export function EventDetail({
+  event,
+  collapsibleDiff = false
+}: {
+  event: EventDetailData;
+  /** The timeline collapses long diffs; the replay view shows everything. */
+  collapsibleDiff?: boolean;
+}) {
   return (
     <section>
       <h2>{event.name}</h2>
@@ -17,7 +24,11 @@ export function EventDetail({ event }: { event: EventDetailData }) {
           <p className="muted">
             The difference between what this step received and what it produced.
           </p>
-          <DiffTable changes={event.payloadDiff.changes} compared={wasCaptured(event)} />
+          <DiffTable
+            changes={event.payloadDiff.changes}
+            compared={wasCaptured(event)}
+            collapsible={collapsibleDiff}
+          />
           {event.payloadDiff.truncated ? (
             <p className="muted">Comparison truncated: too many changes to show.</p>
           ) : null}
