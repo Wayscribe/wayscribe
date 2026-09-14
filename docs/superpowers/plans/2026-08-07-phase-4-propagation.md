@@ -229,6 +229,11 @@ export function injectHttpHeaders(
   };
 }
 
+// Shipped differently: the implementation validates `entity.id` against
+// `SAFE_VALUE` before including it at the `full` level, and wraps all six
+// propagation helpers in `safely()` with degrade-not-break fallbacks
+// (commit 4fdf1a4, 2026-08-09).
+
 export function extractHttpContext(
   headers: Record<string, string | string[] | undefined> | undefined
 ): PropagatedContext | undefined {
@@ -426,6 +431,11 @@ callers never have to repeat the level:
     wrapPayload: (payload, context) => wrapPayload(payload, context, resolved.propagate),
     unwrapPayload,
 ```
+
+Shipped differently: the implementation wraps all six of these in `safely()` with
+degrade-not-break fallbacks, because a plain-JavaScript caller with no instrumentation
+would otherwise dereference an `undefined` context and kill the process (commit 4fdf1a4,
+2026-08-09).
 
 **`consume` needs widening.** It currently takes `context?: JourneyContext`, where
 `entity` is required — but `fromQueueAttributes` returns a context whose entity is absent

@@ -27,8 +27,7 @@ export PATH="$HOME/.nvm/versions/node/v24.19.0/bin:$PATH"
 | File | Responsibility |
 |---|---|
 | `packages/sdk-node/src/trace.ts` | Optional OpenTelemetry resolution |
-| `packages/sdk-node/src/wrap.ts` | The single wrapper implementation |
-| `packages/sdk-node/src/recorder.ts` | Wires wrappers onto the journey handle |
+| `packages/sdk-node/src/recorder.ts` | The single wrapper implementation, and wires wrappers onto the journey handle |
 
 ---
 
@@ -413,6 +412,12 @@ Add to `recorder.ts`, inside `createRecorder`, above `makeJourney`:
    * Returns the callback's value unchanged and rethrows its exact error object.
    * Everything the recorder does is inside `safely`, so a recording failure
    * cannot reach the caller.
+   *
+   * Shipped differently: the always-async signature below was superseded by
+   * commit 78c2a6c. A wrapper unconditionally async around a synchronous
+   * callback silently changed a handler's control flow, so the shipped
+   * `wrap` returns `T | Promise<T>` and follows the shape of its callback:
+   * sync in, sync out.
    */
   async function wrap<T>(
     context: JourneyContext,
@@ -522,6 +527,11 @@ And add `consume` to the returned recorder:
         }
       ),
 ```
+
+Shipped differently: commit 4fdf1a4 made `journeyId` and `entity` default
+independently rather than as one unit, so `entityFallback` applies whenever a
+context is present but lacks an entity, not only when no context is present at
+all.
 
 - [ ] **Step 5: Attach trace context**
 

@@ -133,11 +133,10 @@ At minimum:
 - application encryption for stored replay headers
 - external encryption key supplied through environment or secret manager
 
-Future field-level encryption may cover:
-
-- alias display values
-- payload snapshots
-- replay destination headers
+Alias display values, entity identifiers, and replay destination headers are
+already encrypted at rest with a key derived from `ENCRYPTION_KEY` (ADR-040).
+Payloads are not, and this is a settled decision rather than an interim state:
+redaction, not encryption, is the payload control.
 
 Encryption keys must not be stored in the same database as ciphertext.
 

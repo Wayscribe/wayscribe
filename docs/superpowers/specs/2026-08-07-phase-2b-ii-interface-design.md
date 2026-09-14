@@ -45,8 +45,10 @@ becomes linkable, so a developer investigating an incident can paste the exact e
 a ticket, and the back button behaves. Next's App Router treats it as a client-side
 transition fetching only the changed segment.
 
-Middleware gates every route except `/login` and redirects unauthenticated requests. One
-gate, rather than a check each page could forget.
+A route-group layout, `apps/web/app/(authenticated)/layout.tsx`, gates every route except
+`/login` and redirects unauthenticated requests. Not Next middleware, because middleware
+runs on the Edge runtime, which has no `node:crypto`, and session verification needs it.
+One gate, rather than a check each page could forget.
 
 ## 4. Data flow
 

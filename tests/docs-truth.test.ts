@@ -91,6 +91,23 @@ describe("the documentation's checkable claims", () => {
     }
   });
 
+  it("does not describe field-level encryption as future work", () => {
+    // Entity identifiers, alias display values, and replay destination headers
+    // are encrypted at rest today, with a key derived from ENCRYPTION_KEY
+    // (ADR-040). SECURITY.md and DATABASE_SCHEMA.md both described this as
+    // something V0 "may" do later; that stopped being true once ADR-040 landed.
+    for (const file of ["docs/SECURITY.md", "docs/DATABASE_SCHEMA.md"]) {
+      const content = read(file);
+      expect(content, `${file} still calls field-level encryption future work`).not.toMatch(
+        /Future field-level encryption/i
+      );
+      expect(
+        content,
+        `${file} still describes payload storage as possibly relying on encryption`
+      ).not.toMatch(/may initially rely on encrypted database storage/i);
+    }
+  });
+
   it("keeps the pre-implementation documents marked as such", () => {
     // They predate every ADR and describe an install premise ADR-037 inverted.
     // They are kept for provenance, which only works if a reader is told.

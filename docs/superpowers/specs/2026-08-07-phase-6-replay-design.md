@@ -77,7 +77,8 @@ surface to something sitting inside a development network.
 5. **Address check.** Reject addresses outside what the allowlist implies, including
    IPv4-mapped IPv6 forms of the same address.
 6. **Connect to the resolved address.** Not to the name.
-7. **No redirects.** `redirect: "manual"`; a 3xx is a result, not a hop.
+7. **No redirects.** undici's `request()` does not follow redirects by default, and no
+   `maxRedirections` is passed to change that; a 3xx is a result, not a hop.
 8. **Timeouts and a response cap.**
 
 Step 6 is the one that cannot be skipped. Checking a hostname and then handing the same
@@ -124,14 +125,14 @@ POST   /v1/replays                 admin
 GET    /v1/replays/:id             admin
 ```
 
-Plus `replayable: boolean` on the event detail, so the interface can offer the action only
+Plus the existing `hasInput: boolean` on the event detail, so the interface can offer the action only
 where there is an input to send.
 
 ## 7. Interface
 
 A prepare screen at `/journeys/:id/replay?event=…` showing destination, method, path, the
-exact payload, and the headers that will be sent — then a confirm button. No action on the
-timeline itself (section 13).
+exact payload, and a prose line naming the headers that will be sent, then a confirm
+button. No action on the timeline itself (section 13).
 
 ## 8. Testing
 

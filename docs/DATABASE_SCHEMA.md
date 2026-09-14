@@ -237,7 +237,7 @@ Prefer an HMAC-based search token using a server-held key rather than a plain un
 
 ## 5. Payload encryption
 
-V0 may initially rely on encrypted database storage at the infrastructure layer for local development, but the application design should leave room for field or envelope encryption of display values and payloads.
+Entity identifiers and alias display values are envelope-encrypted with a key derived from `ENCRYPTION_KEY` (ADR-040). Payloads are stored as plain `jsonb`; redaction is the payload control, by decision, not as an interim state.
 
 Encryption keys must not be stored in the database.
 

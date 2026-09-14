@@ -82,8 +82,10 @@ guards against is silent.
 `demo-integration` writes a customer row. That must not sit alongside Flight Recorder's
 own tables, which would confuse anyone reading either schema.
 
-A separate `demo` database inside the existing PostgreSQL container, created by an init
-script, keeps the container count unchanged while keeping the schemas apart.
+A separate `demo` database inside the existing PostgreSQL container, created by the
+`demo-bootstrap` service (`apps/demo/src/bootstrap.ts`, a Knex `CREATE DATABASE` guarded
+by a `pg_database` check, not an init script), keeps the container count unchanged while
+keeping the schemas apart.
 
 ### Visibility timeout is seconds, not minutes
 
@@ -172,7 +174,7 @@ Steps 10 through 12 of section 11 — replay — belong to Phase 6 and are not w
 - One documented Compose command starts everything.
 - `pnpm demo:trigger` produces the journey with no further input.
 - Searching `0018Z00002ABC` finds it; searching the Salesforce alias finds it too.
-- The timeline shows all eight steps across two services in order.
+- The timeline shows all ten steps across two services in order.
 - The transformation event shows `Phone` leaving with a value and `phone` arriving null.
 - The delivery events carry the 422 error.
 - The journey ends `failed` after a real dead-letter transition.

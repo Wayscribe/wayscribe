@@ -112,7 +112,7 @@ createRecorder(config): Recorder
 recorder.startJourney({ entity, aliases? }): Journey
 recorder.continueJourney(context): Journey
 recorder.flush(): Promise<void>
-recorder.shutdown({ timeoutMs }): Promise<ShutdownDiagnostics>
+recorder.shutdown({ timeoutMs }): Promise<Counters>
 
 journey.record({ operation, name, input?, output?, error?, metadata? }): void
 journey.identify(aliases): void

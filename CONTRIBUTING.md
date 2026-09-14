@@ -47,7 +47,7 @@ Contributions must preserve:
 2. Add or update tests.
 3. Update affected documentation.
 4. Run formatting, linting, type checks, and tests.
-5. Open a pull request with a clear explanation of behavior and risk.
+5. Open a merge request with a clear explanation of behavior and risk.
 
 ## Pull request expectations
 

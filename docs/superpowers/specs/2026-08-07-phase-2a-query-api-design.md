@@ -46,10 +46,12 @@ tokens.
 One query string may be any of seven things: journey ID, primary entity ID, alias, trace
 ID, span ID, message ID, or correlation ID.
 
-The repository computes the search token once and issues a single `UNION` across the
-candidate columns rather than probing each in turn. Each branch hits its own index:
-plaintext equality for the technical identifiers, hash equality for entity and alias.
-Results reduce to distinct journeys ordered by `last_event_at desc`.
+The repository computes the search token once and issues a single query, a CTE with
+`OR` and `EXISTS` predicates across the candidate columns, rather than probing each in
+turn. Cost scales with journey count rather than with the query (measured 33 ms at
+12k journeys, 1.1 s at 120k); a `UNION` rewrite, where each branch would hit its own
+index, is tracked as debt (DEBT-82X79Y). Results reduce to distinct journeys ordered
+by `last_event_at desc`.
 
 ## 4. Pagination
 

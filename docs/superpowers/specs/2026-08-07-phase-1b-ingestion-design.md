@@ -142,10 +142,12 @@ Outcomes for an event whose `(project_id, id)` already exists:
   duplicates.
 - Status follows the most recent status-affecting event **by event timestamp**: a
   `completed` operation sets `completed`; a `failed` operation or any event carrying an
-  error sets `failed`; otherwise the journey stays `active`. An event only updates
-  status if its timestamp is at least the journey's current `last_event_at`, so a
-  late-arriving older event cannot clobber a newer status. This requires no extra column
-  because the comparison happens before `last_event_at` is updated.
+  error sets `failed`; otherwise the journey stays `active`. The timestamp-watermark
+  rule applies only to `completed` transitions: a `completed` event only updates status
+  if its timestamp is at least the journey's current `last_event_at`, so a late-arriving
+  older `completed` event cannot clobber a newer status. A `failed` event registers
+  unconditionally, whatever its timestamp says (ADR-031). The watermark comparison
+  requires no extra column because it happens before `last_event_at` is updated.
 - Journey creation uses `INSERT ... ON CONFLICT DO NOTHING` followed by the update, so
   two events racing to create the same journey do not fail either request.
 

@@ -132,12 +132,15 @@ A deliberately small path grammar:
 - `*` matching exactly one level, e.g. `*.password`
 - `[*]` matching array elements, e.g. `items[*].cardNumber`
 - case-insensitive matching for header-like names, e.g. `authorization`
+- `**.name` matching that key name at any depth, e.g. `**.authorization`, with the
+  name normalized across camelCase, snake_case, and kebab-case so `apiKey`,
+  `api_key`, and `api-key` are treated as one name
 
 Matched values are replaced with the string `"[REDACTED]"` rather than deleted, because
 `SECURITY.md` section 4 requires preserving evidence that a value existed.
 
-The grammar is documented as exhaustive. Regular-expression paths and conditional rules
-are out of scope, so users are not left guessing what is supported.
+Regular-expression paths and conditional rules are out of scope, so users are not left
+guessing what is supported.
 
 Redaction must handle cyclic structures without infinite recursion, and must not mutate
 its input.
@@ -203,7 +206,8 @@ Every primitive is tested on its abuse path, not only its happy path:
 ## 7. Acceptance criteria
 
 - `pnpm test` and `pnpm test:integration` pass on a clean clone.
-- All ten migrations apply and roll back cleanly against a real PostgreSQL container.
+- All migrations (11 as of this writing; `packages/database/src/migration-status.integration.test.ts`
+  pins the count) apply and roll back cleanly against a real PostgreSQL container.
 - A valid complete event fixture validates; each invalid fixture fails with its expected
   stable error code.
 - An unsupported protocol version is rejected with a machine-readable code.

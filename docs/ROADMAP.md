@@ -15,7 +15,7 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. 404 unit tests, 139 integration
+the step against a development destination. 425 unit tests, 139 integration
 tests against a real PostgreSQL, 7 acceptance tests against a running stack.
 
 Nothing is published. There is no npm package and no image in any registry, so
@@ -31,7 +31,7 @@ Presenting the work, and closing what the last review opened.
 - **Screenshots in the README.** The product's whole value is visual — a
   timeline across four services with the changed field named — and the README
   has none. Highest return of anything on this page.
-- **Surface the decision log.** 40 ADRs of real tradeoff reasoning are linked
+- **Surface the decision log.** 43 ADRs of real tradeoff reasoning are linked
   from the bottom of the README as a docs bullet. That is the most interesting
   artifact in the repository and it reads as an afterthought.
 - **Write down what went wrong.** Dogfooding this tool against a real ORM

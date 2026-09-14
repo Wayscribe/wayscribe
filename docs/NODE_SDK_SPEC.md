@@ -95,7 +95,7 @@ journey.identify({
 });
 ```
 
-Alias updates should be emitted as part of the next event or as a small dedicated event, depending on the final protocol decision.
+`identify` emits its own dedicated event, named `identify` (operation `identified`).
 
 ### `record`
 
@@ -163,8 +163,7 @@ The helper should make propagation metadata available without forcing payload mu
 
 ```typescript
 const journey = recorder.consume({
-  message,
-  attributes: message.MessageAttributes,
+  context: recorder.fromQueueAttributes(message.MessageAttributes),
   entityFallback: {
     type: "customer",
     id: message.Body.customerId
@@ -220,7 +219,7 @@ Do not place sensitive aliases in propagated context.
 
 ## 6. HTTP helpers
 
-Planned helpers:
+HTTP helpers:
 
 ```typescript
 recorder.injectHttpHeaders(headers, journey.context());

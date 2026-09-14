@@ -370,7 +370,7 @@ git commit -m "feat(database): seed the demo project with a fixed API key"
   "dependencies": {
     "@aws-sdk/client-sqs": "^3",
     "@flight-recorder/database": "workspace:*",
-    "@flight-recorder/sdk-node": "workspace:*",
+    "@flight-recorder/node": "workspace:*",
     "fastify": "^5",
     "knex": "^3",
     "pg": "^8"
@@ -435,7 +435,7 @@ the `payload-diff` entry (in `vitest.config.ts`) and after `database` (in
 `vitest.integration.config.ts`):
 
 ```typescript
-      "@flight-recorder/sdk-node": packageSource("sdk-node")
+      "@flight-recorder/node": packageSource("sdk-node")
 ```
 
 - [ ] **Step 6: Commit**
@@ -638,7 +638,7 @@ export async function upsertCustomer(db: Knex, customer: Customer): Promise<numb
 - [ ] **Step 2: Write `apps/demo/src/recorder.ts`**
 
 ```typescript
-import { createRecorder, type Recorder } from "@flight-recorder/sdk-node";
+import { createRecorder, type Recorder } from "@flight-recorder/node";
 import { optionalEnv, requiredEnv } from "./env.js";
 
 /**

@@ -150,7 +150,7 @@ coverage/
 - [ ] **Step 6: Verify the toolchain**
 
 Run: `node -v && pnpm -v`
-Expected: `v24.x.y` and `10.x.y`. If node reports v20, stop and complete the Prerequisites section.
+Expected: `v24.x.y` and `11.x.y`. If node reports v20, stop and complete the Prerequisites section.
 
 - [ ] **Step 7: Commit**
 
@@ -2455,7 +2455,7 @@ first commit. Every item is now resolved, so replace the whole of section 10 wit
 | Decision | Outcome | Record |
 |---|---|---|
 | Node.js version | 24.x active LTS | ADR-017 |
-| pnpm version | 10.x via corepack | ADR-017 |
+| pnpm version | 11.x via corepack | ADR-017 |
 | License | Apache-2.0 | ADR-014 |
 | Free self-hosted core | Confirmed | ADR-011, ADR-014 |
 | Queue technology | ElasticMQ, demo profile only | ADR-015 |

@@ -1013,11 +1013,12 @@ export async function findJourney(
  * started_at takes the minimum timestamp and last_event_at the maximum, because
  * events arrive late and out of order and last-write-wins would corrupt both.
  *
- * Status follows the newest event by *event timestamp*, not arrival: the update
- * only applies when the incoming timestamp is at least the current
- * last_event_at, which is evaluated before last_event_at is advanced. That keeps
- * a late-arriving older event from clobbering a newer status without needing an
- * extra column.
+ * Status follows the newest event by *event timestamp*, not arrival, for
+ * `completed` transitions: the update only applies when the incoming timestamp
+ * is at least the current last_event_at, which is evaluated before
+ * last_event_at is advanced. That keeps a late-arriving older `completed` event
+ * from clobbering a newer status without needing an extra column. A `failed`
+ * event registers unconditionally, regardless of timestamp (ADR-031).
  *
  * The insert uses ON CONFLICT DO NOTHING so two events racing to create the same
  * journey do not fail each other.

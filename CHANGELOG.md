@@ -79,10 +79,11 @@ changes far less often.
 
 ### Added
 
-- Replay's outbound safety module: destination and path validation, an exact
-  host allowlist, DNS resolution pinned to the address that was checked, refusal
-  of the cloud instance metadata range, a header blocklist, response caps, and
-  timeouts. The rest of replay is not built yet.
+- Replay: destination management, request preparation and safety checks (exact
+  host allowlist, DNS pinned to the resolved address, refusal of the cloud
+  metadata range, a header blocklist, response caps and timeouts), the prepare
+  and result UI, and the corrected demo endpoint. V0 reviews the payload before
+  sending but does not allow editing it (ADR-032).
 
 ## [0.1.0] — unreleased
 
@@ -113,7 +114,6 @@ The first development release. Everything below works, is tested, and runs.
 
 ### Known limitations
 
-- **Replay is not implemented.** The safety module exists; the rest does not.
 - The admin token is a single shared secret with no user accounts and no record
   of who used it.
 - Rotating `ENCRYPTION_KEY` is destructive: it orphans every search token and

@@ -35,7 +35,7 @@ them pass.
 | `packages/sdk-node/src/safely.ts` | The single failure boundary |
 | `packages/sdk-node/src/queue.ts` | Bounded queue, drop-oldest |
 | `packages/sdk-node/src/transport.ts` | Batching, retry, backoff, breaker |
-| `packages/sdk-node/src/clock.ts` | Injectable clock and timers |
+| `packages/sdk-node/src/clock.ts` | Injectable clock and timers. Shipped differently: there is no `clock.ts`; `now`, `sleep`, and `random` are optional fields on `TransportOptions` in `packages/sdk-node/src/transport.ts`. |
 | `packages/sdk-node/src/recorder.ts` | createRecorder, journey handles |
 | `packages/sdk-node/src/config.ts` | Config with defaults |
 
@@ -113,6 +113,10 @@ export const systemClock: Clock = {
   }
 };
 ```
+
+Shipped differently: there is no standalone `Clock` interface or `clock.ts`. `now`,
+`sleep`, and `random` ended up as optional fields directly on `TransportOptions` in
+`packages/sdk-node/src/transport.ts`.
 
 - [ ] **Step 2: Write the diagnostics test**
 

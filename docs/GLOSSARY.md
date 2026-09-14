@@ -32,7 +32,7 @@ A client-generated unique identifier used for ingestion idempotency.
 
 ## Flight Recorder
 
-The product as a whole. The name is temporary until branding is finalized.
+The product as a whole.
 
 ## Journey
 

@@ -36,7 +36,7 @@ Unit tests live under `apps/web/src/**` so the root Vitest include picks them up
 | `apps/web/src/lib/api.ts` | Typed API client; the only module knowing the contract |
 | `apps/web/src/lib/session.ts` | Exists (2b-i) |
 | `apps/web/src/lib/login-limiter.ts` | Exists (2b-i) |
-| `apps/web/middleware.ts` | Auth gate |
+| `apps/web/middleware.ts` | Auth gate. Shipped differently: as `apps/web/app/(authenticated)/layout.tsx`, a route-group layout, because Next middleware runs on the Edge runtime, which has no `node:crypto`, and session verification needs it. |
 | `apps/web/app/login/page.tsx` | Token form |
 | `apps/web/app/api/login/route.ts` | Verify, throttle, set cookie |
 | `apps/web/app/page.tsx` | Search |
@@ -235,6 +235,10 @@ git commit -m "feat(web): add config parsing and typed API client"
 
 **Files:**
 - Create: `apps/web/middleware.ts`, `apps/web/app/api/login/route.ts`, `apps/web/app/login/page.tsx`
+
+Shipped differently: the auth gate below is `apps/web/app/(authenticated)/layout.tsx`, a
+route-group layout, not `apps/web/middleware.ts`. Next middleware runs on the Edge
+runtime, which has no `node:crypto`, and session verification needs it.
 
 - [ ] **Step 1: Middleware**
 
