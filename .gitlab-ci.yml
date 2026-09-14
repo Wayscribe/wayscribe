@@ -168,6 +168,10 @@ e2e:
     ENCRYPTION_KEY: ci-encryption-key-00000000000000000
     ADMIN_TOKEN: ci-admin-token-0000000000000000000
     API_URL: http://localhost:8080
+    # The API refuses to boot without these (packages/config), and this job ran
+    # its server with neither, so it died at startup and wait-on waited forever.
+    APP_URL: http://localhost:3000
+    REPLAY_ALLOWED_HOSTS: localhost
   when: manual
   allow_failure: true
   script:
@@ -175,7 +179,8 @@ e2e:
     - pnpm build
     - node apps/api/dist/server.js &
     - pnpm --filter @flight-recorder/web start &
-    - npx wait-on http://localhost:8080/health http://localhost:3000/login
+    # A bounded wait: a server that dies at boot must fail the job, not hang it.
+    - npx wait-on --timeout 120000 http://localhost:8080/health http://localhost:3000/login
     - export FLIGHT_API_KEY=$(pnpm db:seed | grep -oE 'fr_[A-Za-z0-9_-]+' | tail -1)
     - pnpm test:e2e
 
@@ -240,7 +245,11 @@ container-scan:
 
 demo:
   stage: demo
-  image: docker:27-cli
+  # Node 24 with the Docker CLI added, rather than the Docker image with Alpine's
+  # Node added: Alpine's nodejs package is Node 22, outside this repository's
+  # engines range, and ships without corepack, so `corepack enable` failed and
+  # this job never reached Compose.
+  image: node:24-alpine
   services:
     - docker:dind
   variables:
@@ -252,7 +261,7 @@ demo:
     FLIGHT_API_URL: http://docker:8080
     DEMO_SOURCE_URL: http://docker:3100
   before_script:
-    - apk add --no-cache nodejs npm
+    - apk add --no-cache docker-cli docker-cli-compose
     - corepack enable
     - pnpm config set store-dir "$PNPM_STORE_DIR"
     - pnpm install --frozen-lockfile
@@ -263,7 +272,7 @@ demo:
       docker compose -f infrastructure/compose.yaml
       -f infrastructure/compose.demo.yaml
       -f infrastructure/compose.ci.yaml up --build -d
-    - npx wait-on "$FLIGHT_API_URL/health" "$DEMO_SOURCE_URL/health"
+    - npx wait-on --timeout 300000 "$FLIGHT_API_URL/health" "$DEMO_SOURCE_URL/health"
     - pnpm test:demo
   after_script:
     - >-
@@ -284,7 +293,11 @@ demo:
 # The gate. Both acceptance suites, unskippable, before anything is published.
 release-verify:
   stage: release
-  image: docker:27-cli
+  # Node 24 with the Docker CLI added, rather than the Docker image with Alpine's
+  # Node added: Alpine's nodejs package is Node 22, outside this repository's
+  # engines range, and ships without corepack, so `corepack enable` failed and
+  # this job never reached Compose.
+  image: node:24-alpine
   services:
     - docker:dind
   variables:
@@ -293,7 +306,7 @@ release-verify:
     FLIGHT_API_URL: http://docker:8080
     DEMO_SOURCE_URL: http://docker:3100
   before_script:
-    - apk add --no-cache nodejs npm
+    - apk add --no-cache docker-cli docker-cli-compose
     - corepack enable
     - pnpm config set store-dir "$PNPM_STORE_DIR"
     - pnpm install --frozen-lockfile
@@ -303,7 +316,7 @@ release-verify:
       docker compose -f infrastructure/compose.yaml
       -f infrastructure/compose.demo.yaml
       -f infrastructure/compose.ci.yaml up --build -d
-    - npx wait-on "$FLIGHT_API_URL/health" "$DEMO_SOURCE_URL/health"
+    - npx wait-on --timeout 300000 "$FLIGHT_API_URL/health" "$DEMO_SOURCE_URL/health"
     - pnpm test:demo
   after_script:
     - >-
