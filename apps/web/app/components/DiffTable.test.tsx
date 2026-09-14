@@ -43,25 +43,45 @@ describe("DiffTable", () => {
 
   it("shows every row when not collapsible, however many", () => {
     render(<DiffTable changes={changes(12)} />);
-    expect(screen.getAllByRole("row")).toHaveLength(13);
     expect(tbodyRows()).toHaveLength(12);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("collapses to eight rows and reveals the rest on request", async () => {
+  it("collapses to eight rows and toggles open and closed on request", async () => {
     render(<DiffTable changes={changes(12)} collapsible />);
-    expect(screen.getAllByRole("row")).toHaveLength(9);
     expect(tbodyRows()).toHaveLength(8);
-    await userEvent.click(screen.getByRole("button", { name: "Show 4 more" }));
+
+    const toggle = screen.getByRole("button", { name: "Show 4 more changed fields" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    await userEvent.click(toggle);
     expect(screen.getAllByRole("row")).toHaveLength(13);
-    expect(tbodyRows()).toHaveLength(12);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    const expandedToggle = screen.getByRole("button", { name: "Show fewer" });
+    expect(expandedToggle).toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.click(expandedToggle);
+    expect(screen.getAllByRole("row")).toHaveLength(9);
   });
 
   it("does not offer to expand when there is nothing hidden", () => {
     render(<DiffTable changes={changes(8)} collapsible />);
-    expect(screen.getAllByRole("row")).toHaveLength(9);
     expect(tbodyRows()).toHaveLength(8);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("offers to expand when exactly one row is hidden", () => {
+    render(<DiffTable changes={changes(9)} collapsible />);
+    expect(tbodyRows()).toHaveLength(8);
+    expect(screen.getByRole("button", { name: "Show 1 more changed fields" })).toBeInTheDocument();
+  });
+
+  it("resets its expanded state when the key changes, as EventDetail relies on for a new event", async () => {
+    const { rerender } = render(<DiffTable key="event-1" changes={changes(12)} collapsible />);
+    await userEvent.click(screen.getByRole("button", { name: "Show 4 more changed fields" }));
+    expect(tbodyRows()).toHaveLength(12);
+
+    rerender(<DiffTable key="event-2" changes={changes(30)} collapsible />);
+    expect(tbodyRows()).toHaveLength(8);
+    expect(screen.getByRole("button", { name: "Show 22 more changed fields" })).toBeInTheDocument();
   });
 });

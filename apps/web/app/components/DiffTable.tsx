@@ -52,7 +52,10 @@ export function DiffTable({
   }
 
   const rows = collapsible && !expanded ? changes.slice(0, COLLAPSED_ROWS) : changes;
-  const hidden = changes.length - rows.length;
+  // Whether there is anything to disclose at all, independent of whether it's
+  // currently shown — this decides whether the control renders, not `hiddenCount`.
+  const collapsedCount = Math.max(changes.length - COLLAPSED_ROWS, 0);
+  const showToggle = collapsible && collapsedCount > 0;
 
   return (
     <>
@@ -74,15 +77,16 @@ export function DiffTable({
           ))}
         </tbody>
       </table>
-      {hidden > 0 ? (
+      {showToggle ? (
         <button
           type="button"
           className="plain"
+          aria-expanded={expanded}
           onClick={() => {
-            setExpanded(true);
+            setExpanded((current) => !current);
           }}
         >
-          Show {hidden} more
+          {expanded ? "Show fewer" : `Show ${String(collapsedCount)} more changed fields`}
         </button>
       ) : null}
     </>

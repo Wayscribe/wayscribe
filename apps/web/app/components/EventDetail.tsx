@@ -25,6 +25,7 @@ export function EventDetail({
             The difference between what this step received and what it produced.
           </p>
           <DiffTable
+            key={event.id}
             changes={event.payloadDiff.changes}
             compared={wasCaptured(event)}
             collapsible={collapsibleDiff}
