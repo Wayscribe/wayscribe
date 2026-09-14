@@ -85,14 +85,20 @@ Behaviour:
   on screen with a muted "Loading" line under the heading; there is no
   spinner and nothing is blanked.
 - **Keyboard.** `ArrowUp` and `ArrowDown` move the selection through the
-  visible list using `neighbour`. `Enter` on a focused row selects it. The list
-  is a `role="listbox"` with `aria-activedescendant`; rows are
-  `role="option"`. Arrow handling is on the list, not the document, so typing
-  elsewhere is unaffected.
+  visible list using `neighbour`, and the selected row is scrolled into view,
+  because the list is its own scroll container and `aria-activedescendant`
+  does not scroll on its own. Arrows select immediately, so there is no
+  separate commit key. The list is a `role="listbox"` with
+  `aria-activedescendant`; rows are `role="option"`. Arrow handling is on the
+  list, not the document, so typing elsewhere is unaffected.
 - **Filters.** Chips for "All services" and each distinct service, plus a
   "Failures only" toggle. Filtering never changes `events`; it changes what is
-  rendered. If the selected event is filtered out, the selection moves to the
-  first visible event.
+  rendered. If the selected event is loaded but hidden by a filter, the
+  selection moves to the first visible event. If nothing matches, the list and
+  the detail panel both show "No events match these filters." and the
+  selection is kept, so loosening the filter needs no refetch. A selected
+  event that is not loaded at all (a deep link past the first page) is left
+  alone: its detail came from the server and stays on screen.
 - **Load more.** When `cursor` is not null, a "Show N more" line at the foot of
   the list fetches the next page and merges it. The header count line already
   says "showing X of Y"; that text now comes from the client state.
