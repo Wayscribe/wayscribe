@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { type KeyboardEvent, useEffect } from "react";
 import type { EventListItem } from "../../src/lib/api";
 import {
   SKEW_THRESHOLD_SECONDS,
@@ -34,6 +34,15 @@ export function TimelineList({
   onSelect: (id: string) => void;
   onArrow: (direction: "up" | "down") => void;
 }) {
+  // `aria-activedescendant` moves the selection without moving focus, and
+  // nothing scrolls on its own, so a row walked to with the arrow keys can sit
+  // outside the list's own scroll box. No "use client" here: the only parent is
+  // one, which puts this whole file in the client graph.
+  useEffect(() => {
+    if (selectedId === null) return;
+    document.getElementById(rowId(selectedId))?.scrollIntoView({ block: "nearest" });
+  }, [selectedId]);
+
   const onKeyDown = (keyboard: KeyboardEvent<HTMLOListElement>) => {
     if (keyboard.key === "ArrowDown" || keyboard.key === "ArrowUp") {
       keyboard.preventDefault();
@@ -47,7 +56,11 @@ export function TimelineList({
       role="listbox"
       tabIndex={0}
       aria-label="Events"
-      aria-activedescendant={selectedId === null ? undefined : rowId(selectedId)}
+      aria-activedescendant={
+        selectedId !== null && events.some((event) => event.id === selectedId)
+          ? rowId(selectedId)
+          : undefined
+      }
       onKeyDown={onKeyDown}
     >
       {events.map((event) => (
@@ -59,7 +72,7 @@ export function TimelineList({
           className={event.id === selectedId ? "active" : undefined}
         >
           <a
-            href={`/journeys/${journeyId}?event=${event.id}`}
+            href={`/journeys/${encodeURIComponent(journeyId)}?event=${encodeURIComponent(event.id)}`}
             tabIndex={-1}
             onClick={(click) => {
               if (click.metaKey || click.ctrlKey || click.shiftKey || click.button !== 0) return;

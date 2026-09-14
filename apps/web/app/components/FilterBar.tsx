@@ -52,7 +52,7 @@ export function FilterBar({
           </button>
         ))}
       </div>
-      <div className="chips">
+      <div className="chips" role="group" aria-label="View">
         <button
           type="button"
           className={filters.failuresOnly ? "chip on" : "chip"}
@@ -76,7 +76,11 @@ export function FilterBar({
           </label>
         ) : null}
       </div>
-      {notice === null ? null : <p className="muted">{notice}</p>}
+      {notice === null ? null : (
+        <p className="muted" role="status">
+          {notice}
+        </p>
+      )}
     </div>
   );
 }

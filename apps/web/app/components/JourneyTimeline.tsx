@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EventDetailData, EventListItem, EventsPageResponse } from "../../src/lib/api";
+import { type Fetched, eventsUrl, fetchJson } from "../../src/lib/api-client";
 import { spansDays } from "../../src/lib/time";
 import {
   NO_FILTERS,
@@ -35,6 +36,12 @@ const PERMANENT_NOTICE =
   "Live updates stopped: this session can no longer read the journey. Sign in again or choose a project.";
 const DETAIL_ERROR = "Could not load this event. Select it again to retry.";
 const LOAD_ERROR = "Could not load more events. Try again.";
+// A 401 or 409 is not a blip: telling a signed-out reader to try again sends
+// them round the same refusal. Same sentence as the live notice, without the
+// part about polling.
+const SESSION_ERROR =
+  "This session can no longer read the journey. Sign in again or choose a project.";
+const NO_MATCHES = "No events match these filters.";
 
 /**
  * Everything below the journey heading: the count line, the filters, the
@@ -56,9 +63,11 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const [selectedId, setSelectedId] = useState(props.initialSelectedId);
   const [detail, setDetail] = useState(props.initialDetail);
   const [detailState, setDetailState] = useState<"idle" | "loading" | "error">("idle");
+  const [detailError, setDetailError] = useState(DETAIL_ERROR);
   const [live, setLive] = useState(props.initialStatus === "active");
   const [pollNotice, setPollNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   // The id most recently asked for. A slower response for an earlier selection
   // must not overwrite the detail of a later one.
   const wanted = useRef(props.initialSelectedId);
@@ -89,11 +98,16 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
     async (id: string) => {
       wanted.current = id;
       setSelectedId(id);
-      window.history.replaceState(null, "", `/journeys/${journeyId}?event=${id}`);
+      // Built from the address the reader is on, so `?from=search` and anything
+      // else already there survives the selection moving.
+      const url = new URL(window.location.href);
+      url.searchParams.set("event", id);
+      window.history.replaceState(null, "", `${url.pathname}${url.search}`);
       setDetailState("loading");
       const result = await fetchJson<EventDetailData>(`/api/events/${encodeURIComponent(id)}`);
       if (wanted.current !== id) return;
       if (result.kind === "failed") {
+        setDetailError(result.permanent ? SESSION_ERROR : DETAIL_ERROR);
         setDetailState("error");
         return;
       }
@@ -105,11 +119,19 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
 
   // A filter that hides the selected event moves the selection to the first
   // visible one, so the detail panel never shows something the list does not.
+  //
+  // Only when the event is loaded, though: `?event=` can name an event on a
+  // later page (the replay screen's way back produces exactly that link), and
+  // that is not the same as being filtered out. Relocating there would throw
+  // away the detail the server already rendered and rewrite the address.
   useEffect(() => {
     const first = visible[0];
     if (first === undefined) return;
-    if (!visible.some((event) => event.id === selectedId)) void select(first.id);
-  }, [visible, selectedId, select]);
+    const loadedButHidden =
+      events.some((event) => event.id === selectedId) &&
+      !visible.some((event) => event.id === selectedId);
+    if (selectedId === null || loadedButHidden) void select(first.id);
+  }, [visible, events, selectedId, select]);
 
   const onArrow = (direction: "up" | "down") => {
     const id = neighbour(visible, selectedId, direction);
@@ -125,11 +147,13 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   }, []);
 
   const loadMore = async () => {
-    if (cursor === null) return;
+    if (cursor === null || loadingMore) return;
+    setLoadingMore(true);
     setLoadError(null);
     const result = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, cursor));
+    setLoadingMore(false);
     if (result.kind === "failed") {
-      setLoadError(LOAD_ERROR);
+      setLoadError(result.permanent ? SESSION_ERROR : LOAD_ERROR);
       return;
     }
     applyPage(result.body);
@@ -182,6 +206,10 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
     setLive(next);
   };
 
+  // Nothing visible because a filter hides it all, which is not the same as a
+  // journey that has recorded nothing yet: that one keeps its own wording.
+  const noMatches = visible.length === 0 && events.length > 0;
+
   const count = describeCount({
     visible: visible.length,
     loaded: events.length,
@@ -191,7 +219,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
 
   return (
     <>
-      <p className="muted">
+      <p className="muted" aria-live="polite">
         {status} · {count} · {services.join(", ")}
       </p>
       <FilterBar
@@ -205,67 +233,56 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
       />
       <div className="journey">
         <div>
-          <TimelineList
-            journeyId={journeyId}
-            events={visible}
-            selectedId={selectedId}
-            multiDay={multiDay}
-            onSelect={(id) => {
-              void select(id);
-            }}
-            onArrow={onArrow}
-          />
+          {noMatches ? (
+            <p className="muted">{NO_MATCHES}</p>
+          ) : (
+            <TimelineList
+              journeyId={journeyId}
+              events={visible}
+              selectedId={selectedId}
+              multiDay={multiDay}
+              onSelect={(id) => {
+                void select(id);
+              }}
+              onArrow={onArrow}
+            />
+          )}
           {cursor === null ? null : (
             <p>
               <button
                 type="button"
                 className="plain"
+                disabled={loadingMore}
                 onClick={() => {
                   void loadMore();
                 }}
               >
-                Show {Math.max(total - events.length, 1)} more
+                {total > events.length
+                  ? `Show ${String(total - events.length)} more events`
+                  : "Show more events"}
               </button>
             </p>
           )}
           {loadError === null ? null : <p className="error">{loadError}</p>}
         </div>
         <div className="detail">
-          {detailState === "loading" ? <p className="muted">Loading…</p> : null}
-          {detailState === "error" ? <p className="error">{DETAIL_ERROR}</p> : null}
-          {detail === null ? (
-            <p className="muted">This journey has no events yet.</p>
+          {/* The selection and its detail stay in state while a filter hides
+              them, so loosening the filter costs no request. */}
+          {noMatches ? (
+            <p className="muted">{NO_MATCHES}</p>
           ) : (
-            <EventDetail event={detail} collapsibleDiff />
+            <>
+              {detailState === "loading" ? <p className="muted">Loading…</p> : null}
+              {detailState === "error" ? <p className="error">{detailError}</p> : null}
+              {detail === null ? (
+                <p className="muted">This journey has no events yet.</p>
+              ) : (
+                <EventDetail event={detail} collapsibleDiff />
+              )}
+            </>
           )}
         </div>
       </div>
     </>
   );
-}
-
-function eventsUrl(journeyId: string, cursor: string | null): string {
-  const base = `/api/journeys/${encodeURIComponent(journeyId)}/events`;
-  return cursor === null ? base : `${base}?cursor=${encodeURIComponent(cursor)}`;
-}
-
-type Fetched<T> =
-  | { kind: "ok"; body: T }
-  | {
-      kind: "failed";
-      /** A 401 or 409: retrying cannot help, so the caller should stop rather than count. */
-      permanent: boolean;
-    };
-
-/** Never throws: a non-2xx, a network error, and a non-JSON body are all failures. */
-async function fetchJson<T>(url: string): Promise<Fetched<T>> {
-  try {
-    const response = await fetch(url, { headers: { accept: "application/json" } });
-    if (!response.ok) {
-      return { kind: "failed", permanent: response.status === 401 || response.status === 409 };
-    }
-    return { kind: "ok", body: (await response.json()) as T };
-  } catch {
-    return { kind: "failed", permanent: false };
-  }
 }
