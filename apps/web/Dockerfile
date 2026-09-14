@@ -19,6 +19,11 @@ RUN pnpm --filter @flight-recorder/web build
 # `next start` also does not support `output: standalone` and said so in the
 # logs on every boot. `server.js` is what that output is meant to be run with.
 FROM node:24-alpine AS runtime
+# The base image lags Alpine's own security releases by days to weeks. Upgrading
+# its packages here means a fix Alpine has already published (libcrypto3 3.5.8
+# for CVE-2026-14456, when this was added) reaches the image on the next build
+# rather than when the upstream tag is rebuilt.
+RUN apk upgrade --no-cache
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0

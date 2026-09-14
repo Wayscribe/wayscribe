@@ -50,6 +50,11 @@ RUN rm -rf apps/demo apps/web \
       | xargs -0 -r rm -f
 
 FROM node:24-alpine AS runtime
+# The base image lags Alpine's own security releases by days to weeks. Upgrading
+# its packages here means a fix Alpine has already published (libcrypto3 3.5.8
+# for CVE-2026-14456, when this was added) reaches the image on the next build
+# rather than when the upstream tag is rebuilt.
+RUN apk upgrade --no-cache
 LABEL org.opencontainers.image.title="Flight Recorder API"
 LABEL org.opencontainers.image.description="Ingestion, query, and replay API for record-level debugging of distributed workflows."
 LABEL org.opencontainers.image.licenses="Apache-2.0"
