@@ -4,14 +4,22 @@ const ADMIN_TOKEN = process.env["ADMIN_TOKEN"] ?? "";
 const API_URL = process.env["API_URL"] ?? "http://localhost:8080";
 const API_KEY = process.env["FLIGHT_API_KEY"] ?? "";
 
-const ENTITY_ID = "0018Z00002ABC";
+// The demo triggers journeys under the bare Salesforce account id, so a seed
+// that used it could not assert "exactly one result" on a database the demo had
+// ever run against. The prefix makes this suite's customer its own.
+const ENTITY_ID = "E2E-0018Z00002ABC";
 const ALIAS_VALUE = "SF-ALIAS-99001";
-const JOURNEY_ID = "jrn_e2e_demo";
+// Journey and event ids carry the seed's version because an ingested event is
+// immutable: its content hash is taken over the event as received, so re-posting
+// evt_1 with a different entity id is a 409 conflict rather than an update, and
+// an existing journey row keeps the entity id its first event wrote. Bump the
+// version whenever the seeded data below changes.
+const JOURNEY_ID = "jrn_e2e_demo_v2";
 
 const STEPS: [string, string, string, string, string, Record<string, unknown>][] = [
-  ["evt_1", "received", "receive-salesforce-webhook", "webhook-api", "10:31:02", {}],
+  ["evt_v2_1", "received", "receive-salesforce-webhook", "webhook-api", "10:31:02", {}],
   [
-    "evt_2",
+    "evt_v2_2",
     "transformed",
     "transform-salesforce-account",
     "webhook-api",
@@ -26,11 +34,11 @@ const STEPS: [string, string, string, string, string, Record<string, unknown>][]
       output: { externalId: ENTITY_ID, name: "Jorge Polanco", phone: null, status: "active" }
     }
   ],
-  ["evt_3", "persisted", "persist-customer", "webhook-api", "10:31:05", {}],
-  ["evt_4", "published", "publish-customer-updated", "webhook-api", "10:31:06", {}],
-  ["evt_5", "consumed", "consume-customer-updated", "sync-worker", "10:31:07", {}],
+  ["evt_v2_3", "persisted", "persist-customer", "webhook-api", "10:31:05", {}],
+  ["evt_v2_4", "published", "publish-customer-updated", "webhook-api", "10:31:06", {}],
+  ["evt_v2_5", "consumed", "consume-customer-updated", "sync-worker", "10:31:07", {}],
   [
-    "evt_6",
+    "evt_v2_6",
     "delivered",
     "deliver-customer-to-target",
     "sync-worker",
@@ -38,14 +46,14 @@ const STEPS: [string, string, string, string, string, Record<string, unknown>][]
     { error: { message: "A phone number is required.", code: "phone_required" } }
   ],
   [
-    "evt_7",
+    "evt_v2_7",
     "retried",
     "retry-customer-delivery",
     "sync-worker",
     "10:31:39",
     { error: { message: "A phone number is required.", code: "phone_required" } }
   ],
-  ["evt_8", "failed", "move-message-to-dead-letter", "sync-worker", "10:34:38", {}]
+  ["evt_v2_8", "failed", "move-message-to-dead-letter", "sync-worker", "10:34:38", {}]
 ];
 
 /**
@@ -163,4 +171,27 @@ test("returns a not-found page for an unknown journey", async ({ page }) => {
   await signIn(page);
   const response = await page.goto("/journeys/jrn_does_not_exist");
   expect(response?.status()).toBe(404);
+});
+
+test("walks the timeline with the keyboard and narrows it to failures without reloading", async ({
+  page
+}) => {
+  await signIn(page);
+  await page.goto(`/journeys/${JOURNEY_ID}`);
+  await expect(page.locator(".detail h2")).toHaveText("receive-salesforce-webhook");
+
+  await page.locator(".timeline").focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+
+  await expect(page.locator(".detail h2")).toHaveText("persist-customer");
+  await expect(page).toHaveURL(/event=evt_v2_3$/);
+  await expect(page.locator(".timeline li.active")).toContainText("persisted");
+
+  await page.getByRole("button", { name: "Failures only" }).click();
+
+  // evt_v2_6 and evt_v2_7 carry an error; the dead-letter event itself does not.
+  await expect(page.locator(".timeline li")).toHaveCount(2);
+  await expect(page.locator(".detail h2")).toHaveText("deliver-customer-to-target");
+  await expect(page.getByText("2 of 8 events shown")).toBeVisible();
 });
