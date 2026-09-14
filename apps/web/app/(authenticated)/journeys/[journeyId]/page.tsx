@@ -30,7 +30,10 @@ export default async function JourneyPage({
     const journey = await getJourney(journeyId, projectId);
     if (journey === null) notFound();
 
-    const { items: events, complete } = await listEvents(journeyId, projectId);
+    const page = await listEvents(journeyId, projectId);
+    if (page === null) notFound();
+    const events = page.items;
+    const complete = page.nextCursor === null;
     // Only shown when it changes something: a single-day journey does not need
     // a date on every row, and a multi-day one is unreadable without it.
     const multiDay = spansDays(events.map((event) => event.eventTimestamp));
