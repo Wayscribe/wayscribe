@@ -40,7 +40,12 @@ export function TimelineList({
   // one, which puts this whole file in the client graph.
   useEffect(() => {
     if (selectedId === null) return;
-    document.getElementById(rowId(selectedId))?.scrollIntoView({ block: "nearest" });
+    const row = document.getElementById(rowId(selectedId));
+    // The row may be filtered out; and jsdom implements no layout, so the
+    // method TypeScript promises is there is missing at runtime under test.
+    // (`?.scrollIntoView?.()` says this more briefly but trips
+    // no-unnecessary-condition, which trusts the DOM lib types.)
+    if (typeof row?.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
   }, [selectedId]);
 
   const onKeyDown = (keyboard: KeyboardEvent<HTMLOListElement>) => {

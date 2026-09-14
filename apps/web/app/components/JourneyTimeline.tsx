@@ -67,6 +67,8 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const [live, setLive] = useState(props.initialStatus === "active");
   const [pollNotice, setPollNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // `loadingMore` drives the disabled attribute; the guard itself has to be a
+  // ref, because two clicks in one tick both read the same render's state.
   const [loadingMore, setLoadingMore] = useState(false);
   // The id most recently asked for. A slower response for an earlier selection
   // must not overwrite the detail of a later one.
@@ -81,6 +83,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   // journey that is still active backfills a page per tick rather than jumping
   // to the newest event; the count line says how far along that is.
   const pollFrom = useRef(props.initialCursor);
+  const loadingMoreRef = useRef(false);
   // A poll slower than the interval must not overlap the next one: two
   // responses landing out of order would move the cursor back a page.
   const polling = useRef(false);
@@ -147,11 +150,18 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   }, []);
 
   const loadMore = async () => {
-    if (cursor === null || loadingMore) return;
+    if (cursor === null || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     setLoadError(null);
-    const result = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, cursor));
-    setLoadingMore(false);
+    let result: Fetched<EventsPageResponse>;
+    try {
+      result = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, cursor));
+    } finally {
+      // fetchJson never throws today; the guard must still release if that changes.
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
     if (result.kind === "failed") {
       setLoadError(result.permanent ? SESSION_ERROR : LOAD_ERROR);
       return;
@@ -233,20 +243,20 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
       />
       <div className="journey">
         <div>
-          {noMatches ? (
-            <p className="muted">{NO_MATCHES}</p>
-          ) : (
-            <TimelineList
-              journeyId={journeyId}
-              events={visible}
-              selectedId={selectedId}
-              multiDay={multiDay}
-              onSelect={(id) => {
-                void select(id);
-              }}
-              onArrow={onArrow}
-            />
-          )}
+          {/* The list stays mounted with no options rather than unmounting:
+              it is the focusable element, and taking it away while a filter is
+              on would drop the reader's focus to the top of the document. */}
+          <TimelineList
+            journeyId={journeyId}
+            events={visible}
+            selectedId={selectedId}
+            multiDay={multiDay}
+            onSelect={(id) => {
+              void select(id);
+            }}
+            onArrow={onArrow}
+          />
+          {noMatches ? <p className="muted">{NO_MATCHES}</p> : null}
           {cursor === null ? null : (
             <p>
               <button

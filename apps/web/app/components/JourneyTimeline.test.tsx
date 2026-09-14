@@ -305,7 +305,10 @@ describe("JourneyTimeline", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Failures only" }));
 
-    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    // The listbox stays mounted with no options rather than unmounting, so the
+    // reader's focus is not thrown back to the top of the document.
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
     expect(screen.getAllByText("No events match these filters.")).toHaveLength(2);
     // The selection survives in state, so loosening the filter costs no request.
     expect(fetchMock).not.toHaveBeenCalled();
@@ -339,6 +342,11 @@ describe("JourneyTimeline", () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(5);
+    // The call count alone does not distinguish a fresh budget from a spent
+    // one: the fifth request goes out before React has processed a setLive
+    // (false) from the fourth. Still being live afterwards does.
+    expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
+    expect(screen.queryByText(/Live updates stopped/)).not.toBeInTheDocument();
   });
 
   it("discards a poll that lands after Live was switched off", async () => {
@@ -385,15 +393,15 @@ describe("JourneyTimeline", () => {
     mount({ initialCursor: "c1", totalEvents: 6 });
 
     const button = screen.getByRole("button", { name: "Show 2 more events" });
+    // Both in one tick: a guard read from the render closure is still false on
+    // the second click, because React has not re-rendered in between.
     act(() => {
       fireEvent.click(button);
-    });
-    expect(button).toBeDisabled();
-    act(() => {
       fireEvent.click(button);
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(button).toBeDisabled();
   });
 
   it("does not promise a count it cannot know", () => {
