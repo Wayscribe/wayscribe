@@ -18,7 +18,11 @@ export async function GET(
   try {
     const event = await getEvent(eventId, session.projectId);
     if (event === null) return jsonError(404, "not_found", "No such event.");
-    return NextResponse.json(event);
+    // Same reasoning as `cache: "no-store"` in src/lib/api.ts: a debugging tool
+    // showing another operator's stale event is worse than one that is
+    // slightly slower, and without this a shared cache in front of a
+    // self-hosted install would otherwise be free to store the response.
+    return NextResponse.json(event, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     return apiFailure(error);
   }

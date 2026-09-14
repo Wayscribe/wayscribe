@@ -34,7 +34,11 @@ export async function GET(
       journeyStatus: journey.status,
       journeyEventCount: journey.eventCount
     };
-    return NextResponse.json(body);
+    // Same reasoning as `cache: "no-store"` in src/lib/api.ts: a debugging tool
+    // showing another operator's stale journey is worse than one that is
+    // slightly slower, and without this a shared cache in front of a
+    // self-hosted install would otherwise be free to store the response.
+    return NextResponse.json(body, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     return apiFailure(error);
   }
