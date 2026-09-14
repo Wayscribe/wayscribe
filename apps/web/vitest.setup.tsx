@@ -8,7 +8,22 @@ afterEach(cleanup);
 // `next/link` wants the app router context and warns without it. The components
 // under test only need an anchor with the right href.
 vi.mock("next/link", () => ({
-  default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
+  default: ({
+    href,
+    children,
+    prefetch: _prefetch,
+    scroll: _scroll,
+    replace: _replace,
+    shallow: _shallow,
+    ...rest
+  }: {
+    href: string;
+    children: ReactNode;
+    prefetch?: boolean;
+    scroll?: boolean;
+    replace?: boolean;
+    shallow?: boolean;
+  }) => (
     <a href={href} {...rest}>
       {children}
     </a>

@@ -27,7 +27,13 @@ export default defineConfig({
         extends: true,
         test: {
           name: "node",
-          include: ["{apps,packages}/*/src/**/*.test.ts", "tests/**/*.test.ts"],
+          // Route-handler and other app/-level .ts tests run under node; .tsx
+          // component tests run under jsdom in the "web" project below.
+          include: [
+            "{apps,packages}/*/src/**/*.test.ts",
+            "tests/**/*.test.ts",
+            "apps/web/app/**/*.test.ts"
+          ],
           // The demo suite needs a running Compose stack, so it must never join this
           // run: `pnpm test` has to work on a laptop with nothing up.
           exclude: ["**/node_modules/**", "**/*.integration.test.ts", "**/*.e2e.test.ts"],
@@ -40,6 +46,9 @@ export default defineConfig({
         // a per-file environment comment so a component test cannot silently run
         // under node and pass by never rendering.
         extends: true,
+        // apps/web/tsconfig.json sets jsx: "preserve" for Next, and there is no
+        // React Vite plugin here, so the test transform has to name the
+        // automatic runtime itself or JSX comes out referencing a global React.
         esbuild: { jsx: "automatic" },
         test: {
           name: "web",
