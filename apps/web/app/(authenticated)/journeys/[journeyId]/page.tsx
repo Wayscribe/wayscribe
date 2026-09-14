@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { JourneyTimeline } from "../../../components/JourneyTimeline";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
 import { requireProjectId } from "../../../../src/lib/current-project";
+import { isRecent } from "../../../../src/lib/timeline";
 
 export default async function JourneyPage({
   params,
@@ -56,7 +57,10 @@ export default async function JourneyPage({
           initialDetail={active}
           totalEvents={journey.eventCount}
           knownServices={journey.services}
-          initialLastEventAt={journey.lastEventAt}
+          // Decided here, on one clock: a journey marked failed can still be
+          // recording retries, and re-deciding it in the browser against a
+          // different clock would be a hydration mismatch.
+          initialLive={journey.status === "active" || isRecent(journey.lastEventAt, Date.now())}
         />
       </main>
     );

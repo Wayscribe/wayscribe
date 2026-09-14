@@ -125,3 +125,31 @@ export function describeCount({ visible, loaded, total, complete }: CountInput):
   if (!complete) return `showing ${String(loaded)} of ${String(all)} ${plural(all, "event")}`;
   return `${String(all)} ${plural(all, "event")}`;
 }
+
+/**
+ * How recently the last event must have landed for a journey that is no longer
+ * active to still be followed.
+ *
+ * A journey's status turns terminal on its first failure while the retries
+ * that follow are still being recorded, so status alone would stop the
+ * timeline following a journey that is plainly still moving.
+ */
+export const RECENT_MS = 30_000;
+
+/**
+ * Whether `iso` is within {@link RECENT_MS} of `now`.
+ *
+ * Computed on the server and passed down as a boolean, never recomputed in the
+ * browser: the two clocks disagree, and a value that decides whether an
+ * element renders would then differ between the server's HTML and the client's
+ * first render, which is a hydration mismatch on every warm journey.
+ *
+ * A delta that is negative (a service clock running ahead, which is a real
+ * possibility here — the timeline warns about exactly that skew) or NaN (an
+ * unparsable timestamp) is not recent: both are `< RECENT_MS` arithmetically,
+ * and neither is evidence that anything just happened.
+ */
+export function isRecent(iso: string, now: number): boolean {
+  const delta = now - Date.parse(iso);
+  return Number.isFinite(delta) && delta >= 0 && delta < RECENT_MS;
+}

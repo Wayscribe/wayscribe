@@ -277,7 +277,10 @@ button {
   color: var(--muted);
   cursor: pointer;
 }
-.chip.on {
+/* `:has` too: the Live chip is a label wrapping a checkbox, not a button that
+   carries the class. */
+.chip.on,
+.chip:has(input:checked) {
   border-color: var(--accent);
   color: var(--fg);
 }

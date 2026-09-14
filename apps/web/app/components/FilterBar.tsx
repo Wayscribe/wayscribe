@@ -63,7 +63,9 @@ export function FilterBar({
         >
           Failures only
         </button>
-        {status === "active" || live ? (
+        {/* `notice` too: it tells the reader to turn Live on to retry, and live
+            is false by then on a journey whose status is already terminal. */}
+        {status === "active" || live || notice !== null ? (
           <label className="chip">
             <input
               type="checkbox"

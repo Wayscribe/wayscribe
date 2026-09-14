@@ -27,27 +27,27 @@ export interface JourneyTimelineProps {
   totalEvents: number;
   /** The journey's services from the server, which may include ones not yet loaded. */
   knownServices: string[];
-  /** The journey's `lastEventAt`, an ISO instant: how live mode decides a finished journey is still warm. */
-  initialLastEventAt: string;
-  /** Injectable clock, for tests. Used only to judge how recent the last event is. */
-  now?: () => number;
+  /**
+   * Whether to start following the journey: it is active, or its last event is
+   * recent enough to count as still arriving. Decided on the server (see
+   * `isRecent`) rather than here, so the server's HTML and the client's first
+   * render cannot disagree about whether the Live control exists.
+   */
+  initialLive: boolean;
 }
 
 const POLL_MS = 2000;
 const MAX_POLL_FAILURES = 3;
 /**
- * How recently the last event must have landed for live mode to start on a
- * journey that is already marked finished, and how many polls that add nothing
- * end it.
+ * How many polls that bring nothing new end live mode.
  *
  * A journey's status turns terminal on its first failure, while the retries
  * that follow are still being recorded: the demo scenario is `failed` the
  * instant its sixth event lands and keeps writing for ten more seconds. Status
- * is therefore the wrong signal on both ends. Live mode starts when the
- * journey is active *or* still warm, and stops when six seconds of polling
- * bring nothing new.
+ * is therefore the wrong signal on both ends. Live mode starts on
+ * `initialLive` (active, or a recent last event — see `isRecent`), and stops
+ * when six seconds of polling bring nothing new.
  */
-const RECENT_MS = 30_000;
 const QUIET_POLLS_TO_STOP = 3;
 const POLL_NOTICE = "Live updates stopped after three failed requests. Turn Live on to retry.";
 const PERMANENT_NOTICE =
@@ -82,11 +82,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const [detail, setDetail] = useState(props.initialDetail);
   const [detailState, setDetailState] = useState<"idle" | "loading" | "error">("idle");
   const [detailError, setDetailError] = useState(DETAIL_ERROR);
-  const { now = Date.now } = props;
-  const [live, setLive] = useState(
-    () =>
-      props.initialStatus === "active" || now() - Date.parse(props.initialLastEventAt) < RECENT_MS
-  );
+  const [live, setLive] = useState(props.initialLive);
   const [pollNotice, setPollNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // `loadingMore` drives the disabled attribute; the guard itself has to be a
@@ -170,7 +166,16 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
     if (id !== null && id !== selectedId) void select(id);
   };
 
-  /** Merges a page in and reports whether it contained anything not already held. */
+  /**
+   * Merges a page in and reports whether the list grew.
+   *
+   * Growth is the whole test because an event is immutable once recorded:
+   * `insertEvent` is `onConflict(...).ignore()`
+   * (`packages/database/src/repositories/events.ts`), so a re-read of the tail
+   * can repeat an event but never change one. A page that only repeats what is
+   * already held therefore adds nothing, which is what live mode counts as
+   * quiet.
+   */
   const applyPage = useCallback((page: EventsPageResponse) => {
     const merged = mergeEvents(eventsRef.current, page.items);
     const added = merged.length > eventsRef.current.length;

@@ -62,15 +62,18 @@ const fetchMock = vi.fn<typeof fetch>();
 const scrollIntoView = vi.fn<Element["scrollIntoView"]>();
 
 function mount(props: Partial<Parameters<typeof JourneyTimeline>[0]> = {}) {
+  const status = props.initialStatus ?? "failed";
   return render(
     <JourneyTimeline
       journeyId="jrn_1"
-      initialStatus="failed"
+      initialStatus={status}
+      // What the page computes: an active journey is followed, and a finished
+      // one only when a test says its last event was recent.
       initialEvents={EVENTS}
       initialCursor={null}
       initialSelectedId="evt_1"
       initialDetail={detail("evt_1")}
-      initialLastEventAt="2026-01-01T00:00:00.000Z"
+      initialLive={status === "active"}
       totalEvents={4}
       knownServices={["webhook-api", "sync-worker"]}
       {...props}
@@ -206,7 +209,7 @@ describe("JourneyTimeline", () => {
         )
       );
     });
-    mount({ initialStatus: "failed", initialLastEventAt: new Date().toISOString() });
+    mount({ initialStatus: "failed", initialLive: true });
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(8000);
@@ -217,25 +220,51 @@ describe("JourneyTimeline", () => {
     expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
   });
 
-  it("starts live on a finished journey whose last event is recent", () => {
-    mount({
-      initialStatus: "failed",
-      initialLastEventAt: "2026-09-14T10:00:20.000Z",
-      now: () => Date.parse("2026-09-14T10:00:30.000Z")
-    });
+  // Whether a finished journey is still warm is decided on the server and
+  // arrives as `initialLive`, so the clock arithmetic is tested in
+  // `timeline.test.ts` against `isRecent`. This is the pass-through.
+  it("starts live on a finished journey the server says is still warm", () => {
+    mount({ initialStatus: "failed", initialLive: true });
 
     expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
   });
 
-  it("does not start live on a finished journey that went quiet long ago", () => {
-    mount({
-      initialStatus: "failed",
-      initialLastEventAt: "2026-09-14T10:00:00.000Z",
-      now: () => Date.parse("2026-09-14T10:05:00.000Z")
+  it("keeps polling an active journey whose polls repeat themselves", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(() => Promise.resolve(ok(page({ items: [event("evt_1")] }))));
+    mount({ initialStatus: "active" });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
     });
 
-    expect(screen.queryByRole("checkbox", { name: "Live" })).not.toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Still active, so bringing nothing new is not a reason to stop.
+    expect(fetchMock).toHaveBeenCalledTimes(10);
+    expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
+  });
+
+  it("keeps the Live toggle reachable on a failed journey whose polls gave up", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(failed());
+    mount({ initialStatus: "failed", initialLive: true });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    // The notice says to turn Live on to retry, so the control it names has to
+    // still be there even though the journey is not active and live is off.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByText(/Turn Live on to retry/)).toBeInTheDocument();
+    const toggle = screen.getByRole("checkbox", { name: "Live" });
+    expect(toggle).not.toBeChecked();
+
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("gives up after three failed polls and says so", async () => {

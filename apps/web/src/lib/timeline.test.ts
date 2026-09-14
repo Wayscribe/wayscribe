@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { EventListItem } from "./api";
 import {
   NO_FILTERS,
+  RECENT_MS,
   applyFilters,
   describeCount,
   distinctServices,
+  isRecent,
   mergeEvents,
   neighbour
 } from "./timeline";
@@ -181,5 +183,34 @@ describe("describeCount", () => {
 
   it("uses the singular for one event", () => {
     expect(describeCount({ visible: 1, loaded: 1, total: 1, complete: true })).toBe("1 event");
+  });
+});
+
+describe("isRecent", () => {
+  const now = Date.parse("2026-09-14T10:00:30.000Z");
+
+  it("is true a few seconds after the last event", () => {
+    expect(isRecent("2026-09-14T10:00:20.000Z", now)).toBe(true);
+  });
+
+  it("is false once the journey has been quiet for longer than the window", () => {
+    expect(isRecent("2026-09-14T09:55:00.000Z", now)).toBe(false);
+  });
+
+  it("is false for a timestamp in the future", () => {
+    // A service clock running ahead would otherwise make every journey look
+    // warm forever, and a large enough skew makes the delta negative, which is
+    // smaller than the window rather than larger.
+    expect(isRecent("2026-09-14T10:10:00.000Z", now)).toBe(false);
+  });
+
+  it("is false for a timestamp it cannot parse", () => {
+    expect(isRecent("not a date", now)).toBe(false);
+  });
+
+  it("uses a thirty second window", () => {
+    expect(RECENT_MS).toBe(30_000);
+    expect(isRecent(new Date(now - RECENT_MS + 1).toISOString(), now)).toBe(true);
+    expect(isRecent(new Date(now - RECENT_MS).toISOString(), now)).toBe(false);
   });
 });
