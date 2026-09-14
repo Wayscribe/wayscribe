@@ -2,7 +2,21 @@ import Link from "next/link";
 import type { EventDetailData } from "../../src/lib/api";
 import { DiffTable } from "./DiffTable";
 
-export function EventDetail({ event }: { event: EventDetailData }) {
+/** A line about the event being shown: that its replacement is loading, or failed to. */
+export interface DetailNotice {
+  text: string;
+  /** The class it renders with: `error` keeps a failure red rather than grey. */
+  tone: "muted" | "error";
+}
+
+export function EventDetail({
+  event,
+  notice = null
+}: {
+  event: EventDetailData;
+  /** Rendered under the heading and its meta line, where the eye already is. */
+  notice?: DetailNotice | null;
+}) {
   return (
     <section>
       <h2>{event.name}</h2>
@@ -10,6 +24,7 @@ export function EventDetail({ event }: { event: EventDetailData }) {
         {event.operation} · {event.service}
         {event.durationMs === null ? "" : ` · ${String(event.durationMs)} ms`}
       </p>
+      {notice === null ? null : <p className={notice.tone}>{notice.text}</p>}
 
       {event.payloadDiff === null ? null : (
         <>
@@ -17,7 +32,12 @@ export function EventDetail({ event }: { event: EventDetailData }) {
           <p className="muted">
             The difference between what this step received and what it produced.
           </p>
-          <DiffTable changes={event.payloadDiff.changes} compared={wasCaptured(event)} />
+          <DiffTable
+            key={event.id}
+            changes={event.payloadDiff.changes}
+            compared={wasCaptured(event)}
+            collapsible
+          />
           {event.payloadDiff.truncated ? (
             <p className="muted">Comparison truncated: too many changes to show.</p>
           ) : null}

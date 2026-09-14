@@ -1,8 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { redirectTarget } from "../../../src/lib/redirect-url";
-import { createReplay, listProjects } from "../../../src/lib/api";
-import { webConfig } from "../../../src/lib/config";
-import { SESSION_COOKIE_NAME, verifySession } from "../../../src/lib/session";
+import { createReplay } from "../../../src/lib/api";
+import { requestSession } from "../../../src/lib/request-session";
 
 /**
  * Send a replay on behalf of the signed-in operator.
@@ -16,10 +15,7 @@ import { SESSION_COOKIE_NAME, verifySession } from "../../../src/lib/session";
  * group's gate.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const config = webConfig();
-  const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const session =
-    cookie === undefined ? null : verifySession(config.ADMIN_TOKEN, cookie, Date.now());
+  const session = requestSession(request);
 
   if (session === null) {
     return NextResponse.redirect(redirectTarget(request, "/login"), { status: 303 });
@@ -37,7 +33,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(redirectTarget(request, "/"), { status: 303 });
   }
 
-  const projectId = session.projectId === "" ? await onlyProject() : session.projectId;
+  const projectId = session.projectId;
 
   const result = await createReplay(
     {
@@ -61,10 +57,4 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   return NextResponse.redirect(back, { status: 303 });
-}
-
-/** Mirrors the resolution in `requireProjectId` for the single-project install. */
-async function onlyProject(): Promise<string> {
-  const projects = await listProjects();
-  return projects.length === 1 ? (projects[0]?.id ?? "") : "";
 }

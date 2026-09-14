@@ -3,7 +3,8 @@ import { redirectTarget } from "../../../src/lib/redirect-url";
 import { webConfig } from "../../../src/lib/config";
 import { listProjects } from "../../../src/lib/api";
 import { safeReturnTo } from "../../../src/lib/return-to";
-import { SESSION_COOKIE_NAME, signSession, verifySession } from "../../../src/lib/session";
+import { SESSION_COOKIE_NAME, signSession } from "../../../src/lib/session";
+import { requestSession } from "../../../src/lib/request-session";
 
 /**
  * Record which project the session reads from, and return where you were.
@@ -18,8 +19,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const config = webConfig();
   const now = Date.now();
 
-  const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const session = cookie === undefined ? null : verifySession(config.ADMIN_TOKEN, cookie, now);
+  const session = requestSession(request, now);
   if (session === null) {
     return NextResponse.redirect(redirectTarget(request, "/login"), { status: 303 });
   }

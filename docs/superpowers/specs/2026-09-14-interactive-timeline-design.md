@@ -40,14 +40,16 @@ Option chosen: a client island inside the existing server page.
 JourneyPage (server)                       route handlers (server)
   fetch journey, first events page,          GET /api/journeys/[id]/events?cursor=
   first event detail                         GET /api/events/[id]
-  └─ <JourneyTimeline …initial data>  ──▶    both: verify session, resolve project,
+  └─ <JourneyTimeline …initial data>  ──▶    both: verify session, pass the project,
        (client)                              proxy through src/lib/api.ts
 ```
 
-The server page keeps doing what it does. It renders the header (entity,
-status, count, services, aliases) and passes the journey, the first page of
-events with its `nextCursor`, and the first event's detail to one client
-component. The client component owns everything below the header.
+The server page renders the entity heading, the timezone note, and the aliases,
+and passes the journey, the first page of events with its `nextCursor`, the
+selected event's detail, and whether live mode starts on, to one client
+component. The client component owns everything below that, including the
+status, count, and services line, because all three change as pages and polls
+arrive.
 
 ## Components
 
@@ -63,16 +65,20 @@ Exported functions, each unit-tested without a DOM:
   within the visible list. At an edge, returns the same id. If the selected
   event is not visible (it was filtered out), returns the first visible id.
 - `mergeEvents(existing, incoming)` — union by id, ordered by
-  `eventTimestamp` then `id`, so a polled page can be merged repeatedly without
-  duplicates and without reordering what is already on screen.
-- `services(events)` — distinct service names in first-seen order, for the
-  filter chips.
+  `eventTimestamp`, then `receivedAt`, then `id`, which is the order the API
+  pages in, so a polled page can be merged repeatedly without duplicates and
+  without reordering what is already on screen.
+- `distinctServices(events)` — distinct service names in first-seen order, for
+  the filter chips.
+- `describeCount(input)` — the count line, naming what each number counts.
+- `isRecent(iso, now)` — whether a journey's last event is recent enough to
+  start live mode; a future or unparsable timestamp is not recent.
 
 ### `app/components/JourneyTimeline.tsx` — `"use client"`, the state owner
 
-Props: `journeyId`, `initialStatus`, `initialEvents`, `initialCursor`,
-`initialSelected` (the detail already fetched by the server, may be null),
-`multiDay`.
+Props: `journeyId`, `initialStatus`, `initialLive`, `initialEvents`,
+`initialCursor`, `initialSelectedId`, `initialDetail` (the detail already
+fetched by the server, may be null), `totalEvents`, `knownServices`.
 
 State: `events`, `cursor`, `status`, `filters`, `selectedId`, `detail`,
 `detailError`, `live`, `pollFailures`.
@@ -85,24 +91,35 @@ Behaviour:
   on screen with a muted "Loading" line under the heading; there is no
   spinner and nothing is blanked.
 - **Keyboard.** `ArrowUp` and `ArrowDown` move the selection through the
-  visible list using `neighbour`. `Enter` on a focused row selects it. The list
-  is a `role="listbox"` with `aria-activedescendant`; rows are
-  `role="option"`. Arrow handling is on the list, not the document, so typing
-  elsewhere is unaffected.
+  visible list using `neighbour`, and the selected row is scrolled into view,
+  because the list is its own scroll container and `aria-activedescendant`
+  does not scroll on its own. Arrows select immediately, so there is no
+  separate commit key. The list is a `role="listbox"` with
+  `aria-activedescendant`; rows are `role="option"`. Arrow handling is on the
+  list, not the document, so typing elsewhere is unaffected.
 - **Filters.** Chips for "All services" and each distinct service, plus a
   "Failures only" toggle. Filtering never changes `events`; it changes what is
-  rendered. If the selected event is filtered out, the selection moves to the
-  first visible event.
+  rendered. If the selected event is loaded but hidden by a filter, the
+  selection moves to the first visible event. If nothing matches, the list and
+  the detail panel both show "No events match these filters." and the
+  selection is kept, so loosening the filter needs no refetch. A selected
+  event that is not loaded at all (a deep link past the first page) is left
+  alone: its detail came from the server and stays on screen.
 - **Load more.** When `cursor` is not null, a "Show N more" line at the foot of
   the list fetches the next page and merges it. The header count line already
   says "showing X of Y"; that text now comes from the client state.
-- **Live.** A toggle, on by default only when `initialStatus === "active"`.
-  While on, every two seconds it fetches the events route with the latest
-  cursor (or no cursor when there is none, in which case it refetches the
-  first page and merges). The response carries `journeyStatus`; when it is no
-  longer `active`, polling stops and the header shows the final status. After
-  three consecutive failed polls, polling stops and a one-line notice says so,
-  with the toggle available to restart it. A failed poll never clears the list.
+- **Live.** A toggle, on by default when the journey is `active` or its last
+  event is less than thirty seconds old. That decision is made once, on the
+  server, and passed as a boolean: a clock-based check evaluated again on the
+  client would disagree under clock skew and mismatch on hydration. A journey's status turns terminal on
+  its first failure while retries are still being recorded (the demo journey
+  is `failed` at its sixth event and records four more), so status alone
+  cannot say whether events are still arriving. While on, every two seconds
+  it re-reads the tail from the last cursor it was given (page one when there
+  is none) and merges. It stops when the status is not `active` and three
+  consecutive polls have added nothing, when three consecutive polls fail
+  (with a one-line notice and the toggle available to restart), or at once on
+  a 401 or 409. A failed poll never clears the list.
 - **Errors.** A failed detail fetch shows a one-line error under the heading
   and keeps the last detail. A failed load-more shows the same line at the
   foot of the list. The page-level error boundary is not involved: nothing
@@ -126,17 +143,17 @@ server components.
 ### Route handlers
 
 - `app/api/journeys/[journeyId]/events/route.ts` — `GET`, optional `cursor`
-  query. Returns `{ items, nextCursor, journeyStatus }`. Fetches one page of
+  query. Returns `{ items, nextCursor, journeyStatus, journeyEventCount }`. Fetches one page of
   events and the journey in parallel through `src/lib/api.ts`.
 - `app/api/events/[eventId]/route.ts` — `GET`. Returns the event detail as
   `src/lib/api.ts` shapes it.
 
 Both: verify the session cookie, respond 401 as JSON when absent or invalid,
-resolve the project id as the replay handler does (session project, else the
-only project), respond 404 as JSON when the API returns null, and 502 as JSON
-on `ApiUnavailableError`. The session check and project resolution move out of
-the replay handler into `src/lib/request-session.ts` so the three handlers
-share one implementation.
+pass the session's project id through even when it is empty (the API resolves
+the only project itself and reports ambiguity as `project_not_found`), respond 404 as JSON when the API returns null, and 502 as JSON
+on `ApiUnavailableError`. The session check moves out of the replay handler into
+`src/lib/request-session.ts` so every route handler shares one implementation;
+the web layer no longer resolves the project, because the API already does.
 
 The route handlers respond with the same shapes `src/lib/api.ts` returns. The
 client types are imported from there; nothing is duplicated.
@@ -175,7 +192,7 @@ exists.
   automatic runtime) included in `pnpm test`.
 - **Browser, Playwright:** one new spec against the demo journey: open it,
   press ArrowDown twice, assert the detail heading changed without navigation;
-  toggle failures only, assert four rows remain and the selection is the
+  toggle failures only, assert two rows remain (the two events that carry an error) and the selection is the
   first failure.
 - The existing eight specs must pass unchanged.
 

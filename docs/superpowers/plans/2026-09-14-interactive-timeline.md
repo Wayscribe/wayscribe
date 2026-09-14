@@ -742,16 +742,16 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ journeyId: string }> }
 ): Promise<NextResponse> {
-  const auth = await requestSession(request);
-  if (auth === null) return json(401, "unauthenticated", "Sign in again.");
+  const session = requestSession(request);
+  if (session === null) return json(401, "unauthenticated", "Sign in again.");
 
   const { journeyId } = await params;
   const cursor = request.nextUrl.searchParams.get("cursor");
 
   try {
     const [page, journey] = await Promise.all([
-      listEvents(journeyId, auth.projectId, cursor),
-      getJourney(journeyId, auth.projectId)
+      listEvents(journeyId, session.projectId, cursor),
+      getJourney(journeyId, session.projectId)
     ]);
     if (page === null || journey === null) return json(404, "not_found", "No such journey.");
 
@@ -776,7 +776,10 @@ export function failure(error: unknown): NextResponse {
     return json(409, "project_not_selected", "Choose a project first.");
   }
   if (error instanceof ApiUnavailableError) {
-    return json(502, "api_unavailable", error.message);
+    // The message names configuration (which container holds which token) and
+    // belongs in the server log, not in a body served to a browser.
+    console.error(error.message);
+    return json(502, "api_unavailable", "The Flight Recorder API is unavailable.");
   }
   throw error;
 }
@@ -811,12 +814,12 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
 ): Promise<NextResponse> {
-  const auth = await requestSession(request);
-  if (auth === null) return json(401, "unauthenticated", "Sign in again.");
+  const session = requestSession(request);
+  if (session === null) return json(401, "unauthenticated", "Sign in again.");
 
   const { eventId } = await params;
   try {
-    const event = await getEvent(eventId, auth.projectId);
+    const event = await getEvent(eventId, session.projectId);
     if (event === null) return json(404, "not_found", "No such event.");
     return NextResponse.json(event);
   } catch (error) {
@@ -824,7 +827,8 @@ export async function GET(
       return json(409, "project_not_selected", "Choose a project first.");
     }
     if (error instanceof ApiUnavailableError) {
-      return json(502, "api_unavailable", error.message);
+      console.error(error.message);
+      return json(502, "api_unavailable", "The Flight Recorder API is unavailable.");
     }
     throw error;
   }
@@ -851,7 +855,10 @@ export function apiFailure(error: unknown): NextResponse {
     return jsonError(409, "project_not_selected", "Choose a project first.");
   }
   if (error instanceof ApiUnavailableError) {
-    return jsonError(502, "api_unavailable", error.message);
+    // The message names configuration (which container holds which token) and
+    // belongs in the server log, not in a body served to a browser.
+    console.error(error.message);
+    return jsonError(502, "api_unavailable", "The Flight Recorder API is unavailable.");
   }
   throw error;
 }
@@ -1172,7 +1179,6 @@ function mount(props: Partial<Parameters<typeof JourneyTimeline>[0]> = {}) {
       initialDetail={detail("evt_1")}
       totalEvents={4}
       knownServices={["webhook-api", "sync-worker"]}
-      multiDay={false}
       {...props}
     />
   );
@@ -1277,6 +1283,36 @@ describe("JourneyTimeline", () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops live mode at once when the session is refused", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(new Response("{}", { status: 401 }));
+    mount({ initialStatus: "active" });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Sign in again/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Live" })).not.toBeChecked();
+  });
+
+  it("keeps polling from the last cursor it was given, not from page one", async () => {
+    vi.useFakeTimers();
+    // First poll from c1: the tail has one new event and no further page.
+    // Second poll must still ask from c1, not refetch page one.
+    fetchMock
+      .mockResolvedValueOnce(ok(page({ items: [event("evt_5")], journeyEventCount: 5 })))
+      .mockResolvedValueOnce(ok(page({ items: [event("evt_5"), event("evt_6")], journeyEventCount: 6 })));
+    mount({ initialStatus: "active", initialCursor: "c1", totalEvents: 4 });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/journeys/jrn_1/events?cursor=c1", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/journeys/jrn_1/events?cursor=c1", expect.anything());
+    expect(screen.getAllByRole("option")).toHaveLength(6);
   });
 
   it("keeps the previous detail when a detail fetch fails", async () => {
@@ -1523,13 +1559,14 @@ export function FilterBar({
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EventDetailData, EventListItem, EventsPageResponse } from "../../src/lib/api";
+import { spansDays } from "../../src/lib/time";
 import {
   NO_FILTERS,
   applyFilters,
   describeCount,
+  distinctServices,
   mergeEvents,
   neighbour,
-  services as servicesOf,
   type TimelineFilters
 } from "../../src/lib/timeline";
 import { EventDetail } from "./EventDetail";
@@ -1546,12 +1583,13 @@ export interface JourneyTimelineProps {
   totalEvents: number;
   /** The journey's services from the server, which may include ones not yet loaded. */
   knownServices: string[];
-  multiDay: boolean;
 }
 
 const POLL_MS = 2000;
 const MAX_POLL_FAILURES = 3;
 const POLL_NOTICE = "Live updates stopped after three failed requests. Turn Live on to retry.";
+const PERMANENT_NOTICE =
+  "Live updates stopped: this session can no longer read the journey. Sign in again or choose a project.";
 const DETAIL_ERROR = "Could not load this event. Select it again to retry.";
 const LOAD_ERROR = "Could not load more events. Try again.";
 
@@ -1582,10 +1620,25 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   // must not overwrite the detail of a later one.
   const wanted = useRef(props.initialSelectedId);
   const pollFailures = useRef(0);
+  // Where live mode reads from. The API's `nextCursor` is a "more pages exist"
+  // flag, null on a partial page, so it cannot be the poll position: after the
+  // tail of a long journey it would send the poller back to page one. Live mode
+  // keeps the last cursor it was given and re-reads the tail from there, merging
+  // idempotently; when the tail grows past a page, the new cursor advances it.
+  // Under a hundred events there is no cursor, and page one is the tail. A long
+  // journey that is still active backfills a page per tick rather than jumping
+  // to the newest event; the count line says how far along that is.
+  const pollFrom = useRef(props.initialCursor);
+  // A poll slower than the interval must not overlap the next one: two
+  // responses landing out of order would move the cursor back a page.
+  const polling = useRef(false);
 
   const visible = useMemo(() => applyFilters(events, filters), [events, filters]);
+  // From the merged list, not a server prop: a journey whose first page fell on
+  // one day can cross midnight on the second.
+  const multiDay = useMemo(() => spansDays(events.map((event) => event.eventTimestamp)), [events]);
   const services = useMemo(
-    () => [...new Set([...props.knownServices, ...servicesOf(events)])],
+    () => [...new Set([...props.knownServices, ...distinctServices(events)])],
     [props.knownServices, events]
   );
 
@@ -1595,13 +1648,13 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
       setSelectedId(id);
       window.history.replaceState(null, "", `/journeys/${journeyId}?event=${id}`);
       setDetailState("loading");
-      const next = await fetchJson<EventDetailData>(`/api/events/${encodeURIComponent(id)}`);
+      const result = await fetchJson<EventDetailData>(`/api/events/${encodeURIComponent(id)}`);
       if (wanted.current !== id) return;
-      if (next === null) {
+      if (result.kind === "failed") {
         setDetailState("error");
         return;
       }
-      setDetail(next);
+      setDetail(result.body);
       setDetailState("idle");
     },
     [journeyId]
@@ -1623,6 +1676,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const applyPage = useCallback((page: EventsPageResponse) => {
     setEvents((previous) => mergeEvents(previous, page.items));
     setCursor(page.nextCursor);
+    if (page.nextCursor !== null) pollFrom.current = page.nextCursor;
     setStatus(page.journeyStatus);
     setTotal(page.journeyEventCount);
   }, []);
@@ -1630,36 +1684,44 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const loadMore = async () => {
     if (cursor === null) return;
     setLoadError(null);
-    const page = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, cursor));
-    if (page === null) {
+    const result = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, cursor));
+    if (result.kind === "failed") {
       setLoadError(LOAD_ERROR);
       return;
     }
-    applyPage(page);
+    applyPage(result.body);
   };
 
-  // Live mode. Polls from the last cursor; when there is none it re-reads the
-  // first page and merges, which is right for a journey under a hundred events
-  // and stale past that — a journey still active after its hundredth event is
-  // best followed with load-more.
+  // Live mode: re-read the tail from `pollFrom` every two seconds and merge.
+  // A permanent refusal (signed out, no project) stops at once; anything else
+  // counts toward the three failures, so a blip does not stop it and an outage
+  // does not poll forever.
   useEffect(() => {
     if (!live) return;
     let cancelled = false;
 
     const tick = async () => {
-      const page = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, cursor));
+      if (polling.current) return;
+      polling.current = true;
+      let result: Fetched<EventsPageResponse>;
+      try {
+        result = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, pollFrom.current));
+      } finally {
+        // fetchJson never throws today; the guard must still release if that changes.
+        polling.current = false;
+      }
       if (cancelled) return;
-      if (page === null) {
+      if (result.kind === "failed") {
         pollFailures.current += 1;
-        if (pollFailures.current >= MAX_POLL_FAILURES) {
+        if (result.permanent || pollFailures.current >= MAX_POLL_FAILURES) {
           setLive(false);
-          setPollNotice(POLL_NOTICE);
+          setPollNotice(result.permanent ? PERMANENT_NOTICE : POLL_NOTICE);
         }
         return;
       }
       pollFailures.current = 0;
-      applyPage(page);
-      if (page.journeyStatus !== "active") setLive(false);
+      applyPage(result.body);
+      if (result.body.journeyStatus !== "active") setLive(false);
     };
 
     const timer = setInterval(() => {
@@ -1669,7 +1731,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [live, cursor, journeyId, applyPage]);
+  }, [live, journeyId, applyPage]);
 
   const onLive = (next: boolean) => {
     pollFailures.current = 0;
@@ -1704,7 +1766,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
             journeyId={journeyId}
             events={visible}
             selectedId={selectedId}
-            multiDay={props.multiDay}
+            multiDay={multiDay}
             onSelect={(id) => {
               void select(id);
             }}
@@ -1744,14 +1806,24 @@ function eventsUrl(journeyId: string, cursor: string | null): string {
   return cursor === null ? base : `${base}?cursor=${encodeURIComponent(cursor)}`;
 }
 
-/** Null for any failure: a non-2xx, a network error, or a body that is not JSON. */
-async function fetchJson<T>(url: string): Promise<T | null> {
+type Fetched<T> =
+  | { kind: "ok"; body: T }
+  | {
+      kind: "failed";
+      /** A 401 or 409: retrying cannot help, so the caller should stop rather than count. */
+      permanent: boolean;
+    };
+
+/** Never throws: a non-2xx, a network error, and a non-JSON body are all failures. */
+async function fetchJson<T>(url: string): Promise<Fetched<T>> {
   try {
     const response = await fetch(url, { headers: { accept: "application/json" } });
-    if (!response.ok) return null;
-    return (await response.json()) as T;
+    if (!response.ok) {
+      return { kind: "failed", permanent: response.status === 401 || response.status === 409 };
+    }
+    return { kind: "ok", body: (await response.json()) as T };
   } catch {
-    return null;
+    return { kind: "failed", permanent: false };
   }
 }
 ```
@@ -1762,7 +1834,7 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 pnpm vitest run apps/web/app/components/JourneyTimeline.test.tsx
 ```
 
-Expected: 8 passed. If the fake-timer tests hang, the cause is `waitFor` under fake timers: those two tests use only `act` and `advanceTimersByTimeAsync`, as written, and must stay that way.
+Expected: 10 passed. If the fake-timer tests hang, the cause is `waitFor` under fake timers: those two tests use only `act` and `advanceTimersByTimeAsync`, as written, and must stay that way.
 
 The count line is one paragraph, so its assertions use regular expressions (a string matcher in Testing Library requires the whole text to match). The load-more test expects `Show 2 more` because `total` is 6 and 4 are loaded.
 
@@ -1794,7 +1866,6 @@ import { notFound } from "next/navigation";
 import { JourneyTimeline } from "../../../components/JourneyTimeline";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
 import { requireProjectId } from "../../../../src/lib/current-project";
-import { spansDays } from "../../../../src/lib/time";
 
 export default async function JourneyPage({
   params,
@@ -1817,9 +1888,6 @@ export default async function JourneyPage({
     const page = await listEvents(journeyId, projectId);
     if (page === null) notFound();
 
-    // Only shown when it changes something: a single-day journey does not need
-    // a date on every row, and a multi-day one is unreadable without it.
-    const multiDay = spansDays(page.items.map((event) => event.eventTimestamp));
     // Default to the first event so the detail panel is never empty on arrival.
     const activeId = selectedId ?? page.items[0]?.id ?? null;
     const active = activeId === null ? null : await getEvent(activeId, projectId);
@@ -1851,7 +1919,6 @@ export default async function JourneyPage({
           initialDetail={active}
           totalEvents={journey.eventCount}
           knownServices={journey.services}
-          multiDay={multiDay}
         />
       </main>
     );
@@ -1955,6 +2022,29 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Modify: `apps/web/e2e/journey.spec.ts`
 
+- [ ] **Step 0: Make the seed independent of the demo**
+
+The spec seeds `jrn_e2e_demo` with entity id `0018Z00002ABC`, the same id every
+demo-triggered journey uses, so `finds the customer by entity id` (which expects
+exactly one result) fails on any database that has run the demo. Change the
+constant at the top of `apps/web/e2e/journey.spec.ts` to
+`const ENTITY_ID = "E2E-0018Z00002ABC";` and leave `ALIAS_VALUE` as it is; the
+transformed step's `input.Id` and `output.externalId` follow the constant.
+
+Changing the entity id alone is not enough on a database that has already run
+the old suite: event ids are project-scoped (`ingest-event.ts` hashes the whole
+event and the repository conflicts on `[project_id, id]`), so re-posting `evt_1`
+with a new entity id answers 409, and `ensureJourney` ignores conflicts, so the
+existing `jrn_e2e_demo` keeps its old entity. Version the seed's identity as
+well, through one constant: `const SEED_VERSION = "v4";` (v4 because each
+content change on the development database conflicted with the previous
+version's events), with the journey id, event ids, entity id and alias value all
+derived from it, and a comment at the top of the file saying to bump it whenever
+the seeded data changes. The alias mask assertion is written out (`"SF-A…-V4"`)
+rather than derived from the masking rule, so it changes with a bump too. Re-run
+the existing suite before adding the new test:
+8 passed regardless of whether the demo or the old suite has run.
+
 - [ ] **Step 1: Add the test**
 
 Append to `apps/web/e2e/journey.spec.ts`:
@@ -1972,12 +2062,12 @@ test("walks the timeline with the keyboard and narrows it to failures without re
   await page.keyboard.press("ArrowDown");
 
   await expect(page.locator(".detail h2")).toHaveText("persist-customer");
-  await expect(page).toHaveURL(/event=evt_3$/);
+  await expect(page).toHaveURL(new RegExp(`event=evt_${SEED_VERSION}_3$`));
   await expect(page.locator(".timeline li.active")).toContainText("persisted");
 
   await page.getByRole("button", { name: "Failures only" }).click();
 
-  // evt_6 and evt_7 carry an error; the dead-letter event itself does not.
+  // The sixth and seventh events carry an error; the dead-letter event itself does not.
   await expect(page.locator(".timeline li")).toHaveCount(2);
   await expect(page.locator(".detail h2")).toHaveText("deliver-customer-to-target");
   await expect(page.getByText("2 of 8 events shown")).toBeVisible();
@@ -2022,6 +2112,22 @@ Under `## [Unreleased]`, in the `### Added` section that begins with the `projec
   still server-rendered and the rows are still links, so nothing that worked
   before stopped working; the browser talks only to two session-checked route
   handlers, never to the API (ADR-029). Long diffs collapse to eight rows.
+```
+
+- [ ] **Step 1b: Three small cleanups from the reviews**
+
+- `apps/web/src/lib/route-errors.ts`: `jsonError` responses carry no `Cache-Control`, and a 404 is heuristically cacheable, so an intermediary could store "no such event" for an event about to exist. Add `headers: { "cache-control": "no-store" }` to the `NextResponse.json` call in `jsonError`, with a one-line comment, and extend `route-errors.test.ts` to assert the header on the 409 response.
+- `apps/web/src/lib/timeline.test.ts`: the shared `eventCounter` interpolates unpadded into the seconds field, so the tenth `event()` call in the file would produce the invalid instant `10:00:010.000Z`. Pad with `String(counter).padStart(2, "0")`, and pin the "newer copy of evt_2" fixture to the timestamps of the event it replaces (the API cannot change an event's timestamp).
+- `test-results/.last-run.json` is tracked, so every Playwright run dirties the tree, and failure artifacts land untracked beside it. Add `test-results/` to `.gitignore` and `git rm --cached -r test-results`.
+- `docs/TESTING_STRATEGY.md`: section 2 lists what the unit layer covers; add one bullet for React components rendered under jsdom with Testing Library (`apps/web/**/*.test.tsx`, the `web` Vitest project), and one line noting route handlers are tested under node with a mocked API client.
+
+Commit these together:
+
+```bash
+git add .gitignore apps/web/src/lib/route-errors.ts apps/web/src/lib/route-errors.test.ts apps/web/src/lib/timeline.test.ts docs/TESTING_STRATEGY.md
+git commit -m "chore(web): no-store on error responses, an honest test fixture, and the testing strategy names the new layers
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 2: Confirm the debt declaration is gone and the docs test passes**

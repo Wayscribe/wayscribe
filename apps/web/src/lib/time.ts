@@ -8,9 +8,11 @@
  * eleven hours. `README.md` claims delay is visible in the timeline; it was
  * the one thing the timeline could not show.
  *
- * Rendered on the server, so `Intl` with an explicit UTC zone rather than the
- * viewer's locale: a server-rendered local time would be the *server's* local
- * time, which is a more convincing lie than UTC.
+ * Rendered on the server for the first paint and in the browser after that, so
+ * `Intl` with an explicit UTC zone rather than either side's locale. A local
+ * time would differ between the two, which is a hydration mismatch, and the
+ * server's half of it would be the *server's* local time, which is a more
+ * convincing lie than UTC.
  */
 
 const TIME = new Intl.DateTimeFormat("en-GB", {
