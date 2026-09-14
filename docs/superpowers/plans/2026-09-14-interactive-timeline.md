@@ -1625,8 +1625,13 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   // tail of a long journey it would send the poller back to page one. Live mode
   // keeps the last cursor it was given and re-reads the tail from there, merging
   // idempotently; when the tail grows past a page, the new cursor advances it.
-  // Under a hundred events there is no cursor, and page one is the tail.
+  // Under a hundred events there is no cursor, and page one is the tail. A long
+  // journey that is still active backfills a page per tick rather than jumping
+  // to the newest event; the count line says how far along that is.
   const pollFrom = useRef(props.initialCursor);
+  // A poll slower than the interval must not overlap the next one: two
+  // responses landing out of order would move the cursor back a page.
+  const polling = useRef(false);
 
   const visible = useMemo(() => applyFilters(events, filters), [events, filters]);
   // From the merged list, not a server prop: a journey whose first page fell on
@@ -1696,7 +1701,10 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
     let cancelled = false;
 
     const tick = async () => {
+      if (polling.current) return;
+      polling.current = true;
       const result = await fetchJson<EventsPageResponse>(eventsUrl(journeyId, pollFrom.current));
+      polling.current = false;
       if (cancelled) return;
       if (result.kind === "failed") {
         pollFailures.current += 1;
@@ -2076,6 +2084,21 @@ Under `## [Unreleased]`, in the `### Added` section that begins with the `projec
   still server-rendered and the rows are still links, so nothing that worked
   before stopped working; the browser talks only to two session-checked route
   handlers, never to the API (ADR-029). Long diffs collapse to eight rows.
+```
+
+- [ ] **Step 1b: Three small cleanups from the reviews**
+
+- `apps/web/src/lib/route-errors.ts`: `jsonError` responses carry no `Cache-Control`, and a 404 is heuristically cacheable, so an intermediary could store "no such event" for an event about to exist. Add `headers: { "cache-control": "no-store" }` to the `NextResponse.json` call in `jsonError`, with a one-line comment, and extend `route-errors.test.ts` to assert the header on the 409 response.
+- `apps/web/src/lib/timeline.test.ts`: the shared `eventCounter` interpolates unpadded into the seconds field, so the tenth `event()` call in the file would produce the invalid instant `10:00:010.000Z`. Pad with `String(counter).padStart(2, "0")`, and pin the "newer copy of evt_2" fixture to the timestamps of the event it replaces (the API cannot change an event's timestamp).
+- `docs/TESTING_STRATEGY.md`: section 2 lists what the unit layer covers; add one bullet for React components rendered under jsdom with Testing Library (`apps/web/**/*.test.tsx`, the `web` Vitest project), and one line noting route handlers are tested under node with a mocked API client.
+
+Commit these together:
+
+```bash
+git add apps/web/src/lib/route-errors.ts apps/web/src/lib/route-errors.test.ts apps/web/src/lib/timeline.test.ts docs/TESTING_STRATEGY.md
+git commit -m "chore(web): no-store on error responses, an honest test fixture, and the testing strategy names the new layers
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 2: Confirm the debt declaration is gone and the docs test passes**
