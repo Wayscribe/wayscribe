@@ -141,6 +141,40 @@ const UNCAPTURABLE = "[UNCAPTURABLE]";
 /** Simultaneous in-flight batches. Four keeps a burst moving without a socket storm. */
 const MAX_CONCURRENT_SENDS = 4;
 
+/**
+ * The protocol's limits on `error.message` and `error.stack`
+ * (`packages/protocol` `errorSchema`). The server refuses anything longer, so
+ * text beyond them is never worth masking or sending.
+ */
+export const MAX_ERROR_MESSAGE_LENGTH = 4096;
+export const MAX_ERROR_STACK_LENGTH = 16_384;
+
+const TRUNCATED = "[TRUNCATED]";
+
+/**
+ * `text` masked and cut to `limit` characters, ending in `[TRUNCATED]` when it
+ * was cut.
+ *
+ * Masking runs over twice the limit before the final cut, not over exactly the
+ * limit. Cutting first can split a credential so the masker no longer
+ * recognises it, as `postgres://app:hunt` without its `@` shows. With the wider
+ * window, a credential that reaches the kept part was seen whole unless it is
+ * itself longer than the limit.
+ */
+function boundedMaskedText(text: string, limit: number): string {
+  if (text.length <= limit) {
+    const masked = maskSecretsInText(text);
+    if (masked.length <= limit) return masked;
+    return cut(masked, limit);
+  }
+  return cut(maskSecretsInText(text.slice(0, 2 * limit)), limit);
+}
+
+/** Cut to `limit` including the marker, repairing a surrogate pair split by the cut. */
+function cut(text: string, limit: number): string {
+  return text.slice(0, limit - TRUNCATED.length).toWellFormed() + TRUNCATED;
+}
+
 /** Duck-typed rather than `instanceof Promise`: a thenable from any library counts. */
 function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
   return (
@@ -323,14 +357,21 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * is masked too when a JavaScript caller passes one the type does not admit.
    * The server masks again before storing, which changes nothing: masking is
    * idempotent.
+   *
+   * Both fields are bounded to what the protocol accepts, so a megabyte of
+   * message costs the host no more than four kilobytes of one.
    */
   function maskedError(error: NonNullable<RecordInput["error"]>): RecordInput["error"] {
     const { message } = error;
     const stack = (error as { stack?: unknown }).stack;
     return {
       ...error,
-      ...(typeof message === "string" ? { message: maskSecretsInText(message) } : {}),
-      ...(typeof stack === "string" ? { stack: maskSecretsInText(stack) } : {})
+      ...(typeof message === "string"
+        ? { message: boundedMaskedText(message, MAX_ERROR_MESSAGE_LENGTH) }
+        : {}),
+      ...(typeof stack === "string"
+        ? { stack: boundedMaskedText(stack, MAX_ERROR_STACK_LENGTH) }
+        : {})
     };
   }
 
