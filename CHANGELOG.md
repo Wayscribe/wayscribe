@@ -91,8 +91,9 @@ changes far less often.
   (Stripe, Slack, GitHub, GitLab, AWS, Google, OpenAI, Anthropic, npm,
   SendGrid, Hugging Face, and `fr_`). It does not guess at entropy, so an
   identifier is never masked and a credential in an unknown shape is not either;
-  SECURITY.md §4 lists the other known misses. The SDK cuts a message to the
-  protocol's 4096 characters before masking it. `metadata` and payload strings
+  SECURITY.md §4 lists the other known misses. The SDK masks the first 8192
+  characters of a message and then cuts the result to the protocol's 4096,
+  ending in `[TRUNCATED]`. `metadata` and payload strings
   keep name-based redaction only (ADR-045).
 - **Stack traces are stored only under full capture.** Ingestion drops
   `error.stack` unless the environment's capture mode is `full-payload` and

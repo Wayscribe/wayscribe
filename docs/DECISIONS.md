@@ -1565,9 +1565,12 @@ prose and kept. Attached to `=` it is a value: `DB_PASSWORD=changeme` is how `.e
 files hold the default and dictionary-word passwords that most need masking.
 
 It runs in two places, the same function in both. The SDK masks every error record before it is
-queued, and bounds the message and any string stack to the protocol's 4096 and 16384 characters
-first, so a megabyte of message costs no more than the part the server would accept. Ingestion
-masks `message` before storing, whoever sent it.
+queued. It bounds the message and any string stack to the protocol's 4096 and 16384 characters:
+it masks a window of twice the limit, cuts the result to the limit with a `[TRUNCATED]` marker,
+and masks and cuts again until masking changes nothing, so a megabyte of message costs no more
+than twice the part the server would accept, a credential straddling the cut is seen whole, and
+the server's pass never rewrites what the SDK sent. Ingestion masks `message` before storing,
+whoever sent it.
 
 Ingestion drops `error.stack` unless full capture is in effect, which already takes both
 `ALLOW_FULL_PAYLOAD_CAPTURE` and the environment's own `full-payload` setting. A team that opted

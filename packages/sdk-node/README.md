@@ -231,9 +231,9 @@ The masker recognises:
 - provider-prefixed keys from Stripe, Slack, GitHub, GitLab, AWS, Google,
   OpenAI, Anthropic, npm, SendGrid, Hugging Face and Flight Recorder
 
-A message longer than the 4096 characters the server accepts is cut to that
-length and ends in `[TRUNCATED]`; a `stack` you pass to `record()` is cut the
-same way at 16384.
+A message longer than the 4096 characters the server accepts is masked over its
+first 8192 characters and then cut to 4096, ending in `[TRUNCATED]`; a `stack`
+you pass to `record()` is handled the same way at 16384.
 
 It does not guess at entropy, so record identifiers such as Salesforce ids,
 UUIDs and order numbers are never masked, and a credential in an unlisted shape

@@ -164,8 +164,10 @@ What it does not catch, by design or by limitation:
 `error.stack` is stored only when the environment captures full payloads, which
 requires both `ALLOW_FULL_PAYLOAD_CAPTURE` and the environment's `full-payload`
 setting. In every other mode ingestion drops it. A kept stack is masked like a
-message. The Node SDK never sends one of its own, and cuts a message to 4096
-characters and a stack passed to `record()` to 16384 before masking.
+message. The Node SDK never sends one of its own. It masks a window of twice
+the protocol's limit and then cuts the result, a message to 4096 characters and
+a stack passed to `record()` to 16384, ending in `[TRUNCATED]`; it masks the cut
+text once more, so the server's pass leaves it unchanged.
 
 The content hash stored with each event is an unkeyed SHA-256 over the event as
 received, before any masking or redaction. With read access to the database, a
