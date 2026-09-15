@@ -351,7 +351,14 @@ changes far less often.
   latter. `GET /v1/replays/<not a uuid>` is 404, and `POST /v1/replays` with no
   body, a non-string field, or a `destinationId` that is not a uuid is 400
   `invalid_request`, where each was a 500 with `22P02`. A repeated `q` or
-  `cursor` is 400. Any other unexpected failure is 500 `internal_error`.
+  `cursor` is 400. Any other unexpected failure is 500 `internal_error`. A null
+  byte in a read route's path id is 404, in `q`, `environment` or `service` 400
+  `invalid_query`, in any cursor 400 `invalid_cursor`, and in a replay
+  destination's name or base URL 400 `invalid_request`; an event cursor with a
+  timestamp PostgreSQL cannot cast is 400 too. `durationMs` above 2147483647,
+  which fits no `integer` column, is refused by the protocol schema as
+  `invalid_event`, where it was a 500 on the single route and a per-event 500 in
+  a batch that the SDK resent.
 - **Admin token guesses are throttled at the API, and the web login's limiter
   can no longer be sidestepped.** The login limiter keyed on `X-Forwarded-For`,
   which the client writes, so a new value per guess was never throttled. It now

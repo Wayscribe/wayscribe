@@ -99,8 +99,18 @@ in flight hold the slots.
 
 An unexpected failure is `500` with code `internal_error` and a generic message.
 The code is never the database's own: a PostgreSQL SQLSTATE such as `22P02` is
-not part of this contract and never appears in `error.code`. A malformed id or
-body is refused with a `4xx` before it reaches the database.
+not part of this contract and never appears in `error.code`.
+
+Input the database would refuse is refused first, with a `4xx`, before any query
+runs: an id that must be a uuid and is not (`404` in a path, `400
+invalid_request` in a body), a null byte in a path id (`404`), in a query
+parameter (`400 invalid_query`), in a cursor (`400 invalid_cursor`), or in a
+replay or destination field or an erasure value (`400 invalid_request`), and a
+missing body or a field of the wrong type (`400`). Ingestion is the exception:
+an event whose text PostgreSQL cannot store, a null byte or an unpaired
+surrogate, is refused only when the insert fails, as `400 unstorable_payload`,
+and nothing of it is stored (section 3). A `durationMs` above 2147483647 is
+`400 invalid_event`.
 
 A request that matches no route gets `404` with code `not_found`, in this shape.
 Its message names the method and path, never the query string or matrix

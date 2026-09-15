@@ -20,6 +20,7 @@ import { presentAliases, presentEntityId, presentJourneySummary } from "./presen
 import { parseRecentJourneysQuery } from "./recent-query.js";
 
 const DEFAULT_LIMIT = 25;
+const NULL_BYTE = String.fromCharCode(0);
 const MAX_LIMIT = 100;
 
 export function registerQueryRoutes(
@@ -78,6 +79,12 @@ export function registerQueryRoutes(
     const query = typeof raw === "string" ? raw.trim() : undefined;
     if (query === undefined || query === "") {
       return reply.code(400).send(errorBody("invalid_query", "q is required.", request.id));
+    }
+    if (query.includes(NULL_BYTE)) {
+      // Nothing stored can hold one, and PostgreSQL refuses it in a comparison.
+      return reply
+        .code(400)
+        .send(errorBody("invalid_query", "q must not contain a null byte.", request.id));
     }
 
     try {
@@ -147,6 +154,11 @@ export function registerQueryRoutes(
     if (principal === undefined) return reply;
 
     const { journeyId } = request.params as { journeyId: string };
+    // No stored id holds a NUL, and PostgreSQL refuses one in a comparison:
+    // the same answer as any id that does not exist.
+    if (journeyId.includes(NULL_BYTE)) {
+      return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
+    }
     const detail = await findJourneyDetail(app.db, readScope(principal), journeyId);
     // 404 rather than 403: confirming existence to an unauthorized caller is
     // itself a disclosure.
@@ -178,6 +190,9 @@ export function registerQueryRoutes(
     if (principal === undefined) return reply;
 
     const { journeyId } = request.params as { journeyId: string };
+    if (journeyId.includes(NULL_BYTE)) {
+      return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
+    }
     const journey = await findJourneyDetail(app.db, readScope(principal), journeyId);
     if (journey === undefined) {
       return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
@@ -212,6 +227,9 @@ export function registerQueryRoutes(
     if (principal === undefined) return reply;
 
     const { eventId } = request.params as { eventId: string };
+    if (eventId.includes(NULL_BYTE)) {
+      return reply.code(404).send(errorBody("not_found", "Event not found.", request.id));
+    }
     const detail = await findEventDetail(app.db, readScope(principal), eventId);
     if (detail === undefined) {
       return reply.code(404).send(errorBody("not_found", "Event not found.", request.id));

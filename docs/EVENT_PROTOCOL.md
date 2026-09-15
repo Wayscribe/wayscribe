@@ -56,7 +56,7 @@ interface JourneyEventV01 {
 
   aliases?: Record<string, string>;
 
-  durationMs?: number;
+  durationMs?: number; // whole milliseconds, 0 to 2147483647
   parentEventId?: string;
 
   traceId?: string;

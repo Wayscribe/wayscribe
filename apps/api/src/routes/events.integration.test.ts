@@ -361,6 +361,34 @@ describe("event ingestion", () => {
       expect(single.body + batch.body).not.toMatch(/22P05|22021|22P02/);
     });
 
+    it("refuses a duration too large to store as a validation error, on both routes", async () => {
+      const tooLong = event({
+        id: "evt_duration_max",
+        journeyId: "jrn_duration",
+        durationMs: 2 ** 31
+      });
+      const single = await send(tooLong);
+      expect(single.statusCode, single.body).toBe(400);
+      expect(single.json().error.code).toBe("invalid_event");
+
+      const batch = await app.inject({
+        method: "POST",
+        url: "/v1/events/batch",
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: { events: [tooLong] } as object
+      });
+      const result = batch.json().data.results[0];
+      expect(result.status).toBe("rejected");
+      // A 4xx: permanent, so the SDK does not resend it.
+      expect(result.error.httpStatus).toBe(400);
+      expect(result.error.code).toBe("invalid_event");
+
+      const fits = await send(
+        event({ id: "evt_duration_fits", journeyId: "jrn_duration", durationMs: 2 ** 31 - 1 })
+      );
+      expect(fits.statusCode, fits.body).toBe(202);
+    });
+
     it("never publishes a raw SQLSTATE as the API error code", async () => {
       // A pg error carries .code — a SQLSTATE like 22P05 — and no .statusCode,
       // so the shared error handler used to publish it verbatim. "22P05" tells

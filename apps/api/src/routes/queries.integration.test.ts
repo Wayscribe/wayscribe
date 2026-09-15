@@ -127,6 +127,54 @@ describe("query endpoints", () => {
     }
   });
 
+  describe("a null byte anywhere in the request", () => {
+    // PostgreSQL refuses a NUL in text with 22021, and every one of these
+    // reached a query and came back 500. A NUL cannot be part of any stored
+    // id, identifier, name or cursor, so it is refused before the database.
+    const cursorWith = (value: Record<string, unknown>): string =>
+      Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+
+    it("answers a path id holding one with 404, for an API key and an admin", async () => {
+      for (const url of [
+        "/v1/journeys/jrn%00q",
+        "/v1/journeys/jrn%00q/events",
+        "/v1/events/evt%00q1"
+      ]) {
+        for (const token of [apiKey, "admin-token-for-tests-0000000000"]) {
+          const response = await get(url, token);
+          expect(response.statusCode, `${url} ${response.body}`).toBe(404);
+          expect(response.json().error.code).toBe("not_found");
+        }
+      }
+    });
+
+    it("refuses one in a query parameter with 400", async () => {
+      const since = "2026-01-01T00:00:00Z";
+      for (const url of [
+        "/v1/search?q=00%0018Z",
+        `/v1/journeys?since=${since}&environment=dev%00`,
+        `/v1/journeys?since=${since}&service=svc%00`
+      ]) {
+        const response = await get(url);
+        expect(response.statusCode, `${url} ${response.body}`).toBe(400);
+        expect(response.json().error.code).toBe("invalid_query");
+      }
+    });
+
+    it("refuses one inside a cursor as a malformed cursor", async () => {
+      const nul = String.fromCharCode(0);
+      for (const url of [
+        `/v1/search?q=0018Z00002ABC&cursor=${cursorWith({ lastEventAt: "2026-08-06T10:00:00.000Z", id: `jrn${nul}` })}`,
+        `/v1/journeys?since=2026-01-01T00:00:00Z&cursor=${cursorWith({ lastEventAt: "2026-08-06T10:00:00.000Z", id: `jrn${nul}` })}`,
+        `/v1/journeys/jrn_q/events?cursor=${cursorWith({ eventTimestamp: "2026-08-06T10:00:00.000Z", receivedAt: "2026-08-06T10:00:00.000Z", id: `evt${nul}` })}`
+      ]) {
+        const response = await get(url);
+        expect(response.statusCode, `${url} ${response.body}`).toBe(400);
+        expect(response.json().error.code).toBe("invalid_cursor");
+      }
+    });
+  });
+
   it("rejects a malformed cursor", async () => {
     const response = await get("/v1/search?q=0018Z00002ABC&cursor=garbage");
     expect(response.statusCode).toBe(400);

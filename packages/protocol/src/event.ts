@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/** The largest `durationMs` accepted: 2^31 - 1, the most a PostgreSQL `integer` holds (about 24.8 days). */
+export const MAX_DURATION_MS = 2_147_483_647;
+
 export const JOURNEY_OPERATIONS = [
   "received",
   "identified",
@@ -64,7 +67,9 @@ export const journeyEventSchema = z.object({
 
   aliases: z.record(z.string().max(128), z.string().max(512)).optional(),
 
-  durationMs: z.number().int().nonnegative().optional(),
+  // Stored in an int4 column. A larger value passed validation and failed the
+  // insert, which a batch reported as a transient 500 the SDK resent.
+  durationMs: z.number().int().nonnegative().max(MAX_DURATION_MS).optional(),
   parentEventId: z.string().max(128).optional(),
 
   traceId: z.string().max(128).optional(),

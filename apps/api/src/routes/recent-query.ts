@@ -107,5 +107,9 @@ function single(
   const raw = params[name];
   if (raw === undefined || raw === "") return { ok: true, value: undefined };
   if (typeof raw !== "string") return { ok: false, message: `${name} must be given once.` };
+  // PostgreSQL refuses a NUL in a comparison, and no stored name holds one.
+  if (raw.includes(String.fromCharCode(0))) {
+    return { ok: false, message: `${name} must not contain a null byte.` };
+  }
   return { ok: true, value: raw };
 }

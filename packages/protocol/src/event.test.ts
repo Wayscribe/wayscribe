@@ -69,6 +69,17 @@ describe("journeyEventSchema", () => {
     expect(journeyEventSchema.safeParse(complete).success).toBe(true);
   });
 
+  it("accepts a duration up to the largest the database stores, and refuses one past it", () => {
+    // duration_ms is an int4. 2^31 passed the schema and failed the insert:
+    // a 500 from the single route, and a per-event 500 in a batch, which the
+    // SDK resends as transient until it gives up.
+    expect(
+      journeyEventSchema.safeParse({ ...minimalEvent, durationMs: 2_147_483_647 }).success
+    ).toBe(true);
+    const result = journeyEventSchema.safeParse({ ...minimalEvent, durationMs: 2_147_483_648 });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects a negative duration", () => {
     const result = journeyEventSchema.safeParse({ ...minimalEvent, durationMs: -1 });
     expect(result.success).toBe(false);

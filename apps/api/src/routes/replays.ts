@@ -61,6 +61,19 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
           error("invalid_request", "name, baseUrl, and environmentType are required.", request.id)
         );
     }
+    if (![body.name, body.baseUrl, body.environmentType].every(isPlainText)) {
+      // A non-string reached the insert, and a NUL was refused by PostgreSQL
+      // with 22021: both were 500s.
+      return reply
+        .code(400)
+        .send(
+          error(
+            "invalid_request",
+            "name, baseUrl, and environmentType must be strings without null bytes.",
+            request.id
+          )
+        );
+    }
     if (!ENVIRONMENT_TYPES.has(body.environmentType)) {
       // There is no value of this field that means production. Replay exists to
       // send a recorded input somewhere side effects are acceptable.
@@ -327,6 +340,10 @@ function parseReplayRequest(
     return { ok: false, message: "method must be POST, PUT, or PATCH." };
   }
   return { ok: true, value: { eventId, destinationId, method, path } };
+}
+
+function isPlainText(value: unknown): value is string {
+  return typeof value === "string" && !value.includes(NULL_BYTE);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

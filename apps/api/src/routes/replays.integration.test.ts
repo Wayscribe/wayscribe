@@ -538,6 +538,24 @@ describe("replay routes", () => {
       }
     });
 
+    it("refuses a replay destination whose name, base URL or type is not plain text", async () => {
+      const nul = String.fromCharCode(0);
+      for (const payload of [
+        { name: `dest${nul}`, baseUrl: "http://localhost:1", environmentType: "development" },
+        { name: "dest", baseUrl: `http://localhost:1/${nul}`, environmentType: "development" },
+        { name: 42, baseUrl: "http://localhost:1", environmentType: "development" },
+        { name: "dest", baseUrl: ["http://localhost:1"], environmentType: "development" }
+      ]) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/replay-destinations",
+          headers: admin(),
+          payload
+        });
+        expectRefusal(response, 400, "invalid_request");
+      }
+    });
+
     it("refuses a replay destination with no body", async () => {
       const response = await app.inject({
         method: "POST",
