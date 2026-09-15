@@ -35,7 +35,10 @@ api:
   defaultRetentionDays: 7
   maxEventPayloadBytes: 262144
   allowFullPayloadCapture: false
-  replayAllowedHosts: "localhost,host.docker.internal"
+  # REPLAY_ALLOWED_HOSTS: the hosts replay may send to, and the control that
+  # keeps replay from being a request forgery tool. Set the few development
+  # hosts you replay to. `localhost` is the API pod itself (docs/OPERATIONS.md §9).
+  replayAllowedHosts: "localhost"
   # DATABASE_STATEMENT_TIMEOUT_MS: every statement the API runs is cancelled
   # after this long and answered 503 query_timeout. 0 disables it.
   databaseStatementTimeoutMs: 15000
@@ -44,6 +47,12 @@ api:
   # `metrics`. The Service and the ingress never carry it; scrape the pods
   # (docs/OPERATIONS.md §13).
   metricsPort: ""
+  # TRUSTED_PROXY_COUNT: how many reverse proxies in front of the API append to
+  # X-Forwarded-For. 0 keys the admin authentication throttle on the socket
+  # address. Behind an ingress controller that is the controller's pod, so set
+  # it to the number of proxies, and only if nothing reaches the pods directly
+  # (docs/OPERATIONS.md §9).
+  trustedProxyCount: 0
   service:
     type: ClusterIP
     port: 8080
@@ -51,6 +60,8 @@ api:
 
 web:
   replicaCount: 1
+  # TRUSTED_PROXY_COUNT for the login limiter, as api.trustedProxyCount.
+  trustedProxyCount: 0
   service:
     type: ClusterIP
     port: 3000

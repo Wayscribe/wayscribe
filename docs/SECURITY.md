@@ -43,6 +43,47 @@ Captured entities may include:
 
 A query or API key must never expose another project or environment.
 
+Nor may an API key write into one. A journey belongs to the environment that created it,
+and ingestion refuses an event for it from another environment's key with
+`journey_environment_mismatch` (ADR-038).
+
+That refusal is itself something a key can aim. A key for one environment that
+records a journey id first owns it, so if ids are predictable (`jrn_order_1001`)
+a leaked development key can pre-record the ids production will use, and
+production's events for them are refused and never stored. Journey ids must be
+unpredictable: the Node SDK uses random UUIDs, and an application choosing its
+own should too (`EVENT_PROTOCOL.md` §4). Event ids are unique per project and can
+be claimed the same way, answered `event_id_conflict`; they should be random for
+the same reason. A journey id propagated across environments is refused too.
+
+### Guessing the admin token
+
+The admin token reads every payload of every project, and it is one shared
+secret. The web login and the API both throttle failed attempts per source
+address (an IPv6 address by its /64), five a minute and then five minutes locked
+out. The count is of refusals, so a burst sent at once can have more than five
+credentials checked before the lock lands (`OPERATIONS.md` §9). Neither keys that
+address on `X-Forwarded-For` unless `TRUSTED_PROXY_COUNT` says how many proxies
+to look through (`OPERATIONS.md` §9). The throttles are per process. They slow a
+guesser; the token's length, 32 characters at least, is what makes guessing
+hopeless.
+
+### Script injection in the interface
+
+The interface renders recorded payloads, which any API key holder can write. React
+escapes what it renders, and every page is also served with a
+Content-Security-Policy that allows scripts only from its own origin and, inline,
+by a nonce generated for that response: `default-src 'self'; script-src 'self'
+'nonce-…'; style-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action
+'self'; object-src 'none'`, with `img-src`, `font-src` and `connect-src` also
+`'self'`. Next.js's production build inlines scripts in every page, so a policy
+without a nonce would need `'unsafe-inline'`, which would allow an injected script
+too; `apps/web/middleware.ts` sets the nonce and Next puts it on its own scripts.
+Every response also carries `X-Frame-Options: DENY`, `Referrer-Policy:
+no-referrer`, and `X-Content-Type-Options: nosniff`, and no `X-Powered-By`. The
+browser suite fails on any policy violation on the search, journey, recent,
+replay, and delete pages.
+
 ### Replay abuse
 
 Historical payload replay could:
@@ -373,6 +414,14 @@ V0 replay rules:
 - user reviews payload before send
 - destination header values are sent, never stored with the run or returned
 
+`REPLAY_ALLOWED_HOSTS` is the load-bearing control. Replay deliberately allows
+private addresses, because every development destination is one, so the list is
+all that limits where an admin token can make the API send a request. A host
+matches exactly, on any port. `host.docker.internal` reaches every service on the
+Docker host, and `localhost` is the API's own container. The published Compose
+file and the Helm chart default to `localhost` alone; a production installation
+should set a minimal explicit list (`OPERATIONS.md` §9).
+
 Blocked headers should include at least:
 
 ```text
@@ -400,6 +449,11 @@ By default, propagate only:
 Do not propagate aliases automatically.
 
 Allow projects to propagate only the journey ID.
+
+Propagation does not cross environments. A journey id propagated from a service
+in one environment to one in another is refused at ingestion with
+`journey_environment_mismatch`, and the receiving service's events for it are not
+stored; the receiving service should start a journey of its own.
 
 ## 11. Input limits
 
@@ -477,6 +531,12 @@ wrote), an environment's time window, or a replay destination
   leaked one must not be able to erase the record of what it sent.
 - Erasure matches the identifier's search tokens under every configured key, so
   it finds journeys still under the previous key during a rotation.
+- Erasure matches an entity id or an alias, which is what search finds, and
+  nothing else. An identifier that appears only inside a payload, such as an
+  email address in `input` that was never recorded as an alias, is not matched,
+  so an erasure request for it deletes nothing and reports zero journeys. Finding those
+  journeys is the operator's work, and deleting each is `delete:journey`
+  (`OPERATIONS.md` §8). An erasure that scans payloads is not built.
 - Deleted rows remain in PostgreSQL's files until vacuum, and in every backup
   taken before the deletion. The documentation says so rather than implying
   otherwise.

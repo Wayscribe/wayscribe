@@ -130,6 +130,9 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
   if (dataReason !== null) results.push(skip("Projects and keys", dataReason));
   else results.push(await guarded("Projects and keys", () => projectsResult(db)));
 
+  if (dataReason !== null) results.push(skip("Journey environments", dataReason));
+  else results.push(await guarded("Journey environments", () => journeyEnvironmentsResult(db)));
+
   if (options.apiKey !== undefined) {
     const apiKey = options.apiKey;
     if (keyring === null) results.push(skip("API key", "ENCRYPTION_KEY cannot be used"));
@@ -462,6 +465,43 @@ async function projectsResult(db: Knex): Promise<CheckResult> {
     "Projects and keys",
     `${plural(projects, "project")}, ${plural(keys, "unrevoked API key")}.`
   );
+}
+
+/**
+ * Events stored under a different environment from the journey they belong to.
+ *
+ * Ingestion refuses these since the ADR-038 amendment. Before it, an API key for one
+ * environment could write events and aliases into another environment's
+ * journey, and an installation that ran such a build may hold the result.
+ * `journey_events` records the environment of the key that wrote each event,
+ * so those events can be found. `entity_aliases` records no environment, so an
+ * alias cannot be attributed: every alias on a journey this check counts is
+ * suspect, which is why the fix is deleting the journey rather than the events.
+ *
+ * Counts only. A journey id can carry a business identifier, and doctor prints
+ * nothing drawn from recorded data; OPERATIONS.md §12 has the query that lists
+ * them.
+ */
+async function journeyEnvironmentsResult(db: Knex): Promise<CheckResult> {
+  const found: unknown = await db.raw(`
+    select count(*) as events,
+           count(distinct (e.project_id, e.journey_id)) as journeys
+    from journey_events e
+    join journeys j on j.project_id = e.project_id and j.id = e.journey_id
+    where e.environment_id <> j.environment_id
+  `);
+  const row = (found as { rows: { events: string | number; journeys: string | number }[] }).rows[0];
+  const events = Number(row?.events ?? 0);
+  const journeys = Number(row?.journeys ?? 0);
+
+  if (events > 0) {
+    return fail(
+      "Journey environments",
+      `${plural(events, "event")} in ${plural(journeys, "journey")} ${events === 1 ? "was" : "were"} written by another environment's API key than the journey's own, and those journeys' aliases may have been too.`,
+      "List them with the query in docs/OPERATIONS.md §12, check each, and remove it with delete:journey <project> <journey-id>."
+    );
+  }
+  return pass("Journey environments", "Every event belongs to its journey's environment.");
 }
 
 async function apiKeyResult(db: Knex, keyring: Keyring, apiKey: string): Promise<CheckResult> {

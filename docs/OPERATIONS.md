@@ -510,6 +510,19 @@ Journeys recorded after the run started were left alone; run it again with --dry
 | `pnpm delete:range <project> <environment> --before <date> [--after <date>] [--dry-run]` | the environment's journeys whose last event falls in `[after, before)` |
 | `pnpm delete:destination <project> <destination-id>` | a replay destination and every replay run sent to it |
 
+**Erasure finds entity ids and aliases, not payloads.** `delete:identifier`, and
+`POST /v1/erasures`, match the value against journeys' entity ids and aliases,
+which is exactly what search finds. A value that appears only inside a payload is
+not matched: an email address a service put in `input` but never recorded with
+`identify()` or as an alias. An erasure request for such a value deletes nothing,
+and the dry run shows zero journeys. An erasure that scans payloads is not built.
+Until it is, find those journeys another way (the entity id or an alias the
+customer is also known by, the time window and service of their activity, or
+your own application's records), confirm each on its journey page, and delete
+each with `delete:journey <project> <journey-id>` or the journey page's delete
+action. Recording the identifiers a request may name as aliases is what makes
+erasure find them.
+
 Each exits 1 whenever what was asked did not fully happen: an unknown project,
 environment, journey, or destination, a value that is only whitespace, an
 invalid date, a held lock, or a run that stopped part way. A script can rely on
@@ -526,7 +539,8 @@ never prints the value.
 
 **The value you type is still recorded outside Flight Recorder.** It stays in
 your shell's history, and anyone who can list processes on that host sees it in
-`ps` while the command runs. In bash with `HISTCONTROL=ignorespace` (or zsh with
+`ps` while the command runs. The same is true of the API key given to
+`doctor --api-key` (§12), which is a credential rather than an identifier. In bash with `HISTCONTROL=ignorespace` (or zsh with
 `setopt HIST_IGNORE_SPACE`), start the command with a space and it is not saved;
 otherwise remove the line afterwards (`history -d <number>` in bash). Run it on a
 host whose process list only operators can read.
@@ -608,11 +622,116 @@ does not expose the stack to the internet, and that is the only thing standing
 between the default configuration and an open admin interface.
 
 If you put Flight Recorder behind a reverse proxy, terminate TLS there and do not
-republish the container ports on `0.0.0.0`.
+republish the container ports on `0.0.0.0`. The web app sets its own
+`Content-Security-Policy`, with a fresh nonce per response, and
+`X-Frame-Options`, `Referrer-Policy` and `X-Content-Type-Options`
+(`docs/SECURITY.md` §2). Let them through: a proxy that replaces the policy with
+a fixed one blocks the interface's scripts, and one that caches pages would serve
+a stale nonce. Pages are sent `Cache-Control: no-store` already.
+
+Pass the original `Host` header through to the web app, or set
+`X-Forwarded-Host`, and set `X-Forwarded-Proto`. The web app refuses a form post
+whose `Origin` names a different host from the one the request was sent to, so a
+proxy that rewrites `Host` to the container's name without `X-Forwarded-Host`
+refuses every sign-in. Redirects after a form post are path-only (`Location:
+/login?error=invalid`), so they follow whatever scheme and host the browser is
+on and do not depend on `X-Forwarded-Proto`; set it anyway, because anything
+behind the proxy that builds an absolute URL does.
+
+```nginx
+location / {
+  proxy_pass http://127.0.0.1:3000;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
 
 The admin token grants project-wide read of every recorded payload. It is a
 single shared secret with no user accounts and no audit of who used it — treat
 it as an operator credential, not a login.
+
+### Replay destinations
+
+Replay makes the API send a recorded payload to a destination an admin
+configured. `REPLAY_ALLOWED_HOSTS` is the control that keeps that from being a
+request forgery tool inside your network: a destination whose host is not in the
+list is refused before anything is sent (ADR-033). It is load-bearing, because
+private addresses are deliberately allowed, since every development destination
+lives in one. Nothing else stands between a leaked admin token and a request to
+any service the API can reach.
+
+- A host matches exactly, on any port. There are no wildcards.
+- `localhost` is the API's own container or pod, including the API port and
+  `METRICS_PORT`.
+- `host.docker.internal` reaches every service listening on the Docker host,
+  not only the one under development: databases, other applications, and
+  anything bound to the host's loopback interface.
+- A Compose or Kubernetes service name reaches that service from inside the
+  network, whether or not it is published.
+
+`compose.published.yaml` and the Helm chart default to `localhost` alone.
+`infrastructure/compose.yaml`, the development and demo stack, allows
+`host.docker.internal` and `demo-integration` so the demo and a service running
+on your machine can be replayed to, and `deploy/helm/values-local.yaml` allows
+`host.docker.internal` for a kind cluster. **A production installation should set
+the list explicitly to the few development hosts it replays to**, and to
+`localhost` or an unused name when it replays to nothing:
+
+```bash
+REPLAY_ALLOWED_HOSTS=billing-dev.internal,orders-staging.internal
+```
+
+An installation that relied on the previous default of
+`localhost,host.docker.internal` in `compose.published.yaml` or the chart must
+now set it.
+
+### Guessing the admin token
+
+Both places that accept it throttle failures per source address: five failures
+within a minute lock that address out for five minutes. The web login redirects
+a locked address to `/login?error=throttled`. The API counts a refused
+credential on any route that takes the admin token (every route but ingestion
+and the health checks), answers it with the same `401` as before, and then
+answers every request from that address that presents credentials with `429
+too_many_attempts` and a `Retry-After` header, the right token included, until
+the lock expires. A request with no credentials is not counted, a database error
+while a key is looked up is not counted, and ingestion is never throttled.
+
+The API counts refusals, not attempts in flight. Guesses sent one after another
+get exactly five `401`s. Guesses sent all at once can get more: every request
+that passed the lock check before the fifth refusal was recorded still has its
+credential checked. On the admin-only routes that is only what was already
+between the check and the comparison, which has no I/O between them; on the
+read routes an API key is looked up in the database first, so a burst of N
+concurrent bad keys from one address can see up to N `401`s, and the request
+after it is `429`. That is a deliberate trade. The admin token is at least 32
+characters and an API key carries 192 random bits, so extra guesses change
+nothing about the odds, and each costs one indexed lookup; holding the count
+exact would mean reserving and queueing requests in flight on the authentication
+path. Reads with a valid key are never held back. The web login reads the form
+and then checks the lock and compares with nothing in between, so it stays at
+exactly five under any concurrency.
+
+An IPv6 address counts as its /64, the block one host is usually given, and an
+IPv6 address carrying an IPv4 one, as a dual-stack socket reports an IPv4 client
+(`::ffff:203.0.113.5`, in any spelling), as that IPv4 address. A port, brackets,
+and an interface zone are ignored, so `[2001:db8::1]:443` and `2001:db8::1` are
+one address.
+Both counts are held in memory, per process: they reset on restart, N replicas
+allow N times the attempts, and each remembers at most 50,000 addresses, forgetting
+the one that failed least recently beyond that.
+
+The source address is the socket's by default. `X-Forwarded-For` is ignored,
+because any client can write it and a new value per guess would otherwise make
+every guess the first. Behind a reverse proxy, every request arrives from the
+proxy, so every client shares one count, and a guesser can lock the operator out.
+Set `TRUSTED_PROXY_COUNT`, on the API and the web app, to the number of proxies
+that append to `X-Forwarded-For`; the address used is then the entry that many
+hops from the right, which is what the outermost of them saw. Set it only when
+nothing reaches the container except through those proxies: a client that
+connects directly can write as many hops as the count and choose its own
+address.
 
 ## 10. Sizing
 
@@ -959,6 +1078,7 @@ beneath it:
 | `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
 | Projects and keys | | no project, or no unrevoked API key |
+| Journey environments | an event was written by another environment's API key than its journey's own, which ingestion now refuses (ADR-038, amendment) and earlier builds did not | |
 | API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
 | API reachable (`--api-url`) | `GET /ready` does not answer 200; its `reason` is printed | |
 | Statement timeout | the value is invalid | it is 0 |
@@ -981,6 +1101,34 @@ that table exists, so on a database nobody has migrated it does not create knex'
 tables the way `migrate` and `/ready` do; it does not record a key as used; and
 it does not move a verifier during a rotation. An applied migration this build
 does not have, left by a newer build, is a `FAIL` of its own.
+
+### Events written across environments
+
+Before the amendment to ADR-038 an API key for one environment could write events and aliases into
+a journey another environment created. `Journey environments` counts the events
+that were. It prints counts and no journey ids, because a journey id can carry a
+business identifier. List them with:
+
+```sql
+select p.slug as project, j.id as journey_id, je.name as journey_environment,
+       ee.name as event_environment, count(*) as events
+  from journey_events e
+  join journeys j on j.project_id = e.project_id and j.id = e.journey_id
+  join projects p on p.id = j.project_id
+  join environments je on je.id = j.environment_id
+  join environments ee on ee.id = e.environment_id
+ where e.environment_id <> j.environment_id
+ group by p.slug, j.id, je.name, ee.name;
+```
+
+Each row is a journey that holds another environment's events. Its aliases cannot
+be told apart: `entity_aliases` records no environment, so an alias on such a
+journey may have come from either side, and a status of `failed` may be the other
+environment's. Read the journey, then delete it with
+`pnpm delete:journey <project> <journey-id>` (§8). Deleting only the foreign
+events would leave their aliases behind. The query and the check scan
+`journey_events`; on a large installation run it off-peak, and if doctor's check
+is cancelled by the statement timeout, run the query directly.
 
 ## 13. Monitoring
 

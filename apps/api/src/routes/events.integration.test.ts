@@ -313,6 +313,82 @@ describe("event ingestion", () => {
       expect(JSON.stringify(results[1])).toContain("unstorable_payload");
     });
 
+    it("refuses it from the single-event route as the batch route does", async () => {
+      // The batch route mapped the storage error to 400 unstorable_payload;
+      // the single route let it reach the error handler, which answered 500
+      // with error.code "22P05". Same event, two different contracts.
+      const response = await send(event({ id: "evt_nul_single", input: { name: `Dana${NUL}` } }));
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe("unstorable_payload");
+      expect(
+        await db("journey_events").where({ project_id: projectId, id: "evt_nul_single" }).first()
+      ).toBeUndefined();
+    });
+
+    it("refuses a lone surrogate from both routes as unstorable", async () => {
+      // Sent as a JSON escape, so the parsed string really holds the lone
+      // half; a raw one in the body would be replaced by the HTTP layer.
+      // PostgreSQL refuses it in jsonb with 22P02, which neither route mapped:
+      // the single route answered 500 with that code, the batch route 500.
+      const withSurrogate = (id: string): string =>
+        JSON.stringify(event({ id, journeyId: "jrn_surrogate", input: { name: "X" } })).replace(
+          '"name":"X"',
+          '"name":"X\\ud800"'
+        );
+      const headers = { authorization: `Bearer ${apiKey}`, "content-type": "application/json" };
+
+      const single = await app.inject({
+        method: "POST",
+        url: "/v1/events",
+        headers,
+        payload: withSurrogate("evt_surrogate_single")
+      });
+      expect(single.statusCode, single.body).toBe(400);
+      expect(single.json().error.code).toBe("unstorable_payload");
+
+      const batch = await app.inject({
+        method: "POST",
+        url: "/v1/events/batch",
+        headers,
+        payload: `{"events":[${withSurrogate("evt_surrogate_batch")}]}`
+      });
+      const result = batch.json().data.results[0];
+      expect(result.status).toBe("rejected");
+      expect(result.error.code).toBe("unstorable_payload");
+      expect(result.error.httpStatus).toBe(400);
+
+      expect(single.body + batch.body).not.toMatch(/22P05|22021|22P02/);
+    });
+
+    it("refuses a duration too large to store as a validation error, on both routes", async () => {
+      const tooLong = event({
+        id: "evt_duration_max",
+        journeyId: "jrn_duration",
+        durationMs: 2 ** 31
+      });
+      const single = await send(tooLong);
+      expect(single.statusCode, single.body).toBe(400);
+      expect(single.json().error.code).toBe("invalid_event");
+
+      const batch = await app.inject({
+        method: "POST",
+        url: "/v1/events/batch",
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: { events: [tooLong] } as object
+      });
+      const result = batch.json().data.results[0];
+      expect(result.status).toBe("rejected");
+      // A 4xx: permanent, so the SDK does not resend it.
+      expect(result.error.httpStatus).toBe(400);
+      expect(result.error.code).toBe("invalid_event");
+
+      const fits = await send(
+        event({ id: "evt_duration_fits", journeyId: "jrn_duration", durationMs: 2 ** 31 - 1 })
+      );
+      expect(fits.statusCode, fits.body).toBe(202);
+    });
+
     it("never publishes a raw SQLSTATE as the API error code", async () => {
       // A pg error carries .code — a SQLSTATE like 22P05 — and no .statusCode,
       // so the shared error handler used to publish it verbatim. "22P05" tells

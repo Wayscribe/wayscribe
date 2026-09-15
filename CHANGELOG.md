@@ -327,6 +327,92 @@ changes far less often.
   URL can carry credentials or an internal hostname, audit rows are never swept,
   and deleting the destination could not reach the row. Rows written before this
   change keep the URL; `docs/OPERATIONS.md` §8 has the statement that strips it.
+- **An API key can no longer write into another environment's journey.** A
+  journey's environment was set by whichever environment wrote it first, and
+  events and aliases attached by journey id alone, so a development key could
+  mark a production journey failed and add a searchable alias to it, or create a
+  journey id production later wrote into and read production's aliases through
+  it. Ingestion now refuses such an event with 409
+  `journey_environment_mismatch` and stores nothing for it (ADR-038). `doctor`
+  gains a `Journey environments` check that fails when an earlier build already
+  stored events across environments; `docs/OPERATIONS.md` §12 lists them.
+  The check holds the journey row `FOR KEY SHARE`, which keeps a deletion out
+  and does not queue other events for the same journey behind it. Journey ids
+  an application chooses itself must now be unpredictable, since a key for
+  another environment that records a guessable id first owns it, and a journey
+  id propagated from one environment to another is refused
+  (`docs/EVENT_PROTOCOL.md` §4).
+- **The project picker is no longer an open redirect.** Its return path was
+  checked before normalisation and used after it, so `/.//evil.test/phish`,
+  `/..//evil.test`, `/%2e//evil.test` and `/./\evil.test` passed as local paths
+  and came back as a redirect to `http://evil.test`. A path that normalises to
+  two leading separators is now refused, the result is checked again against a
+  second origin, and every redirect the web app builds is held to its own host.
+- **No response carries a PostgreSQL SQLSTATE as its error code.** An
+  unstorable payload (a NUL byte, or an unpaired surrogate sent as a JSON
+  escape) sent to `POST /v1/events` answered 500 with `error.code` `22P05`,
+  while the batch route answered 400 `unstorable_payload`; both now answer the
+  latter. `GET /v1/replays/<not a uuid>` is 404, and `POST /v1/replays` with no
+  body, a non-string field, or a `destinationId` that is not a uuid is 400
+  `invalid_request`, where each was a 500 with `22P02`. A repeated `q` or
+  `cursor` is 400. Any other unexpected failure is 500 `internal_error`. A null
+  byte in a read route's path id is 404, in `q`, `environment` or `service` 400
+  `invalid_query`, in any cursor 400 `invalid_cursor`, and in a replay
+  destination's name or base URL 400 `invalid_request`; an event cursor with a
+  timestamp PostgreSQL cannot cast is 400 too, as is any cursor timestamp outside
+  years 0001 to 9999. `durationMs` above 2147483647,
+  which fits no `integer` column, is refused by the protocol schema as
+  `invalid_event`, where it was a 500 on the single route and a per-event 500 in
+  a batch that the SDK resent.
+- **Admin token guesses are throttled at the API, and the web login's limiter
+  can no longer be sidestepped.** The login limiter keyed on `X-Forwarded-For`,
+  which the client writes, so a new value per guess was never throttled. It now
+  keys on the socket address. The API, which compared the admin token without
+  any limit, now counts failed authentication per source address on every route
+  that accepts the token and answers `429 too_many_attempts` after five failures
+  in a minute, for five minutes; the `401` for an ordinary failure is unchanged
+  and ingestion is not throttled. A new setting, `TRUSTED_PROXY_COUNT` (default
+  0), on both, honours `X-Forwarded-For` that many hops from the right for
+  installations behind a reverse proxy (`docs/OPERATIONS.md` §9). The web login
+  checks its lock after reading the form, so a burst of guesses there gets
+  exactly five comparisons; the API counts refusals, so a concurrent burst of bad
+  API keys can have up to its own size looked up before the lock takes effect
+  (the next request is refused). An IPv6
+  address counts as its /64, and every spelling of one address (a port, brackets,
+  an IPv4-mapped form) counts as that address. Each throttle remembers at most
+  50,000 addresses, forgetting the one that failed least recently, in a map and a
+  linked list rather than a map's insertion order, and sweeps expired entries at
+  most once a minute, so neither memory nor the cost of a failure grows with the
+  number of addresses or requests seen.
+- **`Authorization: Bearer <token> extra` is refused.** Everything after the
+  token was ignored, so the header authenticated as the token alone, for the
+  admin token and API keys alike. The header must now be the scheme, one space,
+  and the token; anything more is `401`.
+- **Sign-in works behind a TLS proxy that sends no `X-Forwarded-Proto`.**
+  Redirects after a form post named an absolute URL built from `Host` and
+  `X-Forwarded-Proto`, so behind a proxy forwarding `Host` alone they pointed at
+  `http://`, and `form-action 'self'` blocked the redirect: sign-in, choosing a
+  project, replay and delete all failed. Every such redirect is now a 303 with a
+  path-only `Location`, still refused anything that would leave the host
+  (`docs/OPERATIONS.md` §9 lists the headers a proxy should pass).
+- **The web interface sends a Content-Security-Policy and the usual security
+  headers.** Every page carries a policy allowing scripts only from its own
+  origin and by a per-response nonce, with `frame-ancestors 'none'`,
+  `base-uri`, `form-action` and `style-src` all `'self'`, and `object-src
+  'none'`; every response carries `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`, and
+  `X-Powered-By` is gone. The production build inlines scripts, so the nonce is
+  set in middleware rather than allowing `'unsafe-inline'`, and the not-found
+  page is rendered per request so it gets one. A browser test fails on any
+  policy violation. Under `next dev` only, the policy also allows `eval` and
+  inline styles, which React's development build and the dev overlay need.
+- **Replay's default allowlist no longer reaches the Docker host.**
+  `compose.published.yaml` and the Helm chart defaulted `REPLAY_ALLOWED_HOSTS`
+  to `localhost,host.docker.internal`, and `host.docker.internal` reaches every
+  service on the Docker host. Both now default to `localhost`. The development
+  stack and `values-local.yaml` keep `host.docker.internal`. The allowlist is
+  the control that keeps replay from being a request forgery tool, and
+  `docs/OPERATIONS.md` §9 says how to set it; see the upgrade note.
 
 ### Fixed
 
@@ -415,6 +501,12 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
+- **`REPLAY_ALLOWED_HOSTS` defaults to `localhost` in `compose.published.yaml`
+  and the Helm chart.** An installation that replays to `host.docker.internal`
+  without setting the variable must now set it
+  (`REPLAY_ALLOWED_HOSTS=localhost,host.docker.internal`, or
+  `api.replayAllowedHosts`); replays to it are otherwise refused with
+  `host_not_allowed`.
 - **Content hashes need no migration.** Rows written before this release keep
   their unkeyed hash, and a resend is still compared against it, so a delivery
   that straddles the upgrade dedupes. Those rows remain an oracle for what they

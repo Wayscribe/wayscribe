@@ -1,4 +1,4 @@
-import { createKeyring } from "@flight-recorder/payload-security";
+import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import type { Knex } from "knex";
@@ -48,6 +48,80 @@ describe("error envelope", () => {
     const body = response.json<{ error: { code: string } }>();
     expect(body.error.code).toBeTypeOf("string");
     await app.close();
+  });
+});
+
+describe("an Authorization header with anything after the token", () => {
+  // `Bearer <token> extra` authenticated as `Bearer <token>`: everything after
+  // the second space was ignored, for the admin token and API keys alike. It
+  // is refused before any lookup, so these run with no database at all.
+  const extra = [" ", " extra", "  ", " Bearer x"];
+
+  it("is 401 on every kind of route, with the admin token", async () => {
+    const app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    let source = 0;
+    for (const suffix of extra) {
+      for (const [method, url] of [
+        ["GET", "/v1/projects"],
+        ["GET", "/v1/journeys/jrn_1"],
+        ["DELETE", "/v1/journeys/jrn_1"],
+        ["GET", "/v1/replay-destinations"]
+      ] as const) {
+        // Each from its own address, so the authentication throttle's 429
+        // cannot stand in for the 401 under test.
+        source += 1;
+        const response = await app.inject({
+          method,
+          url,
+          remoteAddress: `198.51.100.${String(source)}`,
+          headers: { authorization: `Bearer ${ADMIN_TOKEN}${suffix}` }
+        });
+        expect(response.statusCode, `${method} ${url} ${JSON.stringify(suffix)}`).toBe(401);
+      }
+    }
+    await app.close();
+  });
+
+  it("is 401 at ingestion, with an API key", async () => {
+    const app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    const key = issueApiKey(keyring).apiKey;
+    for (const suffix of [" extra", " "]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events",
+        headers: { authorization: `Bearer ${key}${suffix}` },
+        payload: {}
+      });
+      expect(response.statusCode, JSON.stringify(suffix)).toBe(401);
+    }
+    await app.close();
+  });
+});
+
+describe("an unexpected database error", () => {
+  it("is internal_error, never the driver's SQLSTATE", async () => {
+    // A pg error carries `.code`, a SQLSTATE, and no `.statusCode`, and the
+    // handler used to publish that code as the API's own. Every lookup here
+    // fails the way PostgreSQL refuses a malformed uuid.
+    for (const sqlState of ["22P02", "22P05", "23505", "42P01"]) {
+      const failing = (() => {
+        throw Object.assign(new Error("invalid input syntax for type uuid"), { code: sqlState });
+      }) as unknown as Knex;
+      const app = buildApp({ db: failing, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/journeys/jrn_1",
+        headers: { authorization: "Bearer fr_0000000000000000000000000000000" }
+      });
+
+      expect(response.statusCode, sqlState).toBe(500);
+      const body = response.json<{ error: { code: string; message: string } }>();
+      expect(body.error.code, sqlState).toBe("internal_error");
+      expect(response.body).not.toContain(sqlState);
+      expect(response.body).not.toContain("uuid");
+      await app.close();
+    }
   });
 });
 

@@ -1,10 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { redirectTarget } from "../../../src/lib/redirect-url";
+import { clientAddress } from "../../../src/lib/client-address";
+import { seeOther } from "../../../src/lib/redirect-url";
 import { webConfig } from "../../../src/lib/config";
 import { LoginLimiter } from "../../../src/lib/login-limiter";
 import { rejectCrossOrigin } from "../../../src/lib/same-origin";
 import { SESSION_COOKIE_NAME, signSession } from "../../../src/lib/session";
+import { currentSocketAddress } from "../../../src/lib/socket-address";
 
 const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
 
@@ -19,16 +21,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (refused !== null) return refused;
 
   const config = webConfig();
-  const now = Date.now();
-  const key = request.headers.get("x-forwarded-for") ?? "local";
-
-  // The login form is a plain HTML POST, so failures must redirect back to the
-  // page. Returning JSON would render a raw error object in the browser.
-  if (limiter.isLocked(key, now)) {
-    return NextResponse.redirect(redirectTarget(request, "/login?error=throttled"), {
-      status: 303
-    });
-  }
+  // The socket's address, never a header the client wrote, unless the operator
+  // has said how many proxies stand in front of this app.
+  const key = clientAddress(
+    currentSocketAddress(),
+    request.headers.get("x-forwarded-for"),
+    config.TRUSTED_PROXY_COUNT
+  );
 
   const form = await request.formData();
   // FormData.get returns string | File | null. A multipart post could send a
@@ -37,13 +36,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const field = form.get("token");
   const presented = typeof field === "string" ? field : "";
 
+  // Checked after the body is read, so the check, the comparison, and the
+  // recorded failure run without an await between them. Checked before it,
+  // every request that arrived while the first bodies were parsed passed, and
+  // a hundred concurrent guesses were all compared.
+  //
+  // The login form is a plain HTML POST, so failures must redirect back to the
+  // page. Returning JSON would render a raw error object in the browser.
+  const now = Date.now();
+  if (limiter.isLocked(key, now)) {
+    return seeOther("/login?error=throttled");
+  }
+
   if (!constantTimeEquals(presented, config.ADMIN_TOKEN)) {
     limiter.recordFailure(key, now);
     // One outcome regardless of cause: a near-miss must not read differently
     // from a wild guess.
-    return NextResponse.redirect(redirectTarget(request, "/login?error=invalid"), {
-      status: 303
-    });
+    return seeOther("/login?error=invalid");
   }
 
   limiter.recordSuccess(key);
@@ -51,7 +60,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Empty project means "the API resolves it", which it does when exactly one
   // project exists. Multi-project selection belongs in the session payload when
   // it arrives.
-  const response = NextResponse.redirect(redirectTarget(request, "/"), { status: 303 });
+  const response = seeOther("/");
   response.cookies.set(
     SESSION_COOKIE_NAME,
     signSession(config.ADMIN_TOKEN, { projectId: "", expiresAt: now + SESSION_DURATION_MS }),

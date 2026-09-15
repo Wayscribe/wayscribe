@@ -13,7 +13,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * when it is present it decides: `same-origin`, or `none` for a navigation the
  * user started, is allowed and anything else is refused. Without it, an older
  * browser, `Origin` is compared with the host the client asked for, honouring
- * `x-forwarded-host` as `redirect-url.ts` does. The host alone is compared, not
+ * `x-forwarded-host`, as a proxy that rewrites `Host` sets. The host alone is compared, not
  * the scheme, so a proxy that terminates TLS without setting
  * `x-forwarded-proto` does not refuse every form.
  *

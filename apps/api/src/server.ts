@@ -30,7 +30,8 @@ const app = buildApp({
   logLevel: env.LOG_LEVEL,
   maxEventPayloadBytes: env.MAX_EVENT_PAYLOAD_BYTES,
   allowFullPayloadCapture: env.ALLOW_FULL_PAYLOAD_CAPTURE,
-  replayAllowedHosts: env.REPLAY_ALLOWED_HOSTS
+  replayAllowedHosts: env.REPLAY_ALLOWED_HOSTS,
+  trustedProxyCount: env.TRUSTED_PROXY_COUNT
 });
 
 const retention = startRetentionJob(app);

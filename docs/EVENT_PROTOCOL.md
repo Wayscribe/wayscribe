@@ -56,7 +56,7 @@ interface JourneyEventV01 {
 
   aliases?: Record<string, string>;
 
-  durationMs?: number;
+  durationMs?: number; // whole milliseconds, 0 to 2147483647
   parentEventId?: string;
 
   traceId?: string;
@@ -116,6 +116,23 @@ Recommended format:
 ```text
 jrn_<uuidv7>
 ```
+
+**A journey id must be unpredictable.** A journey belongs to the environment
+whose key recorded its first event, and an event for it from any other
+environment is refused with `journey_environment_mismatch` (`API_SPEC.md` §3).
+An id derived from business data, such as `jrn_order_1001`, can be guessed, and a
+key for another environment of the project can record it first: every event the
+rightful environment then sends for that journey is refused, and that journey is
+not recorded. The Node SDK generates a random UUID for every journey it starts.
+An application that chooses its own ids should do the same, and keep business
+identifiers in `entity` and `aliases`, where they are searchable anyway.
+
+A journey id carried across a boundary between environments is refused the same
+way. If a staging service propagates its context (HTTP headers, queue
+attributes, or a payload envelope) to a production service, the production
+service's events for that journey are refused. Each environment records its own
+journey; start a new one where a request crosses from one environment into
+another.
 
 ### `environment`
 
@@ -365,5 +382,7 @@ Protocol errors should use stable codes, for example:
 - `unauthorized_environment`
 - `invalid_timestamp`
 - `invalid_operation`
+- `event_id_conflict`
+- `journey_environment_mismatch`: the journey id belongs to another environment; a journey cannot span environments
 
 The full API error shape is documented in `API_SPEC.md`.

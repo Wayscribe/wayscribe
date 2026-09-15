@@ -53,7 +53,7 @@ describe("POST /api/journeys/[journeyId]/delete", () => {
     for (const cookie of [undefined, expired]) {
       const response = await POST(requestFor(cookie), context);
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("http://localhost:3000/login");
+      expect(response.headers.get("location")).toBe("/login");
     }
     expect(deleteJourneyMock).not.toHaveBeenCalled();
   });
@@ -65,7 +65,7 @@ describe("POST /api/journeys/[journeyId]/delete", () => {
 
     expect(deleteJourneyMock).toHaveBeenCalledWith("jrn_1", "proj_1");
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("http://localhost:3000/?deleted=customer");
+    expect(response.headers.get("location")).toBe("/?deleted=customer");
   });
 
   it("keeps anything but a plain entity type out of the redirect", async () => {
@@ -76,7 +76,7 @@ describe("POST /api/journeys/[journeyId]/delete", () => {
       context
     );
 
-    expect(response.headers.get("location")).toBe("http://localhost:3000/?deleted=journey");
+    expect(response.headers.get("location")).toBe("/?deleted=journey");
   });
 
   it("treats a journey that is already gone, as on a double submit, as deleted", async () => {
@@ -85,7 +85,7 @@ describe("POST /api/journeys/[journeyId]/delete", () => {
     const response = await POST(requestFor(signedIn(), { entityType: "customer" }), context);
 
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("http://localhost:3000/?deleted=journey");
+    expect(response.headers.get("location")).toBe("/?deleted=journey");
   });
 
   it("sends any other failure back to the confirmation page with a one-word reason", async () => {
@@ -100,9 +100,7 @@ describe("POST /api/journeys/[journeyId]/delete", () => {
       deleteJourneyMock.mockRejectedValueOnce(error);
       const response = await POST(requestFor(signedIn()), context);
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe(
-        `http://localhost:3000/journeys/jrn_1/delete?error=${code}`
-      );
+      expect(response.headers.get("location")).toBe(`/journeys/jrn_1/delete?error=${code}`);
     }
   });
 

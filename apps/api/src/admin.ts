@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { bearerToken } from "./auth.js";
 import { resolveAdminProjectId } from "./principal.js";
 
 /** The API's one error shape. */
@@ -30,15 +31,12 @@ export type AdminGuard = (
  */
 export function adminGuard(app: FastifyInstance, adminToken: string): AdminGuard {
   return async (request, reply) => {
-    const [scheme, presented] = request.headers.authorization?.split(" ") ?? [];
-    if (
-      scheme?.toLowerCase() !== "bearer" ||
-      presented === undefined ||
-      !constantTimeEquals(presented, adminToken)
-    ) {
+    const presented = bearerToken(request.headers.authorization);
+    if (presented === undefined || !constantTimeEquals(presented, adminToken)) {
       // The same 401 for a missing token, a wrong admin token, and a valid API
       // key. Telling a key holder that this endpoint exists but is not for them
       // discloses something and buys nothing.
+      request.recordAuthenticationFailure();
       await reply
         .code(401)
         .send(errorBody("unauthorized", "An admin token is required.", request.id));

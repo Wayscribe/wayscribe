@@ -64,12 +64,37 @@ export async function findJourney(
  *
  * The row starts at event_count 0; the count is advanced by
  * updateJourneySummary, and only for events that were genuinely new.
+ *
+ * Resolves to the environment the journey belongs to: the one that created it,
+ * which nothing changes afterwards. It differs from `facts.environmentId` when
+ * another environment created the journey first, and the caller must then
+ * refuse the event. Events and aliases attach by `(project_id, journey_id)`, so
+ * without that check one environment's key could write into another
+ * environment's journey.
+ *
+ * The row is read `FOR KEY SHARE` after the insert, in the caller's
+ * transaction. A concurrent create of the same id makes the insert wait on the
+ * conflict until the other transaction commits, so the read sees the winner's
+ * environment; the lock then holds until this transaction ends, and a deletion
+ * cannot remove the row between the check and the event insert, because a
+ * DELETE needs the lock KEY SHARE conflicts with.
+ *
+ * Why not the other row locks: `FOR UPDATE` worked and serialised every event
+ * for one journey behind the one holding it (16 concurrent streams on one
+ * journey, 22 ms p50 before this check, 31-33 ms with it). `FOR SHARE`
+ * deadlocks: `updateJourneySummary` updates the row in the same transaction,
+ * and two transactions each holding SHARE and asking for the update's lock wait
+ * on each other. `FOR KEY SHARE` conflicts only with a DELETE or a change to a
+ * key column; the summary update changes none, so it takes the weaker
+ * `FOR NO KEY UPDATE` lock, which KEY SHARE holders do not block (20 ms p50).
+ * `environment_id` is in no unique index, so nothing that changes it is
+ * treated as a key update, and nothing changes it anyway.
  */
 export async function ensureJourney(
   db: Knex,
   projectId: string,
   facts: JourneyEventFacts
-): Promise<void> {
+): Promise<string | undefined> {
   await db("journeys")
     .insert({
       id: facts.journeyId,
@@ -85,6 +110,12 @@ export async function ensureJourney(
     })
     .onConflict(["project_id", "id"])
     .ignore();
+
+  const row: unknown = await db("journeys")
+    .where({ project_id: projectId, id: facts.journeyId })
+    .forKeyShare()
+    .first("environment_id as environmentId");
+  return (row as { environmentId: string } | undefined)?.environmentId;
 }
 
 export async function applyJourneyEvent(

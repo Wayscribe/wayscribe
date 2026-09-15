@@ -20,6 +20,7 @@ import { presentAliases, presentEntityId, presentJourneySummary } from "./presen
 import { parseRecentJourneysQuery } from "./recent-query.js";
 
 const DEFAULT_LIMIT = 25;
+const NULL_BYTE = String.fromCharCode(0);
 const MAX_LIMIT = 100;
 
 export function registerQueryRoutes(
@@ -44,6 +45,9 @@ export function registerQueryRoutes(
       requestedProjectId:
         (request.headers["x-flight-project-id"] as string | undefined) ?? undefined
     });
+    // Only a 401 is a refused credential: a 404 is an admin naming a project
+    // that does not exist, and a failed lookup throws before reaching here.
+    if (!auth.ok && auth.status === 401) request.recordAuthenticationFailure();
     if (!auth.ok) {
       await reply.code(auth.status).send(errorBody(auth.code, auth.message, request.id));
       return undefined;
@@ -70,9 +74,20 @@ export function registerQueryRoutes(
     const principal = await authenticate(request, reply);
     if (principal === undefined) return reply;
 
-    const query = (request.query as { q?: string }).q?.trim();
+    // A repeated parameter arrives as an array, which `.trim()` threw on.
+    const raw = (request.query as { q?: unknown }).q;
+    if (Array.isArray(raw)) {
+      return reply.code(400).send(errorBody("invalid_query", "q may be given once.", request.id));
+    }
+    const query = typeof raw === "string" ? raw.trim() : undefined;
     if (query === undefined || query === "") {
       return reply.code(400).send(errorBody("invalid_query", "q is required.", request.id));
+    }
+    if (query.includes(NULL_BYTE)) {
+      // Nothing stored can hold one, and PostgreSQL refuses it in a comparison.
+      return reply
+        .code(400)
+        .send(errorBody("invalid_query", "q must not contain a null byte.", request.id));
     }
 
     try {
@@ -84,7 +99,7 @@ export function registerQueryRoutes(
         // are still found.
         searchTokens(keyring, query),
         parseLimit(request.query),
-        (request.query as { cursor?: string }).cursor
+        cursorParam(request.query)
       );
 
       return await reply.send({
@@ -120,7 +135,7 @@ export function registerQueryRoutes(
         readScope(principal),
         parsed.filters,
         parseLimit(request.query),
-        (request.query as { cursor?: string }).cursor
+        cursorParam(request.query)
       );
 
       return await reply.send({
@@ -142,6 +157,11 @@ export function registerQueryRoutes(
     if (principal === undefined) return reply;
 
     const { journeyId } = request.params as { journeyId: string };
+    // No stored id holds a NUL, and PostgreSQL refuses one in a comparison:
+    // the same answer as any id that does not exist.
+    if (journeyId.includes(NULL_BYTE)) {
+      return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
+    }
     const detail = await findJourneyDetail(app.db, readScope(principal), journeyId);
     // 404 rather than 403: confirming existence to an unauthorized caller is
     // itself a disclosure.
@@ -173,6 +193,9 @@ export function registerQueryRoutes(
     if (principal === undefined) return reply;
 
     const { journeyId } = request.params as { journeyId: string };
+    if (journeyId.includes(NULL_BYTE)) {
+      return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
+    }
     const journey = await findJourneyDetail(app.db, readScope(principal), journeyId);
     if (journey === undefined) {
       return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
@@ -184,7 +207,7 @@ export function registerQueryRoutes(
         readScope(principal),
         journeyId,
         parseLimit(request.query),
-        (request.query as { cursor?: string }).cursor
+        cursorParam(request.query)
       );
 
       return await reply.send({
@@ -207,6 +230,9 @@ export function registerQueryRoutes(
     if (principal === undefined) return reply;
 
     const { eventId } = request.params as { eventId: string };
+    if (eventId.includes(NULL_BYTE)) {
+      return reply.code(404).send(errorBody("not_found", "Event not found.", request.id));
+    }
     const detail = await findEventDetail(app.db, readScope(principal), eventId);
     if (detail === undefined) {
       return reply.code(404).send(errorBody("not_found", "Event not found.", request.id));
@@ -227,6 +253,17 @@ function parseLimit(query: unknown): number {
   const parsed = raw === undefined ? DEFAULT_LIMIT : Number.parseInt(raw, 10);
   if (Number.isNaN(parsed) || parsed < 1) return DEFAULT_LIMIT;
   return Math.min(parsed, MAX_LIMIT);
+}
+
+/**
+ * The `cursor` parameter, once. A repeated one arrives as an array, and is
+ * refused as a malformed cursor rather than handed to a decoder that expects a
+ * string. Thrown inside each route's try, so `cursorError` answers it.
+ */
+function cursorParam(query: unknown): string | undefined {
+  const cursor = (query as { cursor?: unknown }).cursor;
+  if (cursor === undefined || typeof cursor === "string") return cursor;
+  throw new InvalidCursorError("cursor may be given once.");
 }
 
 function cursorError(error: unknown, reply: FastifyReply, requestId: string): FastifyReply {

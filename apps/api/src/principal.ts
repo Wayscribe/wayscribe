@@ -1,7 +1,7 @@
 import type { ApiKeyContext } from "@flight-recorder/database";
 import { timingSafeEqual } from "node:crypto";
 import type { Knex } from "knex";
-import { authenticatePresentedKey, type ApiKeyAuthenticator } from "./auth.js";
+import { authenticatePresentedKey, bearerToken, type ApiKeyAuthenticator } from "./auth.js";
 
 /**
  * Who is making a request.
@@ -44,11 +44,8 @@ export interface ResolveOptions {
  * from a revoked one or a near-miss admin token.
  */
 export async function resolvePrincipal(options: ResolveOptions): Promise<PrincipalResult> {
-  const header = options.authorizationHeader;
-  if (header === undefined) return UNAUTHORIZED;
-
-  const [scheme, presented] = header.split(" ");
-  if (scheme?.toLowerCase() !== "bearer" || presented === undefined) return UNAUTHORIZED;
+  const presented = bearerToken(options.authorizationHeader);
+  if (presented === undefined) return UNAUTHORIZED;
 
   if (constantTimeEquals(presented, options.adminToken)) {
     return resolveAdminProject(options.db, options.requestedProjectId);

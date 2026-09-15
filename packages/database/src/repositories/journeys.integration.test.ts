@@ -3,7 +3,7 @@ import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
-import { applyJourneyEvent, findJourney } from "./journeys.js";
+import { applyJourneyEvent, ensureJourney, findJourney, updateJourneySummary } from "./journeys.js";
 
 describe("journey summary", () => {
   let container: StartedPostgreSqlContainer;
@@ -186,6 +186,70 @@ describe("journey summary", () => {
       });
 
       expect((await findJourney(db, projectId, "jrn_ordinary"))?.status).toBe("active");
+    });
+  });
+
+  describe("the lock ensureJourney holds while an event is stored", () => {
+    const facts = (journeyId: string) => ({
+      ...base,
+      journeyId,
+      environmentId,
+      eventTimestamp: new Date("2026-08-06T10:00:00Z"),
+      operation: "received",
+      hasError: false
+    });
+
+    /** Run `work` in a transaction that gives up on any lock after 500 ms. */
+    const briefly = <T>(work: (trx: Knex.Transaction) => Promise<T>): Promise<T> =>
+      db.transaction(async (trx) => {
+        await trx.raw("set local lock_timeout = '500ms'");
+        return work(trx);
+      });
+
+    it("lets another event for the same journey through while it is held", async () => {
+      // FOR UPDATE serialised every event for one journey behind the first:
+      // 16 concurrent streams on one journey went from 22 ms to 31-33 ms.
+      // FOR KEY SHARE conflicts with neither another KEY SHARE nor the
+      // non-key UPDATE of the summary, so a second event proceeds at once.
+      await ensureJourney(db, projectId, facts("jrn_lock_share"));
+      const holder = await db.transaction();
+      try {
+        await ensureJourney(holder, projectId, facts("jrn_lock_share"));
+        await briefly(async (trx) => {
+          expect(await ensureJourney(trx, projectId, facts("jrn_lock_share"))).toBe(environmentId);
+          await updateJourneySummary(trx, projectId, facts("jrn_lock_share"));
+        });
+      } finally {
+        await holder.rollback();
+      }
+    });
+
+    it("and holds off a deletion until the event is stored", async () => {
+      await ensureJourney(db, projectId, facts("jrn_lock_delete"));
+      const holder = await db.transaction();
+      try {
+        await ensureJourney(holder, projectId, facts("jrn_lock_delete"));
+        await expect(
+          briefly((trx) =>
+            trx("journeys").where({ project_id: projectId, id: "jrn_lock_delete" }).delete()
+          )
+        ).rejects.toMatchObject({ code: "55P03" });
+      } finally {
+        await holder.rollback();
+      }
+    });
+
+    it("never deadlocks two events that both update the summary", async () => {
+      await ensureJourney(db, projectId, facts("jrn_lock_both"));
+      await Promise.all(
+        Array.from({ length: 16 }, () =>
+          db.transaction(async (trx) => {
+            await ensureJourney(trx, projectId, facts("jrn_lock_both"));
+            await updateJourneySummary(trx, projectId, facts("jrn_lock_both"));
+          })
+        )
+      );
+      expect((await findJourney(db, projectId, "jrn_lock_both"))?.eventCount).toBe(16);
     });
   });
 });

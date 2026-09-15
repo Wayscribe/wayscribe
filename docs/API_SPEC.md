@@ -27,6 +27,9 @@ Authorization: Bearer <admin-token>
 x-flight-project-id: <project-id>
 ```
 
+The header is exactly the scheme, one space, and the token. The scheme is read in
+any case; anything after the token, a trailing space included, is `401`.
+
 An API key is scoped to one project and one environment and may ingest. An admin
 token reads across every environment of one **named** project and may not ingest
 (ADR-029).
@@ -87,6 +90,38 @@ default) and is cancelled. It is transient: retrying later, or narrowing the
 request, is the right response. In a batch, an event whose statement was
 cancelled is refused on its own with `query_timeout` and `httpStatus` 503
 (section 4).
+
+Every route that accepts the admin token (all but ingestion and the health
+checks) answers `429` with code `too_many_attempts` and a `Retry-After` header,
+in seconds, to a source address that has had five credentials refused within a
+minute, for five minutes, whatever token it presents. The refusals themselves
+are the ordinary `401` (`docs/OPERATIONS.md` §9). Only refused credentials
+count: a request with no `Authorization` header does not, and neither does a
+`500` from a database error while a key is looked up.
+
+The lock is checked before any credential. Sent one after another, a sixth
+guess is always `429`. Sent at once, requests that passed the check before the
+fifth refusal was recorded still have their credential checked: on the
+admin-only routes the comparison follows the check without waiting on anything,
+while on the read routes an API key is looked up in the database, so a burst can
+have up to its own concurrency checked before the lock takes effect. Every
+request after that is `429`. Reads with a valid key are never held back, however
+many arrive at once.
+
+An unexpected failure is `500` with code `internal_error` and a generic message.
+The code is never the database's own: a PostgreSQL SQLSTATE such as `22P02` is
+not part of this contract and never appears in `error.code`.
+
+Input the database would refuse is refused first, with a `4xx`, before any query
+runs: an id that must be a uuid and is not (`404` in a path, `400
+invalid_request` in a body), a null byte in a path id (`404`), in a query
+parameter (`400 invalid_query`), in a cursor (`400 invalid_cursor`), or in a
+replay or destination field or an erasure value (`400 invalid_request`), and a
+missing body or a field of the wrong type (`400`). Ingestion is the exception:
+an event whose text PostgreSQL cannot store, a null byte or an unpaired
+surrogate, is refused only when the insert fails, as `400 unstorable_payload`,
+and nothing of it is stored (section 3). A `durationMs` above 2147483647 is
+`400 invalid_event`.
 
 A request that matches no route gets `404` with code `not_found`, in this shape.
 Its message names the method and path, never the query string or matrix
@@ -156,7 +191,22 @@ Recommended status:
 202 Accepted
 ```
 
-Validation errors use `400`. Authentication errors use `401` or `403`.
+Validation errors use `400`. Authentication errors use `401` or `403`. An event
+whose text PostgreSQL cannot store, a NUL byte or an unpaired surrogate, is `400`
+`unstorable_payload`, as it is in a batch.
+
+Conflicts use `409`:
+
+| Code | When |
+| --- | --- |
+| `event_id_conflict` | the event id is already stored with different content |
+| `journey_environment_mismatch` | the journey id belongs to another environment of the project. A journey cannot span environments (ADR-038); nothing is stored for the event, and the message does not name the other environment |
+
+Because the environment that records a journey id first owns it, a caller that
+chooses journey ids must make them unpredictable: a key for another environment
+can record a guessable id first, and every event the owner later sends for it is
+refused with this code. A journey id propagated from a service in one environment
+to a service in another is refused the same way (`EVENT_PROTOCOL.md` §4).
 
 ## 4. Ingest a batch
 
@@ -250,6 +300,9 @@ Response:
   }
 }
 ```
+
+A missing or empty `q`, or `q` given more than once, is `400` `invalid_query`. A
+`cursor` given more than once is `400` `invalid_cursor`, on every list endpoint.
 
 ## 6. List recent journeys
 
@@ -463,11 +516,17 @@ Response:
 
 V0 may execute synchronously with a strict timeout. A background replay worker can be introduced later.
 
+A missing body, a field that is not a string, a `destinationId` that is not a
+uuid, or a null byte in `eventId` or `path` is `400` `invalid_request`.
+
 ## 13. Get replay
 
 ```http
 GET /v1/replays/:replayId
 ```
+
+A `replayId` that is not a uuid is `404` `not_found`, the same answer as an
+unknown replay.
 
 Returns:
 

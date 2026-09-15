@@ -9,6 +9,8 @@
  * A malformed cursor throws rather than being ignored: silently restarting from
  * the beginning would present already-seen results as if they were new.
  */
+const NULL_BYTE = String.fromCharCode(0);
+
 export class InvalidCursorError extends Error {
   public override readonly name = "InvalidCursorError";
 }
@@ -52,6 +54,11 @@ export function decodeEventCursor(encoded: string): EventCursor {
   ) {
     throw new InvalidCursorError("Cursor is not an event cursor.");
   }
+  // As the search cursor: a timestamp PostgreSQL cannot cast would otherwise
+  // be a server error rather than the caller's bad cursor.
+  if (!isCanonicalInstant(parsed["eventTimestamp"]) || !isCanonicalInstant(parsed["receivedAt"])) {
+    throw new InvalidCursorError("Cursor timestamp is not a date.");
+  }
   return {
     eventTimestamp: parsed["eventTimestamp"],
     receivedAt: parsed["receivedAt"],
@@ -59,7 +66,17 @@ export function decodeEventCursor(encoded: string): EventCursor {
   };
 }
 
+/**
+ * Exactly the form `toISOString` writes for years 0001 to 9999.
+ *
+ * Round-tripping through `Date` alone also accepted year 0000, negative years
+ * (`-000001-…`) and six-digit ones (`+010000-…`), which JavaScript writes and
+ * PostgreSQL refuses to read as a timestamptz, so a crafted cursor was a 500.
+ */
+const CANONICAL_INSTANT = /^(?!0000)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
 function isCanonicalInstant(value: string): boolean {
+  if (!CANONICAL_INSTANT.test(value)) return false;
   const parsed = new Date(value);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
 }
@@ -73,6 +90,13 @@ function decode(encoded: string): Record<string, unknown> {
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new InvalidCursorError("Cursor is not an object.");
+  }
+  // No cursor this API writes holds a NUL, and PostgreSQL refuses one in a
+  // comparison with an error rather than finding nothing.
+  if (
+    Object.values(parsed).some((value) => typeof value === "string" && value.includes(NULL_BYTE))
+  ) {
+    throw new InvalidCursorError("Cursor holds a null byte.");
   }
   return parsed as Record<string, unknown>;
 }

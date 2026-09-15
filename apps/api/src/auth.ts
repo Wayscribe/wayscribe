@@ -63,6 +63,25 @@ export function databaseApiKeys(
   };
 }
 
+/**
+ * The token in an `Authorization: Bearer <token>` header, or undefined.
+ *
+ * Exactly two parts: the scheme, in any case, one space, and the token.
+ * Anything after the token, even a trailing space, is refused. It used to be
+ * ignored, so `Bearer <token> extra` authenticated as `Bearer <token>`, which
+ * a header another component appends to could exploit and nothing legitimate
+ * sends. Every place that reads the header uses this, so the admin token and
+ * API keys are parsed alike.
+ */
+export function bearerToken(header: string | undefined): string | undefined {
+  if (header === undefined) return undefined;
+  const parts = header.split(" ");
+  if (parts.length !== 2) return undefined;
+  const [scheme, token] = parts;
+  if (scheme?.toLowerCase() !== "bearer" || token === undefined || token === "") return undefined;
+  return token;
+}
+
 const UNAUTHORIZED = {
   ok: false as const,
   status: 401 as const,
@@ -81,10 +100,8 @@ export async function resolveApiKey(
   authorizationHeader: string | undefined,
   authenticator: ApiKeyAuthenticator
 ): Promise<AuthResult> {
-  if (authorizationHeader === undefined) return UNAUTHORIZED;
-
-  const [scheme, presented] = authorizationHeader.split(" ");
-  if (scheme?.toLowerCase() !== "bearer" || presented === undefined) return UNAUTHORIZED;
+  const presented = bearerToken(authorizationHeader);
+  if (presented === undefined) return UNAUTHORIZED;
 
   const context = await authenticatePresentedKey(presented, authenticator);
   return context === undefined ? UNAUTHORIZED : { ok: true, context };

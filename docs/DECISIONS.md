@@ -1186,8 +1186,85 @@ to run, and `entity_aliases` carries no environment.
   an optional argument.
 - The regression test builds a second environment of the *same* project and asserts 404 on
   all three routes, with a control that the production key still reads its own data.
+- That test covers reads only. Writes were not scoped: a key could attach events and
+  aliases to another environment's journey, which then showed through every scoped read of
+  that journey. The amendment below closes it at ingestion, with its own regression test
+  (`journey-environment.integration.test.ts`).
 - `SearchScope` is gone rather than aliased. A deprecated name in a pre-1.0 internal
   package is cruft that outlives the reason for it.
+
+### Amendment: writes are scoped too
+
+Added after a pre-1.0 security review. Recorded here rather than as a new ADR because it
+completes this decision: a scope on every read is only a boundary if nothing outside the
+scope can write into what the reads return.
+
+
+#### Context
+
+The decision above scoped every read by environment. Writes were not scoped the same way. A
+journey's `environment_id` is set by whichever environment writes it first:
+`ensureJourney` inserts and ignores a conflict. Events and aliases then attached by
+`(project_id, journey_id)` alone.
+
+A pre-1.0 security review showed what that allowed. A development API key could post a
+`failed` event with an alias into a production journey: the journey's status became
+`failed`, the alias became searchable, and the attacker's service appeared in its service
+list. The same key could create a journey id production would use later; production's
+events and aliases then landed in the development journey, and the development key read
+production's customer-email alias through it. Both were verified against a running stack.
+
+#### Decision
+
+Ingestion refuses an event whose API key's environment differs from the environment of the
+journey it names, with 409 `journey_environment_mismatch`. It is refused per event, so in a
+batch the rest are unaffected, and nothing is written for it: no event, no alias, no change
+to the journey's summary.
+
+The check is inside the ingestion transaction. `ensureJourney` inserts the journey if absent
+and then reads it back `FOR KEY SHARE`. A concurrent create of the same id waits on the
+insert's conflict until the other transaction commits, so the read sees whichever
+environment won; the row lock holds until the event is stored, so a deletion cannot remove
+the journey between the check and the insert.
+
+Of the four row locks, KEY SHARE is the one that holds the row without holding up other
+events for it:
+
+- `FOR UPDATE` was the first version. It is correct and serialises every event for a
+  journey behind whichever holds it: measured with 16 concurrent streams on one journey,
+  p50 went from 22 ms without the check to 31-33 ms.
+- `FOR SHARE` deadlocks. The same transaction then updates the journey's summary, and two
+  transactions each holding SHARE and each asking for the update's lock wait on each other.
+- `FOR NO KEY UPDATE` serialises like `FOR UPDATE`, since holders conflict with each other.
+- `FOR KEY SHARE` conflicts only with a DELETE or a change to a key column. The summary
+  update changes no key column, so it takes `FOR NO KEY UPDATE`, which KEY SHARE does not
+  block: 20 ms p50 under the same load, and the race and deletion probes passed with no
+  deadlock and no journey holding two environments' events. `environment_id` is in no
+  unique index, and nothing updates it.
+
+The message says the journey id is in use by another environment and that a journey cannot
+span environments. It does not name the environment. That a journey id exists elsewhere in
+the project is disclosed, and cannot be avoided without accepting the write.
+
+A cross-environment workflow, where one journey really does cross from a staging service to
+a production one, is not supported. Each environment records its own journey.
+
+#### Consequences
+
+- An SDK used normally is unaffected: it names one environment, and journey ids it
+  generates are random UUIDs.
+- Event ids are still unique per project, not per environment. A key for one environment
+  can still claim an event id another environment later uses, which that environment then
+  receives as `event_id_conflict`. That is a denial of one event, not a write into another
+  environment's data, and is not changed here.
+- Installations that ran an earlier build may hold events written across environments.
+  `journey_events.environment_id` records the environment of the key that wrote each event,
+  so `doctor` counts them and fails ("Journey environments"). `entity_aliases` records no
+  environment, so an alias cannot be attributed to either side; the remedy is deleting the
+  affected journeys (`docs/OPERATIONS.md` §12).
+- Regression coverage: `apps/api/src/routes/journey-environment.integration.test.ts` tests
+  both vectors in both directions through the single and batch routes, reading rows back
+  from PostgreSQL, a concurrent create from two environments, and the SDK's ordinary flow.
 
 ## ADR-039: A secret is one name, however it is spelled
 

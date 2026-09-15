@@ -4,7 +4,7 @@ import {
   ProjectNotSelectedError,
   deleteJourney
 } from "../../../../../src/lib/api";
-import { redirectTarget } from "../../../../../src/lib/redirect-url";
+import { seeOther } from "../../../../../src/lib/redirect-url";
 import { requestSession } from "../../../../../src/lib/request-session";
 import { rejectCrossOrigin } from "../../../../../src/lib/same-origin";
 
@@ -34,7 +34,7 @@ export async function POST(
 
   const session = requestSession(request);
   if (session === null) {
-    return NextResponse.redirect(redirectTarget(request, "/login"), { status: 303 });
+    return seeOther("/login");
   }
 
   const { journeyId } = await params;
@@ -45,21 +45,19 @@ export async function POST(
   try {
     outcome = await deleteJourney(journeyId, session.projectId);
   } catch (error) {
-    const back = redirectTarget(request, `/journeys/${encodeURIComponent(journeyId)}/delete`);
-    back.searchParams.set("error", failureCode(error));
-    return NextResponse.redirect(back, { status: 303 });
+    const query = new URLSearchParams({ error: failureCode(error) });
+    return seeOther(`/journeys/${encodeURIComponent(journeyId)}/delete?${query.toString()}`);
   }
 
-  const target = redirectTarget(request, "/");
   // Already gone, most often the second POST of a double click: the operator
   // wanted it deleted and it is, so the answer is the same notice.
-  target.searchParams.set(
-    "deleted",
-    outcome === "deleted" && typeof entityType === "string" && PLAIN_ENTITY_TYPE.test(entityType)
-      ? entityType
-      : "journey"
-  );
-  return NextResponse.redirect(target, { status: 303 });
+  const query = new URLSearchParams({
+    deleted:
+      outcome === "deleted" && typeof entityType === "string" && PLAIN_ENTITY_TYPE.test(entityType)
+        ? entityType
+        : "journey"
+  });
+  return seeOther(`/?${query.toString()}`);
 }
 
 function failureCode(error: unknown): string {

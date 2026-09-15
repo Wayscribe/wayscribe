@@ -58,6 +58,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "flight-recorder.secretName" . }}
                   key: ADMIN_TOKEN
+            - name: TRUSTED_PROXY_COUNT
+              value: {{ .Values.web.trustedProxyCount | quote }}
           readinessProbe:
             httpGet:
               path: /login

@@ -195,7 +195,7 @@ describe("the documentation's checkable claims", () => {
         read("apps/api/src/routes/queries.ts")
       );
       expect(route?.[0]).toContain("parseLimit(request.query)");
-      expect(route?.[0]).toContain("(request.query as { cursor?: string }).cursor");
+      expect(route?.[0]).toContain("cursorParam(request.query)");
     });
 
     it("lists the statuses the database allows", () => {
