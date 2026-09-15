@@ -12,9 +12,19 @@ export type ParsedRecentQuery =
  * "2026-09-14" or a zoneless time and read it in whatever zone the server runs
  * in, which turns a filter into a guess.
  */
-const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 
 const INSTANT_MESSAGE = "since must be an ISO-8601 instant with a time zone.";
+
+/**
+ * How far ahead of this server's clock `since` may be.
+ *
+ * The web app computes `since` from its own clock ("24 hours ago") and the API
+ * checks it against another. A few seconds of skew between two containers is
+ * normal and must not turn the Recent page into an error; a minute covers it
+ * while still refusing a bound that is plainly in the future.
+ */
+const SINCE_CLOCK_TOLERANCE_MS = 60_000;
 
 /**
  * Validate the query string of `GET /v1/journeys`.
@@ -29,12 +39,15 @@ export function parseRecentJourneysQuery(query: unknown, now: Date): ParsedRecen
   const since = single(params, "since");
   if (!since.ok) return since;
   if (since.value === undefined) return { ok: false, message: "since is required." };
-  if (!ISO_INSTANT.test(since.value)) return { ok: false, message: INSTANT_MESSAGE };
+  const match = ISO_INSTANT.exec(since.value);
+  if (match === null || !isCalendarDate(match[1], match[2], match[3])) {
+    return { ok: false, message: INSTANT_MESSAGE };
+  }
   const sinceDate = new Date(since.value);
   if (Number.isNaN(sinceDate.getTime())) return { ok: false, message: INSTANT_MESSAGE };
   // A future bound can only return nothing, which reads as "nothing failed".
   // Saying so is more useful than an empty page.
-  if (sinceDate.getTime() > now.getTime()) {
+  if (sinceDate.getTime() > now.getTime() + SINCE_CLOCK_TOLERANCE_MS) {
     return { ok: false, message: "since must not be in the future." };
   }
 
@@ -58,6 +71,28 @@ export function parseRecentJourneysQuery(query: unknown, now: Date): ParsedRecen
       service: service.value
     }
   };
+}
+
+/**
+ * Whether the date digits name a real day.
+ *
+ * V8 parses "2026-02-30T00:00:00Z" as 2 March instead of refusing it. The
+ * date part is checked on its own, at midnight UTC, so an offset that moves
+ * the instant into a neighbouring UTC day cannot cause a false rejection.
+ */
+function isCalendarDate(
+  year: string | undefined,
+  month: string | undefined,
+  day: string | undefined
+): boolean {
+  if (year === undefined || month === undefined || day === undefined) return false;
+  const parsed = new Date(`${year}-${month}-${day}T00:00:00Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.getUTCFullYear() === Number(year) &&
+    parsed.getUTCMonth() + 1 === Number(month) &&
+    parsed.getUTCDate() === Number(day)
+  );
 }
 
 function isJourneyStatus(value: string): value is JourneyStatus {

@@ -1,5 +1,6 @@
 import type { Knex } from "knex";
 import { orderJourneysAfter, toJourneyPage, type JourneyPage } from "./journey-keyset.js";
+import { JOURNEY_SUMMARY_COLUMNS } from "./journey-summary.js";
 import type { ReadScope } from "./read-scope.js";
 
 export interface SearchHit {
@@ -83,15 +84,7 @@ export async function searchJourneys(
             });
         });
     })
-    .select(
-      "j.id as journeyId",
-      "j.entity_type as entityType",
-      "j.encrypted_primary_entity_id as encryptedPrimaryEntityId",
-      "j.status as status",
-      "j.event_count as eventCount",
-      "j.started_at as startedAt",
-      "j.last_event_at as lastEventAt"
-    )
+    .select(...JOURNEY_SUMMARY_COLUMNS)
     .from({ j: "journeys" })
     .join("matches", "matches.id", "j.id")
     .where("j.project_id", scope.projectId);

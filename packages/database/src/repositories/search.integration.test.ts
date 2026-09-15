@@ -4,7 +4,7 @@ import knex, { type Knex } from "knex";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
-import { InvalidCursorError } from "./cursors.js";
+import { InvalidCursorError, encodeCursor } from "./cursors.js";
 import { searchJourneys } from "./search.js";
 import type { ReadScope } from "./read-scope.js";
 
@@ -225,5 +225,11 @@ describe("searchJourneys", () => {
 
   it("rejects a malformed cursor rather than silently restarting", async () => {
     await expect(find("SHARED-VALUE", 1, "not-a-cursor")).rejects.toThrow(InvalidCursorError);
+  });
+
+  it("rejects a well-formed cursor whose timestamp is not a date", async () => {
+    // Decoded fine and then failed in PostgreSQL's timestamptz cast, as a 500.
+    const cursor = encodeCursor({ lastEventAt: "not-a-date", id: "jrn_2" });
+    await expect(find("SHARED-VALUE", 1, cursor)).rejects.toThrow(InvalidCursorError);
   });
 });

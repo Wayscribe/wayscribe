@@ -33,6 +33,11 @@ export function decodeSearchCursor(encoded: string): SearchCursor {
   if (typeof parsed["lastEventAt"] !== "string" || typeof parsed["id"] !== "string") {
     throw new InvalidCursorError("Cursor is not a search cursor.");
   }
+  // Checked here rather than left to the query: PostgreSQL's timestamptz cast
+  // would reject it as a server error, not as the caller's bad cursor.
+  if (Number.isNaN(Date.parse(parsed["lastEventAt"]))) {
+    throw new InvalidCursorError("Cursor timestamp is not a date.");
+  }
   return { lastEventAt: parsed["lastEventAt"], id: parsed["id"] };
 }
 

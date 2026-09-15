@@ -3,7 +3,7 @@ import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
-import { InvalidCursorError } from "./cursors.js";
+import { InvalidCursorError, encodeCursor } from "./cursors.js";
 import { listRecentJourneys, type RecentJourneyFilters } from "./journey-list.js";
 import type { ReadScope } from "./read-scope.js";
 
@@ -101,6 +101,16 @@ describe("listRecentJourneys", () => {
       ["sync-worker"],
       otherProjectId
     );
+    // Journey ids are chosen by the client, so another project can reuse one of
+    // P's. Its events must not satisfy P's service filter.
+    await journey(
+      "jrn_dev_active",
+      otherEnvironmentId,
+      "active",
+      "2026-09-15T12:00:00Z",
+      ["only-in-other-project"],
+      otherProjectId
+    );
   });
 
   afterAll(async () => {
@@ -168,6 +178,10 @@ describe("listRecentJourneys", () => {
       "jrn_prod_failed",
       "jrn_dev_failed"
     ]);
+  });
+
+  it("ignores another project's events on a journey with the same id", async () => {
+    expect(await ids(project, { service: "only-in-other-project" })).toEqual([]);
   });
 
   it("matches the service exactly", async () => {
@@ -269,6 +283,13 @@ describe("listRecentJourneys", () => {
 
     it("rejects a malformed cursor rather than silently restarting", async () => {
       await expect(listRecentJourneys(db, project, staging, 2, "not-a-cursor")).rejects.toThrow(
+        InvalidCursorError
+      );
+    });
+
+    it("rejects a well-formed cursor whose timestamp is not a date", async () => {
+      const cursor = encodeCursor({ lastEventAt: "not-a-date", id: "jrn_tie_c" });
+      await expect(listRecentJourneys(db, project, staging, 2, cursor)).rejects.toThrow(
         InvalidCursorError
       );
     });

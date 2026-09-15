@@ -182,20 +182,48 @@ describe("schema constraints", () => {
     expect(await db.schema.hasColumn("api_keys", "key_hash_key_id")).toBe(true);
   });
 
-  it("adds the recent-journeys indexes and removes them on the way down", async () => {
-    const indexes = async (): Promise<string[]> => {
+  describe("recent-journeys indexes (013)", () => {
+    const MIGRATION = "013_journeys_status_recent_index.js";
+
+    /** Name and validity of each 013 index that exists, sorted by name. */
+    const indexes = async (): Promise<{ name: string; valid: boolean }[]> => {
       const result: unknown = await db.raw(
-        `select indexname from pg_indexes
-         where indexname in ('journeys_status_recent_idx', 'journey_events_service_idx')
-         order by indexname`
+        `select c.relname as name, i.indisvalid as valid
+         from pg_index i join pg_class c on c.oid = i.indexrelid
+         where c.relname in ('journeys_status_recent_idx', 'journey_events_service_idx')
+         order by c.relname`
       );
-      return (result as { rows: { indexname: string }[] }).rows.map((row) => row.indexname);
+      return (result as { rows: { name: string; valid: boolean }[] }).rows;
     };
 
-    expect(await indexes()).toEqual(["journey_events_service_idx", "journeys_status_recent_idx"]);
-    await db.migrate.down({ name: "013_journeys_status_recent_index.js" });
-    expect(await indexes()).toEqual([]);
-    await db.migrate.up({ name: "013_journeys_status_recent_index.js" });
-    expect(await indexes()).toEqual(["journey_events_service_idx", "journeys_status_recent_idx"]);
+    const BOTH_VALID = [
+      { name: "journey_events_service_idx", valid: true },
+      { name: "journeys_status_recent_idx", valid: true }
+    ];
+
+    it("adds both indexes and removes them on the way down", async () => {
+      expect(await indexes()).toEqual(BOTH_VALID);
+      await db.migrate.down({ name: MIGRATION });
+      expect(await indexes()).toEqual([]);
+      await db.migrate.up({ name: MIGRATION });
+      expect(await indexes()).toEqual(BOTH_VALID);
+    });
+
+    it("rebuilds an index a cancelled concurrent build left invalid", async () => {
+      // What a cancelled `create index concurrently` leaves behind: an index of
+      // the right name that PostgreSQL will not use. `if not exists` alone
+      // would accept it, and the migrate Job's retry would record 013 as done.
+      await db.migrate.down({ name: MIGRATION });
+      await db.raw(
+        "create index journeys_status_recent_idx on journeys (project_id, status, last_event_at, id)"
+      );
+      await db.raw(
+        "update pg_index set indisvalid = false where indexrelid = 'journeys_status_recent_idx'::regclass"
+      );
+      expect(await indexes()).toEqual([{ name: "journeys_status_recent_idx", valid: false }]);
+
+      await db.migrate.up({ name: MIGRATION });
+      expect(await indexes()).toEqual(BOTH_VALID);
+    });
   });
 });

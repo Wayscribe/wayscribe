@@ -1,5 +1,6 @@
 import type { Knex } from "knex";
 import { orderJourneysAfter, toJourneyPage, type JourneyPage } from "./journey-keyset.js";
+import { JOURNEY_SUMMARY_COLUMNS } from "./journey-summary.js";
 import type { ReadScope } from "./read-scope.js";
 import type { SearchHit } from "./search.js";
 
@@ -46,21 +47,11 @@ export async function listRecentJourneys(
   cursor?: string
 ): Promise<RecentJourneyPage> {
   const query = db
-    .select(
-      "j.id as journeyId",
-      "j.entity_type as entityType",
-      "j.encrypted_primary_entity_id as encryptedPrimaryEntityId",
-      "j.status as status",
-      "j.event_count as eventCount",
-      "j.started_at as startedAt",
-      "j.last_event_at as lastEventAt",
-      "env.name as environment"
-    )
+    .select(...JOURNEY_SUMMARY_COLUMNS, "env.name as environment")
     .from({ j: "journeys" })
-    // Both columns, so the join cannot cross a project even if an id collided.
-    .join({ env: "environments" }, (on) => {
-      void on.on("env.id", "=", "j.environment_id").andOn("env.project_id", "=", "j.project_id");
-    })
+    // On id alone: the composite foreign key (environment_id, project_id) on
+    // journeys already guarantees the environment belongs to the same project.
+    .join({ env: "environments" }, "env.id", "j.environment_id")
     .where("j.project_id", scope.projectId)
     .andWhere("j.last_event_at", ">=", filters.since)
     .modify((builder) => {
