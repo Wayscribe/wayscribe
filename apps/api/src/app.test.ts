@@ -1,9 +1,9 @@
-import { deriveSubkeys } from "@flight-recorder/payload-security";
+import { createKeyring } from "@flight-recorder/payload-security";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import type { Knex } from "knex";
 
-const subkeys = deriveSubkeys("0123456789abcdef0123456789abcdef");
+const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
 
 /** No query in these tests reaches the database. */
@@ -13,7 +13,7 @@ describe("error envelope", () => {
   it("wraps a body over the limit in the project's error shape", async () => {
     const app = buildApp({
       db,
-      subkeys,
+      keyring,
       adminToken: ADMIN_TOKEN,
       logLevel: "silent",
       bodyLimit: 128
@@ -36,7 +36,7 @@ describe("error envelope", () => {
   });
 
   it("wraps malformed JSON in the same shape", async () => {
-    const app = buildApp({ db, subkeys, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    const app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
     const response = await app.inject({
       method: "POST",
       url: "/v1/events",
@@ -58,7 +58,7 @@ describe("body limit", () => {
     // the front of its queue, blocking everything behind it.
     const app = buildApp({
       db,
-      subkeys,
+      keyring,
       adminToken: ADMIN_TOKEN,
       logLevel: "silent",
       maxEventPayloadBytes: 262_144
@@ -83,7 +83,7 @@ describe("log redaction", () => {
     const lines: string[] = [];
     const app = buildApp({
       db,
-      subkeys,
+      keyring,
       adminToken: ADMIN_TOKEN,
       logLevel: "info",
       logStream: {

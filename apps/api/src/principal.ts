@@ -1,7 +1,7 @@
-import { findApiKeyByPrefix, type ApiKeyContext } from "@flight-recorder/database";
-import { API_KEY_PREFIX_LENGTH, verifyApiKey } from "@flight-recorder/payload-security";
+import type { ApiKeyContext } from "@flight-recorder/database";
 import { timingSafeEqual } from "node:crypto";
 import type { Knex } from "knex";
+import { authenticatePresentedKey, type ApiKeyAuthenticator } from "./auth.js";
 
 /**
  * Who is making a request.
@@ -27,7 +27,7 @@ const UNAUTHORIZED = {
 
 export interface ResolveOptions {
   db: Knex;
-  apiKeyPepper: Buffer;
+  apiKeys: ApiKeyAuthenticator;
   adminToken: string;
   authorizationHeader: string | undefined;
   /** Which project an admin is asking about. Ignored for API keys. */
@@ -52,10 +52,8 @@ export async function resolvePrincipal(options: ResolveOptions): Promise<Princip
     return resolveAdminProject(options.db, options.requestedProjectId);
   }
 
-  const context = await findApiKeyByPrefix(options.db, presented.slice(0, API_KEY_PREFIX_LENGTH));
+  const context = await authenticatePresentedKey(presented, options.apiKeys);
   if (context === undefined) return UNAUTHORIZED;
-  if (context.revokedAt !== null) return UNAUTHORIZED;
-  if (!verifyApiKey(options.apiKeyPepper, presented, context.keyHash)) return UNAUTHORIZED;
 
   return { ok: true, principal: { kind: "apiKey", context } };
 }

@@ -1,4 +1,4 @@
-import type { Subkeys } from "@flight-recorder/payload-security";
+import type { Keyring } from "@flight-recorder/payload-security";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Knex } from "knex";
 import { registerEventRoutes } from "./routes/events.js";
@@ -15,7 +15,8 @@ declare module "fastify" {
 
 export interface BuildAppOptions {
   db: Knex;
-  subkeys: Subkeys;
+  /** Current key, and the previous one during a rotation's grace period. */
+  keyring: Keyring;
   adminToken: string;
   logLevel?: string;
   /** Per-request body cap. Defaults to the batch ceiling plus headroom. */
@@ -96,15 +97,15 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   registerHealthRoutes(app);
   registerEventRoutes(
     app,
-    options.subkeys,
+    options.keyring,
     maxEventPayloadBytes,
     options.allowFullPayloadCapture ?? false
   );
   registerProjectRoutes(app, options.adminToken);
-  registerQueryRoutes(app, options.subkeys, options.adminToken);
+  registerQueryRoutes(app, options.keyring, options.adminToken);
   registerReplayRoutes(app, {
     adminToken: options.adminToken,
-    subkeys: options.subkeys,
+    keyring: options.keyring,
     allowedHosts: options.replayAllowedHosts ?? []
   });
 

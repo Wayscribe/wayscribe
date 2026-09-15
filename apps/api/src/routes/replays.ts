@@ -11,7 +11,7 @@ import {
   type EnvironmentType
 } from "@flight-recorder/database";
 import { diffPayloads } from "@flight-recorder/payload-diff";
-import type { Subkeys } from "@flight-recorder/payload-security";
+import type { Keyring } from "@flight-recorder/payload-security";
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { applyHeaderPolicy } from "../replay/header-policy.js";
@@ -23,7 +23,7 @@ const METHODS = new Set(["POST", "PUT", "PATCH"]);
 
 export interface ReplayRouteOptions {
   adminToken: string;
-  subkeys: Subkeys;
+  keyring: Keyring;
   allowedHosts: readonly string[];
 }
 
@@ -105,7 +105,7 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
         );
     }
 
-    const created = await createDestination(app.db, options.subkeys.fieldEncryption, {
+    const created = await createDestination(app.db, options.keyring, {
       projectId,
       name: body.name,
       baseUrl: body.baseUrl,
@@ -187,12 +187,7 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
         .send(error("destination_disabled", "That destination is disabled.", request.id));
     }
 
-    const configured = await destinationHeaders(
-      app.db,
-      options.subkeys.fieldEncryption,
-      projectId,
-      destination.id
-    );
+    const configured = await destinationHeaders(app.db, options.keyring, projectId, destination.id);
     const { headers, blocked } = applyHeaderPolicy(undefined, configured);
 
     // Recorded before the request is made, so a refusal still leaves a row.

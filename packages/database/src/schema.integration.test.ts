@@ -167,4 +167,16 @@ describe("schema constraints", () => {
       db("journeys").where({ project_id: projectId, id: "jrn_dup" }).update({ event_count: -1 })
     ).rejects.toThrow();
   });
+
+  it("adds the API key verifier's key id, nullable, and removes it on the way down", async () => {
+    // Nullable because keys issued before key rotation have no id to record;
+    // authentication fills it in the first time each one is presented.
+    const columns = await db("api_keys").columnInfo();
+    expect(columns["key_hash_key_id"]).toMatchObject({ type: "text", nullable: true });
+
+    await db.migrate.down();
+    expect(await db.schema.hasColumn("api_keys", "key_hash_key_id")).toBe(false);
+    await db.migrate.up();
+    expect(await db.schema.hasColumn("api_keys", "key_hash_key_id")).toBe(true);
+  });
 });

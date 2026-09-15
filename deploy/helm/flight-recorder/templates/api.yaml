@@ -36,6 +36,14 @@ spec:
                 secretKeyRef:
                   name: {{ include "flight-recorder.secretName" . }}
                   key: ENCRYPTION_KEY
+            # Present only during a key rotation. Optional, so a secret without
+            # the key starts the pod with no previous key rather than failing.
+            - name: ENCRYPTION_KEY_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flight-recorder.secretName" . }}
+                  key: ENCRYPTION_KEY_PREVIOUS
+                  optional: true
             - name: ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:

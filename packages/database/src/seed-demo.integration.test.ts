@@ -1,11 +1,27 @@
-import { deriveSubkeys, verifyApiKey } from "@flight-recorder/payload-security";
+import { createKeyring, verifyApiKeyWithKeyring } from "@flight-recorder/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKnexConfig } from "./knex-config.js";
 import { seedDemo } from "./seed-demo.js";
 
-const MASTER_KEY = "0123456789abcdef0123456789abcdef";
+const KEY_A = "0123456789abcdef0123456789abcdef";
+const KEY_B = "fedcba9876543210fedcba9876543210";
+const keyring = createKeyring(KEY_A);
+
+interface KeyRow {
+  key_hash: string;
+  key_hash_key_id: string | null;
+}
+
+const demoKeyRow = async (db: Knex): Promise<KeyRow> =>
+  (await db("api_keys").where({ key_prefix: "fr_demo00000" }).first()) as KeyRow;
+
+const verifies = (ring: ReturnType<typeof createKeyring>, row: KeyRow): unknown =>
+  verifyApiKeyWithKeyring(ring, DEMO_KEY, {
+    keyHash: row.key_hash,
+    keyHashKeyId: row.key_hash_key_id
+  });
 const DEMO_KEY = "fr_demo00000000000000000000000000000";
 
 describe("seedDemo", () => {
@@ -23,17 +39,16 @@ describe("seedDemo", () => {
     await container.stop();
   });
 
-  it("registers a key that verifies", async () => {
-    await seedDemo(db, MASTER_KEY, DEMO_KEY);
-    const row = (await db("api_keys").where({ key_prefix: "fr_demo00000" }).first()) as {
-      key_hash: string;
-    };
-    expect(verifyApiKey(deriveSubkeys(MASTER_KEY).apiKey, DEMO_KEY, row.key_hash)).toBe(true);
+  it("registers a key that verifies, labelled with the current key", async () => {
+    await seedDemo(db, keyring, DEMO_KEY);
+    const row = await demoKeyRow(db);
+    expect(row.key_hash_key_id).toBe(keyring.current.id);
+    expect(verifies(keyring, row)).toEqual({ ok: true, migrate: null });
   });
 
   it("is idempotent, including the key", async () => {
-    const first = await seedDemo(db, MASTER_KEY, DEMO_KEY);
-    const second = await seedDemo(db, MASTER_KEY, DEMO_KEY);
+    const first = await seedDemo(db, keyring, DEMO_KEY);
+    const second = await seedDemo(db, keyring, DEMO_KEY);
     expect(second.projectId).toBe(first.projectId);
     expect(second.environmentId).toBe(first.environmentId);
     // Compose runs the bootstrap on every `up`. A second row sharing the prefix
@@ -45,14 +60,13 @@ describe("seedDemo", () => {
   });
 
   it("re-verifies an existing key after the encryption key rotates", async () => {
-    await seedDemo(db, MASTER_KEY, DEMO_KEY);
-    const rotated = "fedcba9876543210fedcba9876543210";
+    await seedDemo(db, keyring, DEMO_KEY);
+    const rotated = createKeyring(KEY_B, KEY_A);
     await seedDemo(db, rotated, DEMO_KEY);
 
-    const row = (await db("api_keys").where({ key_prefix: "fr_demo00000" }).first()) as {
-      key_hash: string;
-    };
-    expect(verifyApiKey(deriveSubkeys(rotated).apiKey, DEMO_KEY, row.key_hash)).toBe(true);
-    expect(verifyApiKey(deriveSubkeys(MASTER_KEY).apiKey, DEMO_KEY, row.key_hash)).toBe(false);
+    const row = await demoKeyRow(db);
+    expect(row.key_hash_key_id).toBe(rotated.current.id);
+    expect(verifies(createKeyring(KEY_B), row)).toEqual({ ok: true, migrate: null });
+    expect(verifies(keyring, row)).toEqual({ ok: false });
   });
 });

@@ -2,13 +2,13 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createKnexConfig, insertReturningId, listAudit } from "@flight-recorder/database";
-import { deriveSubkeys, generateApiKey } from "@flight-recorder/payload-security";
+import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import type { FastifyInstance } from "fastify";
 
-const subkeys = deriveSubkeys("0123456789abcdef0123456789abcdef");
+const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
 
 describe("replay routes", () => {
@@ -50,14 +50,15 @@ describe("replay routes", () => {
       name: "development"
     });
 
-    const generated = generateApiKey(subkeys.apiKey);
+    const generated = issueApiKey(keyring);
     apiKey = generated.apiKey;
     await db("api_keys").insert({
       project_id: projectId,
       environment_id: environmentId,
       name: "k",
       key_prefix: generated.keyPrefix,
-      key_hash: generated.verifier
+      key_hash: generated.verifier,
+      key_hash_key_id: generated.keyHashKeyId
     });
 
     await db("journeys").insert({
@@ -99,7 +100,7 @@ describe("replay routes", () => {
 
     app = buildApp({
       db,
-      subkeys,
+      keyring,
       adminToken: ADMIN_TOKEN,
       logLevel: "silent",
       replayAllowedHosts: ["localhost"]

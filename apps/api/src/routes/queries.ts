@@ -6,8 +6,9 @@ import {
   searchJourneys,
   type ReadScope
 } from "@flight-recorder/database";
-import { searchToken, type Subkeys } from "@flight-recorder/payload-security";
+import { searchTokens, type Keyring } from "@flight-recorder/payload-security";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { databaseApiKeys } from "../auth.js";
 import {
   principalEnvironmentId,
   principalProjectId,
@@ -21,9 +22,13 @@ const MAX_LIMIT = 100;
 
 export function registerQueryRoutes(
   app: FastifyInstance,
-  subkeys: Subkeys,
+  keyring: Keyring,
   adminToken: string
 ): void {
+  const apiKeys = databaseApiKeys(app.db, keyring, (error: unknown) => {
+    app.log.warn({ err: error }, "failed to move an API key verifier to the current key");
+  });
+
   /** Returns undefined and sends the error response when authentication fails. */
   async function authenticate(
     request: FastifyRequest,
@@ -31,7 +36,7 @@ export function registerQueryRoutes(
   ): Promise<Principal | undefined> {
     const auth = await resolvePrincipal({
       db: app.db,
-      apiKeyPepper: subkeys.apiKey,
+      apiKeys,
       adminToken,
       authorizationHeader: request.headers.authorization,
       requestedProjectId:
@@ -73,7 +78,9 @@ export function registerQueryRoutes(
         app.db,
         readScope(principal),
         query,
-        searchToken(subkeys.searchToken, query),
+        // Both keys' tokens during a rotation, so rows not yet re-encrypted
+        // are still found.
+        searchTokens(keyring, query),
         parseLimit(request.query),
         (request.query as { cursor?: string }).cursor
       );
@@ -84,7 +91,7 @@ export function registerQueryRoutes(
             journeyId: hit.journeyId,
             entity: {
               type: hit.entityType,
-              id: presentEntityId(subkeys.fieldEncryption, hit.encryptedPrimaryEntityId)
+              id: presentEntityId(keyring, hit.encryptedPrimaryEntityId)
             },
             status: hit.status,
             eventCount: hit.eventCount,
@@ -116,10 +123,10 @@ export function registerQueryRoutes(
         journeyId: detail.journeyId,
         entity: {
           type: detail.entityType,
-          id: presentEntityId(subkeys.fieldEncryption, detail.encryptedPrimaryEntityId)
+          id: presentEntityId(keyring, detail.encryptedPrimaryEntityId)
         },
         status: detail.status,
-        aliases: presentAliases(subkeys.fieldEncryption, detail.aliases),
+        aliases: presentAliases(keyring, detail.aliases),
         services: detail.services,
         eventCount: detail.eventCount,
         startedAt: detail.startedAt.toISOString(),

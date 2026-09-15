@@ -1,6 +1,6 @@
 import { findInsecureDefaults, loadServerEnv } from "@flight-recorder/config";
 import { createKnexConfig } from "@flight-recorder/database";
-import { deriveSubkeys } from "@flight-recorder/payload-security";
+import { createKeyring } from "@flight-recorder/payload-security";
 import knex from "knex";
 import { buildApp } from "./app.js";
 import { startRetentionJob } from "./retention-job.js";
@@ -10,10 +10,14 @@ import { startRetentionJob } from "./retention-job.js";
 const env = loadServerEnv(process.env);
 
 const db = knex(createKnexConfig(env.DATABASE_URL));
-const subkeys = deriveSubkeys(env.ENCRYPTION_KEY);
+// Built once, before anything listens. During a rotation the previous key is
+// held beside the current one so data written under it stays readable; a
+// previous key equal to the current one throws here rather than starting a
+// rotation that rotates nothing.
+const keyring = createKeyring(env.ENCRYPTION_KEY, env.ENCRYPTION_KEY_PREVIOUS);
 const app = buildApp({
   db,
-  subkeys,
+  keyring,
   adminToken: env.ADMIN_TOKEN,
   logLevel: env.LOG_LEVEL,
   maxEventPayloadBytes: env.MAX_EVENT_PAYLOAD_BYTES,

@@ -38,6 +38,9 @@ services:
       PORT: "8080"
       LOG_LEVEL: info
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-for-local-development-0000}
+      # Set only during a key rotation. Empty when unset, which the API reads as
+      # no rotation in progress.
+      ENCRYPTION_KEY_PREVIOUS: ${ENCRYPTION_KEY_PREVIOUS:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
       DEFAULT_RETENTION_DAYS: "7"
       MAX_EVENT_PAYLOAD_BYTES: "262144"

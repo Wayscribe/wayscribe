@@ -1,7 +1,7 @@
-import { findApiKeyByPrefix, touchApiKey } from "@flight-recorder/database";
-import type { Subkeys } from "@flight-recorder/payload-security";
+import { touchApiKey } from "@flight-recorder/database";
+import type { Keyring } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
-import { resolveApiKey } from "../auth.js";
+import { databaseApiKeys, resolveApiKey } from "../auth.js";
 import { ingestEvent, type IngestResult } from "../ingestion/ingest-event.js";
 
 const MAX_BATCH_SIZE = 100;
@@ -53,14 +53,16 @@ interface BatchResult {
 
 export function registerEventRoutes(
   app: FastifyInstance,
-  subkeys: Subkeys,
+  keyring: Keyring,
   maxEventPayloadBytes: number,
   allowFullPayload: boolean
 ): void {
+  const apiKeys = databaseApiKeys(app.db, keyring, (error: unknown) => {
+    app.log.warn({ err: error }, "failed to move an API key verifier to the current key");
+  });
+
   app.post("/v1/events", async (request, reply) => {
-    const auth = await resolveApiKey(request.headers.authorization, subkeys.apiKey, (prefix) =>
-      findApiKeyByPrefix(app.db, prefix)
-    );
+    const auth = await resolveApiKey(request.headers.authorization, apiKeys);
     if (!auth.ok) {
       return reply.code(auth.status).send(errorBody(auth.code, auth.message, request.id));
     }
@@ -69,7 +71,7 @@ export function registerEventRoutes(
 
     const result = await ingestEvent(
       app.db,
-      subkeys,
+      keyring,
       auth.context,
       request.body,
       maxEventPayloadBytes,
@@ -92,9 +94,7 @@ export function registerEventRoutes(
   });
 
   app.post("/v1/events/batch", async (request, reply) => {
-    const auth = await resolveApiKey(request.headers.authorization, subkeys.apiKey, (prefix) =>
-      findApiKeyByPrefix(app.db, prefix)
-    );
+    const auth = await resolveApiKey(request.headers.authorization, apiKeys);
     if (!auth.ok) {
       return reply.code(auth.status).send(errorBody(auth.code, auth.message, request.id));
     }
@@ -135,7 +135,7 @@ export function registerEventRoutes(
       try {
         result = await ingestEvent(
           app.db,
-          subkeys,
+          keyring,
           auth.context,
           event,
           maxEventPayloadBytes,

@@ -1,5 +1,5 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { deriveSubkeys, searchToken } from "@flight-recorder/payload-security";
+import { createKeyring, searchTokens } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
@@ -8,8 +8,11 @@ import { InvalidCursorError } from "./cursors.js";
 import { searchJourneys } from "./search.js";
 import type { ReadScope } from "./read-scope.js";
 
-const subkeys = deriveSubkeys("0123456789abcdef0123456789abcdef");
-const token = (value: string): string => searchToken(subkeys.searchToken, value);
+const KEY_A = "0123456789abcdef0123456789abcdef";
+const KEY_B = "fedcba9876543210fedcba9876543210";
+const keyring = createKeyring(KEY_A);
+/** The token ingestion writes: the current key's alone. */
+const token = (value: string): string => searchTokens(keyring, value)[0] ?? "";
 
 describe("searchJourneys", () => {
   let container: StartedPostgreSqlContainer;
@@ -112,7 +115,7 @@ describe("searchJourneys", () => {
   });
 
   const find = (q: string, limit = 25, cursor?: string) =>
-    searchJourneys(db, scope, q, token(q), limit, cursor);
+    searchJourneys(db, scope, q, searchTokens(keyring, q), limit, cursor);
 
   it("finds a journey by primary entity id", async () => {
     const page = await find("0018Z00002ABC");
@@ -166,6 +169,53 @@ describe("searchJourneys", () => {
     const second = await find("SHARED-VALUE", 1, first.nextCursor ?? undefined);
     expect(second.items.map((i) => i.journeyId)).toEqual(["jrn_1"]);
     expect(second.nextCursor).toBeNull();
+  });
+
+  describe("during a rotation", () => {
+    // Rows written under A keep A's tokens until they are re-encrypted. After
+    // the switch to B, a search has to match either token or those rows vanish.
+    const rotated = createKeyring(KEY_B, KEY_A);
+    const underB = (q: string) => searchJourneys(db, scope, q, searchTokens(rotated, q), 25);
+    const bOnly = createKeyring(KEY_B);
+
+    it("finds a journey whose entity token is the previous key's", async () => {
+      expect((await underB("0018Z00002XYZ")).items.map((i) => i.journeyId)).toEqual(["jrn_2"]);
+    });
+
+    it("finds journeys whose alias token is the previous key's", async () => {
+      const page = await underB("SHARED-VALUE");
+      expect(page.items.map((i) => i.journeyId).sort()).toEqual(["jrn_1", "jrn_2"]);
+    });
+
+    it("finds a journey written under the new key alongside the old ones", async () => {
+      await db("journeys").insert({
+        id: "jrn_new",
+        project_id: scope.projectId,
+        environment_id: scope.environmentId,
+        entity_type: "customer",
+        primary_entity_id_hash: searchTokens(bOnly, "0018Z00002XYZ")[0] ?? "",
+        status: "active",
+        started_at: "2026-08-06T09:00:00Z",
+        last_event_at: "2026-08-06T09:00:00Z",
+        event_count: 1
+      });
+      const page = await underB("0018Z00002XYZ");
+      expect(page.items.map((i) => i.journeyId).sort()).toEqual(["jrn_2", "jrn_new"]);
+      await db("journeys").where({ id: "jrn_new" }).delete();
+    });
+
+    it("stops finding old rows once the previous key is gone", async () => {
+      // The control: without it, the tests above could pass because the tokens
+      // happen to match under any key.
+      const page = await searchJourneys(
+        db,
+        scope,
+        "0018Z00002XYZ",
+        searchTokens(bOnly, "0018Z00002XYZ"),
+        25
+      );
+      expect(page.items).toEqual([]);
+    });
   });
 
   it("rejects a malformed cursor rather than silently restarting", async () => {

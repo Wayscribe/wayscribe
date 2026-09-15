@@ -1,3 +1,4 @@
+import type { Keyring } from "@flight-recorder/payload-security";
 import knex from "knex";
 import { createKnexConfig } from "./knex-config.js";
 
@@ -22,15 +23,22 @@ const retentionDays = Number.parseInt(process.env["DEFAULT_RETENTION_DAYS"] ?? "
 const defaultRetentionDays =
   Number.isInteger(retentionDays) && retentionDays > 0 ? retentionDays : 7;
 
-/** Returns undefined and sets a failing exit code when the master key is absent. */
-function requireEncryptionKey(): string | undefined {
-  const masterKey = process.env["ENCRYPTION_KEY"];
-  if (masterKey === undefined || masterKey === "") {
-    console.error("ENCRYPTION_KEY is not set.");
+/**
+ * The keyring from ENCRYPTION_KEY and ENCRYPTION_KEY_PREVIOUS, or undefined with
+ * a failing exit code and the reason printed.
+ *
+ * Read the way the API reads them, so a key this CLI issues during a rotation
+ * verifies against the API running beside it.
+ */
+async function requireKeyring(): Promise<Keyring | undefined> {
+  const { keyringFromEnvironment } = await import("./keyring-env.js");
+  try {
+    return keyringFromEnvironment(process.env);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
     return undefined;
   }
-  return masterKey;
 }
 
 try {
@@ -54,14 +62,10 @@ try {
       break;
     }
     case "seed": {
-      const masterKey = process.env["ENCRYPTION_KEY"];
-      if (masterKey === undefined || masterKey === "") {
-        console.error("ENCRYPTION_KEY is not set.");
-        process.exitCode = 1;
-        break;
-      }
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
       const { seedLocal } = await import("./seed-local.js");
-      const result = await seedLocal(db, masterKey, defaultRetentionDays);
+      const result = await seedLocal(db, keyring, defaultRetentionDays);
       console.log("Local seed applied.");
       console.log(`  project:     ${result.projectId}`);
       console.log(`  environment: ${result.environmentId}`);
@@ -71,20 +75,16 @@ try {
       break;
     }
     case "seed-demo": {
-      const masterKey = process.env["ENCRYPTION_KEY"];
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
       const apiKey = process.env["DEMO_API_KEY"];
-      if (masterKey === undefined || masterKey === "") {
-        console.error("ENCRYPTION_KEY is not set.");
-        process.exitCode = 1;
-        break;
-      }
       if (apiKey === undefined || apiKey === "") {
         console.error("DEMO_API_KEY is not set.");
         process.exitCode = 1;
         break;
       }
       const { seedDemo } = await import("./seed-demo.js");
-      const result = await seedDemo(db, masterKey, apiKey, defaultRetentionDays);
+      const result = await seedDemo(db, keyring, apiKey, defaultRetentionDays);
       console.log(`Demo seed applied for project ${result.projectId} (${result.keyPrefix}).`);
       break;
     }
@@ -125,8 +125,8 @@ try {
       break;
     }
     case "key:create": {
-      const masterKey = requireEncryptionKey();
-      if (masterKey === undefined) break;
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
 
       const [projectSlug, environmentName, name] = args;
       if (projectSlug === undefined || environmentName === undefined) {
@@ -137,7 +137,7 @@ try {
 
       const { issueKey, KeyAdminError } = await import("./repositories/key-admin.js");
       try {
-        const issued = await issueKey(db, masterKey, {
+        const issued = await issueKey(db, keyring, {
           projectSlug,
           environmentName,
           name: name ?? `${environmentName}-key`,

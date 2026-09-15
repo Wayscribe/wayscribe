@@ -1,4 +1,4 @@
-import { decryptField, encryptField } from "@flight-recorder/payload-security";
+import { decryptValue, encryptValue, type Keyring } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import { insertReturningId } from "../insert.js";
 
@@ -54,7 +54,7 @@ const DESTINATION_COLUMNS = [
  */
 export async function createDestination(
   db: Knex,
-  fieldKey: Buffer,
+  keyring: Keyring,
   input: {
     projectId: string;
     name: string;
@@ -71,7 +71,7 @@ export async function createDestination(
     encrypted_headers:
       input.headers === undefined || Object.keys(input.headers).length === 0
         ? null
-        : encryptField(fieldKey, JSON.stringify(input.headers))
+        : encryptValue(keyring, JSON.stringify(input.headers))
   });
 
   const created = await findDestination(db, input.projectId, id);
@@ -108,7 +108,7 @@ export async function listDestinations(db: Knex, projectId: string): Promise<Rep
  */
 export async function destinationHeaders(
   db: Knex,
-  fieldKey: Buffer,
+  keyring: Keyring,
   projectId: string,
   id: string
 ): Promise<Record<string, string>> {
@@ -120,10 +120,11 @@ export async function destinationHeaders(
   if (encrypted === null || encrypted === undefined) return {};
 
   try {
-    return JSON.parse(decryptField(fieldKey, encrypted)) as Record<string, string>;
+    return JSON.parse(decryptValue(keyring, encrypted)) as Record<string, string>;
   } catch {
-    // A row encrypted under a rotated key degrades to no headers rather than
-    // failing the replay outright, matching how the read path treats payloads.
+    // A row under a key the keyring no longer holds degrades to no headers
+    // rather than failing the replay outright, matching how the read path
+    // treats payloads.
     return {};
   }
 }

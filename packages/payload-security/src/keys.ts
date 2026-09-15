@@ -19,8 +19,9 @@ const FINGERPRINT_LENGTH = 6;
  * HKDF splits one configured value into three cryptographically independent
  * keys.
  *
- * Rotating the master rotates all three, which invalidates existing search
- * tokens and API keys. V0 accepts that; see the Phase 1a design.
+ * Rotating the master rotates all three. A `Keyring` holds the previous
+ * master's subkeys beside the current ones, so a rotation is a grace period
+ * rather than the loss of every existing token and API key.
  */
 export function deriveSubkeys(masterKey: string): Subkeys {
   assertMasterLength(masterKey);

@@ -23,7 +23,7 @@ export interface StoredApiKey {
 /**
  * The stored form of a key the caller already holds.
  *
- * `generateApiKey` is the entry point everywhere a key is issued to a person:
+ * `issueApiKey` is the entry point everywhere a key is issued to a person:
  * it supplies the entropy, which a caller-chosen key does not. This exists for
  * the demo, whose services need a key fixed in advance because there is nobody
  * to read one off a terminal.

@@ -1,12 +1,12 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
-import { deriveSubkeys, generateApiKey } from "@flight-recorder/payload-security";
+import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
-const subkeys = deriveSubkeys("0123456789abcdef0123456789abcdef");
+const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 
 describe("query endpoints", () => {
   let container: StartedPostgreSqlContainer;
@@ -25,19 +25,20 @@ describe("query endpoints", () => {
       project_id: projectId,
       name: "development"
     });
-    const generated = generateApiKey(subkeys.apiKey);
+    const generated = issueApiKey(keyring);
     apiKey = generated.apiKey;
     await db("api_keys").insert({
       project_id: projectId,
       environment_id: environmentId,
       name: "k",
       key_prefix: generated.keyPrefix,
-      key_hash: generated.verifier
+      key_hash: generated.verifier,
+      key_hash_key_id: generated.keyHashKeyId
     });
 
     app = buildApp({
       db,
-      subkeys,
+      keyring,
       adminToken: "admin-token-for-tests-0000000000",
       logLevel: "silent"
     });
@@ -164,13 +165,14 @@ describe("query endpoints", () => {
       project_id: projectId,
       name: "production"
     });
-    const productionKey = generateApiKey(subkeys.apiKey);
+    const productionKey = issueApiKey(keyring);
     await db("api_keys").insert({
       project_id: projectId,
       environment_id: productionEnv,
       name: "prod",
       key_prefix: productionKey.keyPrefix,
-      key_hash: productionKey.verifier
+      key_hash: productionKey.verifier,
+      key_hash_key_id: productionKey.keyHashKeyId
     });
 
     const written = await app.inject({
@@ -212,13 +214,14 @@ describe("query endpoints", () => {
       project_id: otherProject,
       name: "development"
     });
-    const otherKey = generateApiKey(subkeys.apiKey);
+    const otherKey = issueApiKey(keyring);
     await db("api_keys").insert({
       project_id: otherProject,
       environment_id: otherEnv,
       name: "other",
       key_prefix: otherKey.keyPrefix,
-      key_hash: otherKey.verifier
+      key_hash: otherKey.verifier,
+      key_hash_key_id: otherKey.keyHashKeyId
     });
 
     expect((await get("/v1/events/evt_q1", otherKey.apiKey)).statusCode).toBe(404);
