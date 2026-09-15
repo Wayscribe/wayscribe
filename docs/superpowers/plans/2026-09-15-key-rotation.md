@@ -62,6 +62,15 @@ Prove, in integration tests against PostgreSQL:
 
 Build per the spec: advisory lock, batches of 500 by primary key, per-batch transactions, progress marked by the ciphertext's key id, null-ciphertext rows counted, idempotent second run, per-table output. `rotate:status` read-only, exit 1 when anything remains under a non-current key, API keys listed with prefix, name, `last_used_at`. The boot check logs one warning with per-table counts when rows or keys are unreadable.
 
+Also, from the Task 1 and Task 2 reviews:
+
+- Classify rows with `parseEncryptedValue` (never a throwing parser inside a batch): a malformed value is counted as unrecoverable, not fatal.
+- `entity_aliases` can hold a row under the previous token next to a row under the current token for the same `(project_id, journey_id, alias_type)` (a key restored after early removal). Re-encrypting the old row would violate the unique constraint: detect it and delete the stale duplicate inside the batch, counting it separately as "duplicates removed".
+- Journeys created before a rotation keep their old token and ciphertext even while new events arrive; the command must rewrite them like any other row.
+- A read that meets a key id not in the keyring logs one warning per process per key id (a memoized set, key id only), next to the boot check.
+- Identical `ENCRYPTION_KEY` and `ENCRYPTION_KEY_PREVIOUS` must fail at API boot with a formatted, logged message rather than an uncaught throw; the CLI likewise.
+- The demo bootstrap rewrites the demo key under the current key on every start, so the demo key never appears as unmigrated; do not treat that as a bug.
+
 Prove: spec scenarios 3, 4, 5, plus: two concurrent `reencrypt` runs do not both work (the second reports the lock is held); `rotate:status` exit codes; the boot warning fires for an unknown key id and stays silent on a clean install.
 
 ## Task 4: Documentation and debt
