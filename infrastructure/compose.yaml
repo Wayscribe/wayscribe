@@ -48,6 +48,10 @@ services:
       MAX_EVENT_PAYLOAD_BYTES: "262144"
       ALLOW_FULL_PAYLOAD_CAPTURE: "false"
       REPLAY_ALLOWED_HOSTS: localhost,host.docker.internal,demo-integration
+    # DATABASE_STATEMENT_TIMEOUT_MS and METRICS_PORT are not set above, so the
+    # root .env reaches the API for both (see .env.example). METRICS_PORT is
+    # deliberately not published: add a loopback mapping in an override file
+    # if a scraper on this host needs it (docs/OPERATIONS.md §13).
     ports:
       - "127.0.0.1:${API_PORT:-8080}:8080"
     depends_on:

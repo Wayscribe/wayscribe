@@ -226,4 +226,175 @@ describe("schema constraints", () => {
       expect(await indexes()).toEqual(BOTH_VALID);
     });
   });
+
+  describe("search index (014)", () => {
+    const MIGRATION = "014_search_indexes.js";
+
+    /** Validity and definition of the span id index, if it exists. */
+    const spanIndex = async (): Promise<{ valid: boolean; definition: string }[]> => {
+      const result: unknown = await db.raw(
+        `select i.indisvalid as valid, pg_get_indexdef(i.indexrelid) as definition
+         from pg_index i join pg_class c on c.oid = i.indexrelid
+         where c.relname = 'journey_events_span_idx'`
+      );
+      return (result as { rows: { valid: boolean; definition: string }[] }).rows;
+    };
+
+    const VALID = [
+      {
+        valid: true,
+        definition:
+          "CREATE INDEX journey_events_span_idx ON public.journey_events USING btree (project_id, span_id) WHERE (span_id IS NOT NULL)"
+      }
+    ];
+
+    it("adds the span id index and removes it on the way down", async () => {
+      expect(await spanIndex()).toEqual(VALID);
+      await db.migrate.down({ name: MIGRATION });
+      expect(await spanIndex()).toEqual([]);
+      await db.migrate.up({ name: MIGRATION });
+      expect(await spanIndex()).toEqual(VALID);
+    });
+
+    it("rebuilds the index a cancelled concurrent build left invalid", async () => {
+      // As for 013: `if not exists` alone would accept the invalid index and
+      // the retried migration would record 014 as applied, leaving search by
+      // span id a sequential scan of journey_events.
+      await db.migrate.down({ name: MIGRATION });
+      await db.raw(
+        "create index journey_events_span_idx on journey_events (project_id, span_id) where span_id is not null"
+      );
+      await db.raw(
+        "update pg_index set indisvalid = false where indexrelid = 'journey_events_span_idx'::regclass"
+      );
+      expect(await spanIndex()).toEqual([{ ...VALID[0], valid: false }]);
+
+      await db.migrate.up({ name: MIGRATION });
+      expect(await spanIndex()).toEqual(VALID);
+    });
+  });
+
+  describe("replay run header redaction (015)", () => {
+    const MIGRATION = "015_redact_replay_run_headers.js";
+
+    it("rewrites every stored header value as [REDACTED], keeping the names", async () => {
+      // A run written before this release holds the destination's decrypted
+      // headers in plain jsonb. Nothing in an old row says which header came
+      // from the destination, so every value goes.
+      await db("journeys").insert({
+        id: "jrn_015",
+        project_id: projectId,
+        environment_id: environmentId,
+        entity_type: "customer",
+        primary_entity_id_hash: "hash-015",
+        started_at: new Date(),
+        last_event_at: new Date()
+      });
+      await db("journey_events").insert({
+        id: "evt_015",
+        project_id: projectId,
+        environment_id: environmentId,
+        journey_id: "jrn_015",
+        protocol_version: "0.1",
+        content_hash: "hash-015",
+        operation: "received",
+        name: "receive",
+        service: "svc",
+        event_timestamp: new Date()
+      });
+      const destinationId = await insertReturningId(db, "replay_destinations", {
+        project_id: projectId,
+        name: "migration 015",
+        base_url: "http://localhost:3200",
+        environment_type: "development"
+      });
+
+      const run = (headers: unknown): Promise<string> =>
+        insertReturningId(db, "replay_runs", {
+          project_id: projectId,
+          journey_event_id: "evt_015",
+          destination_id: destinationId,
+          method: "POST",
+          request_path: "/replay",
+          request_headers: headers === null ? null : JSON.stringify(headers),
+          status: "completed",
+          initiated_by: "admin"
+        });
+
+      const headersOf = async (id: string): Promise<unknown> => {
+        const row: unknown = await db("replay_runs").where({ id }).first("request_headers");
+        return (row as { request_headers: unknown } | undefined)?.request_headers;
+      };
+
+      // Reverted first: 015 already ran on an empty table, and its down does
+      // nothing, so this is the state of an install that has not upgraded.
+      await db.migrate.down({ name: MIGRATION });
+      const secret = "pre-upgrade-secret-4d2e";
+      const withSecret = await run({
+        "user-agent": "flight-recorder-replay",
+        "x-dev-token": secret,
+        authorization: `Bearer ${secret}`
+      });
+      const empty = await run({});
+      const none = await run(null);
+      const notAnObject = await run([secret]);
+      expect(JSON.stringify(await db("replay_runs").select())).toContain(secret);
+
+      await db.migrate.up({ name: MIGRATION });
+
+      const REDACTED_ROW = {
+        "user-agent": "[REDACTED]",
+        "x-dev-token": "[REDACTED]",
+        authorization: "[REDACTED]"
+      };
+      expect(await headersOf(withSecret)).toEqual(REDACTED_ROW);
+      expect(await headersOf(empty)).toEqual({});
+      expect(await headersOf(none)).toBeNull();
+      expect(await headersOf(notAnObject)).toBeNull();
+      expect(JSON.stringify(await db("replay_runs").select())).not.toContain(secret);
+
+      // The down cannot restore what the up removed, so it leaves rows alone.
+      await db.migrate.down({ name: MIGRATION });
+      expect(await headersOf(withSecret)).toEqual(REDACTED_ROW);
+      await db.migrate.up({ name: MIGRATION });
+    });
+  });
+
+  describe("replay runs' event foreign key index (016)", () => {
+    const MIGRATION = "016_replay_runs_event_index.js";
+
+    const indexes = async (): Promise<{ name: string; valid: boolean; definition: string }[]> => {
+      const result: unknown = await db.raw(
+        `select c.relname as name, i.indisvalid as valid, pg_get_indexdef(c.oid) as definition
+         from pg_index i join pg_class c on c.oid = i.indexrelid
+         where c.relname = 'replay_runs_journey_event_idx'`
+      );
+      return (result as { rows: { name: string; valid: boolean; definition: string }[] }).rows;
+    };
+
+    it("indexes the foreign key a cascaded event delete looks up, and removes it on the way down", async () => {
+      const [index] = await indexes();
+      expect(index?.valid).toBe(true);
+      expect(index?.definition).toContain("(project_id, journey_event_id)");
+
+      await db.migrate.down({ name: MIGRATION });
+      expect(await indexes()).toEqual([]);
+      await db.migrate.up({ name: MIGRATION });
+      expect((await indexes()).map((found) => found.valid)).toEqual([true]);
+    });
+
+    it("rebuilds the index a cancelled concurrent build left invalid", async () => {
+      await db.migrate.down({ name: MIGRATION });
+      await db.raw(
+        "create index replay_runs_journey_event_idx on replay_runs (project_id, journey_event_id)"
+      );
+      await db.raw(
+        "update pg_index set indisvalid = false where indexrelid = 'replay_runs_journey_event_idx'::regclass"
+      );
+      expect((await indexes()).map((found) => found.valid)).toEqual([false]);
+
+      await db.migrate.up({ name: MIGRATION });
+      expect((await indexes()).map((found) => found.valid)).toEqual([true]);
+    });
+  });
 });

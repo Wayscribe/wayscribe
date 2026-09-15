@@ -243,6 +243,22 @@ Rotation is a grace period rather than a cut-over (ADR-044):
   with that key's id, once per id, and the API logs a count at boot.
 - A replay whose destination headers cannot be decrypted is refused and audited
   as blocked, never sent without them.
+- Decrypted destination headers are held in memory for the request being sent.
+  A replay run stores and returns them by name with the value `[REDACTED]`, and
+  audit rows name blocked headers without values. Encrypting a credential on
+  the destination would mean nothing if every run copied it out in the clear,
+  which runs written before migration 015 did.
+- A destination that echoes its request would put those values back into the
+  run through its response. Before a run's response body and error message are
+  stored, every occurrence of each destination header value at least 8
+  characters long is replaced with `[REDACTED]`: within every string of a JSON
+  body, and within a text body or message, in both the raw and the JSON-escaped
+  form. That is exact matching, and it has limits. A value shorter than 8
+  characters is not replaced. A body cut at the response size cap can end part
+  way through a value, and the fragment is not matched. A value the destination
+  encodes some other way, such as base64, is not recognised. Responses stored
+  before this release are not scrubbed, because a migration has no key to
+  decrypt the headers it would have to look for.
 
 A suspected leak of `ENCRYPTION_KEY` is a reason to rotate, and a rotation does
 not undo what the leaked key could already read: any dump or replica taken
@@ -279,6 +295,7 @@ V0 replay rules:
 - request and response size limits
 - audit every attempt
 - user reviews payload before send
+- destination header values are sent, never stored with the run or returned
 
 Blocked headers should include at least:
 

@@ -2,7 +2,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKnexConfig } from "./knex-config.js";
-import { pendingMigrationCount } from "./migration-status.js";
+import { migrationStatusReadOnly, pendingMigrationCount } from "./migration-status.js";
 
 describe("migrations", () => {
   let container: StartedPostgreSqlContainer;
@@ -18,16 +18,42 @@ describe("migrations", () => {
     await container.stop();
   });
 
+  it("counts pending migrations read-only, agreeing with knex, without creating its tables", async () => {
+    // First, before anything has created knex's tables.
+    const status = await migrationStatusReadOnly(db);
+    expect(status.unknown).toEqual([]);
+    const tables: unknown = await db.raw("select to_regclass('knex_migrations') as found");
+    expect((tables as { rows: unknown[] }).rows).toEqual([{ found: null }]);
+    expect(status.pending).toHaveLength(await pendingMigrationCount(db));
+  });
+
   it("counts each migration exactly once before running them", async () => {
     // Exact, not greater-than: a loose assertion here hid a defect where
     // declaration files were counted as migrations, because `.d.ts` ends in
     // `.ts`. Update this number when a migration is added.
-    expect(await pendingMigrationCount(db)).toBe(13);
+    expect(await pendingMigrationCount(db)).toBe(16);
   });
 
   it("applies migrations and creates the projects table", async () => {
     await db.migrate.latest();
     expect(await db.schema.hasTable("projects")).toBe(true);
+  });
+
+  it("names an applied migration this build does not have", async () => {
+    await db.migrate.latest();
+    await db("knex_migrations").insert({
+      name: "099_from_a_newer_build.js",
+      batch: 99,
+      migration_time: new Date()
+    });
+    try {
+      expect(await migrationStatusReadOnly(db)).toEqual({
+        pending: [],
+        unknown: ["099_from_a_newer_build.js"]
+      });
+    } finally {
+      await db("knex_migrations").where({ name: "099_from_a_newer_build.js" }).del();
+    }
   });
 
   it("reports zero pending migrations once current", async () => {

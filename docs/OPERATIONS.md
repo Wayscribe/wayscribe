@@ -108,6 +108,70 @@ docker run --rm --network flight-recorder_default \
   --entrypoint node flight-recorder-api packages/database/dist/cli.js migrate
 ```
 
+### Migration 015 rewrites every replay run's headers
+
+Replays used to store the headers they sent, including the destination's
+decrypted configured headers, in `replay_runs.request_headers`. Migration
+`015_redact_replay_run_headers.js` replaces every value in that column with
+`[REDACTED]` and keeps the header names. An old row does not say which headers
+came from the destination, so the ones Flight Recorder set itself, such as
+`user-agent`, are redacted too.
+
+It is one `UPDATE` of every `replay_runs` row that has headers, in one
+transaction. Measured on PostgreSQL 17 with 100,000 runs carrying payloads of
+about 1 KB: the migration took about 2 seconds. An update to an existing run
+while it ran, such as the previous API finishing a replay, waited until it
+committed, about 2.3 seconds. Inserts of new runs were not blocked. The table
+doubled in size, because every row is rewritten, until vacuum reclaimed the old
+versions.
+
+Migrate, then deploy, still applies, and it leaves a window: between the
+migration committing and the new API taking traffic, the previous API is still
+the one serving, and a replay it sends is stored the old way. Replays are
+manual, so the simplest course is not to send one during the upgrade.
+
+If one was sent, redact again once the new API is serving, limited to runs
+created from an hour before migration 015 was applied. Count them first:
+
+```sql
+select count(*)
+from replay_runs
+where request_headers is not null
+  and created_at >= (
+    select migration_time from knex_migrations
+    where name = '015_redact_replay_run_headers.js'
+  ) - interval '1 hour';
+```
+
+Then rewrite the same rows:
+
+```sql
+update replay_runs
+set request_headers = case
+  when jsonb_typeof(request_headers) = 'object' then (
+    select coalesce(jsonb_object_agg(key, to_jsonb('[REDACTED]'::text)), '{}'::jsonb)
+    from jsonb_each(request_headers)
+  )
+  else null
+end
+where request_headers is not null
+  and created_at >= (
+    select migration_time from knex_migrations
+    where name = '015_redact_replay_run_headers.js'
+  ) - interval '1 hour';
+```
+
+Runs the new API wrote in that window are rewritten too, and lose the values
+it kept on purpose, such as `user-agent` and `x-flight-replay`. The header
+names stay. Nothing secret is lost, only what those rows could show about the
+non-secret headers.
+
+Its down migration does nothing: the values cannot be restored, and restoring
+them would be the defect. **The migration does not reach copies.** A dump, WAL
+archive, or replica snapshot taken before it still holds the header values, and
+so do the destination's credentials inside them. If a destination header was a
+credential that matters, rotate it at the destination as well.
+
 ## 5. Projects and keys
 
 A new installation has no projects, and a key belongs to one. Create the project
@@ -362,12 +426,15 @@ concurrently (ADR-026), and deletes in bounded batches.
 
 Deleting a journey removes its events, aliases, and replay runs by cascade.
 
-Retention stops while the API is down and resumes on the next start. There is no
-metrics endpoint; each sweep that deleted anything writes one line:
+Retention stops while the API is down and resumes on the next start. Each sweep
+that deleted anything writes one line:
 
 ```json
 { "journeysDeleted": 1420, "batches": 2, "environmentsExamined": 3, "durationMs": 91 }
 ```
+
+A sweep that stops completing writes nothing at all, which is why its outcome
+is also a metric (§13).
 
 Retention is not the only way data leaves: §8 deletes a journey, an identifier,
 or a time window on demand.
@@ -535,24 +602,104 @@ it as an operator credential, not a login.
 Event volume drives everything. One journey is one row plus one row per event,
 plus a row per alias. Payloads are stored inline as JSONB.
 
-The practical lever is `captureMode`. `metadata-only` stores no payloads at all
-and shrinks the table by roughly the size of your traffic; `redacted-payload`
-(the default) stores both input and output per wrapped step.
+### Measured disk per event
 
-Two indexes carry the read path: `journeys_entity_value_idx` for search and
-`journeys_recent_idx` for retention selection. The recent-journeys list adds
-`journeys_status_recent_idx` and `journey_events_service_idx`; the second costs
-one more index write on every event insert. Migration 013 builds both with
-`CREATE INDEX CONCURRENTLY`, so on a large installation it takes longer than
-the other migrations but does not block ingestion while it runs.
+`scripts/measure-storage.mjs` records journeys of the demo's shape (ten events
+and two aliases each, with small Salesforce and customer payloads averaging 120
+bytes of JSON input and output per event) through the real ingestion code, in
+each capture mode, and reports what `journeys`, `journey_events`, and
+`entity_aliases` occupy with their indexes and TOAST. Run on an Apple M3 Pro,
+PostgreSQL 17.11 (`postgres:17-alpine`, default configuration) in Docker
+Desktop with 12 CPUs and 7.75 GiB:
 
-If that build stops partway, what to do depends on how it stopped:
+| Capture mode | 100,000 events | 1,000,000 events | Compacted, per event | Per journey |
+|---|---|---|---|---|
+| `metadata-only` | 113.5 MiB (1,190 B) | 1,001 MiB (1,049 B) | 873 B | 10.2 KiB |
+| `allowlisted-fields` | 134.8 MiB (1,414 B) | 1.19 GiB (1,273 B) | 1,097 B | 12.4 KiB |
+| `redacted-payload` | 154.2 MiB (1,617 B) | 1.39 GiB (1,494 B) | 1,320 B | 14.6 KiB |
+| `full-payload` | 151.3 MiB (1,586 B) | 1.39 GiB (1,496 B) | 1,320 B | 14.6 KiB |
+
+The first two columns are as ingested, after a plain `VACUUM`; the per-event
+figure is the total divided by events, so each event carries its share of its
+journey and aliases. Compacted is after `VACUUM FULL`. The difference is
+mostly the `journeys` table: every event updates its journey, the updates
+cannot be HOT because indexed columns change, and at a million events the
+table and its indexes were 121 MiB as ingested against 77 MiB compacted. A
+running installation sits between the two.
+
+What the numbers say:
+
+- **Indexes are 39 to 56 percent of the disk.** At a million events in
+  `metadata-only`, the three tables held 559 MiB of indexes out of 1,001 MiB;
+  in `redacted-payload`, 556 MiB out of 1.39 GiB.
+- **Payload capture costs about four times the payload's JSON size.**
+  `redacted-payload` added 445 bytes per event over `metadata-only` for 120
+  bytes of JSON: JSONB is larger than JSON text for small objects, and a step
+  with both an input and an output also stores their diff. `full-payload` and
+  `redacted-payload` match here because the demo payloads hold no secrets.
+- **Retention does not shrink the files.** Starting from the compacted size
+  after `VACUUM FULL` (832.7 MiB, `metadata-only`), deleting half the journeys
+  with the retention sweep and running a plain `VACUUM` left it at 832.9 MiB.
+  Ingesting as many journeys again brought it to 982 MiB, below the 1,001 MiB
+  the same volume took the first time: the freed space was reused over one
+  delete-and-refill cycle. Longer runs were not measured. A sweep or a §8
+  deletion is not a way to get space back. `VACUUM FULL` returns it, but
+  holds an exclusive lock that stops ingestion for as long as it runs.
+
+### A formula
+
+```text
+disk ≈ events per day × retention days × bytes per event × 1.5
+```
+
+Take bytes per event from the 1,000,000-event column for your capture mode, and
+for payloads larger than the demo's add four times their average JSON size
+(input plus output). The margin of 1.5 covers what the measurement does not:
+autovacuum falling behind a burst, journeys that keep receiving events and so
+outlive the window, and index growth beyond what a million events shows. It
+does not cover WAL (`max_wal_size`, 1 GB by default), backups, or the
+database's other tenants.
+
+For example, a million events a day kept 30 days in `redacted-payload`:
+1,000,000 × 30 × 1,494 × 1.5 is 67 GB, about 63 GiB.
+
+To measure your own shape, against a scratch database (it refuses one that
+already holds journeys, and works in schemas of its own that it drops after):
+
+```bash
+pnpm --filter "@flight-recorder/api..." build
+node scripts/measure-storage.mjs --database-url postgresql://… --journeys 10000
+```
+
+### Indexes
+
+Search looks a value up in one index per kind of identifier:
+`journeys_pkey` for a journey id, `journeys_entity_value_idx` and
+`entity_aliases_value_idx` for entity and alias values, and one index each on
+`journey_events` for trace, span, message, and correlation ids. It takes about
+0.1 ms at a million journeys for a value that matches a few journeys. A value
+that matches thousands (a shared correlation id, say) is joined with a
+sequential scan of the project's journeys, so its cost grows with the journey
+count: 13 ms for 2,400 matches among 120,000 journeys and 64 ms for 20,000
+among a million, for an API key scoped to one environment. `journeys_recent_idx` serves retention selection. The
+recent-journeys list adds `journeys_status_recent_idx` and
+`journey_events_service_idx`; the second costs one more index write on every
+event insert, and the span id index adds one on every event that carries a
+span id. `replay_runs_journey_event_idx` (migration 016) serves deletion rather
+than reads: every event a deleted journey takes with it looks up its replay runs
+through that foreign key, and without the index each one scanned the project's
+replay runs (§13, Statement timeout). Migrations 013, 014, and 016 build their
+indexes with `CREATE INDEX CONCURRENTLY`, so on a large installation they take
+longer than the other migrations but do not block ingestion while they run (014
+took 3 seconds over 3 million events).
+
+If one of those builds stops partway, what to do depends on how it stopped:
 
 - **The build failed** (an error was reported, or the connection dropped) and
   `migrate` exited. Run `migrate` again. It drops the index the failed build
   left invalid and builds it afresh.
 - **The migrate process was killed** (`kill -9`, an evicted pod, a stopped
-  container). Because 013 runs outside a transaction, the migration lock is
+  container). Because 013, 014, and 016 run outside a transaction, the migration lock is
   still set and every `migrate` after it fails with a message that the
   migration table is locked; the Helm Job's retries fail the same way and
   `/ready` stays `migrations_pending`. First make sure no `migrate` is still
@@ -608,11 +755,243 @@ ignore. The first run found seven CVEs in `npm` and `corepack`, which the base
 image ships and the runtime never uses; both Dockerfiles now delete them, which
 is a smaller attack surface as well as a clean scan.
 
-## 12. When something is wrong
+## 12. Checking an installation
+
+`doctor` checks an installation end to end and says what to fix. Run it after
+`key:create`, after an upgrade, and whenever something looks wrong. It is in the
+API image, like the other commands:
+
+```bash
+docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
+```
+
+From a checkout, `pnpm doctor -- --api-url http://localhost:8080 --api-key fr_…`
+reads the repository-root `.env`.
+
+Run it with the API's environment, because that is what it checks: the same
+`DATABASE_URL`, `ENCRYPTION_KEY`, `ADMIN_TOKEN`, and
+`DATABASE_STATEMENT_TIMEOUT_MS`. `docker compose run … api` gives it exactly
+that. Inside Compose the API is `http://api:8080`, not `localhost`.
+
+Each check prints one line, and anything that did not pass prints its fix
+beneath it:
+
+| Check | Fails when | Warns when |
+| --- | --- | --- |
+| Database reachable | the connection is refused, the host does not resolve, or authentication fails | |
+| PostgreSQL version | below 15 | below 17, the version CI tests |
+| Migrations | any are pending, or the database has one this build does not | |
+| `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
+| Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
+| Projects and keys | | no project, or no unrevoked API key |
+| API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
+| API reachable (`--api-url`) | `GET /ready` does not answer 200; its `reason` is printed | |
+| Statement timeout | the value is invalid | it is 0 |
+
+A check that depends on one that failed prints `SKIP` rather than failing a
+second time: with migrations pending, nothing that reads the tables runs. A
+check that cannot run at all, such as one refused by a role without grants,
+prints `FAIL` with PostgreSQL's SQLSTATE (`42501` for a missing grant) and a fix
+where doctor knows one, and the remaining checks still run. The exit code is 1
+when anything failed and 0 otherwise, so warnings do not break a script.
+
+The API key is checked locally, with the keyring, and never sent anywhere. The
+output names its prefix and the project and environment it belongs to, which is
+the environment every event it sends must name. Doctor never prints the database
+password, the admin token, either encryption key, or more of a key than its
+prefix.
+
+It changes nothing. It reads applied migrations from `knex_migrations` only when
+that table exists, so on a database nobody has migrated it does not create knex's
+tables the way `migrate` and `/ready` do; it does not record a key as used; and
+it does not move a verifier during a rotation. An applied migration this build
+does not have, left by a newer build, is a `FAIL` of its own.
+
+## 13. Monitoring
+
+### Metrics
+
+Set `METRICS_PORT` and the API serves Prometheus metrics at `/metrics` on that
+port, and only there: `/metrics` on the API port is 404, so publishing ingestion
+never publishes metrics by accident. Unset, which is the default, nothing listens
+(ADR-047).
+
+Neither Compose file publishes the port. A Prometheus on the same Compose network
+scrapes `api:9464`; one on the host needs a loopback mapping in an override file:
+
+```yaml
+# compose.override.yaml
+services:
+  api:
+    ports:
+      - "127.0.0.1:9464:9464"
+```
+
+With Helm, `api.metricsPort` adds a container port named `metrics` that no
+Service carries; scrape the pods.
+
+The endpoint has no authentication. It carries no request values, but it does
+describe traffic, so keep it on a network only your monitoring reaches.
+
+| Metric | Type | Labels |
+| --- | --- | --- |
+| `flight_recorder_http_requests_total` | counter | `method`, `route`, `status` |
+| `flight_recorder_http_request_duration_seconds` | histogram | `method`, `route` |
+| `flight_recorder_events_total` | counter | `result`: `accepted`, `duplicate`, `rejected` |
+| `flight_recorder_query_timeouts_total` | counter | `route` |
+| `flight_recorder_db_pool_connections` | gauge | `state`: `used`, `free`, `pending` |
+| `flight_recorder_retention_sweep_runs_total` | counter | `outcome`: `completed`, `locked`, `stopped_early`, `failed` |
+| `flight_recorder_retention_journeys_deleted_total` | counter | |
+| `flight_recorder_retention_last_success_timestamp_seconds` | gauge | |
+| `flight_recorder_unreadable_values` | gauge | `table` |
+| `process_resident_memory_bytes` | gauge | |
+| `nodejs_eventloop_lag_seconds` | gauge | |
+
+`route` is the route pattern the router matched, such as
+`/v1/journeys/:journeyId`, never the path. A request that matched no route is
+`unmatched`, so a scanner walking random paths adds one series, not one per
+path. `method` is one of the seven methods the API uses or `other`. No label
+carries a project id, key prefix, entity, or any value from a request.
+
+A URL the router refuses before any route runs is counted too, as `unmatched`:
+400 for malformed percent-encoding and 414 for a path parameter longer than any
+id. A request too malformed for Node's HTTP parser never becomes a request, so
+it is not counted; at `LOG_LEVEL=trace` it is logged as `client error`.
+
+`rejected` counts every event the API told a client it did not store: a
+validation failure, an environment the key does not cover, a conflicting event
+id, and also a storage failure or a timed-out statement, which the client may
+send again. `duplicate` is an event already stored, accepted and not stored
+twice.
+
+The request duration buckets are 5, 10, 25, 50, 100, 250 and 500 milliseconds,
+then 1, 2.5, 5, 10 and 30 seconds. Ingestion into a nearby database lands in the
+first few. So does a search for a value that matches a few journeys, which is
+under a millisecond in the database at a million journeys; one matching tens of
+thousands of journeys takes tens of milliseconds. Anything in seconds is worth
+a look. A request that ran into the default 15-second statement timeout lands in
+the 30-second bucket, apart from ordinary slow ones.
+
+Every counter is per process and starts at zero when the API starts, so alert on
+`increase()` or `rate()`, never on the raw value. The retention gauges are per
+replica too: the replica that holds the lock sweeps, and the others count
+`locked`.
+
+`flight_recorder_unreadable_values` is set by the boot check a moment after the
+API starts, and not afterwards. The check is skipped while migrations are
+pending, so an API started before `migrate` ran (the `infrastructure/compose.yaml`
+stack has no migrate service) has no such series at all until it is restarted
+after migrating. Alert on its absence only if every API is started after
+migrations, as `compose.published.yaml` and the Helm chart do.
+
+### Alerts worth starting with
+
+```yaml
+groups:
+  - name: flight-recorder
+    rules:
+      # Events refused. A new service with a mistyped environment shows up here
+      # first, whatever the sending service does or does not report itself.
+      - alert: FlightRecorderRejectingEvents
+        expr: sum(increase(flight_recorder_events_total{result="rejected"}[15m])) > 0
+        for: 15m
+
+      # Retention has not completed anywhere for a day. Disk grows and data
+      # outlives its retention window.
+      - alert: FlightRecorderRetentionStalled
+        expr: time() - max(flight_recorder_retention_last_success_timestamp_seconds) > 86400
+        for: 2h
+
+      # Queries are being cancelled, or requests are waiting for a connection.
+      - alert: FlightRecorderDatabaseStrained
+        expr: >
+          sum(increase(flight_recorder_query_timeouts_total[10m])) > 0
+          or max(flight_recorder_db_pool_connections{state="pending"}) > 0
+        for: 10m
+```
+
+The gauge is 0 until a replica completes its first sweep, which runs an hour
+after it starts and hourly after that. The `max` across replicas carries the
+answer while some are young, and `for: 2h` keeps a restart of every replica at
+once from firing it.
+
+### Statement timeout
+
+Every statement the API runs is cancelled after `DATABASE_STATEMENT_TIMEOUT_MS`
+milliseconds, 15000 by default. That covers ingestion, search and the other
+reads, so one slow query cannot hold a connection ingestion needs.
+
+Deletions are the exception. Each retention batch, and each transaction of an
+admin's journey deletion, erasure, or destination deletion, lifts the timeout
+for itself with `SET LOCAL statement_timeout = 0`. They are bounded by batch
+size and started by the system or an operator, a journey with many events
+legitimately takes longer to cascade than a search should, and a retention batch
+cancelled every hour would never let the sweep reach the next environment. On a
+database with 1,000 expired journeys of 200 events each, one retention batch
+took 2.4 seconds with migration 016's index and 9.5 seconds without it, beside
+only 1,000 replay runs.
+
+The request gets 503 `query_timeout` with its request
+id; the API logs one warning naming the route and the request id, never the SQL
+or its parameters, and counts it in `flight_recorder_query_timeouts_total`.
+
+It is set on each connection when the pool opens it, with `SET statement_timeout`.
+Behind PgBouncer in transaction pooling mode a session setting does not stay with
+one client, so there set the timeout on the database role instead
+(`ALTER ROLE flight_recorder SET statement_timeout = '15s'`) and
+`DATABASE_STATEMENT_TIMEOUT_MS=0`.
+
+`0` disables it, and `doctor` warns when it is. The database CLI never applies it:
+`migrate` may build an index on a large table for a long time, and
+`rotate:reencrypt` and the deletion commands bound each statement by batch size.
+
+### Logs
+
+The API writes JSON lines to standard output, at `LOG_LEVEL`
+(`info` by default). At `info`, every request writes a line when it arrives and
+one when it completes.
+
+A request line carries the method, the path, and the names of its query
+parameters with every value replaced by `[REDACTED]`:
+
+```json
+{ "req": { "method": "GET", "url": "/v1/search?q=[REDACTED]&limit=[REDACTED]" } }
+```
+
+A searched value is usually a customer identifier, and the Recent page's filters
+name services and environments, so no query value is ever logged. A parameter
+name that does not look like one (an email address pasted without `=`, or
+anything longer than 64 characters) is replaced too, and so is anything after a
+`;` in the path, where some clients put session ids. The path is logged whole,
+so a journey id in `/v1/journeys/:journeyId` does appear. A request that matches
+no route writes no line of its own beyond these two.
+
+Headers are not logged. As a second guard, the logger censors `authorization`
+and `cookie` in any `headers` object a log call includes, and also `x-api-key`,
+`x-flight-api-key`, and a response's `set-cookie` under `req` and `res`.
+
+A request too malformed for Node to parse never becomes a request line. At
+`trace` it is logged as `client error`, with the parser's error code and message.
+Node attaches the raw bytes it received to that error as `rawPacket`, headers
+and query string included; no error the API logs ever carries that property.
+
+One caveat remains: an error's own properties are logged, and a database error
+can describe the row it refused, as PostgreSQL's `detail` does for a unique
+violation. Those lines are at `warn` or `error`, for failures, and name columns
+the API writes, not request headers.
+
+Before this, the request line carried the full URL, so logs kept from an earlier
+version hold searched identifiers and Recent filters in the clear. Treat them as
+personal data, and let them age out or delete them.
+
+## 14. When something is wrong
 
 | Symptom | Look at |
 | --- | --- |
+| Not sure what is wrong | run `doctor` (§12) |
 | `/ready` 503 `migrations_pending` | run `pnpm db:migrate` |
+| Requests return 503 `query_timeout` | a statement ran past `DATABASE_STATEMENT_TIMEOUT_MS`: the route is in the API's warning log and `flight_recorder_query_timeouts_total`; check the database's load before raising the timeout (§13) |
 | Every search returns nothing | which project the session selected — see `/projects` |
 | A search that worked stops working | `rotate:status`: an unknown key id means `ENCRYPTION_KEY_PREVIOUS` was removed before re-encryption finished (§6) |
 | Boot log warns of stored data the configured keys cannot read | restore the old key as `ENCRYPTION_KEY_PREVIOUS` and recreate the API (§6) |

@@ -1,4 +1,5 @@
 import type { Knex } from "knex";
+import { withoutStatementTimeout } from "../statement-timeout.js";
 import { lockHolderAlive, withTransactionLock } from "./advisory-lock.js";
 
 /**
@@ -93,18 +94,24 @@ export async function sweepExpiredJourneys(
 
         // `last_event_at`, not `started_at`: a journey that is still receiving
         // events is still interesting, however long ago it began.
-        const deleted: unknown = await db.raw(
-          `delete from journeys
-             where (project_id, id) in (
-               select project_id, id from journeys
-                where project_id = ?
-                  and environment_id = ?
-                  and last_event_at < now() - make_interval(days => ?)
-                order by last_event_at
-                limit ?
-             )`,
-          [environment.projectId, environment.id, environment.retentionDays, batchSize]
-        );
+        //
+        // Its own transaction, as the bare statement was, so the batch can run
+        // without the API's statement timeout (see withoutStatementTimeout).
+        const deleted: unknown = await db.transaction(async (trx): Promise<unknown> => {
+          await withoutStatementTimeout(trx);
+          return await trx.raw(
+            `delete from journeys
+               where (project_id, id) in (
+                 select project_id, id from journeys
+                  where project_id = ?
+                    and environment_id = ?
+                    and last_event_at < now() - make_interval(days => ?)
+                  order by last_event_at
+                  limit ?
+               )`,
+            [environment.projectId, environment.id, environment.retentionDays, batchSize]
+          );
+        });
 
         const count = (deleted as { rowCount?: number }).rowCount ?? 0;
         journeysDeleted += count;

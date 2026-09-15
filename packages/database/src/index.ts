@@ -1,5 +1,6 @@
 export { insertReturningId } from "./insert.js";
-export { createKnexConfig } from "./knex-config.js";
+export { createKnexConfig, type KnexConfigOptions } from "./knex-config.js";
+export { isStatementTimeout } from "./statement-timeout.js";
 export { pendingMigrationCount } from "./migration-status.js";
 export {
   findApiKeyByPrefix,

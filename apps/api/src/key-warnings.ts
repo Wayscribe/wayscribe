@@ -1,6 +1,7 @@
 import { findUnreadableData, pendingMigrationCount } from "@flight-recorder/database";
 import type { Keyring } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
+import type { ApiMetrics } from "./metrics/api-metrics.js";
 
 /** The one logger method these warnings need; Fastify's logger satisfies it. */
 export interface WarnLogger {
@@ -40,18 +41,25 @@ export function unknownKeyWarning(log: WarnLogger): (keyId: string) => void {
  * exist yet, and never throws: a check that failed to run is logged, not a
  * reason to stop.
  */
-export async function checkKeysAtBoot(db: Knex, keyring: Keyring, log: WarnLogger): Promise<void> {
+export async function checkKeysAtBoot(
+  db: Knex,
+  keyring: Keyring,
+  log: WarnLogger,
+  /** Told the counts, zeros included, so the gauge exists on a healthy install too. */
+  metrics?: Pick<ApiMetrics, "setUnreadable">
+): Promise<void> {
   try {
     if ((await pendingMigrationCount(db)) > 0) return;
 
     const found = await findUnreadableData(db, keyring);
-    if (found.total === 0) return;
 
     const unreadable: Record<string, number> = {};
     for (const table of found.tables) {
       unreadable[table.table] = table.unknownKey + table.malformed + table.legacyUnreadable;
     }
     unreadable["api_keys"] = found.apiKeys;
+    metrics?.setUnreadable(unreadable);
+    if (found.total === 0) return;
 
     const summary = Object.entries(unreadable)
       .map(([name, count]) => `${name} ${String(count)}`)
