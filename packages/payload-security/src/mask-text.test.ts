@@ -31,11 +31,23 @@ const fake = {
   basic: "dXNlcj" + "pwYXNz",
   pemBody: "MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gun\nVTLw7onLRnrq0",
   opaque: "tok" + "_9f8e7d6c5b4a39281706",
-  clientSecret: "cs-" + "Colon-Opaque-9"
+  clientSecret: "cs-" + "Colon-Opaque-9",
+  openaiProject: "sk-" + "proj-" + "Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56",
+  openaiLegacy: "sk-" + "Qr78St90Uv12Wx34Yz56Ab78Cd90Ef12Gh34Ij56Kl78Mn90",
+  anthropic: "sk-" + "ant-api03-" + "Zy98Xw76Vu54Ts32Rq10Po98Nm76Lk54Ji32",
+  npm: "npm_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8",
+  sendgrid: "SG." + "Ab12Cd34Ef56Gh78Ij90Kl" + "." + "Mn34Op56Qr78St90Uv12Wx34Yz56Ab78Cd90Ef12Gh3",
+  slackApp: "xapp-" + "1-A0123456789-0123456789012-abcdef0123",
+  huggingFace: "hf_" + "Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr",
+  slackHookPath: "abcd" + "EFGH1234" + "ijklMNOP" + "5678",
+  discordHookPath: "AbCdEf" + "-GhIjKl_" + "MnOpQr12" + "34567890",
+  pgpBody: "lQOYBGVxY2UBCADFq8Zt3r9pQ0mN7vK2sL4wX6yB1cD5eF8gH0jI3kM9nO2pR4tU"
 };
 
 const pemBegin = "-----BEGIN RSA " + "PRIVATE KEY-----";
 const pemEnd = "-----END RSA " + "PRIVATE KEY-----";
+const pgpBegin = "-----BEGIN PGP " + "PRIVATE KEY BLOCK-----";
+const pgpEnd = "-----END PGP " + "PRIVATE KEY BLOCK-----";
 
 interface Case {
   name: string;
@@ -255,6 +267,44 @@ const positive: Case[] = [
     text: `PRIVATE-TOKEN: ${fake.clientSecret}`,
     secrets: [fake.clientSecret],
     keeps: ["PRIVATE-TOKEN: [REDACTED]"]
+  },
+  {
+    name: "OpenAI project and legacy keys and an Anthropic key",
+    text: `401 Incorrect API key provided: ${fake.openaiProject}; also tried ${fake.openaiLegacy} and ${fake.anthropic}`,
+    secrets: [fake.openaiProject, fake.openaiLegacy, fake.anthropic],
+    keeps: ["401 Incorrect API key provided: [REDACTED]; also tried [REDACTED] and [REDACTED]"]
+  },
+  {
+    name: "an npm token",
+    text: `npm ERR! 401 Unauthorized with ${fake.npm} - PUT https://registry.npmjs.org/@acme%2fsdk`,
+    secrets: [fake.npm],
+    keeps: [
+      "npm ERR! 401 Unauthorized with [REDACTED] - PUT https://registry.npmjs.org/@acme%2fsdk"
+    ]
+  },
+  {
+    name: "a SendGrid key, a Slack app token and a Hugging Face token",
+    text: `rejected: ${fake.sendgrid}, ${fake.slackApp}, ${fake.huggingFace}`,
+    secrets: [fake.sendgrid, fake.slackApp, fake.huggingFace],
+    keeps: ["rejected: [REDACTED], [REDACTED], [REDACTED]"]
+  },
+  {
+    name: "a Slack incoming webhook URL",
+    text: `POST https://hooks.slack.com/services/T0123ABCD/B0456EFGH/${fake.slackHookPath} returned 404`,
+    secrets: [fake.slackHookPath],
+    keeps: ["POST https://hooks.slack.com/services/T0123ABCD/B0456EFGH/[REDACTED] returned 404"]
+  },
+  {
+    name: "a Discord webhook URL",
+    text: `webhook https://discord.com/api/webhooks/123456789012345678/${fake.discordHookPath} failed`,
+    secrets: [fake.discordHookPath],
+    keeps: ["webhook https://discord.com/api/webhooks/123456789012345678/[REDACTED] failed"]
+  },
+  {
+    name: "a PGP private key block",
+    text: `gpg import failed:\n${pgpBegin}\n\n${fake.pgpBody}\n${pgpEnd}\ncontinuing`,
+    secrets: [fake.pgpBody, "PRIVATE KEY BLOCK"],
+    keeps: ["gpg import failed:\n[REDACTED]\ncontinuing"]
   }
 ];
 
@@ -407,7 +457,17 @@ const negative: { name: string; text: string }[] = [
   },
   { name: "a cookie line that is a sentence", text: "cookie: session expired; please sign in" },
   { name: "an env-style secret name followed by prose", text: "DB_PASSWORD: not set" },
-  { name: "a header-form secret name followed by prose", text: "x-auth-token: missing" }
+  { name: "a header-form secret name followed by prose", text: "x-auth-token: missing" },
+  { name: "an sk- package name", text: "import sk-learn failed; npm_config_registry unset" },
+  { name: "an hf_ function name", text: "hf_hub_download raised HfHubHTTPError" },
+  {
+    name: "a Discord channel link",
+    text: "see https://discord.com/channels/123456789012345678/42"
+  },
+  {
+    name: "a PGP public key block",
+    text: "-----BEGIN PGP PUBLIC KEY BLOCK-----\nmQENBGVxY2UBCAD\n-----END PGP PUBLIC KEY BLOCK-----"
+  }
 ];
 
 describe("maskSecretsInText", () => {
@@ -518,6 +578,11 @@ describe("maskSecretsInText", () => {
       "a name of many dotted words ending in a secret": (size) =>
         fill("config.", size) + "password: a",
       "cookie lines that read as prose": (size) => fill("cookie: session expired\n", size),
+      "webhook URL prefixes with no secret": (size) =>
+        fill("hooks.slack.com/services/T1/B1 discord.com/api/webhooks/1 ", size),
+      "OpenAI and Anthropic prefixes without bodies": (size) =>
+        fill("sk-proj- sk-ant-api03- SG.a. npm_ hf_ xapp- ", size),
+      "PGP headers with no end": (size) => fill(pgpBegin + " ", size),
       "one long unbroken run": (size) => fill("a", size),
       "a mixture": (size) =>
         fill('eyJ-sk_live_ a://b:@ "api_key\\" Bearer -----BEGIN password=[ ', size)

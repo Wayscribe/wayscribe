@@ -29,6 +29,11 @@ export function maskSecretsInText(text: string): string {
   let result = text.replace(PEM_PRIVATE_KEY, REDACTED);
   result = result.replace(JSON_WEB_TOKEN, REDACTED);
   result = result.replace(PROVIDER_TOKEN, REDACTED);
+  result = result.replace(
+    WEBHOOK_URL_SECRET,
+    (_match, slack: string | undefined, discord: string | undefined) =>
+      `${slack ?? discord ?? ""}${REDACTED}`
+  );
   result = result.replace(URL_USERINFO, (_match, scheme: string) => `${scheme}${REDACTED}@`);
   result = maskAssignments(result);
   result = result.replace(AUTHORIZATION_SCHEME, maskSchemeCredential);
@@ -36,11 +41,12 @@ export function maskSecretsInText(text: string): string {
 }
 
 /**
- * A whole private key block. An unterminated one, usually a message cut off by
- * a length limit, is masked to the end of the text rather than left readable.
+ * A whole private key block, PEM or PGP. An unterminated one, usually a message
+ * cut off by a length limit, is masked to the end of the text rather than left
+ * readable.
  */
 const PEM_PRIVATE_KEY =
-  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?:[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----|[\s\S]*$)/g;
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*$)/g;
 
 /** Header and claims both start `{"`, which base64url-encodes to `eyJ`. */
 const JSON_WEB_TOKEN = /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
@@ -50,8 +56,10 @@ const JSON_WEB_TOKEN = /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.
  *
  * Stripe secret and restricted keys and webhook secrets; Slack tokens; GitHub
  * classic, OAuth, user, server and refresh tokens and fine-grained tokens;
- * GitLab personal access tokens; AWS access key ids; Google API keys; and this
- * product's own API keys, which are `fr_` and 32 base64url characters.
+ * GitLab personal access tokens; AWS access key ids; Google API keys; OpenAI
+ * and Anthropic keys; npm tokens; SendGrid keys; Slack app tokens; Hugging Face
+ * tokens; and this product's own API keys, which are `fr_` and 32 base64url
+ * characters.
  */
 const PROVIDER_TOKEN = new RegExp(
   "(?<![A-Za-z0-9_-])(?:" +
@@ -64,11 +72,23 @@ const PROVIDER_TOKEN = new RegExp(
       "glpat-[A-Za-z0-9_-]{20,}(?:\\.[A-Za-z0-9_-]+)*",
       "(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])",
       "AIza[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])",
-      "fr_[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])"
+      "fr_[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])",
+      "sk-(?:proj-|ant-(?:api|admin)\\d\\d-)?[A-Za-z0-9_-]{20,}",
+      "npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])",
+      "SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}",
+      "xapp-[0-9A-Za-z-]{10,}",
+      "hf_[A-Za-z0-9]{30,}"
     ].join("|") +
     ")",
   "g"
 );
+
+/**
+ * The secret path segment of a Slack incoming webhook or a Discord webhook. The
+ * rest of the URL stays, since it says which workspace and channel failed.
+ */
+const WEBHOOK_URL_SECRET =
+  /(hooks\.slack\.com\/services\/T[A-Za-z0-9]+\/B[A-Za-z0-9]+\/)[A-Za-z0-9]+|(discord(?:app)?\.com\/api\/webhooks\/\d+\/)[A-Za-z0-9_-]+/g;
 
 /**
  * `scheme://userinfo@`. Greedy to the last `@` before the host ends, so a
