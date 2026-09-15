@@ -138,21 +138,35 @@ purpose.
 
 ## The honest remainder
 
-Fixing things is easy to write up. This is open:
+Fixing things is easy to write up. Nothing from this account is open now. The
+three items this list once held have closed, and each is recorded as a decision
+rather than as a promise:
 
-- **Free text inside `error.message` and `error.stack` is not redacted.** Path
-  redaction matches key names and cannot reach inside a string. `SECURITY.md`
-  names stack traces as carriers of credentials.
+- **Rotating `ENCRYPTION_KEY` was permanently destructive**, because the
+  ciphertext envelope carried no key identifier. Every value now names its key,
+  and rotation is a grace period with a re-encryption command (ADR-044).
+- **There was no way to delete captured data**, so when redaction missed, fixing
+  the matcher did nothing about the rows already written. A journey, every
+  journey matching an identifier, or an environment's time window can now be
+  deleted, each audited and each with a dry run where it selects by criteria
+  (ADR-045).
+- **Free text inside `error.message` and `error.stack` was not redacted**,
+  because path redaction matches key names and cannot reach inside a string.
+  That text is now masked by shape in the SDK and at ingestion, and a stack is
+  stored only under full capture (ADR-046). Masking by shape catches the common
+  credential formats and not an unfamiliar one, which is a narrower gap than
+  before rather than none. The tests for it follow the rules above: the stored
+  row is read back from PostgreSQL, and every "does not contain the secret" is
+  paired with "still contains the error".
 
-It is on [the roadmap](ROADMAP.md), listed as open rather than as done.
+The first version of that masker passed all of those tests and was still wrong
+in two ways a review found by attacking it rather than reading it. Trimming
+trailing dots with `/\.+$/` was quadratic, so `Bearer ` and 64 KiB of dots took
+almost two seconds, while a test asserting 16 KiB of near-matches finished under
+50 ms passed on a fast machine. And "masking is idempotent" had been checked on
+the corpus somebody wrote; generated input broke it three different ways. The
+timing tests now compare two sizes instead of reading a clock, and a seeded
+generator checks idempotence on text nobody chose.
 
-Two items on this list when it was first written have since closed. **Rotating
-`ENCRYPTION_KEY` was permanently destructive**, because the ciphertext envelope
-carried no key identifier. Every value now names its key, and rotation is a
-grace period with a re-encryption command (ADR-044).
-
-The other: **there was no way to delete captured data**, so when
-redaction missed, fixing the matcher did nothing about the rows already written.
-A journey, every journey matching an identifier, or an environment's time window
-can now be deleted, each audited and each with a dry run where it selects by
-criteria (ADR-045).
+What is still known to be missing, and not part of this account, is on
+[the roadmap](ROADMAP.md).

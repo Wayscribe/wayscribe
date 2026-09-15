@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   DEFAULT_LIMITS,
   checkLimits,
+  maskSecretsInText,
   redact,
   toStorable
 } from "@flight-recorder/payload-security/redaction";
@@ -139,6 +140,56 @@ const UNCAPTURABLE = "[UNCAPTURABLE]";
 // debtwatch:end
 /** Simultaneous in-flight batches. Four keeps a burst moving without a socket storm. */
 const MAX_CONCURRENT_SENDS = 4;
+
+/**
+ * The protocol's limits on `error.message` and `error.stack`
+ * (`packages/protocol` `errorSchema`). The server refuses anything longer, so
+ * text beyond them is never worth masking or sending.
+ */
+export const MAX_ERROR_MESSAGE_LENGTH = 4096;
+export const MAX_ERROR_STACK_LENGTH = 16_384;
+
+const TRUNCATED = "[TRUNCATED]";
+
+/**
+ * `text` masked and cut to `limit` characters, ending in `[TRUNCATED]` when it
+ * was cut.
+ *
+ * Masking runs over twice the limit before the final cut, not over exactly the
+ * limit. Cutting first can split a credential so the masker no longer
+ * recognises it, as `postgres://app:hunt` without its `@` shows. With the wider
+ * window, a credential that reaches the kept part was seen whole unless it is
+ * itself longer than the limit.
+ *
+ * The cut text is then masked again, and cut again if that changed it, until
+ * masking leaves it alone. A cut can change how what remains reads:
+ * `cookie: session expired` is a sentence, and `cookie: session[TRUNCATED]` is
+ * not. Sending that would let the server's pass rewrite a message the SDK had
+ * already masked. Text that has not settled after a few rounds, which no known
+ * input reaches, is sent as the marker alone rather than as something the
+ * server would change.
+ */
+export function boundedMaskedText(text: string, limit: number): string {
+  const window = text.length <= limit ? text : text.slice(0, 2 * limit);
+  let bounded = fit(maskSecretsInText(window), limit);
+  for (let round = 0; round < SETTLING_ROUNDS; round += 1) {
+    const remasked = maskSecretsInText(bounded);
+    if (remasked === bounded) return bounded;
+    bounded = fit(remasked, limit);
+  }
+  return TRUNCATED;
+}
+
+const SETTLING_ROUNDS = 4;
+
+/**
+ * `text` if it fits, or cut to `limit` including the marker. Either way a
+ * surrogate pair split by a cut, here or at the window's edge, is repaired.
+ */
+function fit(text: string, limit: number): string {
+  if (text.length <= limit) return text.toWellFormed();
+  return text.slice(0, limit - TRUNCATED.length).toWellFormed() + TRUNCATED;
+}
 
 /** Duck-typed rather than `instanceof Promise`: a thenable from any library counts. */
 function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
@@ -313,6 +364,33 @@ export function createRecorder(config: RecorderConfig): Recorder {
     return { metadata: captured as Record<string, unknown> };
   }
 
+  /**
+   * An error record with credential-shaped text masked (ADR-046).
+   *
+   * Here rather than in `toErrorRecord`, because every error record reaches
+   * the queue through this point and not every one comes from there:
+   * `record()` takes one straight from the application. The protocol's `stack`
+   * is masked too when a JavaScript caller passes one the type does not admit.
+   * The server masks again before storing, which changes nothing: masking is
+   * idempotent.
+   *
+   * Both fields are bounded to what the protocol accepts, so a megabyte of
+   * message costs the host no more than four kilobytes of one.
+   */
+  function maskedError(error: NonNullable<RecordInput["error"]>): RecordInput["error"] {
+    const { message } = error;
+    const stack = (error as { stack?: unknown }).stack;
+    return {
+      ...error,
+      ...(typeof message === "string"
+        ? { message: boundedMaskedText(message, MAX_ERROR_MESSAGE_LENGTH) }
+        : {}),
+      ...(typeof stack === "string"
+        ? { stack: boundedMaskedText(stack, MAX_ERROR_STACK_LENGTH) }
+        : {})
+    };
+  }
+
   function enqueue(journeyId: string, entity: JourneyContext["entity"], input: RecordInput): void {
     if (stopped) {
       // Silent until now: after shutdown the wrappers still ran the callback
@@ -343,7 +421,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
         ...(input.input === undefined ? {} : { input: capture(input.input) }),
         ...(input.output === undefined ? {} : { output: capture(input.output) }),
-        ...(input.error === undefined ? {} : { error: input.error }),
+        ...(input.error === undefined ? {} : { error: maskedError(input.error) }),
         ...(input.aliases === undefined ? {} : { aliases: input.aliases }),
         // Through capture like input and output: metadata used to go in raw,
         // so a Prisma BigInt or a circular request object threw inside

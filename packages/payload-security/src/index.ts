@@ -30,6 +30,7 @@ export {
   type LimitViolation,
   type Limits
 } from "./limits.js";
+export { maskSecretsInText } from "./mask-text.js";
 export { CIRCULAR, REDACTED, redact } from "./redact.js";
 export { toStorable, toStorableText } from "./storable.js";
 export { normalizeSearchValue, searchTokens } from "./search-token.js";

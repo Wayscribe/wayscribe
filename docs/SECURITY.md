@@ -23,6 +23,10 @@ Payloads, headers, stack traces, and metadata may contain:
 - webhook signatures
 - database credentials
 
+Stack traces and error messages carry these as free text, where redaction by
+key name cannot reach. Section 4 describes how that text is masked, what the
+masking does not catch, and why stacks are kept only under `full-payload`.
+
 ### Sensitive customer data
 
 Captured entities may include:
@@ -99,6 +103,78 @@ Redaction replacements should preserve evidence that a value existed:
   "access_token": "[REDACTED]"
 }
 ```
+
+### Credentials inside error text
+
+Path redaction matches the name a value is filed under, so it cannot reach a
+credential written inside a string. Error text is where those appear, so
+`error.message` is also masked by shape, in the SDK before sending and on the
+server before storing, whoever sent the event (ADR-046). The masker replaces:
+
+- URL userinfo: `postgres://app:hunter2@db` becomes `postgres://[REDACTED]@db`
+- the secret path segment of Slack and Discord webhook URLs, keeping the
+  workspace and channel
+- `Bearer`, `Basic` and `Digest` credentials of at least eight characters,
+  keeping the scheme word. A value that reads as words, such as
+  `Basic plan-2026`, and the auth-params of a challenge such as
+  `Bearer realm="api"` are kept.
+- values assigned to a secret name. A name is split into words on `_`, `-`, `.`
+  and case changes:
+  - the built-in secret names (`authorization`, `cookie`, `password`, `api_key`,
+    `access_token` and the rest) count in every form
+  - `token`, `signature`, `sig`, `passwd`, `pwd` and `pass` count when assigned
+    with `=` or as a quoted key, and after an unquoted colon only with a quoted
+    value, as in `util.inspect` output such as `pass: 'hunter2x'`. A number
+    assigned to `pass` is a count, as in `tests pass=12`, and is kept. `key`
+    counts only as a query parameter.
+  - a name of several words counts when it ends in `password`, `passwd`, `pwd`,
+    `passphrase`, `secret`, `token`, `credential` or `credentials`, or in a pair
+    such as `api key`, `secret key`, `private key` or `access key`. A token that
+    pages or protects a form (`pageToken`, `nextToken`, `csrf_token`) does not
+    count, and nor does a name ending in `id`, `arn`, `name` or `url`. So
+    `DB_PASSWORD`, `STRIPE_API_KEY` and `x-auth-token` are masked, and
+    `password_hash`, `SecretId` and `max_tokens` are not.
+- JSON Web Tokens, and PEM and PGP private key blocks
+- provider-prefixed credentials: Stripe `sk_`, `rk_` and `whsec_`, Slack
+  `xox?-` and `xapp-`, GitHub `gh?_` and `github_pat_`, GitLab `glpat-`, AWS
+  `AKIA` and `ASIA` key ids, Google `AIza`, OpenAI and Anthropic `sk-`, npm
+  `npm_`, SendGrid `SG.`, Hugging Face `hf_`, and Flight Recorder `fr_` keys
+
+After an unquoted colon, a value is only read when a blank follows the colon,
+so `secret:prod/db` inside an ARN is left alone.
+
+What it does not catch, by design or by limitation:
+
+- **A credential in a shape not listed.** It does not guess at entropy. Long
+  random-looking strings are exactly the identifiers the product shows, such as
+  Salesforce ids, UUIDs and hashes, so there is no "looks random" rule.
+- **Prose after a secret name.** An unquoted value that is a plain word after a
+  colon, or after `=` and a blank, is read as a sentence:
+  `client_secret: missing`, `DB_PASSWORD: not set`. A credential that is a
+  single dictionary word in that position, such as `DB_PASSWORD: sunshine`, is
+  stored. Attached to `=`, as `.env` and Compose files write it,
+  `DB_PASSWORD=sunshine` is masked.
+- **A name without separators.** `DBPASSWORD` is one word and not on any list.
+- **The error's `type` and `code`.** Only `message`, and a kept `stack`, are
+  masked.
+- **`metadata` strings and payload strings.** Those keep path redaction only.
+- **Rows written before this masking existed.** Their messages and stacks are
+  stored as they arrived, until they are deleted (section 14, deletion on
+  demand).
+
+`error.stack` is stored only when the environment captures full payloads, which
+requires both `ALLOW_FULL_PAYLOAD_CAPTURE` and the environment's `full-payload`
+setting. In every other mode ingestion drops it. A kept stack is masked like a
+message. The Node SDK never sends one of its own. It masks a window of twice
+the protocol's limit and then cuts the result, a message to 4096 characters and
+a stack passed to `record()` to 16384, ending in `[TRUNCATED]`; it masks the cut
+text once more, so the server's pass leaves it unchanged.
+
+The content hash stored with each event is an unkeyed SHA-256 over the event as
+received, before any masking or redaction. With read access to the database, a
+low-entropy secret that was masked can be guessed offline by rebuilding the
+event with a candidate and comparing hashes. This was already true of redacted
+payload values, and is recorded as a known limitation in ADR-046.
 
 ## 5. API keys
 

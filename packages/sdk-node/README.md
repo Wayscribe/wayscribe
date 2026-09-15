@@ -203,6 +203,51 @@ down and is exactly what an axios error carries.
 Matched values are replaced with `[REDACTED]` rather than deleted, so the
 timeline still shows that the field existed.
 
+### Error messages
+
+When a wrapped callback throws, or you call `fail()` or `record()` with an
+error, the SDK records the error's `message`, `name` as `type`, and a string
+`code`. It sends no `stack`.
+
+A message is free text, so name-based redaction cannot reach inside it, and
+error messages are where credentials tend to appear. Before the event is queued,
+the message is masked by shape:
+
+```text
+connect ECONNREFUSED postgres://app:hunter2@db.internal:5432/orders
+connect ECONNREFUSED postgres://[REDACTED]@db.internal:5432/orders
+```
+
+The masker recognises:
+
+- URL userinfo, and the secret segment of Slack and Discord webhook URLs
+- `Bearer`, `Basic` and `Digest` credentials of eight characters or more
+- values assigned to a secret name: `password=`, `"api_key": "…"`,
+  `?access_token=`, and names whose last words say secret, such as
+  `DB_PASSWORD=`, `STRIPE_API_KEY=` and `x-auth-token: …`. Names that only point
+  at a secret or page through results, such as `SecretId` and `nextPageToken`,
+  are left alone.
+- JSON Web Tokens, and PEM and PGP private keys
+- provider-prefixed keys from Stripe, Slack, GitHub, GitLab, AWS, Google,
+  OpenAI, Anthropic, npm, SendGrid, Hugging Face and Flight Recorder
+
+A message longer than the 4096 characters the server accepts is masked over its
+first 8192 characters and then cut to 4096, ending in `[TRUNCATED]`; a `stack`
+you pass to `record()` is handled the same way at 16384.
+
+It does not guess at entropy, so record identifiers such as Salesforce ids,
+UUIDs and order numbers are never masked, and a credential in an unlisted shape
+is sent as written. It also misses:
+
+- a plain word after a secret's name and a colon, where it reads as a
+  sentence: `DB_PASSWORD: not set` is kept, and so is `DB_PASSWORD: sunshine`.
+  Attached to `=`, as in `DB_PASSWORD=sunshine`, it is masked.
+- a name written without separators, such as `DBPASSWORD`
+- the error's `type` and `code`, which are sent as they are
+
+The server masks again with the same rules, which catches nothing more for an
+event the SDK sent.
+
 ## What happens to your values
 
 Payloads are stored as PostgreSQL `jsonb`, so anything JSON cannot represent has

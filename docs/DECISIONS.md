@@ -1225,7 +1225,8 @@ identifiers and operation metadata in that mode.
   than a fix for today: their keys are fixed, so no path rule matches one.
 - **It cannot reach a secret pasted inside `error.message` or `error.stack`.** Those are
   free text and path redaction matches names. SECURITY.md section 2 names stack traces as
-  carriers of credentials, so this is recorded as unsolved rather than covered.
+  carriers of credentials. ADR-046 masks that text by shape and keeps stacks only under full
+  capture.
 - Normalisation runs on every key of every object. The lowercase result is tested for a
   separator before any replacement, so the common case allocates once.
 
@@ -1586,13 +1587,106 @@ never run together.
   sees, and a partial journey is harder to reason about than none.
 - `audit_events` is still never swept, and now grows by one row per deletion.
 
+## ADR-046: Error text is masked by shape, and stacks are kept only under full capture
+
+**Status:** Accepted
+
+### Context
+
+Path redaction replaces a value by the name it is filed under (ADR-035, ADR-039). It cannot
+reach a credential written inside a string, and ADR-039 recorded `error.message` and
+`error.stack` as unsolved for that reason. Errors are where credentials end up in text: a
+connection string in `ECONNREFUSED`, a header echoed by an HTTP client, a key quoted back by
+the provider that refused it.
+
+The Node SDK already sent no stack. Ingestion is public HTTP, though, and the protocol accepts a
+16 KiB stack from any client, so a stack was stored whenever a client other than the SDK sent
+one.
+
+### Decision
+
+`maskSecretsInText` in `payload-security` replaces credential-shaped substrings with
+`[REDACTED]` and keeps the words around them. It recognises:
+
+- URL userinfo, and the secret path segment of Slack and Discord webhook URLs.
+- `Bearer`, `Basic` and `Digest` credentials of at least eight characters that do not read as
+  prose, skipping the auth-params of a `WWW-Authenticate` challenge.
+- Values assigned to a secret name. A name is split into words on `_`, `-`, `.` and case
+  changes. The built-in names, compared as ADR-039 compares them, count in every form. Any other
+  single word counts only from a short list (`token`, `signature`, `sig`, `passwd`, `pwd`,
+  `pass`), when assigned with `=` or as a quoted key, or after an unquoted colon with a quoted
+  value; a number assigned to `pass` is a count and is kept. `key` counts only as a query
+  parameter. A name of several words counts when its last word is `password`, `passwd`, `pwd`,
+  `passphrase`, `secret`, `token` (unless it follows `page`, `next`, `continuation`,
+  `pagination`, `cursor`, `sync`, `resume`, `marker`, `csrf` or `xsrf`), `credential` or
+  `credentials`, or its last two are one of `api key`, `secret key`, `private key`, `access key`,
+  `account key`, `signing key`, `master key`, `shared key`, `encryption key`, `auth key`,
+  `session key` or `client key`; never when its last word is `id`, `arn`, `name` or `url`. So
+  `DB_PASSWORD`, `STRIPE_API_KEY` and `x-auth-token` are secrets, and `pageToken`, `SecretId`
+  and `password_hash` are not.
+- JSON Web Tokens, and PEM and PGP private key blocks.
+- The prefixes providers put on their credentials: Stripe, Slack, GitHub, GitLab, AWS access key
+  ids, Google API keys, OpenAI and Anthropic keys, npm tokens, SendGrid keys, Hugging Face tokens
+  and this product's own `fr_` keys.
+
+After an unquoted colon a value needs a blank before it, so `secret:prod/db` inside an ARN is a
+path. An unquoted value that is a plain word after a colon, or after `=` and a blank, is read as
+prose and kept. Attached to `=` it is a value: `DB_PASSWORD=changeme` is how `.env` and Compose
+files hold the default and dictionary-word passwords that most need masking.
+
+It runs in two places, the same function in both. The SDK masks every error record before it is
+queued. It bounds the message and any string stack to the protocol's 4096 and 16384 characters:
+it masks a window of twice the limit, cuts the result to the limit with a `[TRUNCATED]` marker,
+and masks and cuts again until masking changes nothing, so a megabyte of message costs no more
+than twice the part the server would accept, a credential straddling the cut is seen whole, and
+the server's pass never rewrites what the SDK sent. Ingestion masks `message` before storing,
+whoever sent it.
+
+Ingestion drops `error.stack` unless full capture is in effect, which already takes both
+`ALLOW_FULL_PAYLOAD_CAPTURE` and the environment's own `full-payload` setting. A team that opted
+into full capture gets its stacks, masked like messages. There is no new setting.
+
+It recognises shapes and never guesses at entropy. The identifiers this product exists to show
+are long and random-looking: Salesforce ids, UUIDs, order numbers, hashes. Masking them would
+destroy the record a reader came for.
+
+### Consequences
+
+- A credential in a shape the rules do not know is stored. This is the accepted cost of not
+  guessing, and SECURITY.md lists the known misses: a single dictionary word as a credential in
+  a prose position, a name written without separators such as `DBPASSWORD`, and the error's
+  `type` and `code`, which are not masked.
+- Masking is idempotent, so the second pass over an SDK event changes nothing. That property
+  failed three times on generated input before it held, each time because one rule created a
+  match for a rule that ran before it; a seeded generator now runs sixty thousand inputs in the
+  unit tests.
+- Error text reaches the masker from public HTTP, so its cost must grow in proportion to the
+  text. Every pattern either anchors on a literal prefix or refuses to start inside a run of its
+  own characters, and the post-processing of each match is a character loop rather than a
+  second regular expression. The first version missed that last part: trimming trailing dots
+  with `/\.+$/` was quadratic on a run of dots, and took almost two seconds on 64 KiB, while a
+  16 KiB wall-clock test still passed. The tests now time every adversarial case at 16 KiB and
+  64 KiB and require the larger to take less than eight times as long, which linear work meets
+  and quadratic work cannot, with one absolute ceiling beside them. That is a measurement over
+  the shapes the tests know, not a proof for every input.
+- `metadata` string values and payload strings keep path redaction only. Scanning every string
+  in every payload for shapes would put this cost, and its false positives, on the data the
+  product exists to show.
+- Stacks from an environment below full capture are gone for good, including any event sent
+  before a team turns full capture on. Rows written before this decision keep their messages and
+  stacks unmasked; removing them is what deletion on demand is for (ADR-045), not this change.
+- **Known limitation, not fixed here.** The content hash is an unkeyed SHA-256 over the event as
+  received, before masking and redaction (ADR-021), and it is stored beside the row. Someone with
+  read access to the database can test guesses at a low-entropy secret, such as a short
+  password in a connection string, by rebuilding the event from the row with a candidate in
+  place of `[REDACTED]`, hashing it and comparing. That works when everything else the hash
+  covered is in the row or guessable, which a masked error message on an event with no dropped
+  payload often is. The same was already true of redacted payload values. Keying the hash
+  would close it, and would change every stored hash, so it belongs in its own decision.
 
 ## ADR-047: Metrics on their own port, in a format written here
 
 **Status:** Accepted
-
-Numbered 047 because ADR-046 is being taken by a branch in progress at the time
-of writing; the two land in either order and the log keeps both numbers.
 
 ### Context
 

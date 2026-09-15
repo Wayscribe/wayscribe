@@ -31,7 +31,7 @@ Presenting the work, and closing what the last review opened.
 - **Screenshots in the README.** The product's whole value is visual — a
   timeline across four services with the changed field named — and the README
   has none. Highest return of anything on this page.
-- **Surface the decision log.** 44 ADRs of real tradeoff reasoning are linked
+- **Surface the decision log.** 46 ADRs of real tradeoff reasoning are linked
   from the bottom of the README as a docs bullet. That is the most interesting
   artifact in the repository and it reads as an afterthought.
 - **Write down what went wrong.** Dogfooding this tool against a real ORM
@@ -52,11 +52,6 @@ an owner and a date — `npx debtwatch list`. This section says what; the
 declaration says until when, and `debt` in the pipeline says whether the
 declaration is still valid.
 
-- **Free text in errors is not redacted.** Path redaction matches key names, so
-  a credential pasted inside `error.message` or `error.stack` survives it.
-  `SECURITY.md` §2 names stack traces as carriers of credentials. Needs either
-  value scanning, which is false-positive-prone, or a decision not to store
-  stacks (ADR-039).
 - **`audit_events` is never swept.** Harmless while it holds four call sites;
   a problem the moment reads are audited.
 - **The login limiter is per-process,** so N web replicas means N times the

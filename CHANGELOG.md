@@ -125,6 +125,25 @@ changes far less often.
   wherever it appears, and the built-in list is written entirely that way
   (ADR-035). The existing grammar is unchanged: a bare `authorization` still
   matches the top level only, and `*.password` still matches one below it.
+- **Credentials inside error text are masked.** Redaction matched key names, so
+  a password in a connection string or a token echoed in an error message was
+  stored as written. The SDK now masks each error message before sending, and
+  ingestion masks it again before storing, whoever sent the event. The masker
+  recognises URL userinfo and Slack and Discord webhook URLs, `Bearer`, `Basic`
+  and `Digest` credentials, values assigned to a secret name (including names
+  like `DB_PASSWORD`, `STRIPE_API_KEY` and `x-auth-token`, read by their last
+  words), JSON Web Tokens, PEM and PGP private keys, and provider-prefixed keys
+  (Stripe, Slack, GitHub, GitLab, AWS, Google, OpenAI, Anthropic, npm,
+  SendGrid, Hugging Face, and `fr_`). It does not guess at entropy, so an
+  identifier is never masked and a credential in an unknown shape is not either;
+  SECURITY.md §4 lists the other known misses. The SDK masks the first 8192
+  characters of a message and then cuts the result to the protocol's 4096,
+  ending in `[TRUNCATED]`. `metadata` and payload strings
+  keep name-based redaction only (ADR-046).
+- **Stack traces are stored only under full capture.** Ingestion drops
+  `error.stack` unless the environment's capture mode is `full-payload` and
+  `ALLOW_FULL_PAYLOAD_CAPTURE` is set, and masks a stack it keeps. The Node SDK
+  never sent one; a client that did loses it below full capture.
 - **A replay is never sent without its destination's headers.** Headers that
   could not be decrypted used to come back as an empty set, so the replay went
   out without the credentials the destination was configured with. It is now
@@ -218,6 +237,15 @@ audit, all merged the same day. The pattern behind them is written up in
 - A `Map` that measured as `{}` may now exceed `maxPayloadBytes` and record
   `[PAYLOAD_TOO_LARGE]` with a `dropped` diagnostic. That is the size guard
   seeing the data for the first time, not a regression.
+- **A client that sends `error.stack` stops having it stored** unless the
+  environment uses `full-payload` on an installation with
+  `ALLOW_FULL_PAYLOAD_CAPTURE`.
+- **Rows written before the upgrade are not masked retroactively.** Their error
+  messages and their stacks stay exactly as they were stored, including any
+  credential in them. Masking applies to events ingested after the upgrade.
+  To remove them, delete the affected journeys, every journey matching an
+  identifier, or an environment's time window (`docs/OPERATIONS.md` §8,
+  ADR-045).
 - Redaction reaching further means more `[REDACTED]` than before. If a key name
   on the built-in list appears somewhere it is not a secret, scope it with a
   dotted path in your own `redact` list.
