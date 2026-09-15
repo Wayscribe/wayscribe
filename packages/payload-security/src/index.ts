@@ -24,7 +24,6 @@ export {
   type ParsedValue
 } from "./encryption.js";
 export { createKeyring, UnknownKeyError, type KeyMaterial, type Keyring } from "./keyring.js";
-export { deriveSubkeys, keyFingerprint, type Subkeys } from "./keys.js";
 export {
   DEFAULT_LIMITS,
   checkLimits,
