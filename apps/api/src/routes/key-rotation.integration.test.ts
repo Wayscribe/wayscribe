@@ -180,12 +180,19 @@ describe("key rotation grace period", () => {
       expect(data.aliases).toEqual([{ type: "salesforceAccountId", displayValue: "SF-A…001" }]);
     });
 
-    it("moved the key used to read onto B during its first request", async () => {
-      // The requests above authenticated through the query routes' principal
-      // resolution, which is a separate code path from ingestion's.
-      const row = await keyRow(queryKey);
+    it("moves a key written under A onto B the first time it reads", async () => {
+      // Reads authenticate through the query routes' principal resolution, a
+      // separate code path from ingestion's. The key is this test's own, so the
+      // result does not depend on which requests the tests above made.
+      const readKey = await storeKey(keyringA, "read-key");
+      expect(await keyRow(readKey)).toMatchObject({ key_hash_key_id: keyringA.current.id });
+
+      const server = boot(rotated);
+      expect((await get(server, readKey, `/v1/search?q=${ENTITY_ID}`)).statusCode).toBe(200);
+
+      const row = await keyRow(readKey);
       expect(row.key_hash_key_id).toBe(keyringB.current.id);
-      expect(verifiesOnlyUnder(keyringB, queryKey, row)).toEqual({ ok: true, migrate: null });
+      expect(verifiesOnlyUnder(keyringB, readKey, row)).toEqual({ ok: true, migrate: null });
     });
 
     it("authenticates an ingesting key written under A and moves it onto B", async () => {

@@ -1,7 +1,7 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createKeyring, searchTokens } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
 import { InvalidCursorError } from "./cursors.js";
@@ -178,6 +178,12 @@ describe("searchJourneys", () => {
     const underB = (q: string) => searchJourneys(db, scope, q, searchTokens(rotated, q), 25);
     const bOnly = createKeyring(KEY_B);
 
+    // In afterEach rather than at the end of a test body, so a failing assertion
+    // cannot leave the row behind for the tests after it.
+    afterEach(async () => {
+      await db("journeys").where({ id: "jrn_new" }).delete();
+    });
+
     it("finds a journey whose entity token is the previous key's", async () => {
       expect((await underB("0018Z00002XYZ")).items.map((i) => i.journeyId)).toEqual(["jrn_2"]);
     });
@@ -201,7 +207,6 @@ describe("searchJourneys", () => {
       });
       const page = await underB("0018Z00002XYZ");
       expect(page.items.map((i) => i.journeyId).sort()).toEqual(["jrn_2", "jrn_new"]);
-      await db("journeys").where({ id: "jrn_new" }).delete();
     });
 
     it("stops finding old rows once the previous key is gone", async () => {
