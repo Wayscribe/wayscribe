@@ -313,6 +313,7 @@ describe("searchJourneys matches the reference query", () => {
     let compared = 0;
     let nonEmpty = 0;
     let multiPage = 0;
+    let previousKeyOnly = 0;
 
     for (const { scope } of scopes) {
       for (const value of values) {
@@ -322,6 +323,13 @@ describe("searchJourneys matches the reference query", () => {
         compared += 1;
         if (seen.length > 0) nonEmpty += 1;
         if (seen.length > limit) multiPage += 1;
+
+        const [current, previous] = tokens;
+        if (current !== undefined && previous !== undefined) {
+          const underCurrentAlone = await referenceSearch(db, scope, value, [current], 1_000);
+          const foundByCurrent = new Set(underCurrentAlone.items.map((item) => item.journeyId));
+          if (seen.some((id) => !foundByCurrent.has(id))) previousKeyOnly += 1;
+        }
       }
     }
 
@@ -330,6 +338,11 @@ describe("searchJourneys matches the reference query", () => {
     expect(compared).toBe(scopes.length * values.length);
     expect(nonEmpty).toBeGreaterThan(compared / 3);
     expect(multiPage).toBeGreaterThan(compared / 10);
+    // Some results must depend on the previous key's token, or a rewrite that
+    // matched the current token alone would pass: every journey written under
+    // key A vanishes for a search during the rotation to B, and no comparison
+    // here would have held one.
+    expect(previousKeyOnly).toBeGreaterThan(0);
   });
 
   it("returns a journey found through every branch once", async () => {
