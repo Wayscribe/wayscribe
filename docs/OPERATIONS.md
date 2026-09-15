@@ -969,6 +969,12 @@ digest, signs it, verifies the signature and attestations as below, and only
 then points the version tag and `latest` at it. A release whose signing failed
 has no version tag, so an unsigned image cannot be pulled by its version.
 
+The version tag is the git tag, `v` included: release `0.1.0` publishes
+`api:v0.1.0` and `web:v0.1.0`. `FLIGHT_RECORDER_VERSION` in
+`compose.published.yaml` and `image.tag` in the Helm chart take that form, and
+the chart's default is `v` plus its `appVersion`. `scripts/check-chart-image-tag.sh`
+renders the chart in CI and fails if its default is anything else.
+
 **What a signature proves depends on tag protection.** The certificate says a
 pipeline ran `.gitlab-ci.yml` at `refs/tags/v1.0.0` in this project. That is
 worth something only if nobody but a maintainer can create a `v*` tag. Before

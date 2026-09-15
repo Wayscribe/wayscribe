@@ -15,7 +15,8 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}
 
 {{- define "flight-recorder.image" -}}
-{{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
+{{- /* Release tags are v-prefixed (scripts/publish-image.sh is given the git tag), so the default is too. */ -}}
+{{- $tag := .Values.image.tag | default (printf "v%s" .Chart.AppVersion) -}}
 {{- printf "%s/%s:%s" .Values.image.registry .component $tag -}}
 {{- end -}}
 

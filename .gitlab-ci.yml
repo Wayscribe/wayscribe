@@ -74,6 +74,11 @@ helm:
   cache: {}
   script:
     - helm lint deploy/helm/flight-recorder
+    # The default image tag must be the one a release publishes: v plus the
+    # SDK's version, the only tag publish-sdk accepts and the one
+    # publish-images pushes. The chart defaulted to its bare appVersion, a tag
+    # nothing pushes.
+    - scripts/check-chart-image-tag.sh
     - helm template fr deploy/helm/flight-recorder
       --set postgresql.enabled=true
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000

@@ -416,6 +416,10 @@ changes far less often.
 
 ### Fixed
 
+- **The Helm chart's default image is one a release publishes.** It defaulted
+  to the bare `appVersion`, `api:0.1.0`, while a release pushes the git tag,
+  `api:v0.1.0`, so the default values could not pull. The default is now `v`
+  plus `appVersion`, and CI renders the chart and compares.
 - **doctor warns while the published demo key is active.** The demo stack's key
   is committed to the repository, so anyone can write events with it, and doctor
   passed an installation where it was unrevoked. "Projects and keys" now warns

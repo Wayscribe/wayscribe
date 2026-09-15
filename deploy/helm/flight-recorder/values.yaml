@@ -5,7 +5,7 @@
 
 image:
   registry: registry.gitlab.com/jojithedev/flight-recorder
-  tag: "" # defaults to .Chart.AppVersion
+  tag: "" # defaults to v + .Chart.AppVersion, the tag a release publishes
   pullPolicy: IfNotPresent
   # For a private registry. Empty on a local cluster that loaded images directly.
   pullSecrets: []
