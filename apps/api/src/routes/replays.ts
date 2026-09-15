@@ -13,11 +13,10 @@ import {
 } from "@flight-recorder/database";
 import { diffPayloads } from "@flight-recorder/payload-diff";
 import type { Keyring } from "@flight-recorder/payload-security";
-import { timingSafeEqual } from "node:crypto";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
+import { adminGuard, errorBody as error } from "../admin.js";
 import { applyHeaderPolicy } from "../replay/header-policy.js";
 import { sendReplay } from "../replay/send.js";
-import { resolveAdminProjectId } from "../principal.js";
 
 const ENVIRONMENT_TYPES = new Set(["local", "development", "test"]);
 const METHODS = new Set(["POST", "PUT", "PATCH"]);
@@ -40,41 +39,7 @@ export interface ReplayRouteOptions {
  * development network.
  */
 export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteOptions): void {
-  async function requireAdmin(
-    request: FastifyRequest,
-    reply: FastifyReply
-  ): Promise<string | undefined> {
-    const [scheme, presented] = request.headers.authorization?.split(" ") ?? [];
-    if (scheme?.toLowerCase() !== "bearer" || presented === undefined) {
-      await reply.code(401).send(error("unauthorized", "An admin token is required.", request.id));
-      return undefined;
-    }
-    if (!constantTimeEquals(presented, options.adminToken)) {
-      // The same 401 for a wrong admin token and for a valid API key. Telling
-      // a key holder that this endpoint exists but is not for them discloses
-      // something and buys nothing.
-      await reply.code(401).send(error("unauthorized", "An admin token is required.", request.id));
-      return undefined;
-    }
-
-    const projectId = await resolveAdminProjectId(
-      app.db,
-      single(request.headers["x-flight-project-id"])
-    );
-    if (projectId === undefined) {
-      await reply
-        .code(404)
-        .send(
-          error(
-            "project_not_found",
-            "Specify a project: none was named and there is not exactly one.",
-            request.id
-          )
-        );
-      return undefined;
-    }
-    return projectId;
-  }
+  const requireAdmin = adminGuard(app, options.adminToken);
 
   app.post("/v1/replay-destinations", async (request, reply) => {
     const projectId = await requireAdmin(request, reply);
@@ -367,20 +332,4 @@ async function present(
     completedAt: run.completedAt?.toISOString() ?? null,
     comparison
   };
-}
-
-function single(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function error(code: string, message: string, requestId: string): unknown {
-  return { error: { code, message, requestId } };
-}
-
-function constantTimeEquals(a: string, b: string): boolean {
-  const left = Buffer.from(a, "utf8");
-  const right = Buffer.from(b, "utf8");
-  // Length is not secret; timingSafeEqual throws on a mismatch.
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
 }

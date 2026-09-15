@@ -2,6 +2,7 @@ import type { Keyring } from "@flight-recorder/payload-security";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Knex } from "knex";
 import { unknownKeyWarning } from "./key-warnings.js";
+import { registerDeletionRoutes } from "./routes/deletions.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -113,6 +114,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     warnUnknownKey,
     allowedHosts: options.replayAllowedHosts ?? []
   });
+  registerDeletionRoutes(app, { adminToken: options.adminToken, keyring: options.keyring });
 
   return app;
 }
