@@ -1,6 +1,6 @@
 # Interactive journey timeline — design
 
-Date: 2026-09-14. Status: approved for planning.
+Date: 2026-09-14. Status: shipped (merge 3dd395d); see CHANGELOG.md, Unreleased, "The timeline is interactive".
 
 ## Why
 

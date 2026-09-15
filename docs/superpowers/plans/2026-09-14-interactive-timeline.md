@@ -1,5 +1,7 @@
 # Interactive Journey Timeline Implementation Plan
 
+**Status:** complete and merged (3dd395d). The checkboxes below show execution-time state, not open work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the journey page's timeline a client-side React component that filters, walks with the keyboard, polls a live journey, and pages past the first hundred events, without changing what the server renders first.
