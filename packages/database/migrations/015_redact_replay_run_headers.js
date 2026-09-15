@@ -22,9 +22,8 @@
  * it stays small next to the event tables, and a batched rewrite would leave a
  * crash half way with some rows still holding values.
  *
- * Number 015, not 014: another change in progress on its own branch takes 014.
- * Knex applies pending migrations in name order whenever they arrive, and the
- * two touch unrelated tables, so either order of arrival is safe.
+ * Follows 014, the span id index for search. The two touch unrelated tables,
+ * and neither depends on the other.
  *
  * @param {import("knex").Knex} knex
  * @returns {Promise<void>}

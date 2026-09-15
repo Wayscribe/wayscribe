@@ -167,6 +167,7 @@ Constraints and indexes:
 - index `(project_id, trace_id)` where trace ID is not null
 - index `(project_id, message_id)` where message ID is not null
 - index `(project_id, correlation_id)` where correlation ID is not null
+- index `(project_id, span_id)` where span ID is not null, so search by span ID is an index lookup (migration `014_search_indexes.js`)
 - index `(project_id, service, journey_id)` for the recent list's service filter (migration 013)
 - optional index `(project_id, operation, event_timestamp desc)`
 - check `duration_ms >= 0`

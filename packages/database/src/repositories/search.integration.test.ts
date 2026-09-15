@@ -238,6 +238,19 @@ describe("searchJourneys", () => {
     }
   );
 
+  it("accepts a cursor issued before the UNION rewrite", async () => {
+    // A literal, not encodeCursor: a client may hold a cursor from a page it
+    // fetched before an upgrade, so the bytes on the wire are the contract.
+    // Issued by the pre-rewrite query for the page ending at jrn_2.
+    const issuedBefore =
+      "eyJsYXN0RXZlbnRBdCI6IjIwMjYtMDgtMDZUMTE6MDA6MDAuMDAwWiIsImlkIjoianJuXzIifQ";
+    const first = await find("SHARED-VALUE", 1);
+    expect(first.nextCursor).toBe(issuedBefore);
+    expect((await find("SHARED-VALUE", 1, issuedBefore)).items.map((i) => i.journeyId)).toEqual([
+      "jrn_1"
+    ]);
+  });
+
   it("accepts the cursor timestamp it wrote", async () => {
     const cursor = encodeCursor({ lastEventAt: "2026-08-06T11:00:00.000Z", id: "jrn_2" });
     expect((await find("SHARED-VALUE", 1, cursor)).items.map((i) => i.journeyId)).toEqual([
