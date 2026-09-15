@@ -260,6 +260,16 @@ changes far less often.
   and ingestion is not throttled. A new setting, `TRUSTED_PROXY_COUNT` (default
   0), on both, honours `X-Forwarded-For` that many hops from the right for
   installations behind a reverse proxy (`docs/OPERATIONS.md` §9).
+- **The web interface sends a Content-Security-Policy and the usual security
+  headers.** Every page carries a policy allowing scripts only from its own
+  origin and by a per-response nonce, with `frame-ancestors 'none'`,
+  `base-uri`, `form-action` and `style-src` all `'self'`, and `object-src
+  'none'`; every response carries `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`, and
+  `X-Powered-By` is gone. The production build inlines scripts, so the nonce is
+  set in middleware rather than allowing `'unsafe-inline'`, and the not-found
+  page is rendered per request so it gets one. A browser test fails on any
+  policy violation.
 - **Replay's default allowlist no longer reaches the Docker host.**
   `compose.published.yaml` and the Helm chart defaulted `REPLAY_ALLOWED_HOSTS`
   to `localhost,host.docker.internal`, and `host.docker.internal` reaches every

@@ -57,6 +57,22 @@ to look through (`OPERATIONS.md` §9). The throttles are per process. They slow 
 guesser; the token's length, 32 characters at least, is what makes guessing
 hopeless.
 
+### Script injection in the interface
+
+The interface renders recorded payloads, which any API key holder can write. React
+escapes what it renders, and every page is also served with a
+Content-Security-Policy that allows scripts only from its own origin and, inline,
+by a nonce generated for that response: `default-src 'self'; script-src 'self'
+'nonce-…'; style-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action
+'self'; object-src 'none'`, with `img-src`, `font-src` and `connect-src` also
+`'self'`. Next.js's production build inlines scripts in every page, so a policy
+without a nonce would need `'unsafe-inline'`, which would allow an injected script
+too; `apps/web/middleware.ts` sets the nonce and Next puts it on its own scripts.
+Every response also carries `X-Frame-Options: DENY`, `Referrer-Policy:
+no-referrer`, and `X-Content-Type-Options: nosniff`, and no `X-Powered-By`. The
+browser suite fails on any policy violation on the search, journey, recent,
+replay, and delete pages.
+
 ### Replay abuse
 
 Historical payload replay could:

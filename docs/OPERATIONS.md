@@ -615,7 +615,12 @@ does not expose the stack to the internet, and that is the only thing standing
 between the default configuration and an open admin interface.
 
 If you put Flight Recorder behind a reverse proxy, terminate TLS there and do not
-republish the container ports on `0.0.0.0`.
+republish the container ports on `0.0.0.0`. The web app sets its own
+`Content-Security-Policy`, with a fresh nonce per response, and
+`X-Frame-Options`, `Referrer-Policy` and `X-Content-Type-Options`
+(`docs/SECURITY.md` §2). Let them through: a proxy that replaces the policy with
+a fixed one blocks the interface's scripts, and one that caches pages would serve
+a stale nonce. Pages are sent `Cache-Control: no-store` already.
 
 The admin token grants project-wide read of every recorded payload. It is a
 single shared secret with no user accounts and no audit of who used it — treat
