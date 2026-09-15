@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import type { Keyring } from "./keyring.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -33,4 +34,17 @@ export function normalizeSearchValue(value: string): string {
  */
 export function searchToken(key: Buffer, value: string): string {
   return createHmac("sha256", key).update(normalizeSearchValue(value), "utf8").digest("hex");
+}
+
+/**
+ * Every token a stored value may carry: the current key's first, then the
+ * previous key's during a rotation.
+ *
+ * Ingestion writes the first alone. A lookup matches against all of them, so a
+ * record written under the old key stays findable until it is re-encrypted.
+ */
+export function searchTokens(keyring: Keyring, value: string): string[] {
+  const tokens = [searchToken(keyring.current.searchToken, value)];
+  if (keyring.previous !== null) tokens.push(searchToken(keyring.previous.searchToken, value));
+  return tokens;
 }
