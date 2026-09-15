@@ -1,5 +1,5 @@
 import type { Knex } from "knex";
-import { lockHolderAlive } from "./advisory-lock.js";
+import { lockHolderAlive, withTransactionLock } from "./advisory-lock.js";
 
 // debtwatch:start
 // id: DEBT-N11B8K
@@ -12,9 +12,10 @@ import { lockHolderAlive } from "./advisory-lock.js";
  * An arbitrary but fixed 64-bit key for `pg_try_advisory_xact_lock`.
  *
  * The number itself carries no meaning; what matters is that every replica uses
- * the same one, so only one of them sweeps at a time (ADR-026).
+ * the same one, so only one of them sweeps at a time (ADR-026). Range deletion
+ * takes the same key, so a range deletion and a sweep never run at once.
  */
-const ADVISORY_LOCK_KEY = 4_919_072_026;
+export const RETENTION_LOCK_KEY = 4_919_072_026;
 
 export interface SweepResult {
   /** False when another replica held the lock. Nothing was examined. */
@@ -69,30 +70,11 @@ export async function sweepExpiredJourneys(
   // It used to be a session lock taken and released by separate pooled
   // queries: under contention the release landed on a different connection
   // and failed, the lock stayed with an idle pooled backend, and every later
-  // sweep on every replica skipped until a restart. Committing the holder
-  // releases it, and a replica that dies drops the connection and the lock
-  // with it. The deletes run on other connections, each its own transaction,
-  // so each batch commits as it goes rather than when the sweep ends.
-  //
-  // The key is inlined, not bound: a bound parameter leaves an unnamed portal
-  // open with its snapshot for the life of the transaction, which would keep
-  // VACUUM from removing the very rows this sweep deletes.
-  const holder = await db.transaction();
-  try {
-    const acquired: unknown = await holder.raw(
-      `select pg_try_advisory_xact_lock(${String(ADVISORY_LOCK_KEY)}) as locked`
-    );
-    const locked = (acquired as { rows: { locked: boolean }[] }).rows[0]?.locked === true;
-    if (!locked) {
-      return {
-        ran: false,
-        journeysDeleted: 0,
-        batches: 0,
-        environmentsExamined: 0,
-        stoppedEarly: false
-      };
-    }
-
+  // sweep on every replica skipped until a restart. `withTransactionLock`
+  // holds it on one transaction instead, and the deletes run on other
+  // connections, so each batch commits as it goes rather than when the sweep
+  // ends.
+  const run = await withTransactionLock(db, RETENTION_LOCK_KEY, async (holder) => {
     const rows: unknown = await db("environments").select(
       "id",
       "project_id as projectId",
@@ -139,10 +121,9 @@ export async function sweepExpiredJourneys(
     }
 
     return result(false);
-  } finally {
-    // Nothing was written through the holder. If its connection has already
-    // gone, so has the lock, and a failure here must not hide the sweep's own
-    // error.
-    await holder.commit().catch(() => undefined);
-  }
+  });
+
+  return run.acquired
+    ? run.value
+    : { ran: false, journeysDeleted: 0, batches: 0, environmentsExamined: 0, stoppedEarly: false };
 }
