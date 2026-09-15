@@ -158,3 +158,12 @@ not an unfamiliar one, which is a narrower gap than before rather than none. The
 tests for it follow the rules above: the stored row is read back from
 PostgreSQL, and every "does not contain the secret" is paired with "still
 contains the error".
+
+The first version of that masker passed all of those tests and was still wrong
+in two ways a review found by attacking it rather than reading it. Trimming
+trailing dots with `/\.+$/` was quadratic, so `Bearer ` and 64 KiB of dots took
+almost two seconds, while a test asserting 16 KiB of near-matches finished under
+50 ms passed on a fast machine. And "masking is idempotent" had been checked on
+the corpus somebody wrote; generated input broke it three different ways. The
+timing tests now compare two sizes instead of reading a clock, and a seeded
+generator checks idempotence on text nobody chose.

@@ -218,13 +218,34 @@ connect ECONNREFUSED postgres://app:hunter2@db.internal:5432/orders
 connect ECONNREFUSED postgres://[REDACTED]@db.internal:5432/orders
 ```
 
-The masker recognises URL userinfo, `Bearer` and `Basic` credentials, values
-assigned to a secret name (`password=`, `"api_key": "…"`, `?access_token=`),
-JSON Web Tokens, PEM private keys, and provider-prefixed keys from Stripe,
-Slack, GitHub, GitLab, AWS, Google and Flight Recorder. It does not guess at
-entropy, so a credential in any other shape is sent as written; the server masks
-again with the same rules, which catches nothing more. Record identifiers such
-as Salesforce ids, UUIDs and order numbers are never masked.
+The masker recognises:
+
+- URL userinfo, and the secret segment of Slack and Discord webhook URLs
+- `Bearer`, `Basic` and `Digest` credentials of eight characters or more
+- values assigned to a secret name: `password=`, `"api_key": "…"`,
+  `?access_token=`, and names whose last words say secret, such as
+  `DB_PASSWORD=`, `STRIPE_API_KEY=` and `x-auth-token: …`. Names that only point
+  at a secret or page through results, such as `SecretId` and `nextPageToken`,
+  are left alone.
+- JSON Web Tokens, and PEM and PGP private keys
+- provider-prefixed keys from Stripe, Slack, GitHub, GitLab, AWS, Google,
+  OpenAI, Anthropic, npm, SendGrid, Hugging Face and Flight Recorder
+
+A message longer than the 4096 characters the server accepts is cut to that
+length and ends in `[TRUNCATED]`; a `stack` you pass to `record()` is cut the
+same way at 16384.
+
+It does not guess at entropy, so record identifiers such as Salesforce ids,
+UUIDs and order numbers are never masked, and a credential in an unlisted shape
+is sent as written. It also misses:
+
+- a plain word after a secret's name where it reads as a sentence, so
+  `DB_PASSWORD: not set` is kept and so is `DB_PASSWORD=sunshine`
+- a name written without separators, such as `DBPASSWORD`
+- the error's `type` and `code`, which are sent as they are
+
+The server masks again with the same rules, which catches nothing more for an
+event the SDK sent.
 
 ## What happens to your values
 

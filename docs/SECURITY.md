@@ -112,31 +112,62 @@ credential written inside a string. Error text is where those appear, so
 server before storing, whoever sent the event (ADR-045). The masker replaces:
 
 - URL userinfo: `postgres://app:hunter2@db` becomes `postgres://[REDACTED]@db`
-- `Bearer` and `Basic` credentials, keeping the scheme word
-- values assigned to a secret name: the built-in secret names (`authorization`,
-  `cookie`, `password`, `api_key`, `access_token` and the rest), compared as
-  path redaction compares them, plus `token`, `signature`, `sig` and `apikey`,
-  and `key` only as a query parameter
-- JSON Web Tokens and PEM private key blocks
+- the secret path segment of Slack and Discord webhook URLs, keeping the
+  workspace and channel
+- `Bearer`, `Basic` and `Digest` credentials of at least eight characters,
+  keeping the scheme word. A value that reads as words, such as
+  `Basic plan-2026`, and the auth-params of a challenge such as
+  `Bearer realm="api"` are kept.
+- values assigned to a secret name. A name is split into words on `_`, `-`, `.`
+  and case changes:
+  - the built-in secret names (`authorization`, `cookie`, `password`, `api_key`,
+    `access_token` and the rest) count in every form
+  - `token`, `signature`, `sig`, `passwd`, `pwd` and `pass` count when assigned
+    with `=` or as a quoted key; `key` counts only as a query parameter
+  - a name of several words counts when it ends in `password`, `passwd`, `pwd`,
+    `passphrase`, `secret`, `token`, `credential` or `credentials`, or in a pair
+    such as `api key`, `secret key`, `private key` or `access key`. A token that
+    pages or protects a form (`pageToken`, `nextToken`, `csrf_token`) does not
+    count, and nor does a name ending in `id`, `arn`, `name` or `url`. So
+    `DB_PASSWORD`, `STRIPE_API_KEY` and `x-auth-token` are masked, and
+    `password_hash`, `SecretId` and `max_tokens` are not.
+- JSON Web Tokens, and PEM and PGP private key blocks
 - provider-prefixed credentials: Stripe `sk_`, `rk_` and `whsec_`, Slack
-  `xox?-`, GitHub `gh?_` and `github_pat_`, GitLab `glpat-`, AWS `AKIA` and
-  `ASIA` key ids, Google `AIza`, and Flight Recorder `fr_` keys
+  `xox?-` and `xapp-`, GitHub `gh?_` and `github_pat_`, GitLab `glpat-`, AWS
+  `AKIA` and `ASIA` key ids, Google `AIza`, OpenAI and Anthropic `sk-`, npm
+  `npm_`, SendGrid `SG.`, Hugging Face `hf_`, and Flight Recorder `fr_` keys
 
-What it does not do:
+After an unquoted colon, a value is only read when a blank follows the colon,
+so `secret:prod/db` inside an ARN is left alone.
 
-- **It does not guess at entropy.** A credential in a shape not listed is
-  stored. Long random-looking strings are exactly the identifiers the product
-  shows, such as Salesforce ids, UUIDs and hashes, so there is no "looks random"
-  rule.
-- **It matches secret names whole.** `password=` is masked; `DB_PASSWORD=` is
-  not.
-- **It does not scan `metadata` strings or payload strings.** Those keep path
-  redaction only.
+What it does not catch, by design or by limitation:
+
+- **A credential in a shape not listed.** It does not guess at entropy. Long
+  random-looking strings are exactly the identifiers the product shows, such as
+  Salesforce ids, UUIDs and hashes, so there is no "looks random" rule.
+- **Prose after a secret name.** An unquoted value that is a plain word, after a
+  colon or after a name of several words, is read as a sentence:
+  `client_secret: missing`, `DB_PASSWORD: not set`. A credential that is a
+  single dictionary word in that position, such as `DB_PASSWORD=sunshine`, is
+  stored.
+- **A name without separators.** `DBPASSWORD` is one word and not on any list.
+- **The error's `type` and `code`.** Only `message`, and a kept `stack`, are
+  masked.
+- **`metadata` strings and payload strings.** Those keep path redaction only.
+- **Rows written before this masking existed.** Their messages and stacks are
+  stored as they arrived, until they are deleted.
 
 `error.stack` is stored only when the environment captures full payloads, which
 requires both `ALLOW_FULL_PAYLOAD_CAPTURE` and the environment's `full-payload`
 setting. In every other mode ingestion drops it. A kept stack is masked like a
-message. The Node SDK never sends one.
+message. The Node SDK never sends one of its own, and cuts a message to 4096
+characters and a stack passed to `record()` to 16384 before masking.
+
+The content hash stored with each event is an unkeyed SHA-256 over the event as
+received, before any masking or redaction. With read access to the database, a
+low-entropy secret that was masked can be guessed offline by rebuilding the
+event with a candidate and comparing hashes. This was already true of redacted
+payload values, and is recorded as a known limitation in ADR-045.
 
 ## 5. API keys
 

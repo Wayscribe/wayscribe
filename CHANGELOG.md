@@ -84,12 +84,16 @@ changes far less often.
   a password in a connection string or a token echoed in an error message was
   stored as written. The SDK now masks each error message before sending, and
   ingestion masks it again before storing, whoever sent the event. The masker
-  recognises URL userinfo, `Bearer` and `Basic` credentials, values assigned to
-  a secret name, JSON Web Tokens, PEM private keys, and provider-prefixed keys
-  (Stripe, Slack, GitHub, GitLab, AWS, Google, and `fr_`). It does not guess at
-  entropy, so an identifier is never masked and a credential in an unknown shape
-  is not either. `metadata` and payload strings keep name-based redaction only
-  (ADR-045).
+  recognises URL userinfo and Slack and Discord webhook URLs, `Bearer`, `Basic`
+  and `Digest` credentials, values assigned to a secret name (including names
+  like `DB_PASSWORD`, `STRIPE_API_KEY` and `x-auth-token`, read by their last
+  words), JSON Web Tokens, PEM and PGP private keys, and provider-prefixed keys
+  (Stripe, Slack, GitHub, GitLab, AWS, Google, OpenAI, Anthropic, npm,
+  SendGrid, Hugging Face, and `fr_`). It does not guess at entropy, so an
+  identifier is never masked and a credential in an unknown shape is not either;
+  SECURITY.md §4 lists the other known misses. The SDK cuts a message to the
+  protocol's 4096 characters before masking it. `metadata` and payload strings
+  keep name-based redaction only (ADR-045).
 - **Stack traces are stored only under full capture.** Ingestion drops
   `error.stack` unless the environment's capture mode is `full-payload` and
   `ALLOW_FULL_PAYLOAD_CAPTURE` is set, and masks a stack it keeps. The Node SDK
@@ -185,8 +189,13 @@ audit, all merged the same day. The pattern behind them is written up in
   seeing the data for the first time, not a regression.
 - **A client that sends `error.stack` stops having it stored** unless the
   environment uses `full-payload` on an installation with
-  `ALLOW_FULL_PAYLOAD_CAPTURE`. Rows written before the upgrade keep the stack
-  they were stored with, unmasked.
+  `ALLOW_FULL_PAYLOAD_CAPTURE`.
+- **Rows written before the upgrade are not masked retroactively.** Their error
+  messages and their stacks stay exactly as they were stored, including any
+  credential in them. Masking applies to events ingested after the upgrade.
+  Removing the old rows is the job of deleting captured data, which is not yet
+  available and is listed as open in the roadmap. Until it is, there is no
+  supported way to remove them.
 - Redaction reaching further means more `[REDACTED]` than before. If a key name
   on the built-in list appears somewhere it is not a secret, scope it with a
   dotted path in your own `redact` list.

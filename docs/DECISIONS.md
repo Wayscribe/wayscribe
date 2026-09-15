@@ -1536,15 +1536,36 @@ one.
 ### Decision
 
 `maskSecretsInText` in `payload-security` replaces credential-shaped substrings with
-`[REDACTED]` and keeps the words around them. It recognises URL userinfo, `Bearer` and `Basic`
-credentials, values assigned to a secret name (the built-in names normalised as ADR-039
-compares them, plus `token`, `signature`, `sig` and `apikey`, and `key` only as a query
-parameter), JSON Web Tokens, PEM private key blocks, and the prefixes providers put on their
-credentials: Stripe, Slack, GitHub, GitLab, AWS access key ids, Google API keys and this
-product's own `fr_` keys.
+`[REDACTED]` and keeps the words around them. It recognises:
+
+- URL userinfo, and the secret path segment of Slack and Discord webhook URLs.
+- `Bearer`, `Basic` and `Digest` credentials of at least eight characters that do not read as
+  prose, skipping the auth-params of a `WWW-Authenticate` challenge.
+- Values assigned to a secret name. A name is split into words on `_`, `-`, `.` and case
+  changes. The built-in names, compared as ADR-039 compares them, count in every form. Any other
+  single word counts only when assigned with `=` or as a quoted key, and only from a short list
+  (`token`, `signature`, `sig`, `passwd`, `pwd`, `pass`); `key` counts only as a query
+  parameter. A name of several words counts when its last word is `password`, `passwd`, `pwd`,
+  `passphrase`, `secret`, `token` (unless it follows `page`, `next`, `continuation`,
+  `pagination`, `cursor`, `sync`, `resume`, `marker`, `csrf` or `xsrf`), `credential` or
+  `credentials`, or its last two are one of `api key`, `secret key`, `private key`, `access key`,
+  `account key`, `signing key`, `master key`, `shared key`, `encryption key`, `auth key`,
+  `session key` or `client key`; never when its last word is `id`, `arn`, `name` or `url`. So
+  `DB_PASSWORD`, `STRIPE_API_KEY` and `x-auth-token` are secrets, and `pageToken`, `SecretId`
+  and `password_hash` are not.
+- JSON Web Tokens, and PEM and PGP private key blocks.
+- The prefixes providers put on their credentials: Stripe, Slack, GitHub, GitLab, AWS access key
+  ids, Google API keys, OpenAI and Anthropic keys, npm tokens, SendGrid keys, Hugging Face tokens
+  and this product's own `fr_` keys.
+
+After an unquoted colon a value needs a blank before it, so `secret:prod/db` inside an ARN is a
+path. An unquoted value that is a plain word, after a colon or after a name of several words, is
+read as prose and kept.
 
 It runs in two places, the same function in both. The SDK masks every error record before it is
-queued. Ingestion masks `message` before storing, whoever sent it.
+queued, and bounds the message and any string stack to the protocol's 4096 and 16384 characters
+first, so a megabyte of message costs no more than the part the server would accept. Ingestion
+masks `message` before storing, whoever sent it.
 
 Ingestion drops `error.stack` unless full capture is in effect, which already takes both
 `ALLOW_FULL_PAYLOAD_CAPTURE` and the environment's own `full-payload` setting. A team that opted
@@ -1556,15 +1577,14 @@ destroy the record a reader came for.
 
 ### Consequences
 
-- A credential in a shape the list does not know is stored. This is the accepted cost of not
-  guessing, and SECURITY.md says so.
-- Secret names are matched whole, as path redaction matches them: `password=` is masked and
-  `DB_PASSWORD=` is not. A name that is only sometimes a secret stays out of the built-in list.
-- After an unquoted colon, `token:` and a plain word after any name are read as prose rather
-  than a credential, so `Invalid token: expired` and `client_secret: missing` are unchanged. A
-  credential that is a single dictionary word in that position is missed.
-- Masking is idempotent, so the second pass over an SDK event changes nothing. The content hash
-  is still taken over the event as received (ADR-021), so resubmission stays idempotent too.
+- A credential in a shape the rules do not know is stored. This is the accepted cost of not
+  guessing, and SECURITY.md lists the known misses: a single dictionary word as a credential in
+  a prose position, a name written without separators such as `DBPASSWORD`, and the error's
+  `type` and `code`, which are not masked.
+- Masking is idempotent, so the second pass over an SDK event changes nothing. That property
+  failed three times on generated input before it held, each time because one rule created a
+  match for a rule that ran before it; a seeded generator now runs sixty thousand inputs in the
+  unit tests.
 - Error text reaches the masker from public HTTP, so its cost must grow in proportion to the
   text. Every pattern either anchors on a literal prefix or refuses to start inside a run of its
   own characters, and the post-processing of each match is a character loop rather than a
@@ -1578,4 +1598,13 @@ destroy the record a reader came for.
   in every payload for shapes would put this cost, and its false positives, on the data the
   product exists to show.
 - Stacks from an environment below full capture are gone for good, including any event sent
-  before a team turns full capture on.
+  before a team turns full capture on. Rows written before this decision keep their messages and
+  stacks unmasked; removing them is the work of deleting captured data, not of this change.
+- **Known limitation, not fixed here.** The content hash is an unkeyed SHA-256 over the event as
+  received, before masking and redaction (ADR-021), and it is stored beside the row. Someone with
+  read access to the database can test guesses at a low-entropy secret, such as a short
+  password in a connection string, by rebuilding the event from the row with a candidate in
+  place of `[REDACTED]`, hashing it and comparing. That works when everything else the hash
+  covered is in the row or guessable, which a masked error message on an event with no dropped
+  payload often is. The same was already true of redacted payload values. Keying the hash would close it, and would change
+  every stored hash, so it belongs in its own decision.
