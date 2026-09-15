@@ -468,6 +468,86 @@ describe("replay routes", () => {
     expect(JSON.stringify(entry)).not.toContain("secret");
   });
 
+  describe("malformed requests are refused, never answered with a SQLSTATE", () => {
+    // Each of these was a 500. The ids were handed to a uuid column, and
+    // PostgreSQL's refusal (22P02) reached the client as error.code; a missing
+    // body threw a TypeError before any check ran.
+    const expectRefusal = (
+      response: { statusCode: number; body: string; json: () => unknown },
+      status: number,
+      code: string
+    ): void => {
+      expect(response.statusCode, response.body).toBe(status);
+      expect((response.json() as { error: { code: string } }).error.code).toBe(code);
+      expect(response.body).not.toMatch(/22P02|22P05|22021/);
+    };
+
+    it("answers a replay id that is not a uuid with 404, as deletion does", async () => {
+      for (const id of ["not-a-uuid", "1", "00000000-0000-0000-0000-00000000000g"]) {
+        const response = await app.inject({
+          method: "GET",
+          url: `/v1/replays/${id}`,
+          headers: admin()
+        });
+        expectRefusal(response, 404, "not_found");
+      }
+    });
+
+    it("refuses a destinationId that is not a uuid", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/replays",
+        headers: admin(),
+        payload: { eventId: eventWithInput, destinationId: "not-a-uuid", path: "/replay/customer" }
+      });
+      expectRefusal(response, 400, "invalid_request");
+    });
+
+    it("refuses a replay with no body, or fields of the wrong type", async () => {
+      const noBody = await app.inject({ method: "POST", url: "/v1/replays", headers: admin() });
+      expectRefusal(noBody, 400, "invalid_request");
+
+      for (const payload of [
+        { eventId: 42, destinationId: "00000000-0000-4000-8000-000000000000", path: "/x" },
+        { eventId: eventWithInput, destinationId: "00000000-0000-4000-8000-000000000000", path: 7 },
+        { eventId: eventWithInput, destinationId: ["a"], path: "/x" },
+        {
+          eventId: eventWithInput,
+          destinationId: "00000000-0000-4000-8000-000000000000",
+          path: `/x${String.fromCharCode(0)}`
+        },
+        {
+          eventId: eventWithInput,
+          destinationId: "00000000-0000-4000-8000-000000000000",
+          path: "/x",
+          method: 5
+        },
+        {
+          eventId: `evt${String.fromCharCode(0)}`,
+          destinationId: "00000000-0000-4000-8000-000000000000",
+          path: "/x"
+        }
+      ]) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/replays",
+          headers: admin(),
+          payload
+        });
+        expectRefusal(response, 400, "invalid_request");
+      }
+    });
+
+    it("refuses a replay destination with no body", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/replay-destinations",
+        headers: admin()
+      });
+      expectRefusal(response, 400, "invalid_request");
+    });
+  });
+
   it("does not return another project's replay", async () => {
     const otherProject = await insertReturningId(db, "projects", { name: "O", slug: "o" });
     const destinationId = await makeDestination(

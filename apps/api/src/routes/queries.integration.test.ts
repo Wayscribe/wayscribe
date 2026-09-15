@@ -113,6 +113,20 @@ describe("query endpoints", () => {
     expect((await get("/v1/search")).statusCode).toBe(400);
   });
 
+  it("refuses a repeated q or cursor with 400 rather than failing", async () => {
+    // Fastify parses a repeated parameter into an array, and `.trim()` on an
+    // array threw: a 500 for a malformed URL.
+    for (const url of [
+      "/v1/search?q=a&q=b",
+      "/v1/search?q=0018Z00002ABC&cursor=a&cursor=b",
+      "/v1/journeys/jrn_q/events?cursor=a&cursor=b"
+    ]) {
+      const response = await get(url);
+      expect(response.statusCode, `${url} ${response.body}`).toBe(400);
+      expect(["invalid_query", "invalid_cursor"]).toContain(response.json().error.code);
+    }
+  });
+
   it("rejects a malformed cursor", async () => {
     const response = await get("/v1/search?q=0018Z00002ABC&cursor=garbage");
     expect(response.statusCode).toBe(400);

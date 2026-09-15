@@ -242,6 +242,14 @@ changes far less often.
   and came back as a redirect to `http://evil.test`. A path that normalises to
   two leading separators is now refused, the result is checked again against a
   second origin, and every redirect the web app builds is held to its own host.
+- **No response carries a PostgreSQL SQLSTATE as its error code.** An
+  unstorable payload (a NUL byte, or an unpaired surrogate sent as a JSON
+  escape) sent to `POST /v1/events` answered 500 with `error.code` `22P05`,
+  while the batch route answered 400 `unstorable_payload`; both now answer the
+  latter. `GET /v1/replays/<not a uuid>` is 404, and `POST /v1/replays` with no
+  body, a non-string field, or a `destinationId` that is not a uuid is 400
+  `invalid_request`, where each was a 500 with `22P02`. A repeated `q` or
+  `cursor` is 400. Any other unexpected failure is 500 `internal_error`.
 
 ### Fixed
 

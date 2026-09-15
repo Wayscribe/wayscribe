@@ -46,7 +46,8 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     const projectId = await requireAdmin(request, reply);
     if (projectId === undefined) return reply;
 
-    const body = request.body as {
+    // No body at all arrives as undefined, which the field reads below threw on.
+    const body = (isObject(request.body) ? request.body : {}) as {
       name?: string;
       baseUrl?: string;
       environmentType?: string;
@@ -107,20 +108,11 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     const projectId = await requireAdmin(request, reply);
     if (projectId === undefined) return reply;
 
-    const body = request.body as {
-      eventId?: string;
-      destinationId?: string;
-      method?: string;
-      path?: string;
-    };
-
-    if (!body.eventId || !body.destinationId || !body.path) {
-      return reply
-        .code(400)
-        .send(
-          error("invalid_request", "eventId, destinationId, and path are required.", request.id)
-        );
+    const parsed = parseReplayRequest(request.body);
+    if (!parsed.ok) {
+      return reply.code(400).send(error("invalid_request", parsed.message, request.id));
     }
+    const body = parsed.value;
     const method = (body.method ?? "POST").toUpperCase();
     if (!METHODS.has(method)) {
       return reply
@@ -274,6 +266,12 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     if (projectId === undefined) return reply;
 
     const { replayId } = request.params as { replayId: string };
+    // Not a uuid cannot be a replay, and PostgreSQL would refuse the lookup
+    // with an error rather than find nothing. The same answer as an unknown
+    // replay, as deleting a destination by an id that is not a uuid gives.
+    if (!UUID_PATTERN.test(replayId)) {
+      return reply.code(404).send(error("not_found", "Replay not found.", request.id));
+    }
     const run = await findRun(app.db, projectId, replayId);
     if (run === undefined) {
       return reply.code(404).send(error("not_found", "Replay not found.", request.id));
@@ -282,6 +280,57 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     const event = await findEventDetail(app.db, { projectId }, run.journeyEventId);
     return reply.send({ data: await present(app, projectId, replayId, event) });
   });
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The protocol's ceiling on an event id. */
+const MAX_EVENT_ID_LENGTH = 128;
+const NULL_BYTE = String.fromCharCode(0);
+
+interface ReplayRequest {
+  eventId: string;
+  destinationId: string;
+  method: string | undefined;
+  path: string;
+}
+
+/**
+ * The body of `POST /v1/replays`, checked before anything reaches the database.
+ *
+ * Each refusal here used to be a 500: no body threw on the first field read, a
+ * destinationId that is not a uuid was refused by PostgreSQL with 22P02, and a
+ * null byte in eventId with 22021.
+ */
+function parseReplayRequest(
+  body: unknown
+): { ok: true; value: ReplayRequest } | { ok: false; message: string } {
+  const required = "eventId, destinationId, and path are required.";
+  if (!isObject(body)) return { ok: false, message: required };
+  const { eventId, destinationId, method, path } = body;
+
+  if (!eventId || !destinationId || !path) return { ok: false, message: required };
+  if (
+    typeof eventId !== "string" ||
+    typeof destinationId !== "string" ||
+    typeof path !== "string"
+  ) {
+    return { ok: false, message: "eventId, destinationId, and path must be strings." };
+  }
+  if (eventId.length > MAX_EVENT_ID_LENGTH || eventId.includes(NULL_BYTE)) {
+    return { ok: false, message: "eventId is not a valid event id." };
+  }
+  if (path.includes(NULL_BYTE)) return { ok: false, message: "path must not contain a null byte." };
+  if (!UUID_PATTERN.test(destinationId)) {
+    return { ok: false, message: "destinationId must be a destination's uuid." };
+  }
+  if (method !== undefined && typeof method !== "string") {
+    return { ok: false, message: "method must be POST, PUT, or PATCH." };
+  }
+  return { ok: true, value: { eventId, destinationId, method, path } };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** What an operator reads when a destination's headers cannot be decrypted. */

@@ -178,7 +178,16 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
 
     return reply.code(status).send({
       error: {
-        code: fastifyError.code ?? (status >= 500 ? "internal_error" : "bad_request"),
+        // A 5xx is always internal_error. The error's own code is kept only for
+        // a client error Fastify raised, which carries a status of its own. A
+        // database driver's error carries a SQLSTATE in `code` and no status,
+        // and "22P02" is the database's vocabulary, not this API's contract.
+        code:
+          status >= 500
+            ? "internal_error"
+            : fastifyError.statusCode !== undefined && fastifyError.code !== undefined
+              ? fastifyError.code
+              : "bad_request",
         // A 500's message can carry internals; anything else is the client's
         // own mistake described back to them.
         message:

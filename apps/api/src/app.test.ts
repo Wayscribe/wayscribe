@@ -51,6 +51,33 @@ describe("error envelope", () => {
   });
 });
 
+describe("an unexpected database error", () => {
+  it("is internal_error, never the driver's SQLSTATE", async () => {
+    // A pg error carries `.code`, a SQLSTATE, and no `.statusCode`, and the
+    // handler used to publish that code as the API's own. Every lookup here
+    // fails the way PostgreSQL refuses a malformed uuid.
+    for (const sqlState of ["22P02", "22P05", "23505", "42P01"]) {
+      const failing = (() => {
+        throw Object.assign(new Error("invalid input syntax for type uuid"), { code: sqlState });
+      }) as unknown as Knex;
+      const app = buildApp({ db: failing, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/journeys/jrn_1",
+        headers: { authorization: "Bearer fr_0000000000000000000000000000000" }
+      });
+
+      expect(response.statusCode, sqlState).toBe(500);
+      const body = response.json<{ error: { code: string; message: string } }>();
+      expect(body.error.code, sqlState).toBe("internal_error");
+      expect(response.body).not.toContain(sqlState);
+      expect(response.body).not.toContain("uuid");
+      await app.close();
+    }
+  });
+});
+
 describe("body limit", () => {
   it("admits a full batch rather than rejecting it", async () => {
     // Fastify's 1 MiB default is far below 100 events at 256 KiB each, so a

@@ -88,6 +88,11 @@ request, is the right response. In a batch, an event whose statement was
 cancelled is refused on its own with `query_timeout` and `httpStatus` 503
 (section 4).
 
+An unexpected failure is `500` with code `internal_error` and a generic message.
+The code is never the database's own: a PostgreSQL SQLSTATE such as `22P02` is
+not part of this contract and never appears in `error.code`. A malformed id or
+body is refused with a `4xx` before it reaches the database.
+
 A request that matches no route gets `404` with code `not_found`, in this shape.
 Its message names the method and path, never the query string or matrix
 parameters. A URL the router cannot read gets `400` with code `bad_url` when its
@@ -156,7 +161,9 @@ Recommended status:
 202 Accepted
 ```
 
-Validation errors use `400`. Authentication errors use `401` or `403`.
+Validation errors use `400`. Authentication errors use `401` or `403`. An event
+whose text PostgreSQL cannot store, a NUL byte or an unpaired surrogate, is `400`
+`unstorable_payload`, as it is in a batch.
 
 Conflicts use `409`:
 
@@ -257,6 +264,9 @@ Response:
   }
 }
 ```
+
+A missing or empty `q`, or `q` given more than once, is `400` `invalid_query`. A
+`cursor` given more than once is `400` `invalid_cursor`, on every list endpoint.
 
 ## 6. List recent journeys
 
@@ -470,11 +480,17 @@ Response:
 
 V0 may execute synchronously with a strict timeout. A background replay worker can be introduced later.
 
+A missing body, a field that is not a string, a `destinationId` that is not a
+uuid, or a null byte in `eventId` or `path` is `400` `invalid_request`.
+
 ## 13. Get replay
 
 ```http
 GET /v1/replays/:replayId
 ```
+
+A `replayId` that is not a uuid is `404` `not_found`, the same answer as an
+unknown replay.
 
 Returns:
 

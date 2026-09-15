@@ -70,7 +70,12 @@ export function registerQueryRoutes(
     const principal = await authenticate(request, reply);
     if (principal === undefined) return reply;
 
-    const query = (request.query as { q?: string }).q?.trim();
+    // A repeated parameter arrives as an array, which `.trim()` threw on.
+    const raw = (request.query as { q?: unknown }).q;
+    if (Array.isArray(raw)) {
+      return reply.code(400).send(errorBody("invalid_query", "q may be given once.", request.id));
+    }
+    const query = typeof raw === "string" ? raw.trim() : undefined;
     if (query === undefined || query === "") {
       return reply.code(400).send(errorBody("invalid_query", "q is required.", request.id));
     }
@@ -84,7 +89,7 @@ export function registerQueryRoutes(
         // are still found.
         searchTokens(keyring, query),
         parseLimit(request.query),
-        (request.query as { cursor?: string }).cursor
+        cursorParam(request.query)
       );
 
       return await reply.send({
@@ -120,7 +125,7 @@ export function registerQueryRoutes(
         readScope(principal),
         parsed.filters,
         parseLimit(request.query),
-        (request.query as { cursor?: string }).cursor
+        cursorParam(request.query)
       );
 
       return await reply.send({
@@ -184,7 +189,7 @@ export function registerQueryRoutes(
         readScope(principal),
         journeyId,
         parseLimit(request.query),
-        (request.query as { cursor?: string }).cursor
+        cursorParam(request.query)
       );
 
       return await reply.send({
@@ -227,6 +232,17 @@ function parseLimit(query: unknown): number {
   const parsed = raw === undefined ? DEFAULT_LIMIT : Number.parseInt(raw, 10);
   if (Number.isNaN(parsed) || parsed < 1) return DEFAULT_LIMIT;
   return Math.min(parsed, MAX_LIMIT);
+}
+
+/**
+ * The `cursor` parameter, once. A repeated one arrives as an array, and is
+ * refused as a malformed cursor rather than handed to a decoder that expects a
+ * string. Thrown inside each route's try, so `cursorError` answers it.
+ */
+function cursorParam(query: unknown): string | undefined {
+  const cursor = (query as { cursor?: unknown }).cursor;
+  if (cursor === undefined || typeof cursor === "string") return cursor;
+  throw new InvalidCursorError("cursor may be given once.");
 }
 
 function cursorError(error: unknown, reply: FastifyReply, requestId: string): FastifyReply {

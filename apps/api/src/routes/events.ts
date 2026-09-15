@@ -80,9 +80,17 @@ export function registerEventRoutes(
       );
     } catch (error) {
       // Not stored, so counted as rejected, the same as the batch route counts
-      // a storage failure. The error handler answers it.
+      // a storage failure.
       app.metrics.countEvent("rejected");
-      throw error;
+      // Text PostgreSQL cannot store is the client's payload, and is answered
+      // exactly as the batch route answers it. Everything else, a statement
+      // timeout included, is the error handler's.
+      if (isStatementTimeout(error)) throw error;
+      const rejection = storageRejection(error);
+      if (rejection.code !== "unstorable_payload") throw error;
+      return reply
+        .code(rejection.httpStatus)
+        .send(errorBody(rejection.code, rejection.message ?? "", request.id));
     }
     app.metrics.countEvent(eventResult(result));
     if (result.status === "rejected") {
@@ -215,10 +223,16 @@ function eventResult(result: IngestResult): EventResult {
  * so the shared error handler used to publish it verbatim as the API's error
  * code. `22P05` tells an SDK user nothing; naming the likely cause tells them
  * where to look.
+ *
+ * `22P05` is a NUL in jsonb, `22021` a NUL in text, and `22P02` a lone
+ * surrogate in jsonb, which `JSON.stringify` writes as a `\ud800` escape that
+ * PostgreSQL's JSON parser refuses. `22P02` is also a malformed uuid, but every
+ * uuid ingestion writes comes from the authenticated key's own row, so here it
+ * can only be the payload.
  */
 function storageRejection(error: unknown): IngestResult {
   const sqlState = (error as { code?: unknown } | null)?.code;
-  const unsupportedText = sqlState === "22P05" || sqlState === "22021";
+  const unsupportedText = sqlState === "22P05" || sqlState === "22021" || sqlState === "22P02";
 
   return {
     eventId: null,
