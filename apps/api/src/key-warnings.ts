@@ -58,7 +58,7 @@ export async function checkKeysAtBoot(db: Knex, keyring: Keyring, log: WarnLogge
       .join(", ");
     log.warn(
       { unreadable },
-      `${String(found.total)} stored values and API keys cannot be read with the configured keys (${summary}). ` +
+      `Stored data the configured keys cannot read: ${summary}. ` +
         "If ENCRYPTION_KEY_PREVIOUS was removed before rotate:reencrypt finished, restore it and restart. " +
         "Run rotate:status for details."
     );
