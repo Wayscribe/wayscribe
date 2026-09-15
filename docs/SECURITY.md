@@ -243,6 +243,11 @@ Rotation is a grace period rather than a cut-over (ADR-044):
   with that key's id, once per id, and the API logs a count at boot.
 - A replay whose destination headers cannot be decrypted is refused and audited
   as blocked, never sent without them.
+- Decrypted destination headers exist only in memory, for the request being
+  sent. A replay run stores and returns them by name with the value
+  `[REDACTED]`, and audit rows name blocked headers without values. Encrypting
+  a credential on the destination would mean nothing if every run copied it
+  out in the clear, which runs written before migration 015 did.
 
 A suspected leak of `ENCRYPTION_KEY` is a reason to rotate, and a rotation does
 not undo what the leaked key could already read: any dump or replica taken
@@ -279,6 +284,7 @@ V0 replay rules:
 - request and response size limits
 - audit every attempt
 - user reviews payload before send
+- destination header values are sent, never stored with the run or returned
 
 Blocked headers should include at least:
 

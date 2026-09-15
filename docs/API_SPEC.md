@@ -449,7 +449,9 @@ GET /v1/replays/:replayId
 
 Returns:
 
-- sanitized request
+- sanitized request, including `requestHeaders`: every header sent, by name,
+  with `[REDACTED]` as the value of each destination header and blocked name
+  (`REPLAY_SPEC.md` section 8)
 - response status
 - sanitized response
 - timing

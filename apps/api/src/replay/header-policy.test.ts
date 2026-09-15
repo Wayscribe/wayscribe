@@ -69,4 +69,49 @@ describe("applyHeaderPolicy", () => {
       applyHeaderPolicy({ "content-type": "text/plain" }, undefined).headers["content-type"]
     ).toBe("text/plain");
   });
+
+  it("records every destination header by name, without its value", () => {
+    // Destination headers are encrypted at rest. The run row is not, so the
+    // record carries names only while the wire carries the real values.
+    const { headers, recorded } = applyHeaderPolicy(undefined, {
+      "X-Dev-Token": "configured-secret",
+      "Content-Type": "application/vnd.dev+json"
+    });
+
+    expect(headers["x-dev-token"]).toBe("configured-secret");
+    expect(recorded["x-dev-token"]).toBe("[REDACTED]");
+    // A destination value is withheld whatever its name, including one that
+    // would otherwise be recorded as it is.
+    expect(recorded["content-type"]).toBe("[REDACTED]");
+    expect(JSON.stringify(recorded)).not.toContain("configured-secret");
+    expect(Object.keys(recorded).sort()).toEqual(Object.keys(headers).sort());
+  });
+
+  it("records the headers Flight Recorder sets itself as sent", () => {
+    const { recorded } = applyHeaderPolicy({ accept: "application/json" }, undefined);
+    expect(recorded).toEqual({
+      accept: "application/json",
+      "content-type": "application/json",
+      "user-agent": "flight-recorder-replay",
+      "x-flight-replay": "true"
+    });
+  });
+
+  it("records Flight Recorder's own value where it overrode a destination header", () => {
+    const { recorded } = applyHeaderPolicy(undefined, {
+      "User-Agent": "configured-agent",
+      "x-flight-replay": "false"
+    });
+    expect(recorded["user-agent"]).toBe("flight-recorder-replay");
+    expect(recorded["x-flight-replay"]).toBe("true");
+  });
+
+  it("records a blocked name's value as redacted whatever its source", () => {
+    const { recorded } = applyHeaderPolicy(
+      { cookie: "session=recorded" },
+      { authorization: "Bearer configured" }
+    );
+    expect(recorded["authorization"]).toBe("[REDACTED]");
+    expect(recorded["cookie"]).toBeUndefined();
+  });
 });

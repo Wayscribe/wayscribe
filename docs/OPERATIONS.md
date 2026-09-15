@@ -108,6 +108,45 @@ docker run --rm --network flight-recorder_default \
   --entrypoint node flight-recorder-api packages/database/dist/cli.js migrate
 ```
 
+### Migration 015 rewrites every replay run's headers
+
+Replays used to store the headers they sent, including the destination's
+decrypted configured headers, in `replay_runs.request_headers`. Migration
+`015_redact_replay_run_headers.js` replaces every value in that column with
+`[REDACTED]` and keeps the header names. An old row does not say which headers
+came from the destination, so the ones Flight Recorder set itself, such as
+`user-agent`, are redacted too.
+
+It is one `UPDATE` of every `replay_runs` row that has headers, in one
+transaction. The table holds one row per manual replay attempt, so this is
+quick on any realistic installation. A run being written while the migration
+holds that row's lock waits for it to commit.
+
+Migrate, then deploy, still applies, and it leaves a window: between the
+migration committing and the new API taking traffic, the previous API is still
+the one serving, and a replay it sends is stored the old way. Replays are
+manual, so the simplest course is not to send one during the upgrade. If one
+was sent, run the migration's statement again once the new API is serving; it
+is safe to repeat:
+
+```sql
+update replay_runs
+set request_headers = case
+  when jsonb_typeof(request_headers) = 'object' then (
+    select coalesce(jsonb_object_agg(key, to_jsonb('[REDACTED]'::text)), '{}'::jsonb)
+    from jsonb_each(request_headers)
+  )
+  else null
+end
+where request_headers is not null;
+```
+
+Its down migration does nothing: the values cannot be restored, and restoring
+them would be the defect. **The migration does not reach copies.** A dump, WAL
+archive, or replica snapshot taken before it still holds the header values, and
+so do the destination's credentials inside them. If a destination header was a
+credential that matters, rotate it at the destination as well.
+
 ## 5. Projects and keys
 
 A new installation has no projects, and a key belongs to one. Create the project

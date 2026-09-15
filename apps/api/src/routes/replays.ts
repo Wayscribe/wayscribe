@@ -159,7 +159,7 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     }
 
     const configured = await destinationHeaders(app.db, options.keyring, projectId, destination.id);
-    const { headers, blocked } = applyHeaderPolicy(
+    const { headers, recorded, blocked } = applyHeaderPolicy(
       undefined,
       configured.ok ? configured.headers : {}
     );
@@ -172,7 +172,9 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
       method,
       requestPath: body.path,
       requestPayload: event.inputPayload,
-      requestHeaders: headers,
+      // The redacted form. The real values exist only in memory, for the send
+      // below; the run row and every read of it carry names without values.
+      requestHeaders: recorded,
       initiatedBy: "admin"
     });
 

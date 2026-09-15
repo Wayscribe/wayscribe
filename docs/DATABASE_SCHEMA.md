@@ -198,7 +198,7 @@ The event row is immutable after insertion.
 | `method` | text | HTTP method |
 | `request_path` | text | Relative path |
 | `request_payload` | jsonb | Sanitized |
-| `request_headers` | jsonb | Sanitized |
+| `request_headers` | jsonb | Names as sent; destination header values and blocked names stored as `[REDACTED]` |
 | `response_status` | integer | Nullable |
 | `response_payload` | jsonb | Sanitized and size-limited |
 | `duration_ms` | integer | Nullable |
