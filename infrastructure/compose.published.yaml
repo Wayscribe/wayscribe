@@ -73,7 +73,12 @@ services:
       DEFAULT_RETENTION_DAYS: ${DEFAULT_RETENTION_DAYS:-7}
       MAX_EVENT_PAYLOAD_BYTES: "262144"
       ALLOW_FULL_PAYLOAD_CAPTURE: "false"
-      REPLAY_ALLOWED_HOSTS: ${REPLAY_ALLOWED_HOSTS:-localhost,host.docker.internal}
+      # The hosts replay may send to, and the control that keeps replay from
+      # being a request forgery tool: set the few development hosts you replay
+      # to. `localhost` is this container. `host.docker.internal` would reach
+      # every service on the Docker host, so it is not a default
+      # (docs/OPERATIONS.md §9).
+      REPLAY_ALLOWED_HOSTS: ${REPLAY_ALLOWED_HOSTS:-localhost}
       DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-15000}
       # How many reverse proxies in front of the API append to X-Forwarded-For.
       # 0 keys the admin authentication throttle on the socket address and

@@ -260,6 +260,13 @@ changes far less often.
   and ingestion is not throttled. A new setting, `TRUSTED_PROXY_COUNT` (default
   0), on both, honours `X-Forwarded-For` that many hops from the right for
   installations behind a reverse proxy (`docs/OPERATIONS.md` §9).
+- **Replay's default allowlist no longer reaches the Docker host.**
+  `compose.published.yaml` and the Helm chart defaulted `REPLAY_ALLOWED_HOSTS`
+  to `localhost,host.docker.internal`, and `host.docker.internal` reaches every
+  service on the Docker host. Both now default to `localhost`. The development
+  stack and `values-local.yaml` keep `host.docker.internal`. The allowlist is
+  the control that keeps replay from being a request forgery tool, and
+  `docs/OPERATIONS.md` §9 says how to set it; see the upgrade note.
 
 ### Fixed
 
@@ -348,6 +355,12 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
+- **`REPLAY_ALLOWED_HOSTS` defaults to `localhost` in `compose.published.yaml`
+  and the Helm chart.** An installation that replays to `host.docker.internal`
+  without setting the variable must now set it
+  (`REPLAY_ALLOWED_HOSTS=localhost,host.docker.internal`, or
+  `api.replayAllowedHosts`); replays to it are otherwise refused with
+  `host_not_allowed`.
 - **Migration 015 rewrites every replay run row.** It replaces each value in
   `replay_runs.request_headers` with `[REDACTED]` in one transaction (about 2
   seconds for 100,000 runs, blocking updates to existing runs but not inserts,

@@ -35,7 +35,10 @@ api:
   defaultRetentionDays: 7
   maxEventPayloadBytes: 262144
   allowFullPayloadCapture: false
-  replayAllowedHosts: "localhost,host.docker.internal"
+  # REPLAY_ALLOWED_HOSTS: the hosts replay may send to, and the control that
+  # keeps replay from being a request forgery tool. Set the few development
+  # hosts you replay to. `localhost` is the API pod itself (docs/OPERATIONS.md §9).
+  replayAllowedHosts: "localhost"
   # DATABASE_STATEMENT_TIMEOUT_MS: every statement the API runs is cancelled
   # after this long and answered 503 query_timeout. 0 disables it.
   databaseStatementTimeoutMs: 15000

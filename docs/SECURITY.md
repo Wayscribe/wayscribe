@@ -311,6 +311,14 @@ V0 replay rules:
 - user reviews payload before send
 - destination header values are sent, never stored with the run or returned
 
+`REPLAY_ALLOWED_HOSTS` is the load-bearing control. Replay deliberately allows
+private addresses, because every development destination is one, so the list is
+all that limits where an admin token can make the API send a request. A host
+matches exactly, on any port. `host.docker.internal` reaches every service on the
+Docker host, and `localhost` is the API's own container. The published Compose
+file and the Helm chart default to `localhost` alone; a production installation
+should set a minimal explicit list (`OPERATIONS.md` §9).
+
 Blocked headers should include at least:
 
 ```text
@@ -415,6 +423,12 @@ wrote), an environment's time window, or a replay destination
   leaked one must not be able to erase the record of what it sent.
 - Erasure matches the identifier's search tokens under every configured key, so
   it finds journeys still under the previous key during a rotation.
+- Erasure matches an entity id or an alias, which is what search finds, and
+  nothing else. An identifier that appears only inside a payload, such as an
+  email address in `input` that was never recorded as an alias, is not matched,
+  so an erasure request for it deletes nothing and reports zero journeys. Finding those
+  journeys is the operator's work, and deleting each is `delete:journey`
+  (`OPERATIONS.md` §8). An erasure that scans payloads is not built.
 - Deleted rows remain in PostgreSQL's files until vacuum, and in every backup
   taken before the deletion. The documentation says so rather than implying
   otherwise.

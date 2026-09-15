@@ -503,6 +503,19 @@ Journeys recorded after the run started were left alone; run it again with --dry
 | `pnpm delete:range <project> <environment> --before <date> [--after <date>] [--dry-run]` | the environment's journeys whose last event falls in `[after, before)` |
 | `pnpm delete:destination <project> <destination-id>` | a replay destination and every replay run sent to it |
 
+**Erasure finds entity ids and aliases, not payloads.** `delete:identifier`, and
+`POST /v1/erasures`, match the value against journeys' entity ids and aliases,
+which is exactly what search finds. A value that appears only inside a payload is
+not matched: an email address a service put in `input` but never recorded with
+`identify()` or as an alias. An erasure request for such a value deletes nothing,
+and the dry run shows zero journeys. An erasure that scans payloads is not built.
+Until it is, find those journeys another way (the entity id or an alias the
+customer is also known by, the time window and service of their activity, or
+your own application's records), confirm each on its journey page, and delete
+each with `delete:journey <project> <journey-id>` or the journey page's delete
+action. Recording the identifiers a request may name as aliases is what makes
+erasure find them.
+
 Each exits 1 whenever what was asked did not fully happen: an unknown project,
 environment, journey, or destination, a value that is only whitespace, an
 invalid date, a held lock, or a run that stopped part way. A script can rely on
@@ -519,7 +532,8 @@ never prints the value.
 
 **The value you type is still recorded outside Flight Recorder.** It stays in
 your shell's history, and anyone who can list processes on that host sees it in
-`ps` while the command runs. In bash with `HISTCONTROL=ignorespace` (or zsh with
+`ps` while the command runs. The same is true of the API key given to
+`doctor --api-key` (§12), which is a credential rather than an identifier. In bash with `HISTCONTROL=ignorespace` (or zsh with
 `setopt HIST_IGNORE_SPACE`), start the command with a space and it is not saved;
 otherwise remove the line afterwards (`history -d <number>` in bash). Run it on a
 host whose process list only operators can read.
@@ -606,6 +620,41 @@ republish the container ports on `0.0.0.0`.
 The admin token grants project-wide read of every recorded payload. It is a
 single shared secret with no user accounts and no audit of who used it — treat
 it as an operator credential, not a login.
+
+### Replay destinations
+
+Replay makes the API send a recorded payload to a destination an admin
+configured. `REPLAY_ALLOWED_HOSTS` is the control that keeps that from being a
+request forgery tool inside your network: a destination whose host is not in the
+list is refused before anything is sent (ADR-033). It is load-bearing, because
+private addresses are deliberately allowed, since every development destination
+lives in one. Nothing else stands between a leaked admin token and a request to
+any service the API can reach.
+
+- A host matches exactly, on any port. There are no wildcards.
+- `localhost` is the API's own container or pod, including the API port and
+  `METRICS_PORT`.
+- `host.docker.internal` reaches every service listening on the Docker host,
+  not only the one under development: databases, other applications, and
+  anything bound to the host's loopback interface.
+- A Compose or Kubernetes service name reaches that service from inside the
+  network, whether or not it is published.
+
+`compose.published.yaml` and the Helm chart default to `localhost` alone.
+`infrastructure/compose.yaml`, the development and demo stack, allows
+`host.docker.internal` and `demo-integration` so the demo and a service running
+on your machine can be replayed to, and `deploy/helm/values-local.yaml` allows
+`host.docker.internal` for a kind cluster. **A production installation should set
+the list explicitly to the few development hosts it replays to**, and to
+`localhost` or an unused name when it replays to nothing:
+
+```bash
+REPLAY_ALLOWED_HOSTS=billing-dev.internal,orders-staging.internal
+```
+
+An installation that relied on the previous default of
+`localhost,host.docker.internal` in `compose.published.yaml` or the chart must
+now set it.
 
 ### Guessing the admin token
 

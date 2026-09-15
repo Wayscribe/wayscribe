@@ -262,6 +262,8 @@ before it will search. `/projects` is that page.
 
 When Flight Recorder runs in Docker and the destination runs on the host, use the supported host gateway name for the operating system, commonly `host.docker.internal`.
 
+`infrastructure/compose.yaml` allows it. `compose.published.yaml` and the Helm chart do not, because it reaches every service on the Docker host: add it to `REPLAY_ALLOWED_HOSTS` yourself, on a machine where that is acceptable (`OPERATIONS.md` §9).
+
 ### Payload is unexpectedly redacted
 
 Server capture policy may be stricter than SDK configuration. Server policy wins.
