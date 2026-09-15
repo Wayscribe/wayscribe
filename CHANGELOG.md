@@ -373,16 +373,17 @@ changes far less often.
   in a minute, for five minutes; the `401` for an ordinary failure is unchanged
   and ingestion is not throttled. A new setting, `TRUSTED_PROXY_COUNT` (default
   0), on both, honours `X-Forwarded-For` that many hops from the right for
-  installations behind a reverse proxy (`docs/OPERATIONS.md` §9). The limit
-  holds under concurrency: the API admits credentials other than the admin token
-  before verifying them, and the web login checks its lock after reading the
-  form, so a burst of guesses gets exactly five comparisons at either. An IPv6
+  installations behind a reverse proxy (`docs/OPERATIONS.md` §9). The web login
+  checks its lock after reading the form, so a burst of guesses there gets
+  exactly five comparisons; the API counts refusals, so a concurrent burst of bad
+  API keys can have up to its own size looked up before the lock takes effect
+  (the next request is refused). An IPv6
   address counts as its /64, and every spelling of one address (a port, brackets,
   an IPv4-mapped form) counts as that address. Each throttle remembers at most
-  50,000 addresses,
-  forgetting the least recently seen, and sweeps expired entries at most once a
-  minute, so neither memory nor the cost of a failure grows with the number of
-  addresses seen.
+  50,000 addresses, forgetting the one that failed least recently, in a map and a
+  linked list rather than a map's insertion order, and sweeps expired entries at
+  most once a minute, so neither memory nor the cost of a failure grows with the
+  number of addresses or requests seen.
 - **`Authorization: Bearer <token> extra` is refused.** Everything after the
   token was ignored, so the header authenticated as the token alone, for the
   admin token and API keys alike. The header must now be the scheme, one space,

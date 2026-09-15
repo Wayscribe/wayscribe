@@ -1,15 +1,12 @@
-import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { errorBody } from "./admin.js";
-import { AuthThrottle, throttleKey, type Admission } from "./address-throttle.js";
-import { bearerToken } from "./auth.js";
+import { AuthThrottle, throttleKey } from "./address-throttle.js";
 
 export {
   AuthThrottle,
   DEFAULT_THROTTLE,
   MAX_TRACKED_ADDRESSES,
   throttleKey,
-  type Admission,
   type ThrottleOptions
 } from "./address-throttle.js";
 
@@ -20,22 +17,15 @@ export {
  */
 const UNTHROTTLED_ROUTES = new Set(["/v1/events", "/v1/events/batch", "/health", "/ready"]);
 
-/**
- * The longest a request waits for a slot held by attempts being verified. A key
- * lookup takes milliseconds, so a wait this long means the database is stuck,
- * and the request is refused rather than held.
- */
-const MAX_WAIT_MS = 5_000;
-
 declare module "fastify" {
   interface FastifyRequest {
     /**
-     * Report that this request's credential has been verified: `failed` when
-     * it did not authenticate. Releases the throttle slot the request holds, if
-     * any, so a valid key holds one for its lookup and not its whole request.
-     * Called more than once, or for a request holding no slot, it does nothing.
+     * Count this request's credential as refused, against the address it came
+     * from. Call it where the route refuses the credential, before sending the
+     * 401. It does nothing for a request without an `Authorization` header or
+     * on a route the throttle does not cover.
      */
-    settleAuthentication(failed: boolean): void;
+    recordAuthenticationFailure(): void;
   }
 }
 
@@ -71,28 +61,32 @@ export function clientAddress(
 /**
  * Throttle failed authentication on every route that accepts the admin token.
  *
- * A failure is a 401 to a request that presented an `Authorization` header: a
+ * It counts failures only. A failure is a credential the route refused: a
  * wrong admin token, or on a read route a token that is neither the admin token
- * nor a valid API key. A request with no header guesses nothing and is not
- * counted. The 401 itself is unchanged.
+ * nor a valid API key. The route records it with
+ * `request.recordAuthenticationFailure()` at the moment it refuses, and the 401
+ * it sends is unchanged. A request with no `Authorization` header guesses
+ * nothing and is not counted, and a database error while a key is looked up is
+ * a 500, not a refusal, and is not counted either.
  *
- * The exact admin token is recognised here, synchronously and in constant time,
- * and is never counted or held back, so the web app's many concurrent reads from
- * one address are not limited. Any other credential is admitted before it is
- * verified (`AuthThrottle.admit`): an address may have at most five failures in
- * the window and attempts being verified together, which holds the limit under
- * concurrency. A slot is held only while the credential is checked: the read
- * routes call `request.settleAuthentication` the moment the key lookup answers,
- * and the admin routes, which compare synchronously, answer a refusal at once.
- * A request that finds every slot taken by attempts being checked waits for one,
- * up to `MAX_WAIT_MS` and `MAX_WAITING_PER_ADDRESS` deep, rather than being
- * refused, so fifty concurrent reads with a valid key are fifty answers, five
- * lookups at a time.
+ * Before any credential is checked, a request that presents one from an
+ * address with five failures inside the window is answered 429, with
+ * `Retry-After` set to what remains of the lock. The admin token is refused
+ * the same way, so a guesser learns nothing from which answer is not a 429.
  *
- * Once an address reaches the limit, every request from it that presents
- * credentials on those routes is refused with 429, the right token included;
- * otherwise a guesser would keep guessing and look for the one answer that is
- * not a 429.
+ * The limit is exact for requests that arrive one after another. It is not
+ * exact under concurrency, and is not meant to be: a request that passed the
+ * lock check before the fifth failure was recorded still has its credential
+ * checked. On the admin-only routes the comparison follows the check with no
+ * I/O between them, so only requests already inside that gap slip through. On
+ * the read routes an API key is looked up in the database, so a burst sent all
+ * at once can have up to its own concurrency checked before the lock lands.
+ * That is acceptable because guessing is hopeless either way: the admin token
+ * is at least 32 characters and an API key carries 192 random bits, and each
+ * extra guess costs the server one indexed query. The next request after the
+ * burst is refused. Holding the limit exact would take reserving and queueing
+ * attempts in flight, which an earlier version did, at the cost of liveness
+ * bugs on the authentication path.
  *
  * Success does not clear the count. On the read routes a valid API key also
  * succeeds, and clearing on it would let a key holder reset the budget between
@@ -100,128 +94,53 @@ export function clientAddress(
  */
 export function registerAuthThrottle(
   app: FastifyInstance,
-  options: { adminToken: string; trustedProxyCount: number },
+  options: { trustedProxyCount: number },
   throttle = new AuthThrottle()
 ): void {
-  app.decorateRequest(
-    "settleAuthentication",
-    function settleAuthentication(this: FastifyRequest, failed: boolean): void {
-      settle(this, failed);
-    }
-  );
-
-  const throttled = (url: string | undefined): boolean =>
-    url !== undefined && !UNTHROTTLED_ROUTES.has(url);
+  const throttled = (request: FastifyRequest): boolean => {
+    const url = request.routeOptions.url;
+    return (
+      url !== undefined &&
+      !UNTHROTTLED_ROUTES.has(url) &&
+      request.headers.authorization !== undefined
+    );
+  };
   const addressOf = (request: FastifyRequest): string =>
     clientAddress(
       request.raw.socket.remoteAddress,
       request.headers["x-forwarded-for"],
       options.trustedProxyCount
     );
-  /** Requests holding an admitted slot, and the key it was taken under. */
-  const admitted = new WeakMap<FastifyRequest, string>();
 
-  const refuse = (request: FastifyRequest, retryAfterMs: number) =>
-    ({
-      status: 429,
-      retryAfter: String(Math.ceil(retryAfterMs / 1000)),
-      body: errorBody(
-        "too_many_attempts",
-        "Too many failed authentication attempts from this address. Try again later.",
-        request.id
-      )
-    }) as const;
+  app.decorateRequest(
+    "recordAuthenticationFailure",
+    function recordAuthenticationFailure(this: FastifyRequest): void {
+      if (!throttled(this)) return;
+      const address = addressOf(this);
+      const now = Date.now();
+      throttle.recordFailure(address, now);
+      if (throttle.lockedFor(address, now) > 0) {
+        app.log.warn(
+          { remoteAddress: address, route: this.routeOptions.url },
+          "failed authentication limit reached; refusing this address for a while"
+        );
+      }
+    }
+  );
 
   app.addHook("onRequest", async (request, reply) => {
-    if (!throttled(request.routeOptions.url)) return;
-    const header = request.headers.authorization;
-    if (header === undefined) return;
-
-    const address = addressOf(request);
-    const now = Date.now();
-    let refusal: ReturnType<typeof refuse> | undefined;
-
-    if (presentsAdminToken(header, options.adminToken)) {
-      const waitMs = throttle.lockedFor(address, now);
-      if (waitMs > 0) refusal = refuse(request, waitMs);
-    } else {
-      const admission = await admitWhenFree(request, address, now);
-      if (admission.ok) admitted.set(request, address);
-      else refusal = refuse(request, admission.retryAfterMs);
-    }
-
-    if (refusal === undefined) return;
-    await reply.code(refusal.status).header("retry-after", refusal.retryAfter).send(refusal.body);
-  });
-
-  /**
-   * Admit `address`, waiting for a slot while every one is held by an attempt
-   * being verified. A lock, a full queue, a closed connection, or the deadline
-   * ends the wait with a refusal.
-   */
-  const admitWhenFree = async (
-    request: FastifyRequest,
-    address: string,
-    now: number
-  ): Promise<Admission> => {
-    const deadline = now + MAX_WAIT_MS;
-    let admission = throttle.admit(address, now);
-    while (!admission.ok && admission.busy) {
-      const remaining = deadline - Date.now();
-      const wait = remaining > 0 ? throttle.waitForSlot(address) : undefined;
-      if (wait === undefined) return admission;
-      const freed = await Promise.race([
-        wait.freed.then(() => true),
-        new Promise<false>((resolve) => {
-          const timer = setTimeout(() => {
-            resolve(false);
-          }, remaining);
-          void wait.freed.then(() => {
-            clearTimeout(timer);
-          });
-        })
-      ]);
-      if (!freed) {
-        wait.cancel();
-        return admission;
-      }
-      if (request.raw.destroyed) return { ok: false, retryAfterMs: 1_000, busy: false };
-      admission = throttle.admit(address, Date.now());
-    }
-    return admission;
-  };
-
-  const settle = (request: FastifyRequest, failed: boolean): void => {
-    const address = admitted.get(request);
-    if (address === undefined) return;
-    admitted.delete(request);
-    const now = Date.now();
-    throttle.settle(address, now, failed);
-    if (failed && throttle.lockedFor(address, now) > 0) {
-      app.log.warn(
-        { remoteAddress: address, route: request.routeOptions.url },
-        "failed authentication limit reached; refusing this address for a while"
+    if (!throttled(request)) return;
+    const waitMs = throttle.lockedFor(addressOf(request), Date.now());
+    if (waitMs === 0) return;
+    await reply
+      .code(429)
+      .header("retry-after", String(Math.ceil(waitMs / 1000)))
+      .send(
+        errorBody(
+          "too_many_attempts",
+          "Too many failed authentication attempts from this address. Try again later.",
+          request.id
+        )
       );
-    }
-  };
-
-  // Whatever did not settle at verification settles here: the admin routes'
-  // synchronous refusals, and anything that answered before authenticating.
-  app.addHook("onResponse", async (request, reply) => {
-    settle(request, reply.statusCode === 401);
   });
-  // A client that disconnects before the answer still frees its slot.
-  app.addHook("onRequestAbort", (request, done) => {
-    settle(request, false);
-    done();
-  });
-}
-
-/** Whether the header is exactly `Bearer <admin token>`, compared in constant time. */
-function presentsAdminToken(header: string, adminToken: string): boolean {
-  const presented = bearerToken(header);
-  if (presented === undefined) return false;
-  const left = Buffer.from(presented, "utf8");
-  const right = Buffer.from(adminToken, "utf8");
-  return left.length === right.length && timingSafeEqual(left, right);
 }

@@ -21,68 +21,46 @@ export const DEFAULT_THROTTLE: ThrottleOptions = {
  * The most addresses either throttle remembers at once.
  *
  * Each costs about 400 bytes; 50,000 measured 19.5 MB of heap. Past it the
- * least recently seen address is forgotten, which lets an attacker who controls
- * more than 50,000 distinct IPv4 addresses or IPv6 /64s, and uses them all
- * within a window, reset one address's count. Someone with that many
+ * address that failed least recently is forgotten, which lets an attacker who
+ * controls more than 50,000 distinct IPv4 addresses or IPv6 /64s, and uses them
+ * all within a window, reset one address's count. Someone with that many
  * addresses has no need to reset one.
  */
 export const MAX_TRACKED_ADDRESSES = 50_000;
 
-/**
- * Requests from one address that may wait for a slot at once. Past it a
- * request is refused straight away, so a burst cannot park unbounded promises.
- */
-export const MAX_WAITING_PER_ADDRESS = 64;
-
 interface Entry {
   readonly address: string;
-  /** Failures inside the window, oldest first; never more than `maxFailures`. */
+  /** Failures inside the window, oldest first; fewer than `maxFailures`. */
   failures: number[];
-  /** Attempts admitted and not yet settled. */
-  pending: number;
   /** 0 when not locked. */
   lockedUntil: number;
-  /** Requests waiting for a slot, woken in order. */
-  waiters: (() => void)[];
   /** Neighbours in recency order: `older` is towards eviction. */
   older: Entry | undefined;
   newer: Entry | undefined;
 }
 
-export type Admission =
-  | { ok: true }
-  /** `busy`: every slot is held by an attempt in flight, and one may free in a moment. */
-  | { ok: false; retryAfterMs: number; busy: boolean };
-
-/** A place in an address's queue for a slot. */
-export interface SlotWait {
-  /** Resolves when a slot may have freed, or the address was locked or forgotten. */
-  readonly freed: Promise<void>;
-  /** Leave the queue without waiting any longer. */
-  cancel(): void;
-}
-
 /**
  * Source addresses that have failed authentication too often, and for how long.
+ *
+ * It counts failures and nothing else: five inside the window lock the address
+ * for the cooldown. It does not count, reserve, or queue attempts in flight.
  *
  * In process, like the web login's limiter, and for the same reason: one
  * instance is the installation this is written for, and closing the hole there
  * is worth more than documenting a proxy. Keys are `clientAddress`'s.
  *
  * Memory is proportional to the addresses held, never to the requests
- * answered. Entries sit in a `Map` for lookup and in a doubly linked list for
- * recency: seeing an address again moves its entry to the newest end by
- * changing four references, and the `Map` is written only when an address is
- * added or forgotten. At `maxTracked` the oldest entry is dropped from the end
- * of the list, which needs no iteration. The previous version kept recency in
- * the `Map`'s insertion order, deleting and re-inserting on every request and
- * keeping one iterator alive to find the oldest key; V8 retains every table a
- * `Map` rehashes into while an iterator over it lives, and the constant
- * re-insertion rehashed it constantly, so the heap grew by about 150 MB per
- * million requests from a single locked address and never came back.
+ * answered. Entries sit in a `Map` for lookup and in a doubly linked list
+ * ordered by their latest failure: a failure moves its entry to the newest end
+ * by changing references, the `Map` is written only when an address is added
+ * or forgotten, and at `maxTracked` the oldest entry is dropped from the end of
+ * the list without iterating anything. `lockedFor` only reads. Expired entries
+ * are swept by walking the list at most once per window.
  *
- * Expired entries are swept by walking the list at most once per window, so no
- * single request pays for the whole of it.
+ * An earlier version kept recency in the `Map`'s insertion order with a
+ * long-lived iterator; V8 retains every table a `Map` rehashes into while an
+ * iterator over it lives, and the heap grew by about 150 MB per million
+ * requests from one locked address.
  */
 export class AuthThrottle {
   private readonly options: ThrottleOptions;
@@ -115,77 +93,10 @@ export class AuthThrottle {
     return entry === undefined || entry.lockedUntil <= now ? 0 : entry.lockedUntil - now;
   }
 
-  /**
-   * Reserve one attempt for `address` before its credentials are verified.
-   *
-   * Refused while the address is locked, and while its failures in the window
-   * plus the attempts in flight reach the limit (`busy`). Verification awaits
-   * the database, so counting only answered failures let hundreds of
-   * concurrent guesses through before the first came back; counting attempts
-   * in flight holds the limit however many arrive at once. Every admitted
-   * attempt must be settled, and should be as soon as its credential is
-   * verified, so a slot is held for the lookup and not the whole request.
-   */
-  public admit(address: string, now: number): Admission {
-    this.sweep(now);
-    const entry = this.touch(address);
-    if (entry.lockedUntil > now) {
-      return { ok: false, retryAfterMs: entry.lockedUntil - now, busy: false };
-    }
-    this.expire(entry, now);
-    if (entry.failures.length + entry.pending >= this.options.maxFailures) {
-      const oldest = entry.failures[0];
-      if (entry.pending > 0) return { ok: false, retryAfterMs: 1_000, busy: true };
-      // Only failures hold the slots: the soonest one frees is when the oldest
-      // leaves the window. Locking at `maxFailures` means this is rare.
-      const retryAfterMs =
-        oldest === undefined ? 1_000 : Math.max(1_000, oldest + this.options.windowMs - now);
-      return { ok: false, retryAfterMs, busy: false };
-    }
-    entry.pending += 1;
-    return { ok: true };
-  }
-
-  /**
-   * Wait in `address`'s queue for a slot, after `admit` answered `busy`.
-   *
-   * Undefined when the queue is full. The caller admits again once `freed`
-   * resolves, and cancels if it stops waiting first.
-   */
-  public waitForSlot(address: string): SlotWait | undefined {
-    const entry = this.entries.get(address);
-    if (entry === undefined || entry.waiters.length >= MAX_WAITING_PER_ADDRESS) return undefined;
-    let wake: () => void = () => undefined;
-    const freed = new Promise<void>((resolve) => {
-      wake = resolve;
-    });
-    entry.waiters.push(wake);
-    return {
-      freed,
-      cancel: () => {
-        const at = entry.waiters.indexOf(wake);
-        if (at !== -1) entry.waiters.splice(at, 1);
-      }
-    };
-  }
-
-  /** Settle an admitted attempt: a failure is counted, a success counts nothing. */
-  public settle(address: string, now: number, failed: boolean): void {
-    const entry = this.touch(address);
-    entry.pending = Math.max(0, entry.pending - 1);
-    if (failed) this.fail(entry, now);
-    this.wake(entry, now);
-  }
-
-  /** Count a failure that was not admitted through `admit`. */
+  /** Count a refused credential from `address`, locking it at the limit. */
   public recordFailure(address: string, now: number): void {
     this.sweep(now);
     const entry = this.touch(address);
-    this.fail(entry, now);
-    this.wake(entry, now);
-  }
-
-  private fail(entry: Entry, now: number): void {
     this.expire(entry, now);
     entry.failures.push(now);
     if (entry.failures.length >= this.options.maxFailures) {
@@ -194,21 +105,14 @@ export class AuthThrottle {
     }
   }
 
-  /** Wake as many waiters as there are slots, or all of them when there is nothing to wait for. */
-  private wake(entry: Entry, now: number): void {
-    if (entry.waiters.length === 0) return;
-    const locked = entry.lockedUntil > now;
-    const free = locked
-      ? entry.waiters.length
-      : this.options.maxFailures - entry.failures.length - entry.pending;
-    for (const waiter of entry.waiters.splice(0, Math.max(0, free))) waiter();
-  }
-
   /** The entry for `address`, made the newest, evicting the oldest when full. */
   private touch(address: string): Entry {
     const existing = this.entries.get(address);
     if (existing !== undefined) {
-      this.moveToNewest(existing);
+      if (existing !== this.newest) {
+        this.unlink(existing);
+        this.link(existing);
+      }
       return existing;
     }
     while (this.entries.size >= this.maxTracked && this.oldest !== undefined) {
@@ -217,22 +121,16 @@ export class AuthThrottle {
     const created: Entry = {
       address,
       failures: [],
-      pending: 0,
       lockedUntil: 0,
-      waiters: [],
-      older: this.newest,
+      older: undefined,
       newer: undefined
     };
-    if (this.newest === undefined) this.oldest = created;
-    else this.newest.newer = created;
-    this.newest = created;
+    this.link(created);
     this.entries.set(address, created);
     return created;
   }
 
-  private moveToNewest(entry: Entry): void {
-    if (entry === this.newest) return;
-    this.unlink(entry);
+  private link(entry: Entry): void {
     entry.older = this.newest;
     entry.newer = undefined;
     if (this.newest === undefined) this.oldest = entry;
@@ -249,11 +147,9 @@ export class AuthThrottle {
     entry.newer = undefined;
   }
 
-  /** Drop an entry. Anyone waiting on it is woken, admits again, and starts a new one. */
   private forget(entry: Entry): void {
     this.unlink(entry);
     this.entries.delete(entry.address);
-    for (const waiter of entry.waiters.splice(0)) waiter();
   }
 
   private expire(entry: Entry, now: number): void {
@@ -263,7 +159,7 @@ export class AuthThrottle {
     if (aged > 0) entry.failures.splice(0, aged);
   }
 
-  /** Drop entries holding nothing: no failure in the window, no lock, nothing in flight or waiting. */
+  /** Drop entries with no failure in the window and no lock in force. */
   private sweep(now: number): void {
     if (now - this.lastSweep < this.options.windowMs) return;
     this.lastSweep = now;
@@ -271,14 +167,7 @@ export class AuthThrottle {
     while (entry !== undefined) {
       const next = entry.newer;
       this.expire(entry, now);
-      if (
-        entry.failures.length === 0 &&
-        entry.pending === 0 &&
-        entry.waiters.length === 0 &&
-        entry.lockedUntil <= now
-      ) {
-        this.forget(entry);
-      }
+      if (entry.failures.length === 0 && entry.lockedUntil <= now) this.forget(entry);
       entry = next;
     }
   }

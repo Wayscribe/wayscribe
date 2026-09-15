@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { MAX_WAITING_PER_ADDRESS } from "./address-throttle.js";
 import { AuthThrottle, MAX_TRACKED_ADDRESSES, clientAddress } from "./auth-throttle.js";
 
 const NOW = 1_800_000_000_000;
@@ -67,97 +66,6 @@ describe("AuthThrottle", () => {
     expect(throttle.lockedFor("a", NOW + options.windowMs + 1)).toBe(0);
   });
 
-  describe("admitting attempts before they are verified", () => {
-    it("admits no more unverified attempts than failures remain, however many arrive at once", () => {
-      // Verification awaits the database, so failures counted only when they
-      // came back let hundreds of concurrent guesses through before the first
-      // was recorded.
-      const throttle = new AuthThrottle(options);
-      const admitted = Array.from({ length: 50 }, () => throttle.admit("a", NOW)).filter(
-        (result) => result.ok
-      );
-      expect(admitted).toHaveLength(options.maxFailures);
-
-      for (let i = 0; i < options.maxFailures; i += 1) throttle.settle("a", NOW, true);
-      expect(throttle.lockedFor("a", NOW)).toBe(options.cooldownMs);
-      expect(throttle.admit("a", NOW).ok).toBe(false);
-    });
-
-    it("gives back a slot when the attempt succeeds, and counts nothing for it", () => {
-      const throttle = new AuthThrottle(options);
-      for (let round = 0; round < 20; round += 1) {
-        expect(throttle.admit("a", NOW).ok).toBe(true);
-        throttle.settle("a", NOW, false);
-      }
-      expect(throttle.lockedFor("a", NOW)).toBe(0);
-    });
-
-    it("counts earlier failures against what it admits", () => {
-      const throttle = new AuthThrottle(options);
-      throttle.recordFailure("a", NOW);
-      throttle.recordFailure("a", NOW);
-      expect(throttle.admit("a", NOW).ok).toBe(true);
-      const refused = throttle.admit("a", NOW);
-      expect(refused.ok).toBe(false);
-      expect(refused.ok ? 0 : refused.retryAfterMs).toBeGreaterThan(0);
-    });
-  });
-
-  describe("waiting for a slot", () => {
-    const settled = async (promise: Promise<void>): Promise<boolean> => {
-      let done = false;
-      void promise.then(() => {
-        done = true;
-      });
-      await new Promise((resolve) => setImmediate(resolve));
-      return done;
-    };
-
-    it("says busy, not locked, while attempts in flight hold every slot", () => {
-      const throttle = new AuthThrottle(options);
-      for (let i = 0; i < options.maxFailures; i += 1) throttle.admit("a", NOW);
-      const refused = throttle.admit("a", NOW);
-      expect(refused).toEqual({ ok: false, retryAfterMs: 1_000, busy: true });
-    });
-
-    it("wakes one waiter for each slot a settled attempt frees", async () => {
-      const throttle = new AuthThrottle(options);
-      for (let i = 0; i < options.maxFailures; i += 1) throttle.admit("a", NOW);
-      const first = throttle.waitForSlot("a");
-      const second = throttle.waitForSlot("a");
-      if (first === undefined || second === undefined) throw new Error("no place in the queue");
-
-      throttle.settle("a", NOW, false);
-      expect(await settled(first.freed)).toBe(true);
-      expect(await settled(second.freed)).toBe(false);
-      expect(throttle.admit("a", NOW).ok).toBe(true);
-    });
-
-    it("wakes every waiter when the address locks, and each is then refused", async () => {
-      const throttle = new AuthThrottle(options);
-      for (let i = 0; i < options.maxFailures; i += 1) throttle.admit("a", NOW);
-      const waits = Array.from({ length: 10 }, () => throttle.waitForSlot("a"));
-      for (let i = 0; i < options.maxFailures; i += 1) throttle.settle("a", NOW, true);
-      for (const wait of waits) {
-        if (wait === undefined) throw new Error("no place in the queue");
-        expect(await settled(wait.freed)).toBe(true);
-      }
-      expect(throttle.admit("a", NOW)).toMatchObject({ ok: false, busy: false });
-    });
-
-    it("keeps no more than a bounded queue, and lets a waiter leave it", () => {
-      const throttle = new AuthThrottle(options);
-      for (let i = 0; i < options.maxFailures; i += 1) throttle.admit("a", NOW);
-      const waits = Array.from({ length: MAX_WAITING_PER_ADDRESS }, () =>
-        throttle.waitForSlot("a")
-      );
-      expect(waits.every((wait) => wait !== undefined)).toBe(true);
-      expect(throttle.waitForSlot("a")).toBeUndefined();
-      waits[0]?.cancel();
-      expect(throttle.waitForSlot("a")).toBeDefined();
-    });
-  });
-
   describe("under many addresses", () => {
     const address = (i: number): string =>
       `2001:db8:${(i >>> 16).toString(16)}:${(i & 0xffff).toString(16)}::/64`;
@@ -172,7 +80,7 @@ describe("AuthThrottle", () => {
       expect(largest).toBeLessThanOrEqual(MAX_TRACKED_ADDRESSES);
     });
 
-    it("evicts the least recently seen address first", () => {
+    it("evicts the address that failed least recently first", () => {
       const throttle = new AuthThrottle(options, 3);
       throttle.recordFailure("old", NOW);
       throttle.recordFailure("kept", NOW);

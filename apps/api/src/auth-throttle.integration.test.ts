@@ -105,77 +105,99 @@ describe("failed admin authentication is throttled per source address", () => {
     await app.close();
   });
 
-  describe("under concurrent guesses", () => {
-    const tally = (statuses: number[]): Record<string, number> =>
-      statuses.reduce<Record<string, number>>((counts, status) => {
-        counts[String(status)] = (counts[String(status)] ?? 0) + 1;
-        return counts;
-      }, {});
+  const tally = (statuses: number[]): Record<string, number> =>
+    statuses.reduce<Record<string, number>>((counts, status) => {
+      counts[String(status)] = (counts[String(status)] ?? 0) + 1;
+      return counts;
+    }, {});
 
-    it("answers exactly five with 401 on a read route, however many arrive at once", async () => {
-      // The 401 on a read route waits on an API key lookup, and failures
-      // were counted when the answer went out: 175 to 452 concurrent guesses
-      // were compared before the first was recorded.
-      const app = appWith();
-      const responses = await Promise.all(
-        Array.from({ length: 300 }, (_, i) =>
-          attempt(app, `fr_${String(i).padStart(32, "A")}`, "203.0.113.60")
-        )
-      );
-      expect(tally(responses.map((r) => r.statusCode))).toEqual({ "401": 5, "429": 295 });
-      await app.close();
-    });
-
-    it("answers exactly five with 401 on an admin route", async () => {
-      const app = appWith();
-      const responses = await Promise.all(
-        Array.from({ length: 300 }, () =>
-          attempt(app, WRONG_TOKEN, "203.0.113.61", { method: "DELETE", url: "/v1/journeys/jrn_x" })
-        )
-      );
-      expect(tally(responses.map((r) => r.statusCode))).toEqual({ "401": 5, "429": 295 });
-      await app.close();
-    });
-
-    it("never holds back the admin token's own concurrent reads", async () => {
-      // The web app reads from one address with the admin token, many requests
-      // at once; admitting only five would break a journey page under load.
-      const app = appWith();
-      const responses = await Promise.all(
-        Array.from({ length: 100 }, () => attempt(app, ADMIN_TOKEN, "203.0.113.62"))
-      );
-      expect(tally(responses.map((r) => r.statusCode))).toEqual({ "404": 100 });
-      await app.close();
-    });
-
-    it("serves 50 concurrent valid-key reads from one address", async () => {
-      // Five slots per address, each held for the whole request, answered the
-      // sixth concurrent read with 429: 20 at once got 5 answers and 15
-      // refusals, and behind a proxy without TRUSTED_PROXY_COUNT every reader
-      // shared those five.
-      const app = appWith();
-      for (const url of [
-        "/v1/search?q=anything",
-        "/v1/journeys?since=2026-01-01T00:00:00Z",
-        "/v1/journeys/jrn_x"
-      ]) {
-        const responses = await Promise.all(
-          Array.from({ length: 50 }, () => attempt(app, apiKey, "203.0.113.64", { url }))
-        );
-        const expected = url === "/v1/journeys/jrn_x" ? "404" : "200";
-        expect(tally(responses.map((r) => r.statusCode)), url).toEqual({ [expected]: 50 });
+  it("answers exactly five sequential guesses with 401 and the sixth with 429, on each kind of route", async () => {
+    const app = appWith();
+    const kinds: [string, string, { method?: "GET" | "DELETE"; url: string }][] = [
+      [
+        "admin route, wrong admin token",
+        WRONG_TOKEN,
+        { method: "DELETE", url: "/v1/journeys/jrn_x" }
+      ],
+      ["projects, wrong admin token", WRONG_TOKEN, { url: "/v1/projects" }],
+      ["read route, wrong admin token", WRONG_TOKEN, { url: "/v1/journeys/jrn_x" }],
+      ["read route, unknown API key", `fr_${"B".repeat(32)}`, { url: "/v1/search?q=x" }]
+    ];
+    let source = 70;
+    for (const [kind, token, route] of kinds) {
+      source += 1;
+      const address = `203.0.113.${String(source)}`;
+      const statuses: number[] = [];
+      for (let i = 0; i < 6; i += 1) {
+        statuses.push((await attempt(app, token, address, route)).statusCode);
       }
-      await app.close();
-    });
+      expect(statuses, kind).toEqual([401, 401, 401, 401, 401, 429]);
+    }
+    await app.close();
+  });
 
-    it("frees a valid API key's slot once it is answered", async () => {
-      const app = appWith();
-      for (let i = 0; i < 20; i += 1) {
-        const response = await attempt(app, apiKey, "203.0.113.63", { url: "/v1/journeys/jrn_x" });
-        expect(response.statusCode).toBe(404);
-      }
-      await app.close();
-    });
+  it("bounds a concurrent burst of bad API keys, and refuses the next request after it", async () => {
+    // Failures are counted, not attempts in flight: every request in a burst
+    // that passed the lock check before the fifth failure was recorded still
+    // has its key looked up. That is at most the burst's own concurrency, and
+    // the lock holds from then on.
+    const app = appWith();
+    const BURST = 50;
+    const responses = await Promise.all(
+      Array.from({ length: BURST }, (_, i) =>
+        attempt(app, `fr_${String(i).padStart(32, "C")}`, "203.0.113.60")
+      )
+    );
+    const counts = tally(responses.map((r) => r.statusCode));
+    expect(Object.keys(counts).every((status) => status === "401" || status === "429")).toBe(true);
+    expect(counts["401"] ?? 0).toBeGreaterThanOrEqual(5);
+    expect(counts["401"] ?? 0).toBeLessThanOrEqual(BURST);
+
+    const next = await attempt(app, apiKey, "203.0.113.60", { url: "/v1/journeys/jrn_x" });
+    expect(next.statusCode).toBe(429);
+    await app.close();
+  });
+
+  it("never holds back the admin token's own concurrent reads", async () => {
+    // The web app reads from one address with the admin token, many requests
+    // at once.
+    const app = appWith();
+    const responses = await Promise.all(
+      Array.from({ length: 100 }, () => attempt(app, ADMIN_TOKEN, "203.0.113.62"))
+    );
+    expect(tally(responses.map((r) => r.statusCode))).toEqual({ "404": 100 });
+    await app.close();
+  });
+
+  it("serves 50 concurrent valid-key reads from one address", async () => {
+    // A version that reserved a slot per attempt in flight answered the sixth
+    // concurrent read with 429: 20 at once got 5 answers and 15 refusals.
+    const app = appWith();
+    for (const url of [
+      "/v1/search?q=anything",
+      "/v1/journeys?since=2026-01-01T00:00:00Z",
+      "/v1/journeys/jrn_x"
+    ]) {
+      const responses = await Promise.all(
+        Array.from({ length: 50 }, () => attempt(app, apiKey, "203.0.113.64", { url }))
+      );
+      const expected = url === "/v1/journeys/jrn_x" ? "404" : "200";
+      expect(tally(responses.map((r) => r.statusCode)), url).toEqual({ [expected]: 50 });
+    }
+    await app.close();
+  });
+
+  it("does not count a database error while a key is looked up", async () => {
+    // A 500 is the server's failure, not a refused credential: an outage must
+    // not lock out every reader.
+    const broken = knex(createKnexConfig("postgresql://nobody:nothing@127.0.0.1:1/none"));
+    const app = buildApp({ db: broken, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    for (let i = 0; i < 8; i += 1) {
+      const response = await attempt(app, apiKey, "203.0.113.65", { url: "/v1/search?q=x" });
+      expect(response.statusCode).toBe(500);
+    }
+    await app.close();
+    await broken.destroy();
   });
 
   it("does not count ingestion's refusals, and never throttles ingestion", async () => {

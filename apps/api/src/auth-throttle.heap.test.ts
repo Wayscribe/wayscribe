@@ -42,35 +42,31 @@ function heapLeftBehind(scenario: string): number {
  * The throttle's memory is proportional to the addresses it holds, however many
  * requests it answers.
  *
- * It was not. A Map iterator kept across evictions made V8 keep every hash
- * table the Map had rehashed into while the iterator lived, and every touch
- * deleted and re-inserted its key, so the Map rehashed constantly: one locked
- * address sending `Bearer wrong` 600,000 times took the running API from 27.7
- * MB of heap to 117.6 MB, where it stayed, and valid API-key reads leaked about
- * 176 bytes each.
+ * An earlier version was not. A Map iterator kept across evictions made V8 keep
+ * every hash table the Map had rehashed into while the iterator lived, and
+ * every request deleted and re-inserted its key, so the Map rehashed
+ * constantly: one locked address sending `Bearer wrong` 600,000 times took the
+ * running API from 27.7 MB of heap to 117.6 MB, where it stayed.
  */
 describe("the authentication throttle's memory", () => {
-  it("stays bounded across 2,000,000 refused attempts from one locked address", () => {
+  it("stays bounded across 2,000,000 failures from one address", () => {
     const grown = heapLeftBehind(`
       const throttle = new AuthThrottle();
-      for (let i = 0; i < 5; i += 1) {
-        throttle.admit("203.0.113.9", NOW);
-        throttle.settle("203.0.113.9", NOW, true);
-      }
+      for (let i = 0; i < 2_000_000; i += 1) throttle.recordFailure("203.0.113.9", NOW);
       if (throttle.lockedFor("203.0.113.9", NOW) === 0) throw new Error("not locked");
-      for (let i = 0; i < 2_000_000; i += 1) throttle.admit("203.0.113.9", NOW);
       return throttle;
     `);
     expect(grown, `${grown.toFixed(1)} MB`).toBeLessThan(BOUND_MB);
   }, 120_000);
 
-  it("stays bounded across 2,000,000 verified reads from a few addresses", () => {
+  it("stays bounded across 2,000,000 lock checks and failures from a few addresses", () => {
     const grown = heapLeftBehind(`
       const throttle = new AuthThrottle();
       for (let i = 0; i < 2_000_000; i += 1) {
         const address = "10.0.0." + (i % 3);
-        if (!throttle.admit(address, NOW).ok) throw new Error("refused");
-        throttle.settle(address, NOW, false);
+        throttle.lockedFor(address, NOW + i);
+        // Short of the limit within each window, so none of them locks.
+        if (i % 100_000 === 0) throttle.recordFailure(address, NOW + i);
       }
       return throttle;
     `);

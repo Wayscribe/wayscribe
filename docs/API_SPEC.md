@@ -93,19 +93,20 @@ cancelled is refused on its own with `query_timeout` and `httpStatus` 503
 
 Every route that accepts the admin token (all but ingestion and the health
 checks) answers `429` with code `too_many_attempts` and a `Retry-After` header,
-in seconds, to a source address that has failed authentication five times within
-a minute, for five minutes, whatever token it presents. The failures themselves
-are the ordinary `401` (`docs/OPERATIONS.md` §9).
+in seconds, to a source address that has had five credentials refused within a
+minute, for five minutes, whatever token it presents. The refusals themselves
+are the ordinary `401` (`docs/OPERATIONS.md` §9). Only refused credentials
+count: a request with no `Authorization` header does not, and neither does a
+`500` from a database error while a key is looked up.
 
-Credentials other than the admin token are counted before they are verified: an
-address has five slots, shared by its failures in the last minute and the
-credentials being checked at that moment. A slot is held only for the check, not
-for the rest of the request. A request that arrives while every slot is held by
-a check waits for one, up to 5 seconds and 64 requests deep per address, so
-concurrent reads with a valid key are all answered, five key lookups at a time.
-Past that depth or that wait it is `429` with `Retry-After: 1`. Concurrent
-guesses therefore get exactly five `401`s, and every other request from the
-address is `429` once they have failed.
+The lock is checked before any credential. Sent one after another, a sixth
+guess is always `429`. Sent at once, requests that passed the check before the
+fifth refusal was recorded still have their credential checked: on the
+admin-only routes the comparison follows the check without waiting on anything,
+while on the read routes an API key is looked up in the database, so a burst can
+have up to its own concurrency checked before the lock takes effect. Every
+request after that is `429`. Reads with a valid key are never held back, however
+many arrive at once.
 
 An unexpected failure is `500` with code `internal_error` and a generic message.
 The code is never the database's own: a PostgreSQL SQLSTATE such as `22P02` is

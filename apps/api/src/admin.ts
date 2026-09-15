@@ -36,6 +36,7 @@ export function adminGuard(app: FastifyInstance, adminToken: string): AdminGuard
       // The same 401 for a missing token, a wrong admin token, and a valid API
       // key. Telling a key holder that this endpoint exists but is not for them
       // discloses something and buys nothing.
+      request.recordAuthenticationFailure();
       await reply
         .code(401)
         .send(errorBody("unauthorized", "An admin token is required.", request.id));

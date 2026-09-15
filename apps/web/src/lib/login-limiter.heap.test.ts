@@ -48,7 +48,7 @@ describe("the login limiter's memory", () => {
     expect(grown, `${grown.toFixed(1)} MB`).toBeLessThan(BOUND_MB);
   }, 120_000);
 
-  it("stays bounded across 2,000,000 sign-ins, each after a mistyped token, from a few addresses", () => {
+  it("stays bounded across 1,000,000 sign-ins, each after a mistyped token, from a few addresses", () => {
     const grown = heapLeftBehind(`
       const limiter = new LoginLimiter();
       for (let i = 0; i < 1_000_000; i += 1) {

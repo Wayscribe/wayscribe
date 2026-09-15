@@ -206,10 +206,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     });
   });
 
-  registerAuthThrottle(app, {
-    adminToken: options.adminToken,
-    trustedProxyCount: options.trustedProxyCount ?? 0
-  });
+  registerAuthThrottle(app, { trustedProxyCount: options.trustedProxyCount ?? 0 });
 
   app.decorate("db", options.db);
   app.decorate("metrics", metrics);

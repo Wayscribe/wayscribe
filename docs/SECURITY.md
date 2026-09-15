@@ -61,7 +61,8 @@ the same reason. A journey id propagated across environments is refused too.
 The admin token reads every payload of every project, and it is one shared
 secret. The web login and the API both throttle failed attempts per source
 address (an IPv6 address by its /64), five a minute and then five minutes locked
-out, a limit the API holds however many guesses arrive at once. Neither keys that
+out. The count is of refusals, so a burst sent at once can have more than five
+credentials checked before the lock lands (`OPERATIONS.md` §9). Neither keys that
 address on `X-Forwarded-For` unless `TRUSTED_PROXY_COUNT` says how many proxies
 to look through (`OPERATIONS.md` §9). The throttles are per process. They slow a
 guesser; the token's length, 32 characters at least, is what makes guessing

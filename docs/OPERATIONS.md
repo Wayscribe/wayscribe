@@ -690,24 +690,28 @@ now set it.
 
 Both places that accept it throttle failures per source address: five failures
 within a minute lock that address out for five minutes. The web login redirects
-a locked address to `/login?error=throttled`. The API counts a `401` on any route
-that takes the admin token (every route but ingestion and the health checks) to
-a request that presented an `Authorization` header, answers the failures
-themselves with the same `401` as before, and then answers every request from
-that address that presents credentials with `429 too_many_attempts` and a
-`Retry-After` header, the right token included, until the lock expires. A
-request with no credentials is not counted, and ingestion is never throttled.
+a locked address to `/login?error=throttled`. The API counts a refused
+credential on any route that takes the admin token (every route but ingestion
+and the health checks), answers it with the same `401` as before, and then
+answers every request from that address that presents credentials with `429
+too_many_attempts` and a `Retry-After` header, the right token included, until
+the lock expires. A request with no credentials is not counted, a database error
+while a key is looked up is not counted, and ingestion is never throttled.
 
-The API's limit holds under concurrency. Any credential other than the exact
-admin token is admitted before it is verified, and an address may have at most
-five failures in the last minute and credentials being checked combined, so
-five hundred guesses sent at once get five `401`s and 495 `429`s. A valid API key
-on a read route occupies one of those five slots only while the key lookup runs,
-and a request that finds them all busy waits for one (up to 5 seconds, 64 deep)
-instead of being refused, so fifty concurrent reads with a valid key are all
-answered. The admin token itself is never held back, so the web app's concurrent
-reads are not limited either. The web login compares synchronously and holds at
-five.
+The API counts refusals, not attempts in flight. Guesses sent one after another
+get exactly five `401`s. Guesses sent all at once can get more: every request
+that passed the lock check before the fifth refusal was recorded still has its
+credential checked. On the admin-only routes that is only what was already
+between the check and the comparison, which has no I/O between them; on the
+read routes an API key is looked up in the database first, so a burst of N
+concurrent bad keys from one address can see up to N `401`s, and the request
+after it is `429`. That is a deliberate trade. The admin token is at least 32
+characters and an API key carries 192 random bits, so extra guesses change
+nothing about the odds, and each costs one indexed lookup; holding the count
+exact would mean reserving and queueing requests in flight on the authentication
+path. Reads with a valid key are never held back. The web login reads the form
+and then checks the lock and compares with nothing in between, so it stays at
+exactly five under any concurrency.
 
 An IPv6 address counts as its /64, the block one host is usually given, and an
 IPv6 address carrying an IPv4 one, as a dual-stack socket reports an IPv4 client
@@ -716,7 +720,7 @@ and an interface zone are ignored, so `[2001:db8::1]:443` and `2001:db8::1` are
 one address.
 Both counts are held in memory, per process: they reset on restart, N replicas
 allow N times the attempts, and each remembers at most 50,000 addresses, forgetting
-the least recently seen beyond that.
+the one that failed least recently beyond that.
 
 The source address is the socket's by default. `X-Forwarded-For` is ignored,
 because any client can write it and a new value per guess would otherwise make

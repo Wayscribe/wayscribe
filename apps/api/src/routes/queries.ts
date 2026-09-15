@@ -45,10 +45,9 @@ export function registerQueryRoutes(
       requestedProjectId:
         (request.headers["x-flight-project-id"] as string | undefined) ?? undefined
     });
-    // The credential is verified; the throttle slot is released now rather
-    // than when the read finishes. Only a 401 is a failed credential: a 404 is
-    // an admin naming a project that does not exist.
-    request.settleAuthentication(!auth.ok && auth.status === 401);
+    // Only a 401 is a refused credential: a 404 is an admin naming a project
+    // that does not exist, and a failed lookup throws before reaching here.
+    if (!auth.ok && auth.status === 401) request.recordAuthenticationFailure();
     if (!auth.ok) {
       await reply.code(auth.status).send(errorBody(auth.code, auth.message, request.id));
       return undefined;
