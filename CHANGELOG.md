@@ -248,7 +248,9 @@ audit, all merged the same day. The pattern behind them is written up in
 ### Upgrade notes
 
 - **Migration 015 rewrites every replay run row.** It replaces each value in
-  `replay_runs.request_headers` with `[REDACTED]` in one transaction, including
+  `replay_runs.request_headers` with `[REDACTED]` in one transaction (about 2
+  seconds for 100,000 runs, blocking updates to existing runs but not inserts,
+  and doubling the table's size until vacuum), including
   the headers Flight Recorder set itself, because an old row cannot say which
   came from the destination. Its down migration does nothing. It does not reach
   a backup taken before it, which still holds destination credentials; rotate

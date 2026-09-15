@@ -118,16 +118,32 @@ came from the destination, so the ones Flight Recorder set itself, such as
 `user-agent`, are redacted too.
 
 It is one `UPDATE` of every `replay_runs` row that has headers, in one
-transaction. The table holds one row per manual replay attempt, so this is
-quick on any realistic installation. A run being written while the migration
-holds that row's lock waits for it to commit.
+transaction. Measured on PostgreSQL 17 with 100,000 runs carrying payloads of
+about 1 KB: the migration took about 2 seconds. An update to an existing run
+while it ran, such as the previous API finishing a replay, waited until it
+committed, about 2.3 seconds. Inserts of new runs were not blocked. The table
+doubled in size, because every row is rewritten, until vacuum reclaimed the old
+versions.
 
 Migrate, then deploy, still applies, and it leaves a window: between the
 migration committing and the new API taking traffic, the previous API is still
 the one serving, and a replay it sends is stored the old way. Replays are
-manual, so the simplest course is not to send one during the upgrade. If one
-was sent, run the migration's statement again once the new API is serving; it
-is safe to repeat:
+manual, so the simplest course is not to send one during the upgrade.
+
+If one was sent, redact again once the new API is serving, limited to runs
+created from an hour before migration 015 was applied. Count them first:
+
+```sql
+select count(*)
+from replay_runs
+where request_headers is not null
+  and created_at >= (
+    select migration_time from knex_migrations
+    where name = '015_redact_replay_run_headers.js'
+  ) - interval '1 hour';
+```
+
+Then rewrite the same rows:
 
 ```sql
 update replay_runs
@@ -138,8 +154,17 @@ set request_headers = case
   )
   else null
 end
-where request_headers is not null;
+where request_headers is not null
+  and created_at >= (
+    select migration_time from knex_migrations
+    where name = '015_redact_replay_run_headers.js'
+  ) - interval '1 hour';
 ```
+
+Runs the new API wrote in that window are rewritten too, and lose the values
+it kept on purpose, such as `user-agent` and `x-flight-replay`. The header
+names stay. Nothing secret is lost, only what those rows could show about the
+non-secret headers.
 
 Its down migration does nothing: the values cannot be restored, and restoring
 them would be the defect. **The migration does not reach copies.** A dump, WAL

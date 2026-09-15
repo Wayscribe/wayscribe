@@ -20,6 +20,11 @@ describe("ReplayHeaders", () => {
     // A bare marker would read as the value that went out. It must not.
     expect(screen.getByText("(real value used, not stored)")).toBeInTheDocument();
     expect(screen.getByText(/were sent with their real values/)).toBeInTheDocument();
+    // Migration 015 redacted every value in older runs, `user-agent` included,
+    // so a fully redacted list must not look like a defect in the replay.
+    expect(
+      screen.getByText(/recorded before the upgrade .* every header value redacted/)
+    ).toBeInTheDocument();
   });
 
   it("orders headers by name", () => {

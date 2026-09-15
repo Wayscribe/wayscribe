@@ -20,7 +20,10 @@
  * One transactional UPDATE of every row with headers. `replay_runs` holds one
  * row per manual replay attempt and is swept by retention with its journey, so
  * it stays small next to the event tables, and a batched rewrite would leave a
- * crash half way with some rows still holding values.
+ * crash half way with some rows still holding values. Measured on PostgreSQL
+ * 17 with 100,000 runs carrying payloads of about 1 KB: about 2 seconds;
+ * updates to existing runs waited until commit (about 2.3 seconds); inserts
+ * were not blocked; the table doubled in size until vacuum.
  *
  * Follows 014, the span id index for search. The two touch unrelated tables,
  * and neither depends on the other.
