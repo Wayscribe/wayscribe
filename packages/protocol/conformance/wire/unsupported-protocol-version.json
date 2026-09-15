@@ -1,0 +1,28 @@
+{
+  "id": "wire/unsupported-protocol-version",
+  "title": "A version this server does not serve is refused before the event is read",
+  "source": "docs/EVENT_PROTOCOL.md section 12",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "9.9",
+        "event": {
+          "anything": true
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "rejected",
+        "error": {
+          "code": "unsupported_protocol_version",
+          "httpStatus": 400
+        }
+      }
+    ]
+  }
+}

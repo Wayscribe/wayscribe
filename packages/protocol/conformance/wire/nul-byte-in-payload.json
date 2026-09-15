@@ -1,0 +1,41 @@
+{
+  "id": "wire/nul-byte-in-payload",
+  "title": "A NUL byte in a payload is unstorable_payload, not a 500",
+  "source": "docs/INGESTION_CONTRACT.md; apps/api/src/routes/events.ts",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "input": {
+            "name": "Dana\u0000"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "rejected",
+        "error": {
+          "code": "unstorable_payload",
+          "httpStatus": 400
+        }
+      }
+    ]
+  }
+}

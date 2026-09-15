@@ -48,6 +48,19 @@ regexes = [
 
 [[allowlists]]
 description = """
+Conformance fixtures.
+
+`packages/protocol/conformance/` holds credential-shaped values on purpose:
+a redaction case cannot prove a secret was replaced without carrying something
+shaped like one. Every fake credential in those files carries the marker
+`cfx-fake`, which no real credential has, and the allowance is written against
+that marker rather than against the directory — a path allowance would hide
+whatever lands there next. The same fixtures are pruned from the runtime image
+(ADR-043)."""
+regexes = ['''cfx-fake[A-Za-z0-9_.:@=/-]*''']
+
+[[allowlists]]
+description = """
 Proof strings from docs/WHAT_RUNNING_IT_FOUND.md and the decision log.
 
 These document a defect that stored credentials in the clear, so the write-up

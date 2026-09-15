@@ -1,0 +1,13 @@
+{
+  "id": "wire/empty-batch",
+  "title": "An empty batch is accepted and returns no results",
+  "source": "packages/protocol/src/ingestion.ts",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": []
+  },
+  "expect": {
+    "results": []
+  }
+}

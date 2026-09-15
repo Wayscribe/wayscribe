@@ -1,0 +1,72 @@
+{
+  "id": "wire/duplicate-identical",
+  "title": "A prior event resent with its keys in a different order is a duplicate",
+  "source": "ADR-021, ADR-048; docs/EVENT_PROTOCOL.md",
+  "layer": "wire",
+  "languages": ["*"],
+  "setup": {
+    "existing": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "input": {
+            "a": 1,
+            "b": 2
+          },
+          "metadata": {
+            "x": "1",
+            "y": "2"
+          }
+        }
+      }
+    ]
+  },
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "metadata": {
+            "y": "2",
+            "x": "1"
+          },
+          "input": {
+            "b": 2,
+            "a": 1
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": true,
+        "eventId": "evt_{{run}}"
+      }
+    ]
+  }
+}

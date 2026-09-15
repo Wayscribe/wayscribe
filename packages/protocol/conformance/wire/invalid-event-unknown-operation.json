@@ -1,0 +1,38 @@
+{
+  "id": "wire/invalid-event-unknown-operation",
+  "title": "An operation outside the eleven is invalid_event, not a code of its own",
+  "source": "ADR-049; docs/EVENT_PROTOCOL.md section 12",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "exploded",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "rejected",
+        "error": {
+          "code": "invalid_event",
+          "httpStatus": 400
+        }
+      }
+    ]
+  }
+}

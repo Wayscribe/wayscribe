@@ -1,0 +1,71 @@
+{
+  "id": "wire/oversize-event",
+  "title": "An envelope over the size limit is refused, and the rest of the batch is stored",
+  "source": "docs/INGESTION_CONTRACT.md limits table",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_big",
+          "journeyId": "jrn_{{run}}_big",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "input": {
+            "padding": {
+              "$array": {
+                "value": {
+                  "$string": {
+                    "char": "x",
+                    "count": 60000
+                  }
+                },
+                "count": 5
+              }
+            }
+          }
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_small",
+          "journeyId": "jrn_{{run}}_small",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "rejected",
+        "error": {
+          "code": "payload_too_large",
+          "httpStatus": 400
+        }
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

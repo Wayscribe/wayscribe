@@ -41,13 +41,35 @@ report "no test files (found $COUNT)" "$([ "$COUNT" -eq 0 ] && echo 0 || echo 1)
 COUNT=$(count_in_image 'find /app -path /app/node_modules -prune -o -type d -name src -print | wc -l')
 report "no source directories (found $COUNT)" "$([ "$COUNT" -eq 0 ] && echo 0 || echo 1)"
 
-for DIR in /app/apps/demo /app/apps/web; do
+# The conformance fixtures are the reason this check gained a third directory.
+# They are not named like test files, so the pattern above does not reach them,
+# and they carry credential-shaped values on purpose: a redaction case cannot
+# prove a secret was replaced without holding something shaped like one.
+for DIR in /app/apps/demo /app/apps/web /app/packages/protocol/conformance; do
   # `cmd; report $?` would abort here under `set -e` on the first failure, so a
   # broken image would report one problem and hide the rest. The `&&`/`||` form
   # keeps the non-zero status out of `set -e`'s hands.
   docker run --rm --entrypoint sh "$IMAGE" -c "test ! -e $DIR" && RC=0 || RC=1
   report "$DIR absent" "$RC"
 done
+
+# Absent as a directory is not the same as absent as content. The fixtures'
+# fake credentials all carry one marker, so searching for it catches a copy that
+# landed somewhere else, which is the failure a directory check cannot see.
+#
+# `find` and `xargs` rather than `grep -r --exclude-dir`: the image is Alpine,
+# whose busybox grep has no such option. The first version of this check used
+# it, printed a usage message to stderr that `2>/dev/null` swallowed, counted
+# zero and passed — against an image that held eleven of these files. It was
+# caught by running it against an image built without the prune, which is what
+# ADR-043 asks for and the reason that step is not optional.
+#
+# The marker is assembled from two halves so that this script is not itself a
+# match, and .gitleaks.toml is excluded because the allowlist has to name the
+# marker in order to allow it. Neither is a fixture and neither holds a value.
+MARKER='cfx''-fake'
+COUNT=$(count_in_image "find /app -path /app/node_modules -prune -o -type f ! -name .gitleaks.toml -print0 | xargs -0 -r grep -l '$MARKER' 2>/dev/null | wc -l")
+report "no conformance fixture values (found $COUNT files)" "$([ "$COUNT" -eq 0 ] && echo 0 || echo 1)"
 
 # The prune has to stop short of the things the documentation tells an operator
 # to run. OPERATIONS.md and deploy/helm/README.md both invoke the database CLI

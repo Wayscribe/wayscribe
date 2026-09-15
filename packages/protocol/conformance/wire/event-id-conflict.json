@@ -1,0 +1,58 @@
+{
+  "id": "wire/event-id-conflict",
+  "title": "The same id with one defined field changed is a conflict",
+  "source": "ADR-021; docs/INGESTION_CONTRACT.md",
+  "layer": "wire",
+  "languages": ["*"],
+  "setup": {
+    "existing": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z"
+        }
+      }
+    ]
+  },
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-something-else",
+          "timestamp": "2026-08-06T18:31:02.000Z"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "rejected",
+        "error": {
+          "code": "event_id_conflict",
+          "httpStatus": 409
+        }
+      }
+    ]
+  }
+}

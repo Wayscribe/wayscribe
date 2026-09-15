@@ -1,0 +1,65 @@
+{
+  "id": "wire/duration-int4-boundary",
+  "title": "durationMs at 2147483647 is stored and 2147483648 is refused",
+  "source": "packages/protocol/src/event.ts; docs/WHAT_RUNNING_IT_FOUND.md",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_fits",
+          "journeyId": "jrn_{{run}}_fits",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "durationMs": 2147483647
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_over",
+          "journeyId": "jrn_{{run}}_over",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "durationMs": 2147483648
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "durationMs": 2147483647
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "error": {
+          "code": "invalid_event",
+          "httpStatus": 400
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "wire/invalid-timestamp-without-offset",
+  "title": "A timestamp with no offset is refused rather than assumed to be UTC",
+  "source": "packages/protocol/src/event.ts; ADR-049",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "rejected",
+        "error": {
+          "code": "invalid_event",
+          "httpStatus": 400
+        }
+      }
+    ]
+  }
+}

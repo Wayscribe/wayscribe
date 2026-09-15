@@ -1,0 +1,38 @@
+{
+  "id": "wire/unauthorized-environment",
+  "title": "An event naming an environment the key is not authorized for is refused",
+  "source": "ADR-029; docs/SECURITY.md",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "production",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "rejected",
+        "error": {
+          "code": "unauthorized_environment",
+          "httpStatus": 403
+        }
+      }
+    ]
+  }
+}

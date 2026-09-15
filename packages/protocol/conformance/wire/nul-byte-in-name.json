@@ -1,0 +1,38 @@
+{
+  "id": "wire/nul-byte-in-name",
+  "title": "A NUL byte in a text column is refused the same way",
+  "source": "docs/INGESTION_CONTRACT.md",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive\u0000webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "rejected",
+        "error": {
+          "code": "unstorable_payload",
+          "httpStatus": 400
+        }
+      }
+    ]
+  }
+}

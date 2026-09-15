@@ -1,0 +1,63 @@
+{
+  "id": "wire/unknown-fields",
+  "title": "Unknown fields are accepted, not stored, and not hashed",
+  "source": "ADR-049",
+  "layer": "wire",
+  "languages": ["*"],
+  "setup": {
+    "existing": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC",
+            "tier": "gold"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "tenantRegion": "eu-west-1",
+          "input": {
+            "phone": "+1 919 555 1234"
+          }
+        }
+      }
+    ]
+  },
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "input": {
+            "phone": "+1 919 555 1234"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": true
+      }
+    ]
+  }
+}

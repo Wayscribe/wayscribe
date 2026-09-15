@@ -42,7 +42,15 @@ RUN find . -name node_modules -type d -prune -exec rm -rf {} + \
 # explicit `--conditions=development` that nothing here passes.
 #
 # The documented CLI paths are `dist` paths, so provisioning still works.
-RUN rm -rf apps/demo apps/web \
+#
+# The conformance fixtures go too. They are not test files by name, and the
+# runtime never reads them: they are a contract artefact for somebody writing a
+# client, run by the test suites and by a conformance job. They also hold
+# credential-shaped strings on purpose, which is exactly what ADR-043 exists to
+# keep out of a published image, since a scanner reading one cannot tell a
+# fixture from a leak. The generated JSON Schema stays: it is small, it holds no
+# values, and the package exports it.
+RUN rm -rf apps/demo apps/web packages/protocol/conformance \
  && find . -path ./node_modules -prune -o -type d -name src -print0 \
       | xargs -0 -r rm -rf \
  && find . -path ./node_modules -prune -o -type f \

@@ -1,0 +1,58 @@
+{
+  "id": "wire/cross-environment-journey",
+  "title": "A journey created by another environment's key cannot be extended",
+  "source": "ADR-038; docs/EVENT_PROTOCOL.md section 4",
+  "layer": "wire",
+  "languages": ["*"],
+  "setup": {
+    "otherEnvironment": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_other",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance-other",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z"
+        }
+      }
+    ]
+  },
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "rejected",
+        "error": {
+          "code": "journey_environment_mismatch",
+          "httpStatus": 409
+        }
+      }
+    ]
+  }
+}
