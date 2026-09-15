@@ -1565,9 +1565,15 @@ destroy the record a reader came for.
   credential that is a single dictionary word in that position is missed.
 - Masking is idempotent, so the second pass over an SDK event changes nothing. The content hash
   is still taken over the event as received (ADR-021), so resubmission stays idempotent too.
-- Error text reaches the masker from public HTTP. Every pattern either anchors on a literal
-  prefix or refuses to start inside a run of its own characters, and a test holds 16 KiB of
-  near-matches to well under 50 ms.
+- Error text reaches the masker from public HTTP, so its cost must grow in proportion to the
+  text. Every pattern either anchors on a literal prefix or refuses to start inside a run of its
+  own characters, and the post-processing of each match is a character loop rather than a
+  second regular expression. The first version missed that last part: trimming trailing dots
+  with `/\.+$/` was quadratic on a run of dots, and took almost two seconds on 64 KiB, while a
+  16 KiB wall-clock test still passed. The tests now time every adversarial case at 16 KiB and
+  64 KiB and require the larger to take less than eight times as long, which linear work meets
+  and quadratic work cannot, with one absolute ceiling beside them. That is a measurement over
+  the shapes the tests know, not a proof for every input.
 - `metadata` string values and payload strings keep path redaction only. Scanning every string
   in every payload for shapes would put this cost, and its false positives, on the data the
   product exists to show.

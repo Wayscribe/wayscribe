@@ -315,40 +315,74 @@ describe("maskSecretsInText", () => {
     }
   });
 
-  describe("runs in linear time", () => {
+  describe("scales linearly with its input", () => {
     // Error text is attacker-reachable: ingestion is public HTTP and the
     // protocol allows a 16 KiB stack. A pattern that backtracks quadratically
     // on near-matches would let one event hold the ingestion thread.
-    const SIZE = 16 * 1024;
-    const fill = (unit: string): string =>
-      unit.repeat(Math.ceil(SIZE / unit.length)).slice(0, SIZE);
+    //
+    // Each case is timed at 16 KiB and at 64 KiB. Linear work takes about four
+    // times as long at four times the size; quadratic work takes sixteen. A
+    // wall-clock limit alone passed a callback that was quadratic on a run of
+    // dots, because 16 KiB of it still fit under the limit on a fast machine.
+    const KIB = 1024;
+    const fill = (unit: string, size: number): string =>
+      unit.repeat(Math.ceil(size / unit.length)).slice(0, size);
 
-    const adversarial: Record<string, string> = {
-      "JWT-like segments with no dot": fill("eyJa-"),
-      "JWT-like segments with one dot": fill("eyJa.eyJb-"),
-      "provider prefixes without bodies": fill("sk_live_x glpat-. xoxb-_ AKIA fr_"),
-      "URL schemes with no @": fill("a://b:c:"),
-      "a scheme then a long run with no @": "x://" + fill("a:"),
-      "PEM headers with no key type": fill("-----BEGIN A "),
-      "PEM headers with no end": fill(pemBegin + " "),
-      "secret names with no separator": fill("password "),
-      "secret names with plain-word values": fill("password: a "),
-      "authorization schemes with no credential": fill("authorization: Bearer "),
-      "unclosed quoted secret names": fill('"password'),
-      "escaped quotes": fill('\\"a\\"'),
-      "bearer words": fill("Bearer bearer "),
-      "one long unbroken run": fill("a"),
-      "a mixture": fill('eyJ-sk_live_ a://b:@ "api_key\\" Bearer -----BEGIN password=[ ')
-    };
-
-    for (const [name, text] of Object.entries(adversarial)) {
-      it(`masks 16 KiB of ${name} in well under 50 ms`, () => {
-        // Warm once so the measurement is the regex, not JIT compilation.
-        maskSecretsInText(text.slice(0, 256));
+    /** The fastest of several runs, which is the least noisy estimate of the work. */
+    const fastest = (text: string): number => {
+      let best = Number.POSITIVE_INFINITY;
+      for (let run = 0; run < 5; run += 1) {
         const started = performance.now();
         maskSecretsInText(text);
-        expect(performance.now() - started).toBeLessThan(50);
+        best = Math.min(best, performance.now() - started);
+      }
+      return best;
+    };
+
+    /** Below this, a difference is scheduler and collector noise, not complexity. */
+    const NOISE_FLOOR_MS = 10;
+
+    const adversarial: Record<string, (size: number) => string> = {
+      "JWT-like segments with no dot": (size) => fill("eyJa-", size),
+      "JWT-like segments with one dot": (size) => fill("eyJa.eyJb-", size),
+      "provider prefixes without bodies": (size) => fill("sk_live_x glpat-. xoxb-_ AKIA fr_", size),
+      "URL schemes with no @": (size) => fill("a://b:c:", size),
+      "a scheme then a long run with no @": (size) => "x://" + fill("a:", size),
+      "PEM headers with no key type": (size) => fill("-----BEGIN A ", size),
+      "PEM headers with no end": (size) => fill(pemBegin + " ", size),
+      "secret names with no separator": (size) => fill("password ", size),
+      "secret names with plain-word values": (size) => fill("password: a ", size),
+      "authorization schemes with no credential": (size) => fill("authorization: Bearer ", size),
+      "unclosed quoted secret names": (size) => fill('"password', size),
+      "escaped quotes": (size) => fill('\\"a\\"', size),
+      "bearer words": (size) => fill("Bearer bearer ", size),
+      "Bearer and a run of dots": (size) => "Bearer " + ".".repeat(size) + "a",
+      "Basic and a run of dots": (size) => "Basic " + ".".repeat(size) + "a",
+      "one long unbroken run": (size) => fill("a", size),
+      "a mixture": (size) =>
+        fill('eyJ-sk_live_ a://b:@ "api_key\\" Bearer -----BEGIN password=[ ', size)
+    };
+
+    for (const [name, build] of Object.entries(adversarial)) {
+      it(`masks ${name} in time proportional to its length`, () => {
+        const small = build(16 * KIB);
+        const large = build(64 * KIB);
+        // Warm, so the first measurement is the matching and not compilation.
+        maskSecretsInText(small);
+        const atSmall = fastest(small);
+        const atLarge = fastest(large);
+        expect(atLarge).toBeLessThan(Math.max(8 * atSmall, NOISE_FLOOR_MS));
       });
     }
+
+    it("masks 64 KiB of every adversarial case together in well under a second", () => {
+      // The one absolute ceiling, generous enough for a loaded CI runner.
+      const all = Object.values(adversarial)
+        .map((build) => build(4 * KIB))
+        .join(" ");
+      const text = fill(all, 64 * KIB);
+      maskSecretsInText(text.slice(0, KIB));
+      expect(fastest(text)).toBeLessThan(250);
+    });
   });
 });

@@ -16,10 +16,12 @@ import { normaliseName, REDACTED } from "./redact.js";
  * A token in a shape not listed here is missed, and the documentation says so.
  *
  * Idempotent, because the SDK masks before sending and the server masks again
- * before storing. Every pattern runs in linear time: the text is reachable from
- * public HTTP, so each one either anchors on a literal prefix or refuses to
- * start inside a run of its own characters, which keeps a failed attempt from
- * being retried at every position of the same run.
+ * before storing. The text is reachable from public HTTP, so its cost has to
+ * grow in proportion to its length: each pattern either anchors on a literal
+ * prefix or refuses to start inside a run of its own characters, which keeps a
+ * failed attempt from being retried at every position of the same run, and
+ * whatever inspects a match afterwards is a character loop rather than another
+ * regular expression. The tests time each adversarial shape at two sizes.
  */
 export function maskSecretsInText(text: string): string {
   if (text === "") return text;
@@ -32,7 +34,7 @@ export function maskSecretsInText(text: string): string {
   result = result.replace(
     AUTHORIZATION_SCHEME,
     (match, scheme: string, space: string, raw: string) => {
-      const credential = raw.replace(/\.+$/, "");
+      const credential = withoutTrailingDots(raw);
       if (isPlainWord(credential)) return match;
       return `${scheme}${space}${REDACTED}${raw.slice(credential.length)}`;
     }
@@ -284,6 +286,22 @@ function schemeAndCredential(
   const end = tokenEnd(text, credentialStart);
   return end === credentialStart ? undefined : { credentialStart, end };
 }
+
+/**
+ * The value with any trailing full stops removed, so `Bearer token.` ends a
+ * sentence rather than presenting a credential.
+ *
+ * A loop, not `/\.+$/`. That regex is tried from every dot in a run and scans to
+ * the end of the run from each, so `Bearer ` and 64 KiB of dots took almost two
+ * seconds to mask.
+ */
+function withoutTrailingDots(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === FULL_STOP) end -= 1;
+  return value.slice(0, end);
+}
+
+const FULL_STOP = 0x2e;
 
 /**
  * A lowercase word, a capitalised one, or one in capitals: `missing`, `Token`,
