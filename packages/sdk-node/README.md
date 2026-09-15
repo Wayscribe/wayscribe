@@ -230,11 +230,31 @@ change any counter.
 | Kind | Means | Counter |
 | --- | --- | --- |
 | `delivered_first` | the server stored events from this recorder for the first time | none |
+| `insecure_endpoint` | the endpoint is `http:` to another machine, so the API key travels unencrypted | none |
 | `rejected` | the server understood an event and refused it; it is not retried | `rejected` |
 | `transport_error` | a request failed, or the server could not store an event for now; see below | `transportErrors` |
 | `dropped` | an event, or a payload, was not recorded: the queue was full, the payload was too large, the recorder was shut down, or the server was still refusing it after 30 seconds or 10 sends | `dropped` |
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
 | `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
+
+### An endpoint that is not encrypted
+
+Every request carries the API key, and payloads with it. When `endpoint` is
+`http:` and its host is anything but `localhost`, `127.0.0.1`, `[::1]`, or a
+`.localhost` name, the recorder reports one `insecure_endpoint` diagnostic as it
+is created:
+
+```text
+[flight-recorder] insecure_endpoint: The endpoint is http: to ingest.internal, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.
+```
+
+It reaches `onDiagnostic` as `{ kind: "insecure_endpoint", reason, scheme, host }`
+and names only the scheme and host, never a username, password, path, or query
+from the URL. It is a warning: the recorder still starts and still sends, because
+a telemetry library that refuses to start breaks the service it observes
+(ADR-007). A private address is still reported, because anything else on that
+network can read the key. Put TLS in front of the API, or at least terminate it
+on the same machine as the service.
 
 ### When the server cannot store an event for now
 

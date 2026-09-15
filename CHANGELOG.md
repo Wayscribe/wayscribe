@@ -29,11 +29,12 @@ changes far less often.
   bootstrap: they ran on the published defaults. `compose.published.yaml` is
   unchanged and still reads the shell.
 - **The SDK's `Diagnostic` type is a union.** It is now
-  `FailureDiagnostic | DeliveredFirstDiagnostic`, for the new `delivered_first`
-  kind, which carries `endpoint` and `accepted`. Reading `kind`, `reason`, and
+  `FailureDiagnostic | DeliveredFirstDiagnostic | InsecureEndpointDiagnostic`,
+  for the new `delivered_first` kind, which carries `endpoint` and `accepted`,
+  and `insecure_endpoint`, which carries `scheme` and `host`. Reading `kind`, `reason`, and
   `detail` compiles as before. TypeScript code must change if it switches over
   `kind` exhaustively with a `never` default, which now needs a
-  `delivered_first` case, or if it builds a `Diagnostic` from a `kind` typed as
+  `delivered_first` and an `insecure_endpoint` case, or if it builds a `Diagnostic` from a `kind` typed as
   `DiagnosticKind` with only `reason`, which must use `FailureDiagnostic` or
   `FailureKind` instead.
 - **The SDK retries an event the server could not store for now.** A per-event
@@ -59,6 +60,12 @@ changes far less often.
   and its message goes only to `onDiagnostic`. Off by default: nothing reaches the console unless it is
   set. The quick start and `examples/instrument-a-service` turn it on while
   setting up.
+- **The SDK warns about an unencrypted endpoint.** An `http:` endpoint on any
+  host but `localhost`, `127.0.0.1`, `[::1]`, or a `.localhost` name sends the
+  API key and payloads in cleartext; the recorder now reports one
+  `insecure_endpoint` diagnostic when it is created, naming only the scheme and
+  host. It still starts and sends. The demo services, which reach the API as
+  `http://api:8080` on the Compose network, print it once each.
 - **`maxConcurrentSends` in the SDK**, default 4 and clamped to 1-16: how many
   batches one process sends at once. Across every process sending to an
   installation, the total should stay under API instances times database pool

@@ -286,9 +286,41 @@ function refusalLogLine(code: string | undefined, path: string | undefined): str
   return `${printedCode}${printedPath} (the server's message goes to onDiagnostic)`;
 }
 
+/** Hosts an `http:` endpoint may name without the traffic leaving the machine. */
+function isLoopback(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]" ||
+    hostname.endsWith(".localhost")
+  );
+}
+
+/**
+ * Warns when the API key and payloads would cross a network in cleartext.
+ *
+ * Only the scheme and hostname are reported: the URL's userinfo, path, and
+ * query can all carry secrets. An endpoint that is not a URL is left alone;
+ * every send to it fails, and that is reported as it happens.
+ */
+function warnIfInsecure(endpoint: string, diagnostics: Diagnostics): void {
+  if (!URL.canParse(endpoint)) return;
+  const url = new URL(endpoint);
+  if (url.protocol !== "http:" || isLoopback(url.hostname)) return;
+  diagnostics.report({
+    kind: "insecure_endpoint",
+    scheme: "http:",
+    host: url.hostname,
+    reason: `The endpoint is http: to ${url.hostname}, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.`
+  });
+}
+
 export function createRecorder(config: RecorderConfig): Recorder {
   const resolved = resolveConfig(config);
   const diagnostics = createDiagnostics(resolved.onDiagnostic, { log: resolved.logDiagnostics });
+  safely(diagnostics, "capture_error", () => {
+    warnIfInsecure(resolved.endpoint, diagnostics);
+  });
   const queue = new BoundedQueue<unknown>(resolved.maxBufferedEvents, diagnostics);
   // Resolved once: record() is synchronous, so this cannot be an async import.
   const readTrace = createTraceReader();

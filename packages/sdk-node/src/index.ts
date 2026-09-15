@@ -5,7 +5,8 @@ export type {
   Diagnostic,
   DiagnosticKind,
   FailureDiagnostic,
-  FailureKind
+  FailureKind,
+  InsecureEndpointDiagnostic
 } from "./diagnostics.js";
 export { OPERATIONS } from "./operations.js";
 export type { Operation } from "./operations.js";

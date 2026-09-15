@@ -18,7 +18,7 @@ export type FailureKind =
  * silence was the only sign of health, and silence is also what a recorder
  * pointed at the wrong port produces.
  */
-export type DiagnosticKind = FailureKind | "delivered_first";
+export type DiagnosticKind = FailureKind | "delivered_first" | "insecure_endpoint";
 
 export interface FailureDiagnostic {
   kind: FailureKind;
@@ -38,7 +38,22 @@ export interface DeliveredFirstDiagnostic {
   detail?: undefined;
 }
 
-export type Diagnostic = FailureDiagnostic | DeliveredFirstDiagnostic;
+/**
+ * Reported once, when the recorder is created, for an `http:` endpoint on
+ * another machine: the API key and every payload would cross the network
+ * unencrypted. A warning and never a refusal to start (ADR-007), and it names
+ * only the scheme and host, because an endpoint URL can carry credentials.
+ */
+export interface InsecureEndpointDiagnostic {
+  kind: "insecure_endpoint";
+  reason: string;
+  scheme: "http:";
+  host: string;
+  // As on DeliveredFirstDiagnostic: `d.detail` still compiles unnarrowed.
+  detail?: undefined;
+}
+
+export type Diagnostic = FailureDiagnostic | DeliveredFirstDiagnostic | InsecureEndpointDiagnostic;
 
 export interface Counters {
   dropped: number;
@@ -106,9 +121,11 @@ export function createDiagnostics(
     const { kind } = diagnostic;
     const now = Date.now();
     const last = lastPrinted.get(kind);
-    // delivered_first happens once per recorder, so it can never flood, and it
-    // is the line a person turned logging on to see.
-    if (kind !== "delivered_first" && last !== undefined && now - last < LOG_WINDOW_MS) {
+    // delivered_first and insecure_endpoint happen once per recorder, so they
+    // can never flood, and a second recorder in the same process must not have
+    // its warning hidden by the first one's.
+    const once = kind === "delivered_first" || kind === "insecure_endpoint";
+    if (!once && last !== undefined && now - last < LOG_WINDOW_MS) {
       suppressed.set(kind, (suppressed.get(kind) ?? 0) + 1);
       return;
     }
