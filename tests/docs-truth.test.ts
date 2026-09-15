@@ -165,6 +165,25 @@ describe("the documentation's checkable claims", () => {
     }
   });
 
+  it("runs the published images through COMPOSE_FILE, never a hand-typed -f list", () => {
+    // The install told readers to add `-f compose.bundled.yaml`, then showed
+    // every later command with `-f compose.published.yaml` alone. Run as
+    // written, those failed and Compose suggested `--remove-orphans`, which
+    // removes the PostgreSQL container. One export of COMPOSE_FILE keeps every
+    // command on the files the stack was started with, whichever they were.
+    const files = [
+      ...markdownFiles(),
+      ...filesEndingWith(".yaml", "infrastructure"),
+      ...filesEndingWith(".ts", "packages"),
+      ...filesEndingWith(".ts", "apps")
+    ];
+    for (const file of files) {
+      expect(read(file), `${file} names compose.published.yaml with -f`).not.toMatch(
+        /-f\s+compose\.published\.yaml/
+      );
+    }
+  });
+
   it("keeps the pre-implementation documents marked as such", () => {
     // They predate every ADR and describe an install premise ADR-037 inverted.
     // They are kept for provenance, which only works if a reader is told.

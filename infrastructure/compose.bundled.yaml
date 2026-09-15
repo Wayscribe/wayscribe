@@ -1,7 +1,12 @@
 # A PostgreSQL container, for trying Flight Recorder without standing a database
 # up first. Overlay it on the quick start:
 #
-#   docker compose -f compose.published.yaml -f compose.bundled.yaml up -d
+#   export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
+#   docker compose up -d
+#
+# Keep COMPOSE_FILE set for every later command. One without this file reports
+# the postgres container as an orphan and suggests --remove-orphans, which would
+# remove it.
 #
 # It supplies DATABASE_URL, so you do not set one. Everything lives in the
 # `postgres-data` volume.

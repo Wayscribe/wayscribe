@@ -18,18 +18,35 @@ already runs — the one somebody backs up, monitors, and can restore — and Fl
 Recorder needs nothing else from you.
 
 ```bash
+export COMPOSE_FILE=compose.published.yaml
 export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
-docker compose -f compose.published.yaml up -d
+docker compose up -d
 ```
+
+`COMPOSE_FILE` names the files every `docker compose` command in the shell
+reads. The commands for the published images in this document are written
+without `-f` and rely on it, so they always see the stack you started. Export it
+again in a new shell.
 
 It needs an ordinary database and an ordinary role: `CREATE`, `SELECT`,
 `INSERT`, `UPDATE`, `DELETE` on its own schema. It installs no extensions and
 touches nothing outside the tables its migrations create, so an existing
 database with other tables in it is fine.
 
-`-f compose.bundled.yaml` runs PostgreSQL in a container instead and sets
-`DATABASE_URL` for you. That is for evaluation and for local work. Nothing about
-it is unsuitable for production except that it is invisible to whoever is
+The bundled overlay runs PostgreSQL in a container instead and sets
+`DATABASE_URL` for you:
+
+```bash
+export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
+docker compose up -d
+```
+
+A command that leaves the overlay out reports the PostgreSQL container as an
+orphan and suggests `--remove-orphans`; do not take that advice, because it
+removes the database container.
+
+The overlay is for evaluation and for local work. Nothing about it is
+unsuitable for production except that it is invisible to whoever is
 responsible for your data — no backup schedule, no monitoring, and a `docker
 compose down -v` away from gone.
 
@@ -41,7 +58,7 @@ its own process, leave that service out and run the same command when you
 choose to:
 
 ```bash
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js migrate
 ```
 
@@ -188,10 +205,10 @@ A new installation has no projects, and a key belongs to one. Create the project
 first; the environment is created for you by `key:create`.
 
 ```bash
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js project:create acme "Acme Payments"
 
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js key:create acme production checkout-worker
 ```
 
@@ -241,8 +258,8 @@ rotates nothing.
 run them with the same two variables the API has.
 
 ```bash
-# Published images
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+# Published images, with COMPOSE_FILE set as in §1
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js rotate:status
 
 # infrastructure/compose.yaml, which reads .env for the one-off container too
@@ -259,8 +276,10 @@ uses for `project:create`. `key:create` during a rotation needs both keys as
 well, so a key issued mid-rotation verifies against the API beside it.
 `key:revoke` reads no key.
 
-Give every `docker compose` command in this section the same `-f` files the
-stack was started with. For the demo that means adding
+For the published images, `COMPOSE_FILE` (§1) keeps every command on the files
+the stack was started with. For a stack built from source, give every
+`docker compose` command in this section the same `-f` files the stack was
+started with. For the demo that means adding
 `-f infrastructure/compose.demo.yaml` after `-f infrastructure/compose.yaml`.
 Leave it out and Compose warns about orphan containers and suggests
 `--remove-orphans`; do not take that advice, because it removes the demo
@@ -274,7 +293,8 @@ services.
 2. Where your stack reads its keys (above), set `ENCRYPTION_KEY` to the new key
    and `ENCRYPTION_KEY_PREVIOUS` to the old one.
 3. Recreate every API container with the new keys: `docker compose -f
-   infrastructure/compose.yaml up -d` (or `-f compose.published.yaml`), or
+   infrastructure/compose.yaml up -d` (or `docker compose up -d` for the
+   published images, with `COMPOSE_FILE` set as in §1), or
    `kubectl rollout restart deployment/<release>-flight-recorder-api` after the
    Helm upgrade, since the chart does not restart pods when its secret changes.
    **Not `docker compose restart`**: it restarts the container with the
@@ -555,7 +575,7 @@ nothing, says so, and exits 1; run it again when the sweep has finished.
 From the published image, without a checkout:
 
 ```bash
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js delete:identifier acme customer-42@example.com --dry-run
 ```
 
@@ -1055,7 +1075,7 @@ beside the image and written to the public transparency log.
 API image, like the other commands:
 
 ```bash
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
 ```
 

@@ -209,7 +209,7 @@ changes far less often.
   checkout:
 
   ```bash
-  docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  docker compose run --rm --entrypoint node api \
     packages/database/dist/cli.js project:create acme "Acme Payments"
   ```
 
@@ -416,6 +416,12 @@ changes far less often.
 
 ### Fixed
 
+- **The published install's commands work with the bundled overlay.** The
+  install added `-f compose.bundled.yaml` to start the stack and then showed
+  every later command naming only the published file, which failed and
+  suggested `--remove-orphans`, a flag that removes the PostgreSQL container.
+  The install now exports `COMPOSE_FILE` once, and every command after it is a
+  plain `docker compose`.
 - **The documented doctor command runs doctor.** pnpm 11 has a built-in
   command of the same name, which answered the documented form with a report on
   the pnpm installation and exit 0, and the root script failed with
