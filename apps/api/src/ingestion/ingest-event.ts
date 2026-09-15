@@ -184,7 +184,7 @@ export async function ingestEvent(
 
 /**
  * The error as it may be stored: stack kept only under full capture, and every
- * free-text field masked (ADR-045).
+ * free-text field masked (ADR-046).
  *
  * Path redaction cannot reach inside `message` or `stack`, and ingestion cannot
  * rely on the SDK having masked them, because any HTTP client can send an event.

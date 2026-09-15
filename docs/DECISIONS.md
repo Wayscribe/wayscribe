@@ -1225,7 +1225,7 @@ identifiers and operation metadata in that mode.
   than a fix for today: their keys are fixed, so no path rule matches one.
 - **It cannot reach a secret pasted inside `error.message` or `error.stack`.** Those are
   free text and path redaction matches names. SECURITY.md section 2 names stack traces as
-  carriers of credentials. ADR-045 masks that text by shape and keeps stacks only under full
+  carriers of credentials. ADR-046 masks that text by shape and keeps stacks only under full
   capture.
 - Normalisation runs on every key of every object. The lowercase result is tested for a
   separator before any replacement, so the common case allocates once.
@@ -1517,7 +1517,7 @@ one configured.
 - `ADMIN_TOKEN` has no grace period. Rotating it signs every web session out, which is the
   point of rotating it.
 
-## ADR-045: Error text is masked by shape, and stacks are kept only under full capture
+## ADR-046: Error text is masked by shape, and stacks are kept only under full capture
 
 **Status:** Accepted
 

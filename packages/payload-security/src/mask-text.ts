@@ -8,7 +8,7 @@ import { normaliseName, REDACTED } from "./redact.js";
  * credential pasted inside a string, and error text is exactly where those end
  * up: a connection string in `ECONNREFUSED`, a header echoed by an HTTP client,
  * a key quoted back by the provider that refused it. This recognises the shapes
- * those take and nothing else (ADR-045).
+ * those take and nothing else (ADR-046).
  *
  * It deliberately does not guess at entropy. The identifiers this product
  * exists to show, Salesforce ids, UUIDs, order numbers and hashes, are long and

@@ -109,7 +109,7 @@ Redaction replacements should preserve evidence that a value existed:
 Path redaction matches the name a value is filed under, so it cannot reach a
 credential written inside a string. Error text is where those appear, so
 `error.message` is also masked by shape, in the SDK before sending and on the
-server before storing, whoever sent the event (ADR-045). The masker replaces:
+server before storing, whoever sent the event (ADR-046). The masker replaces:
 
 - URL userinfo: `postgres://app:hunter2@db` becomes `postgres://[REDACTED]@db`
 - the secret path segment of Slack and Discord webhook URLs, keeping the
@@ -173,7 +173,7 @@ The content hash stored with each event is an unkeyed SHA-256 over the event as
 received, before any masking or redaction. With read access to the database, a
 low-entropy secret that was masked can be guessed offline by rebuilding the
 event with a candidate and comparing hashes. This was already true of redacted
-payload values, and is recorded as a known limitation in ADR-045.
+payload values, and is recorded as a known limitation in ADR-046.
 
 ## 5. API keys
 

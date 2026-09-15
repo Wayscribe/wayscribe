@@ -153,7 +153,7 @@ grace period with a re-encryption command (ADR-044). **Free text inside
 `error.message` and `error.stack` was not redacted**, because path redaction
 matches key names and cannot reach inside a string. That text is now masked by
 shape in the SDK and at ingestion, and a stack is stored only under full
-capture (ADR-045). Masking by shape catches the common credential formats and
+capture (ADR-046). Masking by shape catches the common credential formats and
 not an unfamiliar one, which is a narrower gap than before rather than none. The
 tests for it follow the rules above: the stored row is read back from
 PostgreSQL, and every "does not contain the secret" is paired with "still

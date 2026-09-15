@@ -365,7 +365,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   /**
-   * An error record with credential-shaped text masked (ADR-045).
+   * An error record with credential-shaped text masked (ADR-046).
    *
    * Here rather than in `toErrorRecord`, because every error record reaches
    * the queue through this point and not every one comes from there:

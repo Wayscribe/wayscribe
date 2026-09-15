@@ -94,7 +94,7 @@ changes far less often.
   SECURITY.md §4 lists the other known misses. The SDK masks the first 8192
   characters of a message and then cuts the result to the protocol's 4096,
   ending in `[TRUNCATED]`. `metadata` and payload strings
-  keep name-based redaction only (ADR-045).
+  keep name-based redaction only (ADR-046).
 - **Stack traces are stored only under full capture.** Ingestion drops
   `error.stack` unless the environment's capture mode is `full-payload` and
   `ALLOW_FULL_PAYLOAD_CAPTURE` is set, and masks a stack it keeps. The Node SDK

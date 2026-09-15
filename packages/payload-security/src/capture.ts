@@ -104,7 +104,7 @@ function writePath(
  * pasted *inside* `error.message` or `error.stack`, because those are free text
  * and path redaction matches names. Ingestion masks that text by shape with
  * `maskSecretsInText` before this runs, and drops the stack below full capture
- * (ADR-045).
+ * (ADR-046).
  */
 export function redactAlways(value: unknown, policy: CapturePolicy): unknown {
   if (value === undefined) return undefined;
