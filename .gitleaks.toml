@@ -27,7 +27,15 @@ regexes = [
   '''local-admin-token-000000000000000''',
   '''admin-token-for-tests-0000000000''',
   # API-key fixtures. A real one is 32 random characters after `fr_`.
-  '''fr_(test|validkey1|demo00000)[A-Za-z0-9_-]*'''
+  '''fr_(test|validkey1|demo00000)[A-Za-z0-9_-]*''',
+  # doctor.integration.test.ts: distinctive fake secrets whose whole purpose is
+  # to be searched for in doctor's output, so they must look like secrets to a
+  # scanner. Each carries the `doctor-` prefix and a role name no real
+  # credential has.
+  '''doctor-(db-password|wrong-password|encryption-key|other-encryption-key|admin-token|ungranted-pw)-[0-9a-f]+''',
+  # replays.integration.test.ts: a destination header value the test proves is
+  # never stored or returned.
+  '''dst-secret-[0-9a-f]+'''
 ]
 
 [[allowlists]]
