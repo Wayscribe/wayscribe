@@ -5,13 +5,20 @@ import { requireProjectId } from "../../src/lib/current-project";
 export default async function SearchPage({
   searchParams
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; deleted?: string }>;
 }) {
-  const { q } = await searchParams;
+  const { q, deleted } = await searchParams;
   const query = q?.trim() ?? "";
 
   return (
     <main>
+      {deleted === undefined ? null : (
+        // Set by the delete route handler, which only ever puts an entity type
+        // here. React escapes it either way.
+        <p className="notice" role="status">
+          Deleted the {deleted} journey. It no longer appears in search.
+        </p>
+      )}
       <h1>Find a record</h1>
       <p className="muted">
         Search any identifier you have — a customer ID, an external reference, a trace or message

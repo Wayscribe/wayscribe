@@ -306,3 +306,32 @@ button.plain {
 button.plain:hover {
   text-decoration: underline;
 }
+
+/* One line of confirmation after an action, such as a deletion. */
+.notice {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+/* The facts a destructive confirmation states. */
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+}
+.facts dt {
+  color: var(--muted);
+}
+.facts dd {
+  margin: 0;
+}
+.confirm {
+  align-items: flex-start;
+}
+button.danger {
+  background: var(--failed);
+  /* The page colour: white on the light theme's red, dark on the dark theme's pink. */
+  color: var(--bg);
+}

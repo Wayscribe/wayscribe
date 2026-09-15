@@ -130,6 +130,8 @@ describe("query endpoints", () => {
     expect(data.aliases[0]).toEqual({ type: "salesforceAccountId", displayValue: "SF-A…001" });
     expect(data.services).toEqual(["customer-integration"]);
     expect(data.eventCount).toBe(2);
+    // The web interface's delete confirmation names it.
+    expect(data.environment).toBe("development");
   });
 
   it("returns 404 for an unknown journey", async () => {
