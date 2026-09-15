@@ -24,7 +24,9 @@
     "key:create": "tsx --env-file-if-exists=../../.env src/cli.ts key:create",
     "key:revoke": "tsx --env-file-if-exists=../../.env src/cli.ts key:revoke",
     "key:list": "tsx --env-file-if-exists=../../.env src/cli.ts key:list",
-    "retention:sweep": "tsx --env-file-if-exists=../../.env src/cli.ts retention:sweep"
+    "retention:sweep": "tsx --env-file-if-exists=../../.env src/cli.ts retention:sweep",
+    "rotate:reencrypt": "tsx --env-file-if-exists=../../.env src/cli.ts rotate:reencrypt",
+    "rotate:status": "tsx --env-file-if-exists=../../.env src/cli.ts rotate:status"
   },
   "dependencies": {
     "@flight-recorder/config": "workspace:*",

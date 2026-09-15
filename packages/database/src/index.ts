@@ -41,6 +41,21 @@ export {
   type SweepResult
 } from "./repositories/retention.js";
 export {
+  findUnreadableData,
+  reencryptValues,
+  rotationStatus,
+  type ApiKeyNotCurrent,
+  type EncryptedTable,
+  type ReencryptOptions,
+  type ReencryptProgress,
+  type ReencryptResult,
+  type RotationStatus,
+  type TableKeyStatus,
+  type TableReencryption,
+  type UnreadableData,
+  type UnreadableTable
+} from "./repositories/rotation.js";
+export {
   KeyAdminError,
   issueKey,
   listKeys,

@@ -204,10 +204,51 @@ try {
       );
       break;
     }
+    case "rotate:reencrypt": {
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
+
+      const { reencryptValues } = await import("./repositories/rotation.js");
+      const report = await import("./rotation-report.js");
+      if (keyring.previous === null) {
+        console.error(report.NO_PREVIOUS_KEY_MESSAGE);
+        process.exitCode = 1;
+        break;
+      }
+
+      console.log(report.formatReencryptStart(keyring.current.id, keyring.previous.id));
+      const result = await reencryptValues(db, keyring, {
+        onBatch: (progress) => {
+          console.log(report.formatReencryptProgress(progress));
+        }
+      });
+      if (!result.ran) {
+        // An operator scripting the rotation needs to know nothing was done.
+        console.error(
+          result.reason === "lock_held" ? report.LOCK_HELD_MESSAGE : report.NO_PREVIOUS_KEY_MESSAGE
+        );
+        process.exitCode = 1;
+        break;
+      }
+      for (const line of report.formatReencryption(result.tables)) console.log(line);
+      break;
+    }
+    case "rotate:status": {
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
+
+      const { rotationStatus } = await import("./repositories/rotation.js");
+      const { formatRotationStatus } = await import("./rotation-report.js");
+      const status = await rotationStatus(db, keyring);
+      for (const line of formatRotationStatus(status)) console.log(line);
+      // So a script can wait on it: 0 once nothing is left under another key.
+      if (!status.complete) process.exitCode = 1;
+      break;
+    }
     default: {
       console.error(`Unknown command: ${command ?? "(none)"}`);
       console.error(
-        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep>"
+        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep|rotate:reencrypt|rotate:status>"
       );
       process.exitCode = 1;
       break;
