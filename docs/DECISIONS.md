@@ -1515,3 +1515,74 @@ one configured.
   API, so `ENCRYPTION_KEY_PREVIOUS` could not either. Shell exports no longer reach those stacks.
 - `ADMIN_TOKEN` has no grace period. Rotating it signs every web session out, which is the
   point of rotating it.
+
+## ADR-045: Deletion is hard, admin-only, and audited without the value
+
+**Status:** Accepted
+
+### Context
+
+The retention sweep was the only way anything left the database: by age, per
+environment, all or nothing. Redaction has missed secrets twice, and fixing the
+matcher did nothing about the rows already written; the operator had to wait out
+retention with the secret stored. An erasure request, a customer asking to be
+forgotten, had no answer at all. A load test or a misconfigured service could
+fill an environment with noise that could only be removed by dropping the
+environment. And a replay destination whose headers no configured key could
+decrypt kept `rotate:status` at exit 1 with no way to remove it short of editing
+the database.
+
+### Decision
+
+Four deletions: one journey, every journey matching an identifier, an
+environment's journeys in a `last_event_at` window, and a replay destination with
+its replay runs. The first two and the last are in the admin API and the CLI;
+the time window is in the CLI only; the web interface deletes one journey,
+through a confirmation page.
+
+Deletion is **hard**. Rows are deleted, and a journey's events, aliases, and
+replay runs go with it through the existing cascades. A soft delete keeps exactly
+what the operator asked to remove, and every read would have to remember to skip
+it.
+
+Deletion is **admin-only**. The admin token, a signed-in session, and the database
+CLI can delete; an API key cannot, for the reason it cannot replay (ADR-032).
+
+Every deletion writes one audit row **in the same transaction** as the delete. An
+erasure's row holds the identifier's search token under the current key, never
+the identifier: the identifier is the personal data being erased. A destination's
+row holds its name and not its base URL.
+
+Erasure matches by search token under every configured key, the same match search
+uses, so "delete what search shows" is the model and a journey still under the
+previous key during a rotation is found.
+
+The two deletions that select by criteria have a **dry run** that reads through
+the same selection the deletion uses, so it cannot drift from it. Both delete in
+batches, one transaction each (500 journeys for an erasure, 1,000 for a range,
+as the sweep), and both select only journeys created before the run started, so
+a run ends however fast matching data arrives. Their audit row is written with
+the first batch, kept current by every later batch, and marked `complete: true`
+by the batch that finds nothing left. A range deletion holds the retention
+sweep's advisory lock, on a dedicated connection as the sweep does, so the two
+never run together.
+
+### Consequences
+
+- A crash part way through an erasure or range deletion leaves an audit row
+  whose counts are exactly what committed and which says `complete: false`. Nothing
+  is ever deleted without a row, and no row claims more than was deleted.
+  Running the command again finishes the job.
+- Journeys created during a run are left for the next one. The documentation tells
+  the operator to run the dry run again afterwards.
+- A journey updated while a range deletion runs can still be deleted after its new
+  last event moves it out of the window, as with the retention sweep. The window
+  is a selection at the time of the batch, not a guarantee against concurrent
+  ingestion.
+- Deleted rows remain in PostgreSQL's files until vacuum and in every backup taken
+  before the deletion. `OPERATIONS.md` says so; the tool does not pretend
+  otherwise.
+- Deleting events inside a journey is not offered. A journey is the unit a reader
+  sees, and a partial journey is harder to reason about than none.
+- `audit_events` is still never swept, and now grows by one row per deletion.
+

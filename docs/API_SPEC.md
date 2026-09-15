@@ -224,6 +224,7 @@ Response:
 {
   "data": {
     "journeyId": "jrn_01",
+    "environment": "production",
     "entity": {
       "type": "customer",
       "id": "18492"
@@ -409,3 +410,110 @@ Initial configurable limits should cover:
 - replay duration
 
 Exact defaults belong in configuration documentation once implementation measurements exist.
+
+## 16. Delete a journey
+
+```http
+DELETE /v1/journeys/:journeyId
+Authorization: Bearer <admin-token>
+x-flight-project-id: <project-id>
+```
+
+Admin token only. An API key gets `401 unauthorized` with the same body as the
+replay routes: API keys ingest and never delete (ADR-045).
+
+Deletes the journey, its events, its aliases, and the replay runs of its events,
+and writes a `journey.deleted` audit row in the same transaction.
+
+- `204` with no body when deleted.
+- `404 not_found` when the journey is not in the named project, the same answer
+  as a read, so it reveals nothing about other projects.
+- `400 invalid_request` for a journey id containing a null byte or longer than
+  512 characters.
+
+## 17. Erase an identifier
+
+```http
+POST /v1/erasures
+Authorization: Bearer <admin-token>
+x-flight-project-id: <project-id>
+```
+
+Request:
+
+```json
+{
+  "value": "customer-42@example.com",
+  "environment": "production",
+  "dryRun": true
+}
+```
+
+Selects every journey in the project whose entity id or any alias matches
+`value` under the configured keys, which is what search finds for it by
+identifier. `environment` is optional and limits it to one environment by name.
+Only journeys that existed when the request started are selected.
+
+Dry run response, `200`. Nothing is deleted and no audit row is written.
+`journeys` lists at most 1,000, most recent first; `total` counts every match.
+
+```json
+{
+  "data": {
+    "journeys": [
+      {
+        "id": "jrn_01",
+        "environment": "production",
+        "entityType": "customer",
+        "eventCount": 8,
+        "lastEventAt": "2026-08-06T18:34:38.000Z"
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+Real run response, `200`, after deleting in transactions of 500 journeys and
+writing one `erasure.completed` audit row that holds the search token and counts,
+never the value:
+
+```json
+{
+  "data": {
+    "deletedJourneys": 1,
+    "deletedEvents": 8,
+    "complete": true
+  }
+}
+```
+
+When some batches committed and a later one failed, the response is still `200`,
+with `complete: false`, the counts of what was deleted, and a `message` saying to
+run the erasure again. The audit row also says `complete: false`.
+
+Errors:
+
+- `400 invalid_request` when `value` is missing, not a string, longer than 512
+  characters, only whitespace, or contains a null byte; when `environment` is
+  empty, not a string, or contains a null byte; or when `dryRun` is not a
+  boolean.
+- `404 environment_not_found` when the project has no environment with that
+  name.
+
+## 18. Delete a replay destination
+
+```http
+DELETE /v1/replay-destinations/:destinationId
+Authorization: Bearer <admin-token>
+x-flight-project-id: <project-id>
+```
+
+Deletes the destination and every replay run sent to it, in one transaction. A
+run cannot be read or repeated without its destination, and runs hold the
+replayed payloads. The `replay_destination.deleted` audit row records the name
+and the number of runs, not the base URL or the headers.
+
+- `204` with no body when deleted.
+- `404 not_found` when the destination is not in the named project, or the id is
+  not a UUID.

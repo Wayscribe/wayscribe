@@ -57,10 +57,6 @@ declaration is still valid.
   `SECURITY.md` §2 names stack traces as carriers of credentials. Needs either
   value scanning, which is false-positive-prone, or a decision not to store
   stacks (ADR-039).
-- **There is no way to delete captured data.** No `DELETE` route, no CLI
-  command. When a redaction miss stores something it should not have — which has
-  now happened twice — fixing the matcher does nothing about the rows already
-  written. This is also the answer to an erasure request.
 - **`audit_events` is never swept.** Harmless while it holds four call sites;
   a problem the moment reads are audited.
 - **The login limiter is per-process,** so N web replicas means N times the

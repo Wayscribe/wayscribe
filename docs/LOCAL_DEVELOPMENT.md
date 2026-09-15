@@ -165,6 +165,10 @@ your back is a library that behaves differently in tests.
 | `pnpm key:list [project]` | scope, name, and last use |
 | `pnpm rotate:reencrypt` | move stored data onto `ENCRYPTION_KEY` from `ENCRYPTION_KEY_PREVIOUS`; without a previous key, upgrade legacy values into the current format |
 | `pnpm rotate:status` | what is still under another key; exits 0 when nothing is |
+| `pnpm delete:journey <project> <journey-id>` | delete one journey |
+| `pnpm delete:identifier <project> <value> [--environment <name>] [--dry-run]` | delete every journey matching an identifier; dry run first |
+| `pnpm delete:range <project> <environment> --before <date> [--after <date>] [--dry-run]` | delete an environment's journeys by last activity |
+| `pnpm delete:destination <project> <destination-id>` | delete a replay destination and its runs |
 | `pnpm demo:trigger` | fire the reference journey |
 
 ## 7. Projects, environments, and keys

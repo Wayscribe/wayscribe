@@ -31,6 +31,22 @@ changes far less often.
 
 ### Added
 
+- **Captured data can be deleted on demand.** Retention was the only way
+  anything left the database, so a redaction miss stayed stored until it aged
+  out and an erasure request had no answer. `delete:journey`,
+  `delete:identifier`, `delete:range`, and `delete:destination` remove one
+  journey, every journey matching an identifier, an environment's journeys by
+  last activity, or a replay destination with its runs. The admin API has
+  `DELETE /v1/journeys/:journeyId`, `POST /v1/erasures`, and
+  `DELETE /v1/replay-destinations/:destinationId`, and a journey's page links to
+  a confirmation that deletes it. Deletion is hard and admin-only; the selecting
+  deletions have a dry run; every deletion writes its audit row in the same
+  transaction, and an erasure's row holds the search token, never the value. An
+  erasure or range deletion leaves journeys created while it ran for the next
+  run, and marks its audit row `complete: false` if it stops part way. Deleted
+  rows remain until vacuum and in earlier backups. The procedure is in
+  `docs/OPERATIONS.md` §8 (ADR-045).
+- **`GET /v1/journeys/:journeyId` includes the environment's name.**
 - **`ENCRYPTION_KEY` can be rotated without losing data.** Every encrypted value
   now names the key that wrote it, and `ENCRYPTION_KEY_PREVIOUS` holds the key
   being replaced while the new one takes over. Through that grace period old
