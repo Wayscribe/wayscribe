@@ -117,6 +117,14 @@ changes far less often.
 
 ### Fixed
 
+- **Search no longer slows down as journeys accumulate.** It walked every
+  journey in the project and probed its events and aliases, which took about
+  1.5 seconds at 120,000 journeys and 20 seconds or more at a million. It is now
+  one index lookup per kind of identifier, joined to the journeys that match,
+  and takes well under a millisecond at either size with identical results and
+  cursors. Migration `014_search_indexes.js` adds the one index that lookup
+  lacked, on span id, built concurrently so upgrading does not block ingestion.
+
 The eight defects and seven smaller findings from the 2026-08-09 first-contact
 audit, all merged the same day. The pattern behind them is written up in
 [docs/WHAT_RUNNING_IT_FOUND.md](docs/WHAT_RUNNING_IT_FOUND.md).

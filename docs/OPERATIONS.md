@@ -539,20 +539,28 @@ The practical lever is `captureMode`. `metadata-only` stores no payloads at all
 and shrinks the table by roughly the size of your traffic; `redacted-payload`
 (the default) stores both input and output per wrapped step.
 
-Two indexes carry the read path: `journeys_entity_value_idx` for search and
-`journeys_recent_idx` for retention selection. The recent-journeys list adds
-`journeys_status_recent_idx` and `journey_events_service_idx`; the second costs
-one more index write on every event insert. Migration 013 builds both with
-`CREATE INDEX CONCURRENTLY`, so on a large installation it takes longer than
-the other migrations but does not block ingestion while it runs.
+Search looks a value up in one index per kind of identifier:
+`journeys_pkey` for a journey id, `journeys_entity_value_idx` and
+`entity_aliases_value_idx` for entity and alias values, and one index each on
+`journey_events` for trace, span, message, and correlation ids. It takes about
+0.1 ms at a million journeys, and its cost grows with how many journeys match
+the value rather than with how many exist (a value shared by 20,000 journeys
+took 230 ms). `journeys_recent_idx` serves retention selection. The
+recent-journeys list adds `journeys_status_recent_idx` and
+`journey_events_service_idx`; the second costs one more index write on every
+event insert, and the span id index adds one on every event that carries a
+span id. Migrations 013 and 014 build their indexes with
+`CREATE INDEX CONCURRENTLY`, so on a large installation they take longer than
+the other migrations but do not block ingestion while they run (014 took 3
+seconds over 3 million events).
 
-If that build stops partway, what to do depends on how it stopped:
+If one of those builds stops partway, what to do depends on how it stopped:
 
 - **The build failed** (an error was reported, or the connection dropped) and
   `migrate` exited. Run `migrate` again. It drops the index the failed build
   left invalid and builds it afresh.
 - **The migrate process was killed** (`kill -9`, an evicted pod, a stopped
-  container). Because 013 runs outside a transaction, the migration lock is
+  container). Because 013 and 014 run outside a transaction, the migration lock is
   still set and every `migrate` after it fails with a message that the
   migration table is locked; the Helm Job's retries fail the same way and
   `/ready` stays `migrations_pending`. First make sure no `migrate` is still

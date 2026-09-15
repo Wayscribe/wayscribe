@@ -226,4 +226,51 @@ describe("schema constraints", () => {
       expect(await indexes()).toEqual(BOTH_VALID);
     });
   });
+
+  describe("search index (014)", () => {
+    const MIGRATION = "014_search_indexes.js";
+
+    /** Validity and definition of the span id index, if it exists. */
+    const spanIndex = async (): Promise<{ valid: boolean; definition: string }[]> => {
+      const result: unknown = await db.raw(
+        `select i.indisvalid as valid, pg_get_indexdef(i.indexrelid) as definition
+         from pg_index i join pg_class c on c.oid = i.indexrelid
+         where c.relname = 'journey_events_span_idx'`
+      );
+      return (result as { rows: { valid: boolean; definition: string }[] }).rows;
+    };
+
+    const VALID = [
+      {
+        valid: true,
+        definition:
+          "CREATE INDEX journey_events_span_idx ON public.journey_events USING btree (project_id, span_id) WHERE (span_id IS NOT NULL)"
+      }
+    ];
+
+    it("adds the span id index and removes it on the way down", async () => {
+      expect(await spanIndex()).toEqual(VALID);
+      await db.migrate.down({ name: MIGRATION });
+      expect(await spanIndex()).toEqual([]);
+      await db.migrate.up({ name: MIGRATION });
+      expect(await spanIndex()).toEqual(VALID);
+    });
+
+    it("rebuilds the index a cancelled concurrent build left invalid", async () => {
+      // As for 013: `if not exists` alone would accept the invalid index and
+      // the retried migration would record 014 as applied, leaving search by
+      // span id a sequential scan of journey_events.
+      await db.migrate.down({ name: MIGRATION });
+      await db.raw(
+        "create index journey_events_span_idx on journey_events (project_id, span_id) where span_id is not null"
+      );
+      await db.raw(
+        "update pg_index set indisvalid = false where indexrelid = 'journey_events_span_idx'::regclass"
+      );
+      expect(await spanIndex()).toEqual([{ ...VALID[0], valid: false }]);
+
+      await db.migrate.up({ name: MIGRATION });
+      expect(await spanIndex()).toEqual(VALID);
+    });
+  });
 });
