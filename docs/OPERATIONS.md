@@ -730,7 +730,7 @@ groups:
   - name: flight-recorder
     rules:
       # Events refused. A new service with a mistyped environment shows up here
-      # first, and the SDK writes nothing to its host's console by default.
+      # first, whatever the sending service does or does not report itself.
       - alert: FlightRecorderRejectingEvents
         expr: sum(increase(flight_recorder_events_total{result="rejected"}[15m])) > 0
         for: 15m

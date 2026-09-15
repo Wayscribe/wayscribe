@@ -200,6 +200,15 @@ Response:
 
 A partially invalid batch must not reject all valid events.
 
+Each rejected result carries `error.httpStatus`, the status the same refusal
+would have from the single-event route. A 4xx is permanent: the event was
+understood and refused, and sending it again gets the same answer. A 5xx is
+transient: `query_timeout` (503, a statement ran past the timeout) and
+`storage_error` (500, the database failed to store it) say nothing about the
+event, so a client should send that event again later. Resending is safe,
+because an event id already stored with the same content is accepted as a
+duplicate.
+
 ## 5. Search
 
 ```http
