@@ -154,7 +154,16 @@ describe("logDiagnostics", () => {
   it("replaces bidirectional formatting characters", () => {
     // U+202E reverses what follows in many log viewers, so a reason could make
     // its line read as something it does not say.
-    const controls = ["\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d", "\u202e"];
+    const controls = [
+      "\u061c",
+      "\u200e",
+      "\u200f",
+      "\u202a",
+      "\u202b",
+      "\u202c",
+      "\u202d",
+      "\u202e"
+    ];
     const isolates = ["\u2066", "\u2067", "\u2068", "\u2069"];
     const { lines, restore } = logged();
     createDiagnostics(undefined, { log: true }).report({

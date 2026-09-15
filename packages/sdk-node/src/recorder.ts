@@ -356,6 +356,18 @@ function warnIfInsecure(endpoint: string, diagnostics: Diagnostics): void {
   });
 }
 
+/**
+ * The endpoint as scheme, host, and port only.
+ *
+ * Its path and query can carry a credential the masker does not recognise by
+ * shape, and userinfo is a credential by definition, so none of them is
+ * reported. The port stays: a wrong port is one of the things `delivered_first`
+ * exists to rule out.
+ */
+function originOf(endpoint: string): string {
+  return URL.canParse(endpoint) ? new URL(endpoint).origin : "the configured endpoint";
+}
+
 /** How long shutdown waits for aborted sends to hand their events back. */
 const ABANDON_WAIT_MS = 250;
 
@@ -443,7 +455,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
             // Once: this answers "is it connected?", and repeating the answer
             // on every batch would be exactly the noise logDiagnostics avoids.
             delivered = true;
-            const endpoint = maskSecretsInText(resolved.endpoint);
+            const endpoint = originOf(resolved.endpoint);
             diagnostics.report({
               kind: "delivered_first",
               reason: `Connected to ${endpoint}; the server accepted ${String(accepted)} ${accepted === 1 ? "event" : "events"}.`,

@@ -69,6 +69,42 @@ describe("delivered_first", () => {
     expect(first[0]?.reason).toContain(server.endpoint);
   });
 
+  it.each([
+    ["a token in the path", "/ingest/sk_live_51Habcdefghijklmnop", "sk_live_51Habcdefghijklmnop"],
+    ["a token in the query", "?access_token=abcdef123456", "abcdef123456"]
+  ])("names only the scheme and host, not %s", async (_label, suffix, secret) => {
+    // The endpoint string is printed under logDiagnostics, and an endpoint can
+    // carry a path or query holding a credential that the masker does not
+    // recognise by shape.
+    const server = await ingestion(accepted);
+    const seen: Diagnostic[] = [];
+    const lines: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+    const recorder = createRecorder({
+      ...base,
+      endpoint: `${server.endpoint}${suffix}`,
+      logDiagnostics: true,
+      onDiagnostic: (d) => seen.push(d)
+    });
+    recorder
+      .startJourney({ entity: { type: "customer", id: "1" } })
+      .record({ operation: "received", name: "n" });
+    await recorder.shutdown({ timeoutMs: 2_000 });
+    vi.restoreAllMocks();
+    await server.close();
+
+    const [first] = seen.filter((d) => d.kind === "delivered_first");
+    expect(first).toMatchObject({ endpoint: server.endpoint });
+    const everything = [...lines, JSON.stringify(seen)].join("\n");
+    expect(everything).not.toContain(secret);
+    expect(everything).not.toContain("ingest/");
+    expect(lines).toContain(
+      `[flight-recorder] delivered_first: Connected to ${server.endpoint}; the server accepted 1 event.`
+    );
+  });
+
   it("is not reported while the server refuses everything", async () => {
     // The whole point of the signal: a key for the wrong environment reaches
     // the server and stores nothing, and must not read as connected.

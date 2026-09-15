@@ -181,12 +181,13 @@ function plural(repeats: number): string {
 }
 
 // eslint-disable-next-line no-control-regex -- matching control characters is the point
-const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028-\u202e\u2066-\u2069]+/g;
+const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]+/g;
 
 /**
  * The reason as one safe line: credential shapes masked, control characters
  * (newlines, terminal escapes) replaced so a reason cannot forge a second log
- * line, bidirectional formatting characters replaced so it cannot make a log
+ * line, bidirectional formatting characters (U+061C, U+200E, U+200F,
+ * U+202A-U+202E, U+2066-U+2069) replaced so it cannot make a log
  * viewer display text in an order other than the one it was written in, and
  * bounded.
  *
