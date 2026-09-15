@@ -1,5 +1,14 @@
 import { z } from "zod";
 import { journeyEventSchema } from "./event.js";
+import {
+  batchRequestSchema,
+  batchResponseSchema,
+  errorBodySchema,
+  eventAcceptedSchema,
+  eventResultSchema,
+  storedEventSchema,
+  storedJourneySchema
+} from "./ingestion.js";
 import { PROTOCOL_VERSION } from "./version.js";
 
 /**
@@ -37,8 +46,90 @@ export function buildJsonSchemas(): Record<string, JsonSchema> {
       description:
         "The body of a single-event ingestion request, and one element of a batch: a protocol version and one event.",
       body: envelopeBody()
+    }),
+    "batch-request": document({
+      id: "batch-request.schema.json",
+      title: "Batch ingestion request",
+      description:
+        "The body of a batch ingestion request. Each element is an envelope, and each is refused or accepted on its own, so an element that fails does not refuse the request.",
+      body: generate(batchRequestSchema)
+    }),
+    "batch-response": document({
+      id: "batch-response.schema.json",
+      title: "Batch ingestion response",
+      description:
+        "One verdict per sent event, in the order they were sent and matched by position. The response is 202 whether or not every event was accepted, because the transport succeeded, so a client has to read this body.",
+      body: refer(generate(batchResponseSchema), [
+        [["properties", "data", "properties", "results", "items"], "event-result.schema.json"]
+      ])
+    }),
+    "event-result": document({
+      id: "event-result.schema.json",
+      title: "Per-event verdict",
+      description: "What happened to one event of a batch.",
+      body: refer(generate(eventResultSchema), [
+        [["properties", "stored", "properties", "event"], "stored-event.schema.json"],
+        [["properties", "stored", "properties", "journey"], "stored-journey.schema.json"]
+      ])
+    }),
+    "event-accepted": document({
+      id: "event-accepted.schema.json",
+      title: "Single-event ingestion response",
+      description: "The body of an accepted single-event ingestion request.",
+      body: generate(eventAcceptedSchema)
+    }),
+    "error-body": document({
+      id: "error-body.schema.json",
+      title: "Error body",
+      description:
+        "Every refusal, from any route, in one shape. A client that does not recognize the code branches on the HTTP status.",
+      body: generate(errorBodySchema)
+    }),
+    "stored-event": document({
+      id: "stored-event.schema.json",
+      title: "Stored event",
+      description:
+        "One event as a read returns it, which is what a dry run previews. This is not the wire event: capture, redaction and masking have been applied, and unknown fields are gone.",
+      body: generate(storedEventSchema)
+    }),
+    "stored-journey": document({
+      id: "stored-journey.schema.json",
+      title: "Stored journey",
+      description:
+        "One journey as a read returns it, with its aliases and the services that touched it.",
+      body: generate(storedJourneySchema)
     })
   };
+}
+
+/**
+ * Replace an inlined subschema with a sibling `$ref`.
+ *
+ * Zod inlines a nested schema, which would publish the stored event's shape
+ * three times and let the copies drift as surely as two hand-written files
+ * would. Throws when the path is not there, so a schema change that moves one
+ * of these properties fails the generator rather than quietly shipping the
+ * inlined copy again.
+ */
+function refer(schema: JsonSchema, replacements: [string[], string][]): JsonSchema {
+  for (const [path, ref] of replacements) {
+    let parent: JsonSchema = schema;
+    for (const segment of path.slice(0, -1)) {
+      const next: unknown = parent[segment];
+      if (typeof next !== "object" || next === null) {
+        throw new Error(`No subschema at ${path.join(".")}: stopped at ${segment}.`);
+      }
+      parent = next as JsonSchema;
+    }
+    const last = path[path.length - 1] ?? "";
+    if (!(last in parent)) throw new Error(`No subschema at ${path.join(".")}.`);
+    // The description written on the Zod schema is kept: it says what the
+    // property means here, which the referenced document cannot.
+    const existing = parent[last] as JsonSchema;
+    const description = existing["description"];
+    parent[last] = typeof description === "string" ? { $ref: ref, description } : { $ref: ref };
+  }
+  return schema;
 }
 
 /**

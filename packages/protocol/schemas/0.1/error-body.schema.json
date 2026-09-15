@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "error-body.schema.json",
+  "title": "Error body",
+  "description": "Every refusal, from any route, in one shape. A client that does not recognize the code branches on the HTTP status.",
+  "type": "object",
+  "properties": {
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "A stable machine-readable code. Branch on the HTTP status for a code you do not recognize."
+        },
+        "message": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string",
+          "description": "Quote this when reporting a problem; it is in the server's log line."
+        },
+        "details": {
+          "description": "Present when the refusal came from validation: which fields were wrong.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "message"
+            ]
+          }
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "requestId"
+      ]
+    }
+  },
+  "required": [
+    "error"
+  ]
+}

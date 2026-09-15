@@ -3,9 +3,8 @@ import type { Keyring } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
 import { databaseApiKeys, logVerifierReplaceFailure, resolveApiKey } from "../auth.js";
 import { ingestEvent, type IngestResult } from "../ingestion/ingest-event.js";
+import { MAX_BATCH_EVENTS } from "@flight-recorder/protocol";
 import type { EventResult } from "../metrics/api-metrics.js";
-
-const MAX_BATCH_SIZE = 100;
 
 /**
  * How stale `last_used_at` is allowed to get.
@@ -125,14 +124,14 @@ export function registerEventRoutes(
         .send(errorBody("invalid_event", "Body must contain an events array.", request.id));
     }
 
-    if (events.length > MAX_BATCH_SIZE) {
+    if (events.length > MAX_BATCH_EVENTS) {
       // Rejected before any event is processed, per SECURITY.md section 11.
       return reply
         .code(400)
         .send(
           errorBody(
             "payload_too_large",
-            `A batch may contain at most ${String(MAX_BATCH_SIZE)} events.`,
+            `A batch may contain at most ${String(MAX_BATCH_EVENTS)} events.`,
             request.id
           )
         );

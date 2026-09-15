@@ -1,6 +1,16 @@
 export { envelopeSchema, parseEnvelope, type ParseDetail, type ParseResult } from "./envelope.js";
 export { PROTOCOL_ERROR_CODES, type ProtocolErrorCode } from "./errors.js";
 export {
+  MAX_BATCH_EVENTS,
+  batchRequestSchema,
+  batchResponseSchema,
+  errorBodySchema,
+  eventAcceptedSchema,
+  eventResultSchema,
+  storedEventSchema,
+  storedJourneySchema
+} from "./ingestion.js";
+export {
   REGENERATE_COMMAND,
   buildJsonSchemas,
   serializeSchema,

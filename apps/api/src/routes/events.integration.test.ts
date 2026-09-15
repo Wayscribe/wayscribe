@@ -1,4 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { buildJsonSchemas } from "@flight-recorder/protocol";
+import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
 import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
@@ -498,6 +500,152 @@ describe("event ingestion", () => {
         .where({ project_id: projectId, id: "evt_proto_bad" })
         .first();
       expect(stored).toBeUndefined();
+    });
+  });
+
+  describe("what the routes send, against the generated JSON Schema", () => {
+    /**
+     * The published schemas for the response shapes describe what the API
+     * already sends, and nothing checked that until now. A hand-written schema
+     * for a response is a second source of truth that drifts; this is the check
+     * that stops it.
+     *
+     * Ajv reads the generated files exactly as a client in another language
+     * would, `$ref` resolution by sibling basename included.
+     */
+    const ajv = new Ajv2020({ strict: true, allErrors: true, validateFormats: false });
+    const schemas = buildJsonSchemas();
+    for (const name of ["event", "stored-event", "stored-journey", "event-result"]) {
+      ajv.addSchema(schemas[name] ?? {});
+    }
+    const batchResponse = ajv.compile(schemas["batch-response"] ?? {});
+    const errorBody = ajv.compile(schemas["error-body"] ?? {});
+    const eventAccepted = ajv.compile(schemas["event-accepted"] ?? {});
+
+    const against = (validate: ValidateFunction, body: unknown, what: string): void => {
+      expect(validate(body), `${what}: ${ajv.errorsText(validate.errors)}`).toBe(true);
+    };
+
+    const batch = (events: unknown[]) =>
+      app.inject({
+        method: "POST",
+        url: "/v1/events/batch",
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: { events } as object
+      });
+
+    it("validates the 202 of an accepted single event", async () => {
+      const response = await send(event({ id: "evt_schema_single", journeyId: "jrn_schema" }));
+      expect(response.statusCode, response.body).toBe(202);
+      against(eventAccepted, response.json(), "single-event 202");
+    });
+
+    it("validates a batch carrying an accept, a duplicate and a rejection at once", async () => {
+      const response = await batch([
+        event({ id: "evt_schema_batch", journeyId: "jrn_schema" }),
+        // The same event again, which is a duplicate in the same request.
+        event({ id: "evt_schema_batch", journeyId: "jrn_schema" }),
+        { protocolVersion: "0.1", event: { id: "evt_schema_bad" } }
+      ]);
+      expect(response.statusCode, response.body).toBe(202);
+      const results = response.json().data.results;
+      // The three shapes the schema has to cover, so a pass is not vacuous.
+      expect(results[0].status).toBe("accepted");
+      expect(results[1].duplicate).toBe(true);
+      expect(results[2].error.code).toBe("invalid_event");
+      expect(results[2].error.details.length).toBeGreaterThan(0);
+      against(batchResponse, response.json(), "batch 202");
+    });
+
+    it.each([
+      ["a body with no events array", { notEvents: [] }, "invalid_event"],
+      [
+        "a batch over the ceiling",
+        { events: Array.from({ length: 101 }, () => event()) },
+        "payload_too_large"
+      ]
+    ])("validates the error body of %s", async (_what, payload, code) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events/batch",
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: payload as object
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe(code);
+      against(errorBody, response.json(), "whole-request refusal");
+    });
+
+    it("validates the error body of a refused credential", async () => {
+      const response = await send(event({ id: "evt_schema_401" }), "fr_not_a_key");
+      expect(response.statusCode).toBe(401);
+      against(errorBody, response.json(), "401");
+    });
+
+    it("validates the error body of a conflict", async () => {
+      const response = await send(
+        event({ id: "evt_schema_single", journeyId: "jrn_schema", name: "changed" })
+      );
+      expect(response.statusCode).toBe(409);
+      against(errorBody, response.json(), "409");
+    });
+
+    it("refuses a response the schema does not describe", () => {
+      // The control. Every assertion above would pass against a validator that
+      // approves anything, which is exactly what a schema with a typo becomes.
+      expect(batchResponse({ data: { results: [{ status: "maybe" }] } })).toBe(false);
+      expect(errorBody({ error: { code: "x" } })).toBe(false);
+    });
+
+    describe("the batch request corpus the protocol package pins", () => {
+      // packages/protocol/src/ingestion.test.ts asserts that the Zod schema and
+      // the generated one agree about each of these. This is the third party to
+      // that agreement: what the route actually answers.
+      it.each([
+        ["zero events", [], 202],
+        ["one event", [event({ id: "evt_corpus_1", journeyId: "jrn_corpus" })], 202],
+        ["one hundred and one events", Array.from({ length: 101 }, () => event()), 400]
+      ])("%s", async (_name, events, status) => {
+        const response = await batch(events);
+        expect(response.statusCode, response.body).toBe(status);
+      });
+
+      it("one hundred events", async () => {
+        const response = await batch(
+          Array.from({ length: 100 }, (_unused, index) =>
+            event({ id: `evt_corpus_100_${String(index)}`, journeyId: "jrn_corpus_100" })
+          )
+        );
+        expect(response.statusCode, response.body).toBe(202);
+        expect(response.json().data.results.length).toBe(100);
+      });
+
+      it("an unknown extra field beside events is ignored", async () => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/events/batch",
+          headers: { authorization: `Bearer ${apiKey}` },
+          payload: {
+            events: [event({ id: "evt_corpus_extra", journeyId: "jrn_corpus" })],
+            tenantRegion: "eu-west-1"
+          } as object
+        });
+        expect(response.statusCode, response.body).toBe(202);
+      });
+
+      it.each([
+        ["events is not an array", { events: "one" }],
+        ["a null body", null]
+      ])("%s is a whole-request refusal", async (_name, payload) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/events/batch",
+          headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+          payload: payload === null ? "null" : payload
+        });
+        expect(response.statusCode, response.body).toBe(400);
+        expect(response.json().error.code).toBe("invalid_event");
+      });
     });
   });
 });

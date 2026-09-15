@@ -1,4 +1,5 @@
 import { isStatementTimeout } from "@flight-recorder/database";
+import { MAX_BATCH_EVENTS } from "@flight-recorder/protocol";
 import type { Keyring } from "@flight-recorder/payload-security";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import type { Knex } from "knex";
@@ -27,7 +28,16 @@ export interface BuildAppOptions {
   keyring: Keyring;
   adminToken: string;
   logLevel?: string;
-  /** Per-request body cap. Defaults to the batch ceiling plus headroom. */
+  /**
+   * Per-request body cap. Defaults to the batch ceiling plus headroom.
+   *
+   * A batch is at most `MAX_BATCH_EVENTS` events and an event's payload at most
+   * `MAX_EVENT_PAYLOAD_BYTES`, so the largest legitimate request is roughly the
+   * product of the two. Fastify's 1 MiB default is far below that, which turns
+   * a valid batch into a 413, and the SDK requeues a rejected batch to the
+   * front of its queue, so an oversize batch head-of-line-blocks the recorder
+   * until the queue trims. Sized from the contract rather than guessed.
+   */
   bodyLimit?: number;
   maxEventPayloadBytes?: number;
   allowFullPayloadCapture?: boolean;
@@ -44,16 +54,6 @@ export interface BuildAppOptions {
    */
   trustedProxyCount?: number;
 }
-
-/**
- * A batch is at most 100 events and an event's payload at most
- * `MAX_EVENT_PAYLOAD_BYTES`, so the largest legitimate request is roughly the
- * product of the two. Fastify's 1 MiB default is far below that, which turns a
- * valid batch into a 413 — and the SDK requeues a rejected batch to the front
- * of its queue, so an oversize batch head-of-line-blocks the recorder until the
- * queue trims. Sized from configuration rather than guessed.
- */
-const MAX_BATCH_EVENTS = 100;
 
 /**
  * Longest path parameter the router accepts, measured in the encoded path.

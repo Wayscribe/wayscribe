@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stored-journey.schema.json",
+  "title": "Stored journey",
+  "description": "One journey as a read returns it, with its aliases and the services that touched it.",
+  "type": "object",
+  "properties": {
+    "journeyId": {
+      "type": "string"
+    },
+    "environment": {
+      "type": "string"
+    },
+    "entity": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "description": "Decrypted for display. Null when the key that encrypted it is no longer held.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "completed",
+        "failed"
+      ]
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "displayValue": {
+            "description": "Masked, because an alias may be an identifier the caller is not entitled to see in full.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "displayValue"
+        ]
+      }
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "eventCount": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "startedAt": {
+      "type": "string"
+    },
+    "completedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "lastEventAt": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "journeyId",
+    "environment",
+    "entity",
+    "status",
+    "aliases",
+    "services",
+    "eventCount",
+    "startedAt",
+    "completedAt",
+    "lastEventAt"
+  ]
+}
