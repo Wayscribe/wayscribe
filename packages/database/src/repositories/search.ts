@@ -73,9 +73,12 @@ const TECHNICAL_IDENTIFIER_COLUMNS = [
  * - a value matching nothing, a journey id, a trace id, a span id: the same,
  *   within 0.1 ms of each other at both sizes. Without an environment in the
  *   scope the old query took 1.5 s and 20 to 40 s.
- * - a value matching 20,000 journeys at 1,000,000: 231 ms. The cost now
- *   follows the number of matches, since every match is joined and sorted to
- *   find the newest 25.
+ * - a value matching many journeys: 13 ms for 2,400 matches at 120,000
+ *   journeys and 64 ms for 20,000 at 1,000,000 (20 ms and 89 ms without an
+ *   environment). Once the matches number in the thousands the planner hashes
+ *   them and joins with a sequential scan of the project's journeys, so in
+ *   that regime the cost tracks the journey count again, though at a few
+ *   percent of what the old query paid for any value.
  */
 export async function searchJourneys(
   db: Knex,

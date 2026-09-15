@@ -562,7 +562,7 @@ running installation sits between the two.
 
 What the numbers say:
 
-- **Indexes are 40 to 55 percent of the disk.** At a million events in
+- **Indexes are 39 to 56 percent of the disk.** At a million events in
   `metadata-only`, the three tables held 559 MiB of indexes out of 1,001 MiB;
   in `redacted-payload`, 556 MiB out of 1.39 GiB.
 - **Payload capture costs about four times the payload's JSON size.**
@@ -570,13 +570,13 @@ What the numbers say:
   bytes of JSON: JSONB is larger than JSON text for small objects, and a step
   with both an input and an output also stores their diff. `full-payload` and
   `redacted-payload` match here because the demo payloads hold no secrets.
-- **Retention does not shrink the files, and does not need to.** Deleting half
-  the journeys with the retention sweep and running a plain `VACUUM` left the
-  size unchanged (832.7 MiB before, 832.9 MiB after, `metadata-only`). Ingesting
-  as many journeys again brought it to 982 MiB, below the 1,001 MiB the same
-  volume took the first time: the freed space was reused. Disk therefore
-  plateaus at the retention window's volume rather than growing, and a sweep or
-  a §8 deletion is not a way to get space back. `VACUUM FULL` returns it, but
+- **Retention does not shrink the files.** Starting from the compacted size
+  after `VACUUM FULL` (832.7 MiB, `metadata-only`), deleting half the journeys
+  with the retention sweep and running a plain `VACUUM` left it at 832.9 MiB.
+  Ingesting as many journeys again brought it to 982 MiB, below the 1,001 MiB
+  the same volume took the first time: the freed space was reused over one
+  delete-and-refill cycle. Longer runs were not measured. A sweep or a §8
+  deletion is not a way to get space back. `VACUUM FULL` returns it, but
   holds an exclusive lock that stops ingestion for as long as it runs.
 
 ### A formula
@@ -610,9 +610,11 @@ Search looks a value up in one index per kind of identifier:
 `journeys_pkey` for a journey id, `journeys_entity_value_idx` and
 `entity_aliases_value_idx` for entity and alias values, and one index each on
 `journey_events` for trace, span, message, and correlation ids. It takes about
-0.1 ms at a million journeys, and its cost grows with how many journeys match
-the value rather than with how many exist (a value shared by 20,000 journeys
-took 230 ms). `journeys_recent_idx` serves retention selection. The
+0.1 ms at a million journeys for a value that matches a few journeys. A value
+that matches thousands (a shared correlation id, say) is joined with a
+sequential scan of the project's journeys, so its cost grows with the journey
+count: 13 ms for 2,400 matches among 120,000 journeys and 64 ms for 20,000
+among a million, for an API key scoped to one environment. `journeys_recent_idx` serves retention selection. The
 recent-journeys list adds `journeys_status_recent_idx` and
 `journey_events_service_idx`; the second costs one more index write on every
 event insert, and the span id index adds one on every event that carries a

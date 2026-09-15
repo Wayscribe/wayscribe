@@ -119,8 +119,10 @@ restating, with reasons:
   process-level variable and an explicit environment setting, because its
   failure mode is silent and permanent.
 - **A second storage engine.** The search latency at 120k journeys was a query
-  and indexing problem, and it was solved as one: search is under a millisecond
-  at a million journeys in PostgreSQL (measurements on `searchJourneys`).
+  and indexing problem, and it was solved as one: at a million journeys in
+  PostgreSQL, search for a value matching a few journeys is under a
+  millisecond, and one matching 20,000 takes 64 ms (measurements on
+  `searchJourneys`).
 - **AI features.** A future bring-your-own-key module may be added, disabled by
   default. Nothing will be sent anywhere without being asked for.
 
