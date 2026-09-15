@@ -29,6 +29,7 @@ export {
   finishRun,
   listDestinations,
   startRun,
+  type DestinationHeaders,
   type EnvironmentType,
   type ReplayDestination,
   type ReplayRun,

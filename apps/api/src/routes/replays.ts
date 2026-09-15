@@ -8,6 +8,7 @@ import {
   listDestinations,
   recordAudit,
   startRun,
+  type DestinationHeaders,
   type EnvironmentType
 } from "@flight-recorder/database";
 import { diffPayloads } from "@flight-recorder/payload-diff";
@@ -188,7 +189,10 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     }
 
     const configured = await destinationHeaders(app.db, options.keyring, projectId, destination.id);
-    const { headers, blocked } = applyHeaderPolicy(undefined, configured);
+    const { headers, blocked } = applyHeaderPolicy(
+      undefined,
+      configured.ok ? configured.headers : {}
+    );
 
     // Recorded before the request is made, so a refusal still leaves a row.
     const runId = await startRun(app.db, {
@@ -201,6 +205,24 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
       requestHeaders: headers,
       initiatedBy: "admin"
     });
+
+    // Headers the destination was configured with but that cannot be decrypted
+    // are its credentials. Sending without them would reach the destination
+    // unauthenticated and look like the destination had broken, so the attempt
+    // is refused and recorded like any other refusal.
+    if (!configured.ok) {
+      const refusal = headersRefusal(configured);
+      await finishRun(app.db, projectId, runId, { status: "blocked", error: refusal });
+      await recordAudit(app.db, {
+        projectId,
+        actor: "admin",
+        action: "replay.blocked",
+        resourceType: "replay_run",
+        resourceId: runId,
+        metadata: { reason: refusal.reason, destination: destination.name }
+      });
+      return reply.code(422).send({ data: await present(app, projectId, runId, event) });
+    }
 
     const outcome = await sendReplay({
       baseUrl: destination.baseUrl,
@@ -279,6 +301,26 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     const event = await findEventDetail(app.db, { projectId }, run.journeyEventId);
     return reply.send({ data: await present(app, projectId, replayId, event) });
   });
+}
+
+/** What an operator reads when a destination's headers cannot be decrypted. */
+function headersRefusal(configured: Exclude<DestinationHeaders, { ok: true }>): {
+  reason: string;
+  message: string;
+} {
+  if (configured.reason === "headers_key_not_configured") {
+    return {
+      reason: configured.reason,
+      message:
+        `This destination's headers were encrypted under key ${configured.keyId}, which is not configured. ` +
+        "Set ENCRYPTION_KEY_PREVIOUS to that key and run rotate:reencrypt, or recreate the destination with its headers."
+    };
+  }
+  return {
+    reason: configured.reason,
+    message:
+      "This destination's headers could not be decrypted with any configured key. Recreate the destination with its headers."
+  };
 }
 
 /**

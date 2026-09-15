@@ -8,7 +8,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import type { FastifyInstance } from "fastify";
 
-const keyring = createKeyring("0123456789abcdef0123456789abcdef");
+const KEY_A = "0123456789abcdef0123456789abcdef";
+const KEY_B = "fedcba9876543210fedcba9876543210";
+const keyring = createKeyring(KEY_A);
 const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
 
 describe("replay routes", () => {
@@ -17,6 +19,8 @@ describe("replay routes", () => {
   let app: FastifyInstance;
   let target: Server;
   let targetPort: number;
+  /** Requests the target has received, so a refusal can be shown to send nothing. */
+  let targetRequests = 0;
   let projectId: string;
   let apiKey: string;
   let eventWithInput: string;
@@ -24,6 +28,7 @@ describe("replay routes", () => {
 
   beforeAll(async () => {
     target = createServer((request, response) => {
+      targetRequests += 1;
       let body = "";
       request.on("data", (chunk: Buffer) => {
         body += chunk.toString();
@@ -231,6 +236,60 @@ describe("replay routes", () => {
     // the safety checks would be invisible to whoever has to explain them.
     const audit = await listAudit(db, projectId);
     expect(audit.some((entry) => entry.action === "replay.blocked")).toBe(true);
+  });
+
+  it("refuses to replay without headers it can no longer decrypt, and records why", async () => {
+    // The destination's credential was encrypted under A. After A is removed,
+    // replaying without it would send the recorded input unauthenticated, or
+    // with whatever a gateway does for anonymous callers. Refusing says what to
+    // fix; sending silently would look like the destination had broken.
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/replay-destinations",
+      headers: admin(),
+      payload: {
+        name: "credentialed",
+        baseUrl: `http://localhost:${String(targetPort)}`,
+        environmentType: "development",
+        headers: { authorization: "Bearer destination-credential" }
+      }
+    });
+    const destinationId = created.json<{ data: { id: string } }>().data.id;
+
+    const afterRemoval = buildApp({
+      db,
+      keyring: createKeyring(KEY_B),
+      adminToken: ADMIN_TOKEN,
+      logLevel: "silent",
+      replayAllowedHosts: ["localhost"]
+    });
+    const before = targetRequests;
+    try {
+      const response = await afterRemoval.inject({
+        method: "POST",
+        url: "/v1/replays",
+        headers: admin(),
+        payload: { eventId: eventWithInput, destinationId, path: "/replay/customer" }
+      });
+
+      expect(response.statusCode).toBe(422);
+      const data = response.json<{
+        data: { id: string; status: string; error: { reason: string; message: string } };
+      }>().data;
+      expect(data.status).toBe("blocked");
+      expect(data.error.reason).toBe("headers_key_not_configured");
+      expect(data.error.message).toContain(keyring.current.id);
+      expect(data.error.message).toContain("ENCRYPTION_KEY_PREVIOUS");
+      expect(targetRequests).toBe(before);
+
+      const audit = await listAudit(db, projectId);
+      const entry = audit.find(
+        (item) => item.action === "replay.blocked" && item.resourceId === data.id
+      );
+      expect(entry?.metadata).toMatchObject({ reason: "headers_key_not_configured" });
+    } finally {
+      await afterRemoval.close();
+    }
   });
 
   it("writes an audit entry for a successful replay", async () => {

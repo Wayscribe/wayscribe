@@ -68,7 +68,8 @@ describe("replay destinations", () => {
     );
 
     expect(await destinationHeaders(db, keyring, projectA, created.id)).toEqual({
-      authorization: "Bearer development-only-token"
+      ok: true,
+      headers: { authorization: "Bearer development-only-token" }
     });
   });
 
@@ -89,7 +90,9 @@ describe("replay destinations", () => {
     );
   });
 
-  it("degrades to no headers when the key no longer decrypts them", async () => {
+  it("reports headers under a key that is no longer configured, naming the key", async () => {
+    // It used to degrade to no headers, and the replay went out without its
+    // credentials. The caller has to be able to refuse instead.
     const created = await createDestination(db, keyring, {
       projectId: projectA,
       name: "rotated",
@@ -98,7 +101,51 @@ describe("replay destinations", () => {
       headers: { "x-test-secret": "value" }
     });
 
-    expect(await destinationHeaders(db, createKeyring(KEY_B), projectA, created.id)).toEqual({});
+    expect(await destinationHeaders(db, createKeyring(KEY_B), projectA, created.id)).toEqual({
+      ok: false,
+      reason: "headers_key_not_configured",
+      keyId: keyring.current.id
+    });
+  });
+
+  it("reports headers that do not decrypt under any configured key", async () => {
+    const created = await createDestination(db, keyring, {
+      projectId: projectA,
+      name: "corrupt",
+      baseUrl: "http://localhost:3207",
+      environmentType: "local",
+      headers: { "x-test-secret": "value" }
+    });
+    const row: unknown = await db("replay_destinations")
+      .where({ id: created.id })
+      .first("encrypted_headers");
+    const stored = row as { encrypted_headers: string };
+    // Change one base64 character inside the payload: the key id still matches
+    // a configured key, and GCM authentication then fails.
+    const at = "fr1.".length + 13 + 20;
+    const original = stored.encrypted_headers.charAt(at);
+    const tampered = `${stored.encrypted_headers.slice(0, at)}${original === "A" ? "B" : "A"}${stored.encrypted_headers.slice(at + 1)}`;
+    await db("replay_destinations")
+      .where({ id: created.id })
+      .update({ encrypted_headers: tampered });
+
+    expect(await destinationHeaders(db, keyring, projectA, created.id)).toEqual({
+      ok: false,
+      reason: "headers_unreadable"
+    });
+  });
+
+  it("reports no headers as an empty set, not a failure", async () => {
+    const created = await createDestination(db, keyring, {
+      projectId: projectA,
+      name: "no headers",
+      baseUrl: "http://localhost:3208",
+      environmentType: "local"
+    });
+    expect(await destinationHeaders(db, createKeyring(KEY_B), projectA, created.id)).toEqual({
+      ok: true,
+      headers: {}
+    });
   });
 
   it("labels stored headers with the current key's id", async () => {
@@ -124,7 +171,7 @@ describe("replay destinations", () => {
       headers: { authorization: "Bearer before-rotation" }
     });
     expect(await destinationHeaders(db, createKeyring(KEY_B, KEY_A), projectA, created.id)).toEqual(
-      { authorization: "Bearer before-rotation" }
+      { ok: true, headers: { authorization: "Bearer before-rotation" } }
     );
   });
 
