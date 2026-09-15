@@ -200,3 +200,22 @@ describe("METRICS_PORT", () => {
     expect(message).toContain("must differ from PORT");
   });
 });
+
+describe("TRUSTED_PROXY_COUNT", () => {
+  it("defaults to 0, so X-Forwarded-For is ignored unless an operator says otherwise", () => {
+    expect(loadServerEnv(validEnv).TRUSTED_PROXY_COUNT).toBe(0);
+    expect(loadServerEnv({ ...validEnv, TRUSTED_PROXY_COUNT: "" }).TRUSTED_PROXY_COUNT).toBe(0);
+  });
+
+  it("accepts a hop count", () => {
+    expect(loadServerEnv({ ...validEnv, TRUSTED_PROXY_COUNT: "2" }).TRUSTED_PROXY_COUNT).toBe(2);
+  });
+
+  it("refuses a negative, fractional, or absurd count, naming the variable", () => {
+    for (const value of ["-1", "1.5", "abc", "11"]) {
+      expect(attempt({ ...validEnv, TRUSTED_PROXY_COUNT: value }), value).toMatch(
+        /TRUSTED_PROXY_COUNT/
+      );
+    }
+  });
+});

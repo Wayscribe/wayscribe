@@ -34,6 +34,9 @@ const blankAsUnset = (value: unknown): unknown =>
  */
 const MAX_STATEMENT_TIMEOUT_MS = 2_147_483_647;
 
+/** More hops than any real deployment has; a larger value is a typo. */
+const MAX_TRUSTED_PROXIES = 10;
+
 const statementTimeout = {
   // Every statement the API's pool runs is cancelled after this long, so one
   // slow search cannot hold a connection that ingestion needs. 0 disables it.
@@ -81,6 +84,13 @@ export const serverEnvSchema = z
       .pipe(z.array(z.string()).min(1)),
     PORT: z.coerce.number().int().positive().default(8080),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+    // How many reverse proxies in front of the API append to X-Forwarded-For.
+    // 0 keys a client on its socket address and ignores the header, which any
+    // client can set; the authentication throttle keys on the result.
+    TRUSTED_PROXY_COUNT: z.preprocess(
+      blankAsUnset,
+      z.coerce.number().int().min(0).max(MAX_TRUSTED_PROXIES).default(0)
+    ),
     ...statementTimeout,
     // Unset means no metrics listener at all. A separate port rather than a path
     // on PORT, so exposing ingestion never exposes metrics by accident (ADR-047).

@@ -607,6 +607,31 @@ The admin token grants project-wide read of every recorded payload. It is a
 single shared secret with no user accounts and no audit of who used it — treat
 it as an operator credential, not a login.
 
+### Guessing the admin token
+
+Both places that accept it throttle failures per source address: five failures
+within a minute lock that address out for five minutes. The web login redirects
+a locked address to `/login?error=throttled`. The API counts a `401` on any route
+that takes the admin token (every route but ingestion and the health checks) to
+a request that presented an `Authorization` header, answers the failures
+themselves with the same `401` as before, and then answers every request from
+that address that presents credentials with `429 too_many_attempts` and a
+`Retry-After` header, the right token included, until the lock expires. A
+request with no credentials is not counted, and ingestion is never throttled.
+Both counts are held in memory, per process: they reset on restart, and N
+replicas allow N times the attempts.
+
+The source address is the socket's by default. `X-Forwarded-For` is ignored,
+because any client can write it and a new value per guess would otherwise make
+every guess the first. Behind a reverse proxy, every request arrives from the
+proxy, so every client shares one count, and a guesser can lock the operator out.
+Set `TRUSTED_PROXY_COUNT`, on the API and the web app, to the number of proxies
+that append to `X-Forwarded-For`; the address used is then the entry that many
+hops from the right, which is what the outermost of them saw. Set it only when
+nothing reaches the container except through those proxies: a client that
+connects directly can write as many hops as the count and choose its own
+address.
+
 ## 10. Sizing
 
 Event volume drives everything. One journey is one row plus one row per event,

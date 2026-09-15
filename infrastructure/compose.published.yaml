@@ -75,6 +75,10 @@ services:
       ALLOW_FULL_PAYLOAD_CAPTURE: "false"
       REPLAY_ALLOWED_HOSTS: ${REPLAY_ALLOWED_HOSTS:-localhost,host.docker.internal}
       DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-15000}
+      # How many reverse proxies in front of the API append to X-Forwarded-For.
+      # 0 keys the admin authentication throttle on the socket address and
+      # ignores the header (docs/OPERATIONS.md §9).
+      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-0}
       # Empty means no metrics listener. When set, /metrics is served on this
       # port inside the network and published nowhere; a scraper on the same
       # Compose network reaches it at api:<port> (docs/OPERATIONS.md §13).
@@ -96,6 +100,8 @@ services:
       # Must match the API's: the web app derives its session signing key from
       # this, so rotating it invalidates sessions on both sides at once.
       ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
+      # The same setting for the login limiter (docs/OPERATIONS.md §9).
+      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-0}
     ports:
       - "127.0.0.1:${WEB_PORT:-3000}:3000"
     depends_on:

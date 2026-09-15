@@ -2,7 +2,14 @@ import { z } from "zod";
 
 const schema = z.object({
   ADMIN_TOKEN: z.string().min(32),
-  API_URL: z.url()
+  API_URL: z.url(),
+  // How many reverse proxies in front of the web app append to X-Forwarded-For.
+  // 0 keys the login limiter on the socket and ignores the header, which any
+  // client can set. Blank counts as unset, as Compose passes an unset variable.
+  TRUSTED_PROXY_COUNT: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().min(0).max(10).default(0)
+  )
 });
 
 export type WebConfig = z.infer<typeof schema>;

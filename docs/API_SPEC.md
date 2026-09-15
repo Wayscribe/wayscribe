@@ -88,6 +88,12 @@ request, is the right response. In a batch, an event whose statement was
 cancelled is refused on its own with `query_timeout` and `httpStatus` 503
 (section 4).
 
+Every route that accepts the admin token (all but ingestion and the health
+checks) answers `429` with code `too_many_attempts` and a `Retry-After` header,
+in seconds, to a source address that has failed authentication five times within
+a minute, for five minutes, whatever token it presents. The failures themselves
+are the ordinary `401` (`docs/OPERATIONS.md` §9).
+
 An unexpected failure is `500` with code `internal_error` and a generic message.
 The code is never the database's own: a PostgreSQL SQLSTATE such as `22P02` is
 not part of this contract and never appears in `error.code`. A malformed id or

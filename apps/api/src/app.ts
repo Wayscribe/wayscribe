@@ -12,6 +12,7 @@ import { registerProjectRoutes } from "./routes/projects.js";
 import { registerQueryRoutes } from "./routes/queries.js";
 import { registerReplayRoutes } from "./routes/replays.js";
 import { errorBody } from "./admin.js";
+import { registerAuthThrottle } from "./auth-throttle.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -36,6 +37,12 @@ export interface BuildAppOptions {
   logStream?: { write: (line: string) => void };
   /** Recorded whether or not METRICS_PORT is set; the listener is what is optional. */
   metrics?: ApiMetrics;
+  /**
+   * From TRUSTED_PROXY_COUNT: how many proxies in front of the API append to
+   * X-Forwarded-For. 0, the default, keys the client's address on the socket
+   * and ignores the header, which any client can set.
+   */
+  trustedProxyCount?: number;
 }
 
 /**
@@ -198,6 +205,8 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       }
     });
   });
+
+  registerAuthThrottle(app, options.trustedProxyCount ?? 0);
 
   app.decorate("db", options.db);
   app.decorate("metrics", metrics);

@@ -79,6 +79,8 @@ spec:
               value: {{ .Values.api.replayAllowedHosts | quote }}
             - name: DATABASE_STATEMENT_TIMEOUT_MS
               value: {{ .Values.api.databaseStatementTimeoutMs | quote }}
+            - name: TRUSTED_PROXY_COUNT
+              value: {{ .Values.api.trustedProxyCount | quote }}
             {{- with .Values.api.metricsPort }}
             - name: METRICS_PORT
               value: {{ . | quote }}

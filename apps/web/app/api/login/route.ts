@@ -1,10 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { clientAddress } from "../../../src/lib/client-address";
 import { redirectTarget } from "../../../src/lib/redirect-url";
 import { webConfig } from "../../../src/lib/config";
 import { LoginLimiter } from "../../../src/lib/login-limiter";
 import { rejectCrossOrigin } from "../../../src/lib/same-origin";
 import { SESSION_COOKIE_NAME, signSession } from "../../../src/lib/session";
+import { currentSocketAddress } from "../../../src/lib/socket-address";
 
 const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
 
@@ -20,7 +22,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const config = webConfig();
   const now = Date.now();
-  const key = request.headers.get("x-forwarded-for") ?? "local";
+  // The socket's address, never a header the client wrote, unless the operator
+  // has said how many proxies stand in front of this app.
+  const key = clientAddress(
+    currentSocketAddress(),
+    request.headers.get("x-forwarded-for"),
+    config.TRUSTED_PROXY_COUNT
+  );
 
   // The login form is a plain HTML POST, so failures must redirect back to the
   // page. Returning JSON would render a raw error object in the browser.

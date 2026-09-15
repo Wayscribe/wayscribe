@@ -250,6 +250,16 @@ changes far less often.
   body, a non-string field, or a `destinationId` that is not a uuid is 400
   `invalid_request`, where each was a 500 with `22P02`. A repeated `q` or
   `cursor` is 400. Any other unexpected failure is 500 `internal_error`.
+- **Admin token guesses are throttled at the API, and the web login's limiter
+  can no longer be sidestepped.** The login limiter keyed on `X-Forwarded-For`,
+  which the client writes, so a new value per guess was never throttled. It now
+  keys on the socket address. The API, which compared the admin token without
+  any limit, now counts failed authentication per source address on every route
+  that accepts the token and answers `429 too_many_attempts` after five failures
+  in a minute, for five minutes; the `401` for an ordinary failure is unchanged
+  and ingestion is not throttled. A new setting, `TRUSTED_PROXY_COUNT` (default
+  0), on both, honours `X-Forwarded-For` that many hops from the right for
+  installations behind a reverse proxy (`docs/OPERATIONS.md` §9).
 
 ### Fixed
 

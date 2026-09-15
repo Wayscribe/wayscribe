@@ -47,6 +47,16 @@ Nor may an API key write into one. A journey belongs to the environment that cre
 and ingestion refuses an event for it from another environment's key with
 `journey_environment_mismatch` (ADR-048).
 
+### Guessing the admin token
+
+The admin token reads every payload of every project, and it is one shared
+secret. The web login and the API both throttle failed attempts per source
+address, five a minute and then five minutes locked out, and neither keys that
+address on `X-Forwarded-For` unless `TRUSTED_PROXY_COUNT` says how many proxies
+to look through (`OPERATIONS.md` §9). The throttles are per process. They slow a
+guesser; the token's length, 32 characters at least, is what makes guessing
+hopeless.
+
 ### Replay abuse
 
 Historical payload replay could:

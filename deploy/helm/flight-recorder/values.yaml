@@ -44,6 +44,12 @@ api:
   # `metrics`. The Service and the ingress never carry it; scrape the pods
   # (docs/OPERATIONS.md §13).
   metricsPort: ""
+  # TRUSTED_PROXY_COUNT: how many reverse proxies in front of the API append to
+  # X-Forwarded-For. 0 keys the admin authentication throttle on the socket
+  # address. Behind an ingress controller that is the controller's pod, so set
+  # it to the number of proxies, and only if nothing reaches the pods directly
+  # (docs/OPERATIONS.md §9).
+  trustedProxyCount: 0
   service:
     type: ClusterIP
     port: 8080
@@ -51,6 +57,8 @@ api:
 
 web:
   replicaCount: 1
+  # TRUSTED_PROXY_COUNT for the login limiter, as api.trustedProxyCount.
+  trustedProxyCount: 0
   service:
     type: ClusterIP
     port: 3000
