@@ -101,6 +101,32 @@ describe("a 2xx without a verdict for every event", () => {
     expect(run.counters).toMatchObject({ sent: 1, rejected: 0, dropped: 2 });
   });
 
+  it("counts a results entry that is not an object with a known status as no verdict", async () => {
+    // A null in the middle used to throw while reading its status, so the
+    // whole batch was retried three times and the accepted event resent.
+    const run = await against(
+      202,
+      "application/json",
+      () =>
+        JSON.stringify({
+          data: {
+            results: [
+              { status: "rejected", error: { code: "invalid_event", httpStatus: 400 } },
+              null,
+              { status: "accepted" },
+              "accepted",
+              7,
+              { status: "maybe" }
+            ]
+          }
+        }),
+      6
+    );
+    expect(run.requests).toBe(1);
+    expect(run.counters).toMatchObject({ sent: 1, rejected: 1, transportErrors: 0, dropped: 4 });
+    expect(run.reasons.filter((line) => line.startsWith("dropped|no_verdict"))).toHaveLength(4);
+  });
+
   it("ignores verdicts past the end of the batch", async () => {
     const run = await against(202, "application/json", (events) =>
       JSON.stringify({

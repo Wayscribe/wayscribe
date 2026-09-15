@@ -229,8 +229,11 @@ interface BatchOutcome {
  * would store it twice; the SDK cannot tell, so it says what it knows. Before
  * this, a body that was not JSON retried the whole batch and printed the
  * parser's message, which quotes the body, and a short or missing results
- * array lost events without a word. Verdicts past the end of the batch are
- * ignored rather than counted.
+ * array lost events without a word. An entry that is not an object with a
+ * status of `accepted` or `rejected` (null, a string, a number, an unknown
+ * status) is a missing verdict too: reading it as one threw, and the whole
+ * batch was retried, resending events the server had accepted. Verdicts past
+ * the end of the batch are ignored rather than counted.
  */
 function readOutcome(
   body: ParsedBody,
@@ -240,26 +243,32 @@ function readOutcome(
   const results = body.parsed
     ? (body.value as { data?: { results?: BatchOutcome[] } } | null)?.data?.results
     : undefined;
-  const verdicts = Array.isArray(results) ? results.slice(0, batch.length) : [];
+  const verdicts: unknown[] = Array.isArray(results) ? results.slice(0, batch.length) : [];
+  const noVerdict = (why: string): void => {
+    diagnostics.report({
+      kind: "dropped",
+      reason: `no_verdict: ${why}; the server may have stored this event, so it is not sent again`
+    });
+  };
   if (verdicts.length < batch.length) {
     const why = !body.parsed
       ? "unparseable response body"
       : Array.isArray(results)
         ? "the response had fewer results than events"
         : "the response had no results";
-    for (let index = verdicts.length; index < batch.length; index += 1) {
-      diagnostics.report({
-        kind: "dropped",
-        reason: `no_verdict: ${why}; the server may have stored this event, so it is not sent again`
-      });
-    }
+    for (let index = verdicts.length; index < batch.length; index += 1) noVerdict(why);
   }
 
   let accepted = 0;
   const retry: unknown[] = [];
   let reason: string | undefined;
   let logReason: string | undefined;
-  verdicts.forEach((result, index) => {
+  verdicts.forEach((entry, index) => {
+    if (!isVerdict(entry)) {
+      noVerdict("the response's result for it was not a verdict");
+      return;
+    }
+    const result = entry;
     if (result.status === "accepted") {
       accepted += 1;
       return;
@@ -285,6 +294,13 @@ function readOutcome(
     ...(reason === undefined ? {} : { reason }),
     ...(logReason === undefined ? {} : { logReason })
   };
+}
+
+/** An object whose status is one the batch route sends. */
+function isVerdict(entry: unknown): entry is BatchOutcome {
+  if (typeof entry !== "object" || entry === null) return false;
+  const { status } = entry as { status?: unknown };
+  return status === "accepted" || status === "rejected";
 }
 
 /** A response body, parsed if it was JSON. Its text is never kept. */
