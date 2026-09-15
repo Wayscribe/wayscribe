@@ -140,6 +140,38 @@ redaction, not encryption, is the payload control.
 
 Encryption keys must not be stored in the same database as ciphertext.
 
+### Key identifiers and rotation
+
+Every encrypted value is stored as `fr1.<keyId>.<ciphertext>`. The key id is a
+12-character HKDF fingerprint of `ENCRYPTION_KEY` under its own label: it
+identifies the key without revealing anything about the subkeys, so it is safe
+to log, and it is derived rather than configured, so a key cannot be
+mislabelled. Values written before key ids existed have no prefix and are still
+read.
+
+Rotation is a grace period rather than a cut-over (ADR-044):
+
+- `ENCRYPTION_KEY_PREVIOUS` holds the key being replaced. The API writes only
+  under the current key and reads under both.
+- Search matches either key's token until the data is re-encrypted.
+- API key verifiers are HMACs and cannot be recomputed without the key itself,
+  so each moves to the current key the next time it authenticates. A key that
+  does not authenticate during the grace period stops working when the previous
+  key is removed; `rotate:status` lists every such key so it can be revoked and
+  reissued.
+- `rotate:reencrypt` rewrites the stored values and tokens, and `rotate:status`
+  confirms nothing is left under the old key before it is removed.
+- GCM authentication makes a value under the wrong key fail to decrypt rather
+  than produce garbage. A value under a key that is not configured is reported
+  with that key's id, once per id, and the API logs a count at boot.
+- A replay whose destination headers cannot be decrypted is refused and audited
+  as blocked, never sent without them.
+
+A suspected leak of `ENCRYPTION_KEY` is a reason to rotate, and a rotation does
+not undo what the leaked key could already read: any dump or replica taken
+before it stays readable with the old key. Rotation takes the live database out
+of the old key's reach once re-encryption finishes, not the copies made before.
+
 ## 8. Project isolation
 
 Every query must be explicitly scoped by authenticated project.

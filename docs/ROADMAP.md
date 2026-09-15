@@ -31,7 +31,7 @@ Presenting the work, and closing what the last review opened.
 - **Screenshots in the README.** The product's whole value is visual — a
   timeline across four services with the changed field named — and the README
   has none. Highest return of anything on this page.
-- **Surface the decision log.** 43 ADRs of real tradeoff reasoning are linked
+- **Surface the decision log.** 44 ADRs of real tradeoff reasoning are linked
   from the bottom of the README as a docs bullet. That is the most interesting
   artifact in the repository and it reads as an afterthought.
 - **Write down what went wrong.** Dogfooding this tool against a real ORM
@@ -61,9 +61,6 @@ declaration is still valid.
   command. When a redaction miss stores something it should not have — which has
   now happened twice — fixing the matcher does nothing about the rows already
   written. This is also the answer to an erasure request.
-- **The ciphertext envelope has no version byte,** so rotating `ENCRYPTION_KEY`
-  is permanently destructive. Adding a key-generation prefix is hours now and a
-  re-encryption project after anyone stores data.
 - **`audit_events` is never swept.** Harmless while it holds four call sites;
   a problem the moment reads are audited.
 - **The login limiter is per-process,** so N web replicas means N times the

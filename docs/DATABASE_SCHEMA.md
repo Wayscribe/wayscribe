@@ -71,7 +71,8 @@ Constraints:
 | `environment_id` | uuid | FK |
 | `name` | text | Human-readable |
 | `key_prefix` | text | Safe lookup/display prefix |
-| `key_hash` | text | Strong password-style hash or HMAC design |
+| `key_hash` | text | HMAC-SHA256 of the full key, peppered with a key derived from `ENCRYPTION_KEY` |
+| `key_hash_key_id` | text | Nullable. Id of the `ENCRYPTION_KEY` the verifier was computed under; null for a key issued before ids were recorded and not used since |
 | `last_used_at` | timestamptz | Nullable |
 | `revoked_at` | timestamptz | Nullable |
 | `created_at` | timestamptz | Required |
@@ -80,6 +81,8 @@ Constraints:
 
 - unique `key_prefix`
 - environment must belong to the same project, enforced in application logic or composite FK design
+
+`key_hash_key_id` exists for key rotation (ADR-044). A verifier cannot be recomputed without the presented key, so a key under the previous `ENCRYPTION_KEY` is rewritten when it next authenticates, and this column is how `rotate:status` knows which keys have not yet. Added by migration `012_key_rotation.js`.
 
 ### `journeys`
 
@@ -90,7 +93,7 @@ Constraints:
 | `environment_id` | uuid | FK |
 | `entity_type` | text | Example: customer |
 | `primary_entity_id_hash` | text | Searchable normalized hash |
-| `encrypted_primary_entity_id` | bytea or text | Optional display value |
+| `encrypted_primary_entity_id` | text | Optional display value, in the envelope format (§5) |
 | `status` | text | active, completed, failed |
 | `started_at` | timestamptz | First event timestamp |
 | `completed_at` | timestamptz | Nullable |
@@ -115,7 +118,7 @@ Constraints and indexes:
 | `journey_id` | text | Composite FK `(project_id, journey_id)` to journeys |
 | `alias_type` | text | Developer-defined stable name |
 | `alias_value_hash` | text | Normalized search hash |
-| `encrypted_display_value` | bytea or text | Optional |
+| `encrypted_display_value` | text | Optional, in the envelope format (§5) |
 | `created_at` | timestamptz | Required |
 
 Constraints and indexes:
@@ -177,7 +180,7 @@ The event row is immutable after insertion.
 | `name` | text | Display name |
 | `base_url` | text | Validated destination |
 | `environment_type` | text | Must be development-like in V0 |
-| `encrypted_headers` | bytea or text | Optional |
+| `encrypted_headers` | text | Optional, in the envelope format (§5) |
 | `enabled` | boolean | Required |
 | `created_at` | timestamptz | Required |
 | `updated_at` | timestamptz | Required |
@@ -237,7 +240,21 @@ Prefer an HMAC-based search token using a server-held key rather than a plain un
 
 ## 5. Payload encryption
 
-Entity identifiers and alias display values are envelope-encrypted with a key derived from `ENCRYPTION_KEY` (ADR-040). Payloads are stored as plain `jsonb`; redaction is the payload control, by decision, not as an interim state.
+Entity identifiers, alias display values, and replay destination headers are encrypted with AES-256-GCM under a key derived from `ENCRYPTION_KEY` (ADR-040). Payloads are stored as plain `jsonb`; redaction is the payload control, by decision, not as an interim state.
+
+Each encrypted value is one text column:
+
+```text
+fr1.<keyId>.<base64(iv || authTag || ciphertext)>
+```
+
+- `fr1.` is the format version.
+- `<keyId>` is twelve lowercase hex characters: an HKDF fingerprint of the `ENCRYPTION_KEY` that wrote the value. It names the key without revealing it, so a rotation can read each value under the right key and find the rows still under the old one (ADR-044).
+- The payload is a fresh 12-byte IV, the 16-byte GCM tag, then the ciphertext.
+
+A value with no `fr1.` prefix is the legacy format, written before values carried a key id: the same base64 payload alone. It is still read, under the current key and then the previous one, and `rotate:reencrypt` rewrites it into the envelope. `.` never appears in base64, so the two formats cannot be confused.
+
+Search tokens (`journeys.primary_entity_id_hash`, `entity_aliases.alias_value_hash`) carry no key id. Each is rewritten in the same statement as the ciphertext beside it, so that ciphertext's key id marks the token's key too.
 
 Encryption keys must not be stored in the database.
 
