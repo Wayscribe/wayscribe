@@ -3,7 +3,7 @@ import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
-import { upsertAliases } from "./aliases.js";
+import { ALIAS_UNIQUE_CONSTRAINT, upsertAliases } from "./aliases.js";
 
 interface StoredAlias {
   alias_type: string;
@@ -138,6 +138,63 @@ describe("upsertAliases", () => {
       ])
     ).resolves.toBeUndefined();
     expect((await stored()).map((row) => row.alias_value_hash)).toEqual(["new-hash", "old-hash"]);
+  });
+
+  it("names the alias uniqueness constraint as the database does", async () => {
+    // The move tolerates a violation of this constraint alone, matched by name.
+    // A name that drifted from the schema would make every tolerated race fail.
+    const result: unknown = await db.raw(
+      "select conname from pg_constraint where conrelid = 'entity_aliases'::regclass and contype = 'u'"
+    );
+    expect((result as { rows: { conname: string }[] }).rows).toEqual([
+      { conname: ALIAS_UNIQUE_CONSTRAINT }
+    ]);
+  });
+
+  it("rethrows a unique violation on any other constraint", async () => {
+    // Only a violation of the alias constraint means another event already
+    // moved the row. No other unique index covers the columns a move writes
+    // today, so one is added for the length of this test. It includes
+    // created_at, which a move keeps and an insert sets afresh, so the move
+    // violates it and the insert that follows does not: the rejection can only
+    // come from the move's own error handling.
+    await db.raw(
+      "create unique index entity_aliases_move_probe_idx on entity_aliases (project_id, encrypted_display_value, created_at)"
+    );
+    try {
+      const createdAt = new Date("2026-09-01T00:00:00.000Z");
+      await db("entity_aliases").insert([
+        {
+          project_id: projectId,
+          journey_id: "jrn_1",
+          alias_type: "internal",
+          alias_value_hash: "other-hash",
+          encrypted_display_value: "shared-cipher",
+          created_at: createdAt
+        },
+        {
+          project_id: projectId,
+          journey_id: "jrn_1",
+          alias_type: "sf",
+          alias_value_hash: "old-hash",
+          encrypted_display_value: "old-cipher",
+          created_at: createdAt
+        }
+      ]);
+      await expect(
+        upsertAliases(db, projectId, [
+          {
+            journeyId: "jrn_1",
+            aliasType: "sf",
+            aliasValueHash: "new-hash",
+            encryptedDisplayValue: "shared-cipher",
+            supersedesValueHash: "old-hash"
+          }
+        ])
+      ).rejects.toMatchObject({ code: "23505", constraint: "entity_aliases_move_probe_idx" });
+    } finally {
+      await db.raw("drop index entity_aliases_move_probe_idx");
+    }
   });
 
   it("treats a concurrent move onto the new token as already done", async () => {

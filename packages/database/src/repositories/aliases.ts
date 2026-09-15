@@ -56,6 +56,25 @@ export async function upsertAliases(
 const UNIQUE_VIOLATION = "23505";
 
 /**
+ * The unique constraint on `(project_id, journey_id, alias_type,
+ * alias_value_hash)` from migration 005.
+ *
+ * Knex generated the name from the table and columns, and PostgreSQL truncated
+ * it to 63 characters, which is why it ends in "has". Read from `pg_constraint`
+ * on a migrated database rather than derived, and checked against it by
+ * `aliases.integration.test.ts`, so a migration that renames it fails a test
+ * instead of turning every move back into an error.
+ */
+export const ALIAS_UNIQUE_CONSTRAINT =
+  "entity_aliases_project_id_journey_id_alias_type_alias_value_has";
+
+/** Whether an error is a violation of the alias uniqueness constraint, and nothing else. */
+export function isAliasUniqueViolation(error: unknown): boolean {
+  const pgError = error as { code?: unknown; constraint?: unknown } | null;
+  return pgError?.code === UNIQUE_VIOLATION && pgError.constraint === ALIAS_UNIQUE_CONSTRAINT;
+}
+
+/**
  * Move a row stored under the previous key's token onto the current one.
  *
  * Run in a savepoint (a nested transaction when the caller holds one, as
@@ -66,6 +85,9 @@ const UNIQUE_VIOLATION = "23505";
  * the alias under the new token, which is the outcome this was for, so it is
  * treated as done. The savepoint is what keeps the violation from aborting the
  * caller's transaction and rejecting the event.
+ *
+ * Only that constraint's violation means "already moved". Any other unique
+ * violation is a real failure and is rethrown.
  */
 async function moveToCurrentToken(
   db: Knex,
@@ -100,6 +122,6 @@ async function moveToCurrentToken(
         });
     });
   } catch (error) {
-    if ((error as { code?: unknown } | null)?.code !== UNIQUE_VIOLATION) throw error;
+    if (!isAliasUniqueViolation(error)) throw error;
   }
 }
