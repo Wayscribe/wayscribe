@@ -33,30 +33,9 @@ export async function upsertAliases(
   if (aliases.length === 0) return;
 
   for (const alias of aliases) {
-    if (alias.supersedesValueHash === null) continue;
-    await db("entity_aliases")
-      .where({
-        project_id: projectId,
-        journey_id: alias.journeyId,
-        alias_type: alias.aliasType,
-        alias_value_hash: alias.supersedesValueHash
-      })
-      // A row under the new token can already exist: the previous key was
-      // removed early, the alias stored again, and the key restored. Moving the
-      // old row onto it would violate the unique constraint and fail the event,
-      // so the old row is left for re-encryption to settle.
-      .whereNotExists((current) => {
-        void current.select(db.raw("1")).from({ c: "entity_aliases" }).where({
-          "c.project_id": projectId,
-          "c.journey_id": alias.journeyId,
-          "c.alias_type": alias.aliasType,
-          "c.alias_value_hash": alias.aliasValueHash
-        });
-      })
-      .update({
-        alias_value_hash: alias.aliasValueHash,
-        encrypted_display_value: alias.encryptedDisplayValue
-      });
+    const supersedes = alias.supersedesValueHash;
+    if (supersedes === null) continue;
+    await moveToCurrentToken(db, projectId, alias, supersedes);
   }
 
   await db("entity_aliases")
@@ -71,4 +50,56 @@ export async function upsertAliases(
     )
     .onConflict(["project_id", "journey_id", "alias_type", "alias_value_hash"])
     .ignore();
+}
+
+/** PostgreSQL's unique_violation. */
+const UNIQUE_VIOLATION = "23505";
+
+/**
+ * Move a row stored under the previous key's token onto the current one.
+ *
+ * Run in a savepoint (a nested transaction when the caller holds one, as
+ * ingestion does). The NOT EXISTS guard reads a snapshot, so a row under the new
+ * token that a concurrent transaction has inserted but not committed is
+ * invisible to it; the update then waits on that row and fails with a unique
+ * violation once the other commits. That means another event already stored
+ * the alias under the new token, which is the outcome this was for, so it is
+ * treated as done. The savepoint is what keeps the violation from aborting the
+ * caller's transaction and rejecting the event.
+ */
+async function moveToCurrentToken(
+  db: Knex,
+  projectId: string,
+  alias: AliasRow,
+  supersedes: string
+): Promise<void> {
+  try {
+    await db.transaction(async (savepoint) => {
+      await savepoint("entity_aliases")
+        .where({
+          project_id: projectId,
+          journey_id: alias.journeyId,
+          alias_type: alias.aliasType,
+          alias_value_hash: supersedes
+        })
+        // A row under the new token can already exist: the previous key was
+        // removed early, the alias stored again, and the key restored. Moving
+        // the old row onto it would violate the unique constraint, so the old
+        // row is left for re-encryption to settle.
+        .whereNotExists((current) => {
+          void current.select(savepoint.raw("1")).from({ c: "entity_aliases" }).where({
+            "c.project_id": projectId,
+            "c.journey_id": alias.journeyId,
+            "c.alias_type": alias.aliasType,
+            "c.alias_value_hash": alias.aliasValueHash
+          });
+        })
+        .update({
+          alias_value_hash: alias.aliasValueHash,
+          encrypted_display_value: alias.encryptedDisplayValue
+        });
+    });
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code !== UNIQUE_VIOLATION) throw error;
+  }
 }

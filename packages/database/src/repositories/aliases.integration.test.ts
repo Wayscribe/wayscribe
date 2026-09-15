@@ -139,4 +139,74 @@ describe("upsertAliases", () => {
     ).resolves.toBeUndefined();
     expect((await stored()).map((row) => row.alias_value_hash)).toEqual(["new-hash", "old-hash"]);
   });
+
+  it("treats a concurrent move onto the new token as already done", async () => {
+    // The NOT EXISTS guard reads a snapshot, so it cannot see a row under the
+    // new token that another transaction has inserted but not committed. The
+    // update then waits on that row's unique index entry and, when the other
+    // transaction commits, fails with a unique violation. Without a savepoint
+    // that violation also aborts the caller's transaction and rejects the event.
+    await seed("sf", "old-hash", "old-cipher");
+
+    let releaseFirst: () => void = () => undefined;
+    const firstMayCommit = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstInserted: () => void = () => undefined;
+    const firstHasInserted = new Promise<void>((resolve) => {
+      firstInserted = resolve;
+    });
+
+    // Connection one: the new-token row, inserted and held uncommitted.
+    const first = db.transaction(async (trx) => {
+      await trx("entity_aliases").insert({
+        project_id: projectId,
+        journey_id: "jrn_1",
+        alias_type: "sf",
+        alias_value_hash: "new-hash",
+        encrypted_display_value: "first-cipher"
+      });
+      firstInserted();
+      await firstMayCommit;
+    });
+    await firstHasInserted;
+
+    // Connection two: the ordinary ingestion path, inside its own transaction,
+    // with more work after the aliases, as ingestEvent has.
+    const second = db.transaction(async (trx) => {
+      await upsertAliases(trx, projectId, [
+        {
+          journeyId: "jrn_1",
+          aliasType: "sf",
+          aliasValueHash: "new-hash",
+          encryptedDisplayValue: "second-cipher",
+          supersedesValueHash: "old-hash"
+        }
+      ]);
+      await trx("entity_aliases").where({ project_id: projectId }).count({ n: "*" });
+    });
+
+    // Commit the first only once the second is provably blocked on it, so the
+    // interleaving is the same on every run rather than a matter of timing.
+    await waitForLockWait(db);
+    releaseFirst();
+
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+    expect((await stored()).map((row) => row.alias_value_hash)).toEqual(["new-hash", "old-hash"]);
+  });
 });
+
+/** Resolves once some backend is waiting on a lock, or fails after five seconds. */
+async function waitForLockWait(db: Knex): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result: unknown = await db.raw(
+      "select count(*)::int as waiting from pg_stat_activity where wait_event_type = 'Lock'"
+    );
+    const waiting = (result as { rows: { waiting: number }[] }).rows[0]?.waiting ?? 0;
+    if (waiting > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("The second transaction never waited on the first.");
+}
