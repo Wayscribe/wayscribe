@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig } from "./knex-config.js";
 import { issueKey, revokeKey } from "./repositories/key-admin.js";
+import { seedDemo } from "./seed-demo.js";
 
 // Distinctive, so an assertion that output does not contain them cannot pass
 // by accident and cannot fail on an ordinary word.
@@ -401,6 +402,39 @@ describe("doctor", () => {
     expect(statusOf(run, "Projects and keys")).toBe("WARN");
     expect(run.output).toContain("project:create");
     expect(run.code).toBe(0);
+  });
+
+  it("warns while the published demo key is active, and names the revoke", async () => {
+    // compose.demo.yaml commits this key so the demo starts with nothing
+    // configured. On any other installation it lets anyone write events.
+    const demoKey = "fr_demo00000000000000000000000000000";
+    await withDatabase("demokey", async (db) => {
+      await db.migrate.latest();
+      await db("projects").insert({ name: "Acme", slug: "acme" });
+      await issueKey(db, keyring, {
+        projectSlug: "acme",
+        environmentName: "production",
+        name: "w"
+      });
+      await seedDemo(db, keyring, demoKey);
+    });
+
+    const active = await doctor([], {}, "demokey");
+
+    expect(statusOf(active, "Projects and keys"), active.output).toBe("WARN");
+    expect(lineOf(active, "Projects and keys")).toContain("fr_demo00000");
+    expect(active.output).toContain("key:revoke fr_demo00000");
+    expect(active.code).toBe(0);
+    expect(active.output).not.toContain(demoKey);
+
+    const db = knex(createKnexConfig(urlFor("demokey")));
+    try {
+      await revokeKey(db, "fr_demo00000");
+    } finally {
+      await db.destroy();
+    }
+    const revoked = await doctor([], {}, "demokey");
+    expect(statusOf(revoked, "Projects and keys"), revoked.output).toBe("PASS");
   });
 
   it("fails a revoked key", async () => {

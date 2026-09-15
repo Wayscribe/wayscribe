@@ -416,6 +416,10 @@ changes far less often.
 
 ### Fixed
 
+- **doctor warns while the published demo key is active.** The demo stack's key
+  is committed to the repository, so anyone can write events with it, and doctor
+  passed an installation where it was unrevoked. "Projects and keys" now warns
+  and names `key:revoke fr_demo00000`.
 - **Migrations run as a role with privileges on its schema alone.** Migration
   001 created the `pgcrypto` extension, which nothing used and which needs
   `CREATE` on the database, so such a role failed at the first migration with a

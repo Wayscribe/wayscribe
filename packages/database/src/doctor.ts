@@ -1,4 +1,8 @@
-import { findInsecureDefaults, loadStatementTimeoutMs } from "@flight-recorder/config";
+import {
+  findInsecureDefaults,
+  loadStatementTimeoutMs,
+  PUBLISHED_DEMO_API_KEY
+} from "@flight-recorder/config";
 import {
   API_KEY_PREFIX_LENGTH,
   verifyApiKeyWithKeyring,
@@ -469,6 +473,24 @@ async function projectsResult(db: Knex): Promise<CheckResult> {
       "Projects and keys",
       `${plural(projects, "project")}, and no unrevoked API key.`,
       "Issue one: key:create <project-slug> <environment>."
+    );
+  }
+
+  // The demo's key is committed to the repository, so while it is unrevoked
+  // anyone can write events here. A warning rather than a failure: on the demo
+  // stack it is the point, and demo-bootstrap restores it on every start.
+  // Matched by prefix, which is unique among keys and which a generated key
+  // shares with probability 64^-9.
+  const demoPrefix = PUBLISHED_DEMO_API_KEY.slice(0, API_KEY_PREFIX_LENGTH);
+  const demo: unknown = await db("api_keys")
+    .where({ key_prefix: demoPrefix })
+    .whereNull("revoked_at")
+    .first("id");
+  if (demo !== undefined) {
+    return warn(
+      "Projects and keys",
+      `${plural(projects, "project")}, ${plural(keys, "unrevoked API key")}, including ${demoPrefix}, the published demo key anyone can write events with.`,
+      `Unless this is the demo stack, revoke it: key:revoke ${demoPrefix}.`
     );
   }
   return pass(
