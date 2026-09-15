@@ -21,7 +21,7 @@ import {
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
 import { createTraceReader } from "./trace.js";
-import { Transport, UnsentError, type SendOutcome } from "./transport.js";
+import { AbandonedError, Transport, UnsentError, type SendOutcome } from "./transport.js";
 
 export interface JourneyContext {
   journeyId: string;
@@ -321,6 +321,29 @@ function warnIfInsecure(endpoint: string, diagnostics: Diagnostics): void {
   });
 }
 
+/** How long shutdown waits for aborted sends to hand their events back. */
+const ABANDON_WAIT_MS = 250;
+
+/**
+ * Resolves when `promise` settles or `ms` pass, whichever is first.
+ *
+ * The timer is cleared as soon as the race is decided and never holds the
+ * process open: a shutdown that resolved must not keep the host alive for the
+ * rest of its timeout.
+ */
+async function raceTimeout(promise: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+    timer.unref();
+  });
+  try {
+    await Promise.race([promise.then(() => undefined), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createRecorder(config: RecorderConfig): Recorder {
   const resolved = resolveConfig(config);
   const diagnostics = createDiagnostics(resolved.onDiagnostic, { log: resolved.logDiagnostics });
@@ -332,11 +355,23 @@ export function createRecorder(config: RecorderConfig): Recorder {
   const readTrace = createTraceReader();
   let stopped = false;
   let delivered = false;
+  /**
+   * Set when shutdown's timeout or its drain has ended and anything not yet
+   * delivered is given up on. From then on no request starts, the ones in
+   * flight are aborted, and their events are handed back to be counted.
+   */
+  let abandoned = false;
+  const requests = new Set<AbortController>();
+  const sleepers = new Set<() => void>();
+  /** Events handed back by sends abandoned at shutdown, to be counted there. */
+  const abandonedEvents: unknown[] = [];
 
   const transport = new Transport(
     {
       send: async (batch) => {
+        if (abandoned) throw new Error("The recorder has shut down.");
         const controller = new AbortController();
+        requests.add(controller);
         const timer = setTimeout(() => {
           controller.abort();
         }, resolved.requestTimeoutMs);
@@ -384,8 +419,22 @@ export function createRecorder(config: RecorderConfig): Recorder {
           return outcome;
         } finally {
           clearTimeout(timer);
+          requests.delete(controller);
         }
       },
+      isAbandoned: () => abandoned,
+      // Cut short when shutdown gives up, so a send waiting out its backoff
+      // hands its events back at once instead of holding shutdown open.
+      sleep: (ms) =>
+        new Promise<void>((resolve) => {
+          const wake = (): void => {
+            clearTimeout(timer);
+            sleepers.delete(wake);
+            resolve();
+          };
+          const timer = setTimeout(wake, ms);
+          sleepers.add(wake);
+        }),
       maxAttempts: 3,
       baseBackoffMs: 100,
       maxBackoffMs: 2_000,
@@ -577,10 +626,15 @@ export function createRecorder(config: RecorderConfig): Recorder {
     try {
       await transport.send(batch);
     } catch (error) {
+      const unsent = error instanceof UnsentError ? error.unsent : batch;
+      if (abandoned || error instanceof AbandonedError) {
+        abandonedEvents.push(...unsent);
+        return;
+      }
       // Ordering matters: a retried batch must not reorder the timeline. Only
       // what is still unsent goes back; events stored on an earlier attempt
       // would otherwise be sent, and counted, twice.
-      queue.requeue(error instanceof UnsentError ? error.unsent : batch);
+      queue.requeue(unsent);
     }
   }
 
@@ -599,7 +653,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     await settle();
 
     let previous = Number.POSITIVE_INFINITY;
-    while (queue.size() > 0 && queue.size() < previous) {
+    while (!abandoned && queue.size() > 0 && queue.size() < previous) {
       previous = queue.size();
       await flush();
     }
@@ -628,6 +682,34 @@ export function createRecorder(config: RecorderConfig): Recorder {
   const interval = setInterval(maybeFlush, resolved.flushIntervalMs);
   // Never hold the host's event loop open on our account.
   interval.unref();
+
+  /**
+   * Counts every event shutdown could not deliver, once, as `dropped`.
+   *
+   * These used to vanish: events the server was still refusing for now when
+   * the drain stopped making progress, the queue left behind by an unreachable
+   * endpoint, and a batch still in flight when the timeout won. Sent, rejected,
+   * and dropped now add up to what was recorded.
+   *
+   * In-flight requests are aborted and backoffs cut short, so their sends hand
+   * their events back within a few milliseconds. The wait for that is bounded
+   * anyway, so shutdown still returns if a request ignored its abort; its
+   * events would then go uncounted, which no test has managed to cause.
+   */
+  async function abandonRemaining(drain: Promise<unknown>): Promise<void> {
+    abandoned = true;
+    for (const controller of requests) controller.abort();
+    for (const wake of [...sleepers]) wake();
+    await raceTimeout(Promise.allSettled([drain, settle()]), ABANDON_WAIT_MS);
+
+    const lost = [...queue.drain(queue.size()), ...abandonedEvents.splice(0)];
+    for (const _event of lost) {
+      diagnostics.report({
+        kind: "dropped",
+        reason: "shutdown: the recorder shut down before this event was delivered"
+      });
+    }
+  }
 
   function toErrorRecord(error: unknown): { message: string; type?: string; code?: string } {
     if (error instanceof Error) {
@@ -849,12 +931,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
       const timeoutMs = options?.timeoutMs ?? 2_000;
       // Never hang: a process that cannot exit because of a telemetry library is
       // the same failure ADR-007 forbids, arriving later.
-      await Promise.race([
-        safelyAsync(diagnostics, "transport_error", drainAll),
-        new Promise((resolve) => {
-          setTimeout(resolve, timeoutMs);
-        })
-      ]);
+      const drain = safelyAsync(diagnostics, "transport_error", drainAll);
+      await raceTimeout(drain, timeoutMs);
+      await safelyAsync(diagnostics, "capture_error", () => abandonRemaining(drain));
       // Last, so a repeat suppressed during the final drain is still reported
       // before the process exits.
       safely(diagnostics, "capture_error", () => {

@@ -39,6 +39,12 @@ export interface TransportOptions {
   retryBudgetMs: number;
   /** The most sends an event may be refused in, however quickly they come. */
   maxRefusedSends: number;
+  /**
+   * True once the owner has given up on everything in flight, at shutdown.
+   * A send checks it between attempts and hands its events back rather than
+   * counting a failure it caused itself.
+   */
+  isAbandoned?: () => boolean;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
@@ -58,6 +64,17 @@ export class UnsentError extends Error {
   ) {
     super(message);
     this.name = "UnsentError";
+  }
+}
+
+/**
+ * Thrown when the owner abandoned the send, carrying the events it had not
+ * settled. The owner counts those; the transport reports nothing for them.
+ */
+export class AbandonedError extends UnsentError {
+  public constructor(unsent: readonly unknown[]) {
+    super("The recorder shut down before these events were delivered.", unsent);
+    this.name = "AbandonedError";
   }
 }
 
@@ -115,6 +132,10 @@ export class Transport {
       // Before every attempt after the first, which only happens after one
       // that failed or left events refused.
       if (attempt > 1) await this.backoff(attempt - 1);
+      if (this.options.isAbandoned?.() === true) {
+        this.giveUp(abandoned, lastRefusal, lastRefusalLine);
+        throw new AbandonedError(pending);
+      }
       try {
         const outcome = await this.options.send(pending);
         lastError = undefined;
@@ -139,15 +160,25 @@ export class Transport {
         }
         pending = again;
       } catch (error) {
+        // An abort the owner caused is not a transport failure.
+        if (this.options.isAbandoned?.() === true) {
+          this.giveUp(abandoned, lastRefusal, lastRefusalLine);
+          throw new AbandonedError(pending);
+        }
         // A permanent failure is not retried and does not count toward the
         // breaker: the batch is unsendable, and pretending otherwise turns one
         // bad payload into total loss.
         if (isPermanent(error)) {
-          this.diagnostics.report({
-            kind: "rejected",
-            reason: error instanceof Error ? error.message : String(error),
-            detail: { permanent: true, events: pending.length }
-          });
+          // One per event, so `rejected` counts events as it does for a
+          // per-event refusal, and sent, rejected, and dropped add up to what
+          // was recorded.
+          for (const _event of pending) {
+            this.diagnostics.report({
+              kind: "rejected",
+              reason: error instanceof Error ? error.message : String(error),
+              detail: { permanent: true, events: pending.length }
+            });
+          }
           this.giveUp(abandoned, lastRefusal, lastRefusalLine);
           return;
         }

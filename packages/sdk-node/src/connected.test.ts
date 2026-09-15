@@ -275,6 +275,8 @@ describe("the console", () => {
     vi.restoreAllMocks();
 
     expect(lines).toContain("[flight-recorder] dropped: queue_full");
-    expect(lines).toContain("[flight-recorder] dropped: 2 repeats suppressed since the last line");
+    // Three: two shed as the queue of one filled, and the event still queued
+    // when shutdown gave up on the unreachable endpoint.
+    expect(lines).toContain("[flight-recorder] dropped: 3 repeats suppressed since the last line");
   });
 });
