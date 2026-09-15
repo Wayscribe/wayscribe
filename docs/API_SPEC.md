@@ -429,7 +429,12 @@ and writes a `journey.deleted` audit row in the same transaction.
 - `404 not_found` when the journey is not in the named project, the same answer
   as a read, so it reveals nothing about other projects.
 - `400 invalid_request` for a journey id containing a null byte or longer than
-  512 characters.
+  the protocol's 128 characters.
+- `404 project_not_found` when `x-flight-project-id` is not a UUID, names no
+  project, or is omitted while more than one project exists.
+
+A path parameter longer than 1,152 characters as encoded in the URL, nine for
+each of the protocol's 128, is refused with `414` before any route runs.
 
 ## 17. Erase an identifier
 
@@ -500,6 +505,8 @@ Errors:
   boolean.
 - `404 environment_not_found` when the project has no environment with that
   name.
+- `404 project_not_found` when `x-flight-project-id` is not a UUID, names no
+  project, or is omitted while more than one project exists.
 
 ## 18. Delete a replay destination
 
@@ -517,3 +524,7 @@ and the number of runs, not the base URL or the headers.
 - `204` with no body when deleted.
 - `404 not_found` when the destination is not in the named project, or the id is
   not a UUID.
+- `400 invalid_request` for an id containing a null byte or longer than 512
+  characters.
+- `404 project_not_found` when `x-flight-project-id` is not a UUID, names no
+  project, or is omitted while more than one project exists.

@@ -40,6 +40,16 @@ export interface BuildAppOptions {
  * queue trims. Sized from configuration rather than guessed.
  */
 const MAX_BATCH_EVENTS = 100;
+
+/**
+ * Longest path parameter the router accepts, measured in the encoded path.
+ *
+ * Journey and event ids are up to 128 characters (packages/protocol), and a
+ * character outside ASCII is up to nine once percent-encoded. Fastify's default
+ * of 100 answered a legitimate long id with 414 before any route ran, so an
+ * operator could record a journey and then neither read nor delete it by id.
+ */
+const MAX_PARAM_LENGTH = 128 * 9;
 const BODY_LIMIT_HEADROOM = 64 * 1024;
 
 /**
@@ -68,7 +78,8 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       redact: { paths: LOG_REDACT_PATHS, censor: "[REDACTED]" },
       ...(options.logStream === undefined ? {} : { stream: options.logStream })
     },
-    bodyLimit: options.bodyLimit ?? MAX_BATCH_EVENTS * maxEventPayloadBytes + BODY_LIMIT_HEADROOM
+    bodyLimit: options.bodyLimit ?? MAX_BATCH_EVENTS * maxEventPayloadBytes + BODY_LIMIT_HEADROOM,
+    routerOptions: { maxParamLength: MAX_PARAM_LENGTH }
   });
 
   // One error shape for every failure, including the ones Fastify raises before

@@ -11,6 +11,8 @@ import { adminGuard, errorBody } from "../admin.js";
 
 /** The protocol's ceiling on an identifier, so anything that could be stored can be erased. */
 const MAX_VALUE_LENGTH = 512;
+/** The protocol's ceiling on a journey id. A longer one cannot exist. */
+const MAX_JOURNEY_ID_LENGTH = 128;
 /** Generous for a name; bounds what a request can make the database compare. */
 const MAX_NAME_LENGTH = 512;
 /**
@@ -45,7 +47,7 @@ export function registerDeletionRoutes(app: FastifyInstance, options: DeletionRo
     if (projectId === undefined) return reply;
 
     const { journeyId } = request.params as { journeyId: string };
-    if (!isStorableText(journeyId, MAX_VALUE_LENGTH)) {
+    if (!isStorableText(journeyId, MAX_JOURNEY_ID_LENGTH)) {
       return reply
         .code(400)
         .send(errorBody("invalid_request", "journeyId is not a valid journey id.", request.id));

@@ -220,6 +220,32 @@ describe("deletion routes", () => {
       expect(await listAudit(db, projectA)).toHaveLength(0);
     });
 
+    it("lets the protocol's longest journey id reach the route, however it is encoded", async () => {
+      // Fastify's default maxParamLength of 100 answered these 414 before the
+      // route ran. The protocol allows 128 characters, and a character outside
+      // ASCII is up to nine in the encoded path.
+      for (const id of ["j".repeat(128), "€".repeat(128)]) {
+        await journey(projectA, productionA, id);
+        const response = await app.inject({
+          method: "DELETE",
+          url: `/v1/journeys/${encodeURIComponent(id)}`,
+          headers: admin(projectA)
+        });
+        expect(response.statusCode, id.slice(0, 3)).toBe(204);
+      }
+      expect(await journeyIds(projectA)).toEqual([]);
+    });
+
+    it("refuses a journey id longer than the protocol allows", async () => {
+      const response = await app.inject({
+        method: "DELETE",
+        url: `/v1/journeys/${"j".repeat(129)}`,
+        headers: admin(projectA)
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json<ErrorBody>().error.code).toBe("invalid_request");
+    });
+
     it("refuses a journey id PostgreSQL cannot store", async () => {
       const response = await app.inject({
         method: "DELETE",
@@ -400,14 +426,18 @@ describe("deletion routes", () => {
     it("answers 404 for another project's destination and for an id that is not a uuid", async () => {
       const destinationId = await destinationWithRun(projectB, productionB);
 
-      for (const id of [destinationId, "not-a-uuid", "a%00b"]) {
+      const expected: [string, number, string][] = [
+        ["not-a-uuid", 404, "not_found"],
+        ["a%00b", 400, "invalid_request"]
+      ];
+      for (const [id, status, code] of expected) {
         const response = await app.inject({
           method: "DELETE",
           url: `/v1/replay-destinations/${id}`,
           headers: admin(projectA)
         });
-        expect(response.statusCode, id).toBeGreaterThanOrEqual(400);
-        expect(response.statusCode, id).toBeLessThan(500);
+        expect(response.statusCode, id).toBe(status);
+        expect(response.json<ErrorBody>().error.code, id).toBe(code);
       }
       const cross = await app.inject({
         method: "DELETE",

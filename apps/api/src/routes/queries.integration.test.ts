@@ -119,6 +119,23 @@ describe("query endpoints", () => {
     expect(response.json().error.code).toBe("invalid_cursor");
   });
 
+  it("answers an admin naming a project id that is not a uuid with project_not_found", async () => {
+    // Not a server error: PostgreSQL rejects the comparison outright, so the
+    // check has to happen before the lookup.
+    for (const url of ["/v1/search?q=x", "/v1/journeys/jrn_q"]) {
+      const response = await app.inject({
+        method: "GET",
+        url,
+        headers: {
+          authorization: "Bearer admin-token-for-tests-0000000000",
+          "x-flight-project-id": "not-a-uuid"
+        }
+      });
+      expect(response.statusCode, url).toBe(404);
+      expect(response.json().error.code).toBe("project_not_found");
+    }
+  });
+
   it("requires authentication", async () => {
     const response = await app.inject({ method: "GET", url: "/v1/search?q=x" });
     expect(response.statusCode).toBe(401);
