@@ -16,7 +16,8 @@ export default async function SearchPage({
         // Set by the delete route handler, which only ever puts an entity type
         // here. React escapes it either way.
         <p className="notice" role="status">
-          Deleted the {deleted} journey. It no longer appears in search.
+          {deleted === "journey" ? "Deleted the journey." : `Deleted the ${deleted} journey.`} It no
+          longer appears in search.
         </p>
       )}
       <h1>Find a record</h1>

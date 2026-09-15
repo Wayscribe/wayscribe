@@ -10,12 +10,24 @@ import { requireProjectId } from "../../../../../src/lib/current-project";
  * is not one click (REPLAY_SPEC section 13): the operator sees exactly what
  * goes before anything goes, and it cannot be undone.
  */
+/** What the route handler's `error` values mean to the operator. Anything else reads as the last. */
+const FAILURES: Record<string, string> = {
+  api_unavailable:
+    "The Flight Recorder API could not be reached, so nothing was deleted. Try again.",
+  project_not_selected:
+    "No project is selected, so nothing was deleted. Choose a project and try again.",
+  unexpected: "Something went wrong and the journey was not deleted. Try again."
+};
+
 export default async function DeleteJourneyPage({
-  params
+  params,
+  searchParams
 }: {
   params: Promise<{ journeyId: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
   const { journeyId } = await params;
+  const { error: failure } = await searchParams;
 
   try {
     const projectId = await requireProjectId(`/journeys/${journeyId}/delete`);
@@ -28,6 +40,11 @@ export default async function DeleteJourneyPage({
           <Link href={`/journeys/${encodeURIComponent(journeyId)}`}>← Back to the journey</Link>
         </p>
         <h1>Delete this journey?</h1>
+        {failure === undefined ? null : (
+          <p className="error" role="alert">
+            {FAILURES[failure] ?? FAILURES["unexpected"]}
+          </p>
+        )}
 
         <dl className="facts">
           <dt>Entity</dt>

@@ -57,10 +57,9 @@ test("deletes a journey through the confirmation page, and search no longer find
   await page.getByRole("link", { name: "Delete this journey" }).click();
 
   await expect(page).toHaveURL(`/journeys/${JOURNEY_ID}/delete`);
-  const facts = page.locator(".facts");
-  await expect(facts).toContainText(`customer: ${ENTITY_ID}`);
-  await expect(facts).toContainText("development");
-  await expect(facts).toContainText("2");
+  // Each fact exactly: a loose "contains 2" matched the 2 inside the entity id.
+  const facts = page.locator(".facts dd");
+  await expect(facts).toHaveText([`customer: ${ENTITY_ID}`, "development", "2"]);
   await expect(page.locator("body")).toContainText("This cannot be undone.");
 
   await page.getByRole("button", { name: "Delete journey" }).click();
