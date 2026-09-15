@@ -286,14 +286,20 @@ function refusalLogLine(code: string | undefined, path: string | undefined): str
   return `${printedCode}${printedPath} (the server's message goes to onDiagnostic)`;
 }
 
-/** Hosts an `http:` endpoint may name without the traffic leaving the machine. */
-function isLoopback(hostname: string): boolean {
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "[::1]" ||
-    hostname.endsWith(".localhost")
-  );
+/**
+ * Hosts an `http:` endpoint may name without a warning: this machine, or a
+ * single-label name such as `api`.
+ *
+ * A name with no dot resolves only through container or cluster DNS, so the
+ * traffic stays on the private network Compose or Kubernetes built for it,
+ * which is how the demo and a sidecar-style install reach the API. IP literals
+ * never count as single-label: an IPv4 address has dots, the URL parser turns
+ * a bare number into one, and an IPv6 address is bracketed.
+ */
+function isLocalOrInternal(hostname: string): boolean {
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") return true;
+  if (hostname.endsWith(".localhost")) return true;
+  return !hostname.includes(".") && !hostname.startsWith("[");
 }
 
 /**
@@ -306,7 +312,7 @@ function isLoopback(hostname: string): boolean {
 function warnIfInsecure(endpoint: string, diagnostics: Diagnostics): void {
   if (!URL.canParse(endpoint)) return;
   const url = new URL(endpoint);
-  if (url.protocol !== "http:" || isLoopback(url.hostname)) return;
+  if (url.protocol !== "http:" || isLocalOrInternal(url.hostname)) return;
   diagnostics.report({
     kind: "insecure_endpoint",
     scheme: "http:",

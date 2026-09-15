@@ -41,11 +41,30 @@ describe("an endpoint that sends the API key in cleartext", () => {
     ]);
   });
 
-  it("is reported for a private address too", async () => {
+  it.each([
     // A private network is still a network: anything on it can read the key.
-    const seen = await diagnosticsFor("http://10.0.0.5:8080");
+    "http://10.0.0.5:8080",
+    "http://api.example.com",
+    "http://ingest.internal:8080",
+    // The URL parser reads a bare number as an IPv4 address, so this is
+    // 10.0.0.5 and not a single-label name.
+    "http://167772165",
+    "http://[fd00::5]:8080"
+  ])("is reported for %s", async (endpoint) => {
+    const seen = await diagnosticsFor(endpoint);
     expect(seen.some((d) => d.kind === "insecure_endpoint")).toBe(true);
   });
+
+  it.each(["http://api:8080", "http://flight-recorder-api:8080", "http://API:8080"])(
+    "is not reported for the single-label name in %s",
+    async (endpoint) => {
+      // A name with no dot resolves only through container or cluster DNS on
+      // a private network, which is how the demo reaches the API. Warning
+      // there made the first thing a new user runs look broken.
+      const seen = await diagnosticsFor(endpoint);
+      expect(seen.some((d) => d.kind === "insecure_endpoint")).toBe(false);
+    }
+  );
 
   it("names only the scheme and host, never credentials in the URL", async () => {
     // Assembled, so a secret scanner reading this file does not see a URL with

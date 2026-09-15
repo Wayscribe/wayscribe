@@ -230,7 +230,7 @@ change any counter.
 | Kind | Means | Counter |
 | --- | --- | --- |
 | `delivered_first` | the server stored events from this recorder for the first time | none |
-| `insecure_endpoint` | the endpoint is `http:` to another machine, so the API key travels unencrypted | none |
+| `insecure_endpoint` | the endpoint is `http:` to a dotted name or an IP address off this machine, so the API key travels unencrypted | none |
 | `rejected` | the server understood an event and refused it; it is not retried | `rejected` |
 | `transport_error` | a request failed, or the server could not store an event for now; see below | `transportErrors` |
 | `dropped` | an event, or a payload, was not recorded: the queue was full, the payload was too large, the recorder was shut down, or the server was still refusing it after 30 seconds or 10 sends | `dropped` |
@@ -240,9 +240,9 @@ change any counter.
 ### An endpoint that is not encrypted
 
 Every request carries the API key, and payloads with it. When `endpoint` is
-`http:` and its host is anything but `localhost`, `127.0.0.1`, `[::1]`, or a
-`.localhost` name, the recorder reports one `insecure_endpoint` diagnostic as it
-is created:
+`http:` and its host has a dot or is an IP address, other than `127.0.0.1`,
+`[::1]`, or a `.localhost` name, the recorder reports one `insecure_endpoint`
+diagnostic as it is created:
 
 ```text
 [flight-recorder] insecure_endpoint: The endpoint is http: to ingest.internal, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.
@@ -255,6 +255,13 @@ a telemetry library that refuses to start breaks the service it observes
 (ADR-007). A private address is still reported, because anything else on that
 network can read the key. Put TLS in front of the API, or at least terminate it
 on the same machine as the service.
+
+A single-label name with no dot, such as `api` or `flight-recorder-api`, is not
+reported, and neither is `localhost`. A name like that resolves only through
+container or cluster DNS, so the traffic stays on the private network Docker
+Compose or Kubernetes created, which is how the demo reaches the API. A dotted
+name such as `api.example.com` or `ingest.internal`, and any IP address, still
+warns.
 
 ### When the server cannot store an event for now
 

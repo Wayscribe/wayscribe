@@ -60,12 +60,13 @@ changes far less often.
   and its message goes only to `onDiagnostic`. Off by default: nothing reaches the console unless it is
   set. The quick start and `examples/instrument-a-service` turn it on while
   setting up.
-- **The SDK warns about an unencrypted endpoint.** An `http:` endpoint on any
-  host but `localhost`, `127.0.0.1`, `[::1]`, or a `.localhost` name sends the
-  API key and payloads in cleartext; the recorder now reports one
-  `insecure_endpoint` diagnostic when it is created, naming only the scheme and
-  host. It still starts and sends. The demo services, which reach the API as
-  `http://api:8080` on the Compose network, print it once each.
+- **The SDK warns about an unencrypted endpoint.** An `http:` endpoint on a
+  dotted name or an IP address sends the API key and payloads across a network
+  in cleartext; the recorder now reports one `insecure_endpoint` diagnostic
+  when it is created, naming only the scheme and host. It still starts and
+  sends. `localhost`, `127.0.0.1`, `[::1]`, `.localhost` names, and
+  single-label names such as `api`, which resolve only through container or
+  cluster DNS, are not reported.
 - **`maxConcurrentSends` in the SDK**, default 4 and clamped to 1-16: how many
   batches one process sends at once. Across every process sending to an
   installation, the total should stay under API instances times database pool
