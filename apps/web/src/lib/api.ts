@@ -76,7 +76,8 @@ export interface ReplayRun {
   method: string;
   path: string;
   requestPayload: unknown;
-  requestHeaders: Record<string, string>;
+  /** Names as sent; a destination header's value is always `[REDACTED]`. */
+  requestHeaders: Record<string, string> | null;
   status: "queued" | "running" | "completed" | "failed" | "blocked";
   responseStatus: number | null;
   responsePayload: unknown;

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DiffTable } from "../../../../components/DiffTable";
+import { ReplayHeaders } from "../../../../components/ReplayHeaders";
 import {
   ApiUnavailableError,
   getEvent,
@@ -146,6 +147,7 @@ function Result({ run }: { run: NonNullable<Awaited<ReturnType<typeof getReplay>
       <section>
         <h2>Could not reach the destination</h2>
         <p className="error">{run.error?.message ?? "The request failed."}</p>
+        <ReplayHeaders headers={run.requestHeaders} attempted />
       </section>
     );
   }
@@ -157,6 +159,8 @@ function Result({ run }: { run: NonNullable<Awaited<ReturnType<typeof getReplay>
         {run.responseStatus} · {run.durationMs} ms
       </p>
       <pre className="mono block">{JSON.stringify(run.responsePayload, null, 2)}</pre>
+
+      <ReplayHeaders headers={run.requestHeaders} />
 
       <h2>Original versus replay</h2>
       {run.comparison === null ? (

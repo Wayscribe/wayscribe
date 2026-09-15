@@ -137,6 +137,24 @@ changes far less often.
   out without the credentials the destination was configured with. It is now
   refused, recorded as blocked with the reason and the key id involved, and
   audited as `replay.blocked`.
+- **A replay no longer stores its destination's header values.** Destination
+  headers are encrypted at rest, but every replay copied the decrypted values
+  into `replay_runs.request_headers` as plain `jsonb`, and
+  `GET /v1/replays/:replayId` returned them, so any configured credential was
+  readable in the clear in every run sent to that destination. A run now stores
+  each destination header, and any header on the blocklist, by name with the
+  value `[REDACTED]`; the request itself still carries the real values. The
+  replay result page lists the headers and says a redacted one was sent with
+  its real value. A destination that echoes its request no longer puts the
+  values back: each destination header value of 8 or more characters is
+  replaced with `[REDACTED]` in the stored response body and error message.
+  That is exact matching, so a shorter value, a fragment left where the
+  response size cap cut the body, and an encoded echo are not caught, and
+  responses stored before the upgrade are not scrubbed. Migration
+  `015_redact_replay_run_headers.js` rewrites rows
+  written before the upgrade, replacing every header value with `[REDACTED]`.
+  Backups, WAL archives, and replicas taken before the migration still hold the
+  values; see the upgrade note.
 - **A replay destination's audit row no longer records its base URL.** A base
   URL can carry credentials or an internal hostname, audit rows are never swept,
   and deleting the destination could not reach the row. Rows written before this
@@ -229,6 +247,14 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
+- **Migration 015 rewrites every replay run row.** It replaces each value in
+  `replay_runs.request_headers` with `[REDACTED]` in one transaction (about 2
+  seconds for 100,000 runs, blocking updates to existing runs but not inserts,
+  and doubling the table's size until vacuum), including
+  the headers Flight Recorder set itself, because an old row cannot say which
+  came from the destination. Its down migration does nothing. It does not reach
+  a backup taken before it, which still holds destination credentials; rotate
+  any that matter at the destination (`docs/OPERATIONS.md` §4).
 - A payload holding any of the values above now hashes differently, and
   `contentHash` is computed over what the SDK sent. Resending the same event id
   from a mixed-version fleet mid-rollout returns 409 `event_id_conflict`.

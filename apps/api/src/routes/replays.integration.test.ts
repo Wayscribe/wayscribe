@@ -21,6 +21,8 @@ describe("replay routes", () => {
   let targetPort: number;
   /** Requests the target has received, so a refusal can be shown to send nothing. */
   let targetRequests = 0;
+  /** The headers of the last request the target received, to show what went out. */
+  let targetHeaders: Record<string, string | string[] | undefined> = {};
   let projectId: string;
   let apiKey: string;
   let eventWithInput: string;
@@ -29,11 +31,28 @@ describe("replay routes", () => {
   beforeAll(async () => {
     target = createServer((request, response) => {
       targetRequests += 1;
+      targetHeaders = request.headers;
       let body = "";
       request.on("data", (chunk: Buffer) => {
         body += chunk.toString();
       });
       request.on("end", () => {
+        // A development endpoint that echoes what it received, as debugging
+        // endpoints and error pages often do, in JSON and as plain text.
+        if (request.url === "/echo/json") {
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(JSON.stringify({ received: { headers: request.headers } }));
+          return;
+        }
+        if (request.url === "/echo/text") {
+          response.writeHead(400, { "content-type": "text/plain" });
+          response.end(
+            Object.entries(request.headers)
+              .map(([name, value]) => `${name}: ${String(value)}`)
+              .join("\n")
+          );
+          return;
+        }
         const payload = JSON.parse(body || "null") as { Phone?: string };
         response.writeHead(200, { "content-type": "application/json" });
         // The corrected mapping: reads `Phone`, which is what arrives.
@@ -308,6 +327,125 @@ describe("replay routes", () => {
       await afterRemoval.close();
     }
   });
+
+  it("never stores or returns a destination header's value, and still sends it", async () => {
+    // Destination headers are encrypted at rest because they are credentials.
+    // A run row is plain jsonb, read back by the API and kept until retention,
+    // so copying the decrypted value into it would undo that encryption.
+    const secret = "dst-secret-7f3a9c1e5b";
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/replay-destinations",
+      headers: admin(),
+      payload: {
+        name: "header storage",
+        baseUrl: `http://localhost:${String(targetPort)}`,
+        environmentType: "development",
+        headers: { "X-Dev-Token": secret, authorization: `Bearer ${secret}` }
+      }
+    });
+    expect(created.statusCode).toBe(201);
+    const destinationId = created.json<{ data: { id: string } }>().data.id;
+
+    const replayed = await app.inject({
+      method: "POST",
+      url: "/v1/replays",
+      headers: admin(),
+      payload: { eventId: eventWithInput, destinationId, path: "/replay/customer" }
+    });
+    expect(replayed.statusCode).toBe(200);
+    const runId = replayed.json<{ data: { id: string; status: string } }>().data.id;
+    expect(replayed.body).not.toContain(secret);
+
+    // The destination received the real values: redaction is of the record only.
+    expect(targetHeaders["x-dev-token"]).toBe(secret);
+    expect(targetHeaders["authorization"]).toBe(`Bearer ${secret}`);
+
+    const row: unknown = await db("replay_runs")
+      .where({ id: runId })
+      .first("request_headers as requestHeaders");
+    const stored = (row as { requestHeaders: Record<string, string> } | undefined)?.requestHeaders;
+    expect(JSON.stringify(stored)).not.toContain(secret);
+    // Names stay, so an operator can see which headers were sent.
+    expect(stored).toMatchObject({
+      "x-dev-token": "[REDACTED]",
+      authorization: "[REDACTED]",
+      "x-flight-replay": "true",
+      "user-agent": "flight-recorder-replay"
+    });
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/v1/replays/${runId}`,
+      headers: admin()
+    });
+    expect(read.statusCode).toBe(200);
+    expect(read.body).not.toContain(secret);
+    const readHeaders = read.json<{ data: { requestHeaders: Record<string, string> } }>().data
+      .requestHeaders;
+    expect(readHeaders["x-dev-token"]).toBe("[REDACTED]");
+    expect(readHeaders["authorization"]).toBe("[REDACTED]");
+
+    // Nor does the audit trail, which is never swept.
+    const audit = await listAudit(db, projectId, 500);
+    expect(JSON.stringify(audit)).not.toContain(secret);
+    expect(JSON.stringify(await db("replay_runs").select())).not.toContain(secret);
+  });
+
+  it.each([
+    ["JSON", "/echo/json"],
+    ["text", "/echo/text"]
+  ])(
+    "never stores or returns a destination header value a %s response echoes",
+    async (_form, path) => {
+      // The request headers are redacted before storage, but a destination that
+      // echoes its request would put the credential straight back into the
+      // stored response, and from there into both API responses.
+      const secret = `echo-secret-${path.replaceAll("/", "-")}-91b2`;
+      const created = await app.inject({
+        method: "POST",
+        url: "/v1/replay-destinations",
+        headers: admin(),
+        payload: {
+          name: `echo ${path}`,
+          baseUrl: `http://localhost:${String(targetPort)}`,
+          environmentType: "development",
+          // Inside a longer value too: a Bearer prefix must not shield it.
+          headers: { "x-dev-token": secret, authorization: `Bearer ${secret}` }
+        }
+      });
+      expect(created.statusCode).toBe(201);
+      const destinationId = created.json<{ data: { id: string } }>().data.id;
+
+      const replayed = await app.inject({
+        method: "POST",
+        url: "/v1/replays",
+        headers: admin(),
+        payload: { eventId: eventWithInput, destinationId, path }
+      });
+      expect(replayed.statusCode).toBe(200);
+      expect(targetHeaders["x-dev-token"]).toBe(secret);
+      expect(replayed.body).not.toContain(secret);
+      const runId = replayed.json<{ data: { id: string } }>().data.id;
+
+      const row: unknown = await db("replay_runs").where({ id: runId }).first();
+      expect(JSON.stringify(row)).not.toContain(secret);
+
+      const read = await app.inject({
+        method: "GET",
+        url: `/v1/replays/${runId}`,
+        headers: admin()
+      });
+      expect(read.statusCode).toBe(200);
+      expect(read.body).not.toContain(secret);
+      // The echo is still there to read, with the header's name and a marker.
+      const echoed = JSON.stringify(
+        read.json<{ data: { responsePayload: unknown } }>().data.responsePayload
+      );
+      expect(echoed).toContain("x-dev-token");
+      expect(echoed).toContain("[REDACTED]");
+    }
+  );
 
   it("writes an audit entry for a successful replay", async () => {
     const audit = await listAudit(db, projectId);

@@ -199,12 +199,12 @@ The event row is immutable after insertion.
 | `method` | text | HTTP method |
 | `request_path` | text | Relative path |
 | `request_payload` | jsonb | Sanitized |
-| `request_headers` | jsonb | Sanitized |
+| `request_headers` | jsonb | Names as sent; destination header values and blocked names stored as `[REDACTED]` |
 | `response_status` | integer | Nullable |
-| `response_payload` | jsonb | Sanitized and size-limited |
+| `response_payload` | jsonb | Size-limited; exact occurrences of destination header values of 8 or more characters replaced with `[REDACTED]` (not a fragment cut at the size cap, not a shorter value) |
 | `duration_ms` | integer | Nullable |
 | `status` | text | queued, running, completed, failed, blocked |
-| `error` | jsonb | Nullable |
+| `error` | jsonb | Nullable; `message` scrubbed of destination header values as `response_payload` is |
 | `initiated_by` | text | User or local actor |
 | `created_at` | timestamptz | Required |
 | `completed_at` | timestamptz | Nullable |

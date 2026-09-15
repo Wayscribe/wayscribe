@@ -108,6 +108,70 @@ docker run --rm --network flight-recorder_default \
   --entrypoint node flight-recorder-api packages/database/dist/cli.js migrate
 ```
 
+### Migration 015 rewrites every replay run's headers
+
+Replays used to store the headers they sent, including the destination's
+decrypted configured headers, in `replay_runs.request_headers`. Migration
+`015_redact_replay_run_headers.js` replaces every value in that column with
+`[REDACTED]` and keeps the header names. An old row does not say which headers
+came from the destination, so the ones Flight Recorder set itself, such as
+`user-agent`, are redacted too.
+
+It is one `UPDATE` of every `replay_runs` row that has headers, in one
+transaction. Measured on PostgreSQL 17 with 100,000 runs carrying payloads of
+about 1 KB: the migration took about 2 seconds. An update to an existing run
+while it ran, such as the previous API finishing a replay, waited until it
+committed, about 2.3 seconds. Inserts of new runs were not blocked. The table
+doubled in size, because every row is rewritten, until vacuum reclaimed the old
+versions.
+
+Migrate, then deploy, still applies, and it leaves a window: between the
+migration committing and the new API taking traffic, the previous API is still
+the one serving, and a replay it sends is stored the old way. Replays are
+manual, so the simplest course is not to send one during the upgrade.
+
+If one was sent, redact again once the new API is serving, limited to runs
+created from an hour before migration 015 was applied. Count them first:
+
+```sql
+select count(*)
+from replay_runs
+where request_headers is not null
+  and created_at >= (
+    select migration_time from knex_migrations
+    where name = '015_redact_replay_run_headers.js'
+  ) - interval '1 hour';
+```
+
+Then rewrite the same rows:
+
+```sql
+update replay_runs
+set request_headers = case
+  when jsonb_typeof(request_headers) = 'object' then (
+    select coalesce(jsonb_object_agg(key, to_jsonb('[REDACTED]'::text)), '{}'::jsonb)
+    from jsonb_each(request_headers)
+  )
+  else null
+end
+where request_headers is not null
+  and created_at >= (
+    select migration_time from knex_migrations
+    where name = '015_redact_replay_run_headers.js'
+  ) - interval '1 hour';
+```
+
+Runs the new API wrote in that window are rewritten too, and lose the values
+it kept on purpose, such as `user-agent` and `x-flight-replay`. The header
+names stay. Nothing secret is lost, only what those rows could show about the
+non-secret headers.
+
+Its down migration does nothing: the values cannot be restored, and restoring
+them would be the defect. **The migration does not reach copies.** A dump, WAL
+archive, or replica snapshot taken before it still holds the header values, and
+so do the destination's credentials inside them. If a destination header was a
+credential that matters, rotate it at the destination as well.
+
 ## 5. Projects and keys
 
 A new installation has no projects, and a key belongs to one. Create the project
