@@ -418,11 +418,17 @@ export interface RotationStatus {
   apiKeys: {
     current: number;
     /**
-     * Unrevoked keys whose verifier is not recorded as under the current key.
-     * During a rotation this includes keys with no recorded id, which may be
-     * under either key.
+     * Unrevoked keys under the previous key, which move to the current key when
+     * they next authenticate. During a rotation this includes keys with no
+     * recorded id, which may be under either key.
      */
     notCurrent: ApiKeyNotCurrent[];
+    /**
+     * Unrevoked keys recorded under a key id in neither slot. They cannot
+     * authenticate, so they will not move by themselves: the key they name has
+     * to be configured as the previous key, or they have to be revoked.
+     */
+    unknownKey: ApiKeyNotCurrent[];
     /**
      * With no previous key configured, unrevoked keys with no recorded id. They
      * verify under the current key or not at all, so they leave no rotation
@@ -502,8 +508,17 @@ export async function rotationStatus(db: Knex, keyring: Keyring): Promise<Rotati
     );
   const keys = keyRows as ApiKeyNotCurrent[];
   const notRecorded = previousKeyId === null ? keys.filter((key) => key.keyHashKeyId === null) : [];
+  const unknownKey = keys.filter(
+    (key) =>
+      key.keyHashKeyId !== null &&
+      key.keyHashKeyId !== keyring.current.id &&
+      key.keyHashKeyId !== previousKeyId
+  );
   const notCurrent = keys.filter(
-    (key) => key.keyHashKeyId !== keyring.current.id && !notRecorded.includes(key)
+    (key) =>
+      key.keyHashKeyId !== keyring.current.id &&
+      !notRecorded.includes(key) &&
+      !unknownKey.includes(key)
   );
 
   const rowsRemaining = tables.reduce(
@@ -516,12 +531,13 @@ export async function rotationStatus(db: Knex, keyring: Keyring): Promise<Rotati
     previousKeyId,
     tables,
     apiKeys: {
-      current: keys.length - notCurrent.length - notRecorded.length,
+      current: keys.length - notCurrent.length - notRecorded.length - unknownKey.length,
       notCurrent,
-      notRecorded
+      notRecorded,
+      unknownKey
     },
     rowsRemaining,
-    complete: rowsRemaining === 0 && notCurrent.length === 0
+    complete: rowsRemaining === 0 && notCurrent.length === 0 && unknownKey.length === 0
   };
 }
 

@@ -157,6 +157,21 @@ export function formatRotationStatus(status: RotationStatus): string[] {
       ...keyTable(notRecorded)
     );
   }
+  const unknownKeys = status.apiKeys.unknownKey;
+  if (unknownKeys.length > 0) {
+    // These answer 401 until the key they name is configured again, so they
+    // get no promise that use will move them.
+    lines.push(
+      `API keys under a key that is not configured: ${String(unknownKeys.length)}`,
+      ...keyTable(unknownKeys)
+    );
+    for (const keyId of new Set(unknownKeys.map((key) => key.keyHashKeyId))) {
+      lines.push(
+        `These are under ${keyId ?? ""}, which is not configured. Set ENCRYPTION_KEY_PREVIOUS to that key to let them authenticate.`
+      );
+    }
+    lines.push("A key that will not be needed again can be revoked with key:revoke instead.");
+  }
 
   if (rotating) {
     // Search tokens are recomputed from the decrypted value, so a row with no
@@ -182,7 +197,7 @@ export function formatRotationStatus(status: RotationStatus): string[] {
     );
   } else {
     lines.push(
-      `Not complete: ${plural(status.rowsRemaining, "row")} and ${plural(keys.length, "API key")} are not under the current key.`
+      `Not complete: ${plural(status.rowsRemaining, "row")} and ${plural(keys.length + unknownKeys.length, "API key")} are not under the current key.`
     );
   }
   return lines;

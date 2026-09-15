@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { RotationStatus, TableReencryption } from "./repositories/rotation.js";
+import type {
+  ApiKeyNotCurrent,
+  RotationStatus,
+  TableReencryption
+} from "./repositories/rotation.js";
 import {
   formatReencryptStart,
   formatReencryption,
@@ -34,7 +38,7 @@ const cleanStatus = (overrides: Partial<RotationStatus> = {}): RotationStatus =>
     noValue: 0,
     unknownKeyIds: []
   })),
-  apiKeys: { current: 2, notCurrent: [], notRecorded: [] },
+  apiKeys: { current: 2, notCurrent: [], notRecorded: [], unknownKey: [] },
   rowsRemaining: 0,
   complete: true,
   ...overrides
@@ -121,6 +125,7 @@ describe("formatRotationStatus", () => {
       apiKeys: {
         current: 0,
         notRecorded: [],
+        unknownKey: [],
         notCurrent: [
           {
             keyPrefix: "fr_abcdefghi",
@@ -185,7 +190,7 @@ describe("formatRotationStatus", () => {
       cleanStatus({
         previousKeyId: null,
         complete: true,
-        apiKeys: { current: 1, notCurrent: [], notRecorded: [unrecorded] }
+        apiKeys: { current: 1, notCurrent: [], notRecorded: [unrecorded], unknownKey: [] }
       })
     );
 
@@ -196,5 +201,41 @@ describe("formatRotationStatus", () => {
     );
     expect(lines.join("\n")).not.toContain("Each moves to the current key");
     expect(lines.at(-1)).toBe("Complete: every row and API key is under the current key.");
+  });
+
+  it("does not promise that a key under an unconfigured key will move, and says how to let it authenticate", () => {
+    const key = (keyPrefix: string, keyHashKeyId: string): ApiKeyNotCurrent => ({
+      keyPrefix,
+      name: "worker",
+      projectSlug: "acme",
+      environmentName: "production",
+      keyHashKeyId,
+      lastUsedAt: null
+    });
+    const lines = formatRotationStatus(
+      cleanStatus({
+        complete: false,
+        apiKeys: {
+          current: 0,
+          notCurrent: [key("fr_previous1", "aaaaaaaaaaaa")],
+          notRecorded: [],
+          unknownKey: [key("fr_orphan001", "cccccccccccc"), key("fr_orphan002", "cccccccccccc")]
+        }
+      })
+    );
+    const text = lines.join("\n");
+
+    expect(lines).toContain("API keys not yet under the current key: 1");
+    expect(lines).toContain("API keys under a key that is not configured: 2");
+    expect(text).toContain(
+      "These are under cccccccccccc, which is not configured. Set ENCRYPTION_KEY_PREVIOUS to that key to let them authenticate."
+    );
+    // The promise to move on use belongs to the previous key's section alone.
+    const promise = lines.findIndex((line) => line.startsWith("Each moves to the current key"));
+    const unknownSection = lines.indexOf("API keys under a key that is not configured: 2");
+    expect(promise).toBeGreaterThan(-1);
+    expect(promise).toBeLessThan(unknownSection);
+    expect(lines.filter((line) => line.startsWith("Each moves"))).toHaveLength(1);
+    expect(lines.at(-1)).toBe("Not complete: 0 rows and 3 API keys are not under the current key.");
   });
 });

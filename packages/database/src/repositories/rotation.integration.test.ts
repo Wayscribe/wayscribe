@@ -679,11 +679,14 @@ describe("key rotation commands", () => {
             keyHashKeyId: keyringA.current.id,
             lastUsedAt: usedAt
           },
-          expect.objectContaining({ keyPrefix: unrecordedPrefix, keyHashKeyId: null }),
-          expect.objectContaining({ keyPrefix: unknownPrefix, keyHashKeyId: keyringC.current.id })
+          expect.objectContaining({ keyPrefix: unrecordedPrefix, keyHashKeyId: null })
         ])
       );
-      expect(status.apiKeys.notCurrent).toHaveLength(3);
+      expect(status.apiKeys.notCurrent).toHaveLength(2);
+      // Under a key in neither slot: it cannot authenticate, so it will not move.
+      expect(status.apiKeys.unknownKey).toEqual([
+        expect.objectContaining({ keyPrefix: unknownPrefix, keyHashKeyId: keyringC.current.id })
+      ]);
       // During a rotation a key with no recorded id may be under either key.
       expect(status.apiKeys.notRecorded).toEqual([]);
       expect(status.rowsRemaining).toBe(6);
@@ -712,6 +715,7 @@ describe("key rotation commands", () => {
       const status = await rotationStatus(db, rotated);
       expect(status.rowsRemaining).toBe(0);
       expect(status.apiKeys.notCurrent).toEqual([]);
+      expect(status.apiKeys.unknownKey).toEqual([]);
       expect(status.complete).toBe(true);
     });
   });
@@ -890,7 +894,7 @@ describe("key rotation commands", () => {
       try {
         const run = await cli("rotate:reencrypt", rotating);
         expect(run.code).toBe(1);
-        expect(run.stderr).toMatch(/lock/i);
+        expect(run.stderr).toContain("holds the rotation lock");
         // Nothing was re-encrypted, so nothing may say it is.
         expect(run.stdout).toBe("");
       } finally {

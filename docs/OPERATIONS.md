@@ -247,6 +247,11 @@ forever on a misconfiguration; its error still reaches stderr every pass.
   the exit code at 1. With no previous key configured they are listed as `key id
   not recorded yet; recorded on next use` and do not affect the exit code: they
   can only be under the one key there is.
+- **API keys under a key that is not configured.** Their key id is neither the
+  current nor the previous key, so they cannot authenticate and will not move by
+  themselves. Set `ENCRYPTION_KEY_PREVIOUS` to the key the listing names to let
+  them authenticate during a grace period, or revoke them. They keep the exit
+  code at 1.
 - **Rows under the previous key.** Run `rotate:reencrypt` again. A row that
   ingestion changed while the command was reading it is left for the next run,
   and the command says how many there were.
