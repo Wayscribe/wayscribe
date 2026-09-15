@@ -16,3 +16,6 @@ examples/*/package-lock.json
 # into. Nothing here belongs in the repository, and tools that walk the tree
 # (Prettier, ESLint) must not reach into another branch's working files.
 /.claude/
+
+# SBOMs written by scripts/sbom.sh and scripts/attest-and-sign.sh.
+/sboms/

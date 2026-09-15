@@ -95,6 +95,16 @@ serving against an older schema must not take traffic. A rolling deploy that
 starts new containers before migrating will report unready until the migration
 runs, which is the correct behaviour and not a reason to skip the ordering.
 
+Every release is gated on an upgrade test (`scripts/upgrade-test.mjs`, the
+`upgrade-test` CI job). It builds the previous release (until there is one, a
+commit from before v1's storage format changes), records journeys,
+aliases, a transformation diff, an error and a replay destination through it,
+then starts the new build against the same database volume and checks that every
+search and detail reads back unchanged, that existing API keys still
+authenticate, and that `rotate:reencrypt` upgrades the stored formats. From a
+source checkout, `node scripts/upgrade-test.mjs` runs it with Docker and nothing
+else, and `UPGRADE_BASELINE_REF` chooses the version to upgrade from.
+
 Migrations are plain ESM JavaScript at the package root (ADR-027). **Do not
 rename a migration file after it has been applied anywhere.** knex records the
 filename, so a rename makes the directory look corrupt to every database that
@@ -568,7 +578,9 @@ If that build stops partway, what to do depends on how it stopped:
 
 ## 11. Security scanning
 
-Three jobs run in the `security` stage, and all three block.
+Three scanning jobs run in the `security` stage, and all three block. A fourth,
+`sbom`, records what is in the images and gates nothing (see *Verifying a
+published image* below).
 
 | Job | Tool | What it gates |
 | --- | --- | --- |
@@ -607,6 +619,68 @@ treat removing it from history as cleanup rather than as the fix.
 ignore. The first run found seven CVEs in `npm` and `corepack`, which the base
 image ships and the runtime never uses; both Dockerfiles now delete them, which
 is a smaller attack surface as well as a clean scan.
+
+### Verifying a published image
+
+Every released `api` and `web` image is signed, and carries a CycloneDX software
+bill of materials (SBOM) for each platform, attached as a signed attestation.
+Both are made in the `publish-images` job with keyless signing: GitLab gives the
+job an OIDC token, and Sigstore's certificate authority issues a short-lived
+certificate naming the pipeline file and the tag it ran for. There is no signing
+key for anyone to steal, and the signature is recorded in Sigstore's public
+transparency log. Nothing is signed before the first release is published.
+
+Use [cosign](https://github.com/sigstore/cosign) 3.x, the major version the
+pipeline signs with, plus `jq` and Docker's `buildx` for the SBOM steps.
+
+**The signature.** For a version you have chosen, name its tag exactly:
+
+```bash
+cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:v1.0.0 \
+  --certificate-identity 'https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/v1.0.0' \
+  --certificate-oidc-issuer https://gitlab.com
+```
+
+The double slash before `.gitlab-ci.yml` is part of GitLab's identity format,
+not a typo. To accept any release tag, for example in an admission policy that
+checks every image a cluster pulls:
+
+```bash
+cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:v1.0.0 \
+  --certificate-identity-regexp '^https://gitlab\.com/jojithedev/flight-recorder//\.gitlab-ci\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
+  --certificate-oidc-issuer https://gitlab.com
+```
+
+Replace `api` with `web` for the web image. A pass prints the checks cosign
+performed and exits 0. Any other result means the image was not produced by
+this project's release pipeline: do not run it, and report it as described in
+`SECURITY.md`. `latest` verifies too, but pin a version tag or a digest in
+anything you deploy.
+
+**The SBOM.** An SBOM lists the files of one platform, so it is attached to that
+platform's manifest rather than to the multi-platform tag. Find the digest for
+your platform, verify the attestation on it, and extract the document:
+
+```bash
+IMAGE=registry.gitlab.com/jojithedev/flight-recorder/api
+TAG=v1.0.0
+ARCH=amd64   # or arm64
+
+DIGEST=$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{json .Manifest}}' \
+  | jq -r --arg arch "$ARCH" \
+    '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest')
+
+cosign verify-attestation "$IMAGE@$DIGEST" --type cyclonedx \
+  --certificate-identity "https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/$TAG" \
+  --certificate-oidc-issuer https://gitlab.com \
+  | jq -r '.payload' | base64 -d | jq '.predicate' > "api-$TAG-$ARCH.cdx.json"
+```
+
+The result is a CycloneDX 1.6 JSON document that Grype, Trivy
+(`trivy sbom api-v1.0.0-amd64.cdx.json`), and Dependency-Track read directly.
+The release job keeps the same files as artifacts, and the `sbom` job produces
+SBOMs for the images built from each default-branch pipeline, which is what to
+look at between releases.
 
 ## 12. When something is wrong
 

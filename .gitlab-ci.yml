@@ -243,6 +243,80 @@ container-scan:
       done
   allow_failure: false
 
+# A software bill of materials for each image, kept as job artifacts. It uses
+# scripts/sbom.sh, the same command publish-images runs through
+# scripts/attest-and-sign.sh, so the SBOM half of a release is exercised on every
+# default-branch pipeline instead of only on the day of one. The signing half
+# cannot be: a signature is pushed beside the image and written to the public
+# transparency log, and both are publishing.
+#
+# Its own job rather than steps in container-scan, which fails on a CVE before
+# it would reach them; an SBOM is most wanted exactly when a scan is red.
+sbom:
+  stage: security
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  image: docker:27-cli
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  cache: {}
+  before_script:
+    - apk add --no-cache jq
+  script:
+    - docker build -f apps/api/Dockerfile -t sbom/api:$CI_COMMIT_SHA .
+    - docker build -f apps/web/Dockerfile -t sbom/web:$CI_COMMIT_SHA .
+    - scripts/sbom.sh "docker:sbom/api:$CI_COMMIT_SHA" sboms/api.cdx.json
+    - scripts/sbom.sh "docker:sbom/web:$CI_COMMIT_SHA" sboms/web.cdx.json
+  artifacts:
+    paths:
+      - sboms/
+    expire_in: 30 days
+
+# An older build writes data; this build must read all of it. Flight Recorder
+# runs on each team's own PostgreSQL, so an upgrade is a new image started
+# against a database an old image wrote. scripts/upgrade-test.mjs builds the API
+# at the newest earlier v* tag (or, before there is one, main just before the key
+# rotation merge), records journeys through it, swaps the image over the same
+# volume, and compares every read.
+#
+# Automatic on tags, where publish-images needs it, and on the schedule. Manual
+# otherwise, for the reason demo is: two image builds and a stack per push.
+upgrade-test:
+  stage: demo
+  # The demo job's pattern: Node 24 with the Docker CLI added. The script uses
+  # Node built-ins only, so there is no pnpm install.
+  image: node:24-alpine
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    # The baseline commit and earlier tags must be in the clone.
+    GIT_DEPTH: 0
+    UPGRADE_FETCH_TAGS: "1"
+    # The API is published by a container under the dind daemon, so it is
+    # reached at the `docker` host, as in infrastructure/compose.ci.yaml.
+    UPGRADE_BIND_ADDRESS: 0.0.0.0
+    UPGRADE_API_HOST: docker
+  cache: {}
+  before_script:
+    - apk add --no-cache git docker-cli docker-cli-compose
+    # The clone is owned by another user than the job's, and git refuses to
+    # add a worktree to a repository it considers unsafe.
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - when: manual
+      allow_failure: true
+  script:
+    - node scripts/upgrade-test.mjs
+
 demo:
   stage: demo
   # Node 24 with the Docker CLI added, rather than the Docker image with Alpine's
@@ -332,10 +406,20 @@ publish-images:
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
-  needs: ["release-verify"]
+  # The upgrade test as well as the acceptance suite: a release that cannot
+  # read what the previous one wrote is not published.
+  needs: ["release-verify", "upgrade-test"]
   <<: *release-rules
   when: manual
+  # Keyless signing. GitLab issues this job an OIDC token for the sigstore
+  # audience, cosign exchanges it with Fulcio for a short-lived certificate that
+  # names this project's pipeline and tag, and there is no signing key to store.
+  # The identity operators verify is in docs/OPERATIONS.md §11.
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
   before_script:
+    - apk add --no-cache jq
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     # buildx for multi-arch: the images are built on x86 runners and a great
     # many developers are on arm64 laptops.
@@ -346,11 +430,22 @@ publish-images:
       -f apps/api/Dockerfile
       -t "$CI_REGISTRY_IMAGE/api:$CI_COMMIT_TAG"
       -t "$CI_REGISTRY_IMAGE/api:latest" .
+    # An SBOM per platform from the pushed manifest, attached as a cosign
+    # attestation, then the image signed by digest and verified the way an
+    # operator will. A script, not inline YAML, so its SBOM half runs in the
+    # `sbom` job on every default-branch pipeline and the rest can be
+    # rehearsed with DRY_RUN=1.
+    - scripts/attest-and-sign.sh "$CI_REGISTRY_IMAGE/api" "$CI_COMMIT_TAG"
     - >-
       docker buildx build --platform linux/amd64,linux/arm64 --push
       -f apps/web/Dockerfile
       -t "$CI_REGISTRY_IMAGE/web:$CI_COMMIT_TAG"
       -t "$CI_REGISTRY_IMAGE/web:latest" .
+    - scripts/attest-and-sign.sh "$CI_REGISTRY_IMAGE/web" "$CI_COMMIT_TAG"
+  artifacts:
+    when: always
+    paths:
+      - sboms/
 
 # Requires NPM_TOKEN in the project's CI/CD variables, and somebody must own the
 # @flight-recorder scope on npm. The dry run below needs neither, so the job

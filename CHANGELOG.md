@@ -31,6 +31,21 @@ changes far less often.
 
 ### Added
 
+- **An upgrade test gates every release.** `scripts/upgrade-test.mjs` builds
+  the API at the previous `v*` tag (before the first release, main just before
+  the key rotation merge), records journeys, aliases, a transformation diff, an
+  error, and a replay destination with headers through it, then runs this
+  build's migrations and API against the same database. Every recorded search
+  and detail must read back unchanged, the old API key must authenticate and
+  record its key id, `rotate:reencrypt` must convert the legacy values, and
+  erasure and recent journeys must work on the old rows. The `upgrade-test` job
+  runs it on tags and schedules, and `publish-images` needs it.
+- **Released images are signed and carry an SBOM.** `publish-images` generates
+  a CycloneDX SBOM per platform with Syft, attaches each as a cosign
+  attestation, and signs the images with Sigstore keyless signing from the
+  pipeline's GitLab OIDC token. The `sbom` job builds the images and keeps their
+  SBOMs as artifacts on the default branch and schedules. How to verify a pulled
+  image and extract its SBOM is in `docs/OPERATIONS.md` §11 and `SECURITY.md`.
 - **Captured data can be deleted on demand.** Retention was the only way
   anything left the database, so a redaction miss stayed stored until it aged
   out and an erasure request had no answer. `delete:journey`,

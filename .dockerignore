@@ -22,3 +22,7 @@ playwright-report
 .pnpm-store
 *.md
 !README.md
+
+# SBOMs from scripts/sbom.sh. The web image is built after the API image is
+# attested in publish-images, and would otherwise copy them into its build stage.
+sboms

@@ -46,6 +46,26 @@ Out of scope, because they are known and documented rather than undiscovered:
   key, unless it crosses a project boundary — cross-project access is structural
   (composite foreign keys) and a break there **is** in scope.
 
+## Verifying the images you run
+
+Released images at `registry.gitlab.com/jojithedev/flight-recorder/api` and
+`/web` are signed with Sigstore keyless signing from this project's GitLab
+release pipeline, and each platform's image carries a signed CycloneDX software
+bill of materials. The signing certificate names the pipeline and the release
+tag, so a check like this one proves the image came from a tagged release of
+this repository:
+
+```bash
+cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:v1.0.0 \
+  --certificate-identity 'https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/v1.0.0' \
+  --certificate-oidc-issuer https://gitlab.com
+```
+
+Extracting and checking the SBOM is described in
+[docs/OPERATIONS.md](docs/OPERATIONS.md) §11. An image offered as Flight Recorder
+that fails this check, or a signature from any other identity, is in scope:
+report it as above.
+
 ## What the product does with your data
 
 Nothing captured is sent anywhere. There is no telemetry, no analytics, and no
