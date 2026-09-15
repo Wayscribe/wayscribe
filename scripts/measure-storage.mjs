@@ -19,11 +19,21 @@
 //
 // It still refuses a database whose journeys table has rows, unless --force:
 // ingesting a million events is real load, and nobody should find that out by
-// pasting the production URL.
+// pasting the production URL. Beside real data it shares three things with the
+// installation: its VACUUMs name only its own tables, its migrations build
+// indexes concurrently and so wait for any long transaction in the database,
+// and its retention sweep takes the database-wide retention lock, so an API
+// sweeping the same database makes the run stop with an error rather than
+// report sizes retention never touched.
 import { createRequire } from "node:module";
 import { randomBytes, randomUUID } from "node:crypto";
 import process from "node:process";
 import { parseArgs } from "node:util";
+import {
+  MEASUREMENT_SCHEMA_PREFIX,
+  expectCompleteSweep,
+  vacuumStatement
+} from "./measure-storage-checks.mjs";
 
 const USAGE = `Usage: node scripts/measure-storage.mjs --database-url <url> [options]
 
@@ -33,6 +43,7 @@ const USAGE = `Usage: node scripts/measure-storage.mjs --database-url <url> [opt
   --concurrency <n>      Journeys ingested at once (default: 8)
   --force                Run even though the database already holds journeys
   --keep                 Leave the measure_storage_* schemas behind for inspection
+                         (the next run drops them)
 `;
 
 const ALL_MODES = ["metadata-only", "allowlisted-fields", "redacted-payload", "full-payload"];
@@ -41,6 +52,13 @@ const ALL_MODES = ["metadata-only", "allowlisted-fields", "redacted-payload", "f
 const EVENTS_PER_JOURNEY = 10;
 
 const TABLES = ["journeys", "journey_events", "entity_aliases"];
+
+/**
+ * Set on the measurement's own connections, so an interrupted run can end
+ * them: an in-flight ingest or VACUUM FULL holds locks that would otherwise
+ * make dropping the schema wait for it.
+ */
+const APPLICATION_NAME = "flight-recorder-measure-storage";
 
 // Days old of the expiring half and of the kept half, against a retention of
 // RETENTION_DAYS. Far from the boundary on both sides so the sweep deletes
@@ -95,8 +113,24 @@ const knex = createRequire(new URL("packages/database/package.json", root))("kne
 
 const admin = knex(createKnexConfig(databaseUrl));
 
+/** The schema being measured, for the signal handler to drop. */
+let activeSchema;
+let interrupted = false;
+
+// Ctrl-C skips every `finally`, so without this an interrupted run left a
+// schema holding up to gigabytes behind. A second signal exits at once.
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    if (interrupted) process.exit(1);
+    interrupted = true;
+    console.error(`\n${signal}: stopping and dropping ${activeSchema ?? "nothing"}.`);
+    void stopAndCleanUp().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
+  });
+}
+
 try {
   await refuseNonEmptyDatabase(admin);
+  await dropLeftoverSchemas(admin);
   const server = await admin.raw("select version() as version");
   console.log(`\n${server.rows[0].version}`);
   console.log(
@@ -113,11 +147,23 @@ try {
 }
 
 async function measureMode(mode) {
-  const schema = `measure_storage_${mode.replaceAll("-", "_")}`;
+  const schema = `${MEASUREMENT_SCHEMA_PREFIX}${mode.replaceAll("-", "_")}`;
   await admin.raw("drop schema if exists ?? cascade", [schema]);
   await admin.raw("create schema ??", [schema]);
+  activeSchema = schema;
 
-  const db = knex({ ...createKnexConfig(databaseUrl), searchPath: [schema] });
+  const db = knex({
+    ...createKnexConfig(databaseUrl),
+    connection: { connectionString: databaseUrl, application_name: APPLICATION_NAME },
+    searchPath: [schema]
+  });
+  // Every VACUUM names these tables in this schema. A bare one processes the
+  // whole database, and with --force that includes an installation's own
+  // tables (see measure-storage-checks.mjs).
+  const vacuum = (...options) => {
+    const { sql, bindings } = vacuumStatement(options, schema, TABLES);
+    return db.raw(sql, bindings);
+  };
   try {
     await db.migrate.latest();
 
@@ -195,13 +241,13 @@ async function measureMode(mode) {
     // row, and none of those updates can be HOT because indexed columns
     // change, so the journeys table and its indexes carry the churn of ten
     // versions per journey. That space is reusable but still on disk.
-    await db.raw("vacuum analyze");
+    await vacuum("analyze");
     const stored = await sizes(db, schema);
     const counts = await rowCounts(db);
 
     // The same rows rewritten without the churn: the least this data can
     // occupy. An installation's real footprint lies between the two.
-    await db.raw("vacuum full");
+    await vacuum("full");
     const compacted = await sizes(db, schema);
 
     // Retention: half the journeys fall outside the window and the real sweep
@@ -213,15 +259,17 @@ async function measureMode(mode) {
       batchSize: 1_000,
       maxBatchesPerEnvironment: 1_000_000
     });
+    // Even journeys were ingested 20 days old, so ceil(n / 2) of them.
+    expectCompleteSweep(sweep, Math.ceil(journeyCount / 2));
     const afterSweep = await sizes(db, schema);
-    await db.raw("vacuum");
+    await vacuum();
     const afterVacuum = await sizes(db, schema);
 
     // Then as many new journeys as the sweep removed, which is a retention
     // window in steady state. Whether disk grows again or the freed space is
     // reused is what an operator sizing a volume needs to know.
     await ingest(journeyCount, journeyCount + sweep.journeysDeleted, () => false);
-    await db.raw("vacuum");
+    await vacuum();
     const afterRefill = await sizes(db, schema);
 
     const result = {
@@ -240,6 +288,41 @@ async function measureMode(mode) {
   } finally {
     await db.destroy();
     if (!args.keep) await admin.raw("drop schema if exists ?? cascade", [schema]);
+    activeSchema = undefined;
+  }
+}
+
+/**
+ * Remove what an earlier run left: one killed outright, or one run with
+ * --keep. Nothing but this script creates a schema with this prefix.
+ */
+async function dropLeftoverSchemas(db) {
+  const leftover = await db.raw("select nspname from pg_namespace where nspname like ?", [
+    `${MEASUREMENT_SCHEMA_PREFIX.replaceAll("_", "\\_")}%`
+  ]);
+  for (const { nspname } of leftover.rows) {
+    console.log(`Dropping ${nspname}, left by an earlier run.`);
+    await db.raw("drop schema ?? cascade", [nspname]);
+  }
+}
+
+/** End this script's other connections, then drop the schema being measured. */
+async function stopAndCleanUp() {
+  // Read once: ending the connections fails the run, and its `finally` clears
+  // activeSchema while this is still using it.
+  const schema = activeSchema;
+  try {
+    await admin.raw(
+      `select pg_terminate_backend(pid) from pg_stat_activity
+        where application_name = ? and datname = current_database() and pid <> pg_backend_pid()`,
+      [APPLICATION_NAME]
+    );
+    if (schema !== undefined && !args.keep) {
+      await admin.raw("drop schema if exists ?? cascade", [schema]);
+      console.error(`Dropped ${schema}.`);
+    }
+  } catch (error) {
+    console.error(`Cleanup failed: ${error.message}. Drop ${schema ?? "nothing"} by hand.`);
   }
 }
 
