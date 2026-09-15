@@ -72,6 +72,33 @@ describe("migrations", () => {
     ).rejects.toThrow();
   });
 
+  it("migrates as a role with privileges on its schema alone, and installs no extension", async () => {
+    // docs/OPERATIONS.md §1 promises an ordinary role and no extensions.
+    // Migration 001 ran `create extension pgcrypto`, which needs CREATE on the
+    // database, so this role failed at the first migration with a stack trace.
+    await db.raw("create database ordinary_role");
+    await db.raw("create role ordinary_migrator login password 'ordinary-migrator-pw'");
+    const url = new URL(container.getConnectionUri());
+    url.pathname = "/ordinary_role";
+    const owner = knex(createKnexConfig(url.toString()));
+    url.username = "ordinary_migrator";
+    url.password = "ordinary-migrator-pw";
+    const migrator = knex(createKnexConfig(url.toString()));
+    try {
+      await owner.raw("revoke create on database ordinary_role from public");
+      await owner.raw("grant usage, create on schema public to ordinary_migrator");
+
+      await migrator.migrate.latest();
+
+      expect(await pendingMigrationCount(migrator)).toBe(0);
+      const extensions: unknown = await owner.raw("select extname from pg_extension order by 1");
+      expect((extensions as { rows: unknown[] }).rows).toEqual([{ extname: "plpgsql" }]);
+    } finally {
+      await migrator.destroy();
+      await owner.destroy();
+    }
+  });
+
   it("rolls back cleanly", async () => {
     await db.migrate.rollback();
     expect(await db.schema.hasTable("projects")).toBe(false);

@@ -416,6 +416,12 @@ changes far less often.
 
 ### Fixed
 
+- **Migrations run as a role with privileges on its schema alone.** Migration
+  001 created the `pgcrypto` extension, which nothing used and which needs
+  `CREATE` on the database, so such a role failed at the first migration with a
+  stack trace. The statement is removed. A database that already has the
+  extension keeps it, and nothing reruns. PostgreSQL 15 or later is the stated
+  requirement.
 - **doctor names a missing schema grant instead of pending migrations.** A role
   without `USAGE` on the schema holding the tables cannot see
   `knex_migrations`, and doctor reported every migration pending on a current

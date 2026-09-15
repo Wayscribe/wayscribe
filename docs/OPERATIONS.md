@@ -28,10 +28,11 @@ reads. The commands for the published images in this document are written
 without `-f` and rely on it, so they always see the stack you started. Export it
 again in a new shell.
 
-It needs an ordinary database and an ordinary role: `CREATE`, `SELECT`,
-`INSERT`, `UPDATE`, `DELETE` on its own schema. It installs no extensions and
-touches nothing outside the tables its migrations create, so an existing
-database with other tables in it is fine.
+It needs PostgreSQL 15 or later (CI tests 17), an ordinary database, and an
+ordinary role: `USAGE`, `CREATE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE` on its
+own schema. It does not need `CREATE` on the database: it installs no
+extensions and touches nothing outside the tables its migrations create, so an
+existing database with other tables in it is fine.
 
 The bundled overlay runs PostgreSQL in a container instead and sets
 `DATABASE_URL` for you:

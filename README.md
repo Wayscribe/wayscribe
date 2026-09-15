@@ -341,9 +341,9 @@ published. Until they are, use [Try it](#try-it), which runs from a clone.
 [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
 will pull the images, migrate on first boot, and need no checkout.
 
-Flight Recorder keeps everything in one PostgreSQL database and expects you to
-bring your own: the one your team already backs up, monitors, and holds the
-credentials for.
+Flight Recorder keeps everything in one PostgreSQL database, 15 or later, and
+expects you to bring your own: the one your team already backs up, monitors,
+and holds the credentials for.
 
 ```bash
 curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml
