@@ -1133,6 +1133,11 @@ personal data, and let them age out or delete them.
 | Ingestion returns 403 | the key's environment does not match the event's |
 | Ingestion returns 401 after working | the key was revoked, which `pnpm key:list` shows, or it had not authenticated before `ENCRYPTION_KEY_PREVIOUS` was removed (§6) |
 
-The SDK's `shutdown()` returns counters — `dropped`, `transportErrors`,
-`captureErrors`, `breakerOpened`, `sent`. A non-zero `dropped` means the bounded
-queue shed events under backpressure, which is by design and worth knowing.
+The SDK's `shutdown()` returns counters: `sent`, `rejected`, `dropped`,
+`transportErrors`, `captureErrors`, and `breakerOpened`. `sent`, `rejected`, and
+`dropped` add up to the events recorded; `payloadsOmitted` counts payloads
+replaced by `[PAYLOAD_TOO_LARGE]` on events that were still sent. A non-zero `dropped` means events were
+not delivered: the bounded queue shed them under backpressure, the server kept
+refusing them for now past the retry budget, its reply gave no verdict for them,
+or `shutdown()` finished with them undelivered. Each diagnostic's reason says
+which (`packages/sdk-node/README.md`, "Is it sending?").

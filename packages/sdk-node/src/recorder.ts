@@ -21,7 +21,7 @@ import {
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
 import { createTraceReader } from "./trace.js";
-import { Transport } from "./transport.js";
+import { AbandonedError, Transport, UnsentError, type SendOutcome } from "./transport.js";
 
 export interface JourneyContext {
   journeyId: string;
@@ -131,16 +131,6 @@ export interface Recorder {
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
 const UNCAPTURABLE = "[UNCAPTURABLE]";
 
-// debtwatch:start
-// id: DEBT-WGN0N4
-// owner: flight-recorder
-// expires: 2026-12-01
-// reason: Four is a guess; every measurement so far was over loopback, never a real network
-// tags: sdk, performance
-// debtwatch:end
-/** Simultaneous in-flight batches. Four keeps a burst moving without a socket storm. */
-const MAX_CONCURRENT_SENDS = 4;
-
 /**
  * The protocol's limits on `error.message` and `error.stack`
  * (`packages/protocol` `errorSchema`). The server refuses anything longer, so
@@ -212,52 +202,261 @@ interface BatchOutcome {
 }
 
 /**
- * How many events the server stored, reporting each refusal on the way.
+ * What the server stored, reporting each permanent refusal on the way.
  *
- * A rejection is permanent — the event was understood and refused — so it is
- * counted separately from a transport failure and never retried. The server's
- * own message is passed through verbatim, because it is far more specific than
- * anything this side could reconstruct: "event.entity.id: expected string,
- * received number" ends the investigation that "invalid_event" begins.
+ * Results are matched to events by position, which is how the batch route
+ * builds them: one result per event, in order.
  *
- * A body this cannot parse is treated as full acceptance. The alternative —
- * assuming the worst — would report phantom data loss whenever a proxy rewrote
- * a response, and the request did return 2xx.
+ * A refusal with a per-event status below 500 is permanent: the event was
+ * understood and refused, so it is counted separately from a transport failure
+ * and never retried. The server's own message is passed through verbatim,
+ * because it is far more specific than anything this side could reconstruct:
+ * "event.entity.id: expected string, received number" ends the investigation
+ * that "invalid_event" begins.
+ *
+ * A refusal at 500 or above (`storage_error`, `query_timeout`) is the server
+ * failing, not the event, so the event goes back to the transport to be
+ * retried, for up to 30 seconds from its first refusal or 10 sends, whichever
+ * comes first. Treating those as permanent lost an event to a database hiccup and
+ * reported it as a rejection, which tells an operator to fix an event that was
+ * never wrong. A refusal with no status is treated as permanent, as before the
+ * status was sent.
+ *
+ * An event the response gives no verdict for (a body that is not JSON, JSON
+ * with no results, or fewer results than events) is counted as `dropped` with
+ * reason `no_verdict`, and not retried. The request returned 2xx, so the
+ * server may well have stored it, and resending on a proxy's rewritten body
+ * would store it twice; the SDK cannot tell, so it says what it knows. Before
+ * this, a body that was not JSON retried the whole batch and printed the
+ * parser's message, which quotes the body, and a short or missing results
+ * array lost events without a word. An entry that is not an object with a
+ * status of `accepted` or `rejected` (null, a string, a number, an unknown
+ * status) is a missing verdict too: reading it as one threw, and the whole
+ * batch was retried, resending events the server had accepted. Verdicts past
+ * the end of the batch are ignored rather than counted.
  */
-function countAccepted(body: unknown, diagnostics: Diagnostics): number {
-  const results = (body as { data?: { results?: BatchOutcome[] } } | null)?.data?.results;
-  if (!Array.isArray(results)) return 0;
+function readOutcome(
+  body: ParsedBody,
+  batch: readonly unknown[],
+  diagnostics: Diagnostics
+): SendOutcome {
+  const results = body.parsed
+    ? (body.value as { data?: { results?: BatchOutcome[] } } | null)?.data?.results
+    : undefined;
+  const verdicts: unknown[] = Array.isArray(results) ? results.slice(0, batch.length) : [];
+  const noVerdict = (why: string): void => {
+    diagnostics.report({
+      kind: "dropped",
+      reason: `no_verdict: ${why}; the server may have stored this event, so it is not sent again`
+    });
+  };
+  if (verdicts.length < batch.length) {
+    const why = !body.parsed
+      ? "unparseable response body"
+      : Array.isArray(results)
+        ? "the response had fewer results than events"
+        : "the response had no results";
+    for (let index = verdicts.length; index < batch.length; index += 1) noVerdict(why);
+  }
 
   let accepted = 0;
-  for (const result of results) {
+  const retry: unknown[] = [];
+  let reason: string | undefined;
+  let logReason: string | undefined;
+  verdicts.forEach((entry, index) => {
+    if (!isVerdict(entry)) {
+      noVerdict("the response's result for it was not a verdict");
+      return;
+    }
+    const result = entry;
     if (result.status === "accepted") {
       accepted += 1;
-      continue;
+      return;
     }
 
     const where = result.error?.details?.[0];
     const detail = where === undefined ? "" : ` (${where.path}: ${where.message})`;
-    diagnostics.report({
-      kind: "rejected",
-      reason: `${result.error?.code ?? "rejected"}: ${result.error?.message ?? "The server refused this event."}${detail}`,
-      detail: result.error
-    });
+    const described = `${result.error?.code ?? "rejected"}: ${result.error?.message ?? "The server refused this event."}${detail}`;
+    const logLine = refusalLogLine(result.error?.code, where?.path);
+    const event = batch[index];
+    if ((result.error?.httpStatus ?? 0) >= 500 && event !== undefined) {
+      retry.push(event);
+      reason = described;
+      logReason = logLine;
+      return;
+    }
+
+    diagnostics.report({ kind: "rejected", reason: described, detail: result.error }, logLine);
+  });
+  return {
+    accepted,
+    retry,
+    ...(reason === undefined ? {} : { reason }),
+    ...(logReason === undefined ? {} : { logReason })
+  };
+}
+
+/** An object whose status is one the batch route sends. */
+function isVerdict(entry: unknown): entry is BatchOutcome {
+  if (typeof entry !== "object" || entry === null) return false;
+  const { status } = entry as { status?: unknown };
+  return status === "accepted" || status === "rejected";
+}
+
+/** A response body, parsed if it was JSON. Its text is never kept. */
+type ParsedBody = { parsed: true; value: unknown } | { parsed: false };
+
+async function parseBody(response: Response): Promise<ParsedBody> {
+  const text = await response.text();
+  try {
+    return { parsed: true, value: JSON.parse(text) as unknown };
+  } catch {
+    // The parser's message quotes the body, which can be anything a proxy put
+    // there, so neither is kept.
+    return { parsed: false };
   }
-  return accepted;
+}
+
+const ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/;
+const FIELD_PATH = /^[A-Za-z0-9_.$[\]-]{1,256}$/;
+
+/**
+ * A refusal as the console prints it: the server's error code and the path of
+ * the first field it names, and never its message.
+ *
+ * Flight Recorder's API puts no event values in its messages, but the SDK
+ * cannot know it is talking to that API rather than a proxy or another
+ * server that echoes what it was sent, and a console line usually ends up in a
+ * log store the operator does not control. The code and path say where to
+ * look; `onDiagnostic` still receives the whole message. Anything that does
+ * not look like a code or a path is left out rather than trusted.
+ */
+function refusalLogLine(code: string | undefined, path: string | undefined): string {
+  const printedCode = code !== undefined && ERROR_CODE.test(code) ? code : "rejected";
+  const printedPath = path !== undefined && FIELD_PATH.test(path) ? ` at ${path}` : "";
+  return `${printedCode}${printedPath} (the server's message goes to onDiagnostic)`;
+}
+
+/**
+ * Hosts an `http:` endpoint may name without a warning: this machine, or a
+ * single-label name such as `api`.
+ *
+ * A name with no dot resolves only through container or cluster DNS, so the
+ * traffic stays on the private network Compose or Kubernetes built for it,
+ * which is how the demo and a sidecar-style install reach the API. IP literals
+ * never count as single-label: an IPv4 address has dots, the URL parser turns
+ * a bare number into one, and an IPv6 address is bracketed.
+ */
+function isLocalOrInternal(hostname: string): boolean {
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") return true;
+  if (hostname.endsWith(".localhost")) return true;
+  return !hostname.includes(".") && !hostname.startsWith("[");
+}
+
+/**
+ * Warns when the API key and payloads would cross a network in cleartext.
+ *
+ * Only the scheme and hostname are reported: the URL's userinfo, path, and
+ * query can all carry secrets. An endpoint that is not a URL is left alone;
+ * every send to it fails, and that is reported as it happens.
+ */
+function warnIfInsecure(endpoint: string, diagnostics: Diagnostics): void {
+  if (!URL.canParse(endpoint)) return;
+  const url = new URL(endpoint);
+  if (url.protocol !== "http:" || isLocalOrInternal(url.hostname)) return;
+  diagnostics.report({
+    kind: "insecure_endpoint",
+    scheme: "http:",
+    host: url.hostname,
+    reason: `The endpoint is http: to ${url.hostname}, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.`
+  });
+}
+
+/**
+ * The endpoint as scheme, host, and port only.
+ *
+ * Its path and query can carry a credential the masker does not recognise by
+ * shape, and userinfo is a credential by definition, so none of them is
+ * reported. The port stays: a wrong port is one of the things `delivered_first`
+ * exists to rule out.
+ */
+function originOf(endpoint: string): string {
+  return URL.canParse(endpoint) ? new URL(endpoint).origin : "the configured endpoint";
+}
+
+const URL_IN_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>`]+/gi;
+
+/**
+ * A fetch failure whose message names every URL in it by origin only.
+ *
+ * Node's fetch quotes the whole request URL in some messages, such as the one
+ * refusing a URL with credentials, and the message becomes the
+ * `transport_error` reason that is printed and passed to `onDiagnostic`. The
+ * endpoint's path, query, and userinfo can carry credentials, so they are cut
+ * as `delivered_first` cuts them. The original error, and its `cause`, which
+ * can hold the URL too, are not kept.
+ */
+function withOriginsOnly(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const reduced = message.replace(URL_IN_TEXT, (url) =>
+    URL.canParse(url) ? new URL(url).origin : "[URL]"
+  );
+  const replacement = new Error(reduced);
+  if (error instanceof Error) replacement.name = error.name;
+  return replacement;
+}
+
+/** How long shutdown waits for aborted sends to hand their events back. */
+const ABANDON_WAIT_MS = 250;
+
+/**
+ * Resolves when `promise` settles or `ms` pass, whichever is first.
+ *
+ * The timer is cleared as soon as the race is decided and never holds the
+ * process open: a shutdown that resolved must not keep the host alive for the
+ * rest of its timeout.
+ */
+async function raceTimeout(promise: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+    timer.unref();
+  });
+  try {
+    await Promise.race([promise.then(() => undefined), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function createRecorder(config: RecorderConfig): Recorder {
   const resolved = resolveConfig(config);
-  const diagnostics = createDiagnostics(resolved.onDiagnostic);
+  const diagnostics = createDiagnostics(resolved.onDiagnostic, { log: resolved.logDiagnostics });
+  safely(diagnostics, "capture_error", () => {
+    warnIfInsecure(resolved.endpoint, diagnostics);
+  });
   const queue = new BoundedQueue<unknown>(resolved.maxBufferedEvents, diagnostics);
   // Resolved once: record() is synchronous, so this cannot be an async import.
   const readTrace = createTraceReader();
   let stopped = false;
+  let delivered = false;
+  /**
+   * Set when shutdown's timeout or its drain has ended and anything not yet
+   * delivered is given up on. From then on no request starts, the ones in
+   * flight are aborted, and their events are handed back to be counted.
+   */
+  let abandoned = false;
+  const requests = new Set<AbortController>();
+  const sleepers = new Set<() => void>();
+  /** Events handed back by sends abandoned at shutdown, to be counted there. */
+  const abandonedEvents: unknown[] = [];
 
   const transport = new Transport(
     {
       send: async (batch) => {
+        if (abandoned) throw new Error("The recorder has shut down.");
         const controller = new AbortController();
+        requests.add(controller);
         const timer = setTimeout(() => {
           controller.abort();
         }, resolved.requestTimeoutMs);
@@ -270,6 +469,8 @@ export function createRecorder(config: RecorderConfig): Recorder {
             },
             body: JSON.stringify({ events: batch }),
             signal: controller.signal
+          }).catch((error: unknown) => {
+            throw withOriginsOnly(error);
           });
           if (!response.ok) {
             // A 4xx is permanent: the server understood the request and
@@ -288,16 +489,51 @@ export function createRecorder(config: RecorderConfig): Recorder {
           // that "succeeded" may have stored nothing. Reading the body is the
           // only way to know, and not reading it is how a misconfigured
           // environment name looked exactly like a healthy recorder.
-          return countAccepted(await response.json(), diagnostics);
+          const outcome = readOutcome(await parseBody(response), batch, diagnostics);
+          const { accepted } = outcome;
+          if (accepted > 0 && !delivered) {
+            // Once: this answers "is it connected?", and repeating the answer
+            // on every batch would be exactly the noise logDiagnostics avoids.
+            delivered = true;
+            const endpoint = originOf(resolved.endpoint);
+            diagnostics.report({
+              kind: "delivered_first",
+              reason: `Connected to ${endpoint}; the server accepted ${String(accepted)} ${accepted === 1 ? "event" : "events"}.`,
+              endpoint,
+              accepted
+            });
+          }
+          return outcome;
         } finally {
           clearTimeout(timer);
+          requests.delete(controller);
         }
       },
+      isAbandoned: () => abandoned,
+      // Cut short when shutdown gives up, so a send waiting out its backoff
+      // hands its events back at once instead of holding shutdown open.
+      sleep: (ms) =>
+        new Promise<void>((resolve) => {
+          const wake = (): void => {
+            clearTimeout(timer);
+            sleepers.delete(wake);
+            resolve();
+          };
+          const timer = setTimeout(wake, ms);
+          sleepers.add(wake);
+        }),
       maxAttempts: 3,
       baseBackoffMs: 100,
       maxBackoffMs: 2_000,
       breakerThreshold: 5,
-      breakerCooldownMs: 30_000
+      breakerCooldownMs: 30_000,
+      // Measured from an event's first refusal, and checked only when the
+      // server refuses it again, so an event waiting out an open breaker is
+      // sent once more when it closes rather than dropped unsent. The same as
+      // the breaker's cooldown, and twice the API's default statement timeout
+      // of 15 seconds, the other thing a refusal for now waits on.
+      retryBudgetMs: 30_000,
+      maxRefusedSends: 10
     },
     diagnostics
   );
@@ -339,7 +575,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         // Discarding a payload silently made a full timeline look like a step
         // that genuinely carried nothing.
         diagnostics.report({
-          kind: "dropped",
+          kind: "payload_omitted",
           reason: `A payload was not captured: ${limits.reason}.`,
           detail: { reason: limits.reason }
         });
@@ -476,9 +712,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
     if (batch.length === 0) return;
     try {
       await transport.send(batch);
-    } catch {
-      // Ordering matters: a retried batch must not reorder the timeline.
-      queue.requeue(batch);
+    } catch (error) {
+      const unsent = error instanceof UnsentError ? error.unsent : batch;
+      if (abandoned || error instanceof AbandonedError) {
+        abandonedEvents.push(...unsent);
+        return;
+      }
+      // Ordering matters: a retried batch must not reorder the timeline. Only
+      // what is still unsent goes back; events stored on an earlier attempt
+      // would otherwise be sent, and counted, twice.
+      queue.requeue(unsent);
     }
   }
 
@@ -492,29 +735,75 @@ export function createRecorder(config: RecorderConfig): Recorder {
    */
   async function drainAll(): Promise<void> {
     // Background flushes finish first, so this does not add a request on top of
-    // the ones already in flight and push past the concurrency cap. What
-    // follows is sequential by construction.
+    // the ones already in flight and push past the concurrency cap.
     await settle();
 
     let previous = Number.POSITIVE_INFINITY;
-    while (queue.size() > 0 && queue.size() < previous) {
+    while (!abandoned && queue.size() > 0 && queue.size() < previous) {
+      // Counted against the cap like any other send. Untracked, a burst
+      // recorded while this pass was in flight started a full set of sends
+      // beside it; and a full set started since must finish one first.
+      while (inFlight.size >= resolved.maxConcurrentSends) {
+        await Promise.race([...inFlight]);
+      }
       previous = queue.size();
-      await flush();
+      const pass = flush();
+      track(pass);
+      await pass;
     }
     await settle();
   }
 
-  /** Starts a background flush unless the cap is already reached. */
+  // debtwatch:start
+  // id: DEBT-WGN0N4
+  // owner: flight-recorder
+  // expires: 2027-03-01
+  // reason: A fixed cap cannot fit both one process in front of a scaled-out API and a fleet sharing one pool; adaptive concurrency, lowering the cap on timeouts and 5xx and raising it while sends succeed, is the long-term fix
+  // tags: sdk, performance
+  // debtwatch:end
+  /**
+   * Starts a background flush unless the cap is already reached.
+   *
+   * The cap is `maxConcurrentSends` (config.ts says why the default is four).
+   */
   function maybeFlush(): void {
-    if (inFlight.size < MAX_CONCURRENT_SENDS) track(flush());
+    if (inFlight.size < resolved.maxConcurrentSends) track(flush());
   }
 
-  // The interval goes through the same cap. Without that it could add a fifth
-  // request on top of four already in flight, which is exactly what the burst
-  // test caught.
+  // The interval goes through the same cap. Without that it could add one more
+  // request on top of a full set already in flight, which is exactly what the
+  // burst test caught.
   const interval = setInterval(maybeFlush, resolved.flushIntervalMs);
   // Never hold the host's event loop open on our account.
   interval.unref();
+
+  /**
+   * Counts every event shutdown could not deliver, once, as `dropped`.
+   *
+   * These used to vanish: events the server was still refusing for now when
+   * the drain stopped making progress, the queue left behind by an unreachable
+   * endpoint, and a batch still in flight when the timeout won. Sent, rejected,
+   * and dropped now add up to what was recorded.
+   *
+   * In-flight requests are aborted and backoffs cut short, so their sends hand
+   * their events back within a few milliseconds. The wait for that is bounded
+   * anyway, so shutdown still returns if a request ignored its abort; its
+   * events would then go uncounted, which no test has managed to cause.
+   */
+  async function abandonRemaining(drain: Promise<unknown>): Promise<void> {
+    abandoned = true;
+    for (const controller of requests) controller.abort();
+    for (const wake of [...sleepers]) wake();
+    await raceTimeout(Promise.allSettled([drain, settle()]), ABANDON_WAIT_MS);
+
+    const lost = [...queue.drain(queue.size()), ...abandonedEvents.splice(0)];
+    for (const _event of lost) {
+      diagnostics.report({
+        kind: "dropped",
+        reason: "shutdown: the recorder shut down before this event was delivered"
+      });
+    }
+  }
 
   function toErrorRecord(error: unknown): { message: string; type?: string; code?: string } {
     if (error instanceof Error) {
@@ -736,12 +1025,14 @@ export function createRecorder(config: RecorderConfig): Recorder {
       const timeoutMs = options?.timeoutMs ?? 2_000;
       // Never hang: a process that cannot exit because of a telemetry library is
       // the same failure ADR-007 forbids, arriving later.
-      await Promise.race([
-        safelyAsync(diagnostics, "transport_error", drainAll),
-        new Promise((resolve) => {
-          setTimeout(resolve, timeoutMs);
-        })
-      ]);
+      const drain = safelyAsync(diagnostics, "transport_error", drainAll);
+      await raceTimeout(drain, timeoutMs);
+      await safelyAsync(diagnostics, "capture_error", () => abandonRemaining(drain));
+      // Last, so a repeat suppressed during the final drain is still reported
+      // before the process exits.
+      safely(diagnostics, "capture_error", () => {
+        diagnostics.flushLog();
+      });
       // Read after the race, so the counters describe what actually landed.
       return diagnostics.counters();
     },

@@ -174,7 +174,10 @@ const recorder = createRecorder({
   endpoint: "http://localhost:8080",
   apiKey: process.env.FLIGHT_RECORDER_API_KEY,
   serviceName: "billing-api",
-  environment: "development"
+  environment: "development",
+  // Prints `delivered_first` once events are stored, or why they are not.
+  // Turn it off once the service is known to send.
+  logDiagnostics: true
 });
 
 // A journey is one record's history. The entity is what you will search for.
