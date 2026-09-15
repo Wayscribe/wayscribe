@@ -1083,6 +1083,8 @@ closing.
 - A `Map` that measured as `{}` may now exceed `maxPayloadBytes` and record
   `[PAYLOAD_TOO_LARGE]` with a `dropped` diagnostic. That is the guard working for the
   first time, but it will be experienced as payloads disappearing after an upgrade.
+  (Amended by the SDK v1 work: that diagnostic is now `payload_omitted`, counted in
+  `payloadsOmitted`, so `dropped` counts only events that were not delivered.)
 - `packages/database/src/repositories/audit.ts` is the one caller with no `checkLimits` in
   front and no `toStorable` behind. Audit metadata is server-built plain strings, so it is
   not reachable today; it is newly reachable in principle, and belongs in its own change.
