@@ -441,3 +441,73 @@ describe("a request too malformed for HTTP", () => {
     await app.close();
   });
 });
+
+describe("keys the JSON parser used to refuse the whole request for", () => {
+  /**
+   * Fastify parses bodies with `secure-json-parse`, whose defaults throw on
+   * `__proto__` and on `constructor.prototype` anywhere in the document. The
+   * request came back 400 `FST_ERR_CTP_INVALID_JSON_BODY` — "Body is not valid
+   * JSON" — about a body that is valid JSON.
+   *
+   * That collided with this product's own promise twice over. The Node SDK
+   * goes out of its way to keep a `__proto__` key
+   * (`packages/payload-security/src/storable.ts` writes it with `defineKey`),
+   * so a customer payload carrying one was serialized faithfully and then
+   * refused at the door, as a whole batch, with a 4xx the SDK treats as
+   * permanent: every event in it lost, for a key the recorder had deliberately
+   * preserved. And a tool whose promise is showing what the payload actually
+   * was cannot refuse the payload for containing a key.
+   *
+   * Turned off because the protection is against a pattern this code does not
+   * have. `JSON.parse` makes both keys ordinary own data properties and leaves
+   * the prototype alone; poisoning needs something that then writes an
+   * attacker-named key with `target[key] = value`, and every walk that rebuilds
+   * an object here uses `defineKey` or `Object.defineProperty` instead.
+   */
+  const bodyWith = async (raw: string): Promise<{ statusCode: number; body: string }> => {
+    const app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/events",
+      headers: { authorization: "Bearer irrelevant", "content-type": "application/json" },
+      payload: raw
+    });
+    await app.close();
+    return { statusCode: response.statusCode, body: response.body };
+  };
+
+  /**
+   * Asserted as "the parser did not refuse it" rather than as one status.
+   * These requests carry no usable key and `db` here is a stub, so what they
+   * fail with afterwards is this file's fixture and not the contract. The end
+   * of the path is in `routes/events.integration.test.ts`, which sends the same
+   * keys against PostgreSQL and reads them back out of the row.
+   */
+  const parsed = (response: { statusCode: number; body: string }): void => {
+    expect(response.statusCode, response.body).not.toBe(400);
+    expect(response.body).not.toContain("not valid JSON");
+  };
+
+  it("reaches the route with a __proto__ key", async () => {
+    parsed(await bodyWith(String.raw`{"protocolVersion":"0.1","event":{"__proto__":1}}`));
+  });
+
+  it("reaches the route with a constructor.prototype key", async () => {
+    parsed(
+      await bodyWith(
+        String.raw`{"protocolVersion":"0.1","event":{"constructor":{"prototype":{"x":1}}}}`
+      )
+    );
+  });
+
+  it("does not let either key reach Object.prototype", async () => {
+    // The control. Parsing is safe on its own; what was unsafe was assigning
+    // the parsed keys onward, and nothing here does.
+    await bodyWith(String.raw`{"protocolVersion":"0.1","event":{"__proto__":{"injected":true}}}`);
+    await bodyWith(
+      String.raw`{"protocolVersion":"0.1","event":{"constructor":{"prototype":{"injected2":true}}}}`
+    );
+    expect(({} as Record<string, unknown>)["injected"]).toBeUndefined();
+    expect(({} as Record<string, unknown>)["injected2"]).toBeUndefined();
+  });
+});

@@ -452,6 +452,25 @@ changes far less often.
 
 ### Fixed
 
+- **A payload carrying a `__proto__` key is ingested instead of refused.** The
+  whole request came back `400` "Body is not valid JSON but content-type is set
+  to 'application/json'" about a body that is valid JSON, because Fastify parses
+  with `secure-json-parse`, whose defaults throw on `__proto__` and on
+  `constructor.prototype` anywhere in the document. The SDK preserves a
+  `__proto__` key on purpose, and treats a 4xx as permanent, so a customer
+  payload holding one cost the whole batch and was never resent. Both checks are
+  now off: the danger was never the parsing, which leaves the object's prototype
+  alone, but assigning a parsed key onward, and every walk here writes with
+  `Object.defineProperty` instead. `Object.prototype` is asserted untouched
+  after both bodies are ingested.
+- **`__proto__` survives parsing in `aliases` and in `metadata`.** Zod's
+  `z.record` assigns parsed keys onto a fresh object, so those two fields lost
+  theirs while `input` and `output` kept theirs, which is why a reader saw the
+  key in a payload and not in the alias it was filed under. The key is now
+  restored after parsing. `z.record` also does not validate that key's value:
+  an `aliases` entry of `{"__proto__": {"nested": true}}` used to parse
+  successfully, and is now refused as `invalid_event` like any other alias value
+  that is not a string.
 - **Two demo stacks with different `-p` names no longer share an image.** The
   demo services were tagged `flight-recorder-demo:local` whatever the project
   name, so a second checkout's build replaced the first's image. The tag now

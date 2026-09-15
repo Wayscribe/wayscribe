@@ -99,6 +99,28 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       ...(options.logStream === undefined ? {} : { stream: options.logStream })
     },
     bodyLimit: options.bodyLimit ?? MAX_BATCH_EVENTS * maxEventPayloadBytes + BODY_LIMIT_HEADROOM,
+    // A recorded payload is evidence, and a key is part of it.
+    //
+    // Fastify parses with `secure-json-parse`, which by default throws on
+    // `__proto__` and on `constructor.prototype` anywhere in the document. The
+    // request came back 400 `FST_ERR_CTP_INVALID_JSON_BODY` — "Body is not
+    // valid JSON" — about a body that is valid JSON, and the SDK treats a 4xx
+    // as permanent, so a whole batch was discarded and never retried. The Node
+    // SDK preserves a `__proto__` key on purpose
+    // (`packages/payload-security/src/storable.ts`), so the recorder captured
+    // the key faithfully and the server then refused every event sent with it.
+    //
+    // Safe to allow because the danger was never the parsing. `JSON.parse`
+    // makes both names ordinary own data properties and leaves the object's
+    // prototype alone; poisoning takes code that afterwards writes an
+    // attacker-named key with `target[key] = value`, and every walk here that
+    // rebuilds an object uses `defineKey` instead, which is the same defect
+    // this repository already fixed in redaction and in the SDK's serializer.
+    // Zod's object schemas drop unknown keys, and `parseEnvelope` restores the
+    // one key `z.record` loses. `apps/api/src/app.test.ts` asserts that
+    // `Object.prototype` is untouched after both bodies are ingested.
+    onProtoPoisoning: "ignore",
+    onConstructorPoisoning: "ignore",
     routerOptions: { maxParamLength: MAX_PARAM_LENGTH },
     // A malformed percent-encoding (400) or a path parameter over
     // MAX_PARAM_LENGTH (414) is refused by the router before any route or hook

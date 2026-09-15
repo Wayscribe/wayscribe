@@ -332,6 +332,21 @@ describe("a payload with a __proto__ key", () => {
     expect(round).toBe('{"__proto__":{"injected":1},"keep":2}');
   });
 
+  it("keeps it beside a name-and-value header pair", () => {
+    // The one rebuild left in this walk that still assigns, at the branch that
+    // replaces a {name, value} header's value, cannot meet this key:
+    // `namedValueKey` requires exactly two own keys, and `__proto__` is a
+    // third, so such an object is walked ordinarily and rebuilt with
+    // `defineKey`. Pinned here so that loosening that rule has to face this.
+    const payload = JSON.parse(
+      '{"headers":[{"name":"accept","value":"application/json","__proto__":"kept"}]}'
+    ) as Record<string, unknown>;
+    const stored = JSON.stringify(redact(payload, ["**.authorization"]));
+    expect(stored).toBe(
+      '{"headers":[{"name":"accept","value":"application/json","__proto__":"kept"}]}'
+    );
+  });
+
   it("still redacts underneath it", () => {
     // The control: preserving the key must not create a place secrets hide.
     // Both halves matter — the first fails today because the field is gone.

@@ -404,4 +404,100 @@ describe("event ingestion", () => {
       expect(body).not.toMatch(/"22P05"|"22021"/);
     });
   });
+
+  describe("a __proto__ key the sender wrote, end to end", () => {
+    /**
+     * Sent as raw bytes, and every expectation read back out of PostgreSQL.
+     *
+     * An object literal with `__proto__:` sets the prototype and never creates
+     * an own key, so a test written that way would send nothing at all and
+     * pass against the defect. This is the shape a webhook body actually has.
+     */
+    const rawEnvelope = String.raw`{"protocolVersion":"0.1","event":{"id":"evt_proto","journeyId":"jrn_proto","environment":"development","service":"customer-integration","entity":{"type":"customer","id":"0018Z00002ABC"},"operation":"transformed","name":"transform-salesforce-account","timestamp":"2026-08-06T18:31:04.120Z","aliases":{"__proto__":"alias-under-proto","salesforceAccountId":"0018Z00002ABC"},"metadata":{"__proto__":"metadata-under-proto","attempt":"1"},"input":{"__proto__":"input-under-proto","phone":"+1 919 555 1234"}}}`;
+
+    /** The stored row, with the three jsonb columns these tests read. */
+    interface StoredRow {
+      custom_metadata: Record<string, unknown>;
+      input_payload: Record<string, unknown>;
+    }
+
+    const row = async (): Promise<StoredRow> => {
+      const found: unknown = await db("journey_events")
+        .where({ project_id: projectId, id: "evt_proto" })
+        .first();
+      expect(found, "the event was not stored").toBeDefined();
+      return found as StoredRow;
+    };
+
+    beforeAll(async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        payload: rawEnvelope
+      });
+      expect(response.statusCode, response.body).toBe(202);
+    });
+
+    it("stores it in custom_metadata, beside the ordinary key", async () => {
+      // jsonb is where the key had to survive, and the driver parses it back
+      // with JSON.parse, which makes it an own key again.
+      const stored = await row();
+      expect(Object.hasOwn(stored.custom_metadata, "__proto__")).toBe(true);
+      expect(JSON.stringify(stored.custom_metadata)).toContain(
+        '"__proto__":"metadata-under-proto"'
+      );
+      // The neighbour, so a fix that kept the key and lost everything else fails.
+      expect(stored.custom_metadata.attempt).toBe("1");
+    });
+
+    it("stores it in the input payload, beside the ordinary key", async () => {
+      const stored = await row();
+      expect(JSON.stringify(stored.input_payload)).toContain('"__proto__":"input-under-proto"');
+      expect(stored.input_payload.phone).toBe("+1 919 555 1234");
+    });
+
+    it("stores it as an alias type, beside the ordinary alias", async () => {
+      const aliases: { alias_type: string }[] = await db("entity_aliases")
+        .where({ project_id: projectId, journey_id: "jrn_proto" })
+        .select("alias_type");
+      expect(aliases.map((alias) => alias.alias_type).sort()).toEqual([
+        "__proto__",
+        "salesforceAccountId"
+      ]);
+    });
+
+    it("is still there when the API reads the event back", async () => {
+      // Stored is not enough if the read path or Fastify's serializer spends
+      // the key on a prototype on the way out. Asserted on the reply's bytes.
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/events/evt_proto",
+        headers: { authorization: `Bearer ${apiKey}` }
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.body).toContain('"__proto__":"metadata-under-proto"');
+      expect(response.body).toContain('"__proto__":"input-under-proto"');
+      expect(response.json().data.customMetadata.attempt).toBe("1");
+    });
+
+    it("refuses an alias __proto__ whose value is not a string", async () => {
+      // z.record does not validate this key's value at all, so restoring it
+      // unchecked would put a value the schema refuses into a field that
+      // encryption and the search token both expect to be a string.
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        payload: String.raw`{"protocolVersion":"0.1","event":{"id":"evt_proto_bad","journeyId":"jrn_proto_bad","environment":"development","service":"customer-integration","entity":{"type":"customer","id":"1"},"operation":"received","name":"n","timestamp":"2026-08-06T18:31:04.120Z","aliases":{"__proto__":{"nested":true}}}}`
+      });
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error.code).toBe("invalid_event");
+
+      const stored = await db("journey_events")
+        .where({ project_id: projectId, id: "evt_proto_bad" })
+        .first();
+      expect(stored).toBeUndefined();
+    });
+  });
 });
