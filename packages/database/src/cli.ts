@@ -20,7 +20,15 @@ if (databaseUrl === undefined || databaseUrl === "") {
   process.exit(1);
 }
 
-const db = knex(createKnexConfig(databaseUrl));
+// doctor exists to report an unreachable database, so it gives up on a
+// connection after ten seconds rather than knex's sixty, and says so in its
+// own words rather than under knex's warning.
+const db = knex(
+  createKnexConfig(
+    databaseUrl,
+    command === "doctor" ? { acquireConnectionTimeoutMs: 10_000, quiet: true } : {}
+  )
+);
 
 /** DEFAULT_RETENTION_DAYS, applied to any environment these commands create. */
 const retentionDays = Number.parseInt(process.env["DEFAULT_RETENTION_DAYS"] ?? "7", 10);
@@ -285,10 +293,29 @@ try {
       if (report.code !== 0) process.exitCode = report.code;
       break;
     }
+    case "doctor": {
+      const { doctorExitCode, formatDoctor, parseDoctorArgs, runDoctor } =
+        await import("./doctor.js");
+      const parsed = parseDoctorArgs(args);
+      if (!parsed.ok) {
+        console.error(parsed.message);
+        process.exitCode = 1;
+        break;
+      }
+      const results = await runDoctor({
+        db,
+        env: process.env,
+        ...(parsed.apiUrl === undefined ? {} : { apiUrl: parsed.apiUrl }),
+        ...(parsed.apiKey === undefined ? {} : { apiKey: parsed.apiKey })
+      });
+      for (const line of formatDoctor(results)) console.log(line);
+      process.exitCode = doctorExitCode(results);
+      break;
+    }
     default: {
       console.error(`Unknown command: ${command ?? "(none)"}`);
       console.error(
-        "Usage: tsx src/cli.ts <migrate|migrate:unlock|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep|rotate:reencrypt|rotate:status|delete:journey|delete:identifier|delete:range|delete:destination>"
+        "Usage: tsx src/cli.ts <migrate|migrate:unlock|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep|rotate:reencrypt|rotate:status|delete:journey|delete:identifier|delete:range|delete:destination|doctor>"
       );
       process.exitCode = 1;
       break;

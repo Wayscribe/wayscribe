@@ -167,6 +167,7 @@ Constraints and indexes:
 - index `(project_id, trace_id)` where trace ID is not null
 - index `(project_id, message_id)` where message ID is not null
 - index `(project_id, correlation_id)` where correlation ID is not null
+- index `(project_id, span_id)` where span ID is not null, so search by span ID is an index lookup (migration `014_search_indexes.js`)
 - index `(project_id, service, journey_id)` for the recent list's service filter (migration 013)
 - optional index `(project_id, operation, event_timestamp desc)`
 - check `duration_ms >= 0`
@@ -198,15 +199,20 @@ The event row is immutable after insertion.
 | `method` | text | HTTP method |
 | `request_path` | text | Relative path |
 | `request_payload` | jsonb | Sanitized |
-| `request_headers` | jsonb | Sanitized |
+| `request_headers` | jsonb | Names as sent; destination header values and blocked names stored as `[REDACTED]` |
 | `response_status` | integer | Nullable |
-| `response_payload` | jsonb | Sanitized and size-limited |
+| `response_payload` | jsonb | Size-limited; exact occurrences of destination header values of 8 or more characters replaced with `[REDACTED]` (not a fragment cut at the size cap, not a shorter value) |
 | `duration_ms` | integer | Nullable |
 | `status` | text | queued, running, completed, failed, blocked |
-| `error` | jsonb | Nullable |
+| `error` | jsonb | Nullable; `message` scrubbed of destination header values as `response_payload` is |
 | `initiated_by` | text | User or local actor |
 | `created_at` | timestamptz | Required |
 | `completed_at` | timestamptz | Nullable |
+
+Indexes:
+
+- `(project_id, created_at)` for the recent replay list
+- `(project_id, journey_event_id)`, the foreign key to `journey_events`, so the cascade from a deleted event finds its runs without scanning the project's (migration `016_replay_runs_event_index.js`)
 
 ### `audit_events`
 

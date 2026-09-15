@@ -1683,3 +1683,53 @@ destroy the record a reader came for.
   covered is in the row or guessable, which a masked error message on an event with no dropped
   payload often is. The same was already true of redacted payload values. Keying the hash
   would close it, and would change every stored hash, so it belongs in its own decision.
+
+## ADR-047: Metrics on their own port, in a format written here
+
+**Status:** Accepted
+
+### Context
+
+An operator running Flight Recorder without its author could not alert on
+anything. Rejected events, a retention sweep that stopped completing, a pool
+with requests waiting for a connection, and slow queries were visible only by
+reading logs, and a sweep that silently stopped wrote no log line at all. ADR-026
+chose a log line per sweep over a metrics endpoint to avoid a dependency, and
+ADR-012 keeps every observability platform optional. Prometheus's text format
+is what nearly every monitoring system scrapes, whether or not the team runs
+Prometheus itself.
+
+### Decision
+
+The API serves Prometheus text exposition at `/metrics` when `METRICS_PORT` is
+set, on that port alone. Unset, the default, starts no listener. `/metrics` on
+the API port is 404, and Compose and the Helm chart publish the metrics port
+nowhere, so exposing ingestion to the services that send events never exposes
+metrics with it.
+
+The format is written in the API rather than taken from `prom-client`. Counters,
+gauges, and one histogram need label escaping, cumulative buckets, and `_sum` and
+`_count`, which are a few dozen lines and have unit tests. A client library would
+add its own dependency tree to a process that holds every captured payload and
+the key that decrypts identifiers, and another feed of advisories to track.
+
+Labels are bounded by the code, never by traffic: `route` is the router's
+pattern, with `unmatched` for anything that matched no route; `method` is one of
+seven values or `other`; every other label takes a fixed set of values. No label
+carries a project id, a key prefix, an entity, or any request value.
+
+### Consequences
+
+- An operator can alert on rejected events, stalled retention, query timeouts,
+  and pool pressure (`docs/OPERATIONS.md` §13) without adding anything to the
+  default install.
+- The endpoint has no authentication. It is reachable only where the operator
+  routes the port, and it carries counts rather than data.
+- Summaries, exemplars, OpenMetrics negotiation, and the default process metrics
+  a client library adds are not provided. Two process gauges are: resident
+  memory and event loop lag. Anything more is a change to this module, not a
+  configuration option.
+- Counters are per process and reset on restart, as with any Prometheus client;
+  the documentation says to alert on `increase()`.
+- The retention sweep's log line stays, for installations that read logs and do
+  not scrape.

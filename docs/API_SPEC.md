@@ -81,6 +81,19 @@ All timestamps are UTC ISO 8601 strings.
 
 Stable error codes are required. Human-readable messages may evolve.
 
+Any route that queries the database can answer `503` with code `query_timeout`
+when a statement runs past `DATABASE_STATEMENT_TIMEOUT_MS` (15 seconds by
+default) and is cancelled. It is transient: retrying later, or narrowing the
+request, is the right response. In a batch, an event whose statement was
+cancelled is refused on its own with `query_timeout` and `httpStatus` 503
+(section 4).
+
+A request that matches no route gets `404` with code `not_found`, in this shape.
+Its message names the method and path, never the query string or matrix
+parameters. A URL the router cannot read gets `400` with code `bad_url` when its
+percent-encoding is malformed, and `414` with code `parameter_too_long` when a
+path parameter is longer than any id the API accepts. Neither quotes the URL.
+
 ## 3. Ingest one event
 
 ```http
@@ -189,6 +202,15 @@ Response:
 ```
 
 A partially invalid batch must not reject all valid events.
+
+Each rejected result carries `error.httpStatus`, the status the same refusal
+would have from the single-event route. A 4xx is permanent: the event was
+understood and refused, and sending it again gets the same answer. A 5xx is
+transient: `query_timeout` (503, a statement ran past the timeout) and
+`storage_error` (500, the database failed to store it) say nothing about the
+event, so a client should send that event again later. Resending is safe,
+because an event id already stored with the same content is accepted as a
+duplicate.
 
 ## 5. Search
 
@@ -449,7 +471,9 @@ GET /v1/replays/:replayId
 
 Returns:
 
-- sanitized request
+- sanitized request, including `requestHeaders`: every header sent, by name,
+  with `[REDACTED]` as the value of each destination header and blocked name
+  (`REPLAY_SPEC.md` section 8)
 - response status
 - sanitized response
 - timing
@@ -466,6 +490,10 @@ GET /ready
 `/health` checks the process.
 
 `/ready` verifies required dependencies such as PostgreSQL.
+
+Metrics are not on this port. With `METRICS_PORT` set, the API serves
+`GET /metrics` on that port alone (`docs/OPERATIONS.md` §13); `/metrics` on the
+API port is 404.
 
 ## 15. Pagination
 

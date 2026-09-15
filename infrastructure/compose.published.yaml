@@ -24,6 +24,11 @@
 #   docker compose -f compose.published.yaml run --rm --entrypoint node api \
 #     packages/database/dist/cli.js key:create acme production checkout-worker
 #
+# Then check the whole installation, with the key you were given:
+#
+#   docker compose -f compose.published.yaml run --rm --entrypoint node api \
+#     packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key <key>
+#
 # `compose.yaml` builds from source instead and is for people working on Flight
 # Recorder itself.
 #
@@ -69,6 +74,11 @@ services:
       MAX_EVENT_PAYLOAD_BYTES: "262144"
       ALLOW_FULL_PAYLOAD_CAPTURE: "false"
       REPLAY_ALLOWED_HOSTS: ${REPLAY_ALLOWED_HOSTS:-localhost,host.docker.internal}
+      DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-15000}
+      # Empty means no metrics listener. When set, /metrics is served on this
+      # port inside the network and published nowhere; a scraper on the same
+      # Compose network reaches it at api:<port> (docs/OPERATIONS.md §13).
+      METRICS_PORT: ${METRICS_PORT:-}
     ports:
       # Loopback only: a `docker compose up` on a cloud host must not expose the
       # stack to the internet.

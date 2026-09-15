@@ -68,6 +68,11 @@ restart them yourself; the procedure is in `docs/OPERATIONS.md` §6.
 | `postgresql` StatefulSet | only when `postgresql.enabled` |
 | `Ingress` | only when `ingress.enabled`; off by default |
 
+`api.metricsPort` turns on the metrics listener and adds a container port named
+`metrics`. Neither Service nor ingress carries it, so it is reachable only by
+something that scrapes the pods; `api.databaseStatementTimeoutMs` sets the
+statement timeout (`docs/OPERATIONS.md` §13).
+
 Values are named after the environment variables they set, so the mapping to
 `infrastructure/compose.published.yaml` is mechanical. Two deployment shapes now
 exist and a variable added to one has to reach the other.

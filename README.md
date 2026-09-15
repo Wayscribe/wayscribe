@@ -290,7 +290,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 46 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 47 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -371,8 +371,19 @@ docker compose -f compose.published.yaml run --rm --entrypoint node api \
   packages/database/dist/cli.js key:create acme production checkout-worker
 ```
 
-The key is printed once. Give it to your service as
-`FLIGHT_RECORDER_API_KEY` and follow [Instrument your own service](#instrument-your-own-service).
+The key is printed once. Before giving it to anything, check the installation
+with it:
+
+```bash
+docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
+```
+
+`doctor` prints one line per check (the database, migrations, default secrets,
+keys, the API) and the fix for anything that fails, and exits 1 if anything did
+([Operations §12](docs/OPERATIONS.md#12-checking-an-installation)). Then give
+the key to your service as `FLIGHT_RECORDER_API_KEY` and follow
+[Instrument your own service](#instrument-your-own-service).
 
 ### Not in V0
 
@@ -438,7 +449,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | Document | Purpose |
 | --- | --- |
 | [Local development](docs/LOCAL_DEVELOPMENT.md) | Setup, commands, keys, troubleshooting |
-| [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention, deleting data |
+| [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention, deleting data, `doctor`, metrics |
 | [Node SDK](packages/sdk-node/README.md) | The SDK's full surface |
 | [Demo scenario](docs/DEMO_SCENARIO.md) | The reference journey, end to end |
 | [Architecture](docs/ARCHITECTURE.md) | Components, flows, boundaries, scaling path |

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ConfigError, loadEncryptionKeys, loadServerEnv } from "./load.js";
+import { ConfigError, loadEncryptionKeys, loadServerEnv, loadStatementTimeoutMs } from "./load.js";
 
 const validEnv = {
   DATABASE_URL: "postgresql://flight:flight@localhost:5432/flight",
@@ -142,5 +142,61 @@ describe("loadEncryptionKeys", () => {
   it("names the variable when the current key is missing", () => {
     expect(() => loadEncryptionKeys({})).toThrow(ConfigError);
     expect(() => loadEncryptionKeys({})).toThrow(/ENCRYPTION_KEY/);
+  });
+});
+
+describe("DATABASE_STATEMENT_TIMEOUT_MS", () => {
+  it("defaults to fifteen seconds", () => {
+    expect(loadServerEnv(validEnv).DATABASE_STATEMENT_TIMEOUT_MS).toBe(15_000);
+  });
+
+  it("treats blank as unset, as Compose passes an unset variable", () => {
+    for (const blank of ["", "  "]) {
+      const config = loadServerEnv({ ...validEnv, DATABASE_STATEMENT_TIMEOUT_MS: blank });
+      expect(config.DATABASE_STATEMENT_TIMEOUT_MS).toBe(15_000);
+    }
+  });
+
+  it("accepts 0, which disables the timeout", () => {
+    const config = loadServerEnv({ ...validEnv, DATABASE_STATEMENT_TIMEOUT_MS: "0" });
+    expect(config.DATABASE_STATEMENT_TIMEOUT_MS).toBe(0);
+  });
+
+  it.each(["-1", "1.5", "soon", "2147483648"])("rejects %s, naming the variable", (value) => {
+    expect(attempt({ ...validEnv, DATABASE_STATEMENT_TIMEOUT_MS: value })).toContain(
+      "DATABASE_STATEMENT_TIMEOUT_MS"
+    );
+  });
+
+  it("is readable on its own, for doctor", () => {
+    expect(loadStatementTimeoutMs({})).toBe(15_000);
+    expect(loadStatementTimeoutMs({ DATABASE_STATEMENT_TIMEOUT_MS: "250" })).toBe(250);
+    expect(() => loadStatementTimeoutMs({ DATABASE_STATEMENT_TIMEOUT_MS: "x" })).toThrow(
+      /DATABASE_STATEMENT_TIMEOUT_MS/
+    );
+  });
+});
+
+describe("METRICS_PORT", () => {
+  it("is unset by default, so no metrics listener starts", () => {
+    expect(loadServerEnv(validEnv).METRICS_PORT).toBeUndefined();
+  });
+
+  it("treats blank as unset", () => {
+    expect(loadServerEnv({ ...validEnv, METRICS_PORT: "" }).METRICS_PORT).toBeUndefined();
+  });
+
+  it("accepts a port", () => {
+    expect(loadServerEnv({ ...validEnv, METRICS_PORT: "9464" }).METRICS_PORT).toBe(9464);
+  });
+
+  it.each(["0", "65536", "http", "94.64"])("rejects %s, naming the variable", (value) => {
+    expect(attempt({ ...validEnv, METRICS_PORT: value })).toContain("METRICS_PORT");
+  });
+
+  it("refuses the API's own port, so metrics never sit beside ingestion", () => {
+    const message = attempt({ ...validEnv, PORT: "8080", METRICS_PORT: "8080" });
+    expect(message).toContain("METRICS_PORT");
+    expect(message).toContain("must differ from PORT");
   });
 });

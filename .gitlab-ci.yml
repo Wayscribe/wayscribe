@@ -79,6 +79,22 @@ helm:
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
       > /dev/null
+    # The metrics port is off by default, so its template branch renders only
+    # when asked for.
+    - helm template fr deploy/helm/flight-recorder
+      --set postgresql.enabled=true
+      --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
+      --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
+      --set api.metricsPort=9464
+      > /dev/null
+    # And refuses a metrics port equal to the API's. An `if`, not `!`: a
+    # negated command does not fail a job under `set -e`.
+    - if helm template fr deploy/helm/flight-recorder
+      --set postgresql.enabled=true
+      --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
+      --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
+      --set api.metricsPort=8080 > /dev/null 2>&1;
+      then echo "the chart rendered api.metricsPort=8080"; exit 1; fi
 
 audit:
   stage: security

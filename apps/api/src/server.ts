@@ -4,6 +4,7 @@ import knex from "knex";
 import { buildApp } from "./app.js";
 import { checkKeysAtBoot } from "./key-warnings.js";
 import { startRetentionJob } from "./retention-job.js";
+import { serveApi } from "./serve.js";
 import { prepareStartup } from "./startup.js";
 
 // Parsed before anything else, so a misconfigured process fails immediately with
@@ -17,7 +18,11 @@ if (!startup.ok) {
 }
 const { env, keyring } = startup;
 
-const db = knex(createKnexConfig(env.DATABASE_URL));
+// The statement timeout applies to this pool only, so it covers every query
+// the API runs (ingestion, reads, the retention sweep) and nothing the CLI runs.
+const db = knex(
+  createKnexConfig(env.DATABASE_URL, { statementTimeoutMs: env.DATABASE_STATEMENT_TIMEOUT_MS })
+);
 const app = buildApp({
   db,
   keyring,
@@ -40,6 +45,7 @@ for (const finding of findInsecureDefaults(process.env)) {
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");
   retention.stop();
+  // Closes the metrics listener too, through the hook serveApi registers.
   await app.close();
   await db.destroy();
   process.exit(0);
@@ -50,8 +56,15 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 
 try {
   // 0.0.0.0 is correct inside a container; Compose restricts exposure by binding
-  // published ports to 127.0.0.1 on the host.
-  await app.listen({ port: env.PORT, host: "0.0.0.0" });
+  // published ports to 127.0.0.1 on the host, and publishes no metrics port.
+  const serving = await serveApi(app, {
+    port: env.PORT,
+    host: "0.0.0.0",
+    metricsPort: env.METRICS_PORT
+  });
+  if (serving.metricsAddress !== null) {
+    app.log.info({ port: serving.metricsAddress.port }, "metrics listening at /metrics");
+  }
 } catch (error) {
   app.log.error({ err: error }, "failed to start");
   process.exit(1);
@@ -59,4 +72,4 @@ try {
 
 // After listening, and not awaited by it: counting a large table must not
 // delay readiness, and the check never throws.
-void checkKeysAtBoot(db, keyring, app.log);
+void checkKeysAtBoot(db, keyring, app.log, app.metrics);
