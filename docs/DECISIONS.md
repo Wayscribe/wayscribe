@@ -1780,5 +1780,10 @@ is of the event as received, which is not stored.
   treats as permanent. Only a duplicate delivery of an event older than the rotation's grace
   period is affected; the stored event is untouched. `rotate:status` does not count hashes, since
   holding a rotation open for them would hold it open until retention removed every row.
+- An online confirmation oracle remains, by design (ADR-021): someone holding an ingest API key
+  for the environment and read access to a row can confirm a guess at a masked value by resending
+  the rebuilt event under the same event id, since an identical event is answered 202 duplicate
+  and a different one 409, and this holds for legacy rows too. It costs one request to the API
+  per guess rather than one hash, and needs a credential that can already write events.
 - One HMAC per ingested event, and a second only when an id already exists. The cost is the same
   order as the SHA-256 it replaces.
