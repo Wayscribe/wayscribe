@@ -378,6 +378,31 @@ describe("key rotation commands", () => {
       expect((await reencryptValues(db, rotated)).ran).toBe(true);
     });
 
+    it("does not hold back vacuum while it holds the lock", async () => {
+      // The lock's connection stays in a transaction for the whole run. If it
+      // also kept a snapshot (a parameterised query leaves its portal open
+      // until the transaction ends), its backend_xmin would stop VACUUM
+      // anywhere in the database from removing rows that died during the run.
+      for (const n of [1, 2, 3, 4])
+        await journeyUnder(keyringA, `jrn_${String(n)}`, `E-${String(n)}`);
+
+      const seen: unknown[] = [];
+      await reencryptValues(db, rotated, {
+        batchSize: 2,
+        onBatch: async () => {
+          const result: unknown = await db.raw(
+            `select a.backend_xmin::text as xmin
+               from pg_locks l join pg_stat_activity a on a.pid = l.pid
+              where l.locktype = 'advisory' and l.granted`
+          );
+          seen.push(...(result as { rows: { xmin: string | null }[] }).rows);
+        }
+      });
+
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen).toEqual(seen.map(() => ({ xmin: null })));
+    });
+
     it("releases the lock when a run fails", async () => {
       await journeyUnder(keyringA, "jrn_1", "E-1");
       await expect(

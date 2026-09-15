@@ -116,9 +116,14 @@ export async function reencryptValues(
   // connection, and PostgreSQL releases it then.
   const holder = await db.transaction();
   try {
-    const acquired: unknown = await holder.raw("select pg_try_advisory_xact_lock(?) as locked", [
-      ROTATION_LOCK_KEY
-    ]);
+    // The key is inlined rather than bound. A bound parameter sends the query
+    // through an unnamed portal that stays open, with its snapshot, until the
+    // transaction ends; the holder's backend_xmin would then stay set for the
+    // whole run and keep VACUUM everywhere from removing dead rows. It is a
+    // fixed integer constant, never input.
+    const acquired: unknown = await holder.raw(
+      `select pg_try_advisory_xact_lock(${String(ROTATION_LOCK_KEY)}) as locked`
+    );
     const locked = (acquired as { rows: { locked: boolean }[] }).rows[0]?.locked === true;
     if (!locked) return { ran: false, reason: "lock_held" };
 
