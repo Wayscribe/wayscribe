@@ -13,14 +13,18 @@ import {
   checkLimits,
   contentHash,
   encryptValue,
+  maskSecretsInText,
   searchTokens,
   type CaptureMode,
+  type CapturePolicy,
   type Keyring
 } from "@flight-recorder/payload-security";
 import { PROTOCOL_ERROR_CODES, parseEnvelope } from "@flight-recorder/protocol";
-import type { ParseDetail } from "@flight-recorder/protocol";
+import type { JourneyEvent, ParseDetail } from "@flight-recorder/protocol";
 import type { Knex } from "knex";
 import { authorizeEnvironment } from "../auth.js";
+
+type EventError = NonNullable<JourneyEvent["error"]>;
 
 export interface IngestResult {
   eventId: string | null;
@@ -124,7 +128,7 @@ export async function ingestEvent(
       inputPayload: input,
       outputPayload: output,
       payloadDiff: diff,
-      error: redactAlways(event.error, policy),
+      error: redactAlways(storedError(event.error, policy), policy),
       runtimeMetadata: redactAlways(event.runtime, policy),
       deploymentMetadata: redactAlways(event.deployment, policy),
       customMetadata: redactAlways(event.metadata, policy)
@@ -176,6 +180,28 @@ export async function ingestEvent(
       httpStatus: 202
     };
   });
+}
+
+/**
+ * The error as it may be stored: stack kept only under full capture, and every
+ * free-text field masked (ADR-046).
+ *
+ * Path redaction cannot reach inside `message` or `stack`, and ingestion cannot
+ * rely on the SDK having masked them, because any HTTP client can send an event.
+ * A stack is dropped unless full capture is in effect, which takes both
+ * ALLOW_FULL_PAYLOAD_CAPTURE and the environment's own setting: it is the
+ * largest carrier of credentials an error has, and the Node SDK never sends one.
+ * Under full capture it is kept, masked like the message.
+ */
+function storedError(error: EventError | undefined, policy: CapturePolicy): EventError | undefined {
+  if (error === undefined) return undefined;
+  const { stack, ...rest } = error;
+  const fullCapture = policy.mode === "full-payload" && policy.allowFullPayload === true;
+  return {
+    ...rest,
+    message: maskSecretsInText(error.message),
+    ...(fullCapture && stack !== undefined ? { stack: maskSecretsInText(stack) } : {})
+  };
 }
 
 /**
