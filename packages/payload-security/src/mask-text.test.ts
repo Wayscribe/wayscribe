@@ -528,6 +528,43 @@ describe("maskSecretsInText", () => {
     }
   });
 
+  it("is idempotent on the inputs generation found", () => {
+    // One of each class, kept by name so a regression reads as what it is.
+    const found = [
+      // A later rule removed the `/` that ended a URL userinfo span.
+      "token://password://.@",
+      "x://password=.tokena://xax://19=1@.1x",
+      // A marker's `]` let a quoted name start where the original letter had not.
+      'token=a"password"://.91tokenZpassword Bearer a password',
+      // A skipped scheme match consumed the scheme word after it.
+      " @Bearer password9=Bearer Bearer passwordx9=@"
+    ];
+    for (const text of found) {
+      const once = maskSecretsInText(text);
+      expect(maskSecretsInText(once), text).toBe(once);
+    }
+  });
+
+  describe("is idempotent on generated text built from the pieces its rules react to", () => {
+    // The corpus above is text somebody thought of. `token://password://.@` was
+    // not: the URL rule masked it into something the assignment rule then
+    // matched, so the server's second pass changed what the SDK had sent.
+    // Seeded, so a failure reproduces; the first few failing inputs are the
+    // assertion's message.
+    for (const [name, pieces] of Object.entries(GENERATOR_ALPHABETS)) {
+      it(`from ${name}`, () => {
+        const random = seeded(0x5eed);
+        const failures: string[] = [];
+        for (let run = 0; run < 20_000; run += 1) {
+          const text = generate(random, pieces, 40);
+          const once = maskSecretsInText(text);
+          if (maskSecretsInText(once) !== once) failures.push(text);
+        }
+        expect(failures.slice(0, 5)).toEqual([]);
+      });
+    }
+  });
+
   describe("scales linearly with its input", () => {
     // Error text is attacker-reachable: ingestion is public HTTP and the
     // protocol allows a 16 KiB stack. A pattern that backtracks quadratically
@@ -611,3 +648,90 @@ describe("maskSecretsInText", () => {
     });
   });
 });
+
+/** mulberry32: a small, fast generator whose sequence is fixed by its seed. */
+function seeded(seed: number): () => number {
+  let state = seed >>> 0;
+  return (): number => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let mixed = state;
+    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * The pieces generated text is built from. The first alphabet is the one the
+ * review found `token://password://.@` with; the others add the separators,
+ * quotes and scheme words the assignment and scheme rules turn on, and whole
+ * credentials beside the marker they become.
+ */
+const GENERATOR_ALPHABETS: Record<string, readonly string[]> = {
+  "secret words, URL pieces and separators": [
+    "token",
+    "password",
+    "://",
+    ".",
+    "@",
+    "=",
+    ":",
+    "a",
+    "Z",
+    "x",
+    "1",
+    "9"
+  ],
+  "the same with blanks, quotes and scheme words": [
+    "token",
+    "password",
+    "://",
+    ".",
+    "@",
+    "=",
+    ":",
+    " ",
+    '"',
+    "'",
+    "Bearer ",
+    "a",
+    "Z",
+    "x",
+    "1",
+    "9"
+  ],
+  "whole credentials, headers and the marker": [
+    "sk_" + "live_0123456789",
+    "eyJa.eyJb.c",
+    "https://",
+    "u:p@",
+    "password=",
+    '"api_key": ',
+    "Authorization: ",
+    "cookie: ",
+    "Bearer ",
+    "abcdefgh1",
+    "[REDACTED]",
+    ".",
+    "/",
+    " ",
+    "'",
+    '"',
+    ":",
+    "=",
+    "@",
+    "-",
+    "_",
+    "]",
+    "x"
+  ]
+};
+
+function generate(random: () => number, pieces: readonly string[], maxPieces: number): string {
+  const length = 1 + Math.floor(random() * maxPieces);
+  let text = "";
+  for (let index = 0; index < length; index += 1) {
+    text += pieces[Math.floor(random() * pieces.length)] ?? "";
+  }
+  return text;
+}

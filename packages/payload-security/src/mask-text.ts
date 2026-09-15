@@ -26,7 +26,14 @@ import { normaliseName, REDACTED } from "./redact.js";
 export function maskSecretsInText(text: string): string {
   if (text === "") return text;
 
+  // The order matters for idempotence as well as for reading. A rule must not
+  // be able to create a match for a rule that ran before it, or the server's
+  // second pass would mask what the SDK's first pass left. URL userinfo runs
+  // early because every later rule removes characters, such as `/`, that ended
+  // a userinfo span; its span refuses `[`, so a marker a later rule wrote can
+  // never complete one.
   let result = text.replace(PEM_PRIVATE_KEY, REDACTED);
+  result = result.replace(URL_USERINFO, (_match, scheme: string) => `${scheme}${REDACTED}@`);
   result = result.replace(JSON_WEB_TOKEN, REDACTED);
   result = result.replace(PROVIDER_TOKEN, REDACTED);
   result = result.replace(
@@ -34,9 +41,8 @@ export function maskSecretsInText(text: string): string {
     (_match, slack: string | undefined, discord: string | undefined) =>
       `${slack ?? discord ?? ""}${REDACTED}`
   );
-  result = result.replace(URL_USERINFO, (_match, scheme: string) => `${scheme}${REDACTED}@`);
   result = maskAssignments(result);
-  result = result.replace(AUTHORIZATION_SCHEME, maskSchemeCredential);
+  result = maskSchemeCredentials(result);
   return result;
 }
 
@@ -49,7 +55,7 @@ const PEM_PRIVATE_KEY =
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*$)/g;
 
 /** Header and claims both start `{"`, which base64url-encodes to `eyJ`. */
-const JSON_WEB_TOKEN = /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
+const JSON_WEB_TOKEN = /(?<![A-Za-z0-9_\]-])eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
 
 /**
  * Prefixes providers put on their credentials precisely so they can be found.
@@ -62,7 +68,7 @@ const JSON_WEB_TOKEN = /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.
  * characters.
  */
 const PROVIDER_TOKEN = new RegExp(
-  "(?<![A-Za-z0-9_-])(?:" +
+  "(?<![A-Za-z0-9_\\]-])(?:" +
     [
       "(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,}",
       "whsec_[A-Za-z0-9+/=]{16,}",
@@ -96,32 +102,53 @@ const WEBHOOK_URL_SECRET =
  * `,` and `;` end it too: they separate a URL from whatever follows it in a
  * list far more often than they appear unencoded in a password.
  */
-const URL_USERINFO = /(?<![A-Za-z0-9+.-])([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/?#"'<>,;]+@/g;
+const URL_USERINFO = /(?<![A-Za-z0-9+.\]-])([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/?#"'<>,;[\]]+@/g;
 
 /** `Bearer x`, `Basic x` and `Digest x` wherever they appear, not only after a header name. */
 const AUTHORIZATION_SCHEME =
-  /(?<![A-Za-z0-9_-])(Bearer|Basic|Digest)([ \t]+)([A-Za-z0-9._~+/-]+=*)/gi;
+  /(?<![A-Za-z0-9_\]-])(Bearer|Basic|Digest)([ \t]+)([A-Za-z0-9._~+/-]+=*)/gi;
 
 /** Shorter than this after a scheme word is a version or a product term, not a credential. */
 const MIN_SCHEME_CREDENTIAL_LENGTH = 8;
 
-function maskSchemeCredential(
-  match: string,
-  scheme: string,
-  space: string,
-  raw: string,
-  offset: number,
-  whole: string
-): string {
+/**
+ * Every scheme credential, masked.
+ *
+ * A loop rather than `String.replace`, for the same reason as
+ * {@link maskAssignments}: a match that turns out not to be a credential must
+ * not consume the text after its scheme word. In `Bearer Bearer abc123def456`
+ * the first match is `Bearer Bearer`, too short to mask; consuming it hid the
+ * real credential from the first pass and showed it to the second.
+ */
+function maskSchemeCredentials(text: string): string {
+  let output = "";
+  let copied = 0;
+  AUTHORIZATION_SCHEME.lastIndex = 0;
+
+  for (let match = AUTHORIZATION_SCHEME.exec(text); match !== null;) {
+    const [whole, scheme = "", space = "", raw = ""] = match;
+    const end = match.index + whole.length;
+    const credential = withoutTrailingDots(raw);
+
+    if (isSchemeCredential(raw, credential, text[end])) {
+      output += text.slice(copied, match.index) + scheme + space + REDACTED;
+      copied = match.index + scheme.length + space.length + credential.length;
+      AUTHORIZATION_SCHEME.lastIndex = copied;
+    } else {
+      AUTHORIZATION_SCHEME.lastIndex = match.index + scheme.length;
+    }
+    match = AUTHORIZATION_SCHEME.exec(text);
+  }
+
+  return copied === 0 ? text : output + text.slice(copied);
+}
+
+function isSchemeCredential(raw: string, credential: string, after: string | undefined): boolean {
   // `Bearer realm="api"` is a WWW-Authenticate challenge: its auth-params name
   // things, and none of them is the credential.
-  const after = whole[offset + match.length];
-  if (raw.endsWith("=") && (after === '"' || after === "'")) return match;
-  if (isAuthParam(raw)) return match;
-
-  const credential = withoutTrailingDots(raw);
-  if (credential.length < MIN_SCHEME_CREDENTIAL_LENGTH || readsAsProse(credential)) return match;
-  return `${scheme}${space}${REDACTED}${raw.slice(credential.length)}`;
+  if (raw.endsWith("=") && (after === '"' || after === "'")) return false;
+  if (isAuthParam(raw)) return false;
+  return credential.length >= MIN_SCHEME_CREDENTIAL_LENGTH && !readsAsProse(credential);
 }
 
 /** `realm=`: letters and a single `=`, which is a parameter name, not base64. */
@@ -143,7 +170,7 @@ function isAuthParam(raw: string): boolean {
  * last word is `password`.
  */
 const NAME_AND_SEPARATOR =
-  /(?<![A-Za-z0-9_.-])(\\?["']|)([A-Za-z][A-Za-z0-9_.-]*)\1[ \t]*([=:])([ \t]*)/g;
+  /(?<![A-Za-z0-9_.\]-])(\\?["']|)([A-Za-z][A-Za-z0-9_.-]*)\1[ \t]*([=:])([ \t]*)/g;
 
 /**
  * The built-in secret names, compared as path redaction compares them (ADR-039).
