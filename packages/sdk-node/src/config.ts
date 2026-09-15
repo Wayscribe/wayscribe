@@ -17,6 +17,12 @@ export interface RecorderConfig {
   /** Default 'journey-and-type'. The entity ID propagates only at 'full' (SECURITY section 10). */
   propagate?: PropagationLevel;
   onDiagnostic?: (diagnostic: Diagnostic) => void;
+  /**
+   * Write each diagnostic to `console.error` as one `[flight-recorder]` line, at
+   * most one per kind per minute. Default false. Meant for setting up: turn it
+   * on until `delivered_first` appears, then off.
+   */
+  logDiagnostics?: boolean;
 }
 
 export interface ResolvedConfig {
@@ -33,6 +39,7 @@ export interface ResolvedConfig {
   maxPayloadBytes: number;
   propagate: PropagationLevel;
   onDiagnostic: ((diagnostic: Diagnostic) => void) | undefined;
+  logDiagnostics: boolean;
 }
 
 /**
@@ -54,7 +61,8 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     maxBufferedEvents: config.maxBufferedEvents ?? 1_000,
     maxPayloadBytes: config.maxPayloadBytes ?? 262_144,
     propagate: config.propagate ?? "journey-and-type",
-    onDiagnostic: config.onDiagnostic
+    onDiagnostic: config.onDiagnostic,
+    logDiagnostics: config.logDiagnostics === true
   };
 }
 

@@ -1,5 +1,12 @@
 export type { RecorderConfig } from "./config.js";
-export type { Counters, Diagnostic } from "./diagnostics.js";
+export type {
+  Counters,
+  DeliveredFirstDiagnostic,
+  Diagnostic,
+  DiagnosticKind,
+  FailureDiagnostic,
+  FailureKind
+} from "./diagnostics.js";
 export { OPERATIONS } from "./operations.js";
 export type { Operation } from "./operations.js";
 export { createRecorder } from "./recorder.js";

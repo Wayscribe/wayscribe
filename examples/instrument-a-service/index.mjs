@@ -16,9 +16,11 @@ const recorder = createRecorder({
   apiKey: API_KEY,
   serviceName: "example-service",
   environment: "development",
-  // The SDK never writes to your console on its own. Opt in while you are
-  // getting set up, so a misconfigured key is visible rather than silent.
-  onDiagnostic: (d) => console.error(`[flight-recorder] ${d.kind}: ${d.reason}`)
+  // The SDK never writes to your console on its own. This opts in while you are
+  // getting set up: a wrong key or port prints why, and the first batch the
+  // server stores prints `delivered_first`. Turn it off once the service is
+  // known to send, and use `onDiagnostic` to route failures to your own logger.
+  logDiagnostics: true
 });
 
 // The record arriving from outside. Note `Phone`, capitalised.

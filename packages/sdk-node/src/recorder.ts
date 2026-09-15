@@ -248,11 +248,12 @@ function countAccepted(body: unknown, diagnostics: Diagnostics): number {
 
 export function createRecorder(config: RecorderConfig): Recorder {
   const resolved = resolveConfig(config);
-  const diagnostics = createDiagnostics(resolved.onDiagnostic);
+  const diagnostics = createDiagnostics(resolved.onDiagnostic, { log: resolved.logDiagnostics });
   const queue = new BoundedQueue<unknown>(resolved.maxBufferedEvents, diagnostics);
   // Resolved once: record() is synchronous, so this cannot be an async import.
   const readTrace = createTraceReader();
   let stopped = false;
+  let delivered = false;
 
   const transport = new Transport(
     {
@@ -288,7 +289,20 @@ export function createRecorder(config: RecorderConfig): Recorder {
           // that "succeeded" may have stored nothing. Reading the body is the
           // only way to know, and not reading it is how a misconfigured
           // environment name looked exactly like a healthy recorder.
-          return countAccepted(await response.json(), diagnostics);
+          const accepted = countAccepted(await response.json(), diagnostics);
+          if (accepted > 0 && !delivered) {
+            // Once: this answers "is it connected?", and repeating the answer
+            // on every batch would be exactly the noise logDiagnostics avoids.
+            delivered = true;
+            const endpoint = maskSecretsInText(resolved.endpoint);
+            diagnostics.report({
+              kind: "delivered_first",
+              reason: `Connected to ${endpoint}; the server accepted ${String(accepted)} ${accepted === 1 ? "event" : "events"}.`,
+              endpoint,
+              accepted
+            });
+          }
+          return accepted;
         } finally {
           clearTimeout(timer);
         }
@@ -742,6 +756,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
           setTimeout(resolve, timeoutMs);
         })
       ]);
+      // Last, so a repeat suppressed during the final drain is still reported
+      // before the process exits.
+      safely(diagnostics, "capture_error", () => {
+        diagnostics.flushLog();
+      });
       // Read after the race, so the counters describe what actually landed.
       return diagnostics.counters();
     },
