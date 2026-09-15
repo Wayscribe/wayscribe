@@ -254,10 +254,27 @@ try {
       if (!status.complete) process.exitCode = 1;
       break;
     }
+    case "delete:journey":
+    case "delete:identifier":
+    case "delete:range":
+    case "delete:destination": {
+      const { runDeletionCommand } = await import("./deletion-cli.js");
+      const report = await runDeletionCommand(command, args, {
+        db,
+        requireKeyring,
+        progress: (line) => {
+          console.log(line);
+        }
+      });
+      for (const line of report.stdout) console.log(line);
+      for (const line of report.stderr) console.error(line);
+      if (report.code !== 0) process.exitCode = report.code;
+      break;
+    }
     default: {
       console.error(`Unknown command: ${command ?? "(none)"}`);
       console.error(
-        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep|rotate:reencrypt|rotate:status>"
+        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep|rotate:reencrypt|rotate:status|delete:journey|delete:identifier|delete:range|delete:destination>"
       );
       process.exitCode = 1;
       break;
