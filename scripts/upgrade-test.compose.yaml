@@ -37,6 +37,9 @@ services:
       ENCRYPTION_KEY: ${UPGRADE_ENCRYPTION_KEY:?set by scripts/upgrade-test.mjs}
       ADMIN_TOKEN: ${UPGRADE_ADMIN_TOKEN:?set by scripts/upgrade-test.mjs}
       DEFAULT_RETENTION_DAYS: "7"
+      # The shipped default, stated so the test runs every step under it and
+      # doctor reads the value the API has. Builds before it ignore the variable.
+      DATABASE_STATEMENT_TIMEOUT_MS: "15000"
       MAX_EVENT_PAYLOAD_BYTES: "262144"
       ALLOW_FULL_PAYLOAD_CAPTURE: "false"
       REPLAY_ALLOWED_HOSTS: replay-echo

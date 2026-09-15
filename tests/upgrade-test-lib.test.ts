@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containedIn, releaseTags } from "../scripts/upgrade-test-lib.mjs";
+import { containedIn, doctorVerdict, releaseTags } from "../scripts/upgrade-test-lib.mjs";
 
 describe("releaseTags, the upgrade test's baseline candidates", () => {
   it("keeps only vMAJOR.MINOR.PATCH tags, newest first", () => {
@@ -97,5 +97,46 @@ describe("containedIn, the upgrade test's comparison", () => {
         'read.requestHeaders.content-type: expected "application/json" or [REDACTED], got "text/plain"'
       ]);
     });
+  });
+});
+
+describe("doctorVerdict, the upgrade test's reading of doctor", () => {
+  const lines = (...rows: string[]): string => [...rows, "", "0 failed, 0 warnings."].join("\n");
+  const row = (status: string, check: string, detail = "detail"): string =>
+    `${status.padEnd(4)}  ${check.padEnd(23)} ${detail}`;
+
+  it("passes when every check passed and every required one ran", () => {
+    expect(
+      doctorVerdict(0, lines(row("PASS", "Migrations"), row("PASS", "API key")), [
+        "Migrations",
+        "API key"
+      ])
+    ).toEqual({ ok: true, checks: 2, problems: [] });
+  });
+
+  it("fails on FAIL, WARN or SKIP, on a missing check, and on a non-zero exit", () => {
+    const verdict = doctorVerdict(
+      1,
+      lines(
+        row("FAIL", "Migrations", "2 pending"),
+        "                              Fix: run migrate",
+        row("WARN", "PostgreSQL version"),
+        row("SKIP", "Keys readable"),
+        row("PASS", "ENCRYPTION_KEY_PREVIOUS")
+      ),
+      ["Migrations", "API reachable"]
+    );
+    expect(verdict.ok).toBe(false);
+    expect(verdict.problems).toEqual([
+      "doctor exited 1",
+      "Migrations: FAIL",
+      "PostgreSQL version: WARN",
+      "Keys readable: SKIP",
+      "API reachable: not reported"
+    ]);
+  });
+
+  it("fails when doctor printed nothing it recognises", () => {
+    expect(doctorVerdict(0, "Unknown command: doctor", ["Migrations"]).ok).toBe(false);
   });
 });

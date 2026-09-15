@@ -129,10 +129,17 @@ expects no legacy rows at all. Either way everything else is asserted.
     0. `rotate:status` then exits 0 with no legacy rows.
 11. Repeat the comparison of every recorded response (J3's excepted, since it
     was erased) and the replay, now against `fr1.` values.
-12. `doctor`, if the current CLI has it. The CLI answers `Unknown command` when
-    it does not, and the test then prints that the check was skipped. When it
-    exists it must exit 0.
+12. `doctor --api-url http://api:8080 --api-key <baseline key>` in a one-off
+    container with the API's environment, once after the upgrade (before
+    re-encryption) and once after re-encryption. It must exit 0 with every
+    check it prints `PASS`, and the ten checks it runs with those arguments
+    (database, PostgreSQL version, migrations, both secrets, keys readable,
+    projects and keys, the API key, the API's `/ready`, the statement timeout)
+    must all be reported. (Added once `doctor` reached main; an earlier draft
+    skipped it when absent.)
 13. A key issued by the current CLI ingests an event.
+14. The API ran every step under `DATABASE_STATEMENT_TIMEOUT_MS=15000`, set in
+    the Compose file, and its log must show no cancelled statement.
 
 Any failure prints what was expected, what came back, and the API log tail,
 and exits 1. Cleanup always runs: `docker compose down -v`, the two image tags,

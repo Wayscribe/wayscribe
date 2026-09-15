@@ -11,3 +11,8 @@ export declare function containedIn(
   mismatches: string[],
   headerMaps?: ReadonlySet<string>
 ): void;
+export declare function doctorVerdict(
+  exitCode: number,
+  stdout: string,
+  required: readonly string[]
+): { ok: boolean; checks: number; problems: string[] };

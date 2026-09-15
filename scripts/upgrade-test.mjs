@@ -34,7 +34,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { clearTimeout, setTimeout } from "node:timers";
 import { setTimeout as sleep } from "node:timers/promises";
-import { containedIn, releaseTags } from "./upgrade-test-lib.mjs";
+import { containedIn, doctorVerdict, releaseTags } from "./upgrade-test-lib.mjs";
 
 /**
  * main immediately before the key rotation merge (d1bae55^1). It predates
@@ -499,6 +499,49 @@ function rotationTable(output) {
   return tables;
 }
 
+/**
+ * Checks `doctor` must pass on an upgraded installation. Every check it runs
+ * when given --api-url and --api-key, except ENCRYPTION_KEY_PREVIOUS, which is
+ * reported only during a rotation. The key checks pass because this test never
+ * uses the published defaults.
+ */
+const DOCTOR_REQUIRED = [
+  "Database reachable",
+  "PostgreSQL version",
+  "Migrations",
+  "ENCRYPTION_KEY",
+  "ADMIN_TOKEN",
+  "Keys readable",
+  "Projects and keys",
+  "API key",
+  "API reachable",
+  "Statement timeout"
+];
+
+/**
+ * The current build's `doctor`, as OPERATIONS.md §12 runs it: a one-off
+ * container with the API's environment, the API at its Compose name, and the
+ * baseline's API key. Any FAIL, WARN or SKIP, a required check missing, or a
+ * non-zero exit fails the test.
+ */
+async function runDoctor(apiKey, label) {
+  step(`Current: doctor, ${label}`);
+  const doctor = await cli(
+    CURRENT_IMAGE,
+    ["doctor", "--api-url", "http://api:8080", "--api-key", apiKey],
+    { allowFailure: true }
+  );
+  // stdout only: Compose reports the one-off container's lifecycle on stderr,
+  // which is kept for the failure message.
+  console.log(doctor.stdout.trimEnd().replace(/^/gm, "        "));
+  const verdict = doctorVerdict(doctor.status, doctor.stdout, DOCTOR_REQUIRED);
+  check(
+    verdict.ok,
+    `doctor ${label}: exit 0, ${String(verdict.checks)} checks, every one PASS`,
+    `${verdict.problems.join("\n")}\n${tail(doctor.stderr, 20)}`
+  );
+}
+
 /** How many requests the echo destination received carrying the marker header. */
 async function markerReceipts(image) {
   const logs = await compose(image, ["logs", "--no-color", "--no-log-prefix", "replay-echo"]);
@@ -881,6 +924,8 @@ async function main() {
     ...events[J3.journeyId].map((event) => `event ${event.id}`)
   ]);
 
+  await runDoctor(oldKey, "after upgrade, before re-encryption");
+
   step("Current: rotate:reencrypt in upgrade mode");
   const reencrypt = await cli(CURRENT_IMAGE, ["rotate:reencrypt"], { allowFailure: true });
   console.log(reencrypt.stdout.trimEnd().replace(/^/gm, "        "));
@@ -920,14 +965,7 @@ async function main() {
     "current, re-encrypted destination headers"
   );
 
-  step("Current: doctor");
-  const doctor = await cli(CURRENT_IMAGE, ["doctor"], { allowFailure: true });
-  if (/Unknown command/.test(doctor.stderr)) {
-    console.log("  skip  doctor is not in this build's CLI");
-  } else {
-    console.log((doctor.stdout + doctor.stderr).trimEnd().replace(/^/gm, "        "));
-    check(doctor.status === 0, "doctor passes against the upgraded database");
-  }
+  await runDoctor(oldKey, "after re-encryption");
 
   step("Current: a key issued by this build ingests");
   const newKey = apiKeyFrom(
@@ -947,6 +985,20 @@ async function main() {
       }
     ],
     "current API, current key"
+  );
+
+  // Every request above ran under the API's statement timeout (15 s, set in
+  // the Compose file). A cancelled statement answers 503 query_timeout, which
+  // the checks would already have failed on; the log is checked as well so a
+  // cancellation on a path the checks tolerate cannot pass unnoticed.
+  step("Current: statement timeout");
+  const apiLog = (await compose(CURRENT_IMAGE, ["logs", "--no-color", "api"])).stdout;
+  const cancelled = apiLog
+    .split("\n")
+    .filter((line) => line.includes("cancelled by DATABASE_STATEMENT_TIMEOUT_MS")).length;
+  check(
+    cancelled === 0,
+    `no statement was cancelled by the statement timeout (${String(cancelled)})`
   );
 
   console.log(`\nUpgrade from ${baseline.ref} to the working tree preserved every recorded read.`);

@@ -116,3 +116,36 @@ function compareHeaderMap(expected, actual, path, mismatches) {
     }
   }
 }
+
+/**
+ * Whether a `doctor` run passed as the upgrade test requires: exit 0, every
+ * check it printed PASS (a WARN or SKIP is not a pass here, because a freshly
+ * upgraded installation under test has nothing to warn about), and every
+ * required check present, so a check that silently stopped running is caught.
+ *
+ * Reads formatDoctor's layout: the status in four columns, two spaces, then the
+ * check name padded to 23 columns, then the detail.
+ *
+ * @param {number} exitCode
+ * @param {string} stdout
+ * @param {readonly string[]} required
+ * @returns {{ ok: boolean, checks: number, problems: string[] }}
+ */
+export function doctorVerdict(exitCode, stdout, required) {
+  const statuses = new Map();
+  for (const line of stdout.split("\n")) {
+    const status = line.slice(0, 4);
+    if (["PASS", "WARN", "FAIL", "SKIP"].includes(status) && line.slice(4, 6) === "  ") {
+      statuses.set(line.slice(6, 29).trim(), status);
+    }
+  }
+  const problems = [];
+  if (exitCode !== 0) problems.push(`doctor exited ${String(exitCode)}`);
+  for (const [name, status] of statuses) {
+    if (status !== "PASS") problems.push(`${name}: ${status}`);
+  }
+  for (const name of required) {
+    if (!statuses.has(name)) problems.push(`${name}: not reported`);
+  }
+  return { ok: problems.length === 0, checks: statuses.size, problems };
+}
