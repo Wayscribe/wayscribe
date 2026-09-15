@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { serializeRequest, urlForLog } from "./log-url.js";
+import { serializeError, serializeRequest, urlForLog } from "./log-url.js";
 
 describe("urlForLog", () => {
   it.each([
@@ -14,6 +14,27 @@ describe("urlForLog", () => {
     ["/v1/search?1234=x", "/v1/search?[REDACTED]"]
   ])("logs %s as %s", (url, logged) => {
     expect(urlForLog(url)).toBe(logged);
+  });
+});
+
+describe("serializeError", () => {
+  it("keeps type, message, stack, code, and cause, and drops rawPacket at every level", () => {
+    const cause = Object.assign(new Error("inner"), {
+      code: "HPE_INVALID",
+      rawPacket: Buffer.from("Authorization: Bearer fr_inner")
+    });
+    const error = Object.assign(new TypeError("outer", { cause }), {
+      statusCode: 400,
+      rawPacket: Buffer.from("Authorization: Bearer fr_outer")
+    });
+
+    const logged = serializeError(error);
+
+    expect(logged).toMatchObject({ type: "TypeError", message: "outer", statusCode: 400 });
+    expect(logged.stack).toContain("outer");
+    expect(logged).not.toHaveProperty("rawPacket");
+    expect(logged["cause"]).toMatchObject({ type: "Error", message: "inner", code: "HPE_INVALID" });
+    expect(logged["cause"]).not.toHaveProperty("rawPacket");
   });
 });
 

@@ -253,3 +253,96 @@ describe("query strings in the log", () => {
     await app.close();
   });
 });
+
+describe("a request too malformed for HTTP", () => {
+  // Node's parser rejects it before Fastify sees a request, and Fastify's
+  // default client-error handler logged `{ err }` at trace. The parser's error
+  // carries `rawPacket`, the request bytes as received: every header, the
+  // bearer key among them, and the query string.
+  const TOKEN = "fr_rawpacket_token_5d2c81e9a0b4";
+  const VALUE = "CUST-RAWPACKET-3317";
+
+  /** Send raw bytes to the app and wait until the server closes the connection. */
+  async function sendRaw(port: number, bytes: string): Promise<string> {
+    const { connect } = await import("node:net");
+    return new Promise((resolve, reject) => {
+      const socket = connect(port, "127.0.0.1", () => {
+        socket.write(bytes);
+      });
+      let received = "";
+      socket.on("data", (chunk: Buffer) => {
+        received += chunk.toString("utf8");
+      });
+      socket.on("close", () => {
+        resolve(received);
+      });
+      socket.on("error", reject);
+    });
+  }
+
+  it("logs neither its bearer key nor its query values, even at trace", async () => {
+    const lines: string[] = [];
+    const app = buildApp({
+      db,
+      keyring,
+      adminToken: ADMIN_TOKEN,
+      logLevel: "trace",
+      logStream: {
+        write: (line: string) => {
+          lines.push(line);
+        }
+      }
+    });
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const { port } = app.server.address() as { port: number };
+
+    const response = await sendRaw(
+      port,
+      `GET /v1/search?q=${VALUE} HTTP/1.1\r\n` +
+        "Host: localhost\r\n" +
+        `Authorization: Bearer ${TOKEN}\r\n` +
+        "Content-Length: not-a-number\r\n\r\n"
+    );
+
+    expect(response).toMatch(/^HTTP\/1\.1 400 /);
+    // The failure is still logged, so the check is not passing on silence.
+    expect(lines.some((line) => line.includes("client error"))).toBe(true);
+    for (const line of lines) {
+      expect(line).not.toContain(TOKEN);
+      expect(line).not.toContain(VALUE);
+      // pino writes a Buffer as an array of byte values, so the token would
+      // not appear as text even when the packet is logged. The packet must
+      // not be there at all.
+      expect(line).not.toContain("rawPacket");
+    }
+    await app.close();
+  });
+
+  it("never serialises an error's rawPacket, whoever logs it", async () => {
+    const lines: string[] = [];
+    const app = buildApp({
+      db,
+      keyring,
+      adminToken: ADMIN_TOKEN,
+      logLevel: "info",
+      logStream: {
+        write: (line: string) => {
+          lines.push(line);
+        }
+      }
+    });
+    const error = Object.assign(new Error("Parse Error: Invalid character"), {
+      code: "HPE_INVALID_HEADER_TOKEN",
+      rawPacket: Buffer.from(`GET /?q=${VALUE} HTTP/1.1\r\nAuthorization: Bearer ${TOKEN}\r\n`)
+    });
+
+    app.log.error({ err: error }, "probe");
+
+    const written = lines.join("");
+    expect(written).toContain("HPE_INVALID_HEADER_TOKEN");
+    expect(written).not.toContain(TOKEN);
+    expect(written).not.toContain(VALUE);
+    expect(written).not.toContain("rawPacket");
+    await app.close();
+  });
+});

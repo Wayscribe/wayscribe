@@ -133,6 +133,11 @@ changes far less often.
   that matches no route gets the API's usual error shape, `404 not_found`,
   naming only the path. Logs kept from earlier versions still hold those values
   (`docs/OPERATIONS.md` §13).
+- **A malformed request's bytes no longer reach the API's log.** A request
+  Node's parser rejected was logged at `trace` with the parser's error, whose
+  `rawPacket` is the request as received: its `Authorization: Bearer fr_…` key
+  and its query string. Errors are now logged without that property, at any
+  level and from any log call.
 - **Built-in secret redaction now applies at any depth.** The shipped list paired
   each name with its `*.name` form, which together reached the top level of a
   payload and one level below it — and nothing inside an array, since an array

@@ -32,6 +32,56 @@ export function urlForLog(url: string): string {
   return `${url.slice(0, at)}?${parameters.join("&")}`;
 }
 
+/**
+ * Properties an error may carry that hold request bytes rather than a
+ * description of the failure.
+ *
+ * `rawPacket` is set by Node's HTTP parser on a request it cannot parse: the
+ * bytes as received, which include every header (a bearer API key among them)
+ * and the query string. Fastify's default client-error handler logs that error
+ * at trace.
+ */
+const REQUEST_BYTES = new Set(["rawPacket"]);
+
+/** How deep a chain of `cause`s is followed. */
+const MAX_CAUSE_DEPTH = 5;
+
+// A type alias rather than an interface, so it satisfies the index signature
+// in Fastify's serializer type.
+export type LoggedError = {
+  type: string;
+  message: string;
+  stack: string;
+  [property: string]: unknown;
+};
+
+/**
+ * Replaces pino's standard `err` serialiser, which copies every enumerable
+ * property of the error, `rawPacket` included.
+ *
+ * Same shape otherwise: type, message, stack, the error's own properties such
+ * as `code` and `statusCode`, and its cause.
+ */
+export function serializeError(error: Error): LoggedError {
+  return describeError(error, 0);
+}
+
+function describeError(error: Error, depth: number): LoggedError {
+  const logged: LoggedError = {
+    type: error.constructor.name,
+    message: error.message,
+    stack: error.stack ?? ""
+  };
+  for (const [property, value] of Object.entries(error)) {
+    if (REQUEST_BYTES.has(property) || property in logged) continue;
+    logged[property] = value;
+  }
+  if (error.cause instanceof Error && depth < MAX_CAUSE_DEPTH) {
+    logged["cause"] = describeError(error.cause, depth + 1);
+  }
+  return logged;
+}
+
 /** The request fields Fastify's default serialiser logs, with the URL made safe. */
 // A type alias rather than an interface, so it satisfies the index signature
 // in Fastify's serializer type.

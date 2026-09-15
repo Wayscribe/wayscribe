@@ -3,7 +3,7 @@ import type { Keyring } from "@flight-recorder/payload-security";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Knex } from "knex";
 import { unknownKeyWarning } from "./key-warnings.js";
-import { serializeRequest } from "./log-url.js";
+import { serializeError, serializeRequest } from "./log-url.js";
 import { createApiMetrics, type ApiMetrics } from "./metrics/api-metrics.js";
 import { registerDeletionRoutes } from "./routes/deletions.js";
 import { registerEventRoutes } from "./routes/events.js";
@@ -83,9 +83,11 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     logger: {
       level: options.logLevel ?? "info",
       redact: { paths: LOG_REDACT_PATHS, censor: "[REDACTED]" },
-      // The default serialiser logged `req.url` with its query string, so a
-      // search wrote the searched identifier into every request log line.
-      serializers: { req: serializeRequest },
+      // The default `req` serialiser logged `req.url` with its query string, so
+      // a search wrote the searched identifier into every request log line.
+      // The default `err` serialiser copied `rawPacket` from a request Node
+      // could not parse, which is the request's bytes, bearer key included.
+      serializers: { req: serializeRequest, err: serializeError },
       ...(options.logStream === undefined ? {} : { stream: options.logStream })
     },
     bodyLimit: options.bodyLimit ?? MAX_BATCH_EVENTS * maxEventPayloadBytes + BODY_LIMIT_HEADROOM,

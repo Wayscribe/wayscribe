@@ -808,6 +808,16 @@ Headers are not logged. As a second guard, the logger censors `authorization`
 and `cookie` in any `headers` object a log call includes, and also `x-api-key`,
 `x-flight-api-key`, and a response's `set-cookie` under `req` and `res`.
 
+A request too malformed for Node to parse never becomes a request line. At
+`trace` it is logged as `client error`, with the parser's error code and message.
+Node attaches the raw bytes it received to that error as `rawPacket`, headers
+and query string included; no error the API logs ever carries that property.
+
+One caveat remains: an error's own properties are logged, and a database error
+can describe the row it refused, as PostgreSQL's `detail` does for a unique
+violation. Those lines are at `warn` or `error`, for failures, and name columns
+the API writes, not request headers.
+
 Before this, the request line carried the full URL, so logs kept from an earlier
 version hold searched identifiers and Recent filters in the clear. Treat them as
 personal data, and let them age out or delete them.
