@@ -157,6 +157,16 @@ changes far less often.
 
 ### Security
 
+- **Header credentials filed by position or inside a header block are
+  redacted.** Name rules matched object keys only, so three ordinary shapes
+  were stored verbatim in the default capture mode, through the SDK and through
+  ingestion: fetch and undici header tuples (`[["Authorization", "Bearer …"]]`),
+  Node's interleaved `rawHeaders`, and the `_header` string of a
+  `http.ClientRequest`, which axios puts on `error.request`. A built-in or
+  `**.` name now also matches the name of a two-element `[name, value]` array
+  element, a name in a flat string array that reads as a header list, and a
+  `Name: value` line in a CRLF-delimited header block. `SECURITY.md` §4 lists
+  exactly which shapes are covered. Rows stored earlier keep what they held.
 - **Searched identifiers no longer reach the API's log.** Fastify's request log
   line carried `req.url` whole, so every `GET /v1/search?q=…` wrote the searched
   value, usually a customer identifier, to the log at `info`, along with the

@@ -192,13 +192,31 @@ The grammar is small on purpose, so a rule never matches more than you expected:
 | `*.password` | `password` one level down, under any key |
 | `items[*].cardNumber` | `cardNumber` in every element of `items` |
 | `authorization` | that key at the top level only |
-| `**.authorization` | that key **wherever it appears**, at any depth, including inside arrays |
+| `**.authorization` | that name **wherever it is filed**, at any depth, in the shapes listed below |
 
 Use the `**.` form for anything that is a secret by virtue of its name rather
 than its location. The built-in list is written entirely that way, because a
 secret is identified by the name it is filed under and not by where in a request
 somebody happened to nest it — `config.headers.authorization` is three levels
 down and is exactly what an axios error carries.
+
+A `**.` rule, and every built-in name, is matched in exactly these shapes, with
+case, `-` and `_` ignored:
+
+- an object key at any depth, including in objects inside arrays and in the
+  contents of a `Map`, `Headers` or `URLSearchParams`
+- a name-value pair: an array element that is a two-element array whose first
+  item is a string, such as fetch's `[["Authorization", "Bearer …"]]`
+- an interleaved header list: a flat string array of even length whose
+  even-indexed items are all valid HTTP header names and include at least one
+  common header (`host`, `user-agent`, `content-type`, `authorization`, `cookie`
+  and a few others), such as Node's `rawHeaders`
+- a `Name: value` line in an HTTP header block: a string containing a CRLF, read
+  up to its first empty line, such as the `_header` of the `http.ClientRequest`
+  axios puts on `error.request`; only the secret line's value is replaced
+
+A name filed any other way, such as inside a string that is not a header block,
+is not matched. Payload strings are not masked by shape.
 
 Matched values are replaced with `[REDACTED]` rather than deleted, so the
 timeline still shows that the field existed.
