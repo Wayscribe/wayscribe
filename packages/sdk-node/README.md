@@ -13,7 +13,11 @@ leaves your infrastructure.
   recorder failure is counted, not thrown. Details below.
 - Apache-2.0.
 
-## Install
+## Install (not yet on npm)
+
+**The package is not published yet.** Until it is, install it from a clone of
+this repository, as [`examples/instrument-a-service`](../../examples/instrument-a-service/README.md)
+does. Once it is published, this will be:
 
 ```bash
 npm install @flight-recorder/node

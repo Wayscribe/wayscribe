@@ -319,8 +319,16 @@ destructive.
 [CHANGELOG.md](CHANGELOG.md) lists what is done and what is known to be missing.
 
 The install that replaces the clone is already written and waiting on that
-publish — [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml),
-which pulls images, migrates on first boot, and needs no checkout.
+publish; it is below, under its own heading, so it is never read as today's
+instructions.
+
+### Installing without a checkout, once the images are published
+
+**This does not work yet.** The container images and the npm package are not
+published. Until they are, use [Try it](#try-it), which runs from a clone.
+
+[`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
+will pull the images, migrate on first boot, and need no checkout.
 
 Flight Recorder keeps everything in one PostgreSQL database and expects you to
 bring your own: the one your team already backs up, monitors, and holds the
@@ -357,6 +365,8 @@ docker compose -f compose.published.yaml run --rm --entrypoint node api \
 
 The key is printed once. Give it to your service as
 `FLIGHT_RECORDER_API_KEY` and follow [Instrument your own service](#instrument-your-own-service).
+
+### Not in V0
 
 **No AI features in V0.** A future bring-your-own-key layer may be added as an
 optional, disabled-by-default module. It will never be required, and nothing
