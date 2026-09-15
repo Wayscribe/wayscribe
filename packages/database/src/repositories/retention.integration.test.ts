@@ -169,4 +169,51 @@ describe("retention sweep", () => {
     await sweepExpiredJourneys(db);
     expect((await sweepExpiredJourneys(db)).ran).toBe(true);
   });
+
+  it("leaves the lock free after every sweep while the pool is under contention", async () => {
+    // The lock used to be taken and released by separate pooled queries. With
+    // other queries competing for connections, the release could land on a
+    // different connection, fail, and leave the lock held by an idle pooled
+    // backend: every later sweep on every replica then skipped until restart.
+    for (const env of [shortEnv, longEnv]) {
+      for (let i = 0; i < 6; i += 1) await journey(`jrn_p${env}${String(i)}`, env, 400);
+    }
+
+    let saturating = true;
+    const saturate = async (): Promise<void> => {
+      while (saturating) await db.raw("select pg_sleep(0.005)");
+    };
+    const saturators = Array.from({ length: 20 }, () => saturate());
+
+    // One connection of its own, so a probe's lock and unlock share a session.
+    const probe = knex({
+      ...createKnexConfig(container.getConnectionUri()),
+      pool: { min: 1, max: 1 }
+    });
+    const key = 4_919_072_026;
+    try {
+      for (let sweep = 0; sweep < 8; sweep += 1) {
+        const result = await sweepExpiredJourneys(db, {
+          batchSize: 1,
+          maxBatchesPerEnvironment: 1
+        });
+        expect(result.ran).toBe(true);
+
+        const holders: unknown = await probe.raw(
+          `select count(*)::int as n from pg_locks
+            where locktype = 'advisory' and classid = ? and objid = ? and objsubid = 1`,
+          [Math.floor(key / 2 ** 32), key % 2 ** 32]
+        );
+        expect((holders as { rows: { n: number }[] }).rows[0]?.n).toBe(0);
+
+        const taken: unknown = await probe.raw(`select pg_try_advisory_lock(${String(key)}) as ok`);
+        expect((taken as { rows: { ok: boolean }[] }).rows[0]?.ok).toBe(true);
+        await probe.raw(`select pg_advisory_unlock(${String(key)})`);
+      }
+    } finally {
+      saturating = false;
+      await Promise.all(saturators);
+      await probe.destroy();
+    }
+  });
 });
