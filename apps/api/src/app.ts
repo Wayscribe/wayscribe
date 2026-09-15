@@ -67,6 +67,31 @@ const MAX_PARAM_LENGTH = 128 * 9;
 const BODY_LIMIT_HEADROOM = 64 * 1024;
 
 /**
+ * The refusals that happen before a route runs, in codes this API owns.
+ *
+ * Fastify raises these from its content-type parser, and the error handler used
+ * to publish its codes verbatim. That is the framework's vocabulary in a
+ * document another implementation is meant to satisfy: it says that swapping
+ * the web framework is a wire change, and it tells the author of a client in
+ * another language to branch on a string that means nothing outside Node.
+ *
+ * The HTTP statuses are unchanged and are still the stable part, which is what
+ * the ingestion contract tells a client to branch on. An empty body and a body
+ * that is not JSON share one code: both mean the body could not be read, both
+ * are a 400, and the message from Fastify already says which happened.
+ *
+ * Only these four are mapped, because only these four can actually be produced
+ * by the ingestion routes; `apps/api/src/app.test.ts` sends each of them on both
+ * routes and fails on any `FST_ERR` code that reaches a client.
+ */
+const TRANSPORT_CODES: Readonly<Record<string, string>> = {
+  FST_ERR_CTP_BODY_TOO_LARGE: "payload_too_large",
+  FST_ERR_CTP_INVALID_MEDIA_TYPE: "unsupported_media_type",
+  FST_ERR_CTP_INVALID_JSON_BODY: "malformed_json",
+  FST_ERR_CTP_EMPTY_JSON_BODY: "malformed_json"
+};
+
+/**
  * Log redaction paths.
  *
  * SECURITY.md section 12 requires that logs omit secrets. Fastify's default
@@ -215,7 +240,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
           status >= 500
             ? "internal_error"
             : fastifyError.statusCode !== undefined && fastifyError.code !== undefined
-              ? fastifyError.code
+              ? (TRANSPORT_CODES[fastifyError.code] ?? fastifyError.code)
               : "bad_request",
         // A 500's message can carry internals; anything else is the client's
         // own mistake described back to them.

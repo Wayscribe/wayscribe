@@ -15,6 +15,17 @@ changes far less often.
 
 ### Changed
 
+- **The refusals that happen before a route runs carry codes this API owns.**
+  A body over the limit was `413 FST_ERR_CTP_BODY_TOO_LARGE`, a content type
+  with no parser `415 FST_ERR_CTP_INVALID_MEDIA_TYPE`, and a body that is not
+  JSON or is empty `400 FST_ERR_CTP_INVALID_JSON_BODY` or
+  `FST_ERR_CTP_EMPTY_JSON_BODY`. Those are Fastify's vocabulary, and publishing
+  them in a contract another implementation is meant to satisfy says that
+  swapping the web framework is a wire change. They are now `payload_too_large`,
+  `unsupported_media_type` and `malformed_json` (which covers both 400s: both
+  mean the body could not be read, and the message says which). The HTTP
+  statuses and the error body are unchanged, and the status is still what a
+  client should branch on.
 - **Three protocol error codes are gone.** `missing_required_field`,
   `invalid_timestamp` and `invalid_operation` were in the public list in
   `packages/protocol` and in `EVENT_PROTOCOL.md` section 12, and no code path
