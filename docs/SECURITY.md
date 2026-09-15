@@ -104,6 +104,71 @@ Redaction replacements should preserve evidence that a value existed:
 }
 ```
 
+### What a name rule reaches
+
+A built-in secret name, or a configured `**.name` rule, is matched against the
+name a value is filed under, with case, `-` and `_` ignored. It is filed under
+a name in exactly these shapes, in the SDK and on the server alike:
+
+- **an object key**, at any depth, including in objects that are elements of an
+  array, and in the rendered contents of a `Map`, `Headers` or
+  `URLSearchParams`
+- **a name-value pair**: an array element that is itself a two-element array
+  whose first item is a string, such as the `[["Authorization", "Bearer …"]]`
+  header list fetch and undici accept. The second item is replaced.
+- **a name-value object**: an array element that is a plain object with exactly
+  the keys `name` and `value`, as in a HAR file, or `key` and `value`, as in
+  Playwright's `headersArray`, with a string name. `value` is replaced.
+- **an interleaved header list**: a flat array of strings of even length whose
+  every even-indexed item is a valid HTTP header name token or an HTTP/2
+  pseudo-header (`:` followed by a token, such as `:path` or `:status`), and at
+  least one of them a common header (`host`, `user-agent`, `content-type`,
+  `authorization`, `cookie`, the HTTP/2 pseudo-headers and a few others). Node's
+  `rawHeaders` is this shape, from `node:http` and `node:http2`, on a server's
+  request and on a client's response. The item after a secret name is replaced.
+  A list of strings that fails any of those tests is left as it is, so
+  `["password", "x"]` on its own is not reinterpreted.
+- **a header line in an HTTP header block**: a string holding a CRLF, read line
+  by line up to the first empty line, where a line `Name: value` with a secret
+  name has the rest of that line replaced, as in `Authorization: [REDACTED]`. A
+  `http.ClientRequest`'s `_header`, which axios puts on `error.request`, is this
+  shape. Nothing else in the string is touched, and a string without a CRLF is
+  never examined.
+
+In the three positional shapes, a value that is itself one of those common
+header names is kept, so a list of header names such as
+`allowedHeaders: ["Authorization", "Content-Type"]` or a `vary` list is not
+altered. No credential is a header name.
+
+A secret filed in any other shape keeps whatever the payload held. Payload
+strings are deliberately not masked by shape (ADR-046). These are known and not
+covered:
+
+- **Header values held as `Buffer`s**, as undici can report them. A `Buffer` is
+  stored as its bytes, `{"type": "Buffer", "data": [...]}`, and no name rule
+  reads bytes.
+- **A header block whose lines end in LF alone, or CR alone**, including one
+  that mixes them with CRLF before the secret line. Only CRLF marks a header
+  block.
+- **A header line after an empty line**, such as a second request logged after
+  the first one's headers. The first empty line ends the block.
+- **obs-fold continuation lines.** In `Authorization: Bearer\r\n abc`, only
+  the first line's value is replaced, and ` abc` is stored.
+- **Names padded with whitespace**: a key `" Authorization"`, a pair or list
+  item `" Authorization"`, a header line indented by a blank, or
+  `Authorization :` with a blank before the colon.
+- **Arrays of three or more elements**, such as `["authorization", "…", "x"]`,
+  which are not pairs, and interleaved lists holding any item that is not a
+  string.
+- **Header-looking text inside prose**: a line such as `x Authorization: …`
+  whose name is not at the start of the line.
+
+The shapes also replace some values that were not secrets: a two-element array
+such as `["secret", "public-tag"]`, and a line such as `Secret: the surprise
+party` in text that happens to use CRLF line endings. Scope a rule with a dotted
+path in your own `redact` list if a name on the built-in list appears in such a
+place.
+
 ### Credentials inside error text
 
 Path redaction matches the name a value is filed under, so it cannot reach a
@@ -157,7 +222,9 @@ What it does not catch, by design or by limitation:
 - **A name without separators.** `DBPASSWORD` is one word and not on any list.
 - **The error's `type` and `code`.** Only `message`, and a kept `stack`, are
   masked.
-- **`metadata` strings and payload strings.** Those keep path redaction only.
+- **`metadata` strings and payload strings.** Those keep name redaction only,
+  which reaches a header line inside an HTTP header block and no other text
+  (section 4, "What a name rule reaches").
 - **Rows written before this masking existed.** Their messages and stacks are
   stored as they arrived, until they are deleted (section 14, deletion on
   demand).
@@ -170,11 +237,14 @@ the protocol's limit and then cuts the result, a message to 4096 characters and
 a stack passed to `record()` to 16384, ending in `[TRUNCATED]`; it masks the cut
 text once more, so the server's pass leaves it unchanged.
 
-The content hash stored with each event is an unkeyed SHA-256 over the event as
-received, before any masking or redaction. With read access to the database, a
-low-entropy secret that was masked can be guessed offline by rebuilding the
-event with a candidate and comparing hashes. This was already true of redacted
-payload values, and is recorded as a known limitation in ADR-046.
+The content hash stored with each event covers the event as received, before any
+masking or redaction, so that a policy change cannot turn an identical resend
+into a conflict (ADR-021). It is an HMAC-SHA256 under a subkey of
+`ENCRYPTION_KEY`, stored as `h1.<keyId>.<hex>` (ADR-048), so a database read
+without the key cannot confirm guesses at a masked or redacted value by
+rebuilding the event and comparing hashes. Rows written before ADR-048 keep an
+unkeyed SHA-256, with no prefix, and remain that oracle for what they masked
+until they are deleted (section 14).
 
 ## 5. API keys
 
@@ -238,6 +308,12 @@ Rotation is a grace period rather than a cut-over (ADR-044):
   reissued.
 - `rotate:reencrypt` rewrites the stored values and tokens, and `rotate:status`
   confirms nothing is left under the old key before it is removed.
+- Event content hashes are compared under the key they name, current or
+  previous, and are never rewritten: a hash can only be recomputed from the
+  event, which is not stored. After the previous key is removed, a duplicate
+  delivery of an event whose hash names it is refused with 409
+  `event_id_conflict`, which the SDK treats as permanent. The stored event is
+  unaffected (ADR-048).
 - GCM authentication makes a value under the wrong key fail to decrypt rather
   than produce garbage. A value under a key that is not configured is reported
   with that key's id, once per id, and the API logs a count at boot.

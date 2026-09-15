@@ -296,7 +296,11 @@ items[*].cardNumber
 **.authorization
 ```
 
-The last form matches that key name at any depth, including inside arrays. Every
+The last form matches that name at any depth wherever it is filed: as an object
+key, as the name of a two-element `[name, value]` array element or of a
+`{ name, value }` or `{ key, value }` array element, as a name in an
+interleaved header list such as HTTP/1.1 or HTTP/2 `rawHeaders`, and as a header line in a
+CRLF-delimited header block. SECURITY.md section 4 defines each shape. Every
 other form is anchored at the root, which is why the built-in secret list is
 written entirely in the `**.` form — see ADR-035.
 

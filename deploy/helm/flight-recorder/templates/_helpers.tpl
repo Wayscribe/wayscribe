@@ -52,3 +52,35 @@ Environment shared by everything that talks to the database.
       name: {{ include "flight-recorder.secretName" . }}
       key: DATABASE_URL
 {{- end -}}
+
+{{/*
+NetworkPolicy egress rules shared by the API and migrate pods.
+*/}}
+{{- define "flight-recorder.dnsEgress" -}}
+- ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+{{- end }}
+{{- define "flight-recorder.databaseEgress" -}}
+{{- if .Values.postgresql.enabled -}}
+- to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+          app.kubernetes.io/instance: {{ .Release.Name }}
+          app.kubernetes.io/component: postgresql
+  ports:
+    - port: 5432
+      protocol: TCP
+{{- else -}}
+- ports:
+    - port: {{ .Values.networkPolicy.database.port }}
+      protocol: TCP
+  {{- with .Values.networkPolicy.database.to }}
+  to:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

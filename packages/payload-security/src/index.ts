@@ -11,7 +11,7 @@ export {
   type StoredApiKey
 } from "./api-key.js";
 export { applyCapture, redactAlways, type CaptureMode, type CapturePolicy } from "./capture.js";
-export { contentHash } from "./content-hash.js";
+export { contentHash, contentHashMatches, legacyContentHash } from "./content-hash.js";
 export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
 // The single-key encryptField and decryptField stay internal: the keyring is
 // the only way in, so nothing outside this package can write a value without a

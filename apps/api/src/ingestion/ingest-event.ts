@@ -12,6 +12,7 @@ import {
   redactAlways,
   checkLimits,
   contentHash,
+  contentHashMatches,
   encryptValue,
   maskSecretsInText,
   searchTokens,
@@ -50,7 +51,7 @@ export interface IngestResult {
  *
  * Ordering is deliberate: limits are enforced before anything walks the payload,
  * the content hash is taken over the event as received (before redaction, per
- * ADR-021), and the diff is computed after redaction so a stored diff can never
+ * ADR-021, keyed per ADR-048), and the diff is computed after redaction so a stored diff can never
  * carry a secret.
  */
 export async function ingestEvent(
@@ -76,7 +77,9 @@ export async function ingestEvent(
   const environment = authorizeEnvironment(context, event.environment);
   if (!environment.ok) return reject(403, environment.code, environment.message);
 
-  const hash = contentHash(event);
+  // Keyed (ADR-048): the event is unmasked here and the hash is stored beside
+  // the masked row, so a bare hash would confirm guesses at what was masked.
+  const hash = contentHash(keyring, event);
 
   const policy = {
     mode: context.captureMode as CaptureMode,
@@ -109,30 +112,35 @@ export async function ingestEvent(
     // transaction back, so this never leaves an orphan journey behind.
     await ensureJourney(trx, context.projectId, journeyFacts);
 
-    const outcome = await insertEvent(trx, context.projectId, {
-      id: event.id,
-      environmentId: context.environmentId,
-      journeyId: event.journeyId,
-      parentEventId: event.parentEventId ?? null,
-      protocolVersion: "0.1",
-      contentHash: hash,
-      operation: event.operation,
-      name: event.name,
-      service: event.service,
-      eventTimestamp: new Date(event.timestamp),
-      durationMs: event.durationMs ?? null,
-      traceId: event.traceId ?? null,
-      spanId: event.spanId ?? null,
-      messageId: event.messageId ?? null,
-      correlationId: event.correlationId ?? null,
-      inputPayload: input,
-      outputPayload: output,
-      payloadDiff: diff,
-      error: redactAlways(storedError(event.error, policy), policy),
-      runtimeMetadata: redactAlways(event.runtime, policy),
-      deploymentMetadata: redactAlways(event.deployment, policy),
-      customMetadata: redactAlways(event.metadata, policy)
-    });
+    const outcome = await insertEvent(
+      trx,
+      context.projectId,
+      {
+        id: event.id,
+        environmentId: context.environmentId,
+        journeyId: event.journeyId,
+        parentEventId: event.parentEventId ?? null,
+        protocolVersion: "0.1",
+        contentHash: hash,
+        operation: event.operation,
+        name: event.name,
+        service: event.service,
+        eventTimestamp: new Date(event.timestamp),
+        durationMs: event.durationMs ?? null,
+        traceId: event.traceId ?? null,
+        spanId: event.spanId ?? null,
+        messageId: event.messageId ?? null,
+        correlationId: event.correlationId ?? null,
+        inputPayload: input,
+        outputPayload: output,
+        payloadDiff: diff,
+        error: redactAlways(storedError(event.error, policy), policy),
+        runtimeMetadata: redactAlways(event.runtime, policy),
+        deploymentMetadata: redactAlways(event.deployment, policy),
+        customMetadata: redactAlways(event.metadata, policy)
+      },
+      (storedHash) => contentHashMatches(keyring, event, storedHash)
+    );
 
     if (outcome.kind === "conflict") {
       return reject(

@@ -1,0 +1,138 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/*
+Optional NetworkPolicies, off by default (values.yaml says why).
+
+Each pod gets one policy naming both directions, so a pod selected here denies
+whatever its policy does not list. DNS is allowed to any destination on port 53:
+where the cluster DNS runs differs between distributions, and naming it wrongly
+fails every lookup, which is every connection.
+*/}}
+{{- $fullname := include "flight-recorder.fullname" . }}
+{{- $name := include "flight-recorder.name" . }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-api
+  labels:
+    {{- include "flight-recorder.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: api
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+      {{- with .Values.networkPolicy.ingressFrom }}
+      # The web pod is always a peer: its server calls the API for every page,
+      # and narrowing ingressFrom to an ingress controller must not cut it off.
+      from:
+        {{- toYaml . | nindent 8 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/component: web
+      {{- end }}
+    {{- with .Values.api.metricsPort }}
+    # Scraped from the pods. Not narrowed by ingressFrom, which describes who
+    # sends events, not who scrapes.
+    - ports:
+        - port: {{ . }}
+          protocol: TCP
+    {{- end }}
+  egress:
+    {{- include "flight-recorder.dnsEgress" . | nindent 4 }}
+    {{- include "flight-recorder.databaseEgress" . | nindent 4 }}
+    {{- with .Values.networkPolicy.apiExtraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-web
+  labels:
+    {{- include "flight-recorder.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: web
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - ports:
+        - port: 3000
+          protocol: TCP
+      {{- with .Values.networkPolicy.ingressFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  egress:
+    {{- include "flight-recorder.dnsEgress" . | nindent 4 }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: api
+      ports:
+        - port: 8080
+          protocol: TCP
+{{- if .Values.migrations.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-migrate
+  labels:
+    {{- include "flight-recorder.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: migrate
+  policyTypes: ["Ingress", "Egress"]
+  egress:
+    {{- include "flight-recorder.dnsEgress" . | nindent 4 }}
+    {{- include "flight-recorder.databaseEgress" . | nindent 4 }}
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-postgresql
+  labels:
+    {{- include "flight-recorder.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: postgresql
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        {{- range $component := list "api" "migrate" }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/component: {{ $component }}
+        {{- end }}
+      ports:
+        - port: 5432
+          protocol: TCP
+  egress: []
+{{- end }}
+{{- end }}

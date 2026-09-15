@@ -223,6 +223,40 @@ changes far less often.
 
 ### Security
 
+- **The SDK is published with npm trusted publishing and provenance.** The
+  `publish-sdk` job used a long-lived `NPM_TOKEN` and attached no provenance. It
+  now exchanges a GitLab OIDC token for a short-lived publish token and signs a
+  provenance statement, through `scripts/publish-sdk.sh`. The trusted publisher
+  must be registered on npmjs.com before the first release
+  (`docs/OPERATIONS.md` §11).
+- **The Helm chart runs every pod locked down.** Non-root users (the images'
+  `node` user, and uid 70 for the bundled PostgreSQL), `seccompProfile:
+  RuntimeDefault`, no privilege escalation, all capabilities dropped, and a
+  read-only root filesystem with emptyDirs for `/tmp`, the Next.js cache and the
+  PostgreSQL socket directory. `networkPolicy.enabled`, off by default, adds a
+  NetworkPolicy per pod limiting ingress to the HTTP ports and egress to DNS,
+  the database and the API; replay destinations go in
+  `networkPolicy.apiExtraEgress` (`deploy/helm/README.md`).
+- **The stored content hash is keyed.** It covered the event as received,
+  before masking, and was an unkeyed SHA-256, so anyone who could read the
+  database could rebuild an event from its row with guesses in place of
+  `[REDACTED]` and confirm a masked dictionary password by hash match; the
+  security review did. It is now an HMAC-SHA256 under a subkey of
+  `ENCRYPTION_KEY`, stored as `h1.<keyId>.<hex>`, and a resend is compared under
+  the key the stored hash names (ADR-048).
+- **Header credentials filed by position or inside a header block are
+  redacted.** Name rules matched object keys only, so ordinary header shapes
+  were stored verbatim in the default capture mode, through the SDK and through
+  ingestion: fetch and undici header tuples (`[["Authorization", "Bearer …"]]`),
+  Node's interleaved `rawHeaders` from HTTP/1.1 and HTTP/2, HAR and Playwright
+  `{ name, value }` arrays, and the `_header` string of a `http.ClientRequest`,
+  which axios puts on `error.request`. A built-in or `**.` name now also matches
+  the name of a two-element `[name, value]` array element, of a `{ name, value }`
+  or `{ key, value }` array element, a name in a flat string array that reads as
+  a header list (HTTP/2 pseudo-headers included), and a `Name: value` line in a
+  CRLF-delimited header block. A value that is itself a header name is kept.
+  `SECURITY.md` §4 lists exactly which shapes are covered and which are not.
+  Rows stored earlier keep what they held.
 - **Searched identifiers no longer reach the API's log.** Fastify's request log
   line carried `req.url` whole, so every `GET /v1/search?q=…` wrote the searched
   value, usually a customer identifier, to the log at `info`, along with the
@@ -381,6 +415,13 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
+- **Content hashes need no migration.** Rows written before this release keep
+  their unkeyed hash, and a resend is still compared against it, so a delivery
+  that straddles the upgrade dedupes. Those rows remain an oracle for what they
+  masked until they are deleted or retention removes them. After a key rotation
+  completes, a duplicate delivery of an event recorded under the removed key is
+  answered 409 `event_id_conflict`, which the SDK treats as permanent; the stored
+  event is unaffected.
 - **Migration 015 rewrites every replay run row.** It replaces each value in
   `replay_runs.request_headers` with `[REDACTED]` in one transaction (about 2
   seconds for 100,000 runs, blocking updates to existing runs but not inserts,

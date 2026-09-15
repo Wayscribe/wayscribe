@@ -1,4 +1,11 @@
 import { renderExotic } from "./exotic.js";
+import {
+  isInterleavedHeaders,
+  isKnownHeaderName,
+  isNamedPair,
+  maskHeaderLines,
+  namedValueKey
+} from "./http-headers.js";
 
 export const REDACTED = "[REDACTED]";
 export const CIRCULAR = "[CIRCULAR]";
@@ -107,6 +114,14 @@ function walk(
   anyDepth: ReadonlySet<string>,
   seen: Set<object>
 ): unknown {
+  if (typeof value === "string") {
+    // A serialised header block, such as a ClientRequest's `_header`, files a
+    // header under a line rather than a key. Only its secret-named lines are
+    // masked, never the string by shape (ADR-046).
+    return anyDepth.size === 0
+      ? value
+      : maskHeaderLines(value, (name) => anyDepth.has(normaliseName(name)), REDACTED);
+  }
   if (value === null || typeof value !== "object") return value;
 
   if (seen.has(value)) return CIRCULAR;
@@ -149,7 +164,38 @@ function walk(
       // Descends even with nothing remaining. Returning early here is what let
       // an array swallow the rules: elements were walked with no paths, so a
       // secret one level inside a list was never examined again.
-      return value.map((item) => walkOrRedact(item, remaining, anyDepth, seen));
+      if (remaining.some((path) => path.length === 0)) return value.map(() => REDACTED);
+
+      // Headers filed by position rather than by key: Node's `rawHeaders` as
+      // `[name, value, ...]`, fetch's `[[name, value], ...]`, and HAR's
+      // `[{ name, value }, ...]`. An any-depth name covers them as it covers a
+      // key, or `Authorization` in a header tuple was stored verbatim in the
+      // default capture mode. A value that is itself a header name is kept,
+      // because that list is configuration, not headers.
+      const isSecretName = (name: string): boolean => anyDepth.has(normaliseName(name));
+      const replaces = (name: string, child: unknown): boolean =>
+        isSecretName(name) && !isKnownHeaderName(child);
+      const interleaved = anyDepth.size > 0 && isInterleavedHeaders(value);
+      return value.map((item, index) => {
+        if (anyDepth.size > 0) {
+          if (interleaved && index % 2 === 1 && replaces(value[index - 1] as string, item)) {
+            return REDACTED;
+          }
+          if (isNamedPair(item) && replaces(item[0], item[1])) return [item[0], REDACTED];
+          const nameKey = namedValueKey(item);
+          if (nameKey !== undefined) {
+            const entry = item as Record<string, unknown>;
+            if (replaces(entry[nameKey] as string, entry["value"])) {
+              const replaced: Record<string, unknown> = {};
+              for (const key of Object.keys(entry)) {
+                replaced[key] = key === "value" ? REDACTED : entry[key];
+              }
+              return replaced;
+            }
+          }
+        }
+        return walk(item, remaining, anyDepth, seen);
+      });
     }
 
     const result: Record<string, unknown> = {};
