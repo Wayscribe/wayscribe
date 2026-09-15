@@ -416,6 +416,10 @@ changes far less often.
 
 ### Fixed
 
+- **`cp .env.example .env` no longer empties the interface.** `.env.example`
+  set `PORT=8080`, the web container reads the root `.env`, and Next listened on
+  8080 inside it, so `localhost:3000` answered nothing. The web service now pins
+  `PORT` to 3000, and `.env.example` no longer sets `PORT`.
 - **Search is fast at a million journeys.** It walked every journey in the
   project and probed its events and aliases, which took about 1.5 seconds at
   120,000 journeys and 20 seconds or more at a million, whatever the value. It
