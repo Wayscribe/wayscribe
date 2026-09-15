@@ -758,8 +758,19 @@ once from firing it.
 
 Every statement the API runs is cancelled after `DATABASE_STATEMENT_TIMEOUT_MS`
 milliseconds, 15000 by default. That covers ingestion, search and the other
-reads, and the retention sweep's statements, so one slow query cannot hold a
-connection ingestion needs. The request gets 503 `query_timeout` with its request
+reads, so one slow query cannot hold a connection ingestion needs.
+
+Deletions are the exception. Each retention batch, and each transaction of an
+admin's journey deletion, erasure, or destination deletion, lifts the timeout
+for itself with `SET LOCAL statement_timeout = 0`. They are bounded by batch
+size and started by the system or an operator, a journey with many events
+legitimately takes longer to cascade than a search should, and a retention batch
+cancelled every hour would never let the sweep reach the next environment. On a
+database with 1,000 expired journeys of 200 events each, one retention batch
+took 2.4 seconds with migration 016's index and 9.5 seconds without it, beside
+only 1,000 replay runs.
+
+The request gets 503 `query_timeout` with its request
 id; the API logs one warning naming the route and the request id, never the SQL
 or its parameters, and counts it in `flight_recorder_query_timeouts_total`.
 

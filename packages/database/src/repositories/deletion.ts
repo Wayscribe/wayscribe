@@ -4,6 +4,7 @@ import {
   type Keyring
 } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
+import { withoutStatementTimeout } from "../statement-timeout.js";
 import { lockHolderAlive, withTransactionLock } from "./advisory-lock.js";
 import { recordAudit, updateAuditMetadata } from "./audit.js";
 import { RETENTION_LOCK_KEY } from "./retention.js";
@@ -81,6 +82,7 @@ export async function deleteJourney(
   input: { projectId: string; journeyId: string; actor: string }
 ): Promise<JourneyDeletion> {
   return db.transaction(async (trx): Promise<JourneyDeletion> => {
+    await withoutStatementTimeout(trx);
     const deleted: unknown = await trx("journeys")
       .where({ project_id: input.projectId, id: input.journeyId })
       .del()
@@ -351,6 +353,7 @@ export async function deleteReplayDestination(
   }
 
   return db.transaction(async (trx): Promise<DestinationDeletion> => {
+    await withoutStatementTimeout(trx);
     // FOR UPDATE conflicts with the key-share lock a replay_runs insert takes on
     // the destination it references. A replay starting while this runs waits,
     // then fails its foreign key once the destination is gone, instead of
@@ -548,6 +551,7 @@ async function deleteInBatches(
       async (
         trx
       ): Promise<{ journeys: number; events: number; auditId: string; done: boolean }> => {
+        await withoutStatementTimeout(trx);
         const deleted: unknown = await trx("journeys")
           .whereIn(
             ["project_id", "id"],

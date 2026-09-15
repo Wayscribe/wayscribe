@@ -208,6 +208,11 @@ The event row is immutable after insertion.
 | `created_at` | timestamptz | Required |
 | `completed_at` | timestamptz | Nullable |
 
+Indexes:
+
+- `(project_id, created_at)` for the recent replay list
+- `(project_id, journey_event_id)`, the foreign key to `journey_events`, so the cascade from a deleted event finds its runs without scanning the project's (migration `016_replay_runs_event_index.js`)
+
 ### `audit_events`
 
 | Column | Type | Notes |

@@ -44,7 +44,16 @@ changes far less often.
   cancels any statement the API runs past it, so one slow search can no longer
   hold a connection ingestion needs. The request gets 503 `query_timeout`; the
   log names the route and never the query. `0` disables it. The database CLI
-  does not apply it.
+  does not apply it, and deletions lift it for their own transactions: each
+  retention batch, and an admin's journey deletion, erasure, or destination
+  deletion, is bounded by its batch size, and under the timeout a large
+  retention batch failed on the same journeys every hour.
+- **Deleting a journey no longer scans every replay run for each of its
+  events.** `replay_runs (project_id, journey_event_id)`, the foreign key the
+  cascade from `journey_events` looks up, had no index. Migration
+  `016_replay_runs_event_index.js` adds it, built concurrently. A retention
+  batch of 1,000 journeys with 200 events each, beside 5,000 replay runs, went
+  from 41.6 seconds to 2.6.
 - **Prometheus metrics, on their own port.** `METRICS_PORT`, unset by default,
   starts a listener serving `/metrics` and nothing else: request counts and
   durations by route pattern, events accepted, duplicate and rejected, query

@@ -226,4 +226,42 @@ describe("schema constraints", () => {
       expect(await indexes()).toEqual(BOTH_VALID);
     });
   });
+
+  describe("replay runs' event foreign key index (016)", () => {
+    const MIGRATION = "016_replay_runs_event_index.js";
+
+    const indexes = async (): Promise<{ name: string; valid: boolean; definition: string }[]> => {
+      const result: unknown = await db.raw(
+        `select c.relname as name, i.indisvalid as valid, pg_get_indexdef(c.oid) as definition
+         from pg_index i join pg_class c on c.oid = i.indexrelid
+         where c.relname = 'replay_runs_journey_event_idx'`
+      );
+      return (result as { rows: { name: string; valid: boolean; definition: string }[] }).rows;
+    };
+
+    it("indexes the foreign key a cascaded event delete looks up, and removes it on the way down", async () => {
+      const [index] = await indexes();
+      expect(index?.valid).toBe(true);
+      expect(index?.definition).toContain("(project_id, journey_event_id)");
+
+      await db.migrate.down({ name: MIGRATION });
+      expect(await indexes()).toEqual([]);
+      await db.migrate.up({ name: MIGRATION });
+      expect((await indexes()).map((found) => found.valid)).toEqual([true]);
+    });
+
+    it("rebuilds the index a cancelled concurrent build left invalid", async () => {
+      await db.migrate.down({ name: MIGRATION });
+      await db.raw(
+        "create index replay_runs_journey_event_idx on replay_runs (project_id, journey_event_id)"
+      );
+      await db.raw(
+        "update pg_index set indisvalid = false where indexrelid = 'replay_runs_journey_event_idx'::regclass"
+      );
+      expect((await indexes()).map((found) => found.valid)).toEqual([false]);
+
+      await db.migrate.up({ name: MIGRATION });
+      expect((await indexes()).map((found) => found.valid)).toEqual([true]);
+    });
+  });
 });
