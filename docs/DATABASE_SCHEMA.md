@@ -107,6 +107,7 @@ Constraints and indexes:
 - composite primary key `(project_id, id)`
 - index `(project_id, environment_id, last_event_at desc)`
 - index `(project_id, entity_type, primary_entity_id_hash)`
+- index `(project_id, status, last_event_at, id)` for recent failures across environments (migration `013_journeys_status_recent_index.js`)
 - check event count is nonnegative
 
 ### `entity_aliases`
@@ -166,6 +167,7 @@ Constraints and indexes:
 - index `(project_id, trace_id)` where trace ID is not null
 - index `(project_id, message_id)` where message ID is not null
 - index `(project_id, correlation_id)` where correlation ID is not null
+- index `(project_id, service, journey_id)` for the recent list's service filter (migration 013)
 - optional index `(project_id, operation, event_timestamp desc)`
 - check `duration_ms >= 0`
 

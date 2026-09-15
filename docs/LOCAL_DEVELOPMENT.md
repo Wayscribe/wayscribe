@@ -160,6 +160,7 @@ your back is a library that behaves differently in tests.
 | `pnpm test:e2e` | Playwright browser suite; needs the API and web running |
 | `pnpm test:demo` | the product acceptance test; needs the demo stack up |
 | `pnpm db:migrate` · `pnpm db:rollback` · `pnpm db:seed` | schema and local seed |
+| `pnpm db:migrate:unlock` | release a migration lock a killed `migrate` left behind; only when no migrate is running |
 | `pnpm key:create <project> <environment> [name]` | issue an API key |
 | `pnpm key:revoke <prefix>` | revoke one; `key:list` shows prefixes |
 | `pnpm key:list [project]` | scope, name, and last use |
