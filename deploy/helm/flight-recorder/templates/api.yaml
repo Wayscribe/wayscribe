@@ -1,3 +1,11 @@
+{{- /* The API listens on 8080 inside the pod (PORT below). The API itself refuses
+a METRICS_PORT equal to PORT at boot; refusing here says so at render time,
+before a pod crash-loops. */}}
+{{- with .Values.api.metricsPort }}
+{{- if eq (int .) 8080 }}
+{{- fail "api.metricsPort cannot be 8080, the API's own port. Metrics are served on a port of their own; 9464 is conventional." }}
+{{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,6 +37,10 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            {{- with .Values.api.metricsPort }}
+            - name: metrics
+              containerPort: {{ . }}
+            {{- end }}
           env:
             {{- include "flight-recorder.databaseEnv" . | nindent 12 }}
             - name: ENCRYPTION_KEY
@@ -65,6 +77,12 @@ spec:
               value: {{ .Values.api.allowFullPayloadCapture | quote }}
             - name: REPLAY_ALLOWED_HOSTS
               value: {{ .Values.api.replayAllowedHosts | quote }}
+            - name: DATABASE_STATEMENT_TIMEOUT_MS
+              value: {{ .Values.api.databaseStatementTimeoutMs | quote }}
+            {{- with .Values.api.metricsPort }}
+            - name: METRICS_PORT
+              value: {{ . | quote }}
+            {{- end }}
           # /ready reports migrations_pending until schema is applied, so this is
           # a real readiness answer rather than "the process started".
           readinessProbe:

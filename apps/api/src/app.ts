@@ -1,17 +1,22 @@
+import { isStatementTimeout } from "@flight-recorder/database";
 import type { Keyring } from "@flight-recorder/payload-security";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import type { Knex } from "knex";
 import { unknownKeyWarning } from "./key-warnings.js";
+import { pathOf, serializeError, serializeRequest } from "./log-url.js";
+import { createApiMetrics, type ApiMetrics } from "./metrics/api-metrics.js";
 import { registerDeletionRoutes } from "./routes/deletions.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerQueryRoutes } from "./routes/queries.js";
 import { registerReplayRoutes } from "./routes/replays.js";
+import { errorBody } from "./admin.js";
 
 declare module "fastify" {
   interface FastifyInstance {
     db: Knex;
+    metrics: ApiMetrics;
   }
 }
 
@@ -29,6 +34,8 @@ export interface BuildAppOptions {
   replayAllowedHosts?: readonly string[];
   /** Destination for log lines. Exists so a test can assert on what is written. */
   logStream?: { write: (line: string) => void };
+  /** Recorded whether or not METRICS_PORT is set; the listener is what is optional. */
+  metrics?: ApiMetrics;
 }
 
 /**
@@ -71,21 +78,98 @@ const LOG_REDACT_PATHS = [
 
 export function buildApp(options: BuildAppOptions): FastifyInstance {
   const maxEventPayloadBytes = options.maxEventPayloadBytes ?? 262_144;
+  const metrics = options.metrics ?? createApiMetrics(options.db);
 
   const app = Fastify({
     logger: {
       level: options.logLevel ?? "info",
       redact: { paths: LOG_REDACT_PATHS, censor: "[REDACTED]" },
+      // The default `req` serialiser logged `req.url` with its query string, so
+      // a search wrote the searched identifier into every request log line.
+      // The default `err` serialiser copied `rawPacket` from a request Node
+      // could not parse, which is the request's bytes, bearer key included.
+      serializers: { req: serializeRequest, err: serializeError },
       ...(options.logStream === undefined ? {} : { stream: options.logStream })
     },
     bodyLimit: options.bodyLimit ?? MAX_BATCH_EVENTS * maxEventPayloadBytes + BODY_LIMIT_HEADROOM,
-    routerOptions: { maxParamLength: MAX_PARAM_LENGTH }
+    routerOptions: { maxParamLength: MAX_PARAM_LENGTH },
+    // A malformed percent-encoding (400) or a path parameter over
+    // MAX_PARAM_LENGTH (414) is refused by the router before any route or hook
+    // runs. Fastify's own answer quoted the path in its own shape, and no
+    // onResponse hook saw it, so neither was counted.
+    frameworkErrors: (error, request, reply) => {
+      const tooLong = error.code === "FST_ERR_MAX_PARAM_LENGTH";
+      const status = tooLong ? 414 : 400;
+      metrics.observeRequest(request.method, undefined, status, reply.elapsedTime / 1000);
+      // Typed for any route generic here; this reply has none.
+      void (reply as unknown as FastifyReply)
+        .code(status)
+        .send(
+          errorBody(
+            tooLong ? "parameter_too_long" : "bad_url",
+            tooLong
+              ? "A path parameter is longer than any id the API accepts."
+              : "The URL is not validly percent-encoded.",
+            request.id
+          )
+        );
+    }
   });
+
+  // Counted in onResponse, once the status is final. The route label is the
+  // pattern the router matched, never the path: `/v1/journeys/:journeyId` is
+  // one series however many journeys are read, and a request that matched
+  // nothing is `unmatched`, so a scanner walking random paths adds no series.
+  app.addHook("onResponse", async (request, reply) => {
+    metrics.observeRequest(
+      request.method,
+      request.routeOptions.url,
+      reply.statusCode,
+      reply.elapsedTime / 1000
+    );
+  });
+
+  // Fastify's own not-found handler logged `Route GET:<url> not found` with the
+  // query string, and echoed the URL in a body of its own shape. This logs
+  // nothing beyond the request line, which the serialiser has made safe, and
+  // answers in the API's error shape.
+  app.setNotFoundHandler((request, reply) =>
+    reply
+      .code(404)
+      .send(
+        errorBody(
+          "not_found",
+          `No route matches ${request.method} ${pathOf(request.url)}.`,
+          request.id
+        )
+      )
+  );
 
   // One error shape for every failure, including the ones Fastify raises before
   // a route runs. Without this a 413 or a malformed-JSON 400 comes back in
   // Fastify's own shape, and a client parsing `error.code` finds nothing.
   app.setErrorHandler((error: unknown, request, reply) => {
+    if (isStatementTimeout(error)) {
+      const route = request.routeOptions.url;
+      metrics.countQueryTimeout(route);
+      // The route and request id only. The driver's error carries the SQL
+      // text, and the request can carry the searched value; neither belongs
+      // in a log line that exists to say a query was slow.
+      app.log.warn(
+        { route: route ?? "unmatched", requestId: request.id },
+        "database statement cancelled by DATABASE_STATEMENT_TIMEOUT_MS"
+      );
+      return reply
+        .code(503)
+        .send(
+          errorBody(
+            "query_timeout",
+            "The database took too long to answer and the query was cancelled. Try again, or narrow the request.",
+            request.id
+          )
+        );
+    }
+
     const fastifyError = error as { statusCode?: number; code?: string; message?: string };
     const status = fastifyError.statusCode ?? 500;
     if (status >= 500) {
@@ -107,6 +191,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   });
 
   app.decorate("db", options.db);
+  app.decorate("metrics", metrics);
   // One per app, and the API builds one app per process: each missing key id
   // is logged once however many reads meet it.
   const warnUnknownKey = unknownKeyWarning(app.log);

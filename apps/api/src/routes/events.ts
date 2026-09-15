@@ -1,8 +1,9 @@
-import { touchApiKey } from "@flight-recorder/database";
+import { isStatementTimeout, touchApiKey } from "@flight-recorder/database";
 import type { Keyring } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
 import { databaseApiKeys, logVerifierReplaceFailure, resolveApiKey } from "../auth.js";
 import { ingestEvent, type IngestResult } from "../ingestion/ingest-event.js";
+import type { EventResult } from "../metrics/api-metrics.js";
 
 const MAX_BATCH_SIZE = 100;
 
@@ -67,14 +68,23 @@ export function registerEventRoutes(
 
     touch(app, auth.context.id);
 
-    const result = await ingestEvent(
-      app.db,
-      keyring,
-      auth.context,
-      request.body,
-      maxEventPayloadBytes,
-      allowFullPayload
-    );
+    let result: IngestResult;
+    try {
+      result = await ingestEvent(
+        app.db,
+        keyring,
+        auth.context,
+        request.body,
+        maxEventPayloadBytes,
+        allowFullPayload
+      );
+    } catch (error) {
+      // Not stored, so counted as rejected, the same as the batch route counts
+      // a storage failure. The error handler answers it.
+      app.metrics.countEvent("rejected");
+      throw error;
+    }
+    app.metrics.countEvent(eventResult(result));
     if (result.status === "rejected") {
       return reply
         .code(result.httpStatus)
@@ -140,9 +150,21 @@ export function registerEventRoutes(
           allowFullPayload
         );
       } catch (error) {
-        app.log.warn({ err: error }, "event rejected by storage");
-        result = storageRejection(error);
+        if (isStatementTimeout(error)) {
+          // Answered per event, like any storage failure, but as a 503 so the
+          // SDK retries it. Logged without the error, which carries the SQL.
+          app.metrics.countQueryTimeout(request.routeOptions.url);
+          app.log.warn(
+            { route: request.routeOptions.url, requestId: request.id },
+            "database statement cancelled by DATABASE_STATEMENT_TIMEOUT_MS"
+          );
+          result = QUERY_TIMEOUT_REJECTION;
+        } else {
+          app.log.warn({ err: error }, "event rejected by storage");
+          result = storageRejection(error);
+        }
       }
+      app.metrics.countEvent(eventResult(result));
       results.push(
         result.status === "accepted"
           ? {
@@ -169,6 +191,21 @@ export function registerEventRoutes(
 
 function errorBody(code: string, message: string, requestId: string): unknown {
   return { error: { code, message, requestId } };
+}
+
+/** A batch event whose statement ran past DATABASE_STATEMENT_TIMEOUT_MS: transient, so 503. */
+const QUERY_TIMEOUT_REJECTION: IngestResult = {
+  eventId: null,
+  journeyId: null,
+  status: "rejected",
+  code: "query_timeout",
+  message: "The database took too long to store the event and the statement was cancelled.",
+  httpStatus: 503
+};
+
+function eventResult(result: IngestResult): EventResult {
+  if (result.status === "rejected") return "rejected";
+  return result.duplicate === true ? "duplicate" : "accepted";
 }
 
 /**

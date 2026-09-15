@@ -31,6 +31,41 @@ changes far less often.
 
 ### Added
 
+- **`doctor` checks an installation and says what to fix.** One line per check,
+  `PASS`, `WARN`, `FAIL` or `SKIP`: the database and its PostgreSQL version,
+  pending migrations, published default secrets, stored data the configured
+  keys cannot read, whether a project and an unrevoked key exist, and with
+  `--api-key` and `--api-url`, whether a key authenticates (checked locally)
+  and whether the API reports ready. Exits 1 when anything failed. It prints
+  neither the database password, the admin token, the encryption keys, nor
+  more of an API key than its prefix. In the API image beside `key:create`;
+  `pnpm doctor` from a checkout (`docs/OPERATIONS.md` §12).
+- **A statement timeout.** `DATABASE_STATEMENT_TIMEOUT_MS`, 15000 by default,
+  cancels any statement the API runs past it, so one runaway query, from a
+  pathological search to a table scan behind a missing index, can no longer
+  hold a connection ingestion needs. The request gets 503 `query_timeout`; the
+  log names the route and never the query. `0` disables it. The database CLI
+  does not apply it, and deletions lift it for their own transactions: each
+  retention batch, and an admin's journey deletion, erasure, or destination
+  deletion, is bounded by its batch size, and under the timeout a large
+  retention batch failed on the same journeys every hour.
+- **Deleting a journey no longer scans every replay run for each of its
+  events.** `replay_runs (project_id, journey_event_id)`, the foreign key the
+  cascade from `journey_events` looks up, had no index. Migration
+  `016_replay_runs_event_index.js` adds it, built concurrently. A retention
+  batch of 1,000 journeys with 200 events each, beside 5,000 replay runs, went
+  from 41.6 seconds to 2.6.
+- **Prometheus metrics, on their own port.** `METRICS_PORT`, unset by default,
+  starts a listener serving `/metrics` and nothing else: request counts and
+  durations by route pattern, events accepted, duplicate and rejected, query
+  timeouts, pool connections, retention sweep outcomes and last success, the
+  boot check's unreadable counts, memory and event loop lag. Compose and Helm
+  do not publish it. No new dependency (ADR-047, `docs/OPERATIONS.md` §13).
+- **Known gap until the SDK change lands:** a batch event refused with
+  `query_timeout` or `storage_error` (`httpStatus` 5xx) is transient and safe
+  to resend (`docs/API_SPEC.md` §4), but the Node SDK treats every per-event
+  refusal as permanent and drops it. Retrying those refusals comes with the SDK
+  half of this work.
 - **Captured data can be deleted on demand.** Retention was the only way
   anything left the database, so a redaction miss stayed stored until it aged
   out and an erasure request had no answer. `delete:journey`,
@@ -103,6 +138,20 @@ changes far less often.
 
 ### Security
 
+- **Searched identifiers no longer reach the API's log.** Fastify's request log
+  line carried `req.url` whole, so every `GET /v1/search?q=…` wrote the searched
+  value, usually a customer identifier, to the log at `info`, along with the
+  Recent page's filters. Its not-found handler did the same in a line of its
+  own and echoed the URL in its response. Request lines now carry the path and
+  the parameter names, with every value replaced by `[REDACTED]`, and a request
+  that matches no route gets the API's usual error shape, `404 not_found`,
+  naming only the path. Logs kept from earlier versions still hold those values
+  (`docs/OPERATIONS.md` §13).
+- **A malformed request's bytes no longer reach the API's log.** A request
+  Node's parser rejected was logged at `trace` with the parser's error, whose
+  `rawPacket` is the request as received: its `Authorization: Bearer fr_…` key
+  and its query string. Errors are now logged without that property, at any
+  level and from any log call.
 - **Built-in secret redaction now applies at any depth.** The shipped list paired
   each name with its `*.name` form, which together reached the top level of a
   payload and one level below it — and nothing inside an array, since an array
