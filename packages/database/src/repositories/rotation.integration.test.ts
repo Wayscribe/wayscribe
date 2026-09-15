@@ -733,6 +733,7 @@ describe("key rotation commands", () => {
       const run = await cli("rotate:reencrypt", rotating);
       expect(run.stderr).toBe("");
       expect(run.code).toBe(0);
+      expect(run.stdout).toMatch(/^Re-encrypting under key /);
       expect(run.stdout).toMatch(/^journeys\s+1\s+0\s+0\s+0\s/m);
       expect(run.stdout).toMatch(/^entity_aliases\s+1\s+0\s+0\s+0\s+0/m);
 
@@ -775,6 +776,8 @@ describe("key rotation commands", () => {
         const run = await cli("rotate:reencrypt", rotating);
         expect(run.code).toBe(1);
         expect(run.stderr).toMatch(/lock/i);
+        // Nothing was re-encrypted, so nothing may say it is.
+        expect(run.stdout).toBe("");
       } finally {
         release();
         await holder;

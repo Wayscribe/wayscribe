@@ -77,6 +77,8 @@ export interface ReencryptProgress {
 
 export interface ReencryptOptions {
   batchSize?: number;
+  /** Called once the lock is held, before any table is examined. Not called when the lock is not acquired. */
+  onLocked?: () => void;
   /** Called after each committed batch, while the lock is still held. */
   onBatch?: (progress: ReencryptProgress) => void | Promise<void>;
 }
@@ -126,6 +128,7 @@ export async function reencryptValues(
     );
     const locked = (acquired as { rows: { locked: boolean }[] }).rows[0]?.locked === true;
     if (!locked) return { ran: false, reason: "lock_held" };
+    options.onLocked?.();
 
     const tables: TableReencryption[] = [];
     for (const spec of ENCRYPTED_TABLES) {

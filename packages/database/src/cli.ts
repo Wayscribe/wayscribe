@@ -216,8 +216,12 @@ try {
         break;
       }
 
-      console.log(report.formatReencryptStart(keyring.current.id, keyring.previous.id));
+      const previousKeyId = keyring.previous.id;
       const result = await reencryptValues(db, keyring, {
+        // Only once the lock is held: a run refused the lock re-encrypts nothing.
+        onLocked: () => {
+          console.log(report.formatReencryptStart(keyring.current.id, previousKeyId));
+        },
         onBatch: (progress) => {
           console.log(report.formatReencryptProgress(progress));
         }
