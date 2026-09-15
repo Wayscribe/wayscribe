@@ -19,7 +19,6 @@ export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
 export {
   decryptValue,
   encryptValue,
-  keyIdOf,
   parseEncryptedValue,
   type ParsedEncryptedValue
 } from "./encryption.js";

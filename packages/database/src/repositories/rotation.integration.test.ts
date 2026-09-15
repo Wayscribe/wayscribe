@@ -5,7 +5,7 @@ import {
   decryptValue,
   encryptValue,
   issueApiKey,
-  keyIdOf,
+  parseEncryptedValue,
   searchTokens,
   type Keyring
 } from "@flight-recorder/payload-security";
@@ -23,6 +23,12 @@ import {
   type ReencryptResult,
   type TableReencryption
 } from "./rotation.js";
+
+/** The key id a stored value names, or null for a legacy value. */
+const keyIdOf = (value: string): string | null => {
+  const parsed = parseEncryptedValue(value);
+  return parsed.kind === "envelope" ? parsed.keyId : null;
+};
 
 const KEY_A = "0123456789abcdef0123456789abcdef";
 const KEY_B = "fedcba9876543210fedcba9876543210";

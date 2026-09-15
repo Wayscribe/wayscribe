@@ -5,7 +5,7 @@ import {
   createKeyring,
   decryptValue,
   issueApiKey,
-  keyIdOf,
+  parseEncryptedValue,
   searchTokens,
   verifyApiKeyWithKeyring,
   type Keyring
@@ -14,6 +14,12 @@ import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
+
+/** The key id a stored value names, or null for a legacy value. */
+const keyIdOf = (value: string): string | null => {
+  const parsed = parseEncryptedValue(value);
+  return parsed.kind === "envelope" ? parsed.keyId : null;
+};
 
 const KEY_A = "0123456789abcdef0123456789abcdef";
 const KEY_B = "fedcba9876543210fedcba9876543210";

@@ -1,5 +1,5 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKeyring, keyIdOf } from "@flight-recorder/payload-security";
+import { createKeyring, parseEncryptedValue } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";
@@ -14,6 +14,12 @@ import {
   listDestinations,
   startRun
 } from "./replay.js";
+
+/** The key id a stored value names, or null for a legacy value. */
+const keyIdOf = (value: string): string | null => {
+  const parsed = parseEncryptedValue(value);
+  return parsed.kind === "envelope" ? parsed.keyId : null;
+};
 
 const KEY_A = "0123456789abcdef0123456789abcdef";
 const KEY_B = "fedcba9876543210fedcba9876543210";
