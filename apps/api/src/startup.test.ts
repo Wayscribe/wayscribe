@@ -38,7 +38,9 @@ describe("prepareStartup", () => {
     const startup = prepareStartup({ ...env, ENCRYPTION_KEY: "short" });
     expect(startup.ok).toBe(false);
     if (startup.ok) return;
-    expect(startup.message).toMatch(/^Flight Recorder API cannot start:\n/);
-    expect(startup.message).toContain("ENCRYPTION_KEY");
+    // Each invalid variable sits under the configuration header, not beside it.
+    expect(startup.message).toMatch(
+      /^Flight Recorder API cannot start:\n {2}Invalid environment configuration:\n {4}ENCRYPTION_KEY: /
+    );
   });
 });

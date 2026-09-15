@@ -22,9 +22,11 @@ export function prepareStartup(source: Record<string, string | undefined>): Star
     return { ok: true, env, keyring };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    // Every line one level deeper, so a configuration error's per-variable
+    // lines stay nested under its own header.
     const indented = reason
       .split("\n")
-      .map((line) => (line.startsWith("  ") ? line : `  ${line}`))
+      .map((line) => `  ${line}`)
       .join("\n");
     return { ok: false, message: `Flight Recorder API cannot start:\n${indented}` };
   }
