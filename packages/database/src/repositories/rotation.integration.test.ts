@@ -14,6 +14,7 @@ import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
+import { upsertAliases } from "./aliases.js";
 import {
   ROTATION_LOCK_KEY,
   findUnreadableData,
@@ -360,6 +361,114 @@ describe("key rotation commands", () => {
       for (const row of rows) expect(keyIdOf(row.encrypted ?? "")).toBe(keyringB.current.id);
     });
 
+    /** A promise and the function that settles it, for ordering two connections. */
+    const signal = (): { promise: Promise<void>; fire: () => void } => {
+      let fire: () => void = () => undefined;
+      const promise = new Promise<void>((resolve) => {
+        fire = resolve;
+      });
+      return { promise, fire };
+    };
+
+    it("leaves an alias row that ingestion moved while the run waited on it", async () => {
+      // Ingestion's grace move holds the row when the run's update reaches it.
+      // Once ingestion commits, PostgreSQL re-checks the update's condition
+      // against the new row. Without the condition on the value read, the run
+      // would overwrite what ingestion just wrote.
+      await journeyUnder(keyringB, "jrn_1", "E-1");
+      await aliasUnder(keyringA, "jrn_1", "salesforceAccountId", "SF-1");
+      const ingested = encryptValue(keyringB, "SF-1");
+
+      const holding = signal();
+      const release = signal();
+      const ingestion = db.transaction(async (trx) => {
+        await trx("entity_aliases")
+          .where({ project_id: projectId, journey_id: "jrn_1" })
+          .forUpdate()
+          .select("id");
+        holding.fire();
+        await release.promise;
+        await upsertAliases(trx, projectId, [
+          {
+            journeyId: "jrn_1",
+            aliasType: "salesforceAccountId",
+            aliasValueHash: token(keyringB, "SF-1"),
+            encryptedDisplayValue: ingested,
+            supersedesValueHash: token(keyringA, "SF-1")
+          }
+        ]);
+      });
+      await holding.promise;
+
+      const run = reencryptValues(db, rotated);
+      await waitForLockWait(db);
+      release.fire();
+      await ingestion;
+
+      expect(table(await run, "entity_aliases")).toMatchObject({
+        rewritten: 0,
+        changedDuringRun: 1,
+        duplicatesRemoved: 0
+      });
+      expect(await aliasRows()).toEqual([
+        {
+          journeyId: "jrn_1",
+          aliasType: "salesforceAccountId",
+          hash: token(keyringB, "SF-1"),
+          encrypted: ingested
+        }
+      ]);
+    });
+
+    for (const outcome of ["commits", "rolls back"] as const) {
+      it(`settles an alias whose current-token row another transaction inserts during the run, which then ${outcome}`, async () => {
+        // The run's existence check cannot see the uncommitted row, so its
+        // update waits on that row's unique index entry. On commit the update
+        // fails on the alias constraint, and the savepoint lets the run delete
+        // the stale row instead of aborting the batch; on rollback the update
+        // goes through.
+        await journeyUnder(keyringB, "jrn_1", "E-1");
+        await aliasUnder(keyringA, "jrn_1", "salesforceAccountId", "SF-1");
+        const inserted = encryptValue(keyringB, "SF-1");
+
+        const holding = signal();
+        const release = signal();
+        const rollback = new Error("roll back");
+        const other = db.transaction(async (trx) => {
+          await trx("entity_aliases").insert({
+            project_id: projectId,
+            journey_id: "jrn_1",
+            alias_type: "salesforceAccountId",
+            alias_value_hash: token(keyringB, "SF-1"),
+            encrypted_display_value: inserted
+          });
+          holding.fire();
+          await release.promise;
+          if (outcome === "rolls back") throw rollback;
+        });
+        await holding.promise;
+
+        const run = reencryptValues(db, rotated);
+        await waitForLockWait(db);
+        release.fire();
+        if (outcome === "rolls back") await expect(other).rejects.toBe(rollback);
+        else await other;
+
+        const aliases = table(await run, "entity_aliases");
+        const rows = await aliasRows();
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.hash).toBe(token(keyringB, "SF-1"));
+        if (outcome === "commits") {
+          expect(aliases).toMatchObject({ rewritten: 0, duplicatesRemoved: 1 });
+          expect(rows[0]?.encrypted).toBe(inserted);
+        } else {
+          expect(aliases).toMatchObject({ rewritten: 1, duplicatesRemoved: 0 });
+          expect(rows[0]?.encrypted).not.toBe(inserted);
+          expect(decryptValue(keyringB, rows[0]?.encrypted ?? "")).toBe("SF-1");
+        }
+      });
+    }
+
     it("reports the lock as held to a second run that starts while the first is working", async () => {
       for (const n of [1, 2, 3, 4])
         await journeyUnder(keyringA, `jrn_${String(n)}`, `E-${String(n)}`);
@@ -667,3 +776,17 @@ describe("key rotation commands", () => {
     }, 60_000);
   });
 });
+
+/** Resolves once some backend is waiting on a lock, or fails after five seconds. */
+async function waitForLockWait(db: Knex): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result: unknown = await db.raw(
+      "select count(*)::int as waiting from pg_stat_activity where wait_event_type = 'Lock'"
+    );
+    const waiting = (result as { rows: { waiting: number }[] }).rows[0]?.waiting ?? 0;
+    if (waiting > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Nothing ever waited on a lock.");
+}
