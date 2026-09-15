@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { decryptField, decryptValue, encryptField, encryptValue, keyIdOf } from "./encryption.js";
+import {
+  decryptField,
+  decryptValue,
+  encryptField,
+  encryptValue,
+  keyIdOf,
+  parseEnvelope
+} from "./encryption.js";
 import { createKeyring, UnknownKeyError } from "./keyring.js";
 import { deriveSubkeys, keyFingerprint } from "./keys.js";
 
@@ -57,11 +64,20 @@ function thrownBy(call: () => unknown): unknown {
   throw new Error("Expected the call to throw.");
 }
 
+/**
+ * The two ways decryption genuinely fails: the value's shape, or GCM
+ * authentication (Node's message for a tag that does not verify). Matching the
+ * message keeps an unrelated TypeError from passing as a decryption failure.
+ */
+const DECRYPTION_FAILURE =
+  /^(Encrypted value is malformed\.|Unsupported state or unable to authenticate data)$/;
+
 /** A decryption failure that is not an unknown key. */
 function expectDecryptionError(call: () => unknown): void {
   const error = thrownBy(call);
   expect(error).toBeInstanceOf(Error);
   expect(error).not.toBeInstanceOf(UnknownKeyError);
+  expect((error as Error).message).toMatch(DECRYPTION_FAILURE);
 }
 
 function flipLastByte(base64: string): string {
@@ -175,6 +191,49 @@ describe("decryptValue", () => {
     const keyring = createKeyring(masterA);
     expectDecryptionError(() => decryptValue(keyring, ""));
     expectDecryptionError(() => decryptValue(keyring, "not-base64-at-all!!"));
+  });
+});
+
+describe("parseEnvelope", () => {
+  const payload = encryptField(key, "secret");
+
+  it("calls a value without the prefix legacy", () => {
+    expect(parseEnvelope(payload)).toEqual({ kind: "legacy" });
+    expect(parseEnvelope("")).toEqual({ kind: "legacy" });
+  });
+
+  it("splits an envelope into its key id and payload", () => {
+    expect(parseEnvelope(`fr1.${idA}.${payload}`)).toEqual({
+      kind: "envelope",
+      keyId: idA,
+      payload
+    });
+  });
+
+  it("parses what encryptValue writes", () => {
+    const parsed = parseEnvelope(encryptValue(createKeyring(masterB, masterA), "secret"));
+    expect(parsed.kind === "envelope" && parsed.keyId).toBe(idB);
+  });
+
+  it("reports a malformed envelope without throwing", () => {
+    // Re-encryption and status count these rows as unrecoverable. A throw inside
+    // a batch would abort it, and every resume would stop on the same row.
+    const malformed = [
+      "fr1.",
+      "fr1..",
+      `fr1.${idA}`,
+      `fr1.${idA}.`,
+      `fr1..${payload}`,
+      `fr1.${idA}.${payload}.extra`,
+      `fr1.${idA}..${payload}`,
+      `fr1.${idA.slice(0, 11)}.${payload}`,
+      `fr1.${idA}0.${payload}`,
+      `fr1.zzzzzzzzzzzz.${payload}`,
+      "fr1.ABCDEF012345." + payload
+    ];
+    for (const value of malformed) {
+      expect(parseEnvelope(value)).toEqual({ kind: "malformed" });
+    }
   });
 });
 

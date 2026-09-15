@@ -4,6 +4,7 @@ import { keyMaterialFor, UnknownKeyError, type Keyring } from "./keyring.js";
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
+const MALFORMED = "Encrypted value is malformed.";
 
 // debtwatch:start
 // id: DEBT-P94G8Q
@@ -29,7 +30,7 @@ export function encryptField(key: Buffer, plaintext: string): string {
 export function decryptField(key: Buffer, encoded: string): string {
   const bytes = Buffer.from(encoded, "base64");
   if (bytes.length < IV_LENGTH + AUTH_TAG_LENGTH) {
-    throw new Error("Encrypted value is malformed.");
+    throw new Error(MALFORMED);
   }
 
   const iv = bytes.subarray(0, IV_LENGTH);
@@ -46,10 +47,8 @@ export function decryptField(key: Buffer, encoded: string): string {
 const ENVELOPE_PREFIX = "fr1.";
 const KEY_ID_PATTERN = /^[0-9a-f]{12}$/;
 
-interface Envelope {
-  keyId: string;
-  payload: string;
-}
+export type ParsedValue =
+  { kind: "legacy" } | { kind: "envelope"; keyId: string; payload: string } | { kind: "malformed" };
 
 /**
  * Encrypt under the keyring's current key, labelled with that key's id.
@@ -74,11 +73,12 @@ export function encryptValue(keyring: Keyring, plaintext: string): string {
  * as the ordinary decryption failure: there is no id to blame.
  */
 export function decryptValue(keyring: Keyring, value: string): string {
-  const envelope = parseEnvelope(value);
-  if (envelope !== null) {
-    const material = keyMaterialFor(keyring, envelope.keyId);
-    if (material === null) throw new UnknownKeyError(envelope.keyId);
-    return decryptField(material.fieldEncryption, envelope.payload);
+  const parsed = parseEnvelope(value);
+  if (parsed.kind === "malformed") throw new Error(MALFORMED);
+  if (parsed.kind === "envelope") {
+    const material = keyMaterialFor(keyring, parsed.keyId);
+    if (material === null) throw new UnknownKeyError(parsed.keyId);
+    return decryptField(material.fieldEncryption, parsed.payload);
   }
 
   try {
@@ -98,14 +98,24 @@ export function decryptValue(keyring: Keyring, value: string): string {
  *
  * A malformed envelope throws rather than returning null: calling it legacy
  * would send it down a path that tries both keys and reports a misleading cause.
+ * Code that must keep going past a bad row uses `parseEnvelope` instead.
  */
 export function keyIdOf(value: string): string | null {
-  return parseEnvelope(value)?.keyId ?? null;
+  const parsed = parseEnvelope(value);
+  if (parsed.kind === "malformed") throw new Error(MALFORMED);
+  return parsed.kind === "envelope" ? parsed.keyId : null;
 }
 
-function parseEnvelope(value: string): Envelope | null {
+/**
+ * Classify a stored value without decrypting it or throwing.
+ *
+ * Re-encryption and status walk every row and count a malformed one as
+ * unrecoverable. A throw there would abort the batch, and every resume would
+ * stop on the same row, so the malformed case is a result rather than an error.
+ */
+export function parseEnvelope(value: string): ParsedValue {
   // Standard base64 never contains ".", so no legacy value starts with the prefix.
-  if (!value.startsWith(ENVELOPE_PREFIX)) return null;
+  if (!value.startsWith(ENVELOPE_PREFIX)) return { kind: "legacy" };
 
   const parts = value.slice(ENVELOPE_PREFIX.length).split(".");
   const [keyId, payload] = parts;
@@ -116,7 +126,7 @@ function parseEnvelope(value: string): Envelope | null {
     !KEY_ID_PATTERN.test(keyId) ||
     payload.length === 0
   ) {
-    throw new Error("Encrypted value is malformed.");
+    return { kind: "malformed" };
   }
-  return { keyId, payload };
+  return { kind: "envelope", keyId, payload };
 }

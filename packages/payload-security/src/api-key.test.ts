@@ -238,6 +238,23 @@ describe("verifyApiKeyWithKeyring", () => {
       ).toEqual({ ok: false });
     });
 
+    it("repairs a label in neither slot when the key verifies under current", () => {
+      // The label is wrong but the verifier is current; rewriting the label costs
+      // nothing and keeps rotation status accurate.
+      expect(
+        verifyApiKeyWithKeyring(keyring, presented, {
+          keyHash: hashUnder(masterB),
+          keyHashKeyId: keyFingerprint(masterC)
+        })
+      ).toEqual({ ok: true, migrate: migratedToB });
+      expect(
+        verifyApiKeyWithKeyring(createKeyring(masterB), presented, {
+          keyHash: hashUnder(masterB),
+          keyHashKeyId: keyFingerprint(masterC)
+        })
+      ).toEqual({ ok: true, migrate: migratedToB });
+    });
+
     it("rejects a malformed stored hash without throwing", () => {
       expect(
         verifyApiKeyWithKeyring(keyring, presented, { keyHash: "zzzz", keyHashKeyId: null })

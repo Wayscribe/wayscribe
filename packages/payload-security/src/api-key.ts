@@ -100,8 +100,8 @@ export function apiKeyRecordFor(keyring: Keyring, apiKey: string): IssuedApiKeyR
  * plaintext key, and the only time the server holds that is when a client
  * presents it. So a key verified under the previous pepper comes back with the
  * verifier to store under the current one. A key verified under current whose
- * row has no key id comes back with that id, so rotation status is accurate on an
- * install that predates key ids.
+ * row has no key id, or a wrong one, comes back with that id, so rotation status
+ * is accurate on an install that predates key ids.
  *
  * The order follows the stored label: a row labelled with the previous id is
  * checked under previous only, any other row under current, and only an
@@ -114,20 +114,21 @@ export function verifyApiKeyWithKeyring(
   stored: ApiKeyVerifier
 ): ApiKeyVerification {
   const { current, previous } = keyring;
-  // Computed up front so the work done does not depend on which branch is taken.
-  const migrated = {
+  const migrated = (): { keyHash: string; keyHashKeyId: string } => ({
     keyHash: computeVerifier(current.apiKey, presented),
     keyHashKeyId: current.id
-  };
+  });
 
   if (previous !== null && stored.keyHashKeyId === previous.id) {
     return verifyApiKey(previous.apiKey, presented, stored.keyHash)
-      ? { ok: true, migrate: migrated }
+      ? { ok: true, migrate: migrated() }
       : { ok: false };
   }
 
   if (verifyApiKey(current.apiKey, presented, stored.keyHash)) {
-    return { ok: true, migrate: stored.keyHashKeyId === null ? migrated : null };
+    // A label other than current's is either missing (written before labels) or
+    // wrong; either way the verifier is current, so recording the id repairs it.
+    return { ok: true, migrate: stored.keyHashKeyId === current.id ? null : migrated() };
   }
 
   if (
@@ -135,7 +136,7 @@ export function verifyApiKeyWithKeyring(
     stored.keyHashKeyId === null &&
     verifyApiKey(previous.apiKey, presented, stored.keyHash)
   ) {
-    return { ok: true, migrate: migrated };
+    return { ok: true, migrate: migrated() };
   }
 
   return { ok: false };
