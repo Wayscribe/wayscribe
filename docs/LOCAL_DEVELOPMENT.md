@@ -57,7 +57,7 @@ pnpm demo:trigger
 The trigger prints a direct link to the journey. It takes about ten seconds to
 finish, because the queue's retries are real; only the waiting is compressed.
 
-Three things are worth knowing about the demo profile:
+Four things are worth knowing about the demo profile:
 
 - **No manual migration step.** `demo-bootstrap` runs the migrations, registers
   the demo API key, and creates the demo database and its customer table, then

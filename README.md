@@ -136,7 +136,8 @@ transformation contains a real defect, the queue really retries, and the target
 really rejects the result with a 422. About ten seconds after the trigger the
 journey has reached its dead-letter state.
 
-Open `http://localhost:3000`, sign in with the admin token, and search
+Open `http://localhost:3000` and sign in with the admin token, which is
+`replace-for-local-development-0000` until you set your own (below). Search
 `0018Z00002ABC`. That is the journey above. (`pnpm demo:trigger` does the same
 as the `curl` and prints the direct link, if you have Node 24 and pnpm.)
 
@@ -148,16 +149,17 @@ API_PORT=8081 WEB_PORT=3001 docker compose -f infrastructure/compose.yaml \
                -f infrastructure/compose.demo.yaml up --build
 ```
 
-The interface asks for `ADMIN_TOKEN`, which is
-`replace-for-local-development-0000` until you set your own. Set your own
-before this holds anything real:
+Set your own `ADMIN_TOKEN` and `ENCRYPTION_KEY` before this holds anything real:
 
 ```bash
 cp .env.example .env && printf 'ENCRYPTION_KEY=%s\nADMIN_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
 ```
 
-The API logs a warning at every boot while the published development defaults
-are still in use.
+Recreate the stack with the same `up` command for them to take effect. What the
+demo already recorded stays under the default key, which the new one cannot
+read; start from an empty database with `down -v` first if that matters. The
+API logs a warning at every boot while the published development defaults are
+still in use.
 
 ---
 
