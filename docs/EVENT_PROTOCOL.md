@@ -365,5 +365,7 @@ Protocol errors should use stable codes, for example:
 - `unauthorized_environment`
 - `invalid_timestamp`
 - `invalid_operation`
+- `event_id_conflict`
+- `journey_environment_mismatch`: the journey id belongs to another environment; a journey cannot span environments
 
 The full API error shape is documented in `API_SPEC.md`.

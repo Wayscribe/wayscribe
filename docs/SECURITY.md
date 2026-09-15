@@ -43,6 +43,10 @@ Captured entities may include:
 
 A query or API key must never expose another project or environment.
 
+Nor may an API key write into one. A journey belongs to the environment that created it,
+and ingestion refuses an event for it from another environment's key with
+`journey_environment_mismatch` (ADR-048).
+
 ### Replay abuse
 
 Historical payload replay could:

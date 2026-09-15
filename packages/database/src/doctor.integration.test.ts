@@ -171,6 +171,57 @@ describe("doctor", () => {
     });
   });
 
+  /**
+   * A journey created by production with events written into it by a
+   * development key, as ingestion allowed before ADR-048. Readable under the
+   * installation's key, so only the new check can fail.
+   */
+  const crossedEnvironments = async (db: Knex): Promise<void> => {
+    await db.migrate.latest();
+    const projectId = await insertReturningId(db, "projects", { name: "X", slug: "x" });
+    const environmentIds: Record<string, string> = {};
+    for (const name of ["production", "development"]) {
+      environmentIds[name] = await insertReturningId(db, "environments", {
+        project_id: projectId,
+        name
+      });
+    }
+    await issueKey(db, keyring, { projectSlug: "x", environmentName: "production", name: "k" });
+    for (const journeyId of ["jrn_crossed_1", "jrn_crossed_2", "jrn_clean"]) {
+      await db("journeys").insert({
+        id: journeyId,
+        project_id: projectId,
+        environment_id: environmentIds["production"],
+        entity_type: "order",
+        primary_entity_id_hash: searchTokens(keyring, journeyId)[0],
+        encrypted_primary_entity_id: encryptValue(keyring, journeyId),
+        status: "active",
+        started_at: db.fn.now(),
+        last_event_at: db.fn.now(),
+        event_count: 1
+      });
+    }
+    const eventRow = (id: string, journeyId: string, environment: string) => ({
+      id,
+      project_id: projectId,
+      environment_id: environmentIds[environment],
+      journey_id: journeyId,
+      protocol_version: "0.1",
+      content_hash: id,
+      operation: "received",
+      name: "step",
+      service: "svc",
+      event_timestamp: db.fn.now()
+    });
+    await db("journey_events").insert([
+      eventRow("evt_owner_1", "jrn_crossed_1", "production"),
+      eventRow("evt_intruder_1", "jrn_crossed_1", "development"),
+      eventRow("evt_intruder_2", "jrn_crossed_1", "development"),
+      eventRow("evt_intruder_3", "jrn_crossed_2", "development"),
+      eventRow("evt_clean", "jrn_clean", "production")
+    ]);
+  };
+
   afterAll(async () => {
     await new Promise((resolve) => readyServer.close(resolve));
     await container.stop();
@@ -190,6 +241,7 @@ describe("doctor", () => {
       "ADMIN_TOKEN",
       "Keys readable",
       "Projects and keys",
+      "Journey environments",
       "API key",
       "API reachable",
       "Statement timeout"
@@ -198,7 +250,7 @@ describe("doctor", () => {
     }
     expect(lineOf(run, "API key")).toContain(apiKey.slice(0, 12));
     expect(lineOf(run, "API key")).toContain("acme/production");
-    expect(run.output).toContain("0 failed, 0 warnings, 10 passed.");
+    expect(run.output).toContain("0 failed, 0 warnings, 11 passed.");
     expectNoSecrets(run, apiKey);
   });
 
@@ -284,6 +336,22 @@ describe("doctor", () => {
     expect(statusOf(run, "Keys readable")).toBe("FAIL");
     expect(lineOf(run, "Keys readable")).toContain("journeys 1");
     expect(run.output).toContain("ENCRYPTION_KEY_PREVIOUS");
+    expectNoSecrets(run);
+  });
+
+  it("fails when events were written into a journey of another environment", async () => {
+    // Ingestion refuses this now (ADR-048); an installation that ran an
+    // earlier build may already hold such rows, and nothing else would say so.
+    await withDatabase("crossed", crossedEnvironments);
+
+    const run = await doctor([], {}, "crossed");
+
+    expect(run.code, run.output).toBe(1);
+    expect(statusOf(run, "Journey environments"), run.output).toBe("FAIL");
+    expect(lineOf(run, "Journey environments")).toContain("3 events in 2 journeys");
+    expect(run.output).toContain("delete:journey");
+    // Counts only: a journey id can carry a business identifier.
+    expect(run.output).not.toContain("jrn_crossed");
     expectNoSecrets(run);
   });
 

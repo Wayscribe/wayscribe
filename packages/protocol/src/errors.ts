@@ -12,7 +12,9 @@ export const PROTOCOL_ERROR_CODES = {
   unauthorizedEnvironment: "unauthorized_environment",
   invalidTimestamp: "invalid_timestamp",
   invalidOperation: "invalid_operation",
-  eventIdConflict: "event_id_conflict"
+  eventIdConflict: "event_id_conflict",
+  /** The journey id belongs to another environment of the project (ADR-048). */
+  journeyEnvironmentMismatch: "journey_environment_mismatch"
 } as const;
 
 export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[keyof typeof PROTOCOL_ERROR_CODES];

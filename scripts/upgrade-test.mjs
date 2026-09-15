@@ -513,6 +513,7 @@ const DOCTOR_REQUIRED = [
   "ADMIN_TOKEN",
   "Keys readable",
   "Projects and keys",
+  "Journey environments",
   "API key",
   "API reachable",
   "Statement timeout"

@@ -107,7 +107,25 @@ export async function ingestEvent(
     // The journey must exist before the event: journey_events carries a
     // composite foreign key to journeys. A conflict below rolls the whole
     // transaction back, so this never leaves an orphan journey behind.
-    await ensureJourney(trx, context.projectId, journeyFacts);
+    const journeyEnvironmentId = await ensureJourney(trx, context.projectId, journeyFacts);
+    if (journeyEnvironmentId === undefined) {
+      // Deleted by a concurrent deletion after the insert found it present.
+      // Not this client's doing, and a retry creates the journey afresh, so a
+      // storage failure rather than a refusal.
+      throw new Error("The journey was deleted while this event was being stored.");
+    }
+
+    // A journey belongs to the environment that created it. Refused before
+    // anything is written for this event: no event row, no alias, no status
+    // change. The message does not name the other environment, which this key
+    // cannot read and has no business learning exists.
+    if (journeyEnvironmentId !== context.environmentId) {
+      return reject(
+        409,
+        PROTOCOL_ERROR_CODES.journeyEnvironmentMismatch,
+        "This journey id is already in use by another environment of this project, and a journey cannot span environments. Use a journey id unique to this environment."
+      );
+    }
 
     const outcome = await insertEvent(trx, context.projectId, {
       id: event.id,

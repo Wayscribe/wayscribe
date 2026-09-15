@@ -227,6 +227,15 @@ changes far less often.
   URL can carry credentials or an internal hostname, audit rows are never swept,
   and deleting the destination could not reach the row. Rows written before this
   change keep the URL; `docs/OPERATIONS.md` §8 has the statement that strips it.
+- **An API key can no longer write into another environment's journey.** A
+  journey's environment was set by whichever environment wrote it first, and
+  events and aliases attached by journey id alone, so a development key could
+  mark a production journey failed and add a searchable alias to it, or create a
+  journey id production later wrote into and read production's aliases through
+  it. Ingestion now refuses such an event with 409
+  `journey_environment_mismatch` and stores nothing for it (ADR-048). `doctor`
+  gains a `Journey environments` check that fails when an earlier build already
+  stored events across environments; `docs/OPERATIONS.md` §12 lists them.
 
 ### Fixed
 

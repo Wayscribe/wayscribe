@@ -64,12 +64,27 @@ export async function findJourney(
  *
  * The row starts at event_count 0; the count is advanced by
  * updateJourneySummary, and only for events that were genuinely new.
+ *
+ * Resolves to the environment the journey belongs to: the one that created it,
+ * which nothing changes afterwards. It differs from `facts.environmentId` when
+ * another environment created the journey first, and the caller must then
+ * refuse the event. Events and aliases attach by `(project_id, journey_id)`, so
+ * without that check one environment's key could write into another
+ * environment's journey.
+ *
+ * The row is read `FOR UPDATE` after the insert, in the caller's transaction.
+ * A concurrent create of the same id makes the insert wait on the conflict
+ * until the other transaction commits, so the read sees the winner's
+ * environment; the lock then holds the row until this transaction ends, so a
+ * deletion cannot remove it between the check and the event insert. `FOR
+ * SHARE` would not do: `updateJourneySummary` updates the row in the same
+ * transaction, and two transactions upgrading shared locks on one row deadlock.
  */
 export async function ensureJourney(
   db: Knex,
   projectId: string,
   facts: JourneyEventFacts
-): Promise<void> {
+): Promise<string | undefined> {
   await db("journeys")
     .insert({
       id: facts.journeyId,
@@ -85,6 +100,12 @@ export async function ensureJourney(
     })
     .onConflict(["project_id", "id"])
     .ignore();
+
+  const row: unknown = await db("journeys")
+    .where({ project_id: projectId, id: facts.journeyId })
+    .forUpdate()
+    .first("environment_id as environmentId");
+  return (row as { environmentId: string } | undefined)?.environmentId;
 }
 
 export async function applyJourneyEvent(

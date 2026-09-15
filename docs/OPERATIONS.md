@@ -913,6 +913,7 @@ beneath it:
 | `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
 | Projects and keys | | no project, or no unrevoked API key |
+| Journey environments | an event was written by another environment's API key than its journey's own, which ingestion refuses since ADR-048 and earlier builds did not | |
 | API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
 | API reachable (`--api-url`) | `GET /ready` does not answer 200; its `reason` is printed | |
 | Statement timeout | the value is invalid | it is 0 |
@@ -935,6 +936,34 @@ that table exists, so on a database nobody has migrated it does not create knex'
 tables the way `migrate` and `/ready` do; it does not record a key as used; and
 it does not move a verifier during a rotation. An applied migration this build
 does not have, left by a newer build, is a `FAIL` of its own.
+
+### Events written across environments
+
+Before ADR-048 an API key for one environment could write events and aliases into
+a journey another environment created. `Journey environments` counts the events
+that were. It prints counts and no journey ids, because a journey id can carry a
+business identifier. List them with:
+
+```sql
+select p.slug as project, j.id as journey_id, je.name as journey_environment,
+       ee.name as event_environment, count(*) as events
+  from journey_events e
+  join journeys j on j.project_id = e.project_id and j.id = e.journey_id
+  join projects p on p.id = j.project_id
+  join environments je on je.id = j.environment_id
+  join environments ee on ee.id = e.environment_id
+ where e.environment_id <> j.environment_id
+ group by p.slug, j.id, je.name, ee.name;
+```
+
+Each row is a journey that holds another environment's events. Its aliases cannot
+be told apart: `entity_aliases` records no environment, so an alias on such a
+journey may have come from either side, and a status of `failed` may be the other
+environment's. Read the journey, then delete it with
+`pnpm delete:journey <project> <journey-id>` (§8). Deleting only the foreign
+events would leave their aliases behind. The query and the check scan
+`journey_events`; on a large installation run it off-peak, and if doctor's check
+is cancelled by the statement timeout, run the query directly.
 
 ## 13. Monitoring
 
