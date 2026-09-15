@@ -551,7 +551,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         // Discarding a payload silently made a full timeline look like a step
         // that genuinely carried nothing.
         diagnostics.report({
-          kind: "dropped",
+          kind: "payload_omitted",
           reason: `A payload was not captured: ${limits.reason}.`,
           detail: { reason: limits.reason }
         });

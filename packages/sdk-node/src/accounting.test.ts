@@ -116,6 +116,25 @@ describe("every recorded event is accounted for at shutdown", () => {
     expect(counters).toMatchObject({ sent: 0, rejected: 3, dropped: 0 });
   });
 
+  it("keeps the invariant when a payload is too large to capture", async () => {
+    // The event is still sent, with a marker in place of its payload, so the
+    // omission is its own counter. Counting it as dropped counted one event
+    // twice.
+    const server = await serving((events, response) => {
+      json(response, 202, { data: { results: events.map(() => ({ status: "accepted" })) } });
+    });
+    const recorder = createRecorder({ ...base, endpoint: server.endpoint, maxPayloadBytes: 100 });
+    const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
+    journey.record({ operation: "received", name: "small", input: { a: 1 } });
+    journey.record({ operation: "received", name: "big", input: { blob: "x".repeat(5_000) } });
+    journey.record({ operation: "received", name: "small-again" });
+    const counters = await recorder.shutdown({ timeoutMs: 5_000 });
+    await server.close();
+
+    expect(counters).toMatchObject({ sent: 3, rejected: 0, dropped: 0, payloadsOmitted: 1 });
+    expect(accountedFor(counters)).toBe(3);
+  });
+
   it("counts a healthy run as all sent", async () => {
     // The control: an accounting change that dropped everything at shutdown
     // would pass every test above.

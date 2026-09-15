@@ -38,6 +38,12 @@ describe("diagnostics", () => {
     spy.mockRestore();
   });
 
+  it("counts an omitted payload apart from dropped events", () => {
+    const diagnostics = createDiagnostics();
+    diagnostics.report({ kind: "payload_omitted", reason: "max_bytes" });
+    expect(diagnostics.counters()).toMatchObject({ payloadsOmitted: 1, dropped: 0 });
+  });
+
   it("returns a copy of its counters", () => {
     const diagnostics = createDiagnostics();
     const first = diagnostics.counters();
@@ -204,6 +210,7 @@ describe("logDiagnostics", () => {
       transportErrors: 0,
       captureErrors: 0,
       breakerOpened: 0,
+      payloadsOmitted: 0,
       sent: 0
     });
   });

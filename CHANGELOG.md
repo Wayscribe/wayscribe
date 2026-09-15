@@ -33,8 +33,10 @@ changes far less often.
   for the new `delivered_first` kind, which carries `endpoint` and `accepted`,
   and `insecure_endpoint`, which carries `scheme` and `host`. Reading `kind`, `reason`, and
   `detail` compiles as before. TypeScript code must change if it switches over
-  `kind` exhaustively with a `never` default, which now needs a
-  `delivered_first` and an `insecure_endpoint` case, or if it builds a `Diagnostic` from a `kind` typed as
+  `kind` exhaustively with a `never` default, which now needs
+  `delivered_first`, `insecure_endpoint`, and `payload_omitted` cases (the last
+  a new `FailureKind`, which a payload over `maxPayloadBytes` reports instead of
+  `dropped`), or if it builds a `Diagnostic` from a `kind` typed as
   `DiagnosticKind` with only `reason`, which must use `FailureDiagnostic` or
   `FailureKind` instead.
 - **The SDK retries an event the server could not store for now.** A per-event
@@ -53,7 +55,9 @@ changes far less often.
   bounded by the queue's `maxBufferedEvents`, whose overflow is dropped and
   counted.
 - **SDK counters add up.** `sent + rejected + dropped` now equals the events
-  recorded. `shutdown()` counts everything it could not deliver as `dropped`
+  recorded. A payload too large to capture is no longer counted as `dropped`,
+  since its event is still sent with `[PAYLOAD_TOO_LARGE]` in its place; it has
+  its own `payload_omitted` diagnostic and `payloadsOmitted` counter. `shutdown()` counts everything it could not deliver as `dropped`
   (events still refused for now, the queue left behind an unreachable endpoint,
   and a batch in flight when its timeout wins, whose request it aborts); these
   vanished before, 1,000 of 3,000 in one probe. A batch the server refuses
@@ -389,8 +393,8 @@ audit, all merged the same day. The pattern behind them is written up in
   `contentHash` is computed over what the SDK sent. Resending the same event id
   from a mixed-version fleet mid-rollout returns 409 `event_id_conflict`.
 - A `Map` that measured as `{}` may now exceed `maxPayloadBytes` and record
-  `[PAYLOAD_TOO_LARGE]` with a `dropped` diagnostic. That is the size guard
-  seeing the data for the first time, not a regression.
+  `[PAYLOAD_TOO_LARGE]` with a `payload_omitted` diagnostic. That is the size
+  guard seeing the data for the first time, not a regression.
 - **A client that sends `error.stack` stops having it stored** unless the
   environment uses `full-payload` on an installation with
   `ALLOW_FULL_PAYLOAD_CAPTURE`.

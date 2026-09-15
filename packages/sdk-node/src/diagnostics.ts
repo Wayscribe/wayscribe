@@ -11,7 +11,7 @@ import { maskSecretsInText } from "@flight-recorder/payload-security/redaction";
  * wait for a recovery that is never coming.
  */
 export type FailureKind =
-  "dropped" | "rejected" | "transport_error" | "capture_error" | "breaker_open";
+  "dropped" | "rejected" | "transport_error" | "capture_error" | "breaker_open" | "payload_omitted";
 
 /**
  * `delivered_first` is the one diagnostic that is good news. It exists because
@@ -62,6 +62,12 @@ export interface Counters {
   transportErrors: number;
   captureErrors: number;
   breakerOpened: number;
+  /**
+   * Payloads replaced by a marker because they exceeded the size guard. The
+   * event itself is still sent, so this is not part of `dropped`: counting it
+   * there counted one event twice, once as dropped and once as sent.
+   */
+  payloadsOmitted: number;
   /** Accepted and stored. Not "handed to fetch" — actually stored. */
   sent: number;
 }
@@ -111,6 +117,7 @@ export function createDiagnostics(
     transportErrors: 0,
     captureErrors: 0,
     breakerOpened: 0,
+    payloadsOmitted: 0,
     sent: 0
   };
   const log = options.log === true;
@@ -145,6 +152,7 @@ export function createDiagnostics(
       if (diagnostic.kind === "transport_error") counters.transportErrors += 1;
       if (diagnostic.kind === "capture_error") counters.captureErrors += 1;
       if (diagnostic.kind === "breaker_open") counters.breakerOpened += 1;
+      if (diagnostic.kind === "payload_omitted") counters.payloadsOmitted += 1;
 
       if (log) {
         try {

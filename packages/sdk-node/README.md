@@ -158,7 +158,8 @@ no library. This one is built so that cannot happen:
   up.
 - `shutdown()` never hangs; it races the final flush against a timeout, and
   counts every event it could not deliver as `dropped`, so `sent`, `rejected`,
-  and `dropped` add up to what was recorded.
+  and `dropped` add up to the events recorded. A payload too large to capture
+  is counted in `payloadsOmitted` instead, because its event is still sent.
 - Nothing is written to your console unless you set `logDiagnostics`. Pass
   `onDiagnostic` if you want to hear about failures in your own logger.
 
@@ -169,7 +170,7 @@ const recorder = createRecorder({
 });
 
 const counters = await recorder.shutdown();
-// { dropped, rejected, transportErrors, captureErrors, breakerOpened, sent }
+// { dropped, rejected, transportErrors, captureErrors, breakerOpened, payloadsOmitted, sent }
 ```
 
 ## Is it sending?
@@ -236,7 +237,8 @@ change any counter.
 | `insecure_endpoint` | the endpoint is `http:` to a dotted name or an IP address off this machine, so the API key travels unencrypted | none |
 | `rejected` | the server understood an event and refused it; it is not retried | `rejected` |
 | `transport_error` | a request failed, or the server could not store an event for now; see below | `transportErrors` |
-| `dropped` | an event, or a payload, was not recorded: the queue was full, the payload was too large, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it (`no_verdict`) | `dropped` |
+| `payload_omitted` | a payload exceeded `maxPayloadBytes` and was replaced by `[PAYLOAD_TOO_LARGE]`; the event is still sent | `payloadsOmitted` |
+| `dropped` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it (`no_verdict`) | `dropped` |
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
 | `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
 
@@ -429,7 +431,7 @@ Every row below is what the SDK actually stored, not what it intends to.
 | `Set` | an array |
 | `Error` | `{name, message}` plus its own properties and its `cause` — no `stack` |
 | `RegExp` | the literal, `"/secret-(\\d+)/gi"` |
-| over `maxPayloadBytes` | `"[PAYLOAD_TOO_LARGE]"`, and a `dropped` diagnostic |
+| over `maxPayloadBytes` | `"[PAYLOAD_TOO_LARGE]"`, and a `payload_omitted` diagnostic |
 | a getter that throws | `"[UNCAPTURABLE]"`, and the event is still recorded |
 
 Redaction runs *inside* all of these, so an `authorization` entry in a header
