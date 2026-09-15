@@ -33,8 +33,10 @@ export interface InsecureDefault {
 export function findInsecureDefaults(env: Record<string, string | undefined>): InsecureDefault[] {
   const findings: InsecureDefault[] = [];
 
-  for (const variable of ["ENCRYPTION_KEY", "ADMIN_TOKEN"]) {
-    const value = env[variable];
+  for (const variable of ["ENCRYPTION_KEY", "ENCRYPTION_KEY_PREVIOUS", "ADMIN_TOKEN"]) {
+    // Trimmed as the configuration trims it, so a trailing newline does not
+    // hide a published value that is in fact in use.
+    const value = env[variable]?.trim();
     if (value !== undefined && PUBLISHED_DEFAULTS.has(value)) {
       findings.push({
         variable,

@@ -1,3 +1,8 @@
-export { ConfigError, loadServerEnv } from "./load.js";
+export { ConfigError, loadEncryptionKeys, loadServerEnv } from "./load.js";
 export { findInsecureDefaults, type InsecureDefault } from "./insecure-defaults.js";
-export { serverEnvSchema, type ServerEnv } from "./schema.js";
+export {
+  encryptionKeysSchema,
+  serverEnvSchema,
+  type EncryptionKeys,
+  type ServerEnv
+} from "./schema.js";

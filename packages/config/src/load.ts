@@ -1,4 +1,10 @@
-import { serverEnvSchema, type ServerEnv } from "./schema.js";
+import type { z } from "zod";
+import {
+  encryptionKeysSchema,
+  serverEnvSchema,
+  type EncryptionKeys,
+  type ServerEnv
+} from "./schema.js";
 
 export class ConfigError extends Error {
   public override readonly name = "ConfigError";
@@ -12,7 +18,25 @@ export class ConfigError extends Error {
  * one restart per mistake.
  */
 export function loadServerEnv(source: Record<string, string | undefined>): ServerEnv {
-  const result = serverEnvSchema.safeParse(source);
+  return parse(serverEnvSchema, source);
+}
+
+/**
+ * Parse only the encryption keys, for processes that need nothing else.
+ *
+ * The database CLI and the demo bootstrap write verifiers and ciphertext too.
+ * Reading the keys through the server's own field schemas means they trim and
+ * treat a blank previous key exactly as the API does.
+ */
+export function loadEncryptionKeys(source: Record<string, string | undefined>): EncryptionKeys {
+  return parse(encryptionKeysSchema, source);
+}
+
+function parse<T extends z.ZodType>(
+  schema: T,
+  source: Record<string, string | undefined>
+): Readonly<z.output<T>> {
+  const result = schema.safeParse(source);
 
   if (!result.success) {
     const issues = result.error.issues
