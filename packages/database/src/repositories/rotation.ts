@@ -480,10 +480,12 @@ export interface UnreadableData {
 /**
  * What this keyring can no longer read, for the API's boot check.
  *
- * Counted in SQL, except for legacy rows: they name no key, so the first one in
- * each table is decrypted as a sample and stands for the rest. A legacy table
- * is written by one key, so a sample that fails means the key that wrote them
- * is gone.
+ * Counted in SQL, except for legacy rows: they name no key, so the first and
+ * the last by primary key in each table are decrypted as a sample, and when
+ * either fails the table's whole legacy count is reported. Legacy rows were
+ * written before key ids existed, usually under a single key, but nothing
+ * guarantees it, so this is a heuristic: it can miss an unreadable stretch in
+ * the middle. `rotate:reencrypt` examines every row and reports the exact number.
  *
  * API keys with no recorded id are not counted. Whether one still verifies
  * cannot be known without the plaintext key.
@@ -517,13 +519,15 @@ export async function findUnreadableData(db: Knex, keyring: Keyring): Promise<Un
 
     let legacyUnreadable = 0;
     if (legacy > 0) {
-      const sample: unknown = await db(spec.table)
-        .whereNotNull(spec.column)
-        .whereRaw("left(??, 4) <> 'fr1.'", [spec.column])
-        .orderBy([...spec.key])
-        .first(`${spec.column} as value`);
-      const value = (sample as { value: string } | undefined)?.value;
-      if (value !== undefined && !decrypts(keyring, value)) legacyUnreadable = legacy;
+      for (const order of ["asc", "desc"] as const) {
+        const sample: unknown = await db(spec.table)
+          .whereNotNull(spec.column)
+          .whereRaw("left(??, 4) <> 'fr1.'", [spec.column])
+          .orderBy(spec.key.map((column) => ({ column, order })))
+          .first(`${spec.column} as value`);
+        const value = (sample as { value: string } | undefined)?.value;
+        if (value !== undefined && !decrypts(keyring, value)) legacyUnreadable = legacy;
+      }
     }
 
     tables.push({

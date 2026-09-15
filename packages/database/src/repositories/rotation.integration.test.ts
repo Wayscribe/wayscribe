@@ -672,6 +672,22 @@ describe("key rotation commands", () => {
         total: 7
       });
     });
+
+    it("samples the last legacy row as well as the first", async () => {
+      // Legacy rows name no key, so only a sample is decrypted. The oldest row
+      // alone can miss a later stretch written under a key since removed.
+      await journey("jrn_1", legacy(keyringB, "E-1"), token(keyringB, "E-1"));
+      await journey("jrn_2", legacy(keyringB, "E-2"), token(keyringB, "E-2"));
+      await journey("jrn_3", legacy(keyringC, "E-3"), token(keyringC, "E-3"));
+
+      const found = await findUnreadableData(db, rotated);
+      expect(found.tables[0]).toEqual({
+        table: "journeys",
+        unknownKey: 0,
+        malformed: 0,
+        legacyUnreadable: 3
+      });
+    });
   });
 
   describe("the CLI", () => {
