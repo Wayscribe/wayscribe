@@ -67,6 +67,9 @@ services:
       context: ..
       dockerfile: apps/web/Dockerfile
     # ADMIN_TOKEN comes from these, as for the API above, so the two always agree.
+    # The files also carry ENCRYPTION_KEY and, during a rotation,
+    # ENCRYPTION_KEY_PREVIOUS. The web app reads neither; they arrive only
+    # because the files are shared.
     env_file:
       - path: defaults.env
       - path: ../.env

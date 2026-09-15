@@ -47,6 +47,7 @@ services:
     <<: *demo
     # The keys come from these files, as for the API in compose.yaml, so the
     # demo key's verifier is written under the key the API treats as current.
+    # ADMIN_TOKEN arrives from the same files and is not used here.
     env_file:
       - path: defaults.env
       - path: ../.env
