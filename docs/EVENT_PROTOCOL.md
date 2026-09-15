@@ -377,12 +377,13 @@ Protocol errors should use stable codes, for example:
 
 - `unsupported_protocol_version`
 - `invalid_event`
-- `missing_required_field`
 - `payload_too_large`
 - `unauthorized_environment`
-- `invalid_timestamp`
-- `invalid_operation`
 - `event_id_conflict`
 - `journey_environment_mismatch`: the journey id belongs to another environment; a journey cannot span environments
+
+This list once also carried `missing_required_field`, `invalid_timestamp` and `invalid_operation`. No code path ever sent them: a missing field, an unparseable timestamp and an operation outside the eleven are all `invalid_event`, with the failing field in `details`. They were removed rather than reserved (ADR-049). Another implementation of this protocol reports those conditions as `invalid_event` too.
+
+A client treats a code it does not recognize by its HTTP status, so a code added later is a compatible change.
 
 The full API error shape is documented in `API_SPEC.md`.

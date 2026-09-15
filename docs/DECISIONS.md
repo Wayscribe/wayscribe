@@ -64,7 +64,7 @@ Use TypeScript for the API, web interface, protocol package, SDK, demo services,
 
 - Shared Zod schemas and types are practical.
 - Python support is deferred to a later SDK.
-- Language-neutral protocol design is still required.
+- Language-neutral protocol design is still required. Satisfied by ADR-049.
 
 ---
 
@@ -190,7 +190,9 @@ Events must carry a journey ID or an explicit alias relationship.
 
 ## ADR-010: OpenTelemetry is optional interoperability
 
-**Status:** Accepted
+**Status:** Accepted. ADR-049 amends its wording on OTLP ingestion and not its principle: accepting
+OpenTelemetry log records becomes a planned optional path, and no deployment requires
+OpenTelemetry.
 
 ### Context
 
@@ -1869,3 +1871,80 @@ is of the event as received, which is not stored.
   per guess rather than one hash, and needs a credential that can already write events.
 - One HMAC per ingested event, and a second only when an id already exists. The cost is the same
   order as the SHA-256 it replaces.
+
+---
+
+## ADR-049: The contract is the deliverable, and a second SDK waits for a team that needs one
+
+**Status:** Accepted. Amends the wording of ADR-010 on OTLP ingestion, not its principle.
+
+### Context
+
+ADR-003 chose TypeScript across V0 and left "language-neutral protocol design is still required"
+as a consequence nobody has since had to satisfy. `AGENTS.md` bans a native SDK in another
+language without an architecture decision. ADR-010 keeps OpenTelemetry optional and says V0 will
+not implement an OTLP receiver.
+
+Today the contract exists only as TypeScript. `packages/protocol` holds the Zod schemas,
+`apps/api` holds the ingestion rules in code, and `docs/NODE_SDK_SPEC.md` describes one SDK in
+the language it is written in. Somebody writing a recorder in another language, or a mapping from
+OpenTelemetry log records, has nothing to build against and no way to check the result. The
+product now needs teams that are not this repository to be able to send events, and the cheapest
+thing that makes that true is not a second SDK.
+
+### Decision
+
+Publish the contract as artefacts an author outside TypeScript can use: JSON Schema generated
+from the Zod schemas, an HTTP ingestion contract in `docs/INGESTION_CONTRACT.md`, a
+language-neutral SDK specification in `docs/SDK_SPEC.md` with MUST and SHOULD requirements, a
+dry-run validation endpoint, and conformance fixtures under `packages/protocol/conformance/` that
+any implementation can run through it.
+
+Zod stays the source of truth. The JSON Schema is generated and checked for drift, never
+hand-edited.
+
+OpenTelemetry log records over OTLP HTTP become a planned optional ingestion path rather than
+something V0 refuses. That amends ADR-010 in wording and not in principle: no deployment of this
+product requires OpenTelemetry, and the Node SDK stays the recommended path for Node.
+
+Framework adapters are separate packages over the SDK's public API. A second native SDK is built
+when a pilot team needs one, against `docs/SDK_SPEC.md`, and it is not considered done until it
+passes the conformance fixtures through the dry run.
+
+### Also decided here, because the contract cannot be published while it is ambiguous
+
+`AGENTS.md` said unknown protocol fields "must be preserved where safe". Ingestion accepts them,
+drops them, and does not include them in the content hash, because there is no column to store
+them in and an unvalidated, unredacted field is not something to write to one. The rule means
+"accepted, not refused", which is what makes an additive optional field a compatible change. The
+`AGENTS.md` line is reworded to say so. Storing them would be a schema change and its own
+decision.
+
+Three codes in `PROTOCOL_ERROR_CODES` are removed rather than reserved:
+`missing_required_field`, `invalid_timestamp` and `invalid_operation`. No code path has ever
+emitted them; every one of those conditions is reported as `invalid_event` with the failing field
+in `details`. A published registry that lists codes no implementation sends would tell the author
+of a second SDK to branch on something that never arrives. Removing them is free while nothing is
+published. The contract instead tells a client to treat any code it does not know by its status,
+so adding a code later stays a compatible change.
+
+### Consequences
+
+- Contract artefacts become things that can rot, so each carries a test that fails when it
+  drifts: schema drift against the committed files, Zod against Ajv over every fixture, the
+  documented limits against the constants, the documented refusals against the code registry, and
+  fixtures that run against the real API.
+- A conformance fixture change is a contract change and is reviewed as one.
+- The dry run is a new refusal path that leaves no row behind, which is a small new disclosure
+  surface. Its own decision is ADR-050.
+- Wire identifiers are not frozen by this decision. The propagation specification and its test
+  vectors, and the OTLP attribute mapping, wait for the rename, because every requirement in them
+  is a name the rename changes.
+
+### Rejected
+
+- **A native SDK per language.** The cost of the Node SDK's Phases 3 and 4 each time, plus
+  maintenance forever, for a language nobody has asked for yet.
+- **Becoming a pure OpenTelemetry backend.** The input and output pairing the payload diff
+  depends on becomes a convention nobody enforces, and it is a pivot before any user asked for
+  one.

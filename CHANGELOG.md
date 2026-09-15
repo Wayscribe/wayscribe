@@ -15,6 +15,17 @@ changes far less often.
 
 ### Changed
 
+- **Three protocol error codes are gone.** `missing_required_field`,
+  `invalid_timestamp` and `invalid_operation` were in the public list in
+  `packages/protocol` and in `EVENT_PROTOCOL.md` section 12, and no code path
+  ever sent one: a missing field, an unparseable timestamp and an operation
+  outside the eleven all come back as `invalid_event` with the failing field in
+  `details`. They are removed rather than reserved (ADR-049), because a registry
+  that lists codes nothing sends tells the author of a client to branch on
+  something that never arrives. Nothing observable on the wire changes. Code
+  that imported `PROTOCOL_ERROR_CODES.missingRequiredField`,
+  `.invalidTimestamp` or `.invalidOperation` no longer compiles; a client should
+  treat any code it does not recognize by its HTTP status instead.
 - **Bring your own database.** `DATABASE_URL` is required and points at the
   PostgreSQL your team already runs — the one somebody backs up, monitors, and
   can restore. The bundled database moves to
