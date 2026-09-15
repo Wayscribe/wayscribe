@@ -35,6 +35,16 @@ describe("contentSecurityPolicy", () => {
       "'self' 'nonce-n' 'unsafe-eval'"
     );
   });
+
+  it("allows inline styles in development only, which next dev's overlay injects", () => {
+    // The dev server's error overlay and indicator add <style> elements with
+    // no nonce, and every page under `next dev` reported style-src-elem
+    // violations.
+    expect(directives(contentSecurityPolicy("n", true)).get("style-src")).toBe(
+      "'self' 'unsafe-inline'"
+    );
+    expect(directives(contentSecurityPolicy("n", false)).get("style-src")).toBe("'self'");
+  });
 });
 
 describe("the middleware", () => {

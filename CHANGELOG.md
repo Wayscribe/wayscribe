@@ -392,7 +392,8 @@ changes far less often.
   `X-Powered-By` is gone. The production build inlines scripts, so the nonce is
   set in middleware rather than allowing `'unsafe-inline'`, and the not-found
   page is rendered per request so it gets one. A browser test fails on any
-  policy violation.
+  policy violation. Under `next dev` only, the policy also allows `eval` and
+  inline styles, which React's development build and the dev overlay need.
 - **Replay's default allowlist no longer reaches the Docker host.**
   `compose.published.yaml` and the Helm chart defaulted `REPLAY_ALLOWED_HOSTS`
   to `localhost,host.docker.internal`, and `host.docker.internal` reaches every

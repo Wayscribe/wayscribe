@@ -30,13 +30,15 @@ export const STATIC_SECURITY_HEADERS = [
  * `style` attributes; Next's default not-found page did, and is replaced.
  *
  * Development adds `'unsafe-eval'`, which React's development build uses to
- * reconstruct server stacks. It is never sent by a production build.
+ * reconstruct server stacks, and `'unsafe-inline'` for styles, which the dev
+ * server's overlay and indicator inject without a nonce. Neither is ever sent
+ * by a production build.
  */
 export function contentSecurityPolicy(nonce: string, development: boolean): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}'${development ? " 'unsafe-eval'" : ""}`,
-    "style-src 'self'",
+    `style-src 'self'${development ? " 'unsafe-inline'" : ""}`,
     "img-src 'self'",
     "font-src 'self'",
     "connect-src 'self'",
