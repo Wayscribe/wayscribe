@@ -147,6 +147,11 @@ describe("key warnings", () => {
         unreadable: { journeys: 2, entity_aliases: 0, replay_destinations: 1, api_keys: 1 }
       });
       expect(warning?.msg).toContain("rotate:status");
+      // Recreate, not restart: a restarted container keeps its old environment.
+      expect(warning?.msg).toContain(
+        "restore it and recreate the API containers (docs/OPERATIONS.md §6)."
+      );
+      expect(warning?.msg).not.toMatch(/\brestart\b/);
     });
 
     it("does not run the check against a database with migrations pending", async () => {

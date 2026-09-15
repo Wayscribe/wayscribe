@@ -96,7 +96,9 @@ describe("formatRotationStatus", () => {
     const lines = formatRotationStatus(cleanStatus());
     expect(lines).toContain("Previous key: aaaaaaaaaaaa");
     expect(lines.at(-1)).toBe(
-      "Complete: every row and API key is under the current key. Remove ENCRYPTION_KEY_PREVIOUS and restart."
+      // Recreate, not restart: `docker compose restart` keeps the environment the
+      // container was created with, so the key would still be there.
+      "Complete: every row and API key is under the current key. Remove ENCRYPTION_KEY_PREVIOUS and recreate the API containers (docs/OPERATIONS.md §6)."
     );
   });
 

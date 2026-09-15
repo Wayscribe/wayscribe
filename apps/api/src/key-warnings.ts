@@ -34,7 +34,7 @@ export function unknownKeyWarning(log: WarnLogger): (keyId: string) => void {
  * process cannot read.
  *
  * The API still starts. Refusing would stop ingestion over a read problem, and
- * the fix (restoring the previous key) is a restart either way.
+ * the fix (restoring the previous key) means starting the API again either way.
  *
  * Skipped while migrations are pending, since the columns it reads may not
  * exist yet, and never throws: a check that failed to run is logged, not a
@@ -59,7 +59,9 @@ export async function checkKeysAtBoot(db: Knex, keyring: Keyring, log: WarnLogge
     log.warn(
       { unreadable },
       `Stored data the configured keys cannot read: ${summary}. ` +
-        "If ENCRYPTION_KEY_PREVIOUS was removed before rotate:reencrypt finished, restore it and restart. " +
+        // Recreate, not restart: a restarted container keeps the environment it
+        // was created with, so the restored key would never arrive.
+        "If ENCRYPTION_KEY_PREVIOUS was removed before rotate:reencrypt finished, restore it and recreate the API containers (docs/OPERATIONS.md §6). " +
         "Run rotate:status for details."
     );
   } catch (error) {

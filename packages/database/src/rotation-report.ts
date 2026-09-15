@@ -175,7 +175,9 @@ export function formatRotationStatus(status: RotationStatus): string[] {
   if (status.complete) {
     lines.push(
       rotating
-        ? "Complete: every row and API key is under the current key. Remove ENCRYPTION_KEY_PREVIOUS and restart."
+        ? // Recreate, not restart: `docker compose restart` keeps the environment
+          // the container was created with, so the previous key would stay.
+          "Complete: every row and API key is under the current key. Remove ENCRYPTION_KEY_PREVIOUS and recreate the API containers (docs/OPERATIONS.md §6)."
         : "Complete: every row and API key is under the current key."
     );
   } else {
