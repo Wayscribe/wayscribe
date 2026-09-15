@@ -223,6 +223,8 @@ container-scan:
   script:
     - docker build -f apps/api/Dockerfile -t scan/api:$CI_COMMIT_SHA .
     - docker build -f apps/web/Dockerfile -t scan/web:$CI_COMMIT_SHA .
+    # Trivy is pinned by version and digest, like Syft and cosign: a new scanner
+    # release changes what blocks, and that should be somebody's decision.
     # What is in the image, before what is vulnerable in it. Trivy reports CVEs
     # in packages; it has nothing to say about our own test fixtures shipping to
     # production, which is how 62 test files and every source directory rode
@@ -238,20 +240,26 @@ container-scan:
         echo "=== $image ==="
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
           -v "$CI_PROJECT_DIR/.trivy-cache:/root/.cache/trivy" \
-          aquasec/trivy:latest image --scanners vuln --severity HIGH,CRITICAL \
+          aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
+          image --scanners vuln --severity HIGH,CRITICAL \
           --exit-code 1 --no-progress "$image"
       done
   allow_failure: false
 
 # A software bill of materials for each image, kept as job artifacts. It uses
 # scripts/sbom.sh, the same command publish-images runs through
-# scripts/attest-and-sign.sh, so the SBOM half of a release is exercised on every
+# scripts/publish-image.sh, so the SBOM half of a release is exercised on every
 # default-branch pipeline instead of only on the day of one. The signing half
 # cannot be: a signature is pushed beside the image and written to the public
 # transparency log, and both are publishing.
 #
 # Its own job rather than steps in container-scan, which fails on a CVE before
 # it would reach them; an SBOM is most wanted exactly when a scan is red.
+#
+# It blocks, deliberately. It judges nothing about what is in the images, but it
+# fails when an SBOM cannot be produced, and a release would then fail at the
+# same step with a tag waiting on it. Finding that on main is the reason the
+# job exists; an allowed failure would be read as noise until release day.
 sbom:
   stage: security
   rules:
@@ -280,12 +288,14 @@ sbom:
 # An older build writes data; this build must read all of it. Flight Recorder
 # runs on each team's own PostgreSQL, so an upgrade is a new image started
 # against a database an old image wrote. scripts/upgrade-test.mjs builds the API
-# at the newest earlier v* tag (or, before there is one, main just before the key
-# rotation merge), records journeys through it, swaps the image over the same
-# volume, and compares every read.
+# at the newest earlier release tag (or, before there is one, main just before
+# the key rotation merge), records journeys through it, swaps the image over the
+# same volume, and compares every read.
 #
-# Automatic on tags, where publish-images needs it, and on the schedule. Manual
-# otherwise, for the reason demo is: two image builds and a stack per push.
+# Automatic on release tags, where publish-images needs it, and on the schedule.
+# Manual on branch pipelines, for the reason demo is: two image builds and a
+# stack per push. Not offered on merge request pipelines at all, and not on
+# other tags (phase-*, usable-v0, pre-releases), which are not releases.
 upgrade-test:
   stage: demo
   # The demo job's pattern: Node 24 with the Docker CLI added. The script uses
@@ -303,6 +313,9 @@ upgrade-test:
     # reached at the `docker` host, as in infrastructure/compose.ci.yaml.
     UPGRADE_BIND_ADDRESS: 0.0.0.0
     UPGRADE_API_HOST: docker
+  # Two image builds without a layer cache plus a stack. The script bounds each
+  # build at 12 minutes and each other command at 5, so a hang fails the job.
+  timeout: 20m
   cache: {}
   before_script:
     - apk add --no-cache git docker-cli docker-cli-compose
@@ -310,9 +323,10 @@ upgrade-test:
     # add a worktree to a repository it considers unsafe.
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
   rules:
-    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
     - if: $CI_PIPELINE_SOURCE == "schedule"
-    - when: manual
+    - if: $CI_COMMIT_BRANCH
+      when: manual
       allow_failure: true
   script:
     - node scripts/upgrade-test.mjs
@@ -354,15 +368,24 @@ demo:
       -f infrastructure/compose.demo.yaml
       -f infrastructure/compose.ci.yaml down -v
 
-# Everything below runs only on a tag. A release is the one moment the suites
-# that need the whole stack are worth waiting for, so the browser and demo jobs
-# above are joined here by publishing that is deliberately manual: pushing an
-# image and publishing a package are outward-facing acts, and a pipeline should
-# not perform them because a tag was pushed by accident.
+# Everything below runs only on a release tag. A release is the one moment the
+# suites that need the whole stack are worth waiting for, so the browser and demo
+# jobs above are joined here by publishing that is deliberately manual: pushing
+# an image and publishing a package are outward-facing acts, and a pipeline
+# should not perform them because a tag was pushed by accident.
+#
+# A release tag is vMAJOR.MINOR.PATCH exactly. The repository also carries
+# phase-* and usable-v0 tags, and none of them may publish. Pre-releases do not
+# publish images either.
+#
+# The pattern is not the protection. A signature's certificate names the tag it
+# ran for, so what a signature proves is only as strong as who can create a v*
+# tag. `v*` must be a protected tag, creatable by Maintainers only (Settings,
+# Repository, Protected tags), before the first release. See SECURITY.md.
 
 .release-rules: &release-rules
   rules:
-    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
 # The gate. Both acceptance suites, unskippable, before anything is published.
 release-verify:
@@ -425,23 +448,17 @@ publish-images:
     # many developers are on arm64 laptops.
     - docker buildx create --use --name flight-builder
   script:
+    # Both images are pushed by digest with no tag, an SBOM per platform is
+    # attached, each digest is signed and verified the way an operator will
+    # verify it, and only when both have passed do :TAG and :latest point at
+    # them. A failure anywhere before that leaves no release tag behind. Scripts
+    # rather than inline YAML, so the SBOM step runs in the `sbom` job on every
+    # default-branch pipeline and the whole flow can be rehearsed with DRY_RUN=1
+    # against a throwaway registry (docs/OPERATIONS.md §11).
     - >-
-      docker buildx build --platform linux/amd64,linux/arm64 --push
-      -f apps/api/Dockerfile
-      -t "$CI_REGISTRY_IMAGE/api:$CI_COMMIT_TAG"
-      -t "$CI_REGISTRY_IMAGE/api:latest" .
-    # An SBOM per platform from the pushed manifest, attached as a cosign
-    # attestation, then the image signed by digest and verified the way an
-    # operator will. A script, not inline YAML, so its SBOM half runs in the
-    # `sbom` job on every default-branch pipeline and the rest can be
-    # rehearsed with DRY_RUN=1.
-    - scripts/attest-and-sign.sh "$CI_REGISTRY_IMAGE/api" "$CI_COMMIT_TAG"
-    - >-
-      docker buildx build --platform linux/amd64,linux/arm64 --push
-      -f apps/web/Dockerfile
-      -t "$CI_REGISTRY_IMAGE/web:$CI_COMMIT_TAG"
-      -t "$CI_REGISTRY_IMAGE/web:latest" .
-    - scripts/attest-and-sign.sh "$CI_REGISTRY_IMAGE/web" "$CI_COMMIT_TAG"
+      scripts/publish-image.sh "$CI_COMMIT_TAG"
+      "apps/api/Dockerfile=$CI_REGISTRY_IMAGE/api"
+      "apps/web/Dockerfile=$CI_REGISTRY_IMAGE/web"
   artifacts:
     when: always
     paths:
@@ -518,7 +535,9 @@ github-release:
   rules:
     - if: '$GITHUB_TOKEN == null || $GITHUB_TOKEN == ""'
       when: never
-    - if: $CI_COMMIT_TAG
+    # Releases and pre-releases (the notes below mark a suffixed tag as a
+    # pre-release), never phase-* or usable-v0.
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
   script:
     # The matching CHANGELOG section, when there is one. A release whose notes
     # read "see the changelog" is a release nobody reads.

@@ -14,10 +14,15 @@
 #   platform  linux/amd64 or linux/arm64, for a multi-platform registry source.
 #
 # Syft runs as a container, pinned by version and digest, and writes the SBOM
-# to stdout. Not to a bind-mounted directory: under docker-in-docker a bind
-# mount names the dind service's filesystem, not the job's, so the file would
-# be written somewhere the job cannot see. The Docker socket mount is the
-# daemon's own socket, which is why it does work there.
+# to stdout, which this script redirects to the output file. That works wherever
+# the output path is. A bind mount would work in CI, where GitLab's Docker
+# executor shares $CI_PROJECT_DIR with the dind service, but not for a path the
+# Docker daemon cannot see: a temporary directory, or a local run against a
+# daemon in a virtual machine or on another host. The socket mount is the
+# daemon's own socket, which it always has.
+#
+# SYFT_DOCKER_ARGS adds arguments to that `docker run`, for rehearsing against a
+# local registry (for example `--network host -e SYFT_REGISTRY_INSECURE_USE_HTTP=true`).
 #
 # Requires docker and jq.
 set -eu
@@ -28,11 +33,13 @@ PLATFORM="${3:-}"
 
 # Changing this changes what every SBOM contains. Update the version and the
 # digest together: `docker buildx imagetools inspect anchore/syft:<version>`.
-SYFT_IMAGE="${SYFT_IMAGE:-anchore/syft:v1.51.1@sha256:95fe0835e5bebc6f8b1f8acef68d47d63d594ef4c0f25c097ff853b23cbac74c}"
+SYFT_IMAGE="anchore/syft:v1.51.1@sha256:95fe0835e5bebc6f8b1f8acef68d47d63d594ef4c0f25c097ff853b23cbac74c"
 
+# shellcheck disable=SC2086 # SYFT_DOCKER_ARGS is a list of arguments on purpose.
 set -- run --rm \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -e SYFT_CHECK_FOR_APP_UPDATE=false
+  -e SYFT_CHECK_FOR_APP_UPDATE=false \
+  ${SYFT_DOCKER_ARGS:-}
 
 # Registry credentials for a private registry source, passed by name so the
 # password never appears in a process listing.

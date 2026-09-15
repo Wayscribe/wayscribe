@@ -10,26 +10,31 @@
 // and replay destinations still work, and that the format upgrade converts what
 // it should. See docs/superpowers/specs/2026-09-15-release-hardening-design.md.
 //
-// Usage: node scripts/upgrade-test.mjs
+// Usage: node scripts/upgrade-test.mjs [--print-baseline]
+//
+// --print-baseline chooses the baseline, prints it, and exits without Docker.
 //
 // Environment (all optional):
-//   UPGRADE_BASELINE_REF   ref to upgrade from; default the newest earlier v* tag,
-//                          else DEFAULT_BASELINE below
+//   UPGRADE_BASELINE_REF   ref to upgrade from; default the newest earlier
+//                          vMAJOR.MINOR.PATCH tag, else DEFAULT_BASELINE below
 //   UPGRADE_FETCH_TAGS=1   `git fetch --tags` before choosing (CI sets this)
-//   UPGRADE_PROJECT        Compose project name (default fr-upgrade-test)
-//   UPGRADE_API_PORT       host port for the API (default 18080)
+//   UPGRADE_PROJECT        Compose project name (default fr-upgrade-<pid>)
+//   UPGRADE_API_PORT       host port for the API (default a free port)
 //   UPGRADE_BIND_ADDRESS   address the port binds to (default 127.0.0.1)
 //   UPGRADE_API_HOST       host the script calls the API on (default 127.0.0.1)
 //   UPGRADE_WORKDIR        where the baseline worktree goes (default a temp dir)
 //   UPGRADE_KEEP=1         leave containers, volume, images and worktree behind
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { clearTimeout, setTimeout } from "node:timers";
 import { setTimeout as sleep } from "node:timers/promises";
+import { containedIn, releaseTags } from "./upgrade-test-lib.mjs";
 
 /**
  * main immediately before the key rotation merge (d1bae55^1). It predates
@@ -41,8 +46,12 @@ const DEFAULT_BASELINE = "f4a85f0ccb1f25b73be3401f0e9eb81377596df8";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const COMPOSE_FILE = join(ROOT, "scripts", "upgrade-test.compose.yaml");
-const PROJECT = process.env.UPGRADE_PROJECT || "fr-upgrade-test";
-const API_PORT = process.env.UPGRADE_API_PORT || "18080";
+// Unique per run by default. Every run begins with `compose down -v` on its
+// project, so two runs sharing a name would delete each other's database.
+// Compose requires a lowercase project name.
+const PROJECT = (process.env.UPGRADE_PROJECT || `fr-upgrade-${String(process.pid)}`).toLowerCase();
+const PRINT_BASELINE = process.argv.includes("--print-baseline");
+const API_PORT = process.env.UPGRADE_API_PORT || (PRINT_BASELINE ? "0" : String(await freePort()));
 const API_HOST = process.env.UPGRADE_API_HOST || "127.0.0.1";
 const API = `http://${API_HOST}:${API_PORT}`;
 const KEEP = process.env.UPGRADE_KEEP === "1";
@@ -60,18 +69,107 @@ class UpgradeTestError extends Error {}
 
 const cleanups = [];
 
+/**
+ * A port nothing on this machine is listening on, from the kernel. Under
+ * docker-in-docker the API publishes on the dind service rather than here, but
+ * that daemon is fresh for each job, so its ports are free anyway.
+ */
+function freePort() {
+  return new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() => {
+        if (typeof address === "object" && address !== null) resolvePort(address.port);
+        else reject(new Error("no port was assigned"));
+      });
+    });
+  });
+}
+
+/** Bounds for child processes, so a hung build or container fails the run. */
+const BUILD_TIMEOUT_MS = 12 * 60_000;
+const COMMAND_TIMEOUT_MS = 5 * 60_000;
+
 // ---------------------------------------------------------------------------
 // Processes
 
+/** The child the run is waiting on, so a signal can stop it before cleaning up. */
+let currentChild;
+
+/**
+ * A command the run waits on without blocking the event loop. Asynchronous so
+ * that SIGTERM during a ten-minute image build is handled at once: a signal
+ * handler cannot run while `spawnSync` holds the loop.
+ */
 function run(command, args, options = {}) {
+  const limit = options.timeout ?? COMMAND_TIMEOUT_MS;
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd ?? ROOT,
+      env: { ...process.env, ...options.env },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    currentChild = child;
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    child.stdout.setEncoding("utf8").on("data", (chunk) => (stdout += chunk));
+    child.stderr.setEncoding("utf8").on("data", (chunk) => (stderr += chunk));
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, limit);
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      currentChild = undefined;
+      reject(new UpgradeTestError(`${command} could not run: ${error.message}`));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      currentChild = undefined;
+      if (timedOut) {
+        reject(
+          new UpgradeTestError(
+            `${command} ${args.join(" ")} did not finish within ${String(limit / 60_000)} minutes`
+          )
+        );
+        return;
+      }
+      const outcome = { status: code ?? 1, stdout, stderr };
+      if (!options.allowFailure && outcome.status !== 0) {
+        reject(
+          new UpgradeTestError(
+            `${command} ${args.join(" ")} exited ${String(outcome.status)}\n${tail(stdout + stderr, 60)}`
+          )
+        );
+        return;
+      }
+      resolveRun(outcome);
+    });
+  });
+}
+
+/** For git, which is quick, and for cleanup, which must finish before exit. */
+function runSync(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? ROOT,
     env: { ...process.env, ...options.env },
     input: options.input,
     encoding: "utf8",
-    maxBuffer: 256 * 1024 * 1024
+    maxBuffer: 256 * 1024 * 1024,
+    timeout: options.timeout ?? COMMAND_TIMEOUT_MS,
+    killSignal: "SIGKILL"
   });
-  if (result.error) throw new UpgradeTestError(`${command} could not run: ${result.error.message}`);
+  if (result.error) {
+    const minutes = String((options.timeout ?? COMMAND_TIMEOUT_MS) / 60_000);
+    throw new UpgradeTestError(
+      /ETIMEDOUT/.test(result.error.message)
+        ? `${command} ${args.join(" ")} did not finish within ${minutes} minutes`
+        : `${command} could not run: ${result.error.message}`
+    );
+  }
   const outcome = { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
   if (!options.allowFailure && outcome.status !== 0) {
     throw new UpgradeTestError(
@@ -94,11 +192,16 @@ function composeEnv(image) {
   };
 }
 
+function composeArgs(args) {
+  return ["compose", "-p", PROJECT, "-f", COMPOSE_FILE, ...args];
+}
+
 function compose(image, args, options = {}) {
-  return run("docker", ["compose", "-p", PROJECT, "-f", COMPOSE_FILE, ...args], {
-    ...options,
-    env: composeEnv(image)
-  });
+  return run("docker", composeArgs(args), { ...options, env: composeEnv(image) });
+}
+
+function composeSync(image, args, options = {}) {
+  return runSync("docker", composeArgs(args), { ...options, env: composeEnv(image) });
 }
 
 /** The image's database CLI, in a one-off container beside the stack. */
@@ -110,8 +213,8 @@ function cli(image, args, options = {}) {
   );
 }
 
-function sql(image, statement) {
-  return compose(image, [
+async function sql(image, statement) {
+  const result = await compose(image, [
     "exec",
     "-T",
     "postgres",
@@ -122,11 +225,12 @@ function sql(image, statement) {
     "flight",
     "-tAc",
     statement
-  ]).stdout.trim();
+  ]);
+  return result.stdout.trim();
 }
 
 function git(args, options = {}) {
-  return run("git", args, options);
+  return runSync("git", args, options);
 }
 
 // ---------------------------------------------------------------------------
@@ -186,14 +290,14 @@ async function waitForReady(image, label) {
     } catch (error) {
       last = error instanceof Error ? error.message : String(error);
     }
-    const state = compose(image, ["ps", "-a", "--format", "{{.State}}", "api"], {
-      allowFailure: true
-    }).stdout.trim();
+    const state = (
+      await compose(image, ["ps", "-a", "--format", "{{.State}}", "api"], { allowFailure: true })
+    ).stdout.trim();
     if (state === "exited" || state === "dead") break;
     await sleep(1_000);
   }
   throw new UpgradeTestError(
-    `${label} API did not become ready (last: ${last})\n${compose(image, ["logs", "--tail", "80", "api"], { allowFailure: true }).stdout}`
+    `${label} API did not become ready (last: ${last})\n${composeSync(image, ["logs", "--tail", "80", "api"], { allowFailure: true }).stdout}`
   );
 }
 
@@ -201,44 +305,16 @@ async function waitForReady(image, label) {
 // Comparison
 
 /**
- * Every field the baseline returned must be present and equal in the current
- * response. Fields the current build added are allowed; arrays must match
- * element for element, because a lost alias or event is exactly the failure.
+ * Recorded reads whose header maps are compared by name, with values allowed to
+ * have become `[REDACTED]` (see `containedIn` in upgrade-test-lib.mjs).
+ *
+ * Only the replay run's `requestHeaders`. The replay-header-storage branch stops
+ * storing destination header values in replay runs, and its migration 015
+ * rewrites every stored run header to `[REDACTED]`, because those values were
+ * decrypted copies of credentials that are encrypted at rest everywhere else.
+ * Which headers a replay sent is the record; their values were never meant to be.
  */
-function containedIn(expected, actual, path, mismatches) {
-  if (Array.isArray(expected)) {
-    if (!Array.isArray(actual)) {
-      mismatches.push(`${path}: expected an array, got ${JSON.stringify(actual)}`);
-      return;
-    }
-    if (expected.length !== actual.length) {
-      mismatches.push(
-        `${path}: expected ${String(expected.length)} items, got ${String(actual.length)}`
-      );
-    }
-    expected.forEach((item, index) => {
-      containedIn(item, actual[index], `${path}[${String(index)}]`, mismatches);
-    });
-    return;
-  }
-  if (expected !== null && typeof expected === "object") {
-    if (actual === null || typeof actual !== "object" || Array.isArray(actual)) {
-      mismatches.push(`${path}: expected an object, got ${JSON.stringify(actual)}`);
-      return;
-    }
-    for (const [key, value] of Object.entries(expected)) {
-      if (!(key in actual)) {
-        mismatches.push(`${path}.${key}: missing (baseline had ${JSON.stringify(value)})`);
-        continue;
-      }
-      containedIn(value, actual[key], `${path}.${key}`, mismatches);
-    }
-    return;
-  }
-  if (expected !== actual) {
-    mismatches.push(`${path}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-  }
-}
+const HEADER_MAPS = new Set(["baseline replay run.requestHeaders"]);
 
 async function compareRecorded(recorded, label, skip = new Set()) {
   const mismatches = [];
@@ -252,7 +328,7 @@ async function compareRecorded(recorded, label, skip = new Set()) {
       );
       continue;
     }
-    containedIn(data, response.json.data, name, mismatches);
+    containedIn(data, response.json.data, name, mismatches, HEADER_MAPS);
     compared += 1;
   }
   check(
@@ -461,21 +537,20 @@ function chooseBaseline() {
     ref = explicit;
     reason = "UPGRADE_BASELINE_REF";
   } else {
-    const tags = git(["tag", "--list", "v*", "--sort=-version:refname"])
-      .stdout.split("\n")
-      .filter(Boolean);
+    // Releases only, newest first: never a pre-release or a phase tag.
+    const tags = releaseTags(git(["tag", "--list", "v*"]).stdout.split("\n").filter(Boolean));
     for (const tag of tags) {
       const commit = git(["rev-parse", `${tag}^{commit}`]).stdout.trim();
       if (commit === head) continue;
       if (git(["merge-base", "--is-ancestor", tag, "HEAD"], { allowFailure: true }).status !== 0)
         continue;
       ref = tag;
-      reason = "newest earlier v* tag";
+      reason = "newest earlier release tag";
       break;
     }
     if (ref === undefined) {
       ref = DEFAULT_BASELINE;
-      reason = "no earlier v* tag; default baseline, main before the key rotation merge";
+      reason = "no earlier release tag; default baseline, main before the key rotation merge";
     }
   }
   const exists = git(["cat-file", "-e", `${ref}^{commit}`], { allowFailure: true });
@@ -492,6 +567,12 @@ function chooseBaseline() {
 // The test
 
 async function main() {
+  if (PRINT_BASELINE) {
+    const choice = chooseBaseline();
+    console.log(`${choice.ref} ${choice.commit} (${choice.reason})`);
+    return;
+  }
+
   step("Choosing the baseline");
   const baseline = chooseBaseline();
   const dirty = git(["status", "--porcelain"]).stdout.trim() !== "";
@@ -525,31 +606,32 @@ async function main() {
     if (!process.env.UPGRADE_WORKDIR) rmSync(workdir, { recursive: true, force: true });
   });
   cleanups.push(() => {
-    run("docker", ["image", "rm", "-f", BASELINE_IMAGE, CURRENT_IMAGE], { allowFailure: true });
+    runSync("docker", ["image", "rm", "-f", BASELINE_IMAGE, CURRENT_IMAGE], { allowFailure: true });
   });
   cleanups.push(() => {
-    compose(CURRENT_IMAGE, ["down", "-v", "--remove-orphans"], { allowFailure: true });
+    composeSync(CURRENT_IMAGE, ["down", "-v", "--remove-orphans"], { allowFailure: true });
   });
 
   step("Building the baseline API image");
   git(["worktree", "add", "--detach", worktree, baseline.commit]);
   ok(`worktree at ${worktree}`);
-  run("docker", ["build", "-q", "-f", "apps/api/Dockerfile", "-t", BASELINE_IMAGE, "."], {
-    cwd: worktree
+  await run("docker", ["build", "-q", "-f", "apps/api/Dockerfile", "-t", BASELINE_IMAGE, "."], {
+    cwd: worktree,
+    timeout: BUILD_TIMEOUT_MS
   });
   ok(`built ${BASELINE_IMAGE}`);
 
   step("Baseline: migrate, provision, start");
-  compose(BASELINE_IMAGE, ["down", "-v", "--remove-orphans"], { allowFailure: true });
-  const baselineMigrate = cli(BASELINE_IMAGE, ["migrate"]);
+  await compose(BASELINE_IMAGE, ["down", "-v", "--remove-orphans"], { allowFailure: true });
+  const baselineMigrate = await cli(BASELINE_IMAGE, ["migrate"]);
   console.log(baselineMigrate.stdout.trimEnd().replace(/^/gm, "        "));
-  cli(BASELINE_IMAGE, ["project:create", "upgrade", "Upgrade Test"]);
+  await cli(BASELINE_IMAGE, ["project:create", "upgrade", "Upgrade Test"]);
   ok("project upgrade created with the baseline CLI");
   const oldKey = apiKeyFrom(
-    cli(BASELINE_IMAGE, ["key:create", "upgrade", "production", "baseline-worker"]).stdout
+    (await cli(BASELINE_IMAGE, ["key:create", "upgrade", "production", "baseline-worker"])).stdout
   );
   ok(`API key issued with the baseline CLI (${oldKey.slice(0, 12)}...)`);
-  compose(BASELINE_IMAGE, ["up", "-d", "api", "replay-echo"]);
+  await compose(BASELINE_IMAGE, ["up", "-d", "api", "replay-echo"]);
   await waitForReady(BASELINE_IMAGE, "baseline");
 
   step("Baseline: ingest and record");
@@ -643,15 +725,17 @@ async function main() {
   );
 
   step("Stopping the baseline API (the database volume stays)");
-  compose(BASELINE_IMAGE, ["rm", "--stop", "--force", "api"]);
+  await compose(BASELINE_IMAGE, ["rm", "--stop", "--force", "api"]);
   ok("baseline API removed");
 
   step("Building the current API image");
-  run("docker", ["build", "-q", "-f", "apps/api/Dockerfile", "-t", CURRENT_IMAGE, "."]);
+  await run("docker", ["build", "-q", "-f", "apps/api/Dockerfile", "-t", CURRENT_IMAGE, "."], {
+    timeout: BUILD_TIMEOUT_MS
+  });
   ok(`built ${CURRENT_IMAGE}`);
 
   step("Current: migrate");
-  const migrate = cli(CURRENT_IMAGE, ["migrate"]);
+  const migrate = await cli(CURRENT_IMAGE, ["migrate"]);
   console.log(migrate.stdout.trimEnd().replace(/^/gm, "        "));
   if (legacyBaseline) {
     check(
@@ -662,7 +746,7 @@ async function main() {
   }
 
   step("Current: rotate:status before any key is presented");
-  const statusBefore = cli(CURRENT_IMAGE, ["rotate:status"], { allowFailure: true });
+  const statusBefore = await cli(CURRENT_IMAGE, ["rotate:status"], { allowFailure: true });
   console.log(statusBefore.stdout.trimEnd().replace(/^/gm, "        "));
   const before = rotationTable(statusBefore.stdout);
   check(
@@ -691,12 +775,12 @@ async function main() {
   }
 
   step("Current: start the API and read everything back");
-  compose(CURRENT_IMAGE, ["up", "-d", "api", "replay-echo"]);
+  await compose(CURRENT_IMAGE, ["up", "-d", "api", "replay-echo"]);
   await waitForReady(CURRENT_IMAGE, "current");
   await compareRecorded(recorded, "after upgrade");
 
   const nullKeyIdsBefore = Number(
-    sql(CURRENT_IMAGE, "select count(*) from api_keys where key_hash_key_id is null")
+    await sql(CURRENT_IMAGE, "select count(*) from api_keys where key_hash_key_id is null")
   );
   await ingest(
     oldKey,
@@ -715,7 +799,7 @@ async function main() {
     "current API, baseline key"
   );
   const nullKeyIdsAfter = Number(
-    sql(CURRENT_IMAGE, "select count(*) from api_keys where key_hash_key_id is null")
+    await sql(CURRENT_IMAGE, "select count(*) from api_keys where key_hash_key_id is null")
   );
   check(
     nullKeyIdsAfter === 0 && (!legacyBaseline || nullKeyIdsBefore === 1),
@@ -775,7 +859,7 @@ async function main() {
   ]);
 
   step("Current: rotate:reencrypt in upgrade mode");
-  const reencrypt = cli(CURRENT_IMAGE, ["rotate:reencrypt"], { allowFailure: true });
+  const reencrypt = await cli(CURRENT_IMAGE, ["rotate:reencrypt"], { allowFailure: true });
   console.log(reencrypt.stdout.trimEnd().replace(/^/gm, "        "));
   check(reencrypt.status === 0, "rotate:reencrypt exited 0", reencrypt.stderr);
   check(
@@ -783,7 +867,7 @@ async function main() {
     "rotate:reencrypt ran in upgrade mode"
   );
 
-  const statusAfter = cli(CURRENT_IMAGE, ["rotate:status"], { allowFailure: true });
+  const statusAfter = await cli(CURRENT_IMAGE, ["rotate:status"], { allowFailure: true });
   console.log(statusAfter.stdout.trimEnd().replace(/^/gm, "        "));
   const after = rotationTable(statusAfter.stdout);
   check(
@@ -794,7 +878,7 @@ async function main() {
     "rotate:status exits 0 with no legacy, unknown-key or malformed rows",
     after
   );
-  const notEnvelope = sql(
+  const notEnvelope = await sql(
     CURRENT_IMAGE,
     "select (select count(*) from journeys where encrypted_primary_entity_id not like 'fr1.%') + " +
       "(select count(*) from entity_aliases where encrypted_display_value not like 'fr1.%') + " +
@@ -810,7 +894,7 @@ async function main() {
   await replayThroughEcho(destinationId, "current, re-encrypted destination headers");
 
   step("Current: doctor");
-  const doctor = cli(CURRENT_IMAGE, ["doctor"], { allowFailure: true });
+  const doctor = await cli(CURRENT_IMAGE, ["doctor"], { allowFailure: true });
   if (/Unknown command/.test(doctor.stderr)) {
     console.log("  skip  doctor is not in this build's CLI");
   } else {
@@ -820,7 +904,7 @@ async function main() {
 
   step("Current: a key issued by this build ingests");
   const newKey = apiKeyFrom(
-    cli(CURRENT_IMAGE, ["key:create", "upgrade", "production", "current-worker"]).stdout
+    (await cli(CURRENT_IMAGE, ["key:create", "upgrade", "production", "current-worker"])).stdout
   );
   await ingest(
     newKey,
@@ -858,10 +942,24 @@ function cleanup() {
   }
 }
 
-process.on("SIGINT", () => {
-  cleanup();
-  process.exit(130);
-});
+// A cancelled CI job sends SIGTERM, a closed terminal SIGHUP, Ctrl-C SIGINT.
+// Each stops the command in progress, removes what the run created, and exits
+// with the conventional 128 + signal number.
+let stopping = false;
+for (const [signal, code] of [
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+  ["SIGHUP", 129]
+]) {
+  process.on(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    console.error(`\nReceived ${signal}: stopping and cleaning up.`);
+    currentChild?.kill("SIGKILL");
+    cleanup();
+    process.exit(code);
+  });
+}
 
 try {
   await main();
@@ -870,12 +968,19 @@ try {
   console.error(`\nUPGRADE TEST FAILED: ${error instanceof Error ? error.message : String(error)}`);
   if (!(error instanceof UpgradeTestError) && error instanceof Error) console.error(error.stack);
   // Request lines drown out what explains a failure: boot errors and warnings.
-  const logs = compose(CURRENT_IMAGE, ["logs", "--no-color", "api"], { allowFailure: true })
-    .stdout.split("\n")
-    .filter(
-      (line) => line.trim() !== "" && !/"msg":"(incoming request|request completed)"/.test(line)
-    );
-  if (logs.length > 0) console.error(`\nAPI log, requests omitted:\n${logs.slice(-40).join("\n")}`);
+  // Best effort: a failure before Docker was reached has no log to show.
+  try {
+    const logs = composeSync(CURRENT_IMAGE, ["logs", "--no-color", "api"], { allowFailure: true })
+      .stdout.split("\n")
+      .filter(
+        (line) => line.trim() !== "" && !/"msg":"(incoming request|request completed)"/.test(line)
+      );
+    if (logs.length > 0) {
+      console.error(`\nAPI log, requests omitted:\n${logs.slice(-40).join("\n")}`);
+    }
+  } catch {
+    // Nothing to add.
+  }
   cleanup();
   process.exitCode = 1;
 }

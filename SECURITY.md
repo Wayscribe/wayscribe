@@ -66,6 +66,15 @@ Extracting and checking the SBOM is described in
 that fails this check, or a signature from any other identity, is in scope:
 report it as above.
 
+That claim rests on who can create a `v*` tag, because the certificate names the
+tag and nothing else about who pushed it. The `v*` tags must be protected in
+GitLab, creatable by Maintainers only, and this must be in place before the
+first release; until it is, anyone with Developer access could create a tag
+whose pipeline signs an image this check accepts. The release pipeline also
+runs only for tags of the exact form `vMAJOR.MINOR.PATCH`, so the repository's
+`phase-*` and `usable-v0` tags and pre-release tags never publish, but that is a
+guard against mistakes rather than a control.
+
 ## What the product does with your data
 
 Nothing captured is sent anywhere. There is no telemetry, no analytics, and no

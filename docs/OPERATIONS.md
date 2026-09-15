@@ -579,8 +579,9 @@ If that build stops partway, what to do depends on how it stopped:
 ## 11. Security scanning
 
 Three scanning jobs run in the `security` stage, and all three block. A fourth,
-`sbom`, records what is in the images and gates nothing (see *Verifying a
-published image* below).
+`sbom`, blocks too, but judges nothing about the images: it fails only when an
+SBOM cannot be generated, because a release would then fail at the same step
+(see *Verifying a published image* below).
 
 | Job | Tool | What it gates |
 | --- | --- | --- |
@@ -630,6 +631,26 @@ certificate naming the pipeline file and the tag it ran for. There is no signing
 key for anyone to steal, and the signature is recorded in Sigstore's public
 transparency log. Nothing is signed before the first release is published.
 
+The job pushes each image by digest with no tag, attaches the SBOMs to that
+digest, signs it, verifies the signature and attestations as below, and only
+then points the version tag and `latest` at it. A release whose signing failed
+has no version tag, so an unsigned image cannot be pulled by its version.
+
+**What a signature proves depends on tag protection.** The certificate says a
+pipeline ran `.gitlab-ci.yml` at `refs/tags/v1.0.0` in this project. That is
+worth something only if nobody but a maintainer can create a `v*` tag. Before
+the first release, the project owner must add `v*` as a protected tag with
+*Allowed to create* set to Maintainers (*Settings → Repository → Protected
+tags*). The pipeline also runs release jobs only for tags of the exact form
+`vMAJOR.MINOR.PATCH`, so `phase-*`, `usable-v0` and pre-release tags never
+publish, but that pattern is a guard against mistakes, not against someone who
+can push tags.
+
+**Before enabling a registry cleanup policy**, make sure it keeps tags matching
+`sha256-.*`. Where the registry does not serve the OCI referrers API, cosign
+stores signatures and attestations under tags of that form beside the image, and
+a cleanup policy that deletes them leaves every release unverifiable.
+
 Use [cosign](https://github.com/sigstore/cosign) 3.x, the major version the
 pipeline signs with, plus `jq` and Docker's `buildx` for the SBOM steps.
 
@@ -647,14 +668,18 @@ checks every image a cluster pulls:
 
 ```bash
 cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:v1.0.0 \
-  --certificate-identity-regexp '^https://gitlab\.com/jojithedev/flight-recorder//\.gitlab-ci\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
+  --certificate-identity-regexp '^https://gitlab\.com/jojithedev/flight-recorder//\.gitlab-ci\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
   --certificate-oidc-issuer https://gitlab.com
 ```
 
 Replace `api` with `web` for the web image. A pass prints the checks cosign
 performed and exits 0. Any other result means the image was not produced by
 this project's release pipeline: do not run it, and report it as described in
-`SECURITY.md`. `latest` verifies too, but pin a version tag or a digest in
+`SECURITY.md`.
+
+`latest` verifies only with the regexp form. Its certificate names the version
+tag the image was released under, not `latest`, so the exact identity above
+would need you to know that version already. Pin a version tag or a digest in
 anything you deploy.
 
 **The SBOM.** An SBOM lists the files of one platform, so it is attached to that
@@ -673,14 +698,43 @@ DIGEST=$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{json .Manife
 cosign verify-attestation "$IMAGE@$DIGEST" --type cyclonedx \
   --certificate-identity "https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/$TAG" \
   --certificate-oidc-issuer https://gitlab.com \
-  | jq -r '.payload' | base64 -d | jq '.predicate' > "api-$TAG-$ARCH.cdx.json"
+  | head -n 1 | jq -r '.payload' | base64 -d | jq '.predicate' > "api-$TAG-$ARCH.cdx.json"
 ```
+
+`cosign verify-attestation` prints one JSON document per verified attestation.
+A release attaches one SBOM per platform digest, so there is one line; `head -n
+1` keeps the extraction to a single document if a digest ever carries more.
 
 The result is a CycloneDX 1.6 JSON document that Grype, Trivy
 (`trivy sbom api-v1.0.0-amd64.cdx.json`), and Dependency-Track read directly.
 The release job keeps the same files as artifacts, and the `sbom` job produces
 SBOMs for the images built from each default-branch pipeline, which is what to
 look at between releases.
+
+### Rehearsing the publish step
+
+`scripts/publish-image.sh` with `DRY_RUN=1` runs everything `publish-images`
+does except the cosign calls, which it prints: the multi-platform build, the
+push by digest, the SBOMs from the pushed manifests, and the tags. Point it at a
+throwaway registry rather than the real one:
+
+```bash
+docker run -d --name rehearsal-registry -p 127.0.0.1:5055:5000 registry:2
+printf '[registry."127.0.0.1:5055"]\n  http = true\n' > /tmp/buildkitd.toml
+docker buildx create --name rehearsal --driver-opt network=host \
+  --buildkitd-config /tmp/buildkitd.toml --use
+
+DRY_RUN=1 SBOM_DIR=/tmp/sboms \
+  SYFT_DOCKER_ARGS='--network host -e SYFT_REGISTRY_INSECURE_USE_HTTP=true' \
+  scripts/publish-image.sh v0.0.0-rehearsal \
+    apps/api/Dockerfile=127.0.0.1:5055/flight-recorder/api \
+    apps/web/Dockerfile=127.0.0.1:5055/flight-recorder/web
+
+docker buildx rm rehearsal && docker rm -f rehearsal-registry
+```
+
+Signing itself cannot be rehearsed without publishing: the signature is pushed
+beside the image and written to the public transparency log.
 
 ## 12. When something is wrong
 
