@@ -633,7 +633,8 @@ describe("burst behaviour", () => {
   /** Counts concurrent requests, so fan-out is measured rather than assumed. */
   async function burst(
     count: number,
-    extra: { maxConcurrentSends?: number } = {}
+    extra: { maxConcurrentSends?: number } = {},
+    flushFirst = false
   ): Promise<{ peak: number; requests: number; received: number }> {
     let inFlight = 0;
     let peak = 0;
@@ -675,9 +676,17 @@ describe("burst behaviour", () => {
       ...extra
     });
     const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
+    let flushed: Promise<void> = Promise.resolve();
+    if (flushFirst) {
+      // Fewer than a batch, so only flush() sends them, and its request is in
+      // flight when the burst below starts sending.
+      for (let i = 0; i < 5; i += 1) journey.record({ operation: "received", name: "early" });
+      flushed = recorder.flush();
+    }
     for (let i = 0; i < count; i += 1) {
       journey.record({ operation: "received", name: `n${String(i)}` });
     }
+    await flushed;
     await recorder.shutdown({ timeoutMs: 10_000 });
     await new Promise<void>((resolve) => {
       server.close(() => {
@@ -702,6 +711,12 @@ describe("burst behaviour", () => {
     // Both directions, so a cap that ignored the option would fail one of them.
     expect((await burst(400, { maxConcurrentSends: 2 })).peak).toBe(2);
     expect((await burst(400, { maxConcurrentSends: 6 })).peak).toBe(6);
+  });
+
+  it("counts a public flush() against the cap", async () => {
+    // drainAll's own send was not in the in-flight set, so a burst during
+    // flush() started a full set of sends beside it.
+    expect((await burst(400, { maxConcurrentSends: 2 }, true)).peak).toBe(2);
   });
 
   it("still delivers every event", async () => {

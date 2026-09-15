@@ -695,14 +695,21 @@ export function createRecorder(config: RecorderConfig): Recorder {
    */
   async function drainAll(): Promise<void> {
     // Background flushes finish first, so this does not add a request on top of
-    // the ones already in flight and push past the concurrency cap. What
-    // follows is sequential by construction.
+    // the ones already in flight and push past the concurrency cap.
     await settle();
 
     let previous = Number.POSITIVE_INFINITY;
     while (!abandoned && queue.size() > 0 && queue.size() < previous) {
+      // Counted against the cap like any other send. Untracked, a burst
+      // recorded while this pass was in flight started a full set of sends
+      // beside it; and a full set started since must finish one first.
+      while (inFlight.size >= resolved.maxConcurrentSends) {
+        await Promise.race([...inFlight]);
+      }
       previous = queue.size();
-      await flush();
+      const pass = flush();
+      track(pass);
+      await pass;
     }
     await settle();
   }
