@@ -174,9 +174,28 @@ describe("schema constraints", () => {
     const columns = await db("api_keys").columnInfo();
     expect(columns["key_hash_key_id"]).toMatchObject({ type: "text", nullable: true });
 
-    await db.migrate.down();
+    // By name: a bare down() reverts whichever migration is newest, which
+    // stopped being this one when 013 was added.
+    await db.migrate.down({ name: "012_key_rotation.js" });
     expect(await db.schema.hasColumn("api_keys", "key_hash_key_id")).toBe(false);
-    await db.migrate.up();
+    await db.migrate.up({ name: "012_key_rotation.js" });
     expect(await db.schema.hasColumn("api_keys", "key_hash_key_id")).toBe(true);
+  });
+
+  it("adds the recent-journeys indexes and removes them on the way down", async () => {
+    const indexes = async (): Promise<string[]> => {
+      const result: unknown = await db.raw(
+        `select indexname from pg_indexes
+         where indexname in ('journeys_status_recent_idx', 'journey_events_service_idx')
+         order by indexname`
+      );
+      return (result as { rows: { indexname: string }[] }).rows.map((row) => row.indexname);
+    };
+
+    expect(await indexes()).toEqual(["journey_events_service_idx", "journeys_status_recent_idx"]);
+    await db.migrate.down({ name: "013_journeys_status_recent_index.js" });
+    expect(await indexes()).toEqual([]);
+    await db.migrate.up({ name: "013_journeys_status_recent_index.js" });
+    expect(await indexes()).toEqual(["journey_events_service_idx", "journeys_status_recent_idx"]);
   });
 });

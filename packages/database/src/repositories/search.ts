@@ -1,6 +1,5 @@
 import type { Knex } from "knex";
-import { decodeSearchCursor, encodeCursor, type SearchCursor } from "./cursors.js";
-
+import { orderJourneysAfter, toJourneyPage, type JourneyPage } from "./journey-keyset.js";
 import type { ReadScope } from "./read-scope.js";
 
 export interface SearchHit {
@@ -13,10 +12,7 @@ export interface SearchHit {
   lastEventAt: Date;
 }
 
-export interface SearchPage {
-  items: SearchHit[];
-  nextCursor: string | null;
-}
+export type SearchPage = JourneyPage<SearchHit>;
 
 /**
  * Resolve one query string against every identifier a developer might paste.
@@ -50,10 +46,7 @@ export async function searchJourneys(
   limit: number,
   cursor?: string
 ): Promise<SearchPage> {
-  const after: SearchCursor | undefined =
-    cursor === undefined ? undefined : decodeSearchCursor(cursor);
-
-  const rows: unknown = await db
+  const statement = db
     .with("matches", (builder) => {
       void builder
         .select("j.id")
@@ -101,32 +94,8 @@ export async function searchJourneys(
     )
     .from({ j: "journeys" })
     .join("matches", "matches.id", "j.id")
-    .where("j.project_id", scope.projectId)
-    .modify((builder) => {
-      if (after !== undefined) {
-        // Keyset: strictly after the cursor in (last_event_at desc, id desc).
-        void builder.whereRaw("(j.last_event_at, j.id) < (?::timestamptz, ?)", [
-          after.lastEventAt,
-          after.id
-        ]);
-      }
-    })
-    .orderBy([
-      { column: "j.last_event_at", order: "desc" },
-      { column: "j.id", order: "desc" }
-    ])
-    .limit(limit + 1);
+    .where("j.project_id", scope.projectId);
 
-  const items = rows as SearchHit[];
-  const hasMore = items.length > limit;
-  const page = hasMore ? items.slice(0, limit) : items;
-  const last = page.at(-1);
-
-  return {
-    items: page,
-    nextCursor:
-      hasMore && last !== undefined
-        ? encodeCursor({ lastEventAt: last.lastEventAt.toISOString(), id: last.journeyId })
-        : null
-  };
+  const rows: unknown = await orderJourneysAfter(statement, "j", limit, cursor);
+  return toJourneyPage(rows as SearchHit[], limit);
 }
