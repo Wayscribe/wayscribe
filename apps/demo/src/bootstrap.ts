@@ -1,4 +1,4 @@
-import { createKnexConfig, seedDemo } from "@flight-recorder/database";
+import { createKnexConfig, keyringFromEnvironment, seedDemo } from "@flight-recorder/database";
 import knex, { type Knex } from "knex";
 import { demoDatabase, ensureCustomerTable } from "./customers.js";
 import { requiredEnv } from "./env.js";
@@ -42,7 +42,9 @@ try {
   const retention = Number.parseInt(process.env["DEFAULT_RETENTION_DAYS"] ?? "7", 10);
   const seeded = await seedDemo(
     flight,
-    requiredEnv("ENCRYPTION_KEY"),
+    // Read as the API reads it, previous key included, so the demo key's
+    // verifier is written under the key the API treats as current.
+    keyringFromEnvironment(process.env),
     requiredEnv("FLIGHT_API_KEY"),
     Number.isInteger(retention) && retention > 0 ? retention : 7
   );

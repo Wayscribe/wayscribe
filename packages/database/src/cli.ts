@@ -1,3 +1,4 @@
+import type { Keyring } from "@flight-recorder/payload-security";
 import knex from "knex";
 import { createKnexConfig } from "./knex-config.js";
 
@@ -22,15 +23,22 @@ const retentionDays = Number.parseInt(process.env["DEFAULT_RETENTION_DAYS"] ?? "
 const defaultRetentionDays =
   Number.isInteger(retentionDays) && retentionDays > 0 ? retentionDays : 7;
 
-/** Returns undefined and sets a failing exit code when the master key is absent. */
-function requireEncryptionKey(): string | undefined {
-  const masterKey = process.env["ENCRYPTION_KEY"];
-  if (masterKey === undefined || masterKey === "") {
-    console.error("ENCRYPTION_KEY is not set.");
+/**
+ * The keyring from ENCRYPTION_KEY and ENCRYPTION_KEY_PREVIOUS, or undefined with
+ * a failing exit code and the reason printed.
+ *
+ * Read the way the API reads them, so a key this CLI issues during a rotation
+ * verifies against the API running beside it.
+ */
+async function requireKeyring(): Promise<Keyring | undefined> {
+  const { keyringFromEnvironment } = await import("./keyring-env.js");
+  try {
+    return keyringFromEnvironment(process.env);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
     return undefined;
   }
-  return masterKey;
 }
 
 try {
@@ -54,14 +62,10 @@ try {
       break;
     }
     case "seed": {
-      const masterKey = process.env["ENCRYPTION_KEY"];
-      if (masterKey === undefined || masterKey === "") {
-        console.error("ENCRYPTION_KEY is not set.");
-        process.exitCode = 1;
-        break;
-      }
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
       const { seedLocal } = await import("./seed-local.js");
-      const result = await seedLocal(db, masterKey, defaultRetentionDays);
+      const result = await seedLocal(db, keyring, defaultRetentionDays);
       console.log("Local seed applied.");
       console.log(`  project:     ${result.projectId}`);
       console.log(`  environment: ${result.environmentId}`);
@@ -71,20 +75,16 @@ try {
       break;
     }
     case "seed-demo": {
-      const masterKey = process.env["ENCRYPTION_KEY"];
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
       const apiKey = process.env["DEMO_API_KEY"];
-      if (masterKey === undefined || masterKey === "") {
-        console.error("ENCRYPTION_KEY is not set.");
-        process.exitCode = 1;
-        break;
-      }
       if (apiKey === undefined || apiKey === "") {
         console.error("DEMO_API_KEY is not set.");
         process.exitCode = 1;
         break;
       }
       const { seedDemo } = await import("./seed-demo.js");
-      const result = await seedDemo(db, masterKey, apiKey, defaultRetentionDays);
+      const result = await seedDemo(db, keyring, apiKey, defaultRetentionDays);
       console.log(`Demo seed applied for project ${result.projectId} (${result.keyPrefix}).`);
       break;
     }
@@ -125,8 +125,8 @@ try {
       break;
     }
     case "key:create": {
-      const masterKey = requireEncryptionKey();
-      if (masterKey === undefined) break;
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
 
       const [projectSlug, environmentName, name] = args;
       if (projectSlug === undefined || environmentName === undefined) {
@@ -137,7 +137,7 @@ try {
 
       const { issueKey, KeyAdminError } = await import("./repositories/key-admin.js");
       try {
-        const issued = await issueKey(db, masterKey, {
+        const issued = await issueKey(db, keyring, {
           projectSlug,
           environmentName,
           name: name ?? `${environmentName}-key`,
@@ -202,12 +202,62 @@ try {
           ? `Deleted ${String(result.journeysDeleted)} journeys in ${String(result.batches)} batches across ${String(result.environmentsExamined)} environments.`
           : "Another process holds the retention lock; nothing was examined."
       );
+      if (result.stoppedEarly) {
+        console.log(
+          "The sweep lost its lock (the database connection holding it ended) and stopped early. " +
+            "What it deleted stands; run retention:sweep again to continue."
+        );
+      }
+      break;
+    }
+    case "rotate:reencrypt": {
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
+
+      const { reencryptValues } = await import("./repositories/rotation.js");
+      const report = await import("./rotation-report.js");
+
+      // With ENCRYPTION_KEY_PREVIOUS this is a rotation; without it, an upgrade
+      // of legacy values under the one key there is. The first line says which.
+      const previousKeyId = keyring.previous?.id ?? null;
+      const result = await reencryptValues(db, keyring, {
+        // Only once the lock is held: a run refused the lock re-encrypts nothing.
+        onLocked: () => {
+          console.log(report.formatReencryptStart(keyring.current.id, previousKeyId));
+        },
+        onBatch: (progress) => {
+          console.log(report.formatReencryptProgress(progress));
+        }
+      });
+      if (!result.ran) {
+        // An operator scripting the rotation needs to know nothing was done.
+        console.error(report.LOCK_HELD_MESSAGE);
+        process.exitCode = 1;
+        break;
+      }
+      for (const line of report.formatReencryption(result.mode, result.tables)) console.log(line);
+      if (result.lockLost) {
+        console.error(report.LOCK_LOST_MESSAGE);
+        process.exitCode = 1;
+      }
+      break;
+    }
+    case "rotate:status": {
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
+
+      const { rotationStatus } = await import("./repositories/rotation.js");
+      const { formatRotationStatus } = await import("./rotation-report.js");
+      const status = await rotationStatus(db, keyring);
+      for (const line of formatRotationStatus(status)) console.log(line);
+      // So a script can wait on it: 0 once nothing is left under another key.
+      if (!status.complete) process.exitCode = 1;
       break;
     }
     default: {
       console.error(`Unknown command: ${command ?? "(none)"}`);
       console.error(
-        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep>"
+        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep|rotate:reencrypt|rotate:status>"
       );
       process.exitCode = 1;
       break;

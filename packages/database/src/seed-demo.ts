@@ -1,4 +1,4 @@
-import { apiKeyRecord, deriveSubkeys } from "@flight-recorder/payload-security";
+import { apiKeyRecordFor, type Keyring } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import { insertReturningId } from "./insert.js";
 
@@ -20,13 +20,11 @@ const ENVIRONMENT_NAME = "development";
  */
 export async function seedDemo(
   db: Knex,
-  masterKey: string,
+  keyring: Keyring,
   apiKey: string,
   /** From DEFAULT_RETENTION_DAYS. */
   retentionDays = 7
 ): Promise<DemoSeedResult> {
-  const subkeys = deriveSubkeys(masterKey);
-
   const project = await findOrInsert(
     db,
     "projects",
@@ -46,7 +44,7 @@ export async function seedDemo(
     }
   );
 
-  const record = apiKeyRecord(subkeys.apiKey, apiKey);
+  const record = apiKeyRecordFor(keyring, apiKey);
   const existing = (await db("api_keys").where({ key_prefix: record.keyPrefix }).first()) as
     { id: string } | undefined;
 
@@ -56,16 +54,19 @@ export async function seedDemo(
       environment_id: environment.id,
       name: "demo",
       key_prefix: record.keyPrefix,
-      key_hash: record.verifier
+      key_hash: record.verifier,
+      key_hash_key_id: record.keyHashKeyId
     });
   } else {
     // The verifier is rewritten rather than left alone: rotating ENCRYPTION_KEY
     // changes the pepper, so the stored verifier for the same key string no
-    // longer matches. Without this the demo silently 401s after a rotation.
+    // longer matches. Without this the demo silently 401s once the previous key
+    // is removed. The key is known here, so it moves at once rather than on use.
     await db("api_keys").where({ id: existing.id }).update({
       project_id: project.id,
       environment_id: environment.id,
       key_hash: record.verifier,
+      key_hash_key_id: record.keyHashKeyId,
       revoked_at: null
     });
   }

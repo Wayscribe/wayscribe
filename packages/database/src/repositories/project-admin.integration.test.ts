@@ -1,11 +1,12 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { createKeyring } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";
 import { issueKey } from "./key-admin.js";
 import { ProjectAdminError, createProject, listProjects } from "./project-admin.js";
 
-const MASTER_KEY = "0123456789abcdef0123456789abcdef";
+const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 
 /**
  * Until this existed there was no supported way to create a project at all.
@@ -39,7 +40,7 @@ describe("project administration", () => {
     // The end of the chain that was broken: a project must be something the key
     // issuer can find, or creating one has achieved nothing.
     await createProject(db, { slug: "fulfilment", name: "Fulfilment" });
-    const issued = await issueKey(db, MASTER_KEY, {
+    const issued = await issueKey(db, keyring, {
       projectSlug: "fulfilment",
       environmentName: "production",
       name: "worker"

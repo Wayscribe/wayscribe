@@ -26,6 +26,10 @@ export interface SearchPage {
  * which the caller has already computed (ADR-028 makes that token
  * type-independent, so a bare value is enough).
  *
+ * `tokens` is every token the value may be stored under: one normally, two
+ * during a key rotation, when rows not yet re-encrypted still carry the
+ * previous key's. The hash indexes serve an `IN` of two as well as an `=`.
+ *
  * Scoping is inside the query, not applied to the results. A post-filter still
  * fetches the rows, and a later refactor that drops it leaks silently instead of
  * failing.
@@ -42,7 +46,7 @@ export async function searchJourneys(
   db: Knex,
   scope: ReadScope,
   query: string,
-  token: string,
+  tokens: readonly string[],
   limit: number,
   cursor?: string
 ): Promise<SearchPage> {
@@ -63,13 +67,13 @@ export async function searchJourneys(
         .andWhere((where) => {
           void where
             .where("j.id", query)
-            .orWhere("j.primary_entity_id_hash", token)
+            .orWhereIn("j.primary_entity_id_hash", tokens)
             .orWhereExists((exists) => {
               void exists
                 .select(db.raw("1"))
                 .from({ a: "entity_aliases" })
                 .whereRaw("a.project_id = j.project_id and a.journey_id = j.id")
-                .andWhere("a.alias_value_hash", token);
+                .whereIn("a.alias_value_hash", tokens);
             })
             .orWhereExists((exists) => {
               void exists

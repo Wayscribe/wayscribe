@@ -1,4 +1,4 @@
-import { generateApiKey, deriveSubkeys } from "@flight-recorder/payload-security";
+import { issueApiKey, type Keyring } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import { insertReturningId } from "../insert.js";
 
@@ -38,7 +38,7 @@ export class KeyAdminError extends Error {
  */
 export async function issueKey(
   db: Knex,
-  masterKey: string,
+  keyring: Keyring,
   options: {
     projectSlug: string;
     environmentName: string;
@@ -47,8 +47,6 @@ export async function issueKey(
     retentionDays?: number;
   }
 ): Promise<IssuedKey> {
-  const subkeys = deriveSubkeys(masterKey);
-
   const projectRow: unknown = await db("projects").where({ slug: options.projectSlug }).first("id");
   const project = projectRow as { id: string } | undefined;
   if (project === undefined) {
@@ -71,13 +69,14 @@ export async function issueKey(
       capture_mode: "redacted-payload"
     }));
 
-  const generated = generateApiKey(subkeys.apiKey);
+  const generated = issueApiKey(keyring);
   const id = await insertReturningId(db, "api_keys", {
     project_id: project.id,
     environment_id: environmentId,
     name: options.name,
     key_prefix: generated.keyPrefix,
-    key_hash: generated.verifier
+    key_hash: generated.verifier,
+    key_hash_key_id: generated.keyHashKeyId
   });
 
   return {

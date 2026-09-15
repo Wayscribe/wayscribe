@@ -20,9 +20,13 @@ databaseUrl: ""
 secrets:
   # Generate: openssl rand -hex 32
   encryptionKey: ""
+  # Only while rotating encryptionKey: the key being replaced, so data written
+  # under it stays readable until it is re-encrypted. Leave empty otherwise.
+  encryptionKeyPrevious: ""
   adminToken: ""
   # A secret you manage yourself, with keys DATABASE_URL, ENCRYPTION_KEY and
-  # ADMIN_TOKEN. Set this and the three values above are ignored.
+  # ADMIN_TOKEN, and ENCRYPTION_KEY_PREVIOUS during a rotation. Set this and the
+  # values above are ignored.
   existingSecret: ""
 
 api:

@@ -1,19 +1,26 @@
-import { findInsecureDefaults, loadServerEnv } from "@flight-recorder/config";
+import { findInsecureDefaults } from "@flight-recorder/config";
 import { createKnexConfig } from "@flight-recorder/database";
-import { deriveSubkeys } from "@flight-recorder/payload-security";
 import knex from "knex";
 import { buildApp } from "./app.js";
+import { checkKeysAtBoot } from "./key-warnings.js";
 import { startRetentionJob } from "./retention-job.js";
+import { prepareStartup } from "./startup.js";
 
 // Parsed before anything else, so a misconfigured process fails immediately with
-// a message naming the offending variable rather than at first use.
-const env = loadServerEnv(process.env);
+// a message naming the offending variable rather than at first use. The keyring
+// is built here too, once, before anything listens.
+const startup = prepareStartup(process.env);
+if (!startup.ok) {
+  // No logger exists yet: it is configured from the environment that failed.
+  console.error(startup.message);
+  process.exit(1);
+}
+const { env, keyring } = startup;
 
 const db = knex(createKnexConfig(env.DATABASE_URL));
-const subkeys = deriveSubkeys(env.ENCRYPTION_KEY);
 const app = buildApp({
   db,
-  subkeys,
+  keyring,
   adminToken: env.ADMIN_TOKEN,
   logLevel: env.LOG_LEVEL,
   maxEventPayloadBytes: env.MAX_EVENT_PAYLOAD_BYTES,
@@ -49,3 +56,7 @@ try {
   app.log.error({ err: error }, "failed to start");
   process.exit(1);
 }
+
+// After listening, and not awaited by it: counting a large table must not
+// delay readiness, and the check never throws.
+void checkKeysAtBoot(db, keyring, app.log);

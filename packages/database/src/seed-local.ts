@@ -1,4 +1,4 @@
-import { deriveSubkeys, generateApiKey } from "@flight-recorder/payload-security";
+import { issueApiKey, type Keyring } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import { insertReturningId } from "./insert.js";
 
@@ -21,12 +21,10 @@ const ENVIRONMENT_NAME = "development";
  */
 export async function seedLocal(
   db: Knex,
-  masterKey: string,
+  keyring: Keyring,
   /** From DEFAULT_RETENTION_DAYS. The knob was inert before this. */
   retentionDays = 7
 ): Promise<SeedResult> {
-  const subkeys = deriveSubkeys(masterKey);
-
   const project = await findOrInsert(
     db,
     "projects",
@@ -46,13 +44,14 @@ export async function seedLocal(
     }
   );
 
-  const generated = generateApiKey(subkeys.apiKey);
+  const generated = issueApiKey(keyring);
   await db("api_keys").insert({
     project_id: project.id,
     environment_id: environment.id,
     name: "local-development",
     key_prefix: generated.keyPrefix,
-    key_hash: generated.verifier
+    key_hash: generated.verifier,
+    key_hash_key_id: generated.keyHashKeyId
   });
 
   return {

@@ -33,12 +33,22 @@ export interface InsecureDefault {
 export function findInsecureDefaults(env: Record<string, string | undefined>): InsecureDefault[] {
   const findings: InsecureDefault[] = [];
 
-  for (const variable of ["ENCRYPTION_KEY", "ADMIN_TOKEN"]) {
-    const value = env[variable];
+  for (const variable of ["ENCRYPTION_KEY", "ENCRYPTION_KEY_PREVIOUS", "ADMIN_TOKEN"]) {
+    // Trimmed before comparing. The configuration trims the two keys, so a
+    // trailing newline there does not hide a published value that is in use.
+    // It does not trim ADMIN_TOKEN, but a published token with stray whitespace
+    // around it is no more secret, so that is flagged as well.
+    const value = env[variable]?.trim();
     if (value !== undefined && PUBLISHED_DEFAULTS.has(value)) {
       findings.push({
         variable,
-        message: `${variable} is a published development default. Anyone can read it. Set your own before this stack holds anything real: openssl rand -hex 32`
+        message:
+          variable === "ENCRYPTION_KEY_PREVIOUS"
+            ? // The generic advice would replace the key the stored data is
+              // still under, which makes that data unreadable.
+              "ENCRYPTION_KEY_PREVIOUS, the key being rotated out, is a published development default, so data still under it is readable by anyone. " +
+              "Do not replace it: finish rotate:reencrypt, then remove it (docs/OPERATIONS.md §6)."
+            : `${variable} is a published development default. Anyone can read it. Set your own before this stack holds anything real: openssl rand -hex 32`
       });
     }
   }

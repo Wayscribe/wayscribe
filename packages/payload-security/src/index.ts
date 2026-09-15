@@ -1,16 +1,28 @@
 export {
   API_KEY_PREFIX_LENGTH,
-  apiKeyRecord,
-  generateApiKey,
-  verifyApiKey,
+  apiKeyRecordFor,
+  issueApiKey,
+  verifyApiKeyWithKeyring,
+  type ApiKeyVerification,
+  type ApiKeyVerifier,
   type GeneratedApiKey,
+  type IssuedApiKey,
+  type IssuedApiKeyRecord,
   type StoredApiKey
 } from "./api-key.js";
 export { applyCapture, redactAlways, type CaptureMode, type CapturePolicy } from "./capture.js";
 export { contentHash } from "./content-hash.js";
 export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
-export { decryptField, encryptField } from "./encryption.js";
-export { deriveSubkeys, type Subkeys } from "./keys.js";
+// The single-key encryptField and decryptField stay internal: the keyring is
+// the only way in, so nothing outside this package can write a value without a
+// key id or read one under the wrong key.
+export {
+  decryptValue,
+  encryptValue,
+  parseEncryptedValue,
+  type ParsedEncryptedValue
+} from "./encryption.js";
+export { createKeyring, UnknownKeyError, type KeyMaterial, type Keyring } from "./keyring.js";
 export {
   DEFAULT_LIMITS,
   checkLimits,
@@ -20,4 +32,4 @@ export {
 } from "./limits.js";
 export { CIRCULAR, REDACTED, redact } from "./redact.js";
 export { toStorable, toStorableText } from "./storable.js";
-export { normalizeSearchValue, searchToken } from "./search-token.js";
+export { normalizeSearchValue, searchTokens } from "./search-token.js";

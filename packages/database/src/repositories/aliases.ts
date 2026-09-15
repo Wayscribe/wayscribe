@@ -5,6 +5,12 @@ export interface AliasRow {
   aliasType: string;
   aliasValueHash: string;
   encryptedDisplayValue: string | null;
+  /**
+   * The token this value carried under the previous key, during a rotation;
+   * null otherwise. A row stored under it is moved to `aliasValueHash` rather
+   * than joined by a second row for the same alias.
+   */
+  supersedesValueHash: string | null;
 }
 
 /**
@@ -13,6 +19,11 @@ export interface AliasRow {
  * Re-sending the same alias is a no-op rather than an error: an SDK that repeats
  * `identify()` on every event is behaving reasonably, and the unique constraint
  * exists to deduplicate, not to reject.
+ *
+ * During a key rotation the same value produces a new token, so the unique
+ * constraint no longer recognises a repeat. A row stored under the previous
+ * key's token is moved to the new token and display value first; the plaintext
+ * is in hand, so this is one indexed update and needs no decryption.
  */
 export async function upsertAliases(
   db: Knex,
@@ -20,6 +31,12 @@ export async function upsertAliases(
   aliases: readonly AliasRow[]
 ): Promise<void> {
   if (aliases.length === 0) return;
+
+  for (const alias of aliases) {
+    const supersedes = alias.supersedesValueHash;
+    if (supersedes === null) continue;
+    await moveToCurrentToken(db, projectId, alias, supersedes);
+  }
 
   await db("entity_aliases")
     .insert(
@@ -33,4 +50,78 @@ export async function upsertAliases(
     )
     .onConflict(["project_id", "journey_id", "alias_type", "alias_value_hash"])
     .ignore();
+}
+
+/** PostgreSQL's unique_violation. */
+const UNIQUE_VIOLATION = "23505";
+
+/**
+ * The unique constraint on `(project_id, journey_id, alias_type,
+ * alias_value_hash)` from migration 005.
+ *
+ * Knex generated the name from the table and columns, and PostgreSQL truncated
+ * it to 63 characters, which is why it ends in "has". Read from `pg_constraint`
+ * on a migrated database rather than derived, and checked against it by
+ * `aliases.integration.test.ts`, so a migration that renames it fails a test
+ * instead of turning every move back into an error.
+ */
+export const ALIAS_UNIQUE_CONSTRAINT =
+  "entity_aliases_project_id_journey_id_alias_type_alias_value_has";
+
+/** Whether an error is a violation of the alias uniqueness constraint, and nothing else. */
+export function isAliasUniqueViolation(error: unknown): boolean {
+  const pgError = error as { code?: unknown; constraint?: unknown } | null;
+  return pgError?.code === UNIQUE_VIOLATION && pgError.constraint === ALIAS_UNIQUE_CONSTRAINT;
+}
+
+/**
+ * Move a row stored under the previous key's token onto the current one.
+ *
+ * Run in a savepoint (a nested transaction when the caller holds one, as
+ * ingestion does). The NOT EXISTS guard reads a snapshot, so a row under the new
+ * token that a concurrent transaction has inserted but not committed is
+ * invisible to it; the update then waits on that row and fails with a unique
+ * violation once the other commits. That means another event already stored
+ * the alias under the new token, which is the outcome this was for, so it is
+ * treated as done. The savepoint is what keeps the violation from aborting the
+ * caller's transaction and rejecting the event.
+ *
+ * Only that constraint's violation means "already moved". Any other unique
+ * violation is a real failure and is rethrown.
+ */
+async function moveToCurrentToken(
+  db: Knex,
+  projectId: string,
+  alias: AliasRow,
+  supersedes: string
+): Promise<void> {
+  try {
+    await db.transaction(async (savepoint) => {
+      await savepoint("entity_aliases")
+        .where({
+          project_id: projectId,
+          journey_id: alias.journeyId,
+          alias_type: alias.aliasType,
+          alias_value_hash: supersedes
+        })
+        // A row under the new token can already exist: the previous key was
+        // removed early, the alias stored again, and the key restored. Moving
+        // the old row onto it would violate the unique constraint, so the old
+        // row is left for re-encryption to settle.
+        .whereNotExists((current) => {
+          void current.select(savepoint.raw("1")).from({ c: "entity_aliases" }).where({
+            "c.project_id": projectId,
+            "c.journey_id": alias.journeyId,
+            "c.alias_type": alias.aliasType,
+            "c.alias_value_hash": alias.aliasValueHash
+          });
+        })
+        .update({
+          alias_value_hash: alias.aliasValueHash,
+          encrypted_display_value: alias.encryptedDisplayValue
+        });
+    });
+  } catch (error) {
+    if (!isAliasUniqueViolation(error)) throw error;
+  }
 }

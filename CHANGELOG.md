@@ -21,8 +21,27 @@ changes far less often.
   `infrastructure/compose.bundled.yaml`, an overlay for evaluation and local
   work (ADR-037). An installation that used the bundled database should add
   `-f compose.bundled.yaml` to keep the same behaviour.
+- **`infrastructure/compose.yaml` takes its keys from files.** `ENCRYPTION_KEY`
+  and `ADMIN_TOKEN` come from `infrastructure/defaults.env` and then the
+  repository-root `.env`, which wins. They used to be interpolated in
+  `environment:`, which reads the shell and never the root `.env`, so a key set
+  in `.env` as the README says never reached the API, the web app, or the demo
+  bootstrap: they ran on the published defaults. `compose.published.yaml` is
+  unchanged and still reads the shell.
 
 ### Added
+
+- **`ENCRYPTION_KEY` can be rotated without losing data.** Every encrypted value
+  now names the key that wrote it, and `ENCRYPTION_KEY_PREVIOUS` holds the key
+  being replaced while the new one takes over. Through that grace period old
+  journeys still decrypt and still search, and every API key still
+  authenticates, moving to the new key the next time it does.
+  `rotate:reencrypt` moves the stored data across in resumable batches, and
+  `rotate:status` exits 0 once nothing is left under the old key, which is when
+  the previous key comes out. If it comes out early, the API still starts and
+  logs how much it cannot read. The procedure is in `docs/OPERATIONS.md` §6
+  (ADR-044). Compose, the Helm chart, and `.env.example` all pass the new
+  variable through.
 
 - **The timeline is interactive.** Filter a journey to one service or to its
   failures, and move through its events with the arrow keys while the detail
@@ -61,6 +80,11 @@ changes far less often.
   wherever it appears, and the built-in list is written entirely that way
   (ADR-035). The existing grammar is unchanged: a bare `authorization` still
   matches the top level only, and `*.password` still matches one below it.
+- **A replay is never sent without its destination's headers.** Headers that
+  could not be decrypted used to come back as an empty set, so the replay went
+  out without the credentials the destination was configured with. It is now
+  refused, recorded as blocked with the reason and the key id involved, and
+  audited as `replay.blocked`.
 
 ### Fixed
 
@@ -148,6 +172,35 @@ audit, all merged the same day. The pattern behind them is written up in
 - Redaction reaching further means more `[REDACTED]` than before. If a key name
   on the built-in list appears somewhere it is not a secret, scope it with a
   dotted path in your own `redact` list.
+- **Keys are trimmed of surrounding whitespace.** An `ENCRYPTION_KEY` that was
+  configured with surrounding whitespace, usually a trailing newline, derives different keys after this upgrade,
+  so data written before it stops decrypting and every API key issued before it
+  answers 401. No setting reads that data afterwards: `ENCRYPTION_KEY_PREVIOUS`
+  is trimmed the same way. A trailing newline does not come from a `.env` line;
+  it comes from a secrets file, such as a Kubernetes secret created with
+  `--from-file` from a file that ends in one.
+  Check before upgrading:
+
+  ```bash
+  kubectl get secret <name> -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d | od -c | tail -2
+  ```
+
+  A `\n` before the final offset means the key has one.
+- **Shell exports no longer reach `infrastructure/compose.yaml`.** A stack that
+  was configured with `export ENCRYPTION_KEY=…` now starts on the published
+  defaults instead. Move the values into the repository-root `.env`. After
+  changing keys, recreate the containers with `docker compose … up -d`;
+  `docker compose restart` does not re-read `env_file`.
+- **Values written before this release carry no key id.** They read as before.
+  `rotate:status` counts them as legacy and exits 1 until they are rewritten.
+  Run `rotate:reencrypt` once with only `ENCRYPTION_KEY` set: with no previous
+  key it upgrades legacy values the current key opens into the new format, under
+  the same key, and `rotate:status` then exits 0. API keys issued before this
+  release show `key id not recorded yet; recorded on next use` and do not hold
+  the exit code at 1 unless a rotation is under way.
+- **This release cannot be rolled back once it has written `fr1.` values.** An
+  earlier build cannot read them, and it would send replays without their
+  destination headers. To roll back, restore the backup taken before upgrading.
 
 ### Added
 
@@ -189,7 +242,8 @@ The first development release. Everything below works, is tested, and runs.
 - The admin token is a single shared secret with no user accounts and no record
   of who used it.
 - Rotating `ENCRYPTION_KEY` is destructive: it orphans every search token and
-  invalidates every API key. There is no re-encryption tool.
+  invalidates every API key. There is no re-encryption tool. (Resolved under
+  Unreleased: rotation is a grace period with `rotate:reencrypt`, ADR-044.)
 - Propagated journey context is validated for shape but is not authenticated.
 - Of the five verbs in the product promise, **changed** and **rejected** are
   demonstrated end to end. Duplication and loss are not yet first-class.

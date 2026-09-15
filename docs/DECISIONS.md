@@ -1440,3 +1440,78 @@ so it can be run locally, which is the same reasoning as DEBT on untested releas
 - Size was never the point and barely moved — 34.9M to 33.6M, since `node_modules` dominates
   both. The 62 test files were the point.
 - The demo now genuinely does not ship, by all four mechanisms rather than two.
+
+## ADR-044: Keys carry an identifier, and rotation is a grace period, not a migration
+
+**Status:** Accepted
+
+### Context
+
+`ENCRYPTION_KEY` is the one secret an operator configures, and three things derive from it:
+the field encryption key, the search-token key, and the API-key pepper. Encrypted values were
+stored as base64 of `iv ‖ tag ‖ ciphertext` with nothing saying which key wrote them. Rotating
+the key therefore made every stored identifier undecryptable, every existing journey
+unsearchable by identifier, and every issued API key fail. `OPERATIONS.md` said so in bold, and
+a debt declaration said adding a key label was hours before anyone stored data and a
+re-encryption project after.
+
+A self-hosting team will rotate this key: after a suspected leak, on a schedule, or when
+someone who had it leaves. Nothing was published yet, so the format could still change without
+a migration anyone had to run.
+
+### Decision
+
+Every encrypted value carries the identifier of the key that wrote it, as
+`fr1.<keyId>.<base64>`. The identifier is a 12-character HKDF fingerprint of the master key
+under its own label, so it is derived rather than configured: an operator cannot mislabel a key,
+and the id reveals nothing about the subkeys. A value with no prefix is the legacy format, and
+`.` never appears in base64, so the two cannot be confused.
+
+Rotation is a grace period. `ENCRYPTION_KEY_PREVIOUS` holds the key being replaced beside the
+new one. The API writes under the new key and reads under both: a labelled value under the key
+it names, a legacy value under each in turn, with GCM authentication making the wrong key fail
+rather than produce garbage. Search compares against both keys' tokens. An API key verifies
+under either, and on success under the old one its verifier is rewritten under the new one in
+the same request, because the presented key is the only plaintext a verifier can be recomputed
+from. `rotate:reencrypt` moves everything else, resumably, and `rotate:status` exits 0 once
+nothing is left under another key, which is when the previous key is removed.
+
+One previous key, not a list. A rotation finishes before the next begins, and a list would turn
+"which keys are still needed" into a question nobody can answer from the configuration.
+
+Re-encryption is a command an operator runs, not something the API does at boot. It is a long
+write across every encrypted table, and it should start when someone decides it should.
+
+When data is under a key that is not configured, the API still starts and says so: one warning
+at boot with counts per table, and one per unknown key id on read. Refusing to start would stop
+ingestion over a read problem whose fix, putting the key back, means recreating the API with it
+either way. A replay whose destination headers cannot be decrypted is refused and recorded,
+because sending it without the destination's credentials would be a different request from the
+one configured.
+
+### Consequences
+
+- Upgrading needs no data migration. Legacy values read as before and are rewritten by the next
+  rotation, or by `rotate:reencrypt` run with no previous key, which wraps them in the envelope
+  under the key they are already under. API keys issued before key ids record one when they next
+  authenticate; with no rotation under way `rotate:status` lists them without holding its exit
+  code at 1, so an installation that upgrades and never rotates can still reach 0.
+- Keys are trimmed of surrounding whitespace. A key that was configured with a trailing newline
+  derives different subkeys after the upgrade, which the CHANGELOG says in its upgrade notes.
+- An API key that never authenticates during the grace period cannot be moved, and fails once
+  the previous key is removed. `rotate:status` lists every one so it can be revoked and
+  reissued instead of discovered by a 401.
+- A row with no stored value keeps the search token it was written with, since a token is
+  recomputed only from a decrypted value, and stops matching search when the previous key goes.
+  Status reports these rather than holding the rotation open for them.
+- The re-encryption and the retention sweep each hold their advisory lock on a dedicated
+  connection for the whole run, so each needs two connections, and a server
+  `idle_in_transaction_session_timeout` shorter than one batch releases the lock early. Both
+  check the lock before every batch and stop when it is gone, the command exiting 1 and the sweep
+  reporting that it stopped early. Rewrites are conditional on the value read, so an early release
+  costs a repeated run, not data.
+- `infrastructure/compose.yaml` stacks now take the keys only from `defaults.env` and the
+  root `.env`. Interpolating them in `environment:` meant a key set in `.env` never reached the
+  API, so `ENCRYPTION_KEY_PREVIOUS` could not either. Shell exports no longer reach those stacks.
+- `ADMIN_TOKEN` has no grace period. Rotating it signs every web session out, which is the
+  point of rotating it.

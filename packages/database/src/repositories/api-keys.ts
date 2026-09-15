@@ -6,6 +6,8 @@ export interface ApiKeyContext {
   environmentId: string;
   environmentName: string;
   keyHash: string;
+  /** Id of the key whose pepper produced `keyHash`; null when written before ids were stored. */
+  keyHashKeyId: string | null;
   revokedAt: Date | null;
   captureMode: string;
   redactionPaths: string[];
@@ -35,6 +37,7 @@ export async function findApiKeyByPrefix(
       "api_keys.project_id as projectId",
       "api_keys.environment_id as environmentId",
       "api_keys.key_hash as keyHash",
+      "api_keys.key_hash_key_id as keyHashKeyId",
       "api_keys.revoked_at as revokedAt",
       "environments.name as environmentName",
       "environments.capture_mode as captureMode",
@@ -51,4 +54,23 @@ export async function findApiKeyByPrefix(
  */
 export async function touchApiKey(db: Knex, id: string): Promise<void> {
   await db("api_keys").where({ id }).update({ last_used_at: db.fn.now() });
+}
+
+/**
+ * Store a verifier computed under a newer key in place of the one that was read.
+ *
+ * Conditional on the stored hash being the one the caller verified against, so
+ * two requests migrating the same key cannot overwrite each other or a verifier
+ * the demo seed rewrote in between. Returns whether a row changed.
+ */
+export async function replaceApiKeyVerifier(
+  db: Knex,
+  id: string,
+  expectedKeyHash: string,
+  next: { keyHash: string; keyHashKeyId: string }
+): Promise<boolean> {
+  const updated = await db("api_keys")
+    .where({ id, key_hash: expectedKeyHash })
+    .update({ key_hash: next.keyHash, key_hash_key_id: next.keyHashKeyId });
+  return updated > 0;
 }

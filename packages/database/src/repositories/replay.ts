@@ -1,4 +1,9 @@
-import { decryptField, encryptField } from "@flight-recorder/payload-security";
+import {
+  decryptValue,
+  encryptValue,
+  UnknownKeyError,
+  type Keyring
+} from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import { insertReturningId } from "../insert.js";
 
@@ -54,7 +59,7 @@ const DESTINATION_COLUMNS = [
  */
 export async function createDestination(
   db: Knex,
-  fieldKey: Buffer,
+  keyring: Keyring,
   input: {
     projectId: string;
     name: string;
@@ -71,7 +76,7 @@ export async function createDestination(
     encrypted_headers:
       input.headers === undefined || Object.keys(input.headers).length === 0
         ? null
-        : encryptField(fieldKey, JSON.stringify(input.headers))
+        : encryptValue(keyring, JSON.stringify(input.headers))
   });
 
   const created = await findDestination(db, input.projectId, id);
@@ -100,31 +105,52 @@ export async function listDestinations(db: Knex, projectId: string): Promise<Rep
 }
 
 /**
+ * A destination's configured headers, or why they cannot be read.
+ *
+ * `headers_key_not_configured` names the key the headers were written under,
+ * which the keyring no longer holds: the previous key was removed before
+ * re-encryption reached this row. `headers_unreadable` is anything else that
+ * stops them decrypting, such as a corrupted value.
+ */
+export type DestinationHeaders =
+  | { ok: true; headers: Record<string, string> }
+  | { ok: false; reason: "headers_key_not_configured"; keyId: string }
+  | { ok: false; reason: "headers_unreadable" };
+
+/**
  * The destination's configured headers, decrypted.
  *
  * Never returned by `findDestination` or `listDestinations`. A caller that
  * needs to send a request asks for them explicitly, so a credential cannot
  * reach a list response by accident.
+ *
+ * Headers that are stored but cannot be decrypted are reported, not replaced
+ * with none. They used to degrade to an empty set, and the replay went out
+ * without the destination's credentials, which reads as the destination
+ * failing rather than as a key problem.
  */
 export async function destinationHeaders(
   db: Knex,
-  fieldKey: Buffer,
+  keyring: Keyring,
   projectId: string,
   id: string
-): Promise<Record<string, string>> {
+): Promise<DestinationHeaders> {
   const row: unknown = await db("replay_destinations")
     .where({ project_id: projectId, id })
     .first("encrypted_headers as encryptedHeaders");
 
   const encrypted = (row as { encryptedHeaders: string | null } | undefined)?.encryptedHeaders;
-  if (encrypted === null || encrypted === undefined) return {};
+  if (encrypted === null || encrypted === undefined) return { ok: true, headers: {} };
 
   try {
-    return JSON.parse(decryptField(fieldKey, encrypted)) as Record<string, string>;
-  } catch {
-    // A row encrypted under a rotated key degrades to no headers rather than
-    // failing the replay outright, matching how the read path treats payloads.
-    return {};
+    return {
+      ok: true,
+      headers: JSON.parse(decryptValue(keyring, encrypted)) as Record<string, string>
+    };
+  } catch (error) {
+    return error instanceof UnknownKeyError
+      ? { ok: false, reason: "headers_key_not_configured", keyId: error.keyId }
+      : { ok: false, reason: "headers_unreadable" };
   }
 }
 

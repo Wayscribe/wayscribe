@@ -28,7 +28,8 @@
 # Recorder itself.
 #
 # The API logs a warning at every boot while the published default secrets are
-# in use. Rotating ENCRYPTION_KEY later is destructive — see docs/OPERATIONS.md.
+# in use. To rotate ENCRYPTION_KEY later, set the old value as
+# ENCRYPTION_KEY_PREVIOUS while the new one takes over. See docs/OPERATIONS.md.
 
 name: flight-recorder
 
@@ -60,6 +61,9 @@ services:
       PORT: "8080"
       LOG_LEVEL: info
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-for-local-development-0000}
+      # Set only during a key rotation. Empty when unset, which the API reads as
+      # no rotation in progress.
+      ENCRYPTION_KEY_PREVIOUS: ${ENCRYPTION_KEY_PREVIOUS:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
       DEFAULT_RETENTION_DAYS: ${DEFAULT_RETENTION_DAYS:-7}
       MAX_EVENT_PAYLOAD_BYTES: "262144"

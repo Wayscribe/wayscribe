@@ -1,12 +1,12 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
-import { deriveSubkeys, generateApiKey } from "@flight-recorder/payload-security";
+import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import type { FastifyInstance } from "fastify";
 
-const subkeys = deriveSubkeys("0123456789abcdef0123456789abcdef");
+const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
 
 describe("GET /v1/projects", () => {
@@ -27,17 +27,18 @@ describe("GET /v1/projects", () => {
       name: "development"
     });
 
-    const generated = generateApiKey(subkeys.apiKey);
+    const generated = issueApiKey(keyring);
     apiKey = generated.apiKey;
     await db("api_keys").insert({
       project_id: projectA,
       environment_id: environment,
       name: "k",
       key_prefix: generated.keyPrefix,
-      key_hash: generated.verifier
+      key_hash: generated.verifier,
+      key_hash_key_id: generated.keyHashKeyId
     });
 
-    app = buildApp({ db, subkeys, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
     await app.ready();
   });
 
@@ -98,7 +99,7 @@ describe("reads with two projects present", () => {
     await db.migrate.latest();
     projectA = await insertReturningId(db, "projects", { name: "A", slug: "a" });
     await insertReturningId(db, "projects", { name: "B", slug: "b" });
-    app = buildApp({ db, subkeys, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
     await app.ready();
   });
 

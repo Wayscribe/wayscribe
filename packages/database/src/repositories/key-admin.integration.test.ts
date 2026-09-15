@@ -1,5 +1,5 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { deriveSubkeys, verifyApiKey } from "@flight-recorder/payload-security";
+import { createKeyring, verifyApiKeyWithKeyring } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";
@@ -7,7 +7,7 @@ import { insertReturningId } from "../insert.js";
 import { KeyAdminError, issueKey, listKeys, revokeKey } from "./key-admin.js";
 import { findApiKeyByPrefix } from "./api-keys.js";
 
-const MASTER_KEY = "0123456789abcdef0123456789abcdef";
+const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 
 describe("API key administration", () => {
   let container: StartedPostgreSqlContainer;
@@ -26,7 +26,7 @@ describe("API key administration", () => {
   });
 
   it("issues a key that authenticates", async () => {
-    const issued = await issueKey(db, MASTER_KEY, {
+    const issued = await issueKey(db, keyring, {
       projectSlug: "local",
       environmentName: "development",
       name: "first"
@@ -37,13 +37,18 @@ describe("API key administration", () => {
     // The end-to-end property: what the CLI printed verifies against what was
     // stored. This is the step SQL cannot perform, because the verifier is an
     // HMAC under a subkey of ENCRYPTION_KEY.
+    // `migrate: null` also proves the row is labelled with the current key, so
+    // rotation status counts it as current rather than unknown.
     expect(
-      verifyApiKey(deriveSubkeys(MASTER_KEY).apiKey, issued.apiKey, context?.keyHash ?? "")
-    ).toBe(true);
+      verifyApiKeyWithKeyring(keyring, issued.apiKey, {
+        keyHash: context?.keyHash ?? "",
+        keyHashKeyId: context?.keyHashKeyId ?? null
+      })
+    ).toEqual({ ok: true, migrate: null });
   });
 
   it("creates the environment when it does not exist yet", async () => {
-    const issued = await issueKey(db, MASTER_KEY, {
+    const issued = await issueKey(db, keyring, {
       projectSlug: "local",
       environmentName: "staging",
       name: "staging-worker"
@@ -63,7 +68,7 @@ describe("API key administration", () => {
   });
 
   it("revokes a key, and authentication then refuses it", async () => {
-    const issued = await issueKey(db, MASTER_KEY, {
+    const issued = await issueKey(db, keyring, {
       projectSlug: "local",
       environmentName: "development",
       name: "doomed"
@@ -75,7 +80,7 @@ describe("API key administration", () => {
   });
 
   it("refuses to revoke twice", async () => {
-    const issued = await issueKey(db, MASTER_KEY, {
+    const issued = await issueKey(db, keyring, {
       projectSlug: "local",
       environmentName: "development",
       name: "once"
@@ -88,7 +93,7 @@ describe("API key administration", () => {
     // A CLI that says "not found" and stops makes the operator go read the
     // schema. Naming what does exist usually ends the problem on the spot.
     await expect(
-      issueKey(db, MASTER_KEY, {
+      issueKey(db, keyring, {
         projectSlug: "typo",
         environmentName: "development",
         name: "x"

@@ -2,13 +2,15 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createKnexConfig, insertReturningId, listAudit } from "@flight-recorder/database";
-import { deriveSubkeys, generateApiKey } from "@flight-recorder/payload-security";
+import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import type { FastifyInstance } from "fastify";
 
-const subkeys = deriveSubkeys("0123456789abcdef0123456789abcdef");
+const KEY_A = "0123456789abcdef0123456789abcdef";
+const KEY_B = "fedcba9876543210fedcba9876543210";
+const keyring = createKeyring(KEY_A);
 const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
 
 describe("replay routes", () => {
@@ -17,6 +19,8 @@ describe("replay routes", () => {
   let app: FastifyInstance;
   let target: Server;
   let targetPort: number;
+  /** Requests the target has received, so a refusal can be shown to send nothing. */
+  let targetRequests = 0;
   let projectId: string;
   let apiKey: string;
   let eventWithInput: string;
@@ -24,6 +28,7 @@ describe("replay routes", () => {
 
   beforeAll(async () => {
     target = createServer((request, response) => {
+      targetRequests += 1;
       let body = "";
       request.on("data", (chunk: Buffer) => {
         body += chunk.toString();
@@ -50,14 +55,15 @@ describe("replay routes", () => {
       name: "development"
     });
 
-    const generated = generateApiKey(subkeys.apiKey);
+    const generated = issueApiKey(keyring);
     apiKey = generated.apiKey;
     await db("api_keys").insert({
       project_id: projectId,
       environment_id: environmentId,
       name: "k",
       key_prefix: generated.keyPrefix,
-      key_hash: generated.verifier
+      key_hash: generated.verifier,
+      key_hash_key_id: generated.keyHashKeyId
     });
 
     await db("journeys").insert({
@@ -99,7 +105,7 @@ describe("replay routes", () => {
 
     app = buildApp({
       db,
-      subkeys,
+      keyring,
       adminToken: ADMIN_TOKEN,
       logLevel: "silent",
       replayAllowedHosts: ["localhost"]
@@ -230,6 +236,77 @@ describe("replay routes", () => {
     // the safety checks would be invisible to whoever has to explain them.
     const audit = await listAudit(db, projectId);
     expect(audit.some((entry) => entry.action === "replay.blocked")).toBe(true);
+  });
+
+  it("refuses to replay without headers it can no longer decrypt, and records why", async () => {
+    // The destination's credential was encrypted under A. After A is removed,
+    // replaying without it would send the recorded input unauthenticated, or
+    // with whatever a gateway does for anonymous callers. Refusing says what to
+    // fix; sending silently would look like the destination had broken.
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/replay-destinations",
+      headers: admin(),
+      payload: {
+        name: "credentialed",
+        baseUrl: `http://localhost:${String(targetPort)}`,
+        environmentType: "development",
+        headers: { authorization: "Bearer destination-credential" }
+      }
+    });
+    const destinationId = created.json<{ data: { id: string } }>().data.id;
+
+    const logLines: string[] = [];
+    const afterRemoval = buildApp({
+      db,
+      keyring: createKeyring(KEY_B),
+      adminToken: ADMIN_TOKEN,
+      logLevel: "warn",
+      logStream: { write: (line: string) => logLines.push(line) },
+      replayAllowedHosts: ["localhost"]
+    });
+    const before = targetRequests;
+    try {
+      const response = await afterRemoval.inject({
+        method: "POST",
+        url: "/v1/replays",
+        headers: admin(),
+        payload: { eventId: eventWithInput, destinationId, path: "/replay/customer" }
+      });
+
+      expect(response.statusCode).toBe(422);
+      const data = response.json<{
+        data: { id: string; status: string; error: { reason: string; message: string } };
+      }>().data;
+      expect(data.status).toBe("blocked");
+      expect(data.error.reason).toBe("headers_key_not_configured");
+      expect(data.error.message).toContain(keyring.current.id);
+      expect(data.error.message).toContain("ENCRYPTION_KEY_PREVIOUS");
+      expect(targetRequests).toBe(before);
+
+      const audit = await listAudit(db, projectId);
+      const entry = audit.find(
+        (item) => item.action === "replay.blocked" && item.resourceId === data.id
+      );
+      expect(entry?.metadata).toMatchObject({ reason: "headers_key_not_configured" });
+
+      // The operator learns of the missing key from the log too, once per key
+      // id however many replays meet it, and never with the credential.
+      await afterRemoval.inject({
+        method: "POST",
+        url: "/v1/replays",
+        headers: admin(),
+        payload: { eventId: eventWithInput, destinationId, path: "/replay/customer" }
+      });
+      const warnings = logLines
+        .map((line) => JSON.parse(line) as { level: number; keyId?: string })
+        .filter((line) => line.level === 40 && line.keyId !== undefined);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.keyId).toBe(keyring.current.id);
+      expect(logLines.join("")).not.toContain("destination-credential");
+    } finally {
+      await afterRemoval.close();
+    }
   });
 
   it("writes an audit entry for a successful replay", async () => {

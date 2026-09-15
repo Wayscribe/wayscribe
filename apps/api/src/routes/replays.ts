@@ -8,10 +8,11 @@ import {
   listDestinations,
   recordAudit,
   startRun,
+  type DestinationHeaders,
   type EnvironmentType
 } from "@flight-recorder/database";
 import { diffPayloads } from "@flight-recorder/payload-diff";
-import type { Subkeys } from "@flight-recorder/payload-security";
+import type { Keyring } from "@flight-recorder/payload-security";
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { applyHeaderPolicy } from "../replay/header-policy.js";
@@ -23,8 +24,10 @@ const METHODS = new Set(["POST", "PUT", "PATCH"]);
 
 export interface ReplayRouteOptions {
   adminToken: string;
-  subkeys: Subkeys;
+  keyring: Keyring;
   allowedHosts: readonly string[];
+  /** Told the id of a key a read needed and the keyring lacks. */
+  warnUnknownKey?: (keyId: string) => void;
 }
 
 /**
@@ -105,7 +108,7 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
         );
     }
 
-    const created = await createDestination(app.db, options.subkeys.fieldEncryption, {
+    const created = await createDestination(app.db, options.keyring, {
       projectId,
       name: body.name,
       baseUrl: body.baseUrl,
@@ -187,13 +190,11 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
         .send(error("destination_disabled", "That destination is disabled.", request.id));
     }
 
-    const configured = await destinationHeaders(
-      app.db,
-      options.subkeys.fieldEncryption,
-      projectId,
-      destination.id
+    const configured = await destinationHeaders(app.db, options.keyring, projectId, destination.id);
+    const { headers, blocked } = applyHeaderPolicy(
+      undefined,
+      configured.ok ? configured.headers : {}
     );
-    const { headers, blocked } = applyHeaderPolicy(undefined, configured);
 
     // Recorded before the request is made, so a refusal still leaves a row.
     const runId = await startRun(app.db, {
@@ -206,6 +207,27 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
       requestHeaders: headers,
       initiatedBy: "admin"
     });
+
+    // Headers the destination was configured with but that cannot be decrypted
+    // are its credentials. Sending without them would reach the destination
+    // unauthenticated and look like the destination had broken, so the attempt
+    // is refused and recorded like any other refusal.
+    if (!configured.ok) {
+      if (configured.reason === "headers_key_not_configured") {
+        options.warnUnknownKey?.(configured.keyId);
+      }
+      const refusal = headersRefusal(configured);
+      await finishRun(app.db, projectId, runId, { status: "blocked", error: refusal });
+      await recordAudit(app.db, {
+        projectId,
+        actor: "admin",
+        action: "replay.blocked",
+        resourceType: "replay_run",
+        resourceId: runId,
+        metadata: { reason: refusal.reason, destination: destination.name }
+      });
+      return reply.code(422).send({ data: await present(app, projectId, runId, event) });
+    }
 
     const outcome = await sendReplay({
       baseUrl: destination.baseUrl,
@@ -284,6 +306,26 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     const event = await findEventDetail(app.db, { projectId }, run.journeyEventId);
     return reply.send({ data: await present(app, projectId, replayId, event) });
   });
+}
+
+/** What an operator reads when a destination's headers cannot be decrypted. */
+function headersRefusal(configured: Exclude<DestinationHeaders, { ok: true }>): {
+  reason: string;
+  message: string;
+} {
+  if (configured.reason === "headers_key_not_configured") {
+    return {
+      reason: configured.reason,
+      message:
+        `This destination's headers were encrypted under key ${configured.keyId}, which is not configured. ` +
+        "Set ENCRYPTION_KEY_PREVIOUS to that key and run rotate:reencrypt, or recreate the destination with its headers."
+    };
+  }
+  return {
+    reason: configured.reason,
+    message:
+      "This destination's headers could not be decrypted with any configured key. Recreate the destination with its headers."
+  };
 }
 
 /**

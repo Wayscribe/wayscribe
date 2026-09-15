@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { createKeyring } from "./keyring.js";
 import { deriveSubkeys } from "./keys.js";
-import { normalizeSearchValue, searchToken } from "./search-token.js";
+import { normalizeSearchValue, searchToken, searchTokens } from "./search-token.js";
 
 const key = deriveSubkeys("0123456789abcdef0123456789abcdef").searchToken;
 
@@ -47,5 +48,30 @@ describe("searchToken", () => {
 
   it("returns lowercase hex of fixed length", () => {
     expect(searchToken(key, "v")).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("searchTokens", () => {
+  const masterA = "0123456789abcdef0123456789abcdef";
+  const masterB = "fedcba9876543210fedcba9876543210";
+
+  it("returns the current key's token alone when there is no previous key", () => {
+    const keyring = createKeyring(masterA);
+    expect(searchTokens(keyring, "18492")).toEqual([
+      searchToken(keyring.current.searchToken, "18492")
+    ]);
+  });
+
+  it("returns the current key's token first and the previous key's second", () => {
+    const keyring = createKeyring(masterB, masterA);
+    expect(searchTokens(keyring, "18492")).toEqual([
+      searchToken(deriveSubkeys(masterB).searchToken, "18492"),
+      searchToken(deriveSubkeys(masterA).searchToken, "18492")
+    ]);
+  });
+
+  it("normalizes before hashing under both keys", () => {
+    const keyring = createKeyring(masterB, masterA);
+    expect(searchTokens(keyring, " 18492 ")).toEqual(searchTokens(keyring, "18492"));
   });
 });

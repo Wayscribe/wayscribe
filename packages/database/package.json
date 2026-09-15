@@ -15,18 +15,21 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "migrate": "tsx --env-file-if-exists=../../.env src/cli.ts migrate",
-    "rollback": "tsx --env-file-if-exists=../../.env src/cli.ts rollback",
-    "seed": "tsx --env-file-if-exists=../../.env src/cli.ts seed",
-    "seed-demo": "tsx --env-file-if-exists=../../.env src/cli.ts seed-demo",
-    "project:create": "tsx --env-file-if-exists=../../.env src/cli.ts project:create",
-    "project:list": "tsx --env-file-if-exists=../../.env src/cli.ts project:list",
-    "key:create": "tsx --env-file-if-exists=../../.env src/cli.ts key:create",
-    "key:revoke": "tsx --env-file-if-exists=../../.env src/cli.ts key:revoke",
-    "key:list": "tsx --env-file-if-exists=../../.env src/cli.ts key:list",
-    "retention:sweep": "tsx --env-file-if-exists=../../.env src/cli.ts retention:sweep"
+    "migrate": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts migrate",
+    "rollback": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts rollback",
+    "seed": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts seed",
+    "seed-demo": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts seed-demo",
+    "project:create": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts project:create",
+    "project:list": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts project:list",
+    "key:create": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts key:create",
+    "key:revoke": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts key:revoke",
+    "key:list": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts key:list",
+    "retention:sweep": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts retention:sweep",
+    "rotate:reencrypt": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts rotate:reencrypt",
+    "rotate:status": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts rotate:status"
   },
   "dependencies": {
+    "@flight-recorder/config": "workspace:*",
     "@flight-recorder/payload-security": "workspace:*",
     "knex": "^3.3.0",
     "pg": "^8.23.0"

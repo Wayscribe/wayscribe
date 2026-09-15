@@ -1,5 +1,5 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { deriveSubkeys } from "@flight-recorder/payload-security";
+import { createKeyring, parseEncryptedValue } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";
@@ -15,7 +15,15 @@ import {
   startRun
 } from "./replay.js";
 
-const subkeys = deriveSubkeys("0123456789abcdef0123456789abcdef");
+/** The key id a stored value names, or null for a legacy value. */
+const keyIdOf = (value: string): string | null => {
+  const parsed = parseEncryptedValue(value);
+  return parsed.kind === "envelope" ? parsed.keyId : null;
+};
+
+const KEY_A = "0123456789abcdef0123456789abcdef";
+const KEY_B = "fedcba9876543210fedcba9876543210";
+const keyring = createKeyring(KEY_A);
 
 describe("replay destinations", () => {
   let container: StartedPostgreSqlContainer;
@@ -37,7 +45,7 @@ describe("replay destinations", () => {
   });
 
   it("creates and reads back a destination", async () => {
-    const created = await createDestination(db, subkeys.fieldEncryption, {
+    const created = await createDestination(db, keyring, {
       projectId: projectA,
       name: "local integration",
       baseUrl: "http://localhost:3200",
@@ -51,7 +59,7 @@ describe("replay destinations", () => {
   it("never returns configured headers in a read", async () => {
     // A destination's credential is a real secret and the row is read by every
     // list call. It comes back only when a caller asks for it by name.
-    const created = await createDestination(db, subkeys.fieldEncryption, {
+    const created = await createDestination(db, keyring, {
       projectId: projectA,
       name: "with credential",
       baseUrl: "http://localhost:3201",
@@ -65,13 +73,14 @@ describe("replay destinations", () => {
       "development-only-token"
     );
 
-    expect(await destinationHeaders(db, subkeys.fieldEncryption, projectA, created.id)).toEqual({
-      authorization: "Bearer development-only-token"
+    expect(await destinationHeaders(db, keyring, projectA, created.id)).toEqual({
+      ok: true,
+      headers: { authorization: "Bearer development-only-token" }
     });
   });
 
   it("stores headers encrypted rather than in the clear", async () => {
-    const created = await createDestination(db, subkeys.fieldEncryption, {
+    const created = await createDestination(db, keyring, {
       projectId: projectA,
       name: "encrypted check",
       baseUrl: "http://localhost:3202",
@@ -87,8 +96,10 @@ describe("replay destinations", () => {
     );
   });
 
-  it("degrades to no headers when the key no longer decrypts them", async () => {
-    const created = await createDestination(db, subkeys.fieldEncryption, {
+  it("reports headers under a key that is no longer configured, naming the key", async () => {
+    // It used to degrade to no headers, and the replay went out without its
+    // credentials. The caller has to be able to refuse instead.
+    const created = await createDestination(db, keyring, {
       projectId: projectA,
       name: "rotated",
       baseUrl: "http://localhost:3203",
@@ -96,12 +107,82 @@ describe("replay destinations", () => {
       headers: { "x-test-secret": "value" }
     });
 
-    const rotated = deriveSubkeys("fedcba9876543210fedcba9876543210");
-    expect(await destinationHeaders(db, rotated.fieldEncryption, projectA, created.id)).toEqual({});
+    expect(await destinationHeaders(db, createKeyring(KEY_B), projectA, created.id)).toEqual({
+      ok: false,
+      reason: "headers_key_not_configured",
+      keyId: keyring.current.id
+    });
+  });
+
+  it("reports headers that do not decrypt under any configured key", async () => {
+    const created = await createDestination(db, keyring, {
+      projectId: projectA,
+      name: "corrupt",
+      baseUrl: "http://localhost:3207",
+      environmentType: "local",
+      headers: { "x-test-secret": "value" }
+    });
+    const row: unknown = await db("replay_destinations")
+      .where({ id: created.id })
+      .first("encrypted_headers");
+    const stored = row as { encrypted_headers: string };
+    // Change one base64 character inside the payload: the key id still matches
+    // a configured key, and GCM authentication then fails.
+    const at = "fr1.".length + 13 + 20;
+    const original = stored.encrypted_headers.charAt(at);
+    const tampered = `${stored.encrypted_headers.slice(0, at)}${original === "A" ? "B" : "A"}${stored.encrypted_headers.slice(at + 1)}`;
+    await db("replay_destinations")
+      .where({ id: created.id })
+      .update({ encrypted_headers: tampered });
+
+    expect(await destinationHeaders(db, keyring, projectA, created.id)).toEqual({
+      ok: false,
+      reason: "headers_unreadable"
+    });
+  });
+
+  it("reports no headers as an empty set, not a failure", async () => {
+    const created = await createDestination(db, keyring, {
+      projectId: projectA,
+      name: "no headers",
+      baseUrl: "http://localhost:3208",
+      environmentType: "local"
+    });
+    expect(await destinationHeaders(db, createKeyring(KEY_B), projectA, created.id)).toEqual({
+      ok: true,
+      headers: {}
+    });
+  });
+
+  it("labels stored headers with the current key's id", async () => {
+    const created = await createDestination(db, keyring, {
+      projectId: projectA,
+      name: "labelled",
+      baseUrl: "http://localhost:3205",
+      environmentType: "local",
+      headers: { "x-test-secret": "value" }
+    });
+    const raw = await db("replay_destinations")
+      .where({ id: created.id })
+      .first("encrypted_headers");
+    expect(keyIdOf(raw.encrypted_headers)).toBe(keyring.current.id);
+  });
+
+  it("reads headers written under the previous key during a rotation", async () => {
+    const created = await createDestination(db, keyring, {
+      projectId: projectA,
+      name: "written before rotation",
+      baseUrl: "http://localhost:3206",
+      environmentType: "local",
+      headers: { authorization: "Bearer before-rotation" }
+    });
+    expect(await destinationHeaders(db, createKeyring(KEY_B, KEY_A), projectA, created.id)).toEqual(
+      { ok: true, headers: { authorization: "Bearer before-rotation" } }
+    );
   });
 
   it("does not leak a destination across projects", async () => {
-    const created = await createDestination(db, subkeys.fieldEncryption, {
+    const created = await createDestination(db, keyring, {
       projectId: projectA,
       name: "project a only",
       baseUrl: "http://localhost:3204",
@@ -158,7 +239,7 @@ describe("replay runs", () => {
     });
 
     destinationId = (
-      await createDestination(db, subkeys.fieldEncryption, {
+      await createDestination(db, keyring, {
         projectId,
         name: "d",
         baseUrl: "http://localhost:3200",

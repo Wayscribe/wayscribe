@@ -142,6 +142,9 @@ importers:
 
   packages/database:
     dependencies:
+      '@flight-recorder/config':
+        specifier: workspace:*
+        version: link:../config
       '@flight-recorder/payload-security':
         specifier: workspace:*
         version: link:../payload-security

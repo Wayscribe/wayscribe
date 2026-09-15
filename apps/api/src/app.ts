@@ -1,6 +1,7 @@
-import type { Subkeys } from "@flight-recorder/payload-security";
+import type { Keyring } from "@flight-recorder/payload-security";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Knex } from "knex";
+import { unknownKeyWarning } from "./key-warnings.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -15,7 +16,8 @@ declare module "fastify" {
 
 export interface BuildAppOptions {
   db: Knex;
-  subkeys: Subkeys;
+  /** Current key, and the previous one during a rotation's grace period. */
+  keyring: Keyring;
   adminToken: string;
   logLevel?: string;
   /** Per-request body cap. Defaults to the batch ceiling plus headroom. */
@@ -93,18 +95,22 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   });
 
   app.decorate("db", options.db);
+  // One per app, and the API builds one app per process: each missing key id
+  // is logged once however many reads meet it.
+  const warnUnknownKey = unknownKeyWarning(app.log);
   registerHealthRoutes(app);
   registerEventRoutes(
     app,
-    options.subkeys,
+    options.keyring,
     maxEventPayloadBytes,
     options.allowFullPayloadCapture ?? false
   );
   registerProjectRoutes(app, options.adminToken);
-  registerQueryRoutes(app, options.subkeys, options.adminToken);
+  registerQueryRoutes(app, options.keyring, options.adminToken, warnUnknownKey);
   registerReplayRoutes(app, {
     adminToken: options.adminToken,
-    subkeys: options.subkeys,
+    keyring: options.keyring,
+    warnUnknownKey,
     allowedHosts: options.replayAllowedHosts ?? []
   });
 

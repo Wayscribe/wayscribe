@@ -1,4 +1,5 @@
 import type { Knex } from "knex";
+import { lockHolderAlive } from "./advisory-lock.js";
 
 // debtwatch:start
 // id: DEBT-N11B8K
@@ -8,7 +9,7 @@ import type { Knex } from "knex";
 // tags: operations, data-protection
 // debtwatch:end
 /**
- * An arbitrary but fixed 64-bit key for `pg_try_advisory_lock`.
+ * An arbitrary but fixed 64-bit key for `pg_try_advisory_xact_lock`.
  *
  * The number itself carries no meaning; what matters is that every replica uses
  * the same one, so only one of them sweeps at a time (ADR-026).
@@ -21,6 +22,13 @@ export interface SweepResult {
   journeysDeleted: number;
   batches: number;
   environmentsExamined: number;
+  /**
+   * The connection holding the lock ended mid-sweep, for example by
+   * `idle_in_transaction_session_timeout`, and the sweep stopped after the
+   * batch in progress. The counts are what committed; the next sweep deletes
+   * the rest.
+   */
+  stoppedEarly: boolean;
 }
 
 export interface SweepOptions {
@@ -57,17 +65,34 @@ export async function sweepExpiredJourneys(
   const batchSize = options.batchSize ?? 1_000;
   const maxBatches = options.maxBatchesPerEnvironment ?? 50;
 
-  // Session-level, released explicitly below. A replica that dies mid-sweep
-  // drops its connection, and PostgreSQL releases the lock with it.
-  const acquired: unknown = await db.raw("select pg_try_advisory_lock(?) as locked", [
-    ADVISORY_LOCK_KEY
-  ]);
-  const locked = ((acquired as { rows?: { locked?: boolean }[] }).rows ?? [])[0]?.locked === true;
-  if (!locked) {
-    return { ran: false, journeysDeleted: 0, batches: 0, environmentsExamined: 0 };
-  }
-
+  // A transaction-scoped lock on one connection held for the whole sweep.
+  // It used to be a session lock taken and released by separate pooled
+  // queries: under contention the release landed on a different connection
+  // and failed, the lock stayed with an idle pooled backend, and every later
+  // sweep on every replica skipped until a restart. Committing the holder
+  // releases it, and a replica that dies drops the connection and the lock
+  // with it. The deletes run on other connections, each its own transaction,
+  // so each batch commits as it goes rather than when the sweep ends.
+  //
+  // The key is inlined, not bound: a bound parameter leaves an unnamed portal
+  // open with its snapshot for the life of the transaction, which would keep
+  // VACUUM from removing the very rows this sweep deletes.
+  const holder = await db.transaction();
   try {
+    const acquired: unknown = await holder.raw(
+      `select pg_try_advisory_xact_lock(${String(ADVISORY_LOCK_KEY)}) as locked`
+    );
+    const locked = (acquired as { rows: { locked: boolean }[] }).rows[0]?.locked === true;
+    if (!locked) {
+      return {
+        ran: false,
+        journeysDeleted: 0,
+        batches: 0,
+        environmentsExamined: 0,
+        stoppedEarly: false
+      };
+    }
+
     const rows: unknown = await db("environments").select(
       "id",
       "project_id as projectId",
@@ -77,9 +102,20 @@ export async function sweepExpiredJourneys(
 
     let journeysDeleted = 0;
     let batches = 0;
+    const result = (stoppedEarly: boolean): SweepResult => ({
+      ran: true,
+      journeysDeleted,
+      batches,
+      environmentsExamined: environments.length,
+      stoppedEarly
+    });
 
     for (const environment of environments) {
       for (let batch = 0; batch < maxBatches; batch += 1) {
+        // Before every batch: without the lock another replica may be sweeping
+        // too, so a lost lock ends this sweep after the batch that committed.
+        if (!(await lockHolderAlive(holder))) return result(true);
+
         // `last_event_at`, not `started_at`: a journey that is still receiving
         // events is still interesting, however long ago it began.
         const deleted: unknown = await db.raw(
@@ -102,13 +138,11 @@ export async function sweepExpiredJourneys(
       }
     }
 
-    return {
-      ran: true,
-      journeysDeleted,
-      batches,
-      environmentsExamined: environments.length
-    };
+    return result(false);
   } finally {
-    await db.raw("select pg_advisory_unlock(?)", [ADVISORY_LOCK_KEY]);
+    // Nothing was written through the holder. If its connection has already
+    // gone, so has the lock, and a failure here must not hide the sweep's own
+    // error.
+    await holder.commit().catch(() => undefined);
   }
 }

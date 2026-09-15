@@ -1,7 +1,13 @@
 export { insertReturningId } from "./insert.js";
 export { createKnexConfig } from "./knex-config.js";
 export { pendingMigrationCount } from "./migration-status.js";
-export { findApiKeyByPrefix, touchApiKey, type ApiKeyContext } from "./repositories/api-keys.js";
+export {
+  findApiKeyByPrefix,
+  replaceApiKeyVerifier,
+  touchApiKey,
+  type ApiKeyContext
+} from "./repositories/api-keys.js";
+export { keyringFromEnvironment } from "./keyring-env.js";
 export { upsertAliases, type AliasRow } from "./repositories/aliases.js";
 export { insertEvent, type EventRow, type InsertOutcome } from "./repositories/events.js";
 export {
@@ -23,6 +29,7 @@ export {
   finishRun,
   listDestinations,
   startRun,
+  type DestinationHeaders,
   type EnvironmentType,
   type ReplayDestination,
   type ReplayRun,
@@ -33,6 +40,22 @@ export {
   type SweepOptions,
   type SweepResult
 } from "./repositories/retention.js";
+export {
+  findUnreadableData,
+  reencryptValues,
+  rotationStatus,
+  type ApiKeyNotCurrent,
+  type EncryptedTable,
+  type ReencryptMode,
+  type ReencryptOptions,
+  type ReencryptProgress,
+  type ReencryptResult,
+  type RotationStatus,
+  type TableKeyStatus,
+  type TableReencryption,
+  type UnreadableData,
+  type UnreadableTable
+} from "./repositories/rotation.js";
 export {
   KeyAdminError,
   issueKey,

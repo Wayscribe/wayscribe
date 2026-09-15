@@ -53,7 +53,9 @@ because a default here would write your payloads somewhere you did not choose.
 
 If you manage secrets yourself, `secrets.existingSecret` takes the name of a
 secret carrying `DATABASE_URL`, `ENCRYPTION_KEY` and `ADMIN_TOKEN`, and the
-chart creates none of its own.
+chart creates none of its own. During a key rotation the secret also carries
+`ENCRYPTION_KEY_PREVIOUS`. The API pods do not restart when a secret changes, so
+restart them yourself; the procedure is in `docs/OPERATIONS.md` §6.
 
 ## What is in it
 

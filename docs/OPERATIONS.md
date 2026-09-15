@@ -78,7 +78,8 @@ Restore against the **same `ENCRYPTION_KEY`**. A restore under a different key
 leaves every encrypted field undecryptable and every search token unmatchable.
 The interface degrades one field at a time rather than failing, so this looks
 like missing data rather than an error — check the key first when a restored
-installation shows blank identifiers.
+installation shows blank identifiers. A dump taken before a key rotation needs
+the old key back as `ENCRYPTION_KEY_PREVIOUS`; see §6.
 
 ## 4. Upgrading
 
@@ -129,16 +130,218 @@ touching everywhere an operator has written it down.
 
 ## 6. Key rotation
 
-**`ENCRYPTION_KEY` rotation is destructive.** Three things derive from it by
-HKDF: field encryption, search tokens, and the API-key pepper. Rotating it:
+**Changing `ENCRYPTION_KEY` outright loses access to what is already stored.**
+Three things derive from it by HKDF: field encryption, search tokens, and the
+API-key pepper. Swap the value and recreate the API containers, and every stored entity identifier,
+alias value, and replay destination header stops decrypting, every existing
+journey stops being findable by identifier, and every issued API key answers
+401.
 
-- makes every already-encrypted payload and entity ID undecryptable,
-- orphans every search token, so existing journeys stop being findable by
-  identifier,
-- invalidates every issued API key.
+Rotation avoids that with a grace period (ADR-044). The key being replaced stays
+configured as `ENCRYPTION_KEY_PREVIOUS` beside the new one. The API writes under
+the new key and reads under both, API keys move to the new key as they
+authenticate, and `rotate:reencrypt` moves the stored data across. Only when
+`rotate:status` says nothing is left under the old key does the old key go.
 
-There is no re-encryption tool in V0. Rotate only when you are willing to lose
-access to existing data, or when the installation is new.
+### Where the keys are read from
+
+Set both variables in the one place your stack reads them from. A key set
+anywhere else never arrives, and nothing says so.
+
+| Stack | Read from |
+| --- | --- |
+| `infrastructure/compose.yaml`, with or without the demo overlay | `infrastructure/defaults.env`, then the repository-root `.env`, which wins. Shell exports do not reach these services. Edit `.env`. |
+| `compose.published.yaml` | the shell, or a `.env` beside `compose.published.yaml`. A shell export wins over that file. |
+| Helm | `secrets.encryptionKey` and `secrets.encryptionKeyPrevious`, or the `ENCRYPTION_KEY` and `ENCRYPTION_KEY_PREVIOUS` keys of your `existingSecret`. |
+| `pnpm` commands in a source checkout | the repository-root `.env`. A variable exported in the shell wins over it. |
+
+Surrounding whitespace is trimmed from both keys, so a trailing newline from a
+secrets file does not make a different key. An empty `ENCRYPTION_KEY_PREVIOUS`
+means no rotation is in progress. The same value in both variables stops the
+API at boot with a message saying so, rather than starting a rotation that
+rotates nothing.
+
+### Running the commands
+
+`rotate:reencrypt` and `rotate:status` read the keys the way the API does, so
+run them with the same two variables the API has.
+
+```bash
+# Published images
+docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js rotate:status
+
+# infrastructure/compose.yaml, which reads .env for the one-off container too
+docker compose -f infrastructure/compose.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js rotate:status
+
+# A source checkout
+pnpm rotate:status
+```
+
+Replace `rotate:status` with `rotate:reencrypt` for the other command. On Helm,
+add `ENCRYPTION_KEY_PREVIOUS` to the `kubectl run` that `deploy/helm/README.md`
+uses for `project:create`. `key:create` during a rotation needs both keys as
+well, so a key issued mid-rotation verifies against the API beside it.
+`key:revoke` reads no key.
+
+Give every `docker compose` command in this section the same `-f` files the
+stack was started with. For the demo that means adding
+`-f infrastructure/compose.demo.yaml` after `-f infrastructure/compose.yaml`.
+Leave it out and Compose warns about orphan containers and suggests
+`--remove-orphans`; do not take that advice, because it removes the demo
+services.
+
+### The procedure
+
+1. Generate the new key: `openssl rand -hex 32`. Keep the old one. It is the
+   only way back if something goes wrong, and a backup taken before the rotation
+   needs it (see below).
+2. Where your stack reads its keys (above), set `ENCRYPTION_KEY` to the new key
+   and `ENCRYPTION_KEY_PREVIOUS` to the old one.
+3. Recreate every API container with the new keys: `docker compose -f
+   infrastructure/compose.yaml up -d` (or `-f compose.published.yaml`), or
+   `kubectl rollout restart deployment/<release>-flight-recorder-api` after the
+   Helm upgrade, since the chart does not restart pods when its secret changes.
+   **Not `docker compose restart`**: it restarts the container with the
+   environment it was created with, and does not re-read `env_file`, so the new
+   keys never arrive. Every replica has to be on the new keys before the
+   next step, because one still on the old key keeps writing under it.
+4. Run `rotate:reencrypt`. It prints a line per batch, then one summary line per
+   table. If it is interrupted, run it again; it resumes where the committed
+   batches left off.
+5. Run `rotate:status`. It exits 0 when every row and every unrevoked API key is
+   under the new key. Until then, work through what it lists (below) and run it
+   again.
+6. Remove `ENCRYPTION_KEY_PREVIOUS` and recreate the API containers again, the
+   same way as in step 3.
+7. Run `rotate:status` once more. It should report `Previous key: not set` and
+   `Complete`, and the API's boot log should carry no warning about unreadable
+   data.
+
+From step 3 on, nothing is interrupted: new events record, old journeys search
+and open, and every API key still authenticates.
+
+A script can wait on step 5, since the exit code is the answer:
+
+```bash
+until pnpm rotate:status > /dev/null; do sleep 300; done
+```
+
+Use the form of the command your stack runs (above) in place of `pnpm`. The
+exit code is also 1 when the command cannot run at all, such as with
+`DATABASE_URL` unset or the database unreachable, so a loop like this one waits
+forever on a misconfiguration; its error still reaches stderr every pass.
+
+### What `rotate:status` lists
+
+- **API keys not yet under the current key.** Each moves the next time it
+  authenticates, because the presented key is the only thing a verifier can be
+  recomputed from. Wait for the services holding them to send events. A key that
+  will not be used again should be revoked with `key:revoke` and the prefix the
+  listing shows (`key:revoke fr_AbCdEfGhIjK`), and reissued with `key:create` if
+  something still needs one. Revoked keys are not counted.
+- **API keys whose key id is `not recorded`.** Issued before key ids were
+  stored. They record one the next time they authenticate. During a rotation
+  they may be under either key, so they are treated like the keys above and keep
+  the exit code at 1. With no previous key configured they are listed as `key id
+  not recorded yet; recorded on next use` and do not affect the exit code: they
+  can only be under the one key there is.
+- **API keys under a key that is not configured.** Their key id is neither the
+  current nor the previous key, so they cannot authenticate and will not move by
+  themselves. Set `ENCRYPTION_KEY_PREVIOUS` to the key the listing names to let
+  them authenticate during a grace period, or revoke them. They keep the exit
+  code at 1.
+- **Rows under the previous key.** Run `rotate:reencrypt` again. A row that
+  ingestion changed while the command was reading it is left for the next run,
+  and the command says how many there were.
+- **Rows with no stored value.** Reported, and they do not hold the rotation
+  open: there is nothing in them to rewrite. Their search tokens, though, can
+  only be recomputed from a value, so they stay under the old key and stop
+  matching search once `ENCRYPTION_KEY_PREVIOUS` is removed.
+- **Rows under an unknown key, malformed rows, and legacy rows no key opens.**
+  These keep the exit code at 1 until the key that wrote them is configured
+  again or the rows are deleted. `rotate:reencrypt` counts them as unrecoverable
+  and leaves them as they are. An unknown key is named by its id, which is a
+  fingerprint of the key and safe to paste into a ticket.
+
+### What `rotate:reencrypt` costs
+
+It walks `journeys`, `entity_aliases`, and `replay_destinations` by primary key
+in batches of 500, one transaction per batch, and spends one to three queries on
+each row. A large table takes a long time; run it when you can leave it. It is
+safe under live traffic: each rewrite is conditional on the value it read, so a
+concurrent write is never overwritten.
+
+**Without `ENCRYPTION_KEY_PREVIOUS` it upgrades instead of rotating.** It
+rewrites legacy values the current key opens into the `fr1` format under that
+same key, leaves search tokens as they are, and counts anything under another
+key as unrecoverable. Its first line names the mode: `Upgrading legacy values
+under key …` or `Re-encrypting under key …, reading values under … and legacy
+values`. If the first line says `Upgrading` when you meant to rotate, step 2 did
+not reach this process; nothing under the old key was touched.
+
+**It exits 1 when another run holds the rotation lock**, and changes nothing.
+The retention sweep exits 0 in the same situation, and the difference is
+deliberate: a sweep runs hourly in every API replica, so a held lock means
+another replica is doing the same work. A re-encryption is started once, by
+someone, and a script waiting on it has to know this run did nothing.
+
+**It needs two database connections**, one holding the lock for the whole run
+and one doing the work. The retention sweep is built the same way. A connection
+pooler or a role `CONNECTION LIMIT` that allows this process one connection will
+stall it.
+
+**A lost lock stops the run.** The connection holding the lock sits in an idle
+transaction while the batches run on another, so a server
+`idle_in_transaction_session_timeout` shorter than one batch, a pooler, or an
+administrator can end it. The command checks that connection before every
+batch, which also resets that timeout, so only a single batch that outlasts it
+drops the lock. When it is lost the command stops after the batch in progress,
+prints that it `lost the rotation lock`, and exits 1. Nothing needs undoing,
+since every rewrite is conditional on the value it read: run `rotate:reencrypt`
+again. Check the setting with `SHOW idle_in_transaction_session_timeout;`. The
+retention sweep checks its lock the same way; when it loses it, the API logs
+`retention sweep lost its lock and stopped early` and the next sweep continues.
+
+API keys are not touched. See above for why they move on use instead.
+
+### If the previous key was removed too early
+
+The API still starts, because refusing would stop ingestion over a read problem.
+Instead:
+
+- after it starts listening, it logs one warning with a count per table of the
+  data the configured keys cannot read, and names `rotate:status`;
+- a read that meets a value under a key it lacks logs one warning per key id;
+- a replay whose destination headers cannot be decrypted is refused and recorded
+  as blocked, rather than sent without the destination's credentials;
+- API keys that had not moved yet answer 401.
+
+Put the old key back as `ENCRYPTION_KEY_PREVIOUS`, recreate the API containers,
+and continue from step 4. Nothing stored was lost; it was only unreadable. Events
+a service sent with a key that answered 401 in the meantime were not stored, and
+the SDK does not retry a 4xx.
+
+### Backups across a rotation
+
+A dump holds values under whichever key was current when it was taken. To
+restore one taken before a rotation finished, configure the key it was taken
+under as `ENCRYPTION_KEY_PREVIOUS` beside the current key, restore, and run the
+procedure from step 3. Keep an old key for as long as you keep backups made
+under it.
+
+### Installations from before key ids
+
+Values written before this release carry no key id. They read normally, and
+`rotate:status` counts them as legacy and exits 1 until they are rewritten. A
+rotation rewrites them; so does one run of `rotate:reencrypt` with only
+`ENCRYPTION_KEY` set, which upgrades them into the new format under the key they
+are already under. `rotate:status` then exits 0. API keys issued before this
+release are listed as `key id not recorded yet; recorded on next use`, which
+does not hold the exit code at 1 while no rotation is under way.
+
+### `ADMIN_TOKEN` and API keys
 
 `ADMIN_TOKEN` rotation is safe and cheap. It invalidates every web session,
 because the session signing key is derived from it — which is the correct
@@ -148,7 +351,7 @@ API keys rotate individually and without side effects:
 
 ```bash
 pnpm key:create local production new-worker-key
-pnpm key:revoke fr_theOldOne
+pnpm key:revoke fr_AbCdEfGhIjK    # the old key's prefix, from key:list
 ```
 
 ## 7. Retention
@@ -243,10 +446,15 @@ is a smaller attack surface as well as a clean scan.
 | --- | --- |
 | `/ready` 503 `migrations_pending` | run `pnpm db:migrate` |
 | Every search returns nothing | which project the session selected — see `/projects` |
-| A search that worked stops working | was `ENCRYPTION_KEY` rotated? |
+| A search that worked stops working | `rotate:status`: an unknown key id means `ENCRYPTION_KEY_PREVIOUS` was removed before re-encryption finished (§6) |
+| Boot log warns of stored data the configured keys cannot read | restore the old key as `ENCRYPTION_KEY_PREVIOUS` and recreate the API (§6) |
+| API exits at boot: `ENCRYPTION_KEY_PREVIOUS is the same key as ENCRYPTION_KEY` | set it to the key being replaced, not the new one |
+| New keys changed nothing after `docker compose restart` | `restart` does not re-read `env_file`; recreate with `docker compose … up -d` |
+| Replay blocked with `headers_key_not_configured` | the destination's headers are under a key that is not configured; restore it as `ENCRYPTION_KEY_PREVIOUS` and run `rotate:reencrypt` |
+| `rotate:reencrypt` exits 1 saying the lock is held | another run is still going; let it finish, then `rotate:status` |
 | SDK sends nothing | key validity, environment match, and the SDK's `onDiagnostic` counters |
 | Ingestion returns 403 | the key's environment does not match the event's |
-| Ingestion returns 401 after working | the key was revoked; `pnpm key:list` shows it |
+| Ingestion returns 401 after working | the key was revoked, which `pnpm key:list` shows, or it had not authenticated before `ENCRYPTION_KEY_PREVIOUS` was removed (§6) |
 
 The SDK's `shutdown()` returns counters — `dropped`, `transportErrors`,
 `captureErrors`, `breakerOpened`, `sent`. A non-zero `dropped` means the bounded

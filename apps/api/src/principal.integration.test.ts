@@ -1,11 +1,12 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createKnexConfig, insertReturningId, searchJourneys } from "@flight-recorder/database";
-import { deriveSubkeys, generateApiKey, searchToken } from "@flight-recorder/payload-security";
+import { createKeyring, issueApiKey, searchTokens } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { databaseApiKeys } from "./auth.js";
 import { principalEnvironmentId, principalProjectId, resolvePrincipal } from "./principal.js";
 
-const subkeys = deriveSubkeys("0123456789abcdef0123456789abcdef");
+const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
 
 describe("principal resolution", () => {
@@ -37,14 +38,15 @@ describe("principal resolution", () => {
       name: "development"
     });
 
-    const generated = generateApiKey(subkeys.apiKey);
+    const generated = issueApiKey(keyring);
     apiKey = generated.apiKey;
     await db("api_keys").insert({
       project_id: projectA,
       environment_id: devEnv,
       name: "k",
       key_prefix: generated.keyPrefix,
-      key_hash: generated.verifier
+      key_hash: generated.verifier,
+      key_hash_key_id: generated.keyHashKeyId
     });
 
     const journey = async (id: string, projectId: string, environmentId: string) => {
@@ -53,7 +55,7 @@ describe("principal resolution", () => {
         project_id: projectId,
         environment_id: environmentId,
         entity_type: "customer",
-        primary_entity_id_hash: searchToken(subkeys.searchToken, "SHARED-ID"),
+        primary_entity_id_hash: searchTokens(keyring, "SHARED-ID")[0],
         status: "active",
         started_at: "2026-08-06T10:00:00Z",
         last_event_at: "2026-08-06T10:00:00Z",
@@ -74,7 +76,9 @@ describe("principal resolution", () => {
   const resolve = (header: string | undefined, requestedProjectId?: string) =>
     resolvePrincipal({
       db,
-      apiKeyPepper: subkeys.apiKey,
+      apiKeys: databaseApiKeys(db, keyring, (error) => {
+        throw error;
+      }),
       adminToken: ADMIN_TOKEN,
       authorizationHeader: header,
       requestedProjectId
@@ -122,7 +126,7 @@ describe("principal resolution", () => {
       db,
       { projectId: principalProjectId(result.principal), environmentId: devEnv },
       "SHARED-ID",
-      searchToken(subkeys.searchToken, "SHARED-ID"),
+      searchTokens(keyring, "SHARED-ID"),
       25
     );
     expect(page.items.map((i) => i.journeyId)).toEqual(["jrn_dev"]);
@@ -140,7 +144,7 @@ describe("principal resolution", () => {
         environmentId: principalEnvironmentId(result.principal)
       },
       "SHARED-ID",
-      searchToken(subkeys.searchToken, "SHARED-ID"),
+      searchTokens(keyring, "SHARED-ID"),
       25
     );
     expect(page.items.map((i) => i.journeyId).sort()).toEqual(["jrn_dev", "jrn_staging"]);
@@ -159,7 +163,7 @@ describe("principal resolution", () => {
         environmentId: principalEnvironmentId(result.principal)
       },
       "SHARED-ID",
-      searchToken(subkeys.searchToken, "SHARED-ID"),
+      searchTokens(keyring, "SHARED-ID"),
       25
     );
     expect(page.items.map((i) => i.journeyId)).not.toContain("jrn_other_project");

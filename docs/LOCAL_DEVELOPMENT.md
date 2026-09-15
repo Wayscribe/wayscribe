@@ -123,9 +123,13 @@ The repository ships development defaults so `docker compose up` works with
 nothing configured. They are published values, and the API logs a warning at
 every boot while they are in use.
 
-**Rotating `ENCRYPTION_KEY` is not a routine operation.** Search tokens and API
-key verifiers are both derived from it, so rotating it orphans every existing
-alias index and invalidates every issued key.
+**Rotating `ENCRYPTION_KEY` is a procedure, not an edit.** Stored identifiers,
+search tokens, and API key verifiers all derive from it, so replacing the value
+alone makes existing data unreadable and every issued key fail. Set the new key
+as `ENCRYPTION_KEY` and the old one as `ENCRYPTION_KEY_PREVIOUS` in `.env`, then
+follow [Operations §6](OPERATIONS.md#6-key-rotation). The Compose stack reads
+both from `.env` and ignores shell exports, and picks up a change only when its
+containers are recreated with `up -d`, not on `restart`.
 
 ### SDK configuration is explicit, not environmental
 
@@ -159,6 +163,8 @@ your back is a library that behaves differently in tests.
 | `pnpm key:create <project> <environment> [name]` | issue an API key |
 | `pnpm key:revoke <prefix>` | revoke one; `key:list` shows prefixes |
 | `pnpm key:list [project]` | scope, name, and last use |
+| `pnpm rotate:reencrypt` | move stored data onto `ENCRYPTION_KEY` from `ENCRYPTION_KEY_PREVIOUS`; without a previous key, upgrade legacy values into the current format |
+| `pnpm rotate:status` | what is still under another key; exits 0 when nothing is |
 | `pnpm demo:trigger` | fire the reference journey |
 
 ## 7. Projects, environments, and keys
@@ -234,7 +240,7 @@ Check:
 Check:
 
 - normalization rules
-- HMAC key consistency — rotating `ENCRYPTION_KEY` orphans every existing token
+- HMAC key consistency: `pnpm rotate:status` shows whether rows are under a key that is not configured, which happens when `ENCRYPTION_KEY_PREVIOUS` is removed before a rotation finishes
 - project and environment scope
 
 Alias search is deliberately independent of alias *type* (ADR-028): a developer

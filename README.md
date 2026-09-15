@@ -275,6 +275,9 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
   they leave your process and again before they are written.
 - Search uses HMAC tokens, so an identifier is findable without being stored in
   the clear.
+- Every encrypted value names the key that wrote it, so `ENCRYPTION_KEY`
+  rotates through a grace period instead of costing the data already stored:
+  the old key stays readable while `rotate:reencrypt` moves everything across.
 - Cross-project isolation is **structural**: composite primary and foreign keys
   make one project's key reaching another project's data unrepresentable, rather
   than something every query has to remember to check.
@@ -283,7 +286,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 43 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 44 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -313,8 +316,7 @@ the redaction itself. Those are fixed too. The whole account, and what changed
 about how this is tested because of it, is in
 [What running it found](docs/WHAT_RUNNING_IT_FOUND.md). What remains open is in
 the [roadmap](docs/ROADMAP.md): free text inside error messages is not
-redacted, captured data cannot be deleted, and rotating `ENCRYPTION_KEY` is
-destructive.
+redacted, and captured data cannot be deleted.
 
 [CHANGELOG.md](CHANGELOG.md) lists what is done and what is known to be missing.
 

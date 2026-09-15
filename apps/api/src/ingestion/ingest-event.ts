@@ -12,10 +12,10 @@ import {
   redactAlways,
   checkLimits,
   contentHash,
-  encryptField,
-  searchToken,
+  encryptValue,
+  searchTokens,
   type CaptureMode,
-  type Subkeys
+  type Keyring
 } from "@flight-recorder/payload-security";
 import { PROTOCOL_ERROR_CODES, parseEnvelope } from "@flight-recorder/protocol";
 import type { ParseDetail } from "@flight-recorder/protocol";
@@ -51,7 +51,7 @@ export interface IngestResult {
  */
 export async function ingestEvent(
   db: Knex,
-  subkeys: Subkeys,
+  keyring: Keyring,
   context: ApiKeyContext,
   body: unknown,
   /** From MAX_EVENT_PAYLOAD_BYTES. Defaults to the shared limit for callers that have none. */
@@ -89,8 +89,11 @@ export async function ingestEvent(
     journeyId: event.journeyId,
     environmentId: context.environmentId,
     entityType: event.entity.type,
-    primaryEntityIdHash: searchToken(subkeys.searchToken, event.entity.id),
-    encryptedPrimaryEntityId: encryptField(subkeys.fieldEncryption, event.entity.id),
+    // Written under the current key alone. A journey created under the previous
+    // key keeps its token and ciphertext until re-encryption: this insert
+    // ignores an existing journey, and search matches either token meanwhile.
+    primaryEntityIdHash: storedTokens(keyring, event.entity.id).current,
+    encryptedPrimaryEntityId: encryptValue(keyring, event.entity.id),
     eventTimestamp: new Date(event.timestamp),
     operation: event.operation,
     hasError: event.error !== undefined
@@ -151,12 +154,18 @@ export async function ingestEvent(
     await upsertAliases(
       trx,
       context.projectId,
-      Object.entries(event.aliases ?? {}).map(([aliasType, value]) => ({
-        journeyId: event.journeyId,
-        aliasType,
-        aliasValueHash: searchToken(subkeys.searchToken, value),
-        encryptedDisplayValue: encryptField(subkeys.fieldEncryption, value)
-      }))
+      Object.entries(event.aliases ?? {}).map(([aliasType, value]) => {
+        const tokens = storedTokens(keyring, value);
+        return {
+          journeyId: event.journeyId,
+          aliasType,
+          aliasValueHash: tokens.current,
+          encryptedDisplayValue: encryptValue(keyring, value),
+          // During a rotation, a repeat of an alias stored under the previous
+          // key's token moves that row rather than adding a second one.
+          supersedesValueHash: tokens.previous
+        };
+      })
     );
 
     return {
@@ -167,6 +176,21 @@ export async function ingestEvent(
       httpStatus: 202
     };
   });
+}
+
+/**
+ * The token ingestion stores, which is the current key's, and the previous
+ * key's token during a rotation.
+ */
+function storedTokens(
+  keyring: Keyring,
+  value: string
+): { current: string; previous: string | null } {
+  const [current, previous] = searchTokens(keyring, value);
+  // searchTokens always returns the current key's token first; the check exists
+  // for the type, which cannot know that.
+  if (current === undefined) throw new Error("searchTokens returned no current token.");
+  return { current, previous: previous ?? null };
 }
 
 function reject(
