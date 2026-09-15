@@ -21,5 +21,11 @@ docs/
 # plain values.yaml and Chart.yaml are still formatted.
 deploy/helm/*/templates/
 
+# The generator owns this formatting. Prettier reflows a JSON array that fits
+# on one line, so `pnpm format` and `pnpm --filter @flight-recorder/protocol run
+# schemas` would rewrite each other forever, and the drift test would fail after
+# whichever ran second.
+packages/protocol/schemas/
+
 # Local agent state and worktrees of other branches (see .gitignore).
 .claude/

@@ -11,13 +11,18 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./fixtures/*.json": "./fixtures/*.json"
+    "./fixtures/*.json": "./fixtures/*.json",
+    "./schemas/*": "./schemas/*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "schemas": "pnpm run build && node scripts/write-schemas.mjs"
   },
   "dependencies": {
     "zod": "^4.6.4"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0"
   }
 }

@@ -1,6 +1,13 @@
 export { envelopeSchema, parseEnvelope, type ParseDetail, type ParseResult } from "./envelope.js";
 export { PROTOCOL_ERROR_CODES, type ProtocolErrorCode } from "./errors.js";
 export {
+  REGENERATE_COMMAND,
+  buildJsonSchemas,
+  serializeSchema,
+  type JsonSchema
+} from "./json-schema.js";
+export { defineProtoKey, ownProtoKey } from "./proto-key.js";
+export {
   JOURNEY_OPERATIONS,
   deploymentSchema,
   entitySchema,

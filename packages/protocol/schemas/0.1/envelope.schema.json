@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "envelope.schema.json",
+  "title": "Event envelope",
+  "description": "The body of a single-event ingestion request, and one element of a batch: a protocol version and one event.",
+  "type": "object",
+  "properties": {
+    "protocolVersion": {
+      "const": "0.1"
+    },
+    "event": {
+      "$ref": "event.schema.json"
+    }
+  },
+  "required": [
+    "protocolVersion",
+    "event"
+  ]
+}
