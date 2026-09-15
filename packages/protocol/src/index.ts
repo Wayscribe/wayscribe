@@ -1,5 +1,11 @@
 export { envelopeSchema, parseEnvelope, type ParseDetail, type ParseResult } from "./envelope.js";
-export { PROTOCOL_ERROR_CODES, type ProtocolErrorCode } from "./errors.js";
+export {
+  INGESTION_REFUSALS,
+  PROTOCOL_ERROR_CODES,
+  TRANSPORT_REFUSALS,
+  type ProtocolErrorCode,
+  type Refusal
+} from "./errors.js";
 export {
   MAX_BATCH_EVENTS,
   batchRequestSchema,

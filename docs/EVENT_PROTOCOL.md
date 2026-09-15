@@ -373,7 +373,7 @@ Breaking changes require a new `protocolVersion`.
 
 ## 12. Validation error format
 
-Protocol errors should use stable codes, for example:
+[`INGESTION_CONTRACT.md` section 4](INGESTION_CONTRACT.md) is normative: it lists every refusal with its HTTP status and whether a client should send the event again, and that table is checked row by row against the code. The codes are:
 
 - `unsupported_protocol_version`
 - `invalid_event`

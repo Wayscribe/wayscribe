@@ -475,6 +475,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Demo scenario](docs/DEMO_SCENARIO.md) | The reference journey, end to end |
 | [Architecture](docs/ARCHITECTURE.md) | Components, flows, boundaries, scaling path |
 | [Event protocol](docs/EVENT_PROTOCOL.md) | The journey event contract |
+| [Ingestion contract](docs/INGESTION_CONTRACT.md) | Normative for the two ingestion routes: limits, refusals, idempotency, the dry run, and the conformance case format |
 | [API specification](docs/API_SPEC.md) | HTTP API contracts |
 | [Database schema](docs/DATABASE_SCHEMA.md) | Tables, indexes, constraints, retention |
 | [Replay specification](docs/REPLAY_SPEC.md) | Replay rules and safeguards |

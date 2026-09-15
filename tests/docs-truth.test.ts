@@ -1,7 +1,15 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { serverEnvSchema, statementTimeoutSchema } from "../packages/config/src/schema.js";
 import { JOURNEY_STATUSES } from "../packages/database/src/repositories/journey-list.js";
+import { DEFAULT_LIMITS } from "../packages/payload-security/src/limits.js";
+import {
+  INGESTION_REFUSALS,
+  MAX_BATCH_EVENTS,
+  PROTOCOL_ERROR_CODES,
+  TRANSPORT_REFUSALS
+} from "../packages/protocol/src/index.js";
 import { parseRecentJourneysQuery } from "../apps/api/src/routes/recent-query.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -249,5 +257,132 @@ describe("the documentation's checkable claims", () => {
       const row = /^\| `status` \|(.*)$/m.exec(section())?.[1] ?? "";
       expect([...row.matchAll(/`([a-z]+)`/g)].map((m) => m[1])).toEqual([...JOURNEY_STATUSES]);
     });
+  });
+});
+
+/**
+ * The ingestion contract is the document another implementation is written
+ * against, so every number and every code in it is checked against the code
+ * that produces them.
+ *
+ * ADR-040 established the pattern; this is the case that makes it matter. A
+ * limit stated wrongly here is a client that batches straight into a refusal,
+ * and a refusal code stated wrongly is a client that retries a permanent
+ * failure forever.
+ */
+describe("docs/INGESTION_CONTRACT.md against the code", () => {
+  const contract = (): string => read("docs/INGESTION_CONTRACT.md");
+
+  /** The rows of the markdown table under a heading, as arrays of cell text. */
+  const tableUnder = (heading: string): string[][] => {
+    const section = new RegExp(`\n## ${heading}\n([\\s\\S]*?)\n## `).exec(
+      `${contract()}\n## `
+    )?.[1];
+    expect(section, `no section "${heading}"`).toBeDefined();
+    return [...(section ?? "").matchAll(/^\|(.+)\|\s*$/gm)]
+      .map((match) => (match[1] ?? "").split("|").map((cell) => cell.trim()))
+      .filter((cells) => !cells.every((cell) => /^-+$/.test(cell)));
+  };
+
+  it("states the limits the constants actually enforce", () => {
+    const rows = tableUnder("3\\. Limits").slice(1);
+    expect(rows.length).toBeGreaterThan(5);
+    const defaults = new Map(rows.map((cells) => [cells[0] ?? "", cells[2] ?? ""]));
+
+    expect(defaults.get("Serialized size of one envelope")).toBe(
+      `${String(DEFAULT_LIMITS.maxBytes)} bytes`
+    );
+    expect(defaults.get("Events in one batch")).toBe(String(MAX_BATCH_EVENTS));
+    expect(defaults.get("Nesting depth")).toBe(String(DEFAULT_LIMITS.maxDepth));
+    expect(defaults.get("Keys or elements in one object or array")).toBe(
+      String(DEFAULT_LIMITS.maxKeys)
+    );
+    expect(defaults.get("Length of one string")).toBe(
+      `${String(DEFAULT_LIMITS.maxStringLength)} UTF-16 code units`
+    );
+
+    // Read out of the configuration schema's own defaults, not from a number
+    // typed a second time here.
+    const env = serverEnvSchema.parse({
+      DATABASE_URL: "postgres://u:p@localhost:5432/d",
+      APP_URL: "http://localhost:3000",
+      API_URL: "http://localhost:8080",
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef",
+      ADMIN_TOKEN: "admin-token-for-tests-0000000000",
+      REPLAY_ALLOWED_HOSTS: "localhost"
+    });
+    expect(defaults.get("Serialized size of one envelope")).toBe(
+      `${String(env.MAX_EVENT_PAYLOAD_BYTES)} bytes`
+    );
+    expect(defaults.get("Statement time")).toBe(
+      `${String(statementTimeoutSchema.parse({}).DATABASE_STATEMENT_TIMEOUT_MS)} ms`
+    );
+  });
+
+  it("lists exactly the refusals the code can send, with their statuses", () => {
+    const rows = tableUnder("4\\. Per-event refusals, and which to retry").slice(1);
+    const documented = rows.map((cells) => ({
+      code: (cells[0] ?? "").replaceAll("`", ""),
+      status: Number(cells[1]),
+      transient: cells[2] === "yes"
+    }));
+    expect(documented).toEqual(
+      INGESTION_REFUSALS.map((refusal) => ({
+        code: refusal.code,
+        status: refusal.status,
+        transient: refusal.transient
+      }))
+    );
+  });
+
+  it("lists exactly the transport refusals, with their statuses", () => {
+    const rows = tableUnder("2\\. Refusals that happen before the route runs").slice(1);
+    const documented = rows.map((cells) => ({
+      status: Number(cells[0]),
+      code: (cells[1] ?? "").replaceAll("`", "")
+    }));
+    expect(documented).toEqual(
+      TRANSPORT_REFUSALS.map((refusal) => ({ status: refusal.status, code: refusal.code }))
+    );
+  });
+
+  it("marks every transient refusal, and only those, as a 5xx", () => {
+    // The rule a client implements is "below 500 is permanent". A transient
+    // refusal below 500 would make that rule wrong, silently, for one code.
+    for (const refusal of [...INGESTION_REFUSALS, ...TRANSPORT_REFUSALS]) {
+      expect(refusal.transient, refusal.code).toBe(refusal.status >= 500);
+    }
+  });
+
+  it("does not bring back a code ADR-049 removed", () => {
+    const registry = [...INGESTION_REFUSALS, ...TRANSPORT_REFUSALS].map((one) => one.code);
+    const published = Object.values(PROTOCOL_ERROR_CODES) as string[];
+    for (const gone of ["missing_required_field", "invalid_timestamp", "invalid_operation"]) {
+      expect(registry, `${gone} is back in the refusal registry`).not.toContain(gone);
+      expect(published, `${gone} is back in PROTOCOL_ERROR_CODES`).not.toContain(gone);
+      // The contract names them once, in the sentence saying they were
+      // removed and what another implementation sends instead, which is the
+      // point. What matters is that they are not in its tables, and the two
+      // assertions above compare those tables with the registry exactly.
+      expect(contract(), `${gone} is not explained in the contract`).toContain(`\`${gone}\``);
+    }
+  });
+
+  it("publishes every code the registry names, and no other, in the contract's tables", () => {
+    // The control: the two assertions above compare the tables with the
+    // registry, and would both pass against a document with no tables at all.
+    for (const refusal of [...INGESTION_REFUSALS, ...TRANSPORT_REFUSALS]) {
+      expect(contract(), `${refusal.code} is not in the contract`).toContain(`\`${refusal.code}\``);
+    }
+  });
+
+  it("leaves API_SPEC.md pointing here rather than documenting ingestion twice", () => {
+    // Two documents describing one route is how a contract comes to have two
+    // answers. API_SPEC keeps a summary and a link.
+    const spec = read("docs/API_SPEC.md");
+    expect(spec).toContain("INGESTION_CONTRACT.md");
+    for (const gone of ["unstorable_payload", "max_depth_exceeded", "event_id_conflict"]) {
+      expect(spec, `API_SPEC.md still documents ingestion in full: ${gone}`).not.toContain(gone);
+    }
   });
 });

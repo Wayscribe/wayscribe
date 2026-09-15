@@ -112,6 +112,17 @@ changes far less often.
   is `400 invalid_query`, and `POST /v1/events` refuses it outright rather than
   ignoring it, so a client that guessed the wrong route cannot store events
   while believing it validated them (ADR-050).
+- **[`docs/INGESTION_CONTRACT.md`](docs/INGESTION_CONTRACT.md)**, normative for
+  the two ingestion routes and written for somebody building a client that is
+  not this repository's Node SDK: the routes and authentication, the refusals
+  that happen before a route runs, the limits with their configuration names and
+  defaults, every per-event refusal with its status and whether to retry it,
+  the two 409s, idempotency and the keyed content hash with its rotation
+  consequence, what the server does to an accepted event, the dry run, and the
+  conformance case format. Its limit table is asserted against the constants and
+  its refusal tables against a registry in `packages/protocol/src/errors.ts`, so
+  neither can drift. `API_SPEC.md` sections 3 and 4 are now a summary and a
+  link, so one file owns ingestion (ADR-049).
 - **Generated JSON Schema for the wire shapes**, under
   `packages/protocol/schemas/0.1/`, exported from the package as `./schemas/*`.
   Nine files in draft 2020-12, generated from the Zod schemas and checked byte
