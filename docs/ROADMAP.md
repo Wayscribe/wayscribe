@@ -52,11 +52,6 @@ an owner and a date — `npx debtwatch list`. This section says what; the
 declaration says until when, and `debt` in the pipeline says whether the
 declaration is still valid.
 
-- **Free text in errors is not redacted.** Path redaction matches key names, so
-  a credential pasted inside `error.message` or `error.stack` survives it.
-  `SECURITY.md` §2 names stack traces as carriers of credentials. Needs either
-  value scanning, which is false-positive-prone, or a decision not to store
-  stacks (ADR-039).
 - **There is no way to delete captured data.** No `DELETE` route, no CLI
   command. When a redaction miss stores something it should not have — which has
   now happened twice — fixing the matcher does nothing about the rows already

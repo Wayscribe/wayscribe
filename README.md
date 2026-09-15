@@ -286,7 +286,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 44 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 45 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -315,8 +315,9 @@ written, with a real ORM, which found four more, including a credential leak in
 the redaction itself. Those are fixed too. The whole account, and what changed
 about how this is tested because of it, is in
 [What running it found](docs/WHAT_RUNNING_IT_FOUND.md). What remains open is in
-the [roadmap](docs/ROADMAP.md): free text inside error messages is not
-redacted, and captured data cannot be deleted.
+the [roadmap](docs/ROADMAP.md): captured data cannot be deleted. Credentials
+inside error messages are now masked by shape, which catches the common ones and
+not a credential in an unfamiliar shape (ADR-045).
 
 [CHANGELOG.md](CHANGELOG.md) lists what is done and what is known to be missing.
 

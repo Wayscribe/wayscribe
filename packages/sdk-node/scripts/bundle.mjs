@@ -15,9 +15,9 @@ import { fileURLToPath } from "node:url";
  *
  * The SDK is embedded in other companies' applications, so every dependency it
  * declares becomes a dependency they carry and a version they may have to
- * reconcile. It needs a handful of pure functions from `@flight-recorder/payload-security`
- * — `redact`, `toStorable`, `checkLimits`, `DEFAULT_LIMITS`, `DEFAULT_SECRET_PATHS`
- * and `maskSecretsInText` — and nothing else, so those are bundled in.
+ * reconcile. It needs a handful of pure functions from `@flight-recorder/payload-security`,
+ * namely `redact`, `toStorable`, `checkLimits`, `DEFAULT_LIMITS`, `DEFAULT_SECRET_PATHS`
+ * and `maskSecretsInText`, and nothing else, so those are bundled in.
  *
  * That also removes a defect rather than only an inconvenience: the dependency
  * is declared `workspace:*`, which `pnpm pack` rewrites to `"0.0.0"` — a version

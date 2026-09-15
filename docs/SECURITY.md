@@ -23,6 +23,10 @@ Payloads, headers, stack traces, and metadata may contain:
 - webhook signatures
 - database credentials
 
+Stack traces and error messages carry these as free text, where redaction by
+key name cannot reach. Section 4 describes how that text is masked, what the
+masking does not catch, and why stacks are kept only under `full-payload`.
+
 ### Sensitive customer data
 
 Captured entities may include:
@@ -99,6 +103,40 @@ Redaction replacements should preserve evidence that a value existed:
   "access_token": "[REDACTED]"
 }
 ```
+
+### Credentials inside error text
+
+Path redaction matches the name a value is filed under, so it cannot reach a
+credential written inside a string. Error text is where those appear, so
+`error.message` is also masked by shape, in the SDK before sending and on the
+server before storing, whoever sent the event (ADR-045). The masker replaces:
+
+- URL userinfo: `postgres://app:hunter2@db` becomes `postgres://[REDACTED]@db`
+- `Bearer` and `Basic` credentials, keeping the scheme word
+- values assigned to a secret name: the built-in secret names (`authorization`,
+  `cookie`, `password`, `api_key`, `access_token` and the rest), compared as
+  path redaction compares them, plus `token`, `signature`, `sig` and `apikey`,
+  and `key` only as a query parameter
+- JSON Web Tokens and PEM private key blocks
+- provider-prefixed credentials: Stripe `sk_`, `rk_` and `whsec_`, Slack
+  `xox?-`, GitHub `gh?_` and `github_pat_`, GitLab `glpat-`, AWS `AKIA` and
+  `ASIA` key ids, Google `AIza`, and Flight Recorder `fr_` keys
+
+What it does not do:
+
+- **It does not guess at entropy.** A credential in a shape not listed is
+  stored. Long random-looking strings are exactly the identifiers the product
+  shows, such as Salesforce ids, UUIDs and hashes, so there is no "looks random"
+  rule.
+- **It matches secret names whole.** `password=` is masked; `DB_PASSWORD=` is
+  not.
+- **It does not scan `metadata` strings or payload strings.** Those keep path
+  redaction only.
+
+`error.stack` is stored only when the environment captures full payloads, which
+requires both `ALLOW_FULL_PAYLOAD_CAPTURE` and the environment's `full-payload`
+setting. In every other mode ingestion drops it. A kept stack is masked like a
+message. The Node SDK never sends one.
 
 ## 5. API keys
 

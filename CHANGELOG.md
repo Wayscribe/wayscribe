@@ -80,6 +80,20 @@ changes far less often.
   wherever it appears, and the built-in list is written entirely that way
   (ADR-035). The existing grammar is unchanged: a bare `authorization` still
   matches the top level only, and `*.password` still matches one below it.
+- **Credentials inside error text are masked.** Redaction matched key names, so
+  a password in a connection string or a token echoed in an error message was
+  stored as written. The SDK now masks each error message before sending, and
+  ingestion masks it again before storing, whoever sent the event. The masker
+  recognises URL userinfo, `Bearer` and `Basic` credentials, values assigned to
+  a secret name, JSON Web Tokens, PEM private keys, and provider-prefixed keys
+  (Stripe, Slack, GitHub, GitLab, AWS, Google, and `fr_`). It does not guess at
+  entropy, so an identifier is never masked and a credential in an unknown shape
+  is not either. `metadata` and payload strings keep name-based redaction only
+  (ADR-045).
+- **Stack traces are stored only under full capture.** Ingestion drops
+  `error.stack` unless the environment's capture mode is `full-payload` and
+  `ALLOW_FULL_PAYLOAD_CAPTURE` is set, and masks a stack it keeps. The Node SDK
+  never sent one; a client that did loses it below full capture.
 - **A replay is never sent without its destination's headers.** Headers that
   could not be decrypted used to come back as an empty set, so the replay went
   out without the credentials the destination was configured with. It is now
@@ -169,6 +183,10 @@ audit, all merged the same day. The pattern behind them is written up in
 - A `Map` that measured as `{}` may now exceed `maxPayloadBytes` and record
   `[PAYLOAD_TOO_LARGE]` with a `dropped` diagnostic. That is the size guard
   seeing the data for the first time, not a regression.
+- **A client that sends `error.stack` stops having it stored** unless the
+  environment uses `full-payload` on an installation with
+  `ALLOW_FULL_PAYLOAD_CAPTURE`. Rows written before the upgrade keep the stack
+  they were stored with, unmasked.
 - Redaction reaching further means more `[REDACTED]` than before. If a key name
   on the built-in list appears somewhere it is not a secret, scope it with a
   dotted path in your own `redact` list.

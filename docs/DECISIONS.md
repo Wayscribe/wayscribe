@@ -1225,7 +1225,8 @@ identifiers and operation metadata in that mode.
   than a fix for today: their keys are fixed, so no path rule matches one.
 - **It cannot reach a secret pasted inside `error.message` or `error.stack`.** Those are
   free text and path redaction matches names. SECURITY.md section 2 names stack traces as
-  carriers of credentials, so this is recorded as unsolved rather than covered.
+  carriers of credentials. ADR-045 masks that text by shape and keeps stacks only under full
+  capture.
 - Normalisation runs on every key of every object. The lowercase result is tested for a
   separator before any replacement, so the common case allocates once.
 
@@ -1515,3 +1516,60 @@ one configured.
   API, so `ENCRYPTION_KEY_PREVIOUS` could not either. Shell exports no longer reach those stacks.
 - `ADMIN_TOKEN` has no grace period. Rotating it signs every web session out, which is the
   point of rotating it.
+
+## ADR-045: Error text is masked by shape, and stacks are kept only under full capture
+
+**Status:** Accepted
+
+### Context
+
+Path redaction replaces a value by the name it is filed under (ADR-035, ADR-039). It cannot
+reach a credential written inside a string, and ADR-039 recorded `error.message` and
+`error.stack` as unsolved for that reason. Errors are where credentials end up in text: a
+connection string in `ECONNREFUSED`, a header echoed by an HTTP client, a key quoted back by
+the provider that refused it.
+
+The Node SDK already sent no stack. Ingestion is public HTTP, though, and the protocol accepts a
+16 KiB stack from any client, so a stack was stored whenever a client other than the SDK sent
+one.
+
+### Decision
+
+`maskSecretsInText` in `payload-security` replaces credential-shaped substrings with
+`[REDACTED]` and keeps the words around them. It recognises URL userinfo, `Bearer` and `Basic`
+credentials, values assigned to a secret name (the built-in names normalised as ADR-039
+compares them, plus `token`, `signature`, `sig` and `apikey`, and `key` only as a query
+parameter), JSON Web Tokens, PEM private key blocks, and the prefixes providers put on their
+credentials: Stripe, Slack, GitHub, GitLab, AWS access key ids, Google API keys and this
+product's own `fr_` keys.
+
+It runs in two places, the same function in both. The SDK masks every error record before it is
+queued. Ingestion masks `message` before storing, whoever sent it.
+
+Ingestion drops `error.stack` unless full capture is in effect, which already takes both
+`ALLOW_FULL_PAYLOAD_CAPTURE` and the environment's own `full-payload` setting. A team that opted
+into full capture gets its stacks, masked like messages. There is no new setting.
+
+It recognises shapes and never guesses at entropy. The identifiers this product exists to show
+are long and random-looking: Salesforce ids, UUIDs, order numbers, hashes. Masking them would
+destroy the record a reader came for.
+
+### Consequences
+
+- A credential in a shape the list does not know is stored. This is the accepted cost of not
+  guessing, and SECURITY.md says so.
+- Secret names are matched whole, as path redaction matches them: `password=` is masked and
+  `DB_PASSWORD=` is not. A name that is only sometimes a secret stays out of the built-in list.
+- After an unquoted colon, `token:` and a plain word after any name are read as prose rather
+  than a credential, so `Invalid token: expired` and `client_secret: missing` are unchanged. A
+  credential that is a single dictionary word in that position is missed.
+- Masking is idempotent, so the second pass over an SDK event changes nothing. The content hash
+  is still taken over the event as received (ADR-021), so resubmission stays idempotent too.
+- Error text reaches the masker from public HTTP. Every pattern either anchors on a literal
+  prefix or refuses to start inside a run of its own characters, and a test holds 16 KiB of
+  near-matches to well under 50 ms.
+- `metadata` string values and payload strings keep path redaction only. Scanning every string
+  in every payload for shapes would put this cost, and its false positives, on the data the
+  product exists to show.
+- Stacks from an environment below full capture are gone for good, including any event sent
+  before a team turns full capture on.

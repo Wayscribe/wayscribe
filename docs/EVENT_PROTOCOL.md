@@ -274,7 +274,10 @@ The server must reject payloads exceeding configured limits.
 
 The error object records application evidence, not a generated diagnosis.
 
-Stack traces may contain sensitive values and file paths. Capture must be configurable.
+Stack traces may contain sensitive values and file paths. The server stores
+`stack` only when the environment captures full payloads, and drops it in every
+other mode. `message`, and a stored `stack`, are masked for credential-shaped
+text before storage (SECURITY.md section 4, ADR-045).
 
 ## 9. Metadata
 

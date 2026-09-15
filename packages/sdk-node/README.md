@@ -203,6 +203,29 @@ down and is exactly what an axios error carries.
 Matched values are replaced with `[REDACTED]` rather than deleted, so the
 timeline still shows that the field existed.
 
+### Error messages
+
+When a wrapped callback throws, or you call `fail()` or `record()` with an
+error, the SDK records the error's `message`, `name` as `type`, and a string
+`code`. It sends no `stack`.
+
+A message is free text, so name-based redaction cannot reach inside it, and
+error messages are where credentials tend to appear. Before the event is queued,
+the message is masked by shape:
+
+```text
+connect ECONNREFUSED postgres://app:hunter2@db.internal:5432/orders
+connect ECONNREFUSED postgres://[REDACTED]@db.internal:5432/orders
+```
+
+The masker recognises URL userinfo, `Bearer` and `Basic` credentials, values
+assigned to a secret name (`password=`, `"api_key": "…"`, `?access_token=`),
+JSON Web Tokens, PEM private keys, and provider-prefixed keys from Stripe,
+Slack, GitHub, GitLab, AWS, Google and Flight Recorder. It does not guess at
+entropy, so a credential in any other shape is sent as written; the server masks
+again with the same rules, which catches nothing more. Record identifiers such
+as Salesforce ids, UUIDs and order numbers are never masked.
+
 ## What happens to your values
 
 Payloads are stored as PostgreSQL `jsonb`, so anything JSON cannot represent has
