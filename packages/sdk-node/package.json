@@ -35,6 +35,9 @@
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./conformance-harness": {
+      "development": "./src/conformance-harness.ts"
     }
   },
   "scripts": {

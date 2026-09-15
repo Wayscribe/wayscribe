@@ -1,0 +1,44 @@
+{
+  "id": "sdk/nan-and-infinity",
+  "title": "A non-finite number becomes null, as JSON.stringify does",
+  "source": "packages/sdk-node/README.md value table",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "ratio": {
+            "$number": "NaN"
+          },
+          "ceiling": {
+            "$number": "Infinity"
+          },
+          "floor": {
+            "$number": "-Infinity"
+          },
+          "real": 1.5
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "ratio": null,
+        "ceiling": null,
+        "floor": null,
+        "real": 1.5
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,425 @@
+{
+  "id": "sdk/hundred-and-one-events",
+  "title": "A hundred and one recorded events reach the server as more than one request",
+  "source": "packages/protocol MAX_BATCH_EVENTS; the wire case batch-of-101",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "repeat": 101,
+      "args": {
+        "operation": "received",
+        "name": "receive-order"
+      }
+    }
+  ],
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

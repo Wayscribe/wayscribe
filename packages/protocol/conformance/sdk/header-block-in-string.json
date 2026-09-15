@@ -1,0 +1,34 @@
+{
+  "id": "sdk/header-block-in-string",
+  "title": "A CRLF header block is redacted line by line; an LF-only block is not",
+  "source": "docs/SECURITY.md section 4; the documented gap",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "delivered",
+        "name": "deliver-to-target",
+        "input": {
+          "crlf": "Host: api.example.test\r\nAuthorization: Bearer cfx-fake-sdk-CRLF\r\nAccept: */*",
+          "lf": "Host: api.example.test\nAuthorization: Bearer cfx-fake-sdk-LF\nAccept: */*"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "crlf": "Host: api.example.test\r\nAuthorization: [REDACTED]\r\nAccept: */*",
+        "lf": "Host: api.example.test\nAuthorization: Bearer cfx-fake-sdk-LF\nAccept: */*"
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

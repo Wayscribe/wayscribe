@@ -1,0 +1,40 @@
+{
+  "id": "sdk/header-pairs",
+  "title": "Header tuples are redacted before sending; a list of header names is not",
+  "source": "docs/SECURITY.md section 4",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "delivered",
+        "name": "deliver-to-target",
+        "input": {
+          "headers": [
+            ["Authorization", "Bearer cfx-fake-sdk-PAIR"],
+            ["Accept", "application/json"]
+          ],
+          "allowedHeaders": ["Authorization", "Content-Type"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "headers": [
+          ["Authorization", "[REDACTED]"],
+          ["Accept", "application/json"]
+        ],
+        "allowedHeaders": ["Authorization", "Content-Type"]
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

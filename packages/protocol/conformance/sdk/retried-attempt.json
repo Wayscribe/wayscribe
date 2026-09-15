@@ -1,0 +1,39 @@
+{
+  "id": "sdk/retried-attempt",
+  "title": "An attempt above one records retried, with the attempt in metadata",
+  "source": "ADR-022",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "deliver",
+      "name": "deliver-to-target",
+      "args": {
+        "input": {
+          "id": "ord_77"
+        },
+        "output": {
+          "ok": true
+        },
+        "options": {
+          "attempt": 2
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "retried",
+      "name": "deliver-to-target",
+      "metadata": {
+        "attempt": 2
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

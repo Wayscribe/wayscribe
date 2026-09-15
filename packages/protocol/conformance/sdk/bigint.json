@@ -1,0 +1,41 @@
+{
+  "id": "sdk/bigint",
+  "title": "A BigInt keeps its digits, as a decimal string",
+  "source": "packages/sdk-node/README.md value table; ADR-036",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "accountNumber": {
+            "$bigint": "9007199254740993"
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "accountNumber": "9007199254740993"
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "accountNumber": "9007199254740993"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

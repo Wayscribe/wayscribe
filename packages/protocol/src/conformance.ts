@@ -294,6 +294,13 @@ function buildTag(
       const built = build(element, options, deferred);
       return Array.from({ length: count }, () => structuredCloneish(built));
     }
+    case "$concat": {
+      // Joins the pieces into one string, so a case can put a credential at the
+      // front of text long enough to be truncated without writing out the
+      // padding.
+      const pieces = (value as unknown[]).map((piece) => build(piece, options, deferred));
+      return pieces.map((piece) => String(piece)).join("");
+    }
     case "$nest": {
       const { depth, leaf } = value as { depth: number; leaf: unknown };
       let nested: unknown = build(leaf, options, deferred);
@@ -322,9 +329,11 @@ function buildTag(
     case "$set":
       return new Set(build(value, options, deferred) as unknown[]);
     case "$error": {
-      const { name, message } = value as { name?: string; message: string };
-      const error = new Error(message);
-      if (name !== undefined) error.name = name;
+      // The message is built first, so a case can pad it with $concat rather
+      // than writing five thousand characters into a fixture file.
+      const built = build(value, options, deferred) as { name?: string; message: string };
+      const error = new Error(built.message);
+      if (built.name !== undefined) error.name = built.name;
       return error;
     }
     case "$buffer":

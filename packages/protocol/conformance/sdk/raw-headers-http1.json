@@ -1,0 +1,46 @@
+{
+  "id": "sdk/raw-headers-http1",
+  "title": "An interleaved rawHeaders list is redacted before sending",
+  "source": "docs/SECURITY.md section 4",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "delivered",
+        "name": "deliver-to-target",
+        "input": {
+          "rawHeaders": [
+            "Host",
+            "api.example.test",
+            "Authorization",
+            "Bearer cfx-fake-sdk-RAW1",
+            "Content-Type",
+            "application/json"
+          ]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "rawHeaders": [
+          "Host",
+          "api.example.test",
+          "Authorization",
+          "[REDACTED]",
+          "Content-Type",
+          "application/json"
+        ]
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}
