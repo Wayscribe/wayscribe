@@ -416,6 +416,11 @@ changes far less often.
 
 ### Fixed
 
+- **The instrument-a-service example runs from a clean clone.** Its README
+  skipped building the SDK its `file:` dependency points at, migrating the
+  stack, and creating the project, and it pointed at `pnpm db:seed`. It now
+  lists every step, and says to set `FLIGHT_RECORDER_URL` and
+  `FLIGHT_RECORDER_WEB` when the stack's ports move.
 - **The Helm chart's default image is one a release publishes.** It defaulted
   to the bare `appVersion`, `api:0.1.0`, while a release pushes the git tag,
   `api:v0.1.0`, so the default values could not pull. The default is now `v`

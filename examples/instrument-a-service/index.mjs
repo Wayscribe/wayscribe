@@ -6,6 +6,7 @@ const API_KEY = process.env.FLIGHT_RECORDER_API_KEY;
 
 if (!API_KEY) {
   console.error("Set FLIGHT_RECORDER_API_KEY. Issue one with:");
+  console.error('  pnpm project:create local "Local"   (once)');
   console.error("  pnpm key:create local development my-service");
   process.exit(1);
 }
