@@ -615,6 +615,8 @@ describe("maskSecretsInText", () => {
       "a name of many dotted words ending in a secret": (size) =>
         fill("config.", size) + "password: a",
       "cookie lines that read as prose": (size) => fill("cookie: session expired\n", size),
+      "one line of cookie prose": (size) => fill("cookie: a ", size),
+      "one line of set-cookie prose": (size) => fill("set-cookie: x y ", size),
       "webhook URL prefixes with no secret": (size) =>
         fill("hooks.slack.com/services/T1/B1 discord.com/api/webhooks/1 ", size),
       "OpenAI and Anthropic prefixes without bodies": (size) =>
@@ -625,7 +627,20 @@ describe("maskSecretsInText", () => {
         fill('eyJ-sk_live_ a://b:@ "api_key\\" Bearer -----BEGIN password=[ ', size)
     };
 
-    for (const [name, build] of Object.entries(adversarial)) {
+    // Every case that repeats across lines also runs as one line. A line break
+    // resets whatever scans to the end of a line, so the version with newlines
+    // passed while `cookie: a ` repeated on one line took 6.4 s at 256 KiB.
+    const cases: [string, (size: number) => string][] = Object.entries(adversarial).flatMap(
+      ([name, build]): [string, (size: number) => string][] =>
+        build(64).includes("\n")
+          ? [
+              [name, build],
+              [`${name}, on one line`, (size) => build(size).replaceAll("\n", " ")]
+            ]
+          : [[name, build]]
+    );
+
+    for (const [name, build] of cases) {
       it(`masks ${name} in time proportional to its length`, () => {
         const small = build(16 * KIB);
         const large = build(64 * KIB);

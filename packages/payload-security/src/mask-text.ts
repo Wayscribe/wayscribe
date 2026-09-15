@@ -399,11 +399,14 @@ function maskedValue(
   if (text.startsWith(REDACTED, start)) return undefined;
 
   if (LINE_NAMES.has(name)) {
+    // `cookie: session expired; please sign in` is a sentence about a cookie.
+    // Decided from the first word, before anything scans to the end of the
+    // line: a skipped value does not advance the search, so scanning the line
+    // first made one line of repeated `cookie: a ` quadratic.
+    if (prose && startsWithWordAndBlank(text, start)) return undefined;
     const end = lineEnd(text, start);
     const content = text.slice(start, end);
-    if (content === "") return undefined;
-    // `cookie: session expired; please sign in` is a sentence about a cookie.
-    if (prose && (isPlainWord(content) || startsWithWordAndBlank(content))) return undefined;
+    if (content === "" || (prose && isPlainWord(content))) return undefined;
     return { text: REDACTED, end };
   }
 
@@ -545,12 +548,15 @@ function readsAsProse(value: string): boolean {
   return true;
 }
 
-/** `session expired`: a word of letters followed by a blank. */
-function startsWithWordAndBlank(value: string): boolean {
-  let index = 0;
-  while (index < value.length && isLetter(value.charCodeAt(index))) index += 1;
-  const next = value[index];
-  return index > 0 && (next === " " || next === "\t");
+/**
+ * `session expired`: a word of letters at `start` followed by a blank. Costs
+ * the length of that word, which the search then passes over once more.
+ */
+function startsWithWordAndBlank(text: string, start: number): boolean {
+  let index = start;
+  while (index < text.length && isLetter(text.charCodeAt(index))) index += 1;
+  const next = text[index];
+  return index > start && (next === " " || next === "\t");
 }
 
 function isNumber(value: string): boolean {
