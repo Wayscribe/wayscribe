@@ -1,29 +1,40 @@
-import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
-import { redirectTarget } from "./redirect-url";
+import { seeOther } from "./redirect-url";
 
-const request = (headers: Record<string, string> = { host: "localhost:3000" }): NextRequest =>
-  new NextRequest("http://0.0.0.0:3000/api/anything", { method: "POST", headers });
-
-describe("redirectTarget", () => {
-  it("builds the target on the host the client asked for", () => {
-    expect(redirectTarget(request(), "/journeys/jrn_1?event=e").toString()).toBe(
-      "http://localhost:3000/journeys/jrn_1?event=e"
-    );
+describe("seeOther", () => {
+  it("is a 303 whose Location is the path alone, with no scheme or host", () => {
+    // An absolute Location was built from Host and X-Forwarded-Proto. Behind a
+    // TLS-terminating proxy that sends no X-Forwarded-Proto it named http://,
+    // the browser followed a downgrade, and `form-action 'self'` blocked the
+    // login form's redirect outright. A path resolves against whatever origin
+    // the browser is actually on.
+    const response = seeOther("/journeys/jrn_1?event=e");
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/journeys/jrn_1?event=e");
   });
 
-  it("never leaves that host, whatever path it is handed", () => {
-    // The last line of defence behind safeReturnTo: a caller that passes an
-    // unchecked path still cannot produce a redirect to another host.
+  it("never names another host, whatever path it is handed", () => {
     for (const path of [
       "//evil.test/phish",
       "/\\evil.test",
       "https://evil.test/",
-      "\\\\evil.test"
+      "\\\\evil.test",
+      "/.//evil.test",
+      "/%2e//evil.test",
+      "javascript:alert(1)",
+      "relative"
     ]) {
-      const target = redirectTarget(request(), path);
-      expect(target.host, path).toBe("localhost:3000");
-      expect(target.pathname, path).toBe("/");
+      const location = seeOther(path).headers.get("location") ?? "";
+      expect(location, path).toBe("/");
+      expect(new URL(location, "https://flight.example").origin, path).toBe(
+        "https://flight.example"
+      );
     }
+  });
+
+  it("drops a fragment and keeps an encoded path as it is", () => {
+    expect(seeOther("/journeys/jrn%2F1/delete#x").headers.get("location")).toBe(
+      "/journeys/jrn%2F1/delete"
+    );
   });
 });

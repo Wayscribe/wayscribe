@@ -367,6 +367,13 @@ changes far less often.
   forgetting the least recently seen, and sweeps expired entries at most once a
   minute, so neither memory nor the cost of a failure grows with the number of
   addresses seen.
+- **Sign-in works behind a TLS proxy that sends no `X-Forwarded-Proto`.**
+  Redirects after a form post named an absolute URL built from `Host` and
+  `X-Forwarded-Proto`, so behind a proxy forwarding `Host` alone they pointed at
+  `http://`, and `form-action 'self'` blocked the redirect: sign-in, choosing a
+  project, replay and delete all failed. Every such redirect is now a 303 with a
+  path-only `Location`, still refused anything that would leave the host
+  (`docs/OPERATIONS.md` §9 lists the headers a proxy should pass).
 - **The web interface sends a Content-Security-Policy and the usual security
   headers.** Every page carries a policy allowing scripts only from its own
   origin and by a per-response nonce, with `frame-ancestors 'none'`,

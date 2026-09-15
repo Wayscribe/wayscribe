@@ -24,7 +24,7 @@ const SECOND_ORIGIN = "https://return-to-check.invalid";
  * `/%2e//evil.test` and `/a/..//evil.test` are all paths on the throwaway
  * origin whose pathname is `//evil.test`, and `/./\evil.test` becomes the same
  * once the backslash is read as a slash. Returned, that is a protocol-relative
- * URL again, and `redirectTarget` resolved it to http://evil.test. So a
+ * URL again, and the redirect then built from it went to http://evil.test. So a
  * pathname beginning with two separators is refused, and the value about to be
  * returned is resolved once more, against an unrelated origin, and must stay on
  * it.

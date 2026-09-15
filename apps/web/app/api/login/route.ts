@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { clientAddress } from "../../../src/lib/client-address";
-import { redirectTarget } from "../../../src/lib/redirect-url";
+import { seeOther } from "../../../src/lib/redirect-url";
 import { webConfig } from "../../../src/lib/config";
 import { LoginLimiter } from "../../../src/lib/login-limiter";
 import { rejectCrossOrigin } from "../../../src/lib/same-origin";
@@ -45,18 +45,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // page. Returning JSON would render a raw error object in the browser.
   const now = Date.now();
   if (limiter.isLocked(key, now)) {
-    return NextResponse.redirect(redirectTarget(request, "/login?error=throttled"), {
-      status: 303
-    });
+    return seeOther("/login?error=throttled");
   }
 
   if (!constantTimeEquals(presented, config.ADMIN_TOKEN)) {
     limiter.recordFailure(key, now);
     // One outcome regardless of cause: a near-miss must not read differently
     // from a wild guess.
-    return NextResponse.redirect(redirectTarget(request, "/login?error=invalid"), {
-      status: 303
-    });
+    return seeOther("/login?error=invalid");
   }
 
   limiter.recordSuccess(key);
@@ -64,7 +60,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Empty project means "the API resolves it", which it does when exactly one
   // project exists. Multi-project selection belongs in the session payload when
   // it arrives.
-  const response = NextResponse.redirect(redirectTarget(request, "/"), { status: 303 });
+  const response = seeOther("/");
   response.cookies.set(
     SESSION_COOKIE_NAME,
     signSession(config.ADMIN_TOKEN, { projectId: "", expiresAt: now + SESSION_DURATION_MS }),

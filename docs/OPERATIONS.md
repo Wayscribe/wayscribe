@@ -629,6 +629,24 @@ republish the container ports on `0.0.0.0`. The web app sets its own
 a fixed one blocks the interface's scripts, and one that caches pages would serve
 a stale nonce. Pages are sent `Cache-Control: no-store` already.
 
+Pass the original `Host` header through to the web app, or set
+`X-Forwarded-Host`, and set `X-Forwarded-Proto`. The web app refuses a form post
+whose `Origin` names a different host from the one the request was sent to, so a
+proxy that rewrites `Host` to the container's name without `X-Forwarded-Host`
+refuses every sign-in. Redirects after a form post are path-only (`Location:
+/login?error=invalid`), so they follow whatever scheme and host the browser is
+on and do not depend on `X-Forwarded-Proto`; set it anyway, because anything
+behind the proxy that builds an absolute URL does.
+
+```nginx
+location / {
+  proxy_pass http://127.0.0.1:3000;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
 The admin token grants project-wide read of every recorded payload. It is a
 single shared secret with no user accounts and no audit of who used it — treat
 it as an operator credential, not a login.

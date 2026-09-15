@@ -23,7 +23,7 @@ const login = (socket: string, token: string, forwardedFor?: string): Promise<Re
   socketAddressStorage().run(socket, () => POST(loginRequest(token, forwardedFor)));
 
 const outcome = (response: Response): string | null =>
-  new URL(response.headers.get("location") ?? "http://x/").searchParams.get("error");
+  new URL(response.headers.get("location") ?? "/", "http://x/").searchParams.get("error");
 
 /**
  * The limiter is module state, shared by every test in this file, so each test
@@ -51,7 +51,20 @@ describe("POST /api/login throttling", () => {
 
     // Another socket is not locked out with it.
     const other = await login("203.0.113.51", ADMIN_TOKEN, "198.51.100.0");
-    expect(response303(other)).toBe("http://localhost:3000/");
+    expect(response303(other)).toBe("/");
+  });
+
+  it("answers with path-only Locations, so a TLS proxy without X-Forwarded-Proto works", async () => {
+    const request = loginRequest(ADMIN_TOKEN);
+    request.headers.set("host", "flight.example.com");
+    const response = await socketAddressStorage().run("203.0.113.53", () => POST(request));
+    expect(response303(response)).toBe("/");
+    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+
+    const wrong = loginRequest(WRONG);
+    wrong.headers.set("host", "flight.example.com");
+    const refused = await socketAddressStorage().run("203.0.113.54", () => POST(wrong));
+    expect(response303(refused)).toBe("/login?error=invalid");
   });
 
   it("compares exactly five guesses however many arrive at once", async () => {
@@ -73,9 +86,7 @@ describe("POST /api/login throttling", () => {
     }
     expect(outcome(await login(proxy, ADMIN_TOKEN, "whatever, 198.51.100.60"))).toBe("throttled");
     // A neighbour behind the same proxy signs in.
-    expect(response303(await login(proxy, ADMIN_TOKEN, "198.51.100.61"))).toBe(
-      "http://localhost:3000/"
-    );
+    expect(response303(await login(proxy, ADMIN_TOKEN, "198.51.100.61"))).toBe("/");
   });
 });
 

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { redirectTarget } from "../../../src/lib/redirect-url";
+import { seeOther } from "../../../src/lib/redirect-url";
 import { webConfig } from "../../../src/lib/config";
 import { listProjects } from "../../../src/lib/api";
 import { safeReturnTo } from "../../../src/lib/return-to";
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const session = requestSession(request, now);
   if (session === null) {
-    return NextResponse.redirect(redirectTarget(request, "/login"), { status: 303 });
+    return seeOther("/login");
   }
 
   const form = await request.formData();
@@ -39,10 +39,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const projects = await listProjects();
   if (!projects.some((project) => project.id === projectId)) {
-    return NextResponse.redirect(redirectTarget(request, "/projects"), { status: 303 });
+    return seeOther("/projects");
   }
 
-  const response = NextResponse.redirect(redirectTarget(request, next), { status: 303 });
+  const response = seeOther(next);
   response.cookies.set(
     SESSION_COOKIE_NAME,
     signSession(config.ADMIN_TOKEN, { projectId, expiresAt: session.expiresAt }),

@@ -42,7 +42,18 @@ describe("POST /api/select-project", () => {
   it("returns to where the picker interrupted", async () => {
     const response = await POST(requestFor({ projectId: PROJECT_ID, next: "/?q=CUST-1" }));
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("http://localhost:3000/?q=CUST-1");
+    expect(response.headers.get("location")).toBe("/?q=CUST-1");
+  });
+
+  it("sends a path-only Location behind a TLS proxy that sends no X-Forwarded-Proto", async () => {
+    // The proxy forwards Host and nothing else. An absolute Location built
+    // from them named http://, and the form's redirect broke under
+    // `form-action 'self'` on the https page.
+    const request = requestFor({ projectId: PROJECT_ID, next: "/recent" });
+    request.headers.set("host", "flight.example.com");
+    const response = await POST(request);
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/recent");
   });
 
   it("never redirects off this host, whatever next normalises to", async () => {
@@ -58,9 +69,7 @@ describe("POST /api/select-project", () => {
     ]) {
       const response = await POST(requestFor({ projectId: PROJECT_ID, next }));
       expect(response.status, next).toBe(303);
-      const location = new URL(response.headers.get("location") ?? "");
-      expect(location.host, next).toBe("localhost:3000");
-      expect(location.pathname, next).toBe("/");
+      expect(response.headers.get("location"), next).toBe("/");
     }
   });
 });

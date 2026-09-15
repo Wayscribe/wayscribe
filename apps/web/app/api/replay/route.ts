@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { redirectTarget } from "../../../src/lib/redirect-url";
+import { seeOther } from "../../../src/lib/redirect-url";
 import { createReplay } from "../../../src/lib/api";
 import { requestSession } from "../../../src/lib/request-session";
 import { rejectCrossOrigin } from "../../../src/lib/same-origin";
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const session = requestSession(request);
 
   if (session === null) {
-    return NextResponse.redirect(redirectTarget(request, "/login"), { status: 303 });
+    return seeOther("/login");
   }
 
   const form = await request.formData();
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const journeyId = field("journeyId");
   const eventId = field("eventId");
   if (journeyId === "" || eventId === "") {
-    return NextResponse.redirect(redirectTarget(request, "/"), { status: 303 });
+    return seeOther("/");
   }
 
   const projectId = session.projectId;
@@ -49,16 +49,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     projectId
   );
 
-  const back = redirectTarget(request, `/journeys/${journeyId}/replay`);
-  back.searchParams.set("event", eventId);
+  const query = new URLSearchParams({ event: eventId });
 
   // A refused replay still produced a run, and its id is how the operator reads
   // the reason. Only a request that never became a run has nothing to show.
   if (result.data !== null) {
-    back.searchParams.set("replay", result.data.id);
+    query.set("replay", result.data.id);
   } else if (result.error !== undefined) {
-    back.searchParams.set("error", result.error.code);
+    query.set("error", result.error.code);
   }
 
-  return NextResponse.redirect(back, { status: 303 });
+  // Encoded: the journey id comes from the form, and an unencoded one could
+  // carry a query or dot segments of its own.
+  return seeOther(`/journeys/${encodeURIComponent(journeyId)}/replay?${query.toString()}`);
 }
