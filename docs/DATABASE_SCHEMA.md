@@ -240,7 +240,7 @@ Prefer an HMAC-based search token using a server-held key rather than a plain un
 
 ## 5. Payload encryption
 
-Entity identifiers, alias display values, and replay destination headers are encrypted with AES-256-GCM under a key derived from `ENCRYPTION_KEY` (ADR-040). Payloads are stored as plain `jsonb`; redaction is the payload control, by decision, not as an interim state.
+Entity identifiers, alias display values, and replay destination headers are encrypted with AES-256-GCM under a key derived from `ENCRYPTION_KEY` (ADR-044). Payloads are stored as plain `jsonb`; redaction is the payload control, by decision, not as an interim state (ADR-040).
 
 Each encrypted value is one text column:
 
