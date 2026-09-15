@@ -181,9 +181,16 @@ pnpm rotate:status
 
 Replace `rotate:status` with `rotate:reencrypt` for the other command. On Helm,
 add `ENCRYPTION_KEY_PREVIOUS` to the `kubectl run` that `deploy/helm/README.md`
-uses for `project:create`. `key:create` and `key:revoke` during a rotation need
-both keys as well, so a key issued mid-rotation verifies against the API beside
-it.
+uses for `project:create`. `key:create` during a rotation needs both keys as
+well, so a key issued mid-rotation verifies against the API beside it.
+`key:revoke` reads no key.
+
+Give every `docker compose` command in this section the same `-f` files the
+stack was started with. For the demo that means adding
+`-f infrastructure/compose.demo.yaml` after `-f infrastructure/compose.yaml`.
+Leave it out and Compose warns about orphan containers and suggests
+`--remove-orphans`; do not take that advice, because it removes the demo
+services.
 
 ### The procedure
 
@@ -221,13 +228,19 @@ A script can wait on step 5, since the exit code is the answer:
 until pnpm rotate:status > /dev/null; do sleep 300; done
 ```
 
+Use the form of the command your stack runs (above) in place of `pnpm`. The
+exit code is also 1 when the command cannot run at all, such as with
+`DATABASE_URL` unset or the database unreachable, so a loop like this one waits
+forever on a misconfiguration; its error still reaches stderr every pass.
+
 ### What `rotate:status` lists
 
 - **API keys not yet under the current key.** Each moves the next time it
   authenticates, because the presented key is the only thing a verifier can be
   recomputed from. Wait for the services holding them to send events. A key that
-  will not be used again should be revoked with `key:revoke`, and reissued with
-  `key:create` if something still needs one. Revoked keys are not counted.
+  will not be used again should be revoked with `key:revoke` and the prefix the
+  listing shows (`key:revoke fr_AbCdEfGhIjK`), and reissued with `key:create` if
+  something still needs one. Revoked keys are not counted.
 - **API keys whose key id is `not recorded`.** Issued before key ids were
   stored. They record one the next time they authenticate. During a rotation
   they may be under either key, so they are treated like the keys above and keep
@@ -333,7 +346,7 @@ API keys rotate individually and without side effects:
 
 ```bash
 pnpm key:create local production new-worker-key
-pnpm key:revoke fr_theOldOne
+pnpm key:revoke fr_AbCdEfGhIjK    # the old key's prefix, from key:list
 ```
 
 ## 7. Retention
