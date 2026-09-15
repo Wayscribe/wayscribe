@@ -396,7 +396,13 @@ and shrinks the table by roughly the size of your traffic; `redacted-payload`
 (the default) stores both input and output per wrapped step.
 
 Two indexes carry the read path: `journeys_entity_value_idx` for search and
-`journeys_recent_idx` for retention selection.
+`journeys_recent_idx` for retention selection. The recent-journeys list adds
+`journeys_status_recent_idx` and `journey_events_service_idx`; the second costs
+one more index write on every event insert. Migration 013 builds both with
+`CREATE INDEX CONCURRENTLY`, so on a large installation it takes longer than
+the other migrations but does not block ingestion while it runs. If it is
+interrupted, running `migrate` again drops the half-built index and builds it
+afresh.
 
 ## 10. Security scanning
 

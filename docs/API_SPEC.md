@@ -37,7 +37,24 @@ more than one, omitting it is a `404 project_not_found` rather than a guess. The
 web interface stores the selection in its session.
 
 `GET /v1/projects` lists them. It takes the admin token alone, because it
-answers the question a caller has before it can name a project.
+answers the question a caller has before it can name a project. Each item
+carries the project's environment names, sorted, which is what the web
+interface offers as the environment filter on recent journeys:
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "7d0c…",
+        "name": "Acme Payments",
+        "slug": "acme",
+        "environments": ["development", "production"]
+      }
+    ]
+  }
+}
+```
 
 The web interface authenticates a person with `ADMIN_TOKEN` and holds an
 HMAC-signed session cookie. The admin token itself never reaches the browser.
@@ -212,7 +229,66 @@ Response:
 }
 ```
 
-## 6. Get journey
+## 6. List recent journeys
+
+```http
+GET /v1/journeys?since=<instant>&status=failed&environment=<name>&service=<name>&limit=25&cursor=<cursor>
+```
+
+For an investigation that starts without an identifier: what failed, recently,
+where. Journeys are ordered by last activity, newest first (`lastEventAt`, then
+`journeyId`, both descending).
+
+| Parameter | Meaning |
+| --- | --- |
+| `since` | Required. An ISO 8601 instant with a time zone, such as `2026-08-06T18:00:00Z`. Journeys whose last activity is at or after it. |
+| `status` | `active`, `completed` or `failed`. Omitted or empty means any status. |
+| `environment` | An environment name. Omitted or empty means every environment the caller can read. |
+| `service` | An exact service name. Journeys with at least one event recorded by that service. |
+| `limit` | Page size, 25 by default, at most 100. |
+| `cursor` | `nextCursor` from the previous page. |
+
+Scope is the same as search. An API key reads its own environment only; naming
+another environment returns an empty page, not an error. The admin token reads
+every environment of the named project.
+
+`400 invalid_query` when `since` is missing, is not a full instant with a time
+zone, names an impossible date, or is more than 60 seconds ahead of the API's
+clock (a minute of skew between the caller and the API is tolerated); when
+`status` is not one of the three values; or when any parameter is given more
+than once. A malformed cursor is `400 invalid_cursor`.
+
+Keep `since` fixed while paging: a cursor continues the list it came from, and
+recomputing "24 hours ago" for each page moves the window under it. A journey
+that receives an event between two page requests moves to the top of the list,
+above the cursor, and does not appear on later pages. Search pages behave the
+same way.
+
+Response items are search results with the environment added:
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "journeyId": "jrn_01",
+        "entity": {
+          "type": "customer",
+          "id": "18492"
+        },
+        "status": "failed",
+        "eventCount": 8,
+        "startedAt": "2026-08-06T18:31:02.000Z",
+        "lastEventAt": "2026-08-06T18:34:38.000Z",
+        "environment": "production"
+      }
+    ],
+    "nextCursor": null
+  }
+}
+```
+
+## 7. Get journey
 
 ```http
 GET /v1/journeys/:journeyId
@@ -239,7 +315,7 @@ Response:
 }
 ```
 
-## 7. List journey events
+## 8. List journey events
 
 ```http
 GET /v1/journeys/:journeyId/events?limit=100&cursor=<cursor>
@@ -274,7 +350,7 @@ Response:
 }
 ```
 
-## 8. Get event details
+## 9. Get event details
 
 ```http
 GET /v1/events/:eventId
@@ -290,7 +366,7 @@ Response may include:
 - technical identifiers
 - replay eligibility
 
-## 9. Create replay destination
+## 10. Create replay destination
 
 ```http
 POST /v1/replay-destinations
@@ -317,7 +393,7 @@ The server must validate the destination against configured host policy.
 
 Sensitive headers must be encrypted at rest or loaded from environment-backed secret configuration.
 
-## 10. List replay destinations
+## 11. List replay destinations
 
 ```http
 GET /v1/replay-destinations
@@ -325,7 +401,7 @@ GET /v1/replay-destinations
 
 Secrets are never returned.
 
-## 11. Create replay
+## 12. Create replay
 
 ```http
 POST /v1/replays
@@ -364,7 +440,7 @@ Response:
 
 V0 may execute synchronously with a strict timeout. A background replay worker can be introduced later.
 
-## 12. Get replay
+## 13. Get replay
 
 ```http
 GET /v1/replays/:replayId
@@ -379,7 +455,7 @@ Returns:
 - result diff
 - audit metadata
 
-## 13. Health endpoints
+## 14. Health endpoints
 
 ```http
 GET /health
@@ -390,13 +466,13 @@ GET /ready
 
 `/ready` verifies required dependencies such as PostgreSQL.
 
-## 14. Pagination
+## 15. Pagination
 
-Use cursor pagination for events and search results.
+Use cursor pagination for events, search results and recent journeys.
 
 Do not expose database offsets as a compatibility contract.
 
-## 15. Request limits
+## 16. Request limits
 
 Initial configurable limits should cover:
 

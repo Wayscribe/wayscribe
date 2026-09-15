@@ -1,7 +1,7 @@
 /**
  * Opaque keyset cursors.
  *
- * API_SPEC.md section 14 forbids exposing database offsets as a compatibility
+ * API_SPEC.md section 15 forbids exposing database offsets as a compatibility
  * contract, and offset pagination silently skips or repeats rows when new events
  * arrive mid-scroll — which, for a tool whose entire job is showing a complete
  * history, would be a correctness bug rather than a cosmetic one.
