@@ -700,11 +700,14 @@ request with no credentials is not counted, and ingestion is never throttled.
 
 The API's limit holds under concurrency. Any credential other than the exact
 admin token is admitted before it is verified, and an address may have at most
-five failures in the last minute and unverified attempts in flight combined, so
+five failures in the last minute and credentials being checked combined, so
 five hundred guesses sent at once get five `401`s and 495 `429`s. A valid API key
-on a read route occupies one of those five slots only while it is being checked,
-and the admin token itself is never held back, so the web app's concurrent reads
-are not limited. The web login compares synchronously and holds at five.
+on a read route occupies one of those five slots only while the key lookup runs,
+and a request that finds them all busy waits for one (up to 5 seconds, 64 deep)
+instead of being refused, so fifty concurrent reads with a valid key are all
+answered. The admin token itself is never held back, so the web app's concurrent
+reads are not limited either. The web login compares synchronously and holds at
+five.
 
 An IPv6 address counts as its /64, the block one host is usually given, and an
 IPv4 client on a dual-stack socket (`::ffff:203.0.113.5`) as its IPv4 address.

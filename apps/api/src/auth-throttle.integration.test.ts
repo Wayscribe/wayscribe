@@ -148,6 +148,26 @@ describe("failed admin authentication is throttled per source address", () => {
       await app.close();
     });
 
+    it("serves 50 concurrent valid-key reads from one address", async () => {
+      // Five slots per address, each held for the whole request, answered the
+      // sixth concurrent read with 429: 20 at once got 5 answers and 15
+      // refusals, and behind a proxy without TRUSTED_PROXY_COUNT every reader
+      // shared those five.
+      const app = appWith();
+      for (const url of [
+        "/v1/search?q=anything",
+        "/v1/journeys?since=2026-01-01T00:00:00Z",
+        "/v1/journeys/jrn_x"
+      ]) {
+        const responses = await Promise.all(
+          Array.from({ length: 50 }, () => attempt(app, apiKey, "203.0.113.64", { url }))
+        );
+        const expected = url === "/v1/journeys/jrn_x" ? "404" : "200";
+        expect(tally(responses.map((r) => r.statusCode)), url).toEqual({ [expected]: 50 });
+      }
+      await app.close();
+    });
+
     it("frees a valid API key's slot once it is answered", async () => {
       const app = appWith();
       for (let i = 0; i < 20; i += 1) {

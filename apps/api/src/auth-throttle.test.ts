@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_WAITING_PER_ADDRESS } from "./address-throttle.js";
 import { AuthThrottle, MAX_TRACKED_ADDRESSES, clientAddress } from "./auth-throttle.js";
 
 const NOW = 1_800_000_000_000;
@@ -99,6 +100,61 @@ describe("AuthThrottle", () => {
       const refused = throttle.admit("a", NOW);
       expect(refused.ok).toBe(false);
       expect(refused.ok ? 0 : refused.retryAfterMs).toBeGreaterThan(0);
+    });
+  });
+
+  describe("waiting for a slot", () => {
+    const settled = async (promise: Promise<void>): Promise<boolean> => {
+      let done = false;
+      void promise.then(() => {
+        done = true;
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      return done;
+    };
+
+    it("says busy, not locked, while attempts in flight hold every slot", () => {
+      const throttle = new AuthThrottle(options);
+      for (let i = 0; i < options.maxFailures; i += 1) throttle.admit("a", NOW);
+      const refused = throttle.admit("a", NOW);
+      expect(refused).toEqual({ ok: false, retryAfterMs: 1_000, busy: true });
+    });
+
+    it("wakes one waiter for each slot a settled attempt frees", async () => {
+      const throttle = new AuthThrottle(options);
+      for (let i = 0; i < options.maxFailures; i += 1) throttle.admit("a", NOW);
+      const first = throttle.waitForSlot("a");
+      const second = throttle.waitForSlot("a");
+      if (first === undefined || second === undefined) throw new Error("no place in the queue");
+
+      throttle.settle("a", NOW, false);
+      expect(await settled(first.freed)).toBe(true);
+      expect(await settled(second.freed)).toBe(false);
+      expect(throttle.admit("a", NOW).ok).toBe(true);
+    });
+
+    it("wakes every waiter when the address locks, and each is then refused", async () => {
+      const throttle = new AuthThrottle(options);
+      for (let i = 0; i < options.maxFailures; i += 1) throttle.admit("a", NOW);
+      const waits = Array.from({ length: 10 }, () => throttle.waitForSlot("a"));
+      for (let i = 0; i < options.maxFailures; i += 1) throttle.settle("a", NOW, true);
+      for (const wait of waits) {
+        if (wait === undefined) throw new Error("no place in the queue");
+        expect(await settled(wait.freed)).toBe(true);
+      }
+      expect(throttle.admit("a", NOW)).toMatchObject({ ok: false, busy: false });
+    });
+
+    it("keeps no more than a bounded queue, and lets a waiter leave it", () => {
+      const throttle = new AuthThrottle(options);
+      for (let i = 0; i < options.maxFailures; i += 1) throttle.admit("a", NOW);
+      const waits = Array.from({ length: MAX_WAITING_PER_ADDRESS }, () =>
+        throttle.waitForSlot("a")
+      );
+      expect(waits.every((wait) => wait !== undefined)).toBe(true);
+      expect(throttle.waitForSlot("a")).toBeUndefined();
+      waits[0]?.cancel();
+      expect(throttle.waitForSlot("a")).toBeDefined();
     });
   });
 

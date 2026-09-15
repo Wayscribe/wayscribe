@@ -20,7 +20,7 @@ export const DEFAULT_THROTTLE: ThrottleOptions = {
 /**
  * The most addresses either throttle remembers at once.
  *
- * Each costs a few hundred bytes; 50,000 is about 15 MB at worst. Past it the
+ * Each costs about 400 bytes; 50,000 measured 19.5 MB of heap. Past it the
  * least recently seen address is forgotten, which lets an attacker who controls
  * more than 50,000 distinct IPv4 addresses or IPv6 /64s, and uses them all
  * within a window, reset one address's count. Someone with that many

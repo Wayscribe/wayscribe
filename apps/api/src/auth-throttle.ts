@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { errorBody } from "./admin.js";
-import { AuthThrottle, throttleKey } from "./address-throttle.js";
+import { AuthThrottle, throttleKey, type Admission } from "./address-throttle.js";
 import { bearerToken } from "./auth.js";
 
 export {
@@ -19,6 +19,25 @@ export {
  * reading from the same address, and ingestion refuses the admin token anyway.
  */
 const UNTHROTTLED_ROUTES = new Set(["/v1/events", "/v1/events/batch", "/health", "/ready"]);
+
+/**
+ * The longest a request waits for a slot held by attempts being verified. A key
+ * lookup takes milliseconds, so a wait this long means the database is stuck,
+ * and the request is refused rather than held.
+ */
+const MAX_WAIT_MS = 5_000;
+
+declare module "fastify" {
+  interface FastifyRequest {
+    /**
+     * Report that this request's credential has been verified: `failed` when
+     * it did not authenticate. Releases the throttle slot the request holds, if
+     * any, so a valid key holds one for its lookup and not its whole request.
+     * Called more than once, or for a request holding no slot, it does nothing.
+     */
+    settleAuthentication(failed: boolean): void;
+  }
+}
 
 /**
  * The address a request came from, for throttling.
@@ -61,9 +80,14 @@ export function clientAddress(
  * and is never counted or held back, so the web app's many concurrent reads from
  * one address are not limited. Any other credential is admitted before it is
  * verified (`AuthThrottle.admit`): an address may have at most five failures in
- * the window and unverified attempts in flight together, which holds the limit
- * under concurrency. A valid API key on a read route takes a slot while it is
- * verified and gives it back when answered.
+ * the window and attempts being verified together, which holds the limit under
+ * concurrency. A slot is held only while the credential is checked: the read
+ * routes call `request.settleAuthentication` the moment the key lookup answers,
+ * and the admin routes, which compare synchronously, answer a refusal at once.
+ * A request that finds every slot taken by attempts being checked waits for one,
+ * up to `MAX_WAIT_MS` and `MAX_WAITING_PER_ADDRESS` deep, rather than being
+ * refused, so fifty concurrent reads with a valid key are fifty answers, five
+ * lookups at a time.
  *
  * Once an address reaches the limit, every request from it that presents
  * credentials on those routes is refused with 429, the right token included;
@@ -79,6 +103,13 @@ export function registerAuthThrottle(
   options: { adminToken: string; trustedProxyCount: number },
   throttle = new AuthThrottle()
 ): void {
+  app.decorateRequest(
+    "settleAuthentication",
+    function settleAuthentication(this: FastifyRequest, failed: boolean): void {
+      settle(this, failed);
+    }
+  );
+
   const throttled = (url: string | undefined): boolean =>
     url !== undefined && !UNTHROTTLED_ROUTES.has(url);
   const addressOf = (request: FastifyRequest): string =>
@@ -114,7 +145,7 @@ export function registerAuthThrottle(
       const waitMs = throttle.lockedFor(address, now);
       if (waitMs > 0) refusal = refuse(request, waitMs);
     } else {
-      const admission = throttle.admit(address, now);
+      const admission = await admitWhenFree(request, address, now);
       if (admission.ok) admitted.set(request, address);
       else refusal = refuse(request, admission.retryAfterMs);
     }
@@ -122,6 +153,43 @@ export function registerAuthThrottle(
     if (refusal === undefined) return;
     await reply.code(refusal.status).header("retry-after", refusal.retryAfter).send(refusal.body);
   });
+
+  /**
+   * Admit `address`, waiting for a slot while every one is held by an attempt
+   * being verified. A lock, a full queue, a closed connection, or the deadline
+   * ends the wait with a refusal.
+   */
+  const admitWhenFree = async (
+    request: FastifyRequest,
+    address: string,
+    now: number
+  ): Promise<Admission> => {
+    const deadline = now + MAX_WAIT_MS;
+    let admission = throttle.admit(address, now);
+    while (!admission.ok && admission.busy) {
+      const remaining = deadline - Date.now();
+      const wait = remaining > 0 ? throttle.waitForSlot(address) : undefined;
+      if (wait === undefined) return admission;
+      const freed = await Promise.race([
+        wait.freed.then(() => true),
+        new Promise<false>((resolve) => {
+          const timer = setTimeout(() => {
+            resolve(false);
+          }, remaining);
+          void wait.freed.then(() => {
+            clearTimeout(timer);
+          });
+        })
+      ]);
+      if (!freed) {
+        wait.cancel();
+        return admission;
+      }
+      if (request.raw.destroyed) return { ok: false, retryAfterMs: 1_000, busy: false };
+      admission = throttle.admit(address, Date.now());
+    }
+    return admission;
+  };
 
   const settle = (request: FastifyRequest, failed: boolean): void => {
     const address = admitted.get(request);
@@ -137,6 +205,8 @@ export function registerAuthThrottle(
     }
   };
 
+  // Whatever did not settle at verification settles here: the admin routes'
+  // synchronous refusals, and anything that answered before authenticating.
   app.addHook("onResponse", async (request, reply) => {
     settle(request, reply.statusCode === 401);
   });
