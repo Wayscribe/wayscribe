@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { findInsecureDefaults } from "./insecure-defaults.js";
 
@@ -57,5 +58,24 @@ describe("findInsecureDefaults", () => {
     });
     expect(finding?.message).toContain("ENCRYPTION_KEY");
     expect(finding?.message).toContain("openssl rand -hex 32");
+  });
+
+  it("recognises every value the source Compose stacks ship as a published default", () => {
+    // infrastructure/defaults.env is where compose.yaml and compose.demo.yaml
+    // get their secrets when .env sets none. A value changed there but not in
+    // the list above would boot a stack on a published secret with no warning.
+    const shipped = Object.fromEntries(
+      readFileSync(new URL("../../../infrastructure/defaults.env", import.meta.url), "utf8")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line !== "" && !line.startsWith("#"))
+        .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)])
+    );
+    expect(Object.keys(shipped).sort()).toEqual(["ADMIN_TOKEN", "ENCRYPTION_KEY"]);
+    expect(
+      findInsecureDefaults(shipped)
+        .map((f) => f.variable)
+        .sort()
+    ).toEqual(["ADMIN_TOKEN", "ENCRYPTION_KEY"]);
   });
 });

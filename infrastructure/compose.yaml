@@ -26,9 +26,16 @@ services:
       dockerfile: apps/api/Dockerfile
     # Compose's project directory is `infrastructure/`, so the repository-root
     # .env is not picked up automatically. Without this, `cp .env.example .env`
-    # appears to configure the stack and in fact does nothing, leaving it on the
-    # committed development defaults below.
+    # appears to configure the stack and in fact does nothing.
+    #
+    # The secrets come only from these files, never from `environment:` below.
+    # A `${ENCRYPTION_KEY:-default}` there is interpolated from the shell or
+    # `infrastructure/.env`, never from the root .env, and `environment:`
+    # overrides `env_file:`, so the published default silently won over the
+    # value the operator had set. The defaults file comes first so .env wins,
+    # and ENCRYPTION_KEY_PREVIOUS reaches the API from .env during a rotation.
     env_file:
+      - path: defaults.env
       - path: ../.env
         required: false
     environment:
@@ -37,11 +44,6 @@ services:
       API_URL: http://localhost:8080
       PORT: "8080"
       LOG_LEVEL: info
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-for-local-development-0000}
-      # Set only during a key rotation. Empty when unset, which the API reads as
-      # no rotation in progress.
-      ENCRYPTION_KEY_PREVIOUS: ${ENCRYPTION_KEY_PREVIOUS:-}
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
       DEFAULT_RETENTION_DAYS: "7"
       MAX_EVENT_PAYLOAD_BYTES: "262144"
       ALLOW_FULL_PAYLOAD_CAPTURE: "false"
@@ -64,16 +66,15 @@ services:
     build:
       context: ..
       dockerfile: apps/web/Dockerfile
+    # ADMIN_TOKEN comes from these, as for the API above, so the two always agree.
     env_file:
+      - path: defaults.env
       - path: ../.env
         required: false
     environment:
       # Server-side only. The browser never contacts the API (ADR-029), so this
       # is the internal service name, not a host-reachable address.
       API_URL: http://api:8080
-      # Must match the API's. The web app derives its session signing key from
-      # this, so rotating it invalidates sessions on both sides at once.
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
     ports:
       - "127.0.0.1:${WEB_PORT:-3000}:3000"
     depends_on:

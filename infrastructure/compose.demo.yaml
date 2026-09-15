@@ -45,7 +45,10 @@ services:
   # registered API key, and a customer table.
   demo-bootstrap:
     <<: *demo
+    # The keys come from these files, as for the API in compose.yaml, so the
+    # demo key's verifier is written under the key the API treats as current.
     env_file:
+      - path: defaults.env
       - path: ../.env
         required: false
     environment:
@@ -53,10 +56,6 @@ services:
       DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
       DEMO_DATABASE_NAME: demo
       DEFAULT_RETENTION_DAYS: ${DEFAULT_RETENTION_DAYS:-7}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-for-local-development-0000}
-      # Must match the API's, or the demo key's verifier is written under a key
-      # the API does not treat as current.
-      ENCRYPTION_KEY_PREVIOUS: ${ENCRYPTION_KEY_PREVIOUS:-}
     command: ["node", "apps/demo/dist/bootstrap.js"]
     restart: "no"
     depends_on:
