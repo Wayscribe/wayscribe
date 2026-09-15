@@ -66,7 +66,17 @@ export function decodeEventCursor(encoded: string): EventCursor {
   };
 }
 
+/**
+ * Exactly the form `toISOString` writes for years 0001 to 9999.
+ *
+ * Round-tripping through `Date` alone also accepted year 0000, negative years
+ * (`-000001-…`) and six-digit ones (`+010000-…`), which JavaScript writes and
+ * PostgreSQL refuses to read as a timestamptz, so a crafted cursor was a 500.
+ */
+const CANONICAL_INSTANT = /^(?!0000)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
 function isCanonicalInstant(value: string): boolean {
+  if (!CANONICAL_INSTANT.test(value)) return false;
   const parsed = new Date(value);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
 }

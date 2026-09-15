@@ -359,7 +359,8 @@ changes far less often.
   byte in a read route's path id is 404, in `q`, `environment` or `service` 400
   `invalid_query`, in any cursor 400 `invalid_cursor`, and in a replay
   destination's name or base URL 400 `invalid_request`; an event cursor with a
-  timestamp PostgreSQL cannot cast is 400 too. `durationMs` above 2147483647,
+  timestamp PostgreSQL cannot cast is 400 too, as is any cursor timestamp outside
+  years 0001 to 9999. `durationMs` above 2147483647,
   which fits no `integer` column, is refused by the protocol schema as
   `invalid_event`, where it was a 500 on the single route and a per-event 500 in
   a batch that the SDK resent.

@@ -175,6 +175,55 @@ describe("query endpoints", () => {
     });
   });
 
+  describe("a cursor timestamp outside the years PostgreSQL reads", () => {
+    // `new Date(x).toISOString() === x` held for year 0000, negative years,
+    // and six-digit years, all of which PostgreSQL refuses in a timestamptz
+    // comparison: a 500 on every list route.
+    const cursor = (value: Record<string, unknown>): string =>
+      Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+    const routes = (at: string): [string, string][] => [
+      [
+        "journeys",
+        `/v1/journeys?since=2026-01-01T00:00:00Z&cursor=${cursor({ lastEventAt: at, id: "x" })}`
+      ],
+      ["search", `/v1/search?q=0018Z00002ABC&cursor=${cursor({ lastEventAt: at, id: "x" })}`],
+      [
+        "events, eventTimestamp",
+        `/v1/journeys/jrn_q/events?cursor=${cursor({ eventTimestamp: at, receivedAt: "2026-01-01T00:00:00.000Z", id: "x" })}`
+      ],
+      [
+        "events, receivedAt",
+        `/v1/journeys/jrn_q/events?cursor=${cursor({ eventTimestamp: "2026-01-01T00:00:00.000Z", receivedAt: at, id: "x" })}`
+      ]
+    ];
+
+    it("is refused as a malformed cursor on every route", async () => {
+      for (const at of [
+        "0000-01-01T00:00:00.000Z",
+        "-000001-01-01T00:00:00.000Z",
+        "-004714-11-23T00:00:00.000Z",
+        "-271821-04-20T00:00:00.000Z",
+        "+010000-01-01T00:00:00.000Z",
+        "+275760-09-13T00:00:00.000Z"
+      ]) {
+        for (const [route, url] of routes(at)) {
+          const response = await get(url);
+          expect(response.statusCode, `${at} ${route} ${response.body}`).toBe(400);
+          expect(response.json().error.code).toBe("invalid_cursor");
+        }
+      }
+    });
+
+    it("is read at the first and last years it can be", async () => {
+      for (const at of ["0001-01-01T00:00:00.000Z", "9999-12-31T23:59:59.999Z"]) {
+        for (const [route, url] of routes(at)) {
+          const response = await get(url);
+          expect(response.statusCode, `${at} ${route} ${response.body}`).toBe(200);
+        }
+      }
+    });
+  });
+
   it("rejects a malformed cursor", async () => {
     const response = await get("/v1/search?q=0018Z00002ABC&cursor=garbage");
     expect(response.statusCode).toBe(400);
