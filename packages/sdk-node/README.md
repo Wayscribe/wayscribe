@@ -157,8 +157,8 @@ no library. This one is built so that cannot happen:
 - The transport retries with a circuit breaker, and gives up rather than piling
   up.
 - `shutdown()` never hangs; it races the final flush against a timeout.
-- Nothing is written to your console. Pass `onDiagnostic` if you want to hear
-  about failures.
+- Nothing is written to your console unless you set `logDiagnostics`. Pass
+  `onDiagnostic` if you want to hear about failures in your own logger.
 
 ```typescript
 const recorder = createRecorder({
@@ -167,8 +167,71 @@ const recorder = createRecorder({
 });
 
 const counters = await recorder.shutdown();
-// { dropped, transportErrors, captureErrors, breakerOpened, sent }
+// { dropped, rejected, transportErrors, captureErrors, breakerOpened, sent }
 ```
+
+## Is it sending?
+
+While you are setting up, turn on `logDiagnostics`:
+
+```typescript
+const recorder = createRecorder({
+  // ...
+  // Turn this off once the service is known to send.
+  logDiagnostics: true
+});
+```
+
+The first batch the server stores anything from prints one line, once:
+
+```text
+[flight-recorder] delivered_first: Connected to http://localhost:8080; the server accepted 3 events.
+```
+
+If that line never appears, the lines that do say why:
+
+```text
+[flight-recorder] rejected: unauthorized_environment: This key is not authorized for environment production.
+[flight-recorder] transport_error: fetch failed
+```
+
+Each diagnostic kind prints at most one line a minute, and the next line of that
+kind, or `shutdown()`, says how many repeats were suppressed. A line holds the
+kind and the diagnostic's reason only, never a payload, a key, or the
+diagnostic's `detail`. The reason is masked by the same rules as error messages,
+cut to 512 characters, and kept to one line. For a refusal it is the server's
+code, message, and first field error, such as
+`event.name: Too big: expected string to have <=256 characters`: the field's
+path can name an alias or metadata key, but never its value.
+
+`delivered_first` also reaches `onDiagnostic`, as
+`{ kind: "delivered_first", reason, endpoint, accepted }`, whether or not
+`logDiagnostics` is on. It is the only diagnostic that is good news and does not
+change any counter.
+
+| Kind | Means | Counter |
+| --- | --- | --- |
+| `delivered_first` | the server stored events from this recorder for the first time | none |
+| `rejected` | the server understood an event and refused it; it is not retried | `rejected` |
+| `transport_error` | a request failed, or the server could not store an event for now; see below | `transportErrors` |
+| `dropped` | an event, or a payload, was not recorded: the queue was full, the payload was too large, the recorder was shut down, or the server could not store it after three attempts | `dropped` |
+| `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
+| `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
+
+### When the server cannot store an event for now
+
+The batch route answers each event separately. A refusal with a status below 500
+means the event is wrong, and it is reported as `rejected` and not sent again. A
+refusal of 500 or above, such as `storage_error` or `query_timeout`, means the
+server could not store it this time, so the SDK sends that event again, on its
+own, after the same backoff it uses for a failed request.
+
+An event is refused at most three times in total, including refusals before a
+lost connection sent it back to the queue. After the third it is given up: one
+`transport_error` gives the server's reason, and a `dropped` counts the event.
+A send in which the server stored other events does not count toward the
+breaker, so one event the server can never store does not pause delivery of
+everything else.
 
 ## Redaction
 
@@ -299,6 +362,78 @@ A value that cannot be captured never costs you the event. The step is recorded
 either way, with a marker in place of the payload, because the step whose payload
 would not serialize is very often the step you are trying to debug.
 
+## What it costs
+
+Measured with the SDK's own benchmark on an Apple M3 Pro (12 cores, 18 GiB),
+macOS 26.2, Node 24.19.0, with the default configuration and
+`MAX_CONCURRENT_SENDS` of 8. The machine was running other work at the time, so
+read the numbers as orders of magnitude; the maximums in particular are noisy.
+To reproduce, from the repository root (about ten minutes):
+
+```bash
+pnpm --filter @flight-recorder/node bench
+```
+
+**Time added to each wrapped call**, in microseconds, against a local stub
+answering like ingestion. A `transform` records its input and its output, so it
+captures the payload twice; the `persist` here returns a small object.
+
+| Wrapper | Payload | Added p50 | Added p99 |
+| --- | --- | --- | --- |
+| `transform` (sync) | 1 KiB | 72 | 1,215 |
+| `persist` (async) | 1 KiB | 21 | 418 |
+| `transform` (sync) | 64 KiB | 1,374 | 11,993 |
+| `persist` (async) | 64 KiB | 694 | 6,320 |
+
+Most of that is redaction and the copy that makes a payload safe to store, and
+it grows with the payload. The p99 is dominated by one call in every batch of
+50: the call that fills a batch starts its send, and serialising the batch
+happens inside that call. At 64 KiB a separate one-off measurement, timing
+`JSON.stringify` inside those calls, put it at about 8 ms of an 11 ms call. The
+event loop spends that time whichever call it lands in.
+
+**Capture never waits on the network.** With the endpoint refusing connections,
+or answering after 200 ms, the added p50 stayed in the range measured against
+the local stub: across two full runs, 20 to 116 µs at 1 KiB and 694 to
+1,854 µs at 64 KiB for every endpoint, with no ordering by endpoint that held
+from one run to the next. Unreachable, every event is eventually dropped from
+the bounded queue and counted.
+
+**Sustained load:** 2,000 wrapped calls a second for 60 seconds, 1 KiB,
+alternating `transform` and `persist`.
+
+| | Unwrapped | Wrapped |
+| --- | --- | --- |
+| Heap after GC, start to end | 6.9 to 7.8 MiB | 9.0 to 9.2 MiB |
+| Heap peak between collections | 8.6 MiB | 59.3 MiB |
+| Resident set size | 67 MiB | 199 MiB |
+| Event-loop delay p50 / p99 | 0.20 / 1.03 ms | 0.20 / 1.34 ms |
+| Events stored / dropped | | 124,000 / 0 |
+
+The heap after collection does not grow over the minute. The resident set is
+about 130 MiB larger; the heap peak between collections accounts for about
+50 MiB of that, and the benchmark does not break down the rest.
+
+**Send concurrency:** events produced at 2,000 a second for 15 seconds against
+a stub with a fixed delay per batch.
+
+| Server time per batch | Concurrent sends | Stored per second | Dropped |
+| --- | --- | --- | --- |
+| 50 ms | 1 | 923 | 50.3% |
+| 50 ms | 2 | 1,830 | 5.1% |
+| 50 ms | 4 | 1,994 | 0% |
+| 50 ms | 8 | 1,991 | 0%, never more than 4 in flight |
+| 200 ms | 1 | 240 | 84.5% |
+| 200 ms | 2 | 480 | 72.3% |
+| 200 ms | 4 | 960 | 48.1% |
+| 200 ms | 8 | 1,930 | 0% |
+
+That is why the default is 8 rather than 4: the cap only binds while a backlog
+is building, which is when the alternative is dropping events, and event-loop
+delay did not change with it. A stub does not slow down as requests pile up and
+a real server does, so for a server that is already the bottleneck, more
+concurrency buys less than this table shows.
+
 ## Configuration
 
 | Option | Default | |
@@ -310,12 +445,13 @@ would not serialize is very often the step you are trying to debug.
 | `captureMode` | `redacted-payload` | or `metadata-only`, `full-payload` |
 | `redact` | `[]` | appended to the built-in secret paths |
 | `propagate` | `journey-and-type` | see above |
-| `batchSize` | `20` | |
+| `batchSize` | `50` | at most 100, the server's limit |
 | `flushIntervalMs` | `1000` | |
 | `requestTimeoutMs` | `1500` | |
 | `maxBufferedEvents` | `1000` | oldest are dropped past this |
 | `maxPayloadBytes` | `262144` | larger payloads record a marker instead |
 | `onDiagnostic` | — | |
+| `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending) |
 
 The SDK reads no environment variables. A library that changes behaviour based on
 ambient state is a library that behaves differently in your tests.

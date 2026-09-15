@@ -28,8 +28,33 @@ changes far less often.
   in `.env` as the README says never reached the API, the web app, or the demo
   bootstrap: they ran on the published defaults. `compose.published.yaml` is
   unchanged and still reads the shell.
+- **The SDK retries an event the server could not store for now.** A per-event
+  refusal with a status of 500 or above (`storage_error`, `query_timeout`) was
+  treated as permanent, so a database hiccup lost the event and reported it as
+  `rejected`. That event is now sent again on its own with the transport's
+  backoff, up to three refusals in total, and then counted as a
+  `transport_error` and a `dropped`. Refusals below 500 stay permanent. A send
+  in which the server stored other events no longer counts toward the circuit
+  breaker, so one unstorable event cannot pause delivery of the rest.
+- **The SDK sends up to eight batches at once, up from four.** Measured: at
+  2,000 events a second against a server taking 200 ms per batch, four dropped
+  48% of events and eight dropped none, with no change in event-loop delay.
+  The cap only binds while a backlog builds.
 
 ### Added
+
+- **The SDK says when it is connected, when asked.** `logDiagnostics: true`
+  writes each diagnostic to `console.error` as one `[flight-recorder]` line, at
+  most one per kind per minute with a count of suppressed repeats, and a new
+  `delivered_first` diagnostic reports the first batch the server stored
+  anything from. Lines carry the kind and a masked, bounded reason, never a
+  payload or a key. Off by default: nothing reaches the console unless it is
+  set. The quick start and `examples/instrument-a-service` turn it on while
+  setting up.
+- **What the SDK costs is measured.** `pnpm --filter @flight-recorder/node bench`
+  reports added latency per wrapped call, heap and event-loop delay under
+  sustained load, and throughput by send concurrency; the SDK README's "What it
+  costs" has the numbers and the machine they came from.
 
 - **Captured data can be deleted on demand.** Retention was the only way
   anything left the database, so a redaction miss stayed stored until it aged
