@@ -35,7 +35,15 @@ regexes = [
   '''doctor-(db-password|wrong-password|encryption-key|other-encryption-key|admin-token|ungranted-pw)-[0-9a-f]+''',
   # replays.integration.test.ts: a destination header value the test proves is
   # never stored or returned.
-  '''dst-secret-[0-9a-f]+'''
+  '''dst-secret-[0-9a-f]+''',
+  # sdk-node connected.test.ts, as first committed on the sdk-v1 branch: the
+  # alphabet run in a path token and the counting digits in a query token,
+  # used to prove delivered_first never prints an endpoint's path or query.
+  # The test now assembles its tokens, so these match only that history.
+  # Anchored: the generic rule reports the value alone, and an unanchored run
+  # of six letters and six digits could hide inside a real key.
+  '''^sk_live_51Habcdefghijklmnop$''',
+  '''^abcdef123456$'''
 ]
 
 [[allowlists]]
