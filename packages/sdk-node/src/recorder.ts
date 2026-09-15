@@ -222,23 +222,44 @@ interface BatchOutcome {
  * never wrong. A refusal with no status is treated as permanent, as before the
  * status was sent.
  *
- * A body this cannot parse counts as nothing stored and nothing to retry. The
- * request did return 2xx, and resending on a proxy's rewritten body would
- * duplicate work the server most likely did.
+ * An event the response gives no verdict for (a body that is not JSON, JSON
+ * with no results, or fewer results than events) is counted as `dropped` with
+ * reason `no_verdict`, and not retried. The request returned 2xx, so the
+ * server may well have stored it, and resending on a proxy's rewritten body
+ * would store it twice; the SDK cannot tell, so it says what it knows. Before
+ * this, a body that was not JSON retried the whole batch and printed the
+ * parser's message, which quotes the body, and a short or missing results
+ * array lost events without a word. Verdicts past the end of the batch are
+ * ignored rather than counted.
  */
 function readOutcome(
-  body: unknown,
+  body: ParsedBody,
   batch: readonly unknown[],
   diagnostics: Diagnostics
 ): SendOutcome {
-  const results = (body as { data?: { results?: BatchOutcome[] } } | null)?.data?.results;
-  if (!Array.isArray(results)) return { accepted: 0, retry: [] };
+  const results = body.parsed
+    ? (body.value as { data?: { results?: BatchOutcome[] } } | null)?.data?.results
+    : undefined;
+  const verdicts = Array.isArray(results) ? results.slice(0, batch.length) : [];
+  if (verdicts.length < batch.length) {
+    const why = !body.parsed
+      ? "unparseable response body"
+      : Array.isArray(results)
+        ? "the response had fewer results than events"
+        : "the response had no results";
+    for (let index = verdicts.length; index < batch.length; index += 1) {
+      diagnostics.report({
+        kind: "dropped",
+        reason: `no_verdict: ${why}; the server may have stored this event, so it is not sent again`
+      });
+    }
+  }
 
   let accepted = 0;
   const retry: unknown[] = [];
   let reason: string | undefined;
   let logReason: string | undefined;
-  results.forEach((result, index) => {
+  verdicts.forEach((result, index) => {
     if (result.status === "accepted") {
       accepted += 1;
       return;
@@ -264,6 +285,20 @@ function readOutcome(
     ...(reason === undefined ? {} : { reason }),
     ...(logReason === undefined ? {} : { logReason })
   };
+}
+
+/** A response body, parsed if it was JSON. Its text is never kept. */
+type ParsedBody = { parsed: true; value: unknown } | { parsed: false };
+
+async function parseBody(response: Response): Promise<ParsedBody> {
+  const text = await response.text();
+  try {
+    return { parsed: true, value: JSON.parse(text) as unknown };
+  } catch {
+    // The parser's message quotes the body, which can be anything a proxy put
+    // there, so neither is kept.
+    return { parsed: false };
+  }
 }
 
 const ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/;
@@ -402,7 +437,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
           // that "succeeded" may have stored nothing. Reading the body is the
           // only way to know, and not reading it is how a misconfigured
           // environment name looked exactly like a healthy recorder.
-          const outcome = readOutcome(await response.json(), batch, diagnostics);
+          const outcome = readOutcome(await parseBody(response), batch, diagnostics);
           const { accepted } = outcome;
           if (accepted > 0 && !delivered) {
             // Once: this answers "is it connected?", and repeating the answer
