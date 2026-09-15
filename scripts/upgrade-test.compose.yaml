@@ -58,6 +58,9 @@ services:
           let body = "";
           req.on("data", (chunk) => { body += chunk; });
           req.on("end", () => {
+            // Logged as well as returned: a build that scrubs echoed
+            // credentials from the stored response still leaves this record.
+            console.log(JSON.stringify({ received: req.headers }));
             res.setHeader("content-type", "application/json");
             res.end(JSON.stringify({ method: req.method, path: req.url, headers: req.headers, body }));
           });

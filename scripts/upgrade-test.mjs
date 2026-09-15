@@ -499,7 +499,20 @@ function rotationTable(output) {
   return tables;
 }
 
-async function replayThroughEcho(destinationId, label) {
+/** How many requests the echo destination received carrying the marker header. */
+async function markerReceipts(image) {
+  const logs = await compose(image, ["logs", "--no-color", "--no-log-prefix", "replay-echo"]);
+  return logs.stdout.split("\n").filter((line) => {
+    try {
+      return JSON.parse(line).received?.["x-upgrade-marker"] === MARKER;
+    } catch {
+      return false;
+    }
+  }).length;
+}
+
+async function replayThroughEcho(image, destinationId, label) {
+  const receiptsBefore = await markerReceipts(image);
   const response = await request("POST", "/v1/replays", {
     body: {
       eventId: "evt_upgrade_j1_transformed",
@@ -514,9 +527,19 @@ async function replayThroughEcho(destinationId, label) {
     `${label}: replay completed`,
     response.json
   );
+  // What the destination received, from its own log: the decrypted header value
+  // itself. The stored response is not evidence on its own, because a build may
+  // scrub an echoed credential from it (replay-header-storage does).
+  const receiptsAfter = await markerReceipts(image);
   check(
-    data.responsePayload?.headers?.["x-upgrade-marker"] === MARKER,
-    `${label}: the destination's encrypted header reached the destination`,
+    receiptsAfter === receiptsBefore + 1,
+    `${label}: the destination received its encrypted header's real value`,
+    `requests with the marker: ${String(receiptsBefore)} before, ${String(receiptsAfter)} after`
+  );
+  const echoed = data.responsePayload?.headers?.["x-upgrade-marker"];
+  check(
+    echoed === MARKER || echoed === "[REDACTED]",
+    `${label}: the stored response holds the echoed header ${echoed === MARKER ? "as sent" : "scrubbed to [REDACTED]"}`,
     data.responsePayload
   );
   return data;
@@ -654,7 +677,7 @@ async function main() {
     destination.json
   );
   const destinationId = destination.json.data.id;
-  const baselineReplay = await replayThroughEcho(destinationId, "baseline");
+  const baselineReplay = await replayThroughEcho(BASELINE_IMAGE, destinationId, "baseline");
 
   const reads = [
     ["search J1 entity id", `/v1/search?q=${encodeURIComponent(J1.entity.id)}`],
@@ -825,7 +848,7 @@ async function main() {
     recent.json
   );
 
-  await replayThroughEcho(destinationId, "current, legacy destination headers");
+  await replayThroughEcho(CURRENT_IMAGE, destinationId, "current, legacy destination headers");
 
   const dryRun = await request("POST", "/v1/erasures", {
     body: { value: J3.entity.id, dryRun: true }
@@ -891,7 +914,11 @@ async function main() {
 
   step("Current: read everything back again, now from fr1 values");
   await compareRecorded(recorded, "after re-encryption", erased);
-  await replayThroughEcho(destinationId, "current, re-encrypted destination headers");
+  await replayThroughEcho(
+    CURRENT_IMAGE,
+    destinationId,
+    "current, re-encrypted destination headers"
+  );
 
   step("Current: doctor");
   const doctor = await cli(CURRENT_IMAGE, ["doctor"], { allowFailure: true });
