@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   DEFAULT_LIMITS,
   checkLimits,
+  maskSecretsInText,
   redact,
   toStorable
 } from "@flight-recorder/payload-security/redaction";
@@ -313,6 +314,26 @@ export function createRecorder(config: RecorderConfig): Recorder {
     return { metadata: captured as Record<string, unknown> };
   }
 
+  /**
+   * An error record with credential-shaped text masked (ADR-045).
+   *
+   * Here rather than in `toErrorRecord`, because every error record reaches
+   * the queue through this point and not every one comes from there:
+   * `record()` takes one straight from the application. The protocol's `stack`
+   * is masked too when a JavaScript caller passes one the type does not admit.
+   * The server masks again before storing, which changes nothing: masking is
+   * idempotent.
+   */
+  function maskedError(error: NonNullable<RecordInput["error"]>): RecordInput["error"] {
+    const { message } = error;
+    const stack = (error as { stack?: unknown }).stack;
+    return {
+      ...error,
+      ...(typeof message === "string" ? { message: maskSecretsInText(message) } : {}),
+      ...(typeof stack === "string" ? { stack: maskSecretsInText(stack) } : {})
+    };
+  }
+
   function enqueue(journeyId: string, entity: JourneyContext["entity"], input: RecordInput): void {
     if (stopped) {
       // Silent until now: after shutdown the wrappers still ran the callback
@@ -343,7 +364,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
         ...(input.input === undefined ? {} : { input: capture(input.input) }),
         ...(input.output === undefined ? {} : { output: capture(input.output) }),
-        ...(input.error === undefined ? {} : { error: input.error }),
+        ...(input.error === undefined ? {} : { error: maskedError(input.error) }),
         ...(input.aliases === undefined ? {} : { aliases: input.aliases }),
         // Through capture like input and output: metadata used to go in raw,
         // so a Prisma BigInt or a circular request object threw inside

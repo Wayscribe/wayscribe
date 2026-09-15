@@ -200,6 +200,49 @@ describe("recorded events", () => {
     });
   });
 
+  it("masks a credential inside a thrown error's message", async () => {
+    // Path redaction cannot reach inside a string, and a connection error is
+    // exactly where a password ends up in one.
+    const password = "hunter2-" + "SDK-MSG";
+    const events = await recordAnd(async (journey) => {
+      await journey
+        .persist("save-order", {}, () =>
+          Promise.reject(
+            new Error(`connect ECONNREFUSED postgres://app:${password}@db.internal:5432/orders`)
+          )
+        )
+        .catch(() => undefined);
+    });
+
+    const error = events.find((e) => e["operation"] === "persisted")?.["error"] as
+      { message: string; type?: string } | undefined;
+    expect(JSON.stringify(error)).not.toContain(password);
+    // The rest of the message is the reason the event is worth keeping.
+    expect(error?.message).toBe(
+      "connect ECONNREFUSED postgres://[REDACTED]@db.internal:5432/orders"
+    );
+    expect(error?.type).toBe("Error");
+  });
+
+  it("masks a credential in an error passed to record or fail", async () => {
+    // Not only the wrappers: an application can hand the SDK an error record
+    // of its own, and that message is just as free-text.
+    const token = "sk_" + "live_" + "RecordPathOpaque00000001";
+    const events = await recordAnd((journey) => {
+      journey.record({
+        operation: "failed",
+        name: "charge",
+        error: { message: `Invalid API Key provided: ${token}`, code: "auth" }
+      });
+      journey.fail("refund", new Error(`refund rejected for key ${token}`));
+    });
+
+    const raw = JSON.stringify(events);
+    expect(raw).not.toContain(token);
+    expect(raw).toContain("Invalid API Key provided: [REDACTED]");
+    expect(raw).toContain("refund rejected for key [REDACTED]");
+  });
+
   it("records finish as completed", async () => {
     const events = await recordAnd((journey) => {
       journey.finish({ status: "completed" });
