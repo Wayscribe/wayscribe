@@ -1,6 +1,7 @@
 import { listProjects } from "@flight-recorder/database";
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import { bearerToken } from "../auth.js";
 
 /**
  * The one route that answers "which projects exist?".
@@ -16,10 +17,9 @@ import type { FastifyInstance } from "fastify";
  */
 export function registerProjectRoutes(app: FastifyInstance, adminToken: string): void {
   app.get("/v1/projects", async (request, reply) => {
-    const header = request.headers.authorization;
-    const [scheme, presented] = header?.split(" ") ?? [];
+    const presented = bearerToken(request.headers.authorization);
 
-    if (scheme?.toLowerCase() !== "bearer" || presented === undefined) {
+    if (presented === undefined) {
       return reply.code(401).send(unauthorized(request.id));
     }
     if (!constantTimeEquals(presented, adminToken)) {

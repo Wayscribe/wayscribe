@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { errorBody } from "./admin.js";
+import { bearerToken } from "./auth.js";
 
 export interface ThrottleOptions {
   maxFailures: number;
@@ -342,10 +343,8 @@ export function registerAuthThrottle(
 
 /** Whether the header is exactly `Bearer <admin token>`, compared in constant time. */
 function presentsAdminToken(header: string, adminToken: string): boolean {
-  const [scheme, presented, ...rest] = header.split(" ");
-  if (scheme?.toLowerCase() !== "bearer" || presented === undefined || rest.length > 0) {
-    return false;
-  }
+  const presented = bearerToken(header);
+  if (presented === undefined) return false;
   const left = Buffer.from(presented, "utf8");
   const right = Buffer.from(adminToken, "utf8");
   return left.length === right.length && timingSafeEqual(left, right);

@@ -380,6 +380,10 @@ changes far less often.
   forgetting the least recently seen, and sweeps expired entries at most once a
   minute, so neither memory nor the cost of a failure grows with the number of
   addresses seen.
+- **`Authorization: Bearer <token> extra` is refused.** Everything after the
+  token was ignored, so the header authenticated as the token alone, for the
+  admin token and API keys alike. The header must now be the scheme, one space,
+  and the token; anything more is `401`.
 - **Sign-in works behind a TLS proxy that sends no `X-Forwarded-Proto`.**
   Redirects after a form post named an absolute URL built from `Host` and
   `X-Forwarded-Proto`, so behind a proxy forwarding `Host` alone they pointed at

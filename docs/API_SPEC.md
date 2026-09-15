@@ -27,6 +27,9 @@ Authorization: Bearer <admin-token>
 x-flight-project-id: <project-id>
 ```
 
+The header is exactly the scheme, one space, and the token. The scheme is read in
+any case; anything after the token, a trailing space included, is `401`.
+
 An API key is scoped to one project and one environment and may ingest. An admin
 token reads across every environment of one **named** project and may not ingest
 (ADR-029).
