@@ -2,7 +2,10 @@ import { maskSecretsInText } from "@flight-recorder/payload-security/redaction";
 
 /**
  * `rejected` is distinct from `transport_error` on purpose. A transport error
- * means the request did not land and will be retried. A rejection means the
+ * means a request did not land, or the server could not store an event for
+ * now, and what was not stored is retried: until the connection recovers, or
+ * for an event refused for now, until 30 seconds or 10 sends have passed, when
+ * it is given up and a `dropped` follows. A rejection means the
  * server received the event, understood it, and refused it — retrying changes
  * nothing, and the event is gone. Collapsing the two would tell an operator to
  * wait for a recovery that is never coming.

@@ -216,7 +216,8 @@ interface BatchOutcome {
  *
  * A refusal at 500 or above (`storage_error`, `query_timeout`) is the server
  * failing, not the event, so the event goes back to the transport to be
- * retried. Treating those as permanent lost an event to a database hiccup and
+ * retried, for up to 30 seconds from its first refusal or 10 sends, whichever
+ * comes first. Treating those as permanent lost an event to a database hiccup and
  * reported it as a rejection, which tells an operator to fix an event that was
  * never wrong. A refusal with no status is treated as permanent, as before the
  * status was sent.
@@ -323,7 +324,14 @@ export function createRecorder(config: RecorderConfig): Recorder {
       baseBackoffMs: 100,
       maxBackoffMs: 2_000,
       breakerThreshold: 5,
-      breakerCooldownMs: 30_000
+      breakerCooldownMs: 30_000,
+      // Measured from an event's first refusal, and checked only when the
+      // server refuses it again, so an event waiting out an open breaker is
+      // sent once more when it closes rather than dropped unsent. The same as
+      // the breaker's cooldown, and twice the API's default statement timeout
+      // of 15 seconds, the other thing a refusal for now waits on.
+      retryBudgetMs: 30_000,
+      maxRefusedSends: 10
     },
     diagnostics
   );

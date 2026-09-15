@@ -214,7 +214,7 @@ change any counter.
 | `delivered_first` | the server stored events from this recorder for the first time | none |
 | `rejected` | the server understood an event and refused it; it is not retried | `rejected` |
 | `transport_error` | a request failed, or the server could not store an event for now; see below | `transportErrors` |
-| `dropped` | an event, or a payload, was not recorded: the queue was full, the payload was too large, the recorder was shut down, or the server could not store it after three attempts | `dropped` |
+| `dropped` | an event, or a payload, was not recorded: the queue was full, the payload was too large, the recorder was shut down, or the server was still refusing it after 30 seconds or 10 sends | `dropped` |
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
 | `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
 
@@ -226,12 +226,26 @@ refusal of 500 or above, such as `storage_error` or `query_timeout`, means the
 server could not store it this time, so the SDK sends that event again, on its
 own, after the same backoff it uses for a failed request.
 
-An event is refused at most three times in total, including refusals before a
-lost connection sent it back to the queue. After the third it is given up: one
-`transport_error` gives the server's reason, and a `dropped` counts the event.
+Each send tries a refused event three times, a few hundred milliseconds apart.
+If the server is still refusing it, the event goes back to the front of the
+queue and rides in a later send, and each send that ends that way reports a
+`transport_error` with the server's reason. A database restart takes seconds,
+so the event keeps being retried for 30 seconds from its first refusal, or
+through 10 sends, whichever comes first. Only when the server refuses it again
+past one of those bounds is it given up, and a `dropped` counts it. It can also
+be dropped earlier if the queue fills and it is the oldest event there.
+
+The 30 seconds match the breaker's cooldown and are twice the API's default
+statement timeout. The bound is checked only when the server refuses the event
+again, so an event waiting out an open breaker is sent once more when the
+breaker closes, not dropped unsent. The 10 sends stop an event the server can
+never store from riding in every batch of a busy stream for the whole 30
+seconds.
+
 A send in which the server stored other events does not count toward the
 breaker, so one event the server can never store does not pause delivery of
-everything else.
+everything else. A send in which it stored nothing does, as a failed request
+does.
 
 ## Redaction
 

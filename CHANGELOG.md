@@ -32,10 +32,13 @@ changes far less often.
   refusal with a status of 500 or above (`storage_error`, `query_timeout`) was
   treated as permanent, so a database hiccup lost the event and reported it as
   `rejected`. That event is now sent again on its own with the transport's
-  backoff, up to three refusals in total, and then counted as a
-  `transport_error` and a `dropped`. Refusals below 500 stay permanent. A send
-  in which the server stored other events no longer counts toward the circuit
-  breaker, so one unstorable event cannot pause delivery of the rest.
+  backoff, three times a send, and requeued for later sends while it is still
+  refused, for up to 30 seconds from its first refusal or 10 sends, whichever
+  comes first; only then is it given up and counted as `dropped`. Each send
+  that ends with it refused reports a `transport_error`. Refusals below 500
+  stay permanent. A send in which the server stored other events no longer
+  counts toward the circuit breaker, so one unstorable event cannot pause
+  delivery of the rest.
 
 ### Added
 

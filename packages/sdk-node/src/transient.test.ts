@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRecorder } from "./recorder.js";
 
 const base = {
@@ -93,33 +93,6 @@ describe("a per-event refusal the server may not repeat", () => {
     expect(counters).toMatchObject({ sent: 1, rejected: 0, transportErrors: 0, dropped: 0 });
   });
 
-  it("stops after the attempt limit for a 503 that never clears, and loses nothing else", async () => {
-    const seen: string[] = [];
-    const server = await ingestion((name) =>
-      name === "poison" ? refused(503, "query_timeout") : accepted
-    );
-    const recorder = createRecorder({
-      ...base,
-      endpoint: server.endpoint,
-      batchSize: 2,
-      onDiagnostic: (d) => seen.push(`${d.kind}|${d.reason}`)
-    });
-    const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
-    journey.record({ operation: "received", name: "poison" });
-    for (let i = 0; i < 9; i += 1)
-      journey.record({ operation: "received", name: `ok${String(i)}` });
-    const counters = await recorder.shutdown({ timeoutMs: 5_000 });
-    await server.close();
-
-    // Three attempts, the transport's limit, and then no more: an event the
-    // server cannot store must not lead every later batch.
-    expect(count(server.received, "poison")).toBe(3);
-    expect(counters).toMatchObject({ sent: 9, rejected: 0, transportErrors: 1, dropped: 1 });
-    expect(counters.breakerOpened).toBe(0);
-    expect(seen.some((line) => line.startsWith("transport_error|query_timeout"))).toBe(true);
-    expect(seen.some((line) => line.startsWith("rejected|"))).toBe(false);
-  });
-
   it("does not retry a 422", async () => {
     const server = await ingestion(() => refused(422, "invalid_event"));
     const counters = await recordNamed(server.endpoint, ["n"]);
@@ -150,5 +123,121 @@ describe("a per-event refusal the server may not repeat", () => {
       "broken"
     ]);
     expect(counters).toMatchObject({ sent: 4, rejected: 1, transportErrors: 0, dropped: 0 });
+  });
+});
+
+describe("a refusal that lasts, on a clock", () => {
+  /**
+   * `fetch` replaced by a batch route that decides by event name and the
+   * current (fake) time, so seconds of outage run in milliseconds.
+   */
+  function fakeIngestion(verdict: (name: string, now: number) => unknown): {
+    sent: string[];
+  } {
+    const sent: string[] = [];
+    vi.stubGlobal("fetch", (_url: string, init: { body: string }) => {
+      const { events } = JSON.parse(init.body) as { events: { event: { name: string } }[] };
+      const results = events.map(({ event }) => {
+        sent.push(event.name);
+        return verdict(event.name, Date.now());
+      });
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: { results } }), {
+          status: 202,
+          headers: { "content-type": "application/json" }
+        })
+      );
+    });
+    return { sent };
+  }
+
+  const START = 1_000_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"]
+    });
+    vi.setSystemTime(START);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("stores an event refused with 500 for five seconds", async () => {
+    // A database restart. Three refusals inside 300 ms of backoff used to drop
+    // this event while the CHANGELOG said it was retried.
+    const { sent } = fakeIngestion((_name, now) =>
+      now - START < 5_000 ? refused(500, "storage_error") : accepted
+    );
+    const recorder = createRecorder({ ...base, endpoint: "http://ingest.test", batchSize: 1 });
+    recorder
+      .startJourney({ entity: { type: "customer", id: "1" } })
+      .record({ operation: "received", name: "n" });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(recorder.diagnostics()).toMatchObject({ sent: 1, dropped: 0, rejected: 0 });
+    // More than the three refusals that used to be the whole budget.
+    expect(count(sent, "n")).toBeGreaterThan(3);
+  });
+
+  it("drops an event the server refuses for thirty seconds, and not before", async () => {
+    const seen: string[] = [];
+    const { sent } = fakeIngestion(() => refused(503, "query_timeout"));
+    const recorder = createRecorder({
+      ...base,
+      endpoint: "http://ingest.test",
+      batchSize: 1,
+      onDiagnostic: (d) => seen.push(`${d.kind}|${d.reason}`)
+    });
+    recorder
+      .startJourney({ entity: { type: "customer", id: "1" } })
+      .record({ operation: "received", name: "n" });
+
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(recorder.diagnostics().dropped).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(recorder.diagnostics()).toMatchObject({ sent: 0, dropped: 1, rejected: 0 });
+    expect(seen.some((line) => line.startsWith("dropped|") && line.includes("query_timeout"))).toBe(
+      true
+    );
+
+    // Given up means given up: nothing more is sent for it.
+    const attempts = count(sent, "n");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(count(sent, "n")).toBe(attempts);
+  });
+
+  it("does not slow a steady stream while one event in it is refused", async () => {
+    async function stream(withPoison: boolean): Promise<{ stored: number; dropped: number }> {
+      let stored = 0;
+      fakeIngestion((name) => {
+        if (name === "poison") return refused(500, "storage_error");
+        stored += 1;
+        return accepted;
+      });
+      const recorder = createRecorder({ ...base, endpoint: "http://ingest.test" });
+      const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
+      if (withPoison) journey.record({ operation: "received", name: "poison" });
+      // 200 events a second for 40 seconds, in steps of 100 ms.
+      for (let step = 0; step < 400; step += 1) {
+        for (let i = 0; i < 20; i += 1) journey.record({ operation: "received", name: "ok" });
+        await vi.advanceTimersByTimeAsync(100);
+      }
+      await vi.advanceTimersByTimeAsync(5_000);
+      const counters = recorder.diagnostics();
+      vi.unstubAllGlobals();
+      return { stored, dropped: counters.dropped };
+    }
+
+    const clean = await stream(false);
+    const poisoned = await stream(true);
+
+    expect(clean).toEqual({ stored: 8_000, dropped: 0 });
+    // Every other event still stored, and the poison given up on by its bounds.
+    expect(poisoned).toEqual({ stored: 8_000, dropped: 1 });
   });
 });

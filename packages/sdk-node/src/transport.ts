@@ -30,6 +30,13 @@ export interface TransportOptions {
   maxBackoffMs: number;
   breakerThreshold: number;
   breakerCooldownMs: number;
+  /**
+   * How long an event may go on being refused for now before it is given up,
+   * measured from its first refusal.
+   */
+  retryBudgetMs: number;
+  /** The most sends an event may be refused in, however quickly they come. */
+  maxRefusedSends: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
@@ -65,14 +72,17 @@ export class Transport {
   private consecutiveFailures = 0;
   private openedAt: number | null = null;
   /**
-   * Transient refusals per event, kept across sends.
+   * When each refused event was first refused, and in how many sends, kept
+   * across requeues.
    *
-   * Per event rather than per send, because a send that ends in a connection
-   * failure hands its events back for requeueing, and a fresh count on every
-   * requeue would let an event the server can never store be retried for the
-   * life of the process. Weak, so an event given up on or stored costs nothing.
+   * By time, because a refusal for now usually means the database is
+   * restarting or overloaded, which takes seconds: three refusals inside the
+   * few hundred milliseconds of one send's backoff dropped events that a
+   * retry five seconds later would have stored. The send cap stops an event
+   * that is refused in every batch of a busy stream from riding along for the
+   * whole budget. Weak, so an event stored or given up on costs nothing.
    */
-  private readonly refusals = new WeakMap<object, number>();
+  private readonly refusals = new WeakMap<object, Refusal>();
 
   public constructor(
     private readonly options: TransportOptions,
@@ -93,6 +103,7 @@ export class Transport {
 
     let pending: readonly unknown[] = batch;
     const abandoned: unknown[] = [];
+    const refusedHere = new Set<object>();
     let storedAny = false;
     let lastError: unknown = undefined;
     let lastRefusal = "The server could not store an event.";
@@ -113,8 +124,14 @@ export class Transport {
         // Only the refused events go again. The stored ones are done.
         const again: unknown[] = [];
         for (const event of outcome.retry) {
-          if (this.refuse(event) >= this.options.maxAttempts) abandoned.push(event);
-          else again.push(event);
+          const refusal = this.refusalOf(event, now());
+          if (refusal === undefined || now() - refusal.firstAt >= this.options.retryBudgetMs) {
+            abandoned.push(event);
+          } else {
+            // An object, or refusalOf would have returned undefined.
+            refusedHere.add(event as object);
+            again.push(event);
+          }
         }
         pending = again;
       } catch (error) {
@@ -133,6 +150,18 @@ export class Transport {
         lastError = error;
       }
     }
+
+    // Still refused after this send's attempts: requeued for a later send
+    // unless this was the last send it was allowed.
+    pending = pending.filter((event) => {
+      if (typeof event !== "object" || event === null || !refusedHere.has(event)) return true;
+      const refusal = this.refusals.get(event);
+      if (refusal === undefined) return true;
+      refusal.sends += 1;
+      if (refusal.sends < this.options.maxRefusedSends) return true;
+      abandoned.push(event);
+      return false;
+    });
 
     if (pending.length === 0 && abandoned.length === 0) {
       this.consecutiveFailures = 0;
@@ -163,26 +192,32 @@ export class Transport {
     throw new UnsentError(lastError === undefined ? lastRefusal : messageOf(lastError), pending);
   }
 
-  /** Counts a transient refusal and returns the event's total so far. */
-  private refuse(event: unknown): number {
-    // Anything but an object cannot be tracked, so it gets one attempt rather
-    // than an unbounded number.
-    if (typeof event !== "object" || event === null) return this.options.maxAttempts;
-    const count = (this.refusals.get(event) ?? 0) + 1;
-    this.refusals.set(event, count);
-    return count;
+  /**
+   * The event's refusal record, started at `at` if this is its first refusal.
+   * Undefined for anything but an object, which cannot be tracked and so is
+   * given up on rather than retried without a bound.
+   */
+  private refusalOf(event: unknown, at: number): Refusal | undefined {
+    if (typeof event !== "object" || event === null) return undefined;
+    let refusal = this.refusals.get(event);
+    if (refusal === undefined) {
+      refusal = { firstAt: at, sends: 0 };
+      this.refusals.set(event, refusal);
+    }
+    return refusal;
   }
 
   /**
-   * Events refused transiently on every attempt they were allowed. Lost, so
-   * counted as dropped: that counter is the one OPERATIONS.md tells an operator
-   * means events were shed.
+   * Events the server went on refusing past their bounds. Lost, so counted as
+   * dropped: that counter is the one OPERATIONS.md tells an operator means
+   * events were shed.
    */
   private giveUp(events: readonly unknown[], reason: string): void {
+    const seconds = String(Math.round(this.options.retryBudgetMs / 1_000));
     for (const _event of events) {
       this.diagnostics.report({
         kind: "dropped",
-        reason: `The server could not store an event after ${String(this.options.maxAttempts)} attempts: ${reason}`
+        reason: `The server could not store an event within ${seconds} seconds or ${String(this.options.maxRefusedSends)} sends: ${reason}`
       });
     }
   }
@@ -204,6 +239,11 @@ export class Transport {
     // together and the server sees the same thundering herd repeatedly.
     await sleep(Math.floor(random() * capped));
   }
+}
+
+interface Refusal {
+  firstAt: number;
+  sends: number;
 }
 
 function messageOf(error: unknown): string {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDiagnostics, type Diagnostics } from "./diagnostics.js";
-import { Transport, type SendOutcome } from "./transport.js";
+import { Transport, UnsentError, type SendOutcome } from "./transport.js";
 
 const envelope = { protocolVersion: "0.1", event: { id: "evt_1" } };
 
@@ -26,6 +26,8 @@ function harness(
       maxBackoffMs: 100,
       breakerThreshold: 3,
       breakerCooldownMs: 1_000,
+      retryBudgetMs: 30_000,
+      maxRefusedSends: 10,
       now: () => currentTime,
       sleep: () => Promise.resolve(),
       random: () => 0.5,
@@ -154,6 +156,17 @@ describe("Transport, when the server refuses some events for now", () => {
     };
   }
 
+  /** What a send threw for requeueing, or nothing if it resolved. */
+  async function unsentAfter(send: Promise<void>): Promise<string[]> {
+    const failure: unknown = await send.then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    if (failure === undefined) return [];
+    expect(failure).toBeInstanceOf(UnsentError);
+    return idsOf((failure as UnsentError).unsent);
+  }
+
   it("resends only the refused events, after a backoff, until they are stored", async () => {
     let refuseB = 2;
     const batches: string[][] = [];
@@ -186,9 +199,21 @@ describe("Transport, when the server refuses some events for now", () => {
     });
   });
 
-  it("gives up on an event after the attempt limit rather than holding the queue", async () => {
+  it("hands a refused event back for requeueing once its attempts in a send run out", async () => {
+    // Three refusals inside about 300 ms of backoff said nothing about a
+    // database restart that takes seconds, and used to drop the event.
     const { send, batches } = refusing(["b"]);
+    const { transport, diagnostics } = harness(send);
+
+    expect(await unsentAfter(transport.send(events))).toEqual(["b"]);
+    expect(batches).toEqual([["a", "b", "c", "d"], ["b"], ["b"]]);
+    expect(diagnostics.counters()).toMatchObject({ sent: 3, transportErrors: 1, dropped: 0 });
+  });
+
+  it("drops an event once it has been refused for thirty seconds", async () => {
+    const { send } = refusing(["b"]);
     const seen: string[] = [];
+    let now = 1_000_000;
     const diagnostics = createDiagnostics((d) => seen.push(`${d.kind}|${d.reason}`));
     const transport = new Transport(
       {
@@ -196,41 +221,66 @@ describe("Transport, when the server refuses some events for now", () => {
         maxAttempts: 3,
         baseBackoffMs: 10,
         maxBackoffMs: 100,
-        breakerThreshold: 3,
-        breakerCooldownMs: 1_000,
+        breakerThreshold: 1_000,
+        breakerCooldownMs: 30_000,
+        retryBudgetMs: 30_000,
+        maxRefusedSends: 10,
+        now: () => now,
         sleep: () => Promise.resolve(),
         random: () => 0.5
       },
       diagnostics
     );
 
-    // Resolves rather than rejecting: a rejection would requeue the event to
-    // the front, and an event the server can never store would then lead every
-    // batch for the life of the process.
-    await expect(transport.send(events)).resolves.toBeUndefined();
+    // A send every five seconds, so the time bound and not the send cap is
+    // what decides: the seventh send is thirty seconds after the first refusal.
+    let offered: readonly unknown[] = events.slice(1, 2);
+    for (let send = 1; send <= 6; send += 1) {
+      const failure: unknown = await transport.send(offered).catch((error: unknown) => error);
+      offered = (failure as UnsentError).unsent;
+      expect(idsOf(offered)).toEqual(["b"]);
+      now += 5_000;
+    }
+    expect(diagnostics.counters().dropped).toBe(0);
 
-    expect(batches).toEqual([["a", "b", "c", "d"], ["b"], ["b"]]);
-    expect(diagnostics.counters()).toMatchObject({
-      sent: 3,
-      rejected: 0,
-      transportErrors: 1,
-      dropped: 1
-    });
+    expect(await unsentAfter(transport.send(offered))).toEqual([]);
+    expect(diagnostics.counters().dropped).toBe(1);
     expect(seen.join()).toContain("storage_error");
+  });
+
+  it("drops an event refused in ten sends, even inside thirty seconds", async () => {
+    const { send, batches } = refusing(["b"]);
+    const { transport, diagnostics, advance } = harness(send);
+
+    let offered: readonly unknown[] = events.slice(1, 2);
+    for (let send = 1; send <= 9; send += 1) {
+      offered = ((await transport.send(offered).catch((error: unknown) => error)) as UnsentError)
+        .unsent;
+      advance(1_000);
+    }
+    expect(diagnostics.counters().dropped).toBe(0);
+    expect(await unsentAfter(transport.send(offered))).toEqual([]);
+    expect(diagnostics.counters().dropped).toBe(1);
+    // Ten sends of three attempts each, and not one more.
+    expect(batches).toHaveLength(30);
   });
 
   it("does not open the breaker over one event while the server stores the rest", async () => {
     const { send } = refusing(["b"]);
     const { transport, diagnostics } = harness(send);
-    for (let i = 0; i < 10; i += 1) await transport.send(events);
+    for (let i = 0; i < 12; i += 1) {
+      await transport.send(events).catch(() => undefined);
+    }
     expect(diagnostics.counters().breakerOpened).toBe(0);
-    expect(diagnostics.counters().sent).toBe(30);
+    expect(diagnostics.counters().sent).toBe(36);
   });
 
   it("counts toward the breaker when the server stores nothing", async () => {
     const { send } = refusing(["a", "b", "c", "d"]);
     const { transport, diagnostics } = harness(send, { maxAttempts: 1 });
-    for (let i = 0; i < 3; i += 1) await transport.send(events.map((e) => ({ ...e })));
+    for (let i = 0; i < 3; i += 1) {
+      await transport.send(events.map((e) => ({ ...e }))).catch(() => undefined);
+    }
     expect(diagnostics.counters().breakerOpened).toBe(1);
   });
 
@@ -243,34 +293,6 @@ describe("Transport, when the server refuses some events for now", () => {
       .mockRejectedValue(new Error("network"));
     const { transport } = harness(send);
 
-    const failure: unknown = await transport.send(events).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(Error);
-    expect(idsOf((failure as { unsent: unknown[] }).unsent)).toEqual(["b"]);
-  });
-
-  it("keeps an event's refusals across sends, so a requeue does not reset its limit", async () => {
-    let calls = 0;
-    let refusals = 0;
-    // By call: refuse b, lose the connection twice (so the send fails and b is
-    // handed back for requeueing), then refuse b for as long as it is offered.
-    const send = (batch: readonly unknown[]): Promise<SendOutcome> => {
-      calls += 1;
-      if (calls === 2 || calls === 3) return Promise.reject(new Error("network"));
-      const retry = batch.filter((entry) => idsOf([entry])[0] === "b");
-      refusals += retry.length;
-      return Promise.resolve({ accepted: batch.length - retry.length, retry, reason: "x" });
-    };
-    const { transport, diagnostics } = harness(send);
-
-    const failure: unknown = await transport.send(events).catch((error: unknown) => error);
-    const unsent = (failure as { unsent: unknown[] }).unsent;
-    expect(idsOf(unsent)).toEqual(["b"]);
-
-    // The same object, as the queue hands it back: two more refusals reach the
-    // limit of three, and the transport stops there.
-    await transport.send(unsent);
-    expect(refusals).toBe(3);
-    expect(calls).toBe(5);
-    expect(diagnostics.counters().dropped).toBe(1);
+    expect(await unsentAfter(transport.send(events))).toEqual(["b"]);
   });
 });
