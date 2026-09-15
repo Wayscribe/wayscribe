@@ -183,32 +183,58 @@ describe("a refusal that lasts, on a clock", () => {
     expect(count(sent, "n")).toBeGreaterThan(3);
   });
 
-  it("drops an event the server refuses for thirty seconds, and not before", async () => {
+  it("drops an event refused for thirty seconds by its time budget, and not before", async () => {
+    // The breaker must not be what holds this event back, or the test proves
+    // the breaker's cooldown rather than the budget. So every send also stores
+    // an event, which keeps the breaker closed, and sends are four seconds
+    // apart, so the ten-send cap is not reached first either: the poison is
+    // first refused at 4 s, requeued at 32 s (28 s refused, eighth send), and
+    // given up at 36 s (32 s refused, ninth send).
     const seen: string[] = [];
-    const { sent } = fakeIngestion(() => refused(503, "query_timeout"));
+    const { sent } = fakeIngestion((name) =>
+      name === "poison" ? refused(503, "query_timeout") : accepted
+    );
     const recorder = createRecorder({
       ...base,
       endpoint: "http://ingest.test",
-      batchSize: 1,
+      flushIntervalMs: 4_000,
       onDiagnostic: (d) => seen.push(`${d.kind}|${d.reason}`)
     });
-    recorder
-      .startJourney({ entity: { type: "customer", id: "1" } })
-      .record({ operation: "received", name: "n" });
+    const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
+    journey.record({ operation: "received", name: "poison" });
+    journey.record({ operation: "received", name: "ok" });
 
-    await vi.advanceTimersByTimeAsync(29_000);
-    expect(recorder.diagnostics().dropped).toBe(0);
+    /** Moves the clock to `seconds` past the start, recording one event every 4 s. */
+    async function until(seconds: number): Promise<void> {
+      while (Date.now() - START < seconds * 1_000) {
+        const step = Math.min(
+          4_000 - ((Date.now() - START) % 4_000),
+          seconds * 1_000 - (Date.now() - START)
+        );
+        await vi.advanceTimersByTimeAsync(step);
+        if ((Date.now() - START) % 4_000 === 0) {
+          journey.record({ operation: "received", name: "ok" });
+        }
+      }
+    }
 
-    await vi.advanceTimersByTimeAsync(31_000);
-    expect(recorder.diagnostics()).toMatchObject({ sent: 0, dropped: 1, rejected: 0 });
-    expect(seen.some((line) => line.startsWith("dropped|") && line.includes("query_timeout"))).toBe(
+    // Past the eighth send, at 32 s, and its retries: refused for 28 s.
+    await until(35);
+    expect(recorder.diagnostics()).toMatchObject({ dropped: 0, breakerOpened: 0 });
+
+    // The ninth send, at 36 s: refused for 32 s, so given up on.
+    await until(37);
+    expect(recorder.diagnostics()).toMatchObject({ dropped: 1, rejected: 0, breakerOpened: 0 });
+    expect(seen.some((line) => line.startsWith("dropped|") && line.includes("30 seconds"))).toBe(
       true
     );
+    // Three attempts in each of eight sends and one in the ninth: under the
+    // ten-send cap, so the time budget is what ended it.
+    expect(count(sent, "poison")).toBe(25);
 
     // Given up means given up: nothing more is sent for it.
-    const attempts = count(sent, "n");
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(count(sent, "n")).toBe(attempts);
+    await until(60);
+    expect(count(sent, "poison")).toBe(25);
   });
 
   it("does not slow a steady stream while one event in it is refused", async () => {
