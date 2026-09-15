@@ -87,6 +87,21 @@ helm:
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
       --set api.metricsPort=9464
       > /dev/null
+    # NetworkPolicies are off by default too, and have a branch for the bundled
+    # database and one for an external one.
+    - helm template fr deploy/helm/flight-recorder
+      --set postgresql.enabled=true
+      --set networkPolicy.enabled=true
+      --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
+      --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
+      > /dev/null
+    - helm template fr deploy/helm/flight-recorder
+      --set databaseUrl=postgresql://u:p@db.internal:5432/fr
+      --set networkPolicy.enabled=true
+      --set networkPolicy.database.to[0].ipBlock.cidr=10.0.0.0/24
+      --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
+      --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
+      > /dev/null
     # And refuses a metrics port equal to the API's. An `if`, not `!`: a
     # negated command does not fail a job under `set -e`.
     - if helm template fr deploy/helm/flight-recorder
