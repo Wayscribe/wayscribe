@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ApiUnavailableError, ProjectNotSelectedError, search } from "../../src/lib/api";
 import { requireProjectId } from "../../src/lib/current-project";
+import { JourneyRow } from "../components/JourneyRow";
 
 export default async function SearchPage({
   searchParams
@@ -12,7 +13,10 @@ export default async function SearchPage({
 
   return (
     <main>
-      <h1>Find a record</h1>
+      <header className="page-heading">
+        <h1>Find a record</h1>
+        <Link href="/recent">No identifier? See recent failures</Link>
+      </header>
       <p className="muted">
         Search any identifier you have — a customer ID, an external reference, a trace or message
         ID. You do not need to know which system it came from.
@@ -67,18 +71,7 @@ async function Results({ query }: { query: string }) {
   return (
     <ul className="results">
       {items.map((item) => (
-        <li key={item.journeyId}>
-          <Link href={`/journeys/${item.journeyId}`} className="mono">
-            {item.entity.type}: {item.entity.id ?? "—"}
-          </Link>
-          <span className={item.status === "failed" ? "status failed" : "status"}>
-            {item.status}
-          </span>
-          <span className="muted">
-            {item.eventCount} events · last activity{" "}
-            {item.lastEventAt.slice(0, 19).replace("T", " ")}
-          </span>
-        </li>
+        <JourneyRow key={item.journeyId} item={item} />
       ))}
     </ul>
   );

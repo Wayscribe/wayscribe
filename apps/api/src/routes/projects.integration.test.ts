@@ -26,6 +26,9 @@ describe("GET /v1/projects", () => {
       project_id: projectA,
       name: "development"
     });
+    // Inserted out of order, so the response's order is the route's doing.
+    await insertReturningId(db, "environments", { project_id: projectA, name: "staging" });
+    await insertReturningId(db, "environments", { project_id: projectA, name: "production" });
 
     const generated = issueApiKey(keyring);
     apiKey = generated.apiKey;
@@ -60,6 +63,23 @@ describe("GET /v1/projects", () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.data.items.map((p: { slug: string }) => p.slug)).toEqual(["alpha", "zebra"]);
+  });
+
+  it("names each project's environments, sorted, for the Recent page's filter", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/projects",
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` }
+    });
+
+    expect(response.statusCode).toBe(200);
+    const items = response.json<{ data: { items: { slug: string; environments: unknown }[] } }>()
+      .data.items;
+    expect(items.map((p) => [p.slug, p.environments])).toEqual([
+      // A project with no environments yet still has the field.
+      ["alpha", []],
+      ["zebra", ["development", "production", "staging"]]
+    ]);
   });
 
   it("rejects a valid API key", async () => {

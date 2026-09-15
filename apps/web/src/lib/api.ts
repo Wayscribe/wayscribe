@@ -57,6 +57,8 @@ export interface ProjectSummary {
   id: string;
   name: string;
   slug: string;
+  /** Environment names, sorted. */
+  environments: string[];
 }
 
 export interface ReplayDestination {
@@ -157,6 +159,24 @@ export async function search(query: string, projectId: string): Promise<SearchIt
     projectId
   );
   return data?.items ?? [];
+}
+
+export interface RecentItem extends SearchItem {
+  environment: string;
+}
+
+export interface RecentPage {
+  items: RecentItem[];
+  nextCursor: string | null;
+}
+
+/**
+ * One page of recent journeys. `query` comes from `recentJourneysQuery`, which
+ * owns what the Recent page's filters mean.
+ */
+export async function listRecentJourneys(query: string, projectId: string): Promise<RecentPage> {
+  const data = await get<RecentPage>(`/v1/journeys?${query}`, projectId);
+  return data ?? { items: [], nextCursor: null };
 }
 
 export const getJourney = (journeyId: string, projectId: string): Promise<JourneyDetail | null> =>
