@@ -14,5 +14,6 @@ export {
   type Limits
 } from "./limits.js";
 export { CIRCULAR, REDACTED, redact } from "./redact.js";
+export { maskSecretsInText } from "./mask-text.js";
 export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
 export { toStorable, toStorableText } from "./storable.js";

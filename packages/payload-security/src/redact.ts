@@ -73,7 +73,7 @@ function anyDepthName(path: string): string | undefined {
  * `secretary`, because the point is one name spelled differently, not one name
  * resembling another.
  */
-function normaliseName(name: string): string {
+export function normaliseName(name: string): string {
   const lower = name.toLowerCase();
   return lower.includes("_") || lower.includes("-") ? lower.replace(/[-_]/g, "") : lower;
 }
