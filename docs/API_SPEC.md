@@ -85,7 +85,11 @@ Any route that queries the database can answer `503` with code `query_timeout`
 when a statement runs past `DATABASE_STATEMENT_TIMEOUT_MS` (15 seconds by
 default) and is cancelled. It is transient: retrying later, or narrowing the
 request, is the right response. In a batch, an event whose statement was
-cancelled is refused on its own with `query_timeout` and `httpStatus` 503.
+cancelled is refused on its own with `query_timeout` and `httpStatus` 503
+(section 4).
+
+A request that matches no route gets `404` with code `not_found`, in this shape.
+Its message names the method and path, never the query string.
 
 ## 3. Ingest one event
 

@@ -115,6 +115,15 @@ changes far less often.
 
 ### Security
 
+- **Searched identifiers no longer reach the API's log.** Fastify's request log
+  line carried `req.url` whole, so every `GET /v1/search?q=…` wrote the searched
+  value, usually a customer identifier, to the log at `info`, along with the
+  Recent page's filters. Its not-found handler did the same in a line of its
+  own and echoed the URL in its response. Request lines now carry the path and
+  the parameter names, with every value replaced by `[REDACTED]`, and a request
+  that matches no route gets the API's usual error shape, `404 not_found`,
+  naming only the path. Logs kept from earlier versions still hold those values
+  (`docs/OPERATIONS.md` §13).
 - **Built-in secret redaction now applies at any depth.** The shipped list paired
   each name with its `*.name` form, which together reached the top level of a
   payload and one level below it — and nothing inside an array, since an array

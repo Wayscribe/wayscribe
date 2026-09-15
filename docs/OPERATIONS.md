@@ -773,6 +773,34 @@ one client, so there set the timeout on the database role instead
 `migrate` may build an index on a large table for a long time, and
 `rotate:reencrypt` and the deletion commands bound each statement by batch size.
 
+### Logs
+
+The API writes JSON lines to standard output, at `LOG_LEVEL`
+(`info` by default). At `info`, every request writes a line when it arrives and
+one when it completes.
+
+A request line carries the method, the path, and the names of its query
+parameters with every value replaced by `[REDACTED]`:
+
+```json
+{ "req": { "method": "GET", "url": "/v1/search?q=[REDACTED]&limit=[REDACTED]" } }
+```
+
+A searched value is usually a customer identifier, and the Recent page's filters
+name services and environments, so no query value is ever logged. A parameter
+name that does not look like one (an email address pasted without `=`, or
+anything longer than 64 characters) is replaced too. The path is logged whole,
+so a journey id in `/v1/journeys/:journeyId` does appear. A request that matches
+no route writes no line of its own beyond these two.
+
+Headers are not logged. As a second guard, the logger censors `authorization`
+and `cookie` in any `headers` object a log call includes, and also `x-api-key`,
+`x-flight-api-key`, and a response's `set-cookie` under `req` and `res`.
+
+Before this, the request line carried the full URL, so logs kept from an earlier
+version hold searched identifiers and Recent filters in the clear. Treat them as
+personal data, and let them age out or delete them.
+
 ## 14. When something is wrong
 
 | Symptom | Look at |

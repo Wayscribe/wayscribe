@@ -3,6 +3,7 @@ import type { Keyring } from "@flight-recorder/payload-security";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Knex } from "knex";
 import { unknownKeyWarning } from "./key-warnings.js";
+import { serializeRequest } from "./log-url.js";
 import { createApiMetrics, type ApiMetrics } from "./metrics/api-metrics.js";
 import { registerDeletionRoutes } from "./routes/deletions.js";
 import { registerEventRoutes } from "./routes/events.js";
@@ -82,15 +83,15 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     logger: {
       level: options.logLevel ?? "info",
       redact: { paths: LOG_REDACT_PATHS, censor: "[REDACTED]" },
+      // The default serialiser logged `req.url` with its query string, so a
+      // search wrote the searched identifier into every request log line.
+      serializers: { req: serializeRequest },
       ...(options.logStream === undefined ? {} : { stream: options.logStream })
     },
     bodyLimit: options.bodyLimit ?? MAX_BATCH_EVENTS * maxEventPayloadBytes + BODY_LIMIT_HEADROOM,
     routerOptions: { maxParamLength: MAX_PARAM_LENGTH }
   });
 
-  // One error shape for every failure, including the ones Fastify raises before
-  // a route runs. Without this a 413 or a malformed-JSON 400 comes back in
-  // Fastify's own shape, and a client parsing `error.code` finds nothing.
   const metrics = options.metrics ?? createApiMetrics(options.db);
 
   // Counted in onResponse, once the status is final. The route label is the
@@ -106,6 +107,25 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     );
   });
 
+  // Fastify's own not-found handler logged `Route GET:<url> not found` with the
+  // query string, and echoed the URL in a body of its own shape. This logs
+  // nothing beyond the request line, which the serialiser has made safe, and
+  // answers in the API's error shape.
+  app.setNotFoundHandler((request, reply) =>
+    reply
+      .code(404)
+      .send(
+        errorBody(
+          "not_found",
+          `No route matches ${request.method} ${request.url.split("?")[0] ?? ""}.`,
+          request.id
+        )
+      )
+  );
+
+  // One error shape for every failure, including the ones Fastify raises before
+  // a route runs. Without this a 413 or a malformed-JSON 400 comes back in
+  // Fastify's own shape, and a client parsing `error.code` finds nothing.
   app.setErrorHandler((error: unknown, request, reply) => {
     if (isStatementTimeout(error)) {
       const route = request.routeOptions.url;
