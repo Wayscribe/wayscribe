@@ -87,6 +87,26 @@ changes far less often.
 
 ### Added
 
+- **Dry-run validation.** `POST /v1/events/batch?dryRun=true` runs the whole
+  batch and rolls it back, answering `200` with `data.dryRun: true` and the same
+  per-event results a real send would have given. An accepted, non-duplicate
+  result also carries `stored`: the event as `GET /v1/events/:eventId` returns
+  it, without `receivedAt`, and the journey as `GET /v1/journeys/:journeyId`
+  returns it, both read inside the transaction through the same presenters the
+  read routes use. Nothing is written: no event, journey, alias, summary or
+  audit row. The key's `last_used_at` still moves and a verifier under the
+  previous key is still migrated, because a key a conformance job uses is a key
+  in use. Dry-run events are not counted in the ingested-events metric. The
+  parameter is strictly `true` or `false` and may be given once; anything else
+  is `400 invalid_query`, and `POST /v1/events` refuses it outright rather than
+  ignoring it, so a client that guessed the wrong route cannot store events
+  while believing it validated them (ADR-050).
+- **Generated JSON Schema for the wire shapes**, under
+  `packages/protocol/schemas/0.1/`, exported from the package as `./schemas/*`.
+  Nine files in draft 2020-12, generated from the Zod schemas and checked byte
+  for byte by a unit test, covering the event, the envelope, the batch request
+  and response, one per-event verdict, the single-event 202, the error body, and
+  the stored event and journey a dry run previews (ADR-049).
 - **The SDK says when it is connected, when asked.** `logDiagnostics: true`
   writes each diagnostic to `console.error` as one `[flight-recorder]` line, at
   most one per kind per minute with a count of suppressed repeats, and a new

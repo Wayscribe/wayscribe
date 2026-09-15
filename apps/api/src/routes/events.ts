@@ -1,10 +1,18 @@
-import { isStatementTimeout, touchApiKey } from "@flight-recorder/database";
+import {
+  findEventDetail,
+  findJourneyDetail,
+  isStatementTimeout,
+  touchApiKey,
+  type ApiKeyContext
+} from "@flight-recorder/database";
 import type { Keyring } from "@flight-recorder/payload-security";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { Knex } from "knex";
 import { databaseApiKeys, logVerifierReplaceFailure, resolveApiKey } from "../auth.js";
 import { ingestEvent, type IngestResult } from "../ingestion/ingest-event.js";
 import { MAX_BATCH_EVENTS } from "@flight-recorder/protocol";
 import type { EventResult } from "../metrics/api-metrics.js";
+import { presentEvent, presentJourneyDetail } from "./present.js";
 
 /**
  * How stale `last_used_at` is allowed to get.
@@ -37,6 +45,8 @@ interface BatchResult {
   eventId: string | null;
   status: "accepted" | "rejected";
   duplicate?: boolean;
+  /** A dry run only: what this event would have stored, read inside the transaction. */
+  stored?: { event: unknown; journey: unknown };
   /**
    * `httpStatus` is what the same rejection would have returned from the
    * single-event route. It rides along because the batch route always replies
@@ -60,6 +70,20 @@ export function registerEventRoutes(
   const apiKeys = databaseApiKeys(app.db, keyring, logVerifierReplaceFailure(app.log));
 
   app.post("/v1/events", async (request, reply) => {
+    // Refused rather than ignored. Ignoring it would mean a client that guessed
+    // the wrong route stored real events while believing it had validated them.
+    if ((request.query as { dryRun?: unknown }).dryRun !== undefined) {
+      return reply
+        .code(400)
+        .send(
+          errorBody(
+            "invalid_query",
+            "dryRun is only available on POST /v1/events/batch. This route always stores.",
+            request.id
+          )
+        );
+    }
+
     const auth = await resolveApiKey(request.headers.authorization, apiKeys);
     if (!auth.ok) {
       return reply.code(auth.status).send(errorBody(auth.code, auth.message, request.id));
@@ -109,11 +133,21 @@ export function registerEventRoutes(
   });
 
   app.post("/v1/events/batch", async (request, reply) => {
+    const dryRun = parseDryRun(request.query);
+    if (!dryRun.ok) {
+      return reply.code(400).send(errorBody("invalid_query", dryRun.message, request.id));
+    }
+
     const auth = await resolveApiKey(request.headers.authorization, apiKeys);
     if (!auth.ok) {
       return reply.code(auth.status).send(errorBody(auth.code, auth.message, request.id));
     }
 
+    // A dry run is a key in use: it is what a conformance job in CI runs, and
+    // leaving `last_used_at` stale would invite an operator to revoke the key
+    // CI depends on. The verifier migration rides along for the same reason.
+    // Both are about the key rather than about the events, and "nothing is
+    // stored" means no event, journey, alias, summary or audit row.
     touch(app, auth.context.id);
 
     const body = request.body as { events?: unknown } | undefined;
@@ -137,63 +171,214 @@ export function registerEventRoutes(
         );
     }
 
-    const results: BatchResult[] = [];
-    for (const event of events) {
-      // Sequential and independent: one event's failure never affects another's.
-      //
-      // That was a claim rather than a fact until this try/catch existed. An
-      // unstorable value — a NUL byte from a fixed-width export, a lone
-      // surrogate from a sliced emoji — threw out of ingestEvent, escaped the
-      // loop, and returned a 500 that discarded every event in the batch,
-      // including the ones already stored.
-      let result;
-      try {
-        result = await ingestEvent(
-          app.db,
-          keyring,
-          auth.context,
-          event,
-          maxEventPayloadBytes,
-          allowFullPayload
-        );
-      } catch (error) {
-        if (isStatementTimeout(error)) {
-          // Answered per event, like any storage failure, but as a 503 so the
-          // SDK retries it. Logged without the error, which carries the SQL.
-          app.metrics.countQueryTimeout(request.routeOptions.url);
-          app.log.warn(
-            { route: request.routeOptions.url, requestId: request.id },
-            "database statement cancelled by DATABASE_STATEMENT_TIMEOUT_MS"
-          );
-          result = QUERY_TIMEOUT_REJECTION;
-        } else {
-          app.log.warn({ err: error }, "event rejected by storage");
-          result = storageRejection(error);
-        }
-      }
-      app.metrics.countEvent(eventResult(result));
-      results.push(
-        result.status === "accepted"
-          ? {
-              eventId: result.eventId,
-              status: "accepted",
-              duplicate: result.duplicate ?? false
-            }
-          : {
-              eventId: result.eventId,
-              status: "rejected",
-              error: {
-                code: result.code,
-                message: result.message,
-                httpStatus: result.httpStatus,
-                ...(result.details === undefined ? {} : { details: result.details })
-              }
-            }
-      );
+    const context = {
+      app,
+      keyring,
+      request,
+      auth: auth.context,
+      maxEventPayloadBytes,
+      allowFullPayload
+    };
+
+    if (!dryRun.value) {
+      const results = await ingestBatch(context, app.db, events, false);
+      return reply.code(202).send({ data: { results } });
     }
 
-    return reply.code(202).send({ data: { results } });
+    const results = await previewBatch(context, events);
+    // One line, because a dry run leaves no row behind and would otherwise be
+    // entirely invisible to the operator whose data it probed. No values, and
+    // no ids from the events.
+    app.log.info(
+      {
+        requestId: request.id,
+        apiKeyId: auth.context.id,
+        events: results.length,
+        accepted: results.filter((one) => one.status === "accepted").length,
+        rejected: results.filter((one) => one.status === "rejected").length
+      },
+      "dry-run batch validated, nothing stored"
+    );
+    // 200 rather than 202: nothing was accepted for processing.
+    return reply.code(200).send({ data: { dryRun: true, results } });
   });
+}
+
+/** Everything the batch loop needs that does not change between events. */
+interface BatchContext {
+  app: FastifyInstance;
+  keyring: Keyring;
+  request: FastifyRequest;
+  auth: ApiKeyContext;
+  maxEventPayloadBytes: number;
+  allowFullPayload: boolean;
+}
+
+/**
+ * Run the whole batch inside one transaction and roll it back before replying.
+ *
+ * A dry run is a real ingestion that is rolled back, not a second
+ * implementation of the rules, and the reasons are specific. Only the insert
+ * discovers `unstorable_payload`, since PostgreSQL is what refuses a NUL byte
+ * or an unpaired surrogate and nothing in front of it does. `jsonb` settles key
+ * order and duplicate keys, so a preview read back out of the transaction is
+ * the stored form rather than a guess at it. And ordering inside a batch
+ * matters: the same event id twice is an accept and a duplicate, and a journey
+ * created by the first event is what the second is checked against, so per-event
+ * isolation without a shared outer transaction would answer both differently.
+ *
+ * The rollback is unconditional. The results are carried out through a throw so
+ * that knex rolls back on every path, including the one where an event threw
+ * past the loop's own handler.
+ */
+async function previewBatch(context: BatchContext, events: unknown[]): Promise<BatchResult[]> {
+  try {
+    await context.app.db.transaction(async (trx) => {
+      throw new DryRunFinished(await ingestBatch(context, trx, events, true));
+    });
+  } catch (error) {
+    if (error instanceof DryRunFinished) return error.results;
+    throw error;
+  }
+  // knex has already rejected with DryRunFinished by here; this satisfies the
+  // return type rather than describing a reachable state.
+  throw new Error("The dry-run transaction committed, which it must never do.");
+}
+
+/** Carries a finished dry run's results out through the rollback. */
+class DryRunFinished extends Error {
+  constructor(readonly results: BatchResult[]) {
+    super("dry run finished");
+    this.name = "DryRunFinished";
+  }
+}
+
+async function ingestBatch(
+  context: BatchContext,
+  db: Knex,
+  events: unknown[],
+  preview: boolean
+): Promise<BatchResult[]> {
+  const { app, request } = context;
+  const results: BatchResult[] = [];
+
+  for (const event of events) {
+    // Sequential and independent: one event's failure never affects another's.
+    //
+    // That was a claim rather than a fact until this try/catch existed. An
+    // unstorable value — a NUL byte from a fixed-width export, a lone
+    // surrogate from a sliced emoji — threw out of ingestEvent, escaped the
+    // loop, and returned a 500 that discarded every event in the batch,
+    // including the ones already stored.
+    //
+    // Under a dry run `db` is the outer transaction, so ingestEvent's own
+    // `db.transaction` opens a savepoint: a throw rolls back that event alone
+    // and leaves the outer transaction usable for the rest of the batch.
+    let result;
+    try {
+      result = await ingestEvent(
+        db,
+        context.keyring,
+        context.auth,
+        event,
+        context.maxEventPayloadBytes,
+        context.allowFullPayload
+      );
+    } catch (error) {
+      if (isStatementTimeout(error)) {
+        // Answered per event, like any storage failure, but as a 503 so the
+        // SDK retries it. Logged without the error, which carries the SQL.
+        app.metrics.countQueryTimeout(request.routeOptions.url);
+        app.log.warn(
+          { route: request.routeOptions.url, requestId: request.id },
+          "database statement cancelled by DATABASE_STATEMENT_TIMEOUT_MS"
+        );
+        result = QUERY_TIMEOUT_REJECTION;
+      } else {
+        app.log.warn({ err: error }, "event rejected by storage");
+        result = storageRejection(error);
+      }
+    }
+
+    // A validation is not an ingestion. An operator alerting on rejected events
+    // must not be paged by a conformance suite that sends refusals on purpose.
+    if (!preview) app.metrics.countEvent(eventResult(result));
+
+    results.push(
+      result.status === "accepted"
+        ? {
+            eventId: result.eventId,
+            status: "accepted",
+            duplicate: result.duplicate ?? false,
+            ...(preview ? await previewStored(context, db, result) : {})
+          }
+        : {
+            eventId: result.eventId,
+            status: "rejected",
+            error: {
+              code: result.code,
+              message: result.message,
+              httpStatus: result.httpStatus,
+              ...(result.details === undefined ? {} : { details: result.details })
+            }
+          }
+    );
+  }
+
+  return results;
+}
+
+/**
+ * What this event would have stored, read back inside the transaction.
+ *
+ * Through the same repository functions and the same presenters the read routes
+ * use, so a conformance case can state an expected stored event against a shape
+ * the API already publishes rather than against a private representation. It is
+ * omitted for a duplicate, where nothing new would have been written.
+ *
+ * `receivedAt` is dropped: the row has one, because the insert really happened,
+ * and it describes a moment that is about to be rolled away.
+ */
+async function previewStored(
+  context: BatchContext,
+  db: Knex,
+  result: IngestResult
+): Promise<{ stored?: { event: unknown; journey: unknown } }> {
+  if (result.duplicate === true || result.eventId === null || result.journeyId === null) return {};
+
+  const scope = { projectId: context.auth.projectId, environmentId: context.auth.environmentId };
+  const [event, journey] = await Promise.all([
+    findEventDetail(db, scope, result.eventId),
+    findJourneyDetail(db, scope, result.journeyId)
+  ]);
+  if (event === undefined || journey === undefined) return {};
+
+  const { receivedAt: _omitted, ...previewed } = presentEvent(event);
+  return {
+    stored: {
+      event: previewed,
+      journey: presentJourneyDetail(context.keyring, journey)
+    }
+  };
+}
+
+/**
+ * The `dryRun` query parameter: strictly `true` or `false`, and given once.
+ *
+ * Anything else is refused rather than read loosely. A client that wrote
+ * `dryRun=1` and had it read as false would believe it had validated a batch it
+ * had actually stored, and that silence is the failure mode this repository
+ * keeps finding in its own history.
+ */
+function parseDryRun(
+  query: unknown
+): { ok: true; value: boolean } | { ok: false; message: string } {
+  const raw = (query as { dryRun?: unknown }).dryRun;
+  if (raw === undefined) return { ok: true, value: false };
+  if (Array.isArray(raw)) return { ok: false, message: "dryRun must be given once." };
+  if (raw === "true") return { ok: true, value: true };
+  if (raw === "false") return { ok: true, value: false };
+  return { ok: false, message: "dryRun must be true or false." };
 }
 
 function errorBody(code: string, message: string, requestId: string): unknown {

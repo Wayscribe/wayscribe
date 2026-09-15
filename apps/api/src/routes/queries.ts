@@ -16,7 +16,7 @@ import {
   resolvePrincipal,
   type Principal
 } from "../principal.js";
-import { presentAliases, presentEntityId, presentJourneySummary } from "./present.js";
+import { presentEvent, presentJourneyDetail, presentJourneySummary } from "./present.js";
 import { parseRecentJourneysQuery } from "./recent-query.js";
 
 const DEFAULT_LIMIT = 25;
@@ -169,23 +169,7 @@ export function registerQueryRoutes(
       return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
     }
 
-    return reply.send({
-      data: {
-        journeyId: detail.journeyId,
-        environment: detail.environment,
-        entity: {
-          type: detail.entityType,
-          id: presentEntityId(keyring, detail.encryptedPrimaryEntityId, warnUnknownKey)
-        },
-        status: detail.status,
-        aliases: presentAliases(keyring, detail.aliases, warnUnknownKey),
-        services: detail.services,
-        eventCount: detail.eventCount,
-        startedAt: detail.startedAt.toISOString(),
-        completedAt: detail.completedAt?.toISOString() ?? null,
-        lastEventAt: detail.lastEventAt.toISOString()
-      }
-    });
+    return reply.send({ data: presentJourneyDetail(keyring, detail, warnUnknownKey) });
   });
 
   app.get("/v1/journeys/:journeyId/events", async (request, reply) => {
@@ -238,13 +222,7 @@ export function registerQueryRoutes(
       return reply.code(404).send(errorBody("not_found", "Event not found.", request.id));
     }
 
-    return reply.send({
-      data: {
-        ...detail,
-        eventTimestamp: detail.eventTimestamp.toISOString(),
-        receivedAt: detail.receivedAt.toISOString()
-      }
-    });
+    return reply.send({ data: presentEvent(detail) });
   });
 }
 

@@ -1948,3 +1948,98 @@ so adding a code later stays a compatible change.
 - **Becoming a pure OpenTelemetry backend.** The input and output pairing the payload diff
   depends on becomes a convention nobody enforces, and it is a pivot before any user asked for
   one.
+
+---
+
+## ADR-050: A dry run is a real ingestion that is rolled back
+
+**Status:** Accepted. Follows ADR-049, which makes the contract the deliverable.
+
+### Context
+
+ADR-049 publishes conformance fixtures so that an implementation that is not this
+repository can check itself against the real server. Running them means sending events, and
+sending events means storing them: a conformance suite that sends refusals on purpose would
+leave a trail of journeys in whatever database it ran against, and a mapping under development
+would pollute the environment it was being developed against.
+
+A validation endpoint that answered from a second implementation of the rules would be worse
+than none. It would answer confidently about a server that behaves differently, and the first
+divergence would be invisible.
+
+### Decision
+
+`POST /v1/events/batch?dryRun=true` runs the whole batch inside one transaction, each event
+through the same `ingestEvent` inside a savepoint, and rolls the transaction back before
+replying. It answers `200`, not `202`, because nothing was accepted for processing, and its
+body is a batch response with `data.dryRun: true`.
+
+An accepted, non-duplicate result carries `stored`: the event as `GET /v1/events/:eventId`
+returns it, without `receivedAt`, and the journey as `GET /v1/journeys/:journeyId` returns it,
+both read inside the transaction through the same repository functions and the same presenters
+the read routes use. That is what lets a fixture state an expected stored event against a shape
+the API already publishes rather than against a private representation.
+
+The flag is a query parameter rather than a body field, so a conformance case's body is the
+same bytes whether it is sent for real or validated. It is strictly `true` or `false`, given
+once; anything else is `400 invalid_query`. `POST /v1/events` refuses the parameter entirely,
+rather than ignoring it, because a client that guessed the wrong route would otherwise store
+real events while believing it had validated them.
+
+### Why a rolled-back real ingestion, and not the alternatives
+
+- **A separate validation path** would have to reimplement PostgreSQL's rules. Only the insert
+  discovers `unstorable_payload`: a NUL byte and an unpaired surrogate are refused by the
+  database, not by any check in front of it. It would also have to guess at what `jsonb`
+  normalizes, since key order and duplicate keys are settled by the database.
+- **Per-event isolation without a shared outer transaction** would answer ordering wrong. The
+  same event id twice in one batch is an accept and a duplicate, and a journey created by the
+  first event is what the second event is checked against.
+- This is the property ADR-045 chose for the deletion dry runs, for the same reason: they read
+  through the same selection the deletion uses.
+
+### Bookkeeping
+
+A dry run updates the key's `last_used_at`, under the same once-a-minute throttle, and a key
+whose verifier is under the previous key is still migrated onto the current one. Both answer
+"is this key in use", and a key used only by a conformance job in CI is in use: leaving it
+stale would invite an operator to revoke the key CI depends on, and skipping the migration
+would leave that key failing once a rotation's grace period ended. Those two writes are about
+the key rather than about the events. "Nothing is stored" here means no event, journey, alias,
+summary or audit row.
+
+Dry-run events are not counted in the ingested-events counter, because an operator alerting on
+rejected events must not be paged by a conformance suite that sends refusals on purpose. No new
+metric is added: a counter's name would carry the product name this work must not freeze, and a
+count of validations is not something to alert on. HTTP request metrics count the request as
+usual.
+
+One line is logged per dry-run request at info level, with the request id, the API key's row id
+and the counts of events, accepted and rejected. No values and no ids from the events.
+
+### Cost, and rate of use
+
+No separate rate limit and no separate body or batch limit. Ingestion has none today, and
+inventing one only for the dry run would be a control in the wrong place. A dry run costs what a
+real send costs plus the rollback, and it holds its row locks for the length of the batch rather
+than the length of one event, so a conformance run should use its own environment and its own
+journey ids rather than journeys a live service is writing to. An SDK must not use it in normal
+operation; it is for conformance suites, for a setup check, and for a mapping under development.
+
+### Security consequences
+
+- **It is a probe that leaves no row.** Testing whether an event id or a journey id exists means
+  sending an event today, and a wrong guess stores a journey somebody can see. A dry run answers
+  `event_id_conflict` or `journey_environment_mismatch` without writing anything. It needs an
+  ingest key for the project, it cannot read any value back beyond what the caller sent, and
+  journey ids are random so they cannot be guessed (ADR-038). The info log line is the
+  compensating trace.
+- **The online confirmation oracle of ADR-048 is unchanged in kind.** Somebody holding an ingest
+  key and database read access can already confirm a guess at a masked value by resending a
+  rebuilt event. The dry run makes that quieter, not cheaper, and it is one request per guess
+  either way.
+- **The preview returns only what the caller sent**, after this installation's own capture,
+  redaction and masking, to the key that sent it. It does disclose the shape of the environment's
+  redaction policy, which the caller can already infer by sending an event and reading it back.
+- **The transaction holds its locks longer.** A batch of a hundred events holds every row it
+  touched until the rollback, where a real send releases each after its own event.
