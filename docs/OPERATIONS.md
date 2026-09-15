@@ -362,12 +362,15 @@ concurrently (ADR-026), and deletes in bounded batches.
 
 Deleting a journey removes its events, aliases, and replay runs by cascade.
 
-Retention stops while the API is down and resumes on the next start. There is no
-metrics endpoint; each sweep that deleted anything writes one line:
+Retention stops while the API is down and resumes on the next start. Each sweep
+that deleted anything writes one line:
 
 ```json
 { "journeysDeleted": 1420, "batches": 2, "environmentsExamined": 3, "durationMs": 91 }
 ```
+
+A sweep that stops completing writes nothing at all, which is why its outcome
+is also a metric (§13).
 
 Retention is not the only way data leaves: §8 deletes a journey, an identifier,
 or a time window on demand.
@@ -608,11 +611,175 @@ ignore. The first run found seven CVEs in `npm` and `corepack`, which the base
 image ships and the runtime never uses; both Dockerfiles now delete them, which
 is a smaller attack surface as well as a clean scan.
 
-## 12. When something is wrong
+## 12. Checking an installation
+
+`doctor` checks an installation end to end and says what to fix. Run it after
+`key:create`, after an upgrade, and whenever something looks wrong. It is in the
+API image, like the other commands:
+
+```bash
+docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
+```
+
+From a checkout, `pnpm doctor -- --api-url http://localhost:8080 --api-key fr_…`
+reads the repository-root `.env`.
+
+Run it with the API's environment, because that is what it checks: the same
+`DATABASE_URL`, `ENCRYPTION_KEY`, `ADMIN_TOKEN`, and
+`DATABASE_STATEMENT_TIMEOUT_MS`. `docker compose run … api` gives it exactly
+that. Inside Compose the API is `http://api:8080`, not `localhost`.
+
+Each check prints one line, and anything that did not pass prints its fix
+beneath it:
+
+| Check | Fails when | Warns when |
+| --- | --- | --- |
+| Database reachable | the connection is refused, the host does not resolve, or authentication fails | |
+| PostgreSQL version | below 15 | below 17, the version CI tests |
+| Migrations | any are pending | |
+| `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
+| Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
+| Projects and keys | | no project, or no unrevoked API key |
+| API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
+| API reachable (`--api-url`) | `GET /ready` does not answer 200; its `reason` is printed | |
+| Statement timeout | the value is invalid | it is 0 |
+
+A check that depends on one that failed prints `SKIP` rather than failing a
+second time: with migrations pending, nothing that reads the tables runs. The
+exit code is 1 when anything failed and 0 otherwise, so warnings do not break a
+script.
+
+The API key is checked locally, with the keyring, and never sent anywhere. The
+output names its prefix and the project and environment it belongs to, which is
+the environment every event it sends must name. Doctor never prints the database
+password, the admin token, either encryption key, or more of a key than its
+prefix, and it changes nothing: it does not record the key as used and does not
+move a verifier during a rotation.
+
+## 13. Monitoring
+
+### Metrics
+
+Set `METRICS_PORT` and the API serves Prometheus metrics at `/metrics` on that
+port, and only there: `/metrics` on the API port is 404, so publishing ingestion
+never publishes metrics by accident. Unset, which is the default, nothing listens
+(ADR-047).
+
+Neither Compose file publishes the port. A Prometheus on the same Compose network
+scrapes `api:9464`; one on the host needs a loopback mapping in an override file:
+
+```yaml
+# compose.override.yaml
+services:
+  api:
+    ports:
+      - "127.0.0.1:9464:9464"
+```
+
+With Helm, `api.metricsPort` adds a container port named `metrics` that no
+Service carries; scrape the pods.
+
+The endpoint has no authentication. It carries no request values, but it does
+describe traffic, so keep it on a network only your monitoring reaches.
+
+| Metric | Type | Labels |
+| --- | --- | --- |
+| `flight_recorder_http_requests_total` | counter | `method`, `route`, `status` |
+| `flight_recorder_http_request_duration_seconds` | histogram | `method`, `route` |
+| `flight_recorder_events_total` | counter | `result`: `accepted`, `duplicate`, `rejected` |
+| `flight_recorder_query_timeouts_total` | counter | `route` |
+| `flight_recorder_db_pool_connections` | gauge | `state`: `used`, `free`, `pending` |
+| `flight_recorder_retention_sweep_runs_total` | counter | `outcome`: `completed`, `locked`, `stopped_early`, `failed` |
+| `flight_recorder_retention_journeys_deleted_total` | counter | |
+| `flight_recorder_retention_last_success_timestamp_seconds` | gauge | |
+| `flight_recorder_unreadable_values` | gauge | `table` |
+| `process_resident_memory_bytes` | gauge | |
+| `nodejs_eventloop_lag_seconds` | gauge | |
+
+`route` is the route pattern the router matched, such as
+`/v1/journeys/:journeyId`, never the path. A request that matched no route is
+`unmatched`, so a scanner walking random paths adds one series, not one per
+path. `method` is one of the seven methods the API uses or `other`. No label
+carries a project id, key prefix, entity, or any value from a request.
+
+`rejected` counts every event the API told a client it did not store: a
+validation failure, an environment the key does not cover, a conflicting event
+id, and also a storage failure or a timed-out statement, which the client may
+send again. `duplicate` is an event already stored, accepted and not stored
+twice.
+
+The request duration buckets are 5, 10, 25, 50, 100, 250 and 500 milliseconds,
+then 1, 2.5, 5, 10 and 30 seconds. Ingestion into a nearby database lands in the
+first few, a search in the tens of milliseconds, and anything in seconds is worth
+a look. A request that ran into the default 15-second statement timeout lands in
+the 30-second bucket, apart from ordinary slow ones.
+
+Every counter is per process and starts at zero when the API starts, so alert on
+`increase()` or `rate()`, never on the raw value. The retention gauges are per
+replica too: the replica that holds the lock sweeps, and the others count
+`locked`.
+
+`flight_recorder_unreadable_values` is set by the boot check a moment after the
+API starts, and not afterwards. It is absent while migrations are pending.
+
+### Alerts worth starting with
+
+```yaml
+groups:
+  - name: flight-recorder
+    rules:
+      # Events refused. A new service with a mistyped environment shows up here
+      # first, and the SDK writes nothing to its host's console by default.
+      - alert: FlightRecorderRejectingEvents
+        expr: sum(increase(flight_recorder_events_total{result="rejected"}[15m])) > 0
+        for: 15m
+
+      # Retention has not completed anywhere for a day. Disk grows and data
+      # outlives its retention window.
+      - alert: FlightRecorderRetentionStalled
+        expr: time() - max(flight_recorder_retention_last_success_timestamp_seconds) > 86400
+        for: 2h
+
+      # Queries are being cancelled, or requests are waiting for a connection.
+      - alert: FlightRecorderDatabaseStrained
+        expr: >
+          sum(increase(flight_recorder_query_timeouts_total[10m])) > 0
+          or max(flight_recorder_db_pool_connections{state="pending"}) > 0
+        for: 10m
+```
+
+The gauge is 0 until a replica completes its first sweep, which runs an hour
+after it starts and hourly after that. The `max` across replicas carries the
+answer while some are young, and `for: 2h` keeps a restart of every replica at
+once from firing it.
+
+### Statement timeout
+
+Every statement the API runs is cancelled after `DATABASE_STATEMENT_TIMEOUT_MS`
+milliseconds, 15000 by default. That covers ingestion, search and the other
+reads, and the retention sweep's statements, so one slow query cannot hold a
+connection ingestion needs. The request gets 503 `query_timeout` with its request
+id; the API logs one warning naming the route and the request id, never the SQL
+or its parameters, and counts it in `flight_recorder_query_timeouts_total`.
+
+It is set on each connection when the pool opens it, with `SET statement_timeout`.
+Behind PgBouncer in transaction pooling mode a session setting does not stay with
+one client, so there set the timeout on the database role instead
+(`ALTER ROLE flight_recorder SET statement_timeout = '15s'`) and
+`DATABASE_STATEMENT_TIMEOUT_MS=0`.
+
+`0` disables it, and `doctor` warns when it is. The database CLI never applies it:
+`migrate` may build an index on a large table for a long time, and
+`rotate:reencrypt` and the deletion commands bound each statement by batch size.
+
+## 14. When something is wrong
 
 | Symptom | Look at |
 | --- | --- |
+| Not sure what is wrong | run `doctor` (§12) |
 | `/ready` 503 `migrations_pending` | run `pnpm db:migrate` |
+| Requests return 503 `query_timeout` | a statement ran past `DATABASE_STATEMENT_TIMEOUT_MS`: the route is in the API's warning log and `flight_recorder_query_timeouts_total`; check the database's load before raising the timeout (§13) |
 | Every search returns nothing | which project the session selected — see `/projects` |
 | A search that worked stops working | `rotate:status`: an unknown key id means `ENCRYPTION_KEY_PREVIOUS` was removed before re-encryption finished (§6) |
 | Boot log warns of stored data the configured keys cannot read | restore the old key as `ENCRYPTION_KEY_PREVIOUS` and recreate the API (§6) |

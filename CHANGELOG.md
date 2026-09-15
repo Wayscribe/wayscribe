@@ -31,6 +31,26 @@ changes far less often.
 
 ### Added
 
+- **`doctor` checks an installation and says what to fix.** One line per check,
+  `PASS`, `WARN`, `FAIL` or `SKIP`: the database and its PostgreSQL version,
+  pending migrations, published default secrets, stored data the configured
+  keys cannot read, whether a project and an unrevoked key exist, and with
+  `--api-key` and `--api-url`, whether a key authenticates (checked locally)
+  and whether the API reports ready. Exits 1 when anything failed. It prints
+  neither the database password, the admin token, the encryption keys, nor
+  more of an API key than its prefix. In the API image beside `key:create`;
+  `pnpm doctor` from a checkout (`docs/OPERATIONS.md` §12).
+- **A statement timeout.** `DATABASE_STATEMENT_TIMEOUT_MS`, 15000 by default,
+  cancels any statement the API runs past it, so one slow search can no longer
+  hold a connection ingestion needs. The request gets 503 `query_timeout`; the
+  log names the route and never the query. `0` disables it. The database CLI
+  does not apply it.
+- **Prometheus metrics, on their own port.** `METRICS_PORT`, unset by default,
+  starts a listener serving `/metrics` and nothing else: request counts and
+  durations by route pattern, events accepted, duplicate and rejected, query
+  timeouts, pool connections, retention sweep outcomes and last success, the
+  boot check's unreadable counts, memory and event loop lag. Compose and Helm
+  do not publish it. No new dependency (ADR-047, `docs/OPERATIONS.md` §13).
 - **Captured data can be deleted on demand.** Retention was the only way
   anything left the database, so a redaction miss stayed stored until it aged
   out and an erasure request had no answer. `delete:journey`,

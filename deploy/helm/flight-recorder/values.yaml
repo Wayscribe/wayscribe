@@ -36,6 +36,14 @@ api:
   maxEventPayloadBytes: 262144
   allowFullPayloadCapture: false
   replayAllowedHosts: "localhost,host.docker.internal"
+  # DATABASE_STATEMENT_TIMEOUT_MS: every statement the API runs is cancelled
+  # after this long and answered 503 query_timeout. 0 disables it.
+  databaseStatementTimeoutMs: 15000
+  # METRICS_PORT: empty means no metrics listener. When set, the pod serves
+  # Prometheus metrics at /metrics on this port as a container port named
+  # `metrics`. The Service and the ingress never carry it; scrape the pods
+  # (docs/OPERATIONS.md §13).
+  metricsPort: ""
   service:
     type: ClusterIP
     port: 8080

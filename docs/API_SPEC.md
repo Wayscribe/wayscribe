@@ -81,6 +81,12 @@ All timestamps are UTC ISO 8601 strings.
 
 Stable error codes are required. Human-readable messages may evolve.
 
+Any route that queries the database can answer `503` with code `query_timeout`
+when a statement runs past `DATABASE_STATEMENT_TIMEOUT_MS` (15 seconds by
+default) and is cancelled. It is transient: retrying later, or narrowing the
+request, is the right response. In a batch, an event whose statement was
+cancelled is refused on its own with `query_timeout` and `httpStatus` 503.
+
 ## 3. Ingest one event
 
 ```http
@@ -466,6 +472,10 @@ GET /ready
 `/health` checks the process.
 
 `/ready` verifies required dependencies such as PostgreSQL.
+
+Metrics are not on this port. With `METRICS_PORT` set, the API serves
+`GET /metrics` on that port alone (`docs/OPERATIONS.md` §13); `/metrics` on the
+API port is 404.
 
 ## 15. Pagination
 
