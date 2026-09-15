@@ -102,6 +102,24 @@ helm:
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
       > /dev/null
+    # Narrowing who may reach the API must never cut off the web pod, whose
+    # server calls the API for every page. The API's policy is read out of the
+    # render and must name both the configured peer and the web pod.
+    - |
+      helm template fr deploy/helm/flight-recorder \
+        --set postgresql.enabled=true \
+        --set networkPolicy.enabled=true \
+        --set networkPolicy.ingressFrom[0].namespaceSelector.matchLabels.team=ingress \
+        --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
+        --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111 \
+        --show-only templates/networkpolicy.yaml > networkpolicy.yaml
+      sed -n '/^  name: fr-flight-recorder-api$/,/^---$/p' networkpolicy.yaml > api-policy.yaml
+      if ! grep -q "team: ingress" api-policy.yaml; then
+        echo "the API policy lost networkPolicy.ingressFrom"; cat api-policy.yaml; exit 1
+      fi
+      if ! grep -q "app.kubernetes.io/component: web" api-policy.yaml; then
+        echo "the API policy does not admit the web pod when ingressFrom is set"; cat api-policy.yaml; exit 1
+      fi
     # And refuses a metrics port equal to the API's. An `if`, not `!`: a
     # negated command does not fail a job under `set -e`.
     - if helm template fr deploy/helm/flight-recorder
@@ -528,11 +546,21 @@ publish-sdk:
 # before the release that depends on it, as `sbom` is for publish-images. The
 # tag it passes is the package's own version, which is what a release tag must
 # match.
+#
+# Also on a merge request that touches the script, the package, or this file,
+# so a change that breaks publishing is seen before it merges rather than on
+# main. This project has no workflow rules, so that runs as a merge request
+# pipeline holding this job alone, beside the usual branch pipeline.
 sdk-publish-dry-run:
   stage: build
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - scripts/publish-sdk.sh
+        - packages/sdk-node/**/*
+        - .gitlab-ci.yml
   script:
     - DRY_RUN=1 scripts/publish-sdk.sh "v$(node -p "require('./packages/sdk-node/package.json').version")"
 
