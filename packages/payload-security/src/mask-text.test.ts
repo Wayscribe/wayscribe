@@ -231,7 +231,108 @@ const positive: Case[] = [
       "upstream 401 for https://svc.internal/hook?sig=[REDACTED]",
       "at deliver (/app/dist/deliver.js:41:11)"
     ]
+  },
+  {
+    name: "a Bearer credential of letters and digits",
+    text: "upstream said Bearer abc123def456 is revoked",
+    secrets: ["abc123def456"],
+    keeps: ["upstream said Bearer [REDACTED] is revoked"]
+  },
+  {
+    name: "a cookie line with a session id",
+    text: "cookie: sid=abc123; path=/",
+    secrets: ["abc123"],
+    keeps: ["cookie: [REDACTED]"]
+  },
+  {
+    name: "a header-form secret name echoed with a value",
+    text: `x-auth-token: ${fake.opaque} for GET /v1/orders`,
+    secrets: [fake.opaque],
+    keeps: ["x-auth-token: [REDACTED] for GET /v1/orders"]
+  },
+  {
+    name: "a GitLab private token header with an opaque value",
+    text: `PRIVATE-TOKEN: ${fake.clientSecret}`,
+    secrets: [fake.clientSecret],
+    keeps: ["PRIVATE-TOKEN: [REDACTED]"]
   }
+];
+
+/**
+ * Names split into words, and the words decide.
+ *
+ * Environment variables and configuration keys name a secret with a qualifier
+ * in front of it, `DB_PASSWORD` or `STRIPE_API_KEY`, which exact matching
+ * missed. The kept list is the other half: names that end near a secret word,
+ * or start with one, and hold identifiers, counts and settings.
+ */
+const maskedNames = [
+  "DB_PASSWORD",
+  "POSTGRES_PASSWORD",
+  "MYSQL_ROOT_PASSWORD",
+  "redisPassword",
+  "AWS_SECRET_ACCESS_KEY",
+  "JWT_SECRET",
+  "SESSION_SECRET",
+  "WEBHOOK_SECRET",
+  "GITHUB_TOKEN",
+  "NPM_TOKEN",
+  "X-Amz-Security-Token",
+  "aws_session_token",
+  "sessionToken",
+  "idToken",
+  "authToken",
+  "private_token",
+  "PRIVATE-TOKEN",
+  "x-auth-token",
+  "secretKey",
+  "privateKey",
+  "AccountKey",
+  "STRIPE_API_KEY",
+  "OPENAI_API_KEY",
+  "stripe_signing_key",
+  "KEY_PASSPHRASE",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "passwd",
+  "pwd",
+  "pass"
+];
+
+const keptNames = [
+  "secretary",
+  "SECRETARY_NAME",
+  "undersecretary",
+  "passwordless",
+  "PASSWORDLESS_ENABLED",
+  "password_reset_url",
+  "password_hash",
+  "passwordPolicy",
+  "token_count",
+  "max_tokens",
+  "TOKEN_EXPIRY",
+  "tokenizer",
+  "pageToken",
+  "nextPageToken",
+  "nextToken",
+  "continuationToken",
+  "csrf_token",
+  "idempotency_key",
+  "IdempotencyKey",
+  "primaryKey",
+  "cache_key",
+  "sortKey",
+  "partitionKey",
+  "publicKey",
+  "SecretId",
+  "secret_arn",
+  "AWS_ACCESS_KEY_ID",
+  "api_key_name",
+  "secretName",
+  "tokenType",
+  "token_type",
+  "keyring",
+  "keyboard",
+  "monkey"
 ];
 
 /**
@@ -284,7 +385,29 @@ const negative: { name: string; text: string }[] = [
   },
   { name: "a provider prefix without a token", text: "use an sk_live_ key, not a pk_live_ one" },
   { name: "the redaction marker itself", text: "[REDACTED]" },
-  { name: "an empty string", text: "" }
+  { name: "an empty string", text: "" },
+  {
+    name: "a WWW-Authenticate challenge's auth-params",
+    text: 'WWW-Authenticate: Bearer realm="api", error="invalid_token"'
+  },
+  { name: "Basic before a short product term", text: "Basic 3DS verification failed" },
+  { name: "basic before a hyphenated plan name", text: "basic plan-2026 quota exceeded" },
+  { name: "bearer before a version", text: "bearer v2 token expired" },
+  {
+    name: "a URL followed by a comma and an email address",
+    text: "sites https://example.com,jane@example.com rejected"
+  },
+  {
+    name: "a URL followed by a semicolon and an email address",
+    text: "url=http://cdn.example.com;owner=jane@example.com"
+  },
+  {
+    name: "a secret-named segment inside an ARN, with no blank after the colon",
+    text: "SecretId: arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf"
+  },
+  { name: "a cookie line that is a sentence", text: "cookie: session expired; please sign in" },
+  { name: "an env-style secret name followed by prose", text: "DB_PASSWORD: not set" },
+  { name: "a header-form secret name followed by prose", text: "x-auth-token: missing" }
 ];
 
 describe("maskSecretsInText", () => {
@@ -304,6 +427,36 @@ describe("maskSecretsInText", () => {
         expect(maskSecretsInText(testCase.text)).toBe(testCase.text);
       });
     }
+  });
+
+  describe("reads a secret name by its words", () => {
+    const value = "Opaque" + "-Value-" + "42x9";
+
+    for (const name of maskedNames) {
+      it(`masks ${name}= and "${name}":`, () => {
+        expect(maskSecretsInText(`failed with ${name}=${value} set`)).toBe(
+          `failed with ${name}=[REDACTED] set`
+        );
+        expect(maskSecretsInText(`{"${name}": "${value}", "region": "us"}`)).toBe(
+          `{"${name}": "[REDACTED]", "region": "us"}`
+        );
+      });
+    }
+
+    for (const name of keptNames) {
+      it(`keeps ${name}= and "${name}":`, () => {
+        const assigned = `failed with ${name}=${value} set`;
+        const quoted = `{"${name}": "${value}", "region": "us"}`;
+        expect(maskSecretsInText(assigned)).toBe(assigned);
+        expect(maskSecretsInText(quoted)).toBe(quoted);
+      });
+    }
+
+    it("reads an unquoted colon as a value only when a blank follows it", () => {
+      // `secret:prod/db` inside an ARN is a path segment, not an assignment.
+      expect(maskSecretsInText(`x-auth-token:${value}`)).toBe(`x-auth-token:${value}`);
+      expect(maskSecretsInText(`x-auth-token: ${value}`)).toBe("x-auth-token: [REDACTED]");
+    });
   });
 
   it("is idempotent: masking masked text changes nothing", () => {
@@ -358,6 +511,13 @@ describe("maskSecretsInText", () => {
       "bearer words": (size) => fill("Bearer bearer ", size),
       "Bearer and a run of dots": (size) => "Bearer " + ".".repeat(size) + "a",
       "Basic and a run of dots": (size) => "Basic " + ".".repeat(size) + "a",
+      "Bearer and a long hyphenated run": (size) => "Bearer " + fill("ab-", size),
+      "Bearer and a long auth-param name": (size) => "Bearer " + fill("a", size) + "=",
+      "a name that is one long run of capitals": (size) => fill("A", size) + "=value1",
+      "a name of many camelCase words": (size) => fill("aB_", size) + "=value1",
+      "a name of many dotted words ending in a secret": (size) =>
+        fill("config.", size) + "password: a",
+      "cookie lines that read as prose": (size) => fill("cookie: session expired\n", size),
       "one long unbroken run": (size) => fill("a", size),
       "a mixture": (size) =>
         fill('eyJ-sk_live_ a://b:@ "api_key\\" Bearer -----BEGIN password=[ ', size)

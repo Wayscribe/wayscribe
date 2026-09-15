@@ -31,14 +31,7 @@ export function maskSecretsInText(text: string): string {
   result = result.replace(PROVIDER_TOKEN, REDACTED);
   result = result.replace(URL_USERINFO, (_match, scheme: string) => `${scheme}${REDACTED}@`);
   result = maskAssignments(result);
-  result = result.replace(
-    AUTHORIZATION_SCHEME,
-    (match, scheme: string, space: string, raw: string) => {
-      const credential = withoutTrailingDots(raw);
-      if (isPlainWord(credential)) return match;
-      return `${scheme}${space}${REDACTED}${raw.slice(credential.length)}`;
-    }
-  );
+  result = result.replace(AUTHORIZATION_SCHEME, maskSchemeCredential);
   return result;
 }
 
@@ -80,20 +73,57 @@ const PROVIDER_TOKEN = new RegExp(
 /**
  * `scheme://userinfo@`. Greedy to the last `@` before the host ends, so a
  * password containing an unencoded `@` is masked whole rather than in part.
+ * `,` and `;` end it too: they separate a URL from whatever follows it in a
+ * list far more often than they appear unencoded in a password.
  */
-const URL_USERINFO = /(?<![A-Za-z0-9+.-])([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/?#"'<>]+@/g;
+const URL_USERINFO = /(?<![A-Za-z0-9+.-])([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/?#"'<>,;]+@/g;
 
-/** `Bearer x` and `Basic x` wherever they appear, not only after a header name. */
-const AUTHORIZATION_SCHEME = /(?<![A-Za-z0-9_-])(Bearer|Basic)([ \t]+)([A-Za-z0-9._~+/-]+=*)/gi;
+/** `Bearer x`, `Basic x` and `Digest x` wherever they appear, not only after a header name. */
+const AUTHORIZATION_SCHEME =
+  /(?<![A-Za-z0-9_-])(Bearer|Basic|Digest)([ \t]+)([A-Za-z0-9._~+/-]+=*)/gi;
+
+/** Shorter than this after a scheme word is a version or a product term, not a credential. */
+const MIN_SCHEME_CREDENTIAL_LENGTH = 8;
+
+function maskSchemeCredential(
+  match: string,
+  scheme: string,
+  space: string,
+  raw: string,
+  offset: number,
+  whole: string
+): string {
+  // `Bearer realm="api"` is a WWW-Authenticate challenge: its auth-params name
+  // things, and none of them is the credential.
+  const after = whole[offset + match.length];
+  if (raw.endsWith("=") && (after === '"' || after === "'")) return match;
+  if (isAuthParam(raw)) return match;
+
+  const credential = withoutTrailingDots(raw);
+  if (credential.length < MIN_SCHEME_CREDENTIAL_LENGTH || readsAsProse(credential)) return match;
+  return `${scheme}${space}${REDACTED}${raw.slice(credential.length)}`;
+}
+
+/** `realm=`: letters and a single `=`, which is a parameter name, not base64. */
+function isAuthParam(raw: string): boolean {
+  if (raw.length < 2 || !raw.endsWith("=")) return false;
+  for (let index = 0; index < raw.length - 1; index += 1) {
+    if (!isLetter(raw.charCodeAt(index))) return false;
+  }
+  return true;
+}
 
 /**
  * A name followed by `=` or `:`, optionally quoted, including the escaped quotes
  * of JSON serialised inside a JSON string. The value is read by hand after the
  * match so that a name which turns out not to be a secret consumes nothing
  * beyond its separator, and the next name is still seen.
+ *
+ * `.` belongs to the name, so `spring.datasource.password` is one name whose
+ * last word is `password`.
  */
 const NAME_AND_SEPARATOR =
-  /(?<![A-Za-z0-9_-])(\\?["']|)([A-Za-z][A-Za-z0-9_-]*)\1[ \t]*([=:])[ \t]*/g;
+  /(?<![A-Za-z0-9_.-])(\\?["']|)([A-Za-z][A-Za-z0-9_.-]*)\1[ \t]*([=:])([ \t]*)/g;
 
 /**
  * The built-in secret names, compared as path redaction compares them (ADR-039).
@@ -106,11 +136,66 @@ const SECRET_NAMES: ReadonlySet<string> = new Set(
 );
 
 /**
- * Names that are a secret when assigned, as `name=value` or as a quoted key,
- * but that are too common in prose to trust after an unquoted colon:
+ * Single words that are a secret when assigned, as `name=value` or as a quoted
+ * key, but that are too common in prose to trust after an unquoted colon:
  * `Invalid token: expired` is a sentence, not a credential.
  */
-const ASSIGNED_SECRET_NAMES: ReadonlySet<string> = new Set(["token", "signature", "sig", "apikey"]);
+const ASSIGNED_SECRET_NAMES: ReadonlySet<string> = new Set([
+  "token",
+  "signature",
+  "sig",
+  "passwd",
+  "pwd",
+  "pass"
+]);
+
+/**
+ * The last word of a name made of several words that marks it a secret:
+ * `DB_PASSWORD`, `JWT_SECRET`, `GITHUB_TOKEN`.
+ */
+const SECRET_LAST_WORDS: ReadonlySet<string> = new Set([
+  "password",
+  "passwd",
+  "pwd",
+  "passphrase",
+  "secret",
+  "token",
+  "credential",
+  "credentials"
+]);
+
+/** Tokens that page, resume or protect a form rather than authenticate anyone. */
+const NON_SECRET_TOKEN_QUALIFIERS: ReadonlySet<string> = new Set([
+  "page",
+  "next",
+  "continuation",
+  "pagination",
+  "cursor",
+  "sync",
+  "resume",
+  "marker",
+  "csrf",
+  "xsrf"
+]);
+
+/** The last two words of a name that make it a secret: `STRIPE_API_KEY`, `privateKey`. */
+const SECRET_LAST_PAIRS: ReadonlySet<string> = new Set([
+  "api key",
+  "secret key",
+  "private key",
+  "access key",
+  "account key",
+  "signing key",
+  "master key",
+  "shared key",
+  "encryption key",
+  "auth key",
+  "session key",
+  "client key"
+]);
+
+/** A name ending in one of these points at a secret rather than holding one: `SecretId`. */
+const REFERENCE_LAST_WORDS: ReadonlySet<string> = new Set(["id", "arn", "name", "url"]);
 
 /** Headers whose value may hold a scheme word before the credential. */
 const SCHEME_NAMES: ReadonlySet<string> = new Set(["authorization", "proxyauthorization"]);
@@ -124,13 +209,12 @@ function maskAssignments(text: string): string {
   NAME_AND_SEPARATOR.lastIndex = 0;
 
   for (let match = NAME_AND_SEPARATOR.exec(text); match !== null;) {
-    const [whole, quote = "", rawName = "", separator = ""] = match;
+    const [whole, quote = "", rawName = "", separator = "", blankAfter = ""] = match;
     const valueStart = match.index + whole.length;
-    const name = normaliseName(rawName);
+    const kind = classifyName(text, match.index, quote, rawName, separator, blankAfter !== "");
 
-    const replacement = secretName(text, match.index, quote, name, separator)
-      ? maskedValue(text, valueStart, name, quote === "" && separator === ":")
-      : undefined;
+    const replacement =
+      kind === undefined ? undefined : maskedValue(text, valueStart, kind.name, kind.prose);
 
     if (replacement !== undefined) {
       output += text.slice(copied, valueStart) + replacement.text;
@@ -143,22 +227,97 @@ function maskAssignments(text: string): string {
   return copied === 0 ? text : output + text.slice(copied);
 }
 
-function secretName(
+interface SecretName {
+  /** The name's words joined, as the built-in list is compared. */
+  name: string;
+  /** Whether a plain word in the value reads as a sentence and is left alone. */
+  prose: boolean;
+}
+
+/**
+ * Whether the name before a separator holds a secret, and how to read its value.
+ *
+ * - An unquoted `name:` needs a blank after the colon, so `secret:prod/db`
+ *   inside an ARN is a path and not an assignment.
+ * - A built-in name is a secret in every form.
+ * - Any other single word counts only from its own short list, and only when
+ *   assigned; `key` only as a query parameter.
+ * - A name of several words counts by its last word or last two
+ *   ({@link isSecretPhrase}), in every form, with its unquoted value read for
+ *   prose: `DB_PASSWORD: not set` is a sentence.
+ */
+function classifyName(
   text: string,
   index: number,
   quote: string,
-  name: string,
-  separator: string
-): boolean {
-  if (SECRET_NAMES.has(name)) return true;
-  // An unquoted `name:` is only trusted for the built-in names.
-  const assigned = quote !== "" || separator === "=";
-  if (assigned && ASSIGNED_SECRET_NAMES.has(name)) return true;
-  // `key` alone is far too common a word, so only a query parameter counts.
-  const previous = text[index - 1];
-  return (
-    name === "key" && quote === "" && separator === "=" && (previous === "?" || previous === "&")
-  );
+  rawName: string,
+  separator: string,
+  blankAfter: boolean
+): SecretName | undefined {
+  const unquotedColon = quote === "" && separator === ":";
+  if (unquotedColon && !blankAfter) return undefined;
+
+  const words = nameWords(rawName);
+  const name = words.join("");
+  if (SECRET_NAMES.has(name)) return { name, prose: unquotedColon };
+
+  if (words.length === 1) {
+    if (unquotedColon) return undefined;
+    if (ASSIGNED_SECRET_NAMES.has(name)) return { name, prose: false };
+    // `key` alone is far too common a word, so only a query parameter counts.
+    const previous = text[index - 1];
+    if (name === "key" && quote === "" && (previous === "?" || previous === "&")) {
+      return { name, prose: false };
+    }
+    return undefined;
+  }
+
+  return isSecretPhrase(words) ? { name, prose: quote === "" } : undefined;
+}
+
+function isSecretPhrase(words: readonly string[]): boolean {
+  const last = words[words.length - 1] ?? "";
+  const before = words[words.length - 2] ?? "";
+  if (REFERENCE_LAST_WORDS.has(last)) return false;
+  if (SECRET_LAST_WORDS.has(last)) {
+    return !(last === "token" && NON_SECRET_TOKEN_QUALIFIERS.has(before));
+  }
+  return SECRET_LAST_PAIRS.has(`${before} ${last}`);
+}
+
+/**
+ * A name's words, lowercased: split on `_`, `-` and `.`, and where the case
+ * changes, as `([a-z0-9])([A-Z])` and `([A-Z]+)([A-Z][a-z])` would split it.
+ * `X-Amz-Security-Token`, `APIKey` and `nextPageToken` become
+ * `x amz security token`, `api key` and `next page token`.
+ *
+ * A loop rather than those two replacements: the second backtracks over a run
+ * of capitals from every capital in it.
+ */
+function nameWords(rawName: string): string[] {
+  const words: string[] = [];
+  let start = 0;
+  const push = (end: number): void => {
+    if (end > start) words.push(rawName.slice(start, end).toLowerCase());
+  };
+
+  for (let index = 0; index < rawName.length; index += 1) {
+    const code = rawName.charCodeAt(index);
+    if (code === UNDERSCORE || code === HYPHEN || code === FULL_STOP) {
+      push(index);
+      start = index + 1;
+      continue;
+    }
+    if (index === start || !isUpper(code)) continue;
+    const previous = rawName.charCodeAt(index - 1);
+    const next = rawName.charCodeAt(index + 1);
+    if (isLower(previous) || isDigit(previous) || (isUpper(previous) && isLower(next))) {
+      push(index);
+      start = index;
+    }
+  }
+  push(rawName.length);
+  return words;
 }
 
 interface Replacement {
@@ -169,8 +328,8 @@ interface Replacement {
 /**
  * The masked form of the value at `start`, or undefined to leave it alone.
  *
- * `prose` is an unquoted `name: value`, where a plain word after the colon is
- * far more likely a sentence than a credential: `client_secret: missing`.
+ * `prose` marks a form where a plain word after the separator is far more
+ * likely a sentence than a credential: `client_secret: missing`.
  */
 function maskedValue(
   text: string,
@@ -195,7 +354,9 @@ function maskedValue(
   if (LINE_NAMES.has(name)) {
     const end = lineEnd(text, start);
     const content = text.slice(start, end);
-    if (content === "" || (prose && isPlainWord(content))) return undefined;
+    if (content === "") return undefined;
+    // `cookie: session expired; please sign in` is a sentence about a cookie.
+    if (prose && (isPlainWord(content) || startsWithWordAndBlank(content))) return undefined;
     return { text: REDACTED, end };
   }
 
@@ -301,8 +462,6 @@ function withoutTrailingDots(value: string): string {
   return value.slice(0, end);
 }
 
-const FULL_STOP = 0x2e;
-
 /**
  * A lowercase word, a capitalised one, or one in capitals: `missing`, `Token`,
  * `NONE`. A random credential of any useful length is essentially never one of
@@ -310,5 +469,67 @@ const FULL_STOP = 0x2e;
  * always are.
  */
 function isPlainWord(value: string): boolean {
-  return /^(?:[A-Za-z][a-z]*|[A-Z]+)$/.test(value);
+  if (value === "") return false;
+  const first = value.charCodeAt(0);
+  if (!isLetter(first)) return false;
+  let lower = true;
+  let upper = isUpper(first);
+  for (let index = 1; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    lower &&= isLower(code);
+    upper &&= isUpper(code);
+    if (!lower && !upper) return false;
+  }
+  return true;
+}
+
+/**
+ * Words and numbers joined by hyphens, `plan-2026` or `Token`, which is how
+ * prose reads after a scheme word and how no issued credential looks.
+ */
+function readsAsProse(value: string): boolean {
+  let start = 0;
+  for (let index = 0; index <= value.length; index += 1) {
+    if (index < value.length && value.charCodeAt(index) !== HYPHEN) continue;
+    const piece = value.slice(start, index);
+    if (!isPlainWord(piece) && !isNumber(piece)) return false;
+    start = index + 1;
+  }
+  return true;
+}
+
+/** `session expired`: a word of letters followed by a blank. */
+function startsWithWordAndBlank(value: string): boolean {
+  let index = 0;
+  while (index < value.length && isLetter(value.charCodeAt(index))) index += 1;
+  const next = value[index];
+  return index > 0 && (next === " " || next === "\t");
+}
+
+function isNumber(value: string): boolean {
+  if (value === "") return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!isDigit(value.charCodeAt(index))) return false;
+  }
+  return true;
+}
+
+const FULL_STOP = 0x2e;
+const HYPHEN = 0x2d;
+const UNDERSCORE = 0x5f;
+
+function isUpper(code: number): boolean {
+  return code >= 0x41 && code <= 0x5a;
+}
+
+function isLower(code: number): boolean {
+  return code >= 0x61 && code <= 0x7a;
+}
+
+function isDigit(code: number): boolean {
+  return code >= 0x30 && code <= 0x39;
+}
+
+function isLetter(code: number): boolean {
+  return isUpper(code) || isLower(code);
 }
