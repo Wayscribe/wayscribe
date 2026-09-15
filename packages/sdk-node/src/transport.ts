@@ -13,6 +13,8 @@ export interface SendOutcome {
   retry: readonly unknown[];
   /** The server's reason for the last transient refusal, for diagnostics. */
   reason?: string;
+  /** The same refusal without the server's message, for the console. */
+  logReason?: string;
 }
 
 export interface TransportOptions {
@@ -107,6 +109,7 @@ export class Transport {
     let storedAny = false;
     let lastError: unknown = undefined;
     let lastRefusal = "The server could not store an event.";
+    let lastRefusalLine = lastRefusal;
 
     for (let attempt = 1; attempt <= this.options.maxAttempts && pending.length > 0; attempt += 1) {
       // Before every attempt after the first, which only happens after one
@@ -120,6 +123,7 @@ export class Transport {
         this.diagnostics.recordSent(outcome.accepted);
         if (outcome.accepted > 0) storedAny = true;
         if (outcome.reason !== undefined) lastRefusal = outcome.reason;
+        if (outcome.logReason !== undefined) lastRefusalLine = outcome.logReason;
 
         // Only the refused events go again. The stored ones are done.
         const again: unknown[] = [];
@@ -144,7 +148,7 @@ export class Transport {
             reason: error instanceof Error ? error.message : String(error),
             detail: { permanent: true, events: pending.length }
           });
-          this.giveUp(abandoned, lastRefusal);
+          this.giveUp(abandoned, lastRefusal, lastRefusalLine);
           return;
         }
         lastError = error;
@@ -168,12 +172,15 @@ export class Transport {
       return;
     }
 
-    this.diagnostics.report({
-      kind: "transport_error",
-      reason: lastError === undefined ? lastRefusal : messageOf(lastError),
-      detail: { unsent: pending.length, abandoned: abandoned.length }
-    });
-    this.giveUp(abandoned, lastRefusal);
+    this.diagnostics.report(
+      {
+        kind: "transport_error",
+        reason: lastError === undefined ? lastRefusal : messageOf(lastError),
+        detail: { unsent: pending.length, abandoned: abandoned.length }
+      },
+      lastError === undefined ? lastRefusalLine : undefined
+    );
+    this.giveUp(abandoned, lastRefusal, lastRefusalLine);
 
     // A server that stored something is up, even if it could not store every
     // event. Counting one unstorable event toward the breaker would let it
@@ -212,13 +219,16 @@ export class Transport {
    * dropped: that counter is the one OPERATIONS.md tells an operator means
    * events were shed.
    */
-  private giveUp(events: readonly unknown[], reason: string): void {
-    const seconds = String(Math.round(this.options.retryBudgetMs / 1_000));
+  private giveUp(events: readonly unknown[], reason: string, logReason: string): void {
+    const bounds = `within ${String(Math.round(this.options.retryBudgetMs / 1_000))} seconds or ${String(this.options.maxRefusedSends)} sends`;
     for (const _event of events) {
-      this.diagnostics.report({
-        kind: "dropped",
-        reason: `The server could not store an event within ${seconds} seconds or ${String(this.options.maxRefusedSends)} sends: ${reason}`
-      });
+      this.diagnostics.report(
+        {
+          kind: "dropped",
+          reason: `The server could not store an event ${bounds}: ${reason}`
+        },
+        `The server could not store an event ${bounds}: ${logReason}`
+      );
     }
   }
 

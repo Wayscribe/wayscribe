@@ -167,23 +167,30 @@ describe("the console", () => {
     ]);
   });
 
-  it("prints the server's reason for a refusal, and not the event", async () => {
+  it("prints a refusal's code and field path, and leaves the server's message to onDiagnostic", async () => {
+    // Flight Recorder's API puts no event values in its messages, but a proxy
+    // or another server in front of it could, and a console line usually ends
+    // up in a log store the operator does not control.
     const server = await ingestion(() => ({
       status: "rejected",
       error: {
         code: "invalid_event",
-        message: "The event did not match protocol version 0.1.",
+        message: "Value dana@example.com is not allowed.",
         httpStatus: 400,
-        details: [
-          { path: "event.name", message: "Too big: expected string to have <=256 characters" }
-        ]
+        details: [{ path: "event.aliases.email", message: "got dana@example.com" }]
       }
     }));
     const lines: string[] = [];
+    const reasons: string[] = [];
     vi.spyOn(console, "error").mockImplementation((line: unknown) => {
       lines.push(String(line));
     });
-    const recorder = createRecorder({ ...base, endpoint: server.endpoint, logDiagnostics: true });
+    const recorder = createRecorder({
+      ...base,
+      endpoint: server.endpoint,
+      logDiagnostics: true,
+      onDiagnostic: (d) => reasons.push(d.reason)
+    });
     recorder.startJourney({ entity: { type: "customer", id: "cus_secret_id" } }).record({
       operation: "received",
       name: "n",
@@ -194,11 +201,61 @@ describe("the console", () => {
     await server.close();
 
     expect(lines).toEqual([
-      "[flight-recorder] rejected: invalid_event: The event did not match protocol version 0.1. (event.name: Too big: expected string to have <=256 characters)"
+      "[flight-recorder] rejected: invalid_event at event.aliases.email (the server's message goes to onDiagnostic)"
     ]);
-    expect(lines.join()).not.toContain("dana@example.com");
     expect(lines.join()).not.toContain("cus_secret_id");
     expect(lines.join()).not.toContain("fr_test");
+    // Nothing is lost: the callback still gets the whole message.
+    expect(reasons.join()).toContain("Value dana@example.com is not allowed.");
+  });
+
+  it("prints no server message for a refusal for now either", async () => {
+    const server = await ingestion(() => ({
+      status: "rejected",
+      error: {
+        code: "query_timeout",
+        message: "Timed out storing dana@example.com.",
+        httpStatus: 503
+      }
+    }));
+    const lines: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+    const recorder = createRecorder({ ...base, endpoint: server.endpoint, logDiagnostics: true });
+    recorder
+      .startJourney({ entity: { type: "customer", id: "1" } })
+      .record({ operation: "received", name: "n" });
+    await recorder.shutdown({ timeoutMs: 2_000 });
+    vi.restoreAllMocks();
+    await server.close();
+
+    expect(lines).toContain(
+      "[flight-recorder] transport_error: query_timeout (the server's message goes to onDiagnostic)"
+    );
+    expect(lines.join()).not.toContain("dana@example.com");
+  });
+
+  it("prints a code only when it looks like one", async () => {
+    const server = await ingestion(() => ({
+      status: "rejected",
+      error: { code: "bad value dana@example.com", message: "no", httpStatus: 400 }
+    }));
+    const lines: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+    const recorder = createRecorder({ ...base, endpoint: server.endpoint, logDiagnostics: true });
+    recorder
+      .startJourney({ entity: { type: "customer", id: "1" } })
+      .record({ operation: "received", name: "n" });
+    await recorder.shutdown({ timeoutMs: 2_000 });
+    vi.restoreAllMocks();
+    await server.close();
+
+    expect(lines).toEqual([
+      "[flight-recorder] rejected: rejected (the server's message goes to onDiagnostic)"
+    ]);
   });
 
   it("reports suppressed repeats at shutdown", async () => {

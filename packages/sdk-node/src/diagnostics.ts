@@ -52,7 +52,12 @@ export interface Counters {
 }
 
 export interface Diagnostics {
-  report(diagnostic: Diagnostic): void;
+  /**
+   * `logLine`, when given, is printed in place of the reason. The reason goes
+   * to `onDiagnostic` whole; the console gets only what is safe to put in a log
+   * store the operator may not control.
+   */
+  report(diagnostic: Diagnostic, logLine?: string): void;
   recordSent(count: number): void;
   counters(): Counters;
   /** Prints any repeats still suppressed. A no-op unless logging is on. */
@@ -67,9 +72,8 @@ export interface DiagnosticsOptions {
 const PREFIX = "[flight-recorder]";
 const LOG_WINDOW_MS = 60_000;
 /**
- * Long enough for the server's reason with its first field detail, which is
- * what makes a refusal line actionable; short enough that a megabyte error
- * message cannot become a megabyte log line.
+ * Long enough for any reason the SDK writes itself; short enough that a
+ * megabyte error message cannot become a megabyte log line.
  */
 const MAX_LOGGED_REASON = 512;
 
@@ -98,7 +102,7 @@ export function createDiagnostics(
   const lastPrinted = new Map<DiagnosticKind, number>();
   const suppressed = new Map<DiagnosticKind, number>();
 
-  function print(diagnostic: Diagnostic): void {
+  function print(diagnostic: Diagnostic, logLine: string | undefined): void {
     const { kind } = diagnostic;
     const now = Date.now();
     const last = lastPrinted.get(kind);
@@ -112,13 +116,13 @@ export function createDiagnostics(
     lastPrinted.set(kind, now);
     suppressed.delete(kind);
     write(
-      `${PREFIX} ${kind}: ${printable(diagnostic.reason)}` +
+      `${PREFIX} ${kind}: ${printable(logLine ?? diagnostic.reason)}` +
         (repeats > 0 ? ` (${plural(repeats)} suppressed since the last line)` : "")
     );
   }
 
   return {
-    report(diagnostic) {
+    report(diagnostic, logLine) {
       if (diagnostic.kind === "dropped") counters.dropped += 1;
       if (diagnostic.kind === "rejected") counters.rejected += 1;
       if (diagnostic.kind === "transport_error") counters.transportErrors += 1;
@@ -127,7 +131,7 @@ export function createDiagnostics(
 
       if (log) {
         try {
-          print(diagnostic);
+          print(diagnostic, logLine);
         } catch {
           // Formatting runs the masker over text the recorder did not write; a
           // failure there must not cost the callback below.
@@ -159,10 +163,15 @@ function plural(repeats: number): string {
   return `${String(repeats)} ${repeats === 1 ? "repeat" : "repeats"}`;
 }
 
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
+const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028-\u202e\u2066-\u2069]+/g;
+
 /**
  * The reason as one safe line: credential shapes masked, control characters
  * (newlines, terminal escapes) replaced so a reason cannot forge a second log
- * line, and bounded.
+ * line, bidirectional formatting characters replaced so it cannot make a log
+ * viewer display text in an order other than the one it was written in, and
+ * bounded.
  *
  * Masked over twice the bound before the cut, for the reason
  * `boundedMaskedText` gives: a cut first can split a credential so the masker
@@ -170,8 +179,7 @@ function plural(repeats: number): string {
  */
 function printable(reason: string): string {
   const window = reason.slice(0, 2 * MAX_LOGGED_REASON);
-  // eslint-disable-next-line no-control-regex -- matching control characters is the point
-  const flat = maskSecretsInText(window).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ");
+  const flat = maskSecretsInText(window).replace(UNPRINTABLE, " ");
   return flat.length <= MAX_LOGGED_REASON
     ? flat.toWellFormed()
     : `${flat.slice(0, MAX_LOGGED_REASON).toWellFormed()}[TRUNCATED]`;

@@ -28,6 +28,14 @@ changes far less often.
   in `.env` as the README says never reached the API, the web app, or the demo
   bootstrap: they ran on the published defaults. `compose.published.yaml` is
   unchanged and still reads the shell.
+- **The SDK's `Diagnostic` type is a union.** It is now
+  `FailureDiagnostic | DeliveredFirstDiagnostic`, for the new `delivered_first`
+  kind, which carries `endpoint` and `accepted`. Reading `kind`, `reason`, and
+  `detail` compiles as before. TypeScript code must change if it switches over
+  `kind` exhaustively with a `never` default, which now needs a
+  `delivered_first` case, or if it builds a `Diagnostic` from a `kind` typed as
+  `DiagnosticKind` with only `reason`, which must use `FailureDiagnostic` or
+  `FailureKind` instead.
 - **The SDK retries an event the server could not store for now.** A per-event
   refusal with a status of 500 or above (`storage_error`, `query_timeout`) was
   treated as permanent, so a database hiccup lost the event and reported it as
@@ -47,7 +55,8 @@ changes far less often.
   most one per kind per minute with a count of suppressed repeats, and a new
   `delivered_first` diagnostic reports the first batch the server stored
   anything from. Lines carry the kind and a masked, bounded reason, never a
-  payload or a key. Off by default: nothing reaches the console unless it is
+  payload or a key; a refusal prints the server's error code and field path,
+  and its message goes only to `onDiagnostic`. Off by default: nothing reaches the console unless it is
   set. The quick start and `examples/instrument-a-service` turn it on while
   setting up.
 - **`maxConcurrentSends` in the SDK**, default 4 and clamped to 1-16: how many

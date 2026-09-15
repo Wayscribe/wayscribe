@@ -151,6 +151,36 @@ describe("logDiagnostics", () => {
     expect(line.length).toBeLessThanOrEqual(600);
   });
 
+  it("replaces bidirectional formatting characters", () => {
+    // U+202E reverses what follows in many log viewers, so a reason could make
+    // its line read as something it does not say.
+    const controls = ["\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d", "\u202e"];
+    const isolates = ["\u2066", "\u2067", "\u2068", "\u2069"];
+    const { lines, restore } = logged();
+    createDiagnostics(undefined, { log: true }).report({
+      kind: "capture_error",
+      reason: `a${[...controls, ...isolates].join("b")}c`
+    });
+    restore();
+    const [line = ""] = lines;
+    for (const character of [...controls, ...isolates]) expect(line).not.toContain(character);
+    expect(line).toContain("a b");
+  });
+
+  it("prints the log line in place of the reason when one is given", () => {
+    const seen: string[] = [];
+    const { lines, restore } = logged();
+    createDiagnostics((d) => seen.push(d.reason), { log: true }).report(
+      { kind: "rejected", reason: "invalid_event: Value dana@example.com is not allowed." },
+      "invalid_event (the server's message goes to onDiagnostic)"
+    );
+    restore();
+    expect(lines).toEqual([
+      "[flight-recorder] rejected: invalid_event (the server's message goes to onDiagnostic)"
+    ]);
+    expect(seen).toEqual(["invalid_event: Value dana@example.com is not allowed."]);
+  });
+
   it("does not count delivered_first as a failure", () => {
     const diagnostics = createDiagnostics();
     diagnostics.report({

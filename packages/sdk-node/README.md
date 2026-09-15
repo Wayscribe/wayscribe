@@ -191,18 +191,36 @@ The first batch the server stores anything from prints one line, once:
 If that line never appears, the lines that do say why:
 
 ```text
-[flight-recorder] rejected: unauthorized_environment: This key is not authorized for environment production.
+[flight-recorder] rejected: unauthorized_environment (the server's message goes to onDiagnostic)
 [flight-recorder] transport_error: fetch failed
 ```
 
 Each diagnostic kind prints at most one line a minute, and the next line of that
 kind, or `shutdown()`, says how many repeats were suppressed. A line holds the
-kind and the diagnostic's reason only, never a payload, a key, or the
-diagnostic's `detail`. The reason is masked by the same rules as error messages,
-cut to 512 characters, and kept to one line. For a refusal it is the server's
-code, message, and first field error, such as
-`event.name: Too big: expected string to have <=256 characters`: the field's
-path can name an alias or metadata key, but never its value.
+kind and a reason only, never a payload, a key, or the diagnostic's `detail`. The
+reason is masked for credential shapes by the same rules as error messages, cut
+to 512 characters, kept to one line, and stripped of control and bidirectional
+formatting characters.
+
+**A refusal prints the server's error code and the path of the first field it
+names, and not the server's message**, as in
+`rejected: invalid_event at event.name`. The message is the server's own text,
+and masking catches only credential shapes. Flight Recorder's API puts no event
+values in its messages, but the SDK cannot tell that API from a proxy or another
+server that echoes what it was sent, and a console line usually ends up in a
+log store you may not control. The whole message, with the field error, still
+reaches `onDiagnostic` as the diagnostic's `reason`, so while setting up:
+
+```typescript
+onDiagnostic: (d) => {
+  if (d.kind === "rejected") console.error(d.reason);
+}
+```
+
+A code that does not look like an identifier prints as `rejected`, and a path
+that does not look like a field path is left out. The same applies to a refusal
+for now (below), whose `transport_error` and `dropped` lines carry the code and
+not the message.
 
 `delivered_first` also reaches `onDiagnostic`, as
 `{ kind: "delivered_first", reason, endpoint, accepted }`, whether or not

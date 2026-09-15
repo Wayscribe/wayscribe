@@ -237,6 +237,7 @@ function readOutcome(
   let accepted = 0;
   const retry: unknown[] = [];
   let reason: string | undefined;
+  let logReason: string | undefined;
   results.forEach((result, index) => {
     if (result.status === "accepted") {
       accepted += 1;
@@ -246,16 +247,43 @@ function readOutcome(
     const where = result.error?.details?.[0];
     const detail = where === undefined ? "" : ` (${where.path}: ${where.message})`;
     const described = `${result.error?.code ?? "rejected"}: ${result.error?.message ?? "The server refused this event."}${detail}`;
+    const logLine = refusalLogLine(result.error?.code, where?.path);
     const event = batch[index];
     if ((result.error?.httpStatus ?? 0) >= 500 && event !== undefined) {
       retry.push(event);
       reason = described;
+      logReason = logLine;
       return;
     }
 
-    diagnostics.report({ kind: "rejected", reason: described, detail: result.error });
+    diagnostics.report({ kind: "rejected", reason: described, detail: result.error }, logLine);
   });
-  return { accepted, retry, ...(reason === undefined ? {} : { reason }) };
+  return {
+    accepted,
+    retry,
+    ...(reason === undefined ? {} : { reason }),
+    ...(logReason === undefined ? {} : { logReason })
+  };
+}
+
+const ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/;
+const FIELD_PATH = /^[A-Za-z0-9_.$[\]-]{1,256}$/;
+
+/**
+ * A refusal as the console prints it: the server's error code and the path of
+ * the first field it names, and never its message.
+ *
+ * Flight Recorder's API puts no event values in its messages, but the SDK
+ * cannot know it is talking to that API rather than a proxy or another
+ * server that echoes what it was sent, and a console line usually ends up in a
+ * log store the operator does not control. The code and path say where to
+ * look; `onDiagnostic` still receives the whole message. Anything that does
+ * not look like a code or a path is left out rather than trusted.
+ */
+function refusalLogLine(code: string | undefined, path: string | undefined): string {
+  const printedCode = code !== undefined && ERROR_CODE.test(code) ? code : "rejected";
+  const printedPath = path !== undefined && FIELD_PATH.test(path) ? ` at ${path}` : "";
+  return `${printedCode}${printedPath} (the server's message goes to onDiagnostic)`;
 }
 
 export function createRecorder(config: RecorderConfig): Recorder {
