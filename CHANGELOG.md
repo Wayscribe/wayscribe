@@ -220,6 +220,31 @@ changes far less often.
   has the results (about 1.0 KB per event in `metadata-only` and 1.5 KB in
   `redacted-payload` for small payloads), what retention does to disk, and a
   sizing formula.
+- Replay: destination management, request preparation and safety checks (exact
+  host allowlist, DNS pinned to the resolved address, refusal of the cloud
+  metadata range, a header blocklist, response caps and timeouts), the prepare
+  and result UI, and the corrected demo endpoint. V0 reviews the payload before
+  sending but does not allow editing it (ADR-032).
+- **Ingestion.** `POST /v1/events` and `/v1/events/batch`, authenticated by an
+  API key scoped to one project and environment, with server-side redaction,
+  structural payload diffs, and idempotent duplicate handling.
+- **Search and journeys.** Find a record by any identifier it is known by, then
+  read its timeline across services. Alias search is independent of alias type,
+  because a developer typing an identifier into a box does not know which type
+  it was stored under.
+- **Field-level transformation diffs**, which is the point of the product: the
+  step where a value changed, shown as a field table rather than a text diff.
+- **`@flight-recorder/node`**, the Node SDK. No runtime dependencies. Built so
+  that a recorder failure cannot break the application it is recording.
+- **Cross-process propagation** over HTTP headers and queue attributes, with
+  three levels. The entity ID does not propagate by default; aliases never do.
+- **The demo**, four services proving the reference journey end to end, and
+  `pnpm test:demo`, which asserts all ten events, the diff, the retries, and the
+  dead-letter state against a running stack.
+- **Retention**, swept hourly inside the API process, per environment, behind an
+  advisory lock.
+- **API key lifecycle**: `key:create`, `key:revoke`, `key:list`.
+- **Operations documentation** and a security disclosure policy.
 
 ### Security
 
@@ -614,48 +639,10 @@ audit, all merged the same day. The pattern behind them is written up in
   earlier build cannot read them, and it would send replays without their
   destination headers. To roll back, restore the backup taken before upgrading.
 
-### Added
-
-- Replay: destination management, request preparation and safety checks (exact
-  host allowlist, DNS pinned to the resolved address, refusal of the cloud
-  metadata range, a header blocklist, response caps and timeouts), the prepare
-  and result UI, and the corrected demo endpoint. V0 reviews the payload before
-  sending but does not allow editing it (ADR-032).
-
-## [0.1.0] — unreleased
-
-The first development release. Everything below works, is tested, and runs.
-
-### Added
-
-- **Ingestion.** `POST /v1/events` and `/v1/events/batch`, authenticated by an
-  API key scoped to one project and environment, with server-side redaction,
-  structural payload diffs, and idempotent duplicate handling.
-- **Search and journeys.** Find a record by any identifier it is known by, then
-  read its timeline across services. Alias search is independent of alias type,
-  because a developer typing an identifier into a box does not know which type
-  it was stored under.
-- **Field-level transformation diffs**, which is the point of the product: the
-  step where a value changed, shown as a field table rather than a text diff.
-- **`@flight-recorder/node`**, the Node SDK. No runtime dependencies. Built so
-  that a recorder failure cannot break the application it is recording.
-- **Cross-process propagation** over HTTP headers and queue attributes, with
-  three levels. The entity ID does not propagate by default; aliases never do.
-- **The demo**, four services proving the reference journey end to end, and
-  `pnpm test:demo`, which asserts all ten events, the diff, the retries, and the
-  dead-letter state against a running stack.
-- **Retention**, swept hourly inside the API process, per environment, behind an
-  advisory lock.
-- **API key lifecycle**: `key:create`, `key:revoke`, `key:list`.
-- **Operations documentation** and a security disclosure policy.
-
 ### Known limitations
 
 - The admin token is a single shared secret with no user accounts and no record
   of who used it.
-- Rotating `ENCRYPTION_KEY` is destructive: it orphans every search token and
-  invalidates every API key. There is no re-encryption tool. (Resolved under
-  Unreleased: rotation is a grace period with `rotate:reencrypt`, ADR-044.)
 - Propagated journey context is validated for shape but is not authenticated.
 - Of the five verbs in the product promise, **changed** and **rejected** are
   demonstrated end to end. Duplication and loss are not yet first-class.
