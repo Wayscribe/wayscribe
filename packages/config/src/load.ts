@@ -2,6 +2,7 @@ import type { z } from "zod";
 import {
   encryptionKeysSchema,
   serverEnvSchema,
+  statementTimeoutSchema,
   type EncryptionKeys,
   type ServerEnv
 } from "./schema.js";
@@ -30,6 +31,14 @@ export function loadServerEnv(source: Record<string, string | undefined>): Serve
  */
 export function loadEncryptionKeys(source: Record<string, string | undefined>): EncryptionKeys {
   return parse(encryptionKeysSchema, source);
+}
+
+/**
+ * Parse only DATABASE_STATEMENT_TIMEOUT_MS, for `doctor`, which reports on the
+ * API's setting from an environment that may not hold the rest of it.
+ */
+export function loadStatementTimeoutMs(source: Record<string, string | undefined>): number {
+  return parse(statementTimeoutSchema, source).DATABASE_STATEMENT_TIMEOUT_MS;
 }
 
 function parse<T extends z.ZodType>(

@@ -1,17 +1,21 @@
+import { isStatementTimeout } from "@flight-recorder/database";
 import type { Keyring } from "@flight-recorder/payload-security";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Knex } from "knex";
 import { unknownKeyWarning } from "./key-warnings.js";
+import { createApiMetrics, type ApiMetrics } from "./metrics/api-metrics.js";
 import { registerDeletionRoutes } from "./routes/deletions.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerQueryRoutes } from "./routes/queries.js";
 import { registerReplayRoutes } from "./routes/replays.js";
+import { errorBody } from "./admin.js";
 
 declare module "fastify" {
   interface FastifyInstance {
     db: Knex;
+    metrics: ApiMetrics;
   }
 }
 
@@ -29,6 +33,8 @@ export interface BuildAppOptions {
   replayAllowedHosts?: readonly string[];
   /** Destination for log lines. Exists so a test can assert on what is written. */
   logStream?: { write: (line: string) => void };
+  /** Recorded whether or not METRICS_PORT is set; the listener is what is optional. */
+  metrics?: ApiMetrics;
 }
 
 /**
@@ -85,7 +91,43 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   // One error shape for every failure, including the ones Fastify raises before
   // a route runs. Without this a 413 or a malformed-JSON 400 comes back in
   // Fastify's own shape, and a client parsing `error.code` finds nothing.
+  const metrics = options.metrics ?? createApiMetrics(options.db);
+
+  // Counted in onResponse, once the status is final. The route label is the
+  // pattern the router matched, never the path: `/v1/journeys/:journeyId` is
+  // one series however many journeys are read, and a request that matched
+  // nothing is `unmatched`, so a scanner walking random paths adds no series.
+  app.addHook("onResponse", async (request, reply) => {
+    metrics.observeRequest(
+      request.method,
+      request.routeOptions.url,
+      reply.statusCode,
+      reply.elapsedTime / 1000
+    );
+  });
+
   app.setErrorHandler((error: unknown, request, reply) => {
+    if (isStatementTimeout(error)) {
+      const route = request.routeOptions.url;
+      metrics.countQueryTimeout(route);
+      // The route and request id only. The driver's error carries the SQL
+      // text, and the request can carry the searched value; neither belongs
+      // in a log line that exists to say a query was slow.
+      app.log.warn(
+        { route: route ?? "unmatched", requestId: request.id },
+        "database statement cancelled by DATABASE_STATEMENT_TIMEOUT_MS"
+      );
+      return reply
+        .code(503)
+        .send(
+          errorBody(
+            "query_timeout",
+            "The database took too long to answer and the query was cancelled. Try again, or narrow the request.",
+            request.id
+          )
+        );
+    }
+
     const fastifyError = error as { statusCode?: number; code?: string; message?: string };
     const status = fastifyError.statusCode ?? 500;
     if (status >= 500) {
@@ -107,6 +149,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   });
 
   app.decorate("db", options.db);
+  app.decorate("metrics", metrics);
   // One per app, and the API builds one app per process: each missing key id
   // is logged once however many reads meet it.
   const warnUnknownKey = unknownKeyWarning(app.log);

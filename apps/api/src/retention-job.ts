@@ -22,9 +22,9 @@ const DEFAULT_INTERVAL_MS = 60 * 60 * 1000;
  * without deleting concurrently, and retention simply stops while the API is
  * down — acceptable for a cleanup job, and stated in the ADR.
  *
- * One structured log line per sweep, rather than a metrics endpoint: ADR-012
- * rules out a dependency for that, and "how much did retention delete" is a
- * question asked while reading logs anyway.
+ * One structured log line per sweep that deleted something, and every sweep's
+ * outcome in the metrics, so an alert can notice a sweep that has stopped
+ * completing, which no log line announces.
  */
 export function startRetentionJob(
   app: FastifyInstance,
@@ -45,9 +45,14 @@ export function startRetentionJob(
       });
 
       if (!result.ran) {
+        app.metrics.recordSweep("locked", 0);
         app.log.debug("retention sweep skipped; another replica holds the lock");
         return;
       }
+      app.metrics.recordSweep(
+        result.stoppedEarly ? "stopped_early" : "completed",
+        result.journeysDeleted
+      );
       if (result.stoppedEarly) {
         // The lock's connection ended mid-sweep, so another replica may now be
         // sweeping. What committed stands, and the next interval sweeps the rest.
@@ -71,6 +76,7 @@ export function startRetentionJob(
     } catch (error) {
       // A failed sweep must never take the API down: the next interval retries,
       // and serving reads matters more than reclaiming disk on schedule.
+      app.metrics.recordSweep("failed", 0);
       app.log.error({ err: error }, "retention sweep failed");
     } finally {
       running = false;
