@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig } from "./knex-config.js";
 import { issueKey, revokeKey } from "./repositories/key-admin.js";
+import { seedDemo } from "./seed-demo.js";
 
 // Distinctive, so an assertion that output does not contain them cannot pass
 // by accident and cannot fail on an ordinary word.
@@ -329,6 +330,34 @@ describe("doctor", () => {
     expect(run.output).not.toContain(UNGRANTED_PASSWORD);
   });
 
+  it("says a role that cannot use the schema lacks USAGE, not that every migration is pending", async () => {
+    // A migrated database whose schema the role in DATABASE_URL has no USAGE
+    // on. PostgreSQL skips such a schema when it resolves an unqualified name,
+    // so knex_migrations looked absent and doctor reported all 16 migrations
+    // pending, sending the operator to run migrate against a current schema.
+    await withDatabase("unusable", async (db) => {
+      await db.migrate.latest();
+      await db.raw("revoke usage on schema public from public");
+      await db.raw(`create role doctor_no_usage login password '${UNGRANTED_PASSWORD}'`);
+    });
+    const url = new URL(urlFor("unusable"));
+    url.username = "doctor_no_usage";
+    url.password = UNGRANTED_PASSWORD;
+
+    const run = await doctor([], { DATABASE_URL: url.toString() });
+
+    expect(run.code).toBe(1);
+    expect(statusOf(run, "Database reachable")).toBe("PASS");
+    expect(statusOf(run, "Migrations"), run.output).toBe("FAIL");
+    expect(lineOf(run, "Migrations")).not.toMatch(/pending/);
+    expect(lineOf(run, "Migrations")).toContain("USAGE");
+    expect(run.output).toContain("GRANT USAGE ON SCHEMA public TO doctor_no_usage");
+    expect(statusOf(run, "Projects and keys")).toBe("SKIP");
+    expect(run.output).not.toMatch(/^\s+at /m);
+    expectNoSecrets(run);
+    expect(run.output).not.toContain(UNGRANTED_PASSWORD);
+  });
+
   it("fails when stored data is under a key the installation does not have", async () => {
     const run = await doctor([], {}, "unreadable");
 
@@ -373,6 +402,39 @@ describe("doctor", () => {
     expect(statusOf(run, "Projects and keys")).toBe("WARN");
     expect(run.output).toContain("project:create");
     expect(run.code).toBe(0);
+  });
+
+  it("warns while the published demo key is active, and names the revoke", async () => {
+    // compose.demo.yaml commits this key so the demo starts with nothing
+    // configured. On any other installation it lets anyone write events.
+    const demoKey = "fr_demo00000000000000000000000000000";
+    await withDatabase("demokey", async (db) => {
+      await db.migrate.latest();
+      await db("projects").insert({ name: "Acme", slug: "acme" });
+      await issueKey(db, keyring, {
+        projectSlug: "acme",
+        environmentName: "production",
+        name: "w"
+      });
+      await seedDemo(db, keyring, demoKey);
+    });
+
+    const active = await doctor([], {}, "demokey");
+
+    expect(statusOf(active, "Projects and keys"), active.output).toBe("WARN");
+    expect(lineOf(active, "Projects and keys")).toContain("fr_demo00000");
+    expect(active.output).toContain("key:revoke fr_demo00000");
+    expect(active.code).toBe(0);
+    expect(active.output).not.toContain(demoKey);
+
+    const db = knex(createKnexConfig(urlFor("demokey")));
+    try {
+      await revokeKey(db, "fr_demo00000");
+    } finally {
+      await db.destroy();
+    }
+    const revoked = await doctor([], {}, "demokey");
+    expect(statusOf(revoked, "Projects and keys"), revoked.output).toBe("PASS");
   });
 
   it("fails a revoked key", async () => {

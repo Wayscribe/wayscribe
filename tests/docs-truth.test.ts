@@ -137,6 +137,53 @@ describe("the documentation's checkable claims", () => {
     }
   });
 
+  it("never tells anyone to run a repository script that pnpm has a built-in for", () => {
+    // pnpm 11 has its own `doctor`, and `pnpm doctor` runs it rather than the
+    // root script: it checks the pnpm installation, prints its own report, and
+    // exits 0 on a database it never looked at. `pnpm run doctor` always means
+    // the script. Every markdown file, for the reason the checks above give.
+    for (const file of markdownFiles()) {
+      expect(read(file), `${file} says \`pnpm doctor\`; write \`pnpm run doctor\``).not.toMatch(
+        /\bpnpm doctor\b/
+      );
+    }
+  });
+
+  it("runs package scripts from the root with `run`, so a pnpm built-in cannot shadow one", () => {
+    // `pnpm --filter <package> doctor` ran pnpm's built-in doctor across the
+    // workspace and failed with "Unknown option: 'recursive'". Every name, not
+    // only doctor: pnpm adds built-ins, and the next one would shadow silently.
+    const scripts = (JSON.parse(read("package.json")) as { scripts: Record<string, string> })
+      .scripts;
+    for (const [name, command] of Object.entries(scripts)) {
+      const filtered = /^pnpm --filter \S+ (\S+)/.exec(command);
+      if (filtered === null) continue;
+      expect(
+        ["run", "exec"],
+        `root script ${name} runs \`${command}\`; filter into the package with \`run\``
+      ).toContain(filtered[1]);
+    }
+  });
+
+  it("runs the published images through COMPOSE_FILE, never a hand-typed -f list", () => {
+    // The install told readers to add `-f compose.bundled.yaml`, then showed
+    // every later command with `-f compose.published.yaml` alone. Run as
+    // written, those failed and Compose suggested `--remove-orphans`, which
+    // removes the PostgreSQL container. One export of COMPOSE_FILE keeps every
+    // command on the files the stack was started with, whichever they were.
+    const files = [
+      ...markdownFiles(),
+      ...filesEndingWith(".yaml", "infrastructure"),
+      ...filesEndingWith(".ts", "packages"),
+      ...filesEndingWith(".ts", "apps")
+    ];
+    for (const file of files) {
+      expect(read(file), `${file} names compose.published.yaml with -f`).not.toMatch(
+        /-f\s+compose\.published\.yaml/
+      );
+    }
+  });
+
   it("keeps the pre-implementation documents marked as such", () => {
     // They predate every ADR and describe an install premise ADR-037 inverted.
     // They are kept for provenance, which only works if a reader is told.

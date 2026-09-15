@@ -6,27 +6,39 @@
 # to bring your own — the one your team already backs up, monitors, and holds
 # the credentials for. Point it at that:
 #
+#   export COMPOSE_FILE=compose.published.yaml
 #   export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
 #   export ENCRYPTION_KEY=$(openssl rand -hex 32)
 #   export ADMIN_TOKEN=$(openssl rand -hex 32)
-#   docker compose -f compose.published.yaml up -d
+#   docker compose up -d
 #
-# To try it without standing a database up first, add the bundled overlay. It
-# runs PostgreSQL in a container beside the rest and sets DATABASE_URL for you:
+# COMPOSE_FILE names the files every later `docker compose` command in the shell
+# reads, so the one-off commands below see the same stack.
 #
-#   docker compose -f compose.published.yaml -f compose.bundled.yaml up -d
+# The images are `latest` unless FLIGHT_RECORDER_VERSION names a release by its
+# git tag, v included: FLIGHT_RECORDER_VERSION=v0.1.0.
+#
+# To try it without standing a database up first, add the bundled overlay to
+# that list. It runs PostgreSQL in a container beside the rest and sets
+# DATABASE_URL for you:
+#
+#   export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
+#   docker compose up -d
+#
+# A command without the overlay reports the PostgreSQL container as an orphan
+# and suggests --remove-orphans, which would remove it. Keep COMPOSE_FILE set.
 #
 # Then open http://localhost:3000, and create the project you are going to
 # instrument — a new installation has none:
 #
-#   docker compose -f compose.published.yaml run --rm --entrypoint node api \
+#   docker compose run --rm --entrypoint node api \
 #     packages/database/dist/cli.js project:create acme "Acme Payments"
-#   docker compose -f compose.published.yaml run --rm --entrypoint node api \
+#   docker compose run --rm --entrypoint node api \
 #     packages/database/dist/cli.js key:create acme production checkout-worker
 #
 # Then check the whole installation, with the key you were given:
 #
-#   docker compose -f compose.published.yaml run --rm --entrypoint node api \
+#   docker compose run --rm --entrypoint node api \
 #     packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key <key>
 #
 # `compose.yaml` builds from source instead and is for people working on Flight

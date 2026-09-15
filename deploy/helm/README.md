@@ -40,7 +40,8 @@ kubectl run frcli --rm -i --restart=Never \
 
 `values-local.yaml` turns on an in-cluster PostgreSQL, which is for evaluation.
 A real installation points at the database your team already runs — the one that
-is backed up and monitored (ADR-037):
+is backed up and monitored (ADR-037). It needs PostgreSQL 15 or later and a role
+with privileges on its own schema; `docs/OPERATIONS.md` §1 lists them:
 
 ```bash
 helm install fr deploy/helm/flight-recorder \

@@ -1,8 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-
-const ADMIN_TOKEN = process.env["ADMIN_TOKEN"] ?? "";
-const API_URL = process.env["API_URL"] ?? "http://localhost:8080";
-const API_KEY = process.env["FLIGHT_API_KEY"] ?? "";
+import { expect, test } from "@playwright/test";
+import { API_KEY, API_URL, signIn } from "./session";
 
 // Versioned like journey.spec.ts, and stamped per run as well. The Recent page
 // lists journeys by recent activity, so these events have to be stamped now,
@@ -48,13 +45,6 @@ async function ingest(
   }
 }
 
-async function signIn(page: Page): Promise<void> {
-  await page.goto("/login");
-  await page.fill("#token", ADMIN_TOKEN);
-  await page.click("button[type=submit]");
-  await expect(page).toHaveURL("/");
-}
-
 test.beforeAll(async () => {
   // The completed journey is newer, so a list that ignored status would show it first.
   await ingest(FAILED, "failed", 10);
@@ -73,7 +63,7 @@ test.describe("a page link the API refuses", () => {
     ["a crafted cursor", base64url({ lastEventAt: "March 7", id: "jrn_x" })]
   ] as const) {
     test(`says so for ${label} and offers the newest`, async ({ page }) => {
-      await signIn(page);
+      await signIn(page, FAILED.journeyId);
       const query = new URLSearchParams({
         status: "failed",
         window: "24h",
@@ -104,7 +94,7 @@ test.describe("a page link the API refuses", () => {
     ["in year 10000", () => "+010000-01-01T00:00:00.000Z"]
   ] as const) {
     test(`recomputes a carried since ${label} rather than erroring`, async ({ page }) => {
-      await signIn(page);
+      await signIn(page, FAILED.journeyId);
       // The cursor is real in shape; the since is what the page must not trust.
       const cursor = base64url({ lastEventAt: new Date().toISOString(), id: "jrn_~" });
       const query = new URLSearchParams({
@@ -123,13 +113,13 @@ test.describe("a page link the API refuses", () => {
 });
 
 test("offers no widening the filters already have", async ({ page }) => {
-  await signIn(page);
+  await signIn(page, FAILED.journeyId);
   await page.goto(`/recent?status=&window=7d&service=${SERVICE}-nothing`);
   await expect(page.locator("main p.muted")).toHaveText("Nothing here.");
 });
 
 test("starts from recent failures, widens to any status, and follows a row", async ({ page }) => {
-  await signIn(page);
+  await signIn(page, FAILED.journeyId);
 
   await page.getByRole("link", { name: "No identifier? See recent failures" }).click();
   await expect(page).toHaveURL(/\/recent$/);

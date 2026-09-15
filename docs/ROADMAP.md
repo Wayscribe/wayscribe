@@ -15,7 +15,7 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. 503 unit tests, 139 integration
+the step against a development destination. 1207 unit tests, 405 integration
 tests against a real PostgreSQL, 7 acceptance tests against a running stack.
 
 Nothing is published. There is no npm package and no image in any registry, so
@@ -28,22 +28,23 @@ and not currently a priority — see *If this goes public*.
 
 Presenting the work, and closing what the last review opened.
 
-- **Screenshots in the README.** The product's whole value is visual — a
-  timeline across four services with the changed field named — and the README
-  has none. Highest return of anything on this page.
-- **Surface the decision log.** 46 ADRs of real tradeoff reasoning are linked
-  from the bottom of the README as a docs bullet. That is the most interesting
-  artifact in the repository and it reads as an afterthought.
-- **Write down what went wrong.** Dogfooding this tool against a real ORM
-  surfaced four defects in a day, including a plaintext credential leak in its
-  own redaction. That story lives in `git log`. It belongs in a page somebody
-  can read.
-- **A CLI** — `search`, `journey`, `event --diff`, `projects`, over HTTP, with
-  `--json` on everything. It is the ops-shaped answer for teams who will not
-  expose an admin console, and unlike the web interface it is testable in CI.
-- **`docker compose up` from a clean clone, verified in CI.** Every onboarding
-  defect on the record was found by a person running the README literally. That
-  is a job, not a habit.
+- ~~**Screenshots in the README.**~~ **Built:** the README opens with the diff
+  view, and `docs/images` holds search, timeline, and diff, regenerated with
+  `pnpm screenshots`.
+- ~~**Surface the decision log.**~~ **Built:** the README's first section after
+  the screenshot points at [the decision log](DECISIONS.md), and its ADR count is
+  checked by `tests/docs-truth.test.ts`.
+- ~~**Write down what went wrong.**~~ **Built:**
+  [What running it found](WHAT_RUNNING_IT_FOUND.md).
+- ~~**A CLI**~~ **Built:** `packages/cli`: `search`, `journey`, `event --diff`,
+  `projects`, over HTTP, with `--json` on everything (`pnpm cli`).
+- **`docker compose up` from a clean clone, verified in CI.** Partly built: the
+  `demo` job, and `release-verify` on a release tag, build and boot the demo stack
+  from the pipeline's checkout and run `pnpm test:demo`. Neither follows the
+  README literally, so neither copies `.env.example` to `.env`, which is how a
+  literal run on 2026-09-15 found a web container listening on the wrong port.
+  Every onboarding defect on the record was found by a person running the README
+  literally. That is a job, not a habit.
 
 ### Known open, and honest about it
 
@@ -67,16 +68,19 @@ all of it is cheap to add once there is a reason.
 - publish `@flight-recorder/node` and the images, pinned off `:latest`, with the
   pushed tag booted on both architectures before it moves
 - a private-registry rehearsal of the documented install before the public tag
-- a `doctor` preflight — migrations applied, secrets not the published defaults,
-  an issued key that actually authenticates
-- the SDK saying something on its first successful flush, so a working install
-  is distinguishable from a broken one
+- ~~a `doctor` preflight~~ **Built:** `pnpm run doctor`, or `doctor` in the API
+  image: migrations applied, secrets not the published defaults, an issued key
+  that actually authenticates (`OPERATIONS.md` §12)
+- ~~the SDK saying something on its first successful flush~~ **Built:**
+  `logDiagnostics: true` prints `delivered_first` once the server stores a batch
 - a read-only principal: journeys and timelines without payloads, which is the
   cheap answer to "management should see this too" and much less work than
   accounts
 - admin endpoints (`POST /v1/projects`, key lifecycle) so the CLI's admin half
   works remotely rather than only inside the container
-- rate limiting, quotas, and a `statement_timeout`
+- rate limiting and quotas on ingestion. (~~a `statement_timeout`~~ **Built:**
+  `DATABASE_STATEMENT_TIMEOUT_MS`, `OPERATIONS.md` §13. Admin token and API key
+  authentication failures are throttled, which is not rate limiting.)
 
 ---
 

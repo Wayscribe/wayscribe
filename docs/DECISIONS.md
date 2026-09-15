@@ -1135,7 +1135,10 @@ the CLI, and the interface, and creation is the only cheap moment to reject one.
   `-f compose.bundled.yaml` or moving the data. The CHANGELOG says so.
 - Flight Recorder needs an ordinary database and an ordinary role. It installs no
   extensions and touches nothing outside the tables its migrations create, so it can share
-  a database with other things.
+  a database with other things. (Amended by the v1 acceptance check: migration 001 still
+  ran `create extension if not exists "pgcrypto"`, which nothing used and which failed for
+  a role without `CREATE` on the database. The statement is gone, and PostgreSQL 15, which
+  has `gen_random_uuid()` built in, is the stated minimum.)
 - A team that manages its own schema changes can leave the `migrate` service out and run
   the same command when it suits them. `/ready` reports `migrations_pending` until they do,
   so the API will not serve reads against a schema it does not recognise.

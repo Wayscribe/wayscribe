@@ -136,7 +136,8 @@ transformation contains a real defect, the queue really retries, and the target
 really rejects the result with a 422. About ten seconds after the trigger the
 journey has reached its dead-letter state.
 
-Open `http://localhost:3000`, sign in with the admin token, and search
+Open `http://localhost:3000` and sign in with the admin token, which is
+`replace-for-local-development-0000` until you set your own (below). Search
 `0018Z00002ABC`. That is the journey above. (`pnpm demo:trigger` does the same
 as the `curl` and prints the direct link, if you have Node 24 and pnpm.)
 
@@ -148,24 +149,31 @@ API_PORT=8081 WEB_PORT=3001 docker compose -f infrastructure/compose.yaml \
                -f infrastructure/compose.demo.yaml up --build
 ```
 
-The interface asks for `ADMIN_TOKEN`, which is
-`replace-for-local-development-0000` until you set your own. Set your own
-before this holds anything real:
+Set your own `ADMIN_TOKEN` and `ENCRYPTION_KEY` before this holds anything real:
 
 ```bash
 cp .env.example .env && printf 'ENCRYPTION_KEY=%s\nADMIN_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
 ```
 
-The API logs a warning at every boot while the published development defaults
-are still in use.
+Recreate the stack with the same `up` command for them to take effect. What the
+demo already recorded stays under the default key, which the new one cannot
+read; start from an empty database with `down -v` first if that matters. The
+API logs a warning at every boot while the published development defaults are
+still in use.
 
 ---
 
 ## Instrument your own service
 
+The SDK is not published to npm yet. Until it is, build it from a clone of this
+repository and install it from there:
+
 ```bash
-npm install @flight-recorder/node
+pnpm install && pnpm --filter @flight-recorder/node build
+npm install /path/to/flight-recorder/packages/sdk-node
 ```
+
+Once it is published, that becomes `npm install @flight-recorder/node`.
 
 ```typescript
 import { createRecorder } from "@flight-recorder/node";
@@ -341,36 +349,46 @@ published. Until they are, use [Try it](#try-it), which runs from a clone.
 [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
 will pull the images, migrate on first boot, and need no checkout.
 
-Flight Recorder keeps everything in one PostgreSQL database and expects you to
-bring your own: the one your team already backs up, monitors, and holds the
-credentials for.
+Flight Recorder keeps everything in one PostgreSQL database, 15 or later, and
+expects you to bring your own: the one your team already backs up, monitors,
+and holds the credentials for.
 
 ```bash
 curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml
+export COMPOSE_FILE=compose.published.yaml
 
 export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
 export ENCRYPTION_KEY=$(openssl rand -hex 32)
 export ADMIN_TOKEN=$(openssl rand -hex 32)
-docker compose -f compose.published.yaml up -d
+docker compose up -d
 ```
 
-To try it without standing a database up first, add the bundled overlay, which
-runs PostgreSQL alongside and sets `DATABASE_URL` for you:
+`COMPOSE_FILE` names the files every `docker compose` command in this shell
+reads, so the commands below always see the same stack you started. Export it
+again in a new shell.
+
+To try it without standing a database up first, add the bundled overlay to that
+list. It runs PostgreSQL alongside and sets `DATABASE_URL` for you:
 
 ```bash
 curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.bundled.yaml
-docker compose -f compose.published.yaml -f compose.bundled.yaml up -d
+export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
+docker compose up -d
 ```
+
+A command that leaves the overlay out reports the PostgreSQL container as an
+orphan and suggests `--remove-orphans`. Do not take that advice: it removes the
+database container.
 
 A new installation has no projects. Create the one you are about to instrument,
 and issue it a key — the same image carries the CLI, so this still needs no
 checkout:
 
 ```bash
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js project:create acme "Acme Payments"
 
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js key:create acme production checkout-worker
 ```
 
@@ -378,7 +396,7 @@ The key is printed once. Before giving it to anything, check the installation
 with it:
 
 ```bash
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
 ```
 

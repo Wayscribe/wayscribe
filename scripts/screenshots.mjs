@@ -6,7 +6,9 @@
  * Generating them from the running demo means they can be refreshed in one
  * command rather than recaptured by hand and quietly drifting.
  *
- *   pnpm demo:up && pnpm demo:trigger        # something to look at
+ *   docker compose -f infrastructure/compose.yaml \
+ *     -f infrastructure/compose.demo.yaml up --build -d
+ *   pnpm demo:trigger                         # something to look at
  *   pnpm screenshots
  *
  * Requires ADMIN_TOKEN and a stack on WEB_URL. Uses the same sign-in the

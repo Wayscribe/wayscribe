@@ -129,7 +129,7 @@ changes far less often.
   and whether the API reports ready. Exits 1 when anything failed. It prints
   neither the database password, the admin token, the encryption keys, nor
   more of an API key than its prefix. In the API image beside `key:create`;
-  `pnpm doctor` from a checkout (`docs/OPERATIONS.md` §12).
+  `pnpm run doctor` from a checkout (`docs/OPERATIONS.md` §12).
 - **A statement timeout.** `DATABASE_STATEMENT_TIMEOUT_MS`, 15000 by default,
   cancels any statement the API runs past it, so one runaway query, from a
   pathological search to a table scan behind a missing index, can no longer
@@ -209,7 +209,7 @@ changes far less often.
   checkout:
 
   ```bash
-  docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  docker compose run --rm --entrypoint node api \
     packages/database/dist/cli.js project:create acme "Acme Payments"
   ```
 
@@ -220,6 +220,31 @@ changes far less often.
   has the results (about 1.0 KB per event in `metadata-only` and 1.5 KB in
   `redacted-payload` for small payloads), what retention does to disk, and a
   sizing formula.
+- Replay: destination management, request preparation and safety checks (exact
+  host allowlist, DNS pinned to the resolved address, refusal of the cloud
+  metadata range, a header blocklist, response caps and timeouts), the prepare
+  and result UI, and the corrected demo endpoint. V0 reviews the payload before
+  sending but does not allow editing it (ADR-032).
+- **Ingestion.** `POST /v1/events` and `/v1/events/batch`, authenticated by an
+  API key scoped to one project and environment, with server-side redaction,
+  structural payload diffs, and idempotent duplicate handling.
+- **Search and journeys.** Find a record by any identifier it is known by, then
+  read its timeline across services. Alias search is independent of alias type,
+  because a developer typing an identifier into a box does not know which type
+  it was stored under.
+- **Field-level transformation diffs**, which is the point of the product: the
+  step where a value changed, shown as a field table rather than a text diff.
+- **`@flight-recorder/node`**, the Node SDK. No runtime dependencies. Built so
+  that a recorder failure cannot break the application it is recording.
+- **Cross-process propagation** over HTTP headers and queue attributes, with
+  three levels. The entity ID does not propagate by default; aliases never do.
+- **The demo**, four services proving the reference journey end to end, and
+  `pnpm test:demo`, which asserts all ten events, the diff, the retries, and the
+  dead-letter state against a running stack.
+- **Retention**, swept hourly inside the API process, per environment, behind an
+  advisory lock.
+- **API key lifecycle**: `key:create`, `key:revoke`, `key:list`.
+- **Operations documentation** and a security disclosure policy.
 
 ### Security
 
@@ -416,6 +441,54 @@ changes far less often.
 
 ### Fixed
 
+- **Two demo stacks with different `-p` names no longer share an image.** The
+  demo services were tagged `flight-recorder-demo:local` whatever the project
+  name, so a second checkout's build replaced the first's image. The tag now
+  starts with the Compose project name.
+- **The browser suite runs against the demo stack.** On a database with more
+  than one project, every signed-in spec landed on the project picker instead of
+  the page it tested, and 13 of 18 failed. Each spec now chooses the project its
+  key wrote to, and `docs/LOCAL_DEVELOPMENT.md` lists the variables the suite
+  needs.
+- **The instrument-a-service example runs from a clean clone.** Its README
+  skipped building the SDK its `file:` dependency points at, migrating the
+  stack, and creating the project, and it pointed at `pnpm db:seed`. It now
+  lists every step, and says to set `FLIGHT_RECORDER_URL` and
+  `FLIGHT_RECORDER_WEB` when the stack's ports move.
+- **The Helm chart's default image is one a release publishes.** It defaulted
+  to the bare `appVersion`, `api:0.1.0`, while a release pushes the git tag,
+  `api:v0.1.0`, so the default values could not pull. The default is now `v`
+  plus `appVersion`, and CI renders the chart and compares.
+- **doctor warns while the published demo key is active.** The demo stack's key
+  is committed to the repository, so anyone can write events with it, and doctor
+  passed an installation where it was unrevoked. "Projects and keys" now warns
+  and names `key:revoke fr_demo00000`.
+- **Migrations run as a role with privileges on its schema alone.** Migration
+  001 created the `pgcrypto` extension, which nothing used and which needs
+  `CREATE` on the database, so such a role failed at the first migration with a
+  stack trace. The statement is removed. A database that already has the
+  extension keeps it, and nothing reruns. PostgreSQL 15 or later is the stated
+  requirement.
+- **doctor names a missing schema grant instead of pending migrations.** A role
+  without `USAGE` on the schema holding the tables cannot see
+  `knex_migrations`, and doctor reported every migration pending on a current
+  database. It now fails the check with the `GRANT USAGE ON SCHEMA` that fixes
+  it.
+- **The published install's commands work with the bundled overlay.** The
+  install added `-f compose.bundled.yaml` to start the stack and then showed
+  every later command naming only the published file, which failed and
+  suggested `--remove-orphans`, a flag that removes the PostgreSQL container.
+  The install now exports `COMPOSE_FILE` once, and every command after it is a
+  plain `docker compose`.
+- **The documented doctor command runs doctor.** pnpm 11 has a built-in
+  command of the same name, which answered the documented form with a report on
+  the pnpm installation and exit 0, and the root script failed with
+  `Unknown option: 'recursive'`. The command is `pnpm run doctor`, and every
+  root script now filters into its package with `run`.
+- **`cp .env.example .env` no longer empties the interface.** `.env.example`
+  set `PORT=8080`, the web container reads the root `.env`, and Next listened on
+  8080 inside it, so `localhost:3000` answered nothing. The web service now pins
+  `PORT` to 3000, and `.env.example` no longer sets `PORT`.
 - **Search is fast at a million journeys.** It walked every journey in the
   project and probed its events and aliases, which took about 1.5 seconds at
   120,000 journeys and 20 seconds or more at a million, whatever the value. It
@@ -570,48 +643,10 @@ audit, all merged the same day. The pattern behind them is written up in
   earlier build cannot read them, and it would send replays without their
   destination headers. To roll back, restore the backup taken before upgrading.
 
-### Added
-
-- Replay: destination management, request preparation and safety checks (exact
-  host allowlist, DNS pinned to the resolved address, refusal of the cloud
-  metadata range, a header blocklist, response caps and timeouts), the prepare
-  and result UI, and the corrected demo endpoint. V0 reviews the payload before
-  sending but does not allow editing it (ADR-032).
-
-## [0.1.0] — unreleased
-
-The first development release. Everything below works, is tested, and runs.
-
-### Added
-
-- **Ingestion.** `POST /v1/events` and `/v1/events/batch`, authenticated by an
-  API key scoped to one project and environment, with server-side redaction,
-  structural payload diffs, and idempotent duplicate handling.
-- **Search and journeys.** Find a record by any identifier it is known by, then
-  read its timeline across services. Alias search is independent of alias type,
-  because a developer typing an identifier into a box does not know which type
-  it was stored under.
-- **Field-level transformation diffs**, which is the point of the product: the
-  step where a value changed, shown as a field table rather than a text diff.
-- **`@flight-recorder/node`**, the Node SDK. No runtime dependencies. Built so
-  that a recorder failure cannot break the application it is recording.
-- **Cross-process propagation** over HTTP headers and queue attributes, with
-  three levels. The entity ID does not propagate by default; aliases never do.
-- **The demo**, four services proving the reference journey end to end, and
-  `pnpm test:demo`, which asserts all ten events, the diff, the retries, and the
-  dead-letter state against a running stack.
-- **Retention**, swept hourly inside the API process, per environment, behind an
-  advisory lock.
-- **API key lifecycle**: `key:create`, `key:revoke`, `key:list`.
-- **Operations documentation** and a security disclosure policy.
-
 ### Known limitations
 
 - The admin token is a single shared secret with no user accounts and no record
   of who used it.
-- Rotating `ENCRYPTION_KEY` is destructive: it orphans every search token and
-  invalidates every API key. There is no re-encryption tool. (Resolved under
-  Unreleased: rotation is a grace period with `rotate:reencrypt`, ADR-044.)
 - Propagated journey context is validated for shape but is not authenticated.
 - Of the five verbs in the product promise, **changed** and **rejected** are
   demonstrated end to end. Duplication and loss are not yet first-class.

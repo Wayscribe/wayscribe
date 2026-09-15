@@ -1,8 +1,5 @@
 import { expect, test } from "@playwright/test";
-
-const ADMIN_TOKEN = process.env["ADMIN_TOKEN"] ?? "";
-const API_URL = process.env["API_URL"] ?? "http://localhost:8080";
-const API_KEY = process.env["FLIGHT_API_KEY"] ?? "";
+import { API_KEY, API_URL, signIn } from "./session";
 
 // Its own journey, so deleting it cannot disturb journey.spec.ts. Versioned
 // like that suite's seed: an ingested event is immutable, so changing what is
@@ -44,10 +41,7 @@ test.beforeAll(seed);
 test("deletes a journey through the confirmation page, and search no longer finds it", async ({
   page
 }) => {
-  await page.goto("/login");
-  await page.fill("#token", ADMIN_TOKEN);
-  await page.click("button[type=submit]");
-  await expect(page).toHaveURL("/");
+  await signIn(page, JOURNEY_ID);
 
   await page.fill("input[name=q]", ENTITY_ID);
   await page.click("button[type=submit]");

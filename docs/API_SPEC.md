@@ -239,11 +239,12 @@ Response:
         "duplicate": false
       },
       {
-        "eventId": "evt_02",
+        "eventId": null,
         "status": "rejected",
         "error": {
           "code": "payload_too_large",
-          "message": "Event payload exceeded the configured limit."
+          "message": "The event exceeded a configured limit.",
+          "httpStatus": 400
         }
       }
     ]
@@ -252,6 +253,12 @@ Response:
 ```
 
 A partially invalid batch must not reject all valid events.
+
+A rejected result's `eventId` is always `null`, including when the event it
+refused had a readable id: an event that failed validation may have no id worth
+repeating. Results are in the order the events were sent, so match a result to
+its event by position. A result for a validation failure may also carry
+`error.details`, as the single-event route does.
 
 Each rejected result carries `error.httpStatus`, the status the same refusal
 would have from the single-event route. A 4xx is permanent: the event was

@@ -12,10 +12,13 @@
  * never loaded, so an operator who followed the setup believed they had
  * configured secrets and had not.
  */
+/** The API key `infrastructure/compose.demo.yaml` commits for the demo services. */
+export const PUBLISHED_DEMO_API_KEY = "fr_demo00000000000000000000000000000";
+
 const PUBLISHED_DEFAULTS = new Set([
   "replace-for-local-development-0000",
   "local-admin-token-000000000000000",
-  "fr_demo00000000000000000000000000000"
+  PUBLISHED_DEMO_API_KEY
 ]);
 
 export interface InsecureDefault {

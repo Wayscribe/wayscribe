@@ -18,18 +18,36 @@ already runs — the one somebody backs up, monitors, and can restore — and Fl
 Recorder needs nothing else from you.
 
 ```bash
+export COMPOSE_FILE=compose.published.yaml
 export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
-docker compose -f compose.published.yaml up -d
+docker compose up -d
 ```
 
-It needs an ordinary database and an ordinary role: `CREATE`, `SELECT`,
-`INSERT`, `UPDATE`, `DELETE` on its own schema. It installs no extensions and
-touches nothing outside the tables its migrations create, so an existing
-database with other tables in it is fine.
+`COMPOSE_FILE` names the files every `docker compose` command in the shell
+reads. The commands for the published images in this document are written
+without `-f` and rely on it, so they always see the stack you started. Export it
+again in a new shell.
 
-`-f compose.bundled.yaml` runs PostgreSQL in a container instead and sets
-`DATABASE_URL` for you. That is for evaluation and for local work. Nothing about
-it is unsuitable for production except that it is invisible to whoever is
+It needs PostgreSQL 15 or later (CI tests 17), an ordinary database, and an
+ordinary role: `USAGE`, `CREATE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE` on its
+own schema. It does not need `CREATE` on the database: it installs no
+extensions and touches nothing outside the tables its migrations create, so an
+existing database with other tables in it is fine.
+
+The bundled overlay runs PostgreSQL in a container instead and sets
+`DATABASE_URL` for you:
+
+```bash
+export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
+docker compose up -d
+```
+
+A command that leaves the overlay out reports the PostgreSQL container as an
+orphan and suggests `--remove-orphans`; do not take that advice, because it
+removes the database container.
+
+The overlay is for evaluation and for local work. Nothing about it is
+unsuitable for production except that it is invisible to whoever is
 responsible for your data — no backup schedule, no monitoring, and a `docker
 compose down -v` away from gone.
 
@@ -41,7 +59,7 @@ its own process, leave that service out and run the same command when you
 choose to:
 
 ```bash
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js migrate
 ```
 
@@ -50,7 +68,19 @@ will not serve reads against a schema it does not recognise.
 
 ## 2. Backup
 
-With the bundled overlay, the data is in the `postgres-data` volume.
+On your own database, Flight Recorder's tables are ordinary tables in it: back
+them up the way that database is already backed up.
+
+With the bundled overlay, the data is in the `postgres-data` volume. With
+`COMPOSE_FILE` set as in §1:
+
+```bash
+docker compose exec -T postgres \
+  pg_dump -U flight -d flight --format=custom > flight-$(date +%F).dump
+```
+
+The stack built from source runs the same PostgreSQL service. Name its file
+instead of relying on `COMPOSE_FILE`:
 
 ```bash
 docker compose -f infrastructure/compose.yaml exec -T postgres \
@@ -69,9 +99,19 @@ store it somewhere you will still have it when you need the backup.
 
 ## 3. Restore
 
+Name the dump you are restoring. With the bundled overlay and `COMPOSE_FILE` set
+as in §1:
+
+```bash
+docker compose exec -T postgres \
+  pg_restore -U flight -d flight --clean --if-exists < flight-2026-09-15.dump
+```
+
+On the stack built from source:
+
 ```bash
 docker compose -f infrastructure/compose.yaml exec -T postgres \
-  pg_restore -U flight -d flight --clean --if-exists < flight-2026-08-07.dump
+  pg_restore -U flight -d flight --clean --if-exists < flight-2026-09-15.dump
 ```
 
 Restore against the **same `ENCRYPTION_KEY`**. A restore under a different key
@@ -188,10 +228,10 @@ A new installation has no projects, and a key belongs to one. Create the project
 first; the environment is created for you by `key:create`.
 
 ```bash
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js project:create acme "Acme Payments"
 
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js key:create acme production checkout-worker
 ```
 
@@ -241,8 +281,8 @@ rotates nothing.
 run them with the same two variables the API has.
 
 ```bash
-# Published images
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+# Published images, with COMPOSE_FILE set as in §1
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js rotate:status
 
 # infrastructure/compose.yaml, which reads .env for the one-off container too
@@ -259,8 +299,10 @@ uses for `project:create`. `key:create` during a rotation needs both keys as
 well, so a key issued mid-rotation verifies against the API beside it.
 `key:revoke` reads no key.
 
-Give every `docker compose` command in this section the same `-f` files the
-stack was started with. For the demo that means adding
+For the published images, `COMPOSE_FILE` (§1) keeps every command on the files
+the stack was started with. For a stack built from source, give every
+`docker compose` command in this section the same `-f` files the stack was
+started with. For the demo that means adding
 `-f infrastructure/compose.demo.yaml` after `-f infrastructure/compose.yaml`.
 Leave it out and Compose warns about orphan containers and suggests
 `--remove-orphans`; do not take that advice, because it removes the demo
@@ -274,7 +316,8 @@ services.
 2. Where your stack reads its keys (above), set `ENCRYPTION_KEY` to the new key
    and `ENCRYPTION_KEY_PREVIOUS` to the old one.
 3. Recreate every API container with the new keys: `docker compose -f
-   infrastructure/compose.yaml up -d` (or `-f compose.published.yaml`), or
+   infrastructure/compose.yaml up -d` (or `docker compose up -d` for the
+   published images, with `COMPOSE_FILE` set as in §1), or
    `kubectl rollout restart deployment/<release>-flight-recorder-api` after the
    Helm upgrade, since the chart does not restart pods when its secret changes.
    **Not `docker compose restart`**: it restarts the container with the
@@ -555,7 +598,7 @@ nothing, says so, and exits 1; run it again when the sweep has finished.
 From the published image, without a checkout:
 
 ```bash
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js delete:identifier acme customer-42@example.com --dry-run
 ```
 
@@ -948,6 +991,12 @@ digest, signs it, verifies the signature and attestations as below, and only
 then points the version tag and `latest` at it. A release whose signing failed
 has no version tag, so an unsigned image cannot be pulled by its version.
 
+The version tag is the git tag, `v` included: release `0.1.0` publishes
+`api:v0.1.0` and `web:v0.1.0`. `FLIGHT_RECORDER_VERSION` in
+`compose.published.yaml` and `image.tag` in the Helm chart take that form, and
+the chart's default is `v` plus its `appVersion`. `scripts/check-chart-image-tag.sh`
+renders the chart in CI and fails if its default is anything else.
+
 **What a signature proves depends on tag protection.** The certificate says a
 pipeline ran `.gitlab-ci.yml` at `refs/tags/v1.0.0` in this project. That is
 worth something only if nobody but a maintainer can create a `v*` tag. Before
@@ -1055,11 +1104,11 @@ beside the image and written to the public transparency log.
 API image, like the other commands:
 
 ```bash
-docker compose -f compose.published.yaml run --rm --entrypoint node api \
+docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
 ```
 
-From a checkout, `pnpm doctor -- --api-url http://localhost:8080 --api-key fr_…`
+From a checkout, `pnpm run doctor --api-url http://localhost:8080 --api-key fr_…`
 reads the repository-root `.env`.
 
 Run it with the API's environment, because that is what it checks: the same
@@ -1074,10 +1123,10 @@ beneath it:
 | --- | --- | --- |
 | Database reachable | the connection is refused, the host does not resolve, or authentication fails | |
 | PostgreSQL version | below 15 | below 17, the version CI tests |
-| Migrations | any are pending, or the database has one this build does not | |
+| Migrations | any are pending, the database has one this build does not, or the role has no `USAGE` on the schema holding them (the fix names the `GRANT`) | |
 | `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
-| Projects and keys | | no project, or no unrevoked API key |
+| Projects and keys | | no project, no unrevoked API key, or the published demo key (`fr_demo00000`) is unrevoked |
 | Journey environments | an event was written by another environment's API key than its journey's own, which ingestion now refuses (ADR-038, amendment) and earlier builds did not | |
 | API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
 | API reachable (`--api-url`) | `GET /ready` does not answer 200; its `reason` is printed | |

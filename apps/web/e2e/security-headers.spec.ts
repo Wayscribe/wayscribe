@@ -1,8 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
-const ADMIN_TOKEN = process.env["ADMIN_TOKEN"] ?? "";
-const API_URL = process.env["API_URL"] ?? "http://localhost:8080";
-const API_KEY = process.env["FLIGHT_API_KEY"] ?? "";
+import { API_KEY, API_URL, signIn } from "./session";
 
 // Its own journey, versioned like the other suites' seeds.
 const SEED_VERSION = "v1";
@@ -103,10 +100,7 @@ test("the search, journey, recent, replay, and delete pages work with no CSP vio
 }) => {
   const fromConsole = await watchViolations(page);
 
-  await page.goto("/login");
-  await page.fill("#token", ADMIN_TOKEN);
-  await page.click("button[type=submit]");
-  await expect(page).toHaveURL("/");
+  await signIn(page, JOURNEY_ID);
 
   // Search: the form submits, results render.
   await page.fill("input[name=q]", ENTITY_ID);
