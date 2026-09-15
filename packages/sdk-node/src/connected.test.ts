@@ -297,6 +297,37 @@ describe("the console", () => {
     ]);
   });
 
+  it("prints only the origin of an endpoint quoted in a transport error", async () => {
+    // Node's fetch refuses a URL with credentials and quotes the whole URL,
+    // path and all, in its message.
+    const userinfo = ["svc", "fake-password-0000"].join(":");
+    const pathToken = ["fake", "path", "token", "0000"].join("-");
+    const lines: string[] = [];
+    const reasons: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+    const recorder = createRecorder({
+      ...base,
+      endpoint: `http://${userinfo}@127.0.0.1:1/ingest/${pathToken}`,
+      logDiagnostics: true,
+      onDiagnostic: (d) => reasons.push(d.reason)
+    });
+    recorder
+      .startJourney({ entity: { type: "customer", id: "1" } })
+      .record({ operation: "received", name: "n" });
+    await recorder.shutdown({ timeoutMs: 2_000 });
+    vi.restoreAllMocks();
+
+    const transportLines = lines.filter((line) => line.includes("transport_error"));
+    expect(transportLines).toHaveLength(1);
+    expect(transportLines[0]).toContain("http://127.0.0.1:1");
+    const everything = [...lines, ...reasons].join("\n");
+    for (const secret of ["fake-password-0000", pathToken, "ingest/", "svc:"]) {
+      expect(everything).not.toContain(secret);
+    }
+  });
+
   it("reports suppressed repeats at shutdown", async () => {
     const lines: string[] = [];
     vi.spyOn(console, "error").mockImplementation((line: unknown) => {

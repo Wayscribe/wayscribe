@@ -384,6 +384,28 @@ function originOf(endpoint: string): string {
   return URL.canParse(endpoint) ? new URL(endpoint).origin : "the configured endpoint";
 }
 
+const URL_IN_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>`]+/gi;
+
+/**
+ * A fetch failure whose message names every URL in it by origin only.
+ *
+ * Node's fetch quotes the whole request URL in some messages, such as the one
+ * refusing a URL with credentials, and the message becomes the
+ * `transport_error` reason that is printed and passed to `onDiagnostic`. The
+ * endpoint's path, query, and userinfo can carry credentials, so they are cut
+ * as `delivered_first` cuts them. The original error, and its `cause`, which
+ * can hold the URL too, are not kept.
+ */
+function withOriginsOnly(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const reduced = message.replace(URL_IN_TEXT, (url) =>
+    URL.canParse(url) ? new URL(url).origin : "[URL]"
+  );
+  const replacement = new Error(reduced);
+  if (error instanceof Error) replacement.name = error.name;
+  return replacement;
+}
+
 /** How long shutdown waits for aborted sends to hand their events back. */
 const ABANDON_WAIT_MS = 250;
 
@@ -447,6 +469,8 @@ export function createRecorder(config: RecorderConfig): Recorder {
             },
             body: JSON.stringify({ events: batch }),
             signal: controller.signal
+          }).catch((error: unknown) => {
+            throw withOriginsOnly(error);
           });
           if (!response.ok) {
             // A 4xx is permanent: the server understood the request and
