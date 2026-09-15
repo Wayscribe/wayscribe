@@ -21,7 +21,7 @@ import {
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
 import { createTraceReader } from "./trace.js";
-import { Transport } from "./transport.js";
+import { Transport, UnsentError, type SendOutcome } from "./transport.js";
 
 export interface JourneyContext {
   journeyId: string;
@@ -212,38 +212,59 @@ interface BatchOutcome {
 }
 
 /**
- * How many events the server stored, reporting each refusal on the way.
+ * What the server stored, reporting each permanent refusal on the way.
  *
- * A rejection is permanent — the event was understood and refused — so it is
- * counted separately from a transport failure and never retried. The server's
- * own message is passed through verbatim, because it is far more specific than
- * anything this side could reconstruct: "event.entity.id: expected string,
- * received number" ends the investigation that "invalid_event" begins.
+ * Results are matched to events by position, which is how the batch route
+ * builds them: one result per event, in order.
  *
- * A body this cannot parse is treated as full acceptance. The alternative —
- * assuming the worst — would report phantom data loss whenever a proxy rewrote
- * a response, and the request did return 2xx.
+ * A refusal with a per-event status below 500 is permanent: the event was
+ * understood and refused, so it is counted separately from a transport failure
+ * and never retried. The server's own message is passed through verbatim,
+ * because it is far more specific than anything this side could reconstruct:
+ * "event.entity.id: expected string, received number" ends the investigation
+ * that "invalid_event" begins.
+ *
+ * A refusal at 500 or above (`storage_error`, `query_timeout`) is the server
+ * failing, not the event, so the event goes back to the transport to be
+ * retried. Treating those as permanent lost an event to a database hiccup and
+ * reported it as a rejection, which tells an operator to fix an event that was
+ * never wrong. A refusal with no status is treated as permanent, as before the
+ * status was sent.
+ *
+ * A body this cannot parse counts as nothing stored and nothing to retry. The
+ * request did return 2xx, and resending on a proxy's rewritten body would
+ * duplicate work the server most likely did.
  */
-function countAccepted(body: unknown, diagnostics: Diagnostics): number {
+function readOutcome(
+  body: unknown,
+  batch: readonly unknown[],
+  diagnostics: Diagnostics
+): SendOutcome {
   const results = (body as { data?: { results?: BatchOutcome[] } } | null)?.data?.results;
-  if (!Array.isArray(results)) return 0;
+  if (!Array.isArray(results)) return { accepted: 0, retry: [] };
 
   let accepted = 0;
-  for (const result of results) {
+  const retry: unknown[] = [];
+  let reason: string | undefined;
+  results.forEach((result, index) => {
     if (result.status === "accepted") {
       accepted += 1;
-      continue;
+      return;
     }
 
     const where = result.error?.details?.[0];
     const detail = where === undefined ? "" : ` (${where.path}: ${where.message})`;
-    diagnostics.report({
-      kind: "rejected",
-      reason: `${result.error?.code ?? "rejected"}: ${result.error?.message ?? "The server refused this event."}${detail}`,
-      detail: result.error
-    });
-  }
-  return accepted;
+    const described = `${result.error?.code ?? "rejected"}: ${result.error?.message ?? "The server refused this event."}${detail}`;
+    const event = batch[index];
+    if ((result.error?.httpStatus ?? 0) >= 500 && event !== undefined) {
+      retry.push(event);
+      reason = described;
+      return;
+    }
+
+    diagnostics.report({ kind: "rejected", reason: described, detail: result.error });
+  });
+  return { accepted, retry, ...(reason === undefined ? {} : { reason }) };
 }
 
 export function createRecorder(config: RecorderConfig): Recorder {
@@ -289,7 +310,8 @@ export function createRecorder(config: RecorderConfig): Recorder {
           // that "succeeded" may have stored nothing. Reading the body is the
           // only way to know, and not reading it is how a misconfigured
           // environment name looked exactly like a healthy recorder.
-          const accepted = countAccepted(await response.json(), diagnostics);
+          const outcome = readOutcome(await response.json(), batch, diagnostics);
+          const { accepted } = outcome;
           if (accepted > 0 && !delivered) {
             // Once: this answers "is it connected?", and repeating the answer
             // on every batch would be exactly the noise logDiagnostics avoids.
@@ -302,7 +324,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
               accepted
             });
           }
-          return accepted;
+          return outcome;
         } finally {
           clearTimeout(timer);
         }
@@ -490,9 +512,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
     if (batch.length === 0) return;
     try {
       await transport.send(batch);
-    } catch {
-      // Ordering matters: a retried batch must not reorder the timeline.
-      queue.requeue(batch);
+    } catch (error) {
+      // Ordering matters: a retried batch must not reorder the timeline. Only
+      // what is still unsent goes back; events stored on an earlier attempt
+      // would otherwise be sent, and counted, twice.
+      queue.requeue(error instanceof UnsentError ? error.unsent : batch);
     }
   }
 
