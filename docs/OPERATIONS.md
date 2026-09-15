@@ -679,8 +679,20 @@ themselves with the same `401` as before, and then answers every request from
 that address that presents credentials with `429 too_many_attempts` and a
 `Retry-After` header, the right token included, until the lock expires. A
 request with no credentials is not counted, and ingestion is never throttled.
-Both counts are held in memory, per process: they reset on restart, and N
-replicas allow N times the attempts.
+
+The API's limit holds under concurrency. Any credential other than the exact
+admin token is admitted before it is verified, and an address may have at most
+five failures in the last minute and unverified attempts in flight combined, so
+five hundred guesses sent at once get five `401`s and 495 `429`s. A valid API key
+on a read route occupies one of those five slots only while it is being checked,
+and the admin token itself is never held back, so the web app's concurrent reads
+are not limited. The web login compares synchronously and holds at five.
+
+An IPv6 address counts as its /64, the block one host is usually given, and an
+IPv4 client on a dual-stack socket (`::ffff:203.0.113.5`) as its IPv4 address.
+Both counts are held in memory, per process: they reset on restart, N replicas
+allow N times the attempts, and each remembers at most 50,000 addresses, forgetting
+the least recently seen beyond that.
 
 The source address is the socket's by default. `X-Forwarded-For` is ignored,
 because any client can write it and a new value per guess would otherwise make

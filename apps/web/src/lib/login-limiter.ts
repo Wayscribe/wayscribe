@@ -10,6 +10,15 @@ export const DEFAULT_LIMITER: LimiterOptions = {
   cooldownMs: 300_000
 };
 
+/**
+ * The most addresses the limiter remembers at once, as the API's throttle
+ * (`apps/api/src/auth-throttle.ts`). Past it the least recently seen is
+ * forgotten; an attacker with more than 50,000 distinct IPv4 addresses or IPv6
+ * /64s in one window gains a fresh count for one of them, which they did not
+ * need.
+ */
+export const MAX_TRACKED_ADDRESSES = 50_000;
+
 interface State {
   failures: number[];
   lockedUntil: number;
@@ -28,11 +37,30 @@ interface State {
  *
  * Only failures count. A successful login clears the record, so an operator who
  * mistypes twice and then succeeds is not penalized.
+ *
+ * Bounded in memory and time. It held every address it had ever seen, a
+ * million in 325 MB; it now holds at most `maxTracked`, evicting the least
+ * recently seen, and sweeps out expired entries at most once per window.
  */
 export class LoginLimiter {
   private readonly state = new Map<string, State>();
+  /** Live over `state`: it skips deleted keys and reaches re-inserted ones at the end. */
+  private evictionOrder: MapIterator<string> = this.state.keys();
+  private lastSweep = Number.NEGATIVE_INFINITY;
 
-  public constructor(private readonly options: LimiterOptions = DEFAULT_LIMITER) {}
+  public constructor(
+    private readonly options: LimiterOptions = DEFAULT_LIMITER,
+    private readonly maxTracked: number = MAX_TRACKED_ADDRESSES
+  ) {}
+
+  /** How many addresses are remembered. */
+  public get size(): number {
+    return this.state.size;
+  }
+
+  public has(key: string): boolean {
+    return this.state.has(key);
+  }
 
   public isLocked(key: string, now: number): boolean {
     const entry = this.state.get(key);
@@ -40,7 +68,8 @@ export class LoginLimiter {
   }
 
   public recordFailure(key: string, now: number): void {
-    const entry = this.state.get(key) ?? { failures: [], lockedUntil: 0 };
+    this.sweep(now);
+    const entry = this.touch(key);
     entry.failures = entry.failures.filter((at) => at > now - this.options.windowMs);
     entry.failures.push(now);
 
@@ -48,11 +77,46 @@ export class LoginLimiter {
       entry.lockedUntil = now + this.options.cooldownMs;
       entry.failures = [];
     }
-
-    this.state.set(key, entry);
   }
 
   public recordSuccess(key: string): void {
     this.state.delete(key);
+  }
+
+  /** The entry for `key`, moved to the newest position, evicting the oldest when full. */
+  private touch(key: string): State {
+    const existing = this.state.get(key);
+    if (existing !== undefined) {
+      this.state.delete(key);
+      this.state.set(key, existing);
+      return existing;
+    }
+    while (this.state.size >= this.maxTracked) {
+      // One iterator across evictions: a fresh `keys()` walks every slot a
+      // delete left at the front of the table, which made eviction slower the
+      // more it had evicted.
+      let oldest = this.evictionOrder.next();
+      if (oldest.done === true) {
+        this.evictionOrder = this.state.keys();
+        oldest = this.evictionOrder.next();
+        if (oldest.done === true) break;
+      }
+      this.state.delete(oldest.value);
+    }
+    const created: State = { failures: [], lockedUntil: 0 };
+    this.state.set(key, created);
+    return created;
+  }
+
+  /** Drop entries with no failure in the window and no lock in force. */
+  private sweep(now: number): void {
+    if (now - this.lastSweep < this.options.windowMs) return;
+    this.lastSweep = now;
+    const cutoff = now - this.options.windowMs;
+    for (const [key, entry] of this.state) {
+      if (entry.lockedUntil <= now && entry.failures.every((at) => at <= cutoff)) {
+        this.state.delete(key);
+      }
+    }
   }
 }

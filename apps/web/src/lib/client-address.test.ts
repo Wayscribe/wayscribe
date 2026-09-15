@@ -26,6 +26,24 @@ describe("clientAddress", () => {
     expect(clientAddress("10.0.0.5", "198.51.100.7", 2)).toBe("10.0.0.5");
     expect(clientAddress("10.0.0.5", null, 1)).toBe("10.0.0.5");
   });
+
+  it("keys an IPv6 address on its /64, so one subnet's addresses share a bucket", () => {
+    const forms = [
+      "2001:db8:1:2::1",
+      "2001:db8:1:2:ffff:ffff:ffff:ffff",
+      "2001:0db8:0001:0002:0000:0000:0000:0009",
+      "2001:DB8:1:2::abcd"
+    ];
+    const keys = new Set(forms.map((address) => clientAddress(address, null, 0)));
+    expect([...keys]).toEqual(["2001:db8:1:2::/64"]);
+    expect(clientAddress("10.0.0.5", "2001:db8:1:2::77", 1)).toBe("2001:db8:1:2::/64");
+    expect(clientAddress("2001:db8:1:3::1", null, 0)).not.toBe("2001:db8:1:2::/64");
+  });
+
+  it("reads an IPv4-mapped IPv6 address as the IPv4 address it is", () => {
+    // How Node reports an IPv4 client on a dual-stack socket.
+    expect(clientAddress("::ffff:203.0.113.5", null, 0)).toBe("203.0.113.5");
+  });
 });
 
 describe("socket address capture", () => {

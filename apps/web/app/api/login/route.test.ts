@@ -54,6 +54,17 @@ describe("POST /api/login throttling", () => {
     expect(response303(other)).toBe("http://localhost:3000/");
   });
 
+  it("compares exactly five guesses however many arrive at once", async () => {
+    // The lock was checked before the form was read, so every request that
+    // arrived while the first bodies were still being parsed passed the check.
+    const responses = await Promise.all(
+      Array.from({ length: 100 }, (_, i) => login("203.0.113.52", `${WRONG}-${String(i)}`))
+    );
+    const outcomes = responses.map(outcome);
+    expect(outcomes.filter((value) => value === "invalid")).toHaveLength(5);
+    expect(outcomes.filter((value) => value === "throttled")).toHaveLength(95);
+  });
+
   it("honours X-Forwarded-For that many hops from the right with TRUSTED_PROXY_COUNT", async () => {
     vi.stubEnv("TRUSTED_PROXY_COUNT", "1");
     const proxy = "10.0.0.9";

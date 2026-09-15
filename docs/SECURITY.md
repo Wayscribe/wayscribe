@@ -51,7 +51,8 @@ and ingestion refuses an event for it from another environment's key with
 
 The admin token reads every payload of every project, and it is one shared
 secret. The web login and the API both throttle failed attempts per source
-address, five a minute and then five minutes locked out, and neither keys that
+address (an IPv6 address by its /64), five a minute and then five minutes locked
+out, a limit the API holds however many guesses arrive at once. Neither keys that
 address on `X-Forwarded-For` unless `TRUSTED_PROXY_COUNT` says how many proxies
 to look through (`OPERATIONS.md` §9). The throttles are per process. They slow a
 guesser; the token's length, 32 characters at least, is what makes guessing

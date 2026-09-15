@@ -359,7 +359,14 @@ changes far less often.
   in a minute, for five minutes; the `401` for an ordinary failure is unchanged
   and ingestion is not throttled. A new setting, `TRUSTED_PROXY_COUNT` (default
   0), on both, honours `X-Forwarded-For` that many hops from the right for
-  installations behind a reverse proxy (`docs/OPERATIONS.md` §9).
+  installations behind a reverse proxy (`docs/OPERATIONS.md` §9). The limit
+  holds under concurrency: the API admits credentials other than the admin token
+  before verifying them, and the web login checks its lock after reading the
+  form, so a burst of guesses gets exactly five comparisons at either. An IPv6
+  address counts as its /64. Each throttle remembers at most 50,000 addresses,
+  forgetting the least recently seen, and sweeps expired entries at most once a
+  minute, so neither memory nor the cost of a failure grows with the number of
+  addresses seen.
 - **The web interface sends a Content-Security-Policy and the usual security
   headers.** Every page carries a policy allowing scripts only from its own
   origin and by a per-response nonce, with `frame-ancestors 'none'`,

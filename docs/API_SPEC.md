@@ -92,7 +92,10 @@ Every route that accepts the admin token (all but ingestion and the health
 checks) answers `429` with code `too_many_attempts` and a `Retry-After` header,
 in seconds, to a source address that has failed authentication five times within
 a minute, for five minutes, whatever token it presents. The failures themselves
-are the ordinary `401` (`docs/OPERATIONS.md` §9).
+are the ordinary `401` (`docs/OPERATIONS.md` §9). Credentials other than the admin
+token are counted before they are verified, so a sixth concurrent unverified
+attempt from an address is also `429`, with `Retry-After: 1` when only attempts
+in flight hold the slots.
 
 An unexpected failure is `500` with code `internal_error` and a generic message.
 The code is never the database's own: a PostgreSQL SQLSTATE such as `22P02` is

@@ -105,6 +105,59 @@ describe("failed admin authentication is throttled per source address", () => {
     await app.close();
   });
 
+  describe("under concurrent guesses", () => {
+    const tally = (statuses: number[]): Record<string, number> =>
+      statuses.reduce<Record<string, number>>((counts, status) => {
+        counts[String(status)] = (counts[String(status)] ?? 0) + 1;
+        return counts;
+      }, {});
+
+    it("answers exactly five with 401 on a read route, however many arrive at once", async () => {
+      // The 401 on a read route waits on an API key lookup, and failures
+      // were counted when the answer went out: 175 to 452 concurrent guesses
+      // were compared before the first was recorded.
+      const app = appWith();
+      const responses = await Promise.all(
+        Array.from({ length: 300 }, (_, i) =>
+          attempt(app, `fr_${String(i).padStart(32, "A")}`, "203.0.113.60")
+        )
+      );
+      expect(tally(responses.map((r) => r.statusCode))).toEqual({ "401": 5, "429": 295 });
+      await app.close();
+    });
+
+    it("answers exactly five with 401 on an admin route", async () => {
+      const app = appWith();
+      const responses = await Promise.all(
+        Array.from({ length: 300 }, () =>
+          attempt(app, WRONG_TOKEN, "203.0.113.61", { method: "DELETE", url: "/v1/journeys/jrn_x" })
+        )
+      );
+      expect(tally(responses.map((r) => r.statusCode))).toEqual({ "401": 5, "429": 295 });
+      await app.close();
+    });
+
+    it("never holds back the admin token's own concurrent reads", async () => {
+      // The web app reads from one address with the admin token, many requests
+      // at once; admitting only five would break a journey page under load.
+      const app = appWith();
+      const responses = await Promise.all(
+        Array.from({ length: 100 }, () => attempt(app, ADMIN_TOKEN, "203.0.113.62"))
+      );
+      expect(tally(responses.map((r) => r.statusCode))).toEqual({ "404": 100 });
+      await app.close();
+    });
+
+    it("frees a valid API key's slot once it is answered", async () => {
+      const app = appWith();
+      for (let i = 0; i < 20; i += 1) {
+        const response = await attempt(app, apiKey, "203.0.113.63", { url: "/v1/journeys/jrn_x" });
+        expect(response.statusCode).toBe(404);
+      }
+      await app.close();
+    });
+  });
+
   it("does not count ingestion's refusals, and never throttles ingestion", async () => {
     const app = appWith();
     for (let i = 0; i < 8; i += 1) {
