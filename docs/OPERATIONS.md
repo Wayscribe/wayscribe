@@ -538,24 +538,104 @@ it as an operator credential, not a login.
 Event volume drives everything. One journey is one row plus one row per event,
 plus a row per alias. Payloads are stored inline as JSONB.
 
-The practical lever is `captureMode`. `metadata-only` stores no payloads at all
-and shrinks the table by roughly the size of your traffic; `redacted-payload`
-(the default) stores both input and output per wrapped step.
+### Measured disk per event
 
-Two indexes carry the read path: `journeys_entity_value_idx` for search and
-`journeys_recent_idx` for retention selection. The recent-journeys list adds
-`journeys_status_recent_idx` and `journey_events_service_idx`; the second costs
-one more index write on every event insert. Migration 013 builds both with
-`CREATE INDEX CONCURRENTLY`, so on a large installation it takes longer than
-the other migrations but does not block ingestion while it runs.
+`scripts/measure-storage.mjs` records journeys of the demo's shape (ten events
+and two aliases each, with small Salesforce and customer payloads averaging 120
+bytes of JSON input and output per event) through the real ingestion code, in
+each capture mode, and reports what `journeys`, `journey_events`, and
+`entity_aliases` occupy with their indexes and TOAST. Run on an Apple M3 Pro,
+PostgreSQL 17.11 (`postgres:17-alpine`, default configuration) in Docker
+Desktop with 12 CPUs and 7.75 GiB:
 
-If that build stops partway, what to do depends on how it stopped:
+| Capture mode | 100,000 events | 1,000,000 events | Compacted, per event | Per journey |
+|---|---|---|---|---|
+| `metadata-only` | 113.5 MiB (1,190 B) | 1,001 MiB (1,049 B) | 873 B | 10.2 KiB |
+| `allowlisted-fields` | 134.8 MiB (1,414 B) | 1.19 GiB (1,273 B) | 1,097 B | 12.4 KiB |
+| `redacted-payload` | 154.2 MiB (1,617 B) | 1.39 GiB (1,494 B) | 1,320 B | 14.6 KiB |
+| `full-payload` | 151.3 MiB (1,586 B) | 1.39 GiB (1,496 B) | 1,320 B | 14.6 KiB |
+
+The first two columns are as ingested, after a plain `VACUUM`; the per-event
+figure is the total divided by events, so each event carries its share of its
+journey and aliases. Compacted is after `VACUUM FULL`. The difference is
+mostly the `journeys` table: every event updates its journey, the updates
+cannot be HOT because indexed columns change, and at a million events the
+table and its indexes were 121 MiB as ingested against 77 MiB compacted. A
+running installation sits between the two.
+
+What the numbers say:
+
+- **Indexes are 39 to 56 percent of the disk.** At a million events in
+  `metadata-only`, the three tables held 559 MiB of indexes out of 1,001 MiB;
+  in `redacted-payload`, 556 MiB out of 1.39 GiB.
+- **Payload capture costs about four times the payload's JSON size.**
+  `redacted-payload` added 445 bytes per event over `metadata-only` for 120
+  bytes of JSON: JSONB is larger than JSON text for small objects, and a step
+  with both an input and an output also stores their diff. `full-payload` and
+  `redacted-payload` match here because the demo payloads hold no secrets.
+- **Retention does not shrink the files.** Starting from the compacted size
+  after `VACUUM FULL` (832.7 MiB, `metadata-only`), deleting half the journeys
+  with the retention sweep and running a plain `VACUUM` left it at 832.9 MiB.
+  Ingesting as many journeys again brought it to 982 MiB, below the 1,001 MiB
+  the same volume took the first time: the freed space was reused over one
+  delete-and-refill cycle. Longer runs were not measured. A sweep or a §8
+  deletion is not a way to get space back. `VACUUM FULL` returns it, but
+  holds an exclusive lock that stops ingestion for as long as it runs.
+
+### A formula
+
+```text
+disk ≈ events per day × retention days × bytes per event × 1.5
+```
+
+Take bytes per event from the 1,000,000-event column for your capture mode, and
+for payloads larger than the demo's add four times their average JSON size
+(input plus output). The margin of 1.5 covers what the measurement does not:
+autovacuum falling behind a burst, journeys that keep receiving events and so
+outlive the window, and index growth beyond what a million events shows. It
+does not cover WAL (`max_wal_size`, 1 GB by default), backups, or the
+database's other tenants.
+
+For example, a million events a day kept 30 days in `redacted-payload`:
+1,000,000 × 30 × 1,494 × 1.5 is 67 GB, about 63 GiB.
+
+To measure your own shape, against a scratch database (it refuses one that
+already holds journeys, and works in schemas of its own that it drops after):
+
+```bash
+pnpm --filter "@flight-recorder/api..." build
+node scripts/measure-storage.mjs --database-url postgresql://… --journeys 10000
+```
+
+### Indexes
+
+Search looks a value up in one index per kind of identifier:
+`journeys_pkey` for a journey id, `journeys_entity_value_idx` and
+`entity_aliases_value_idx` for entity and alias values, and one index each on
+`journey_events` for trace, span, message, and correlation ids. It takes about
+0.1 ms at a million journeys for a value that matches a few journeys. A value
+that matches thousands (a shared correlation id, say) is joined with a
+sequential scan of the project's journeys, so its cost grows with the journey
+count: 13 ms for 2,400 matches among 120,000 journeys and 64 ms for 20,000
+among a million, for an API key scoped to one environment. `journeys_recent_idx` serves retention selection. The
+recent-journeys list adds `journeys_status_recent_idx` and
+`journey_events_service_idx`; the second costs one more index write on every
+event insert, and the span id index adds one on every event that carries a
+span id. `replay_runs_journey_event_idx` (migration 016) serves deletion rather
+than reads: every event a deleted journey takes with it looks up its replay runs
+through that foreign key, and without the index each one scanned the project's
+replay runs (§13, Statement timeout). Migrations 013, 014, and 016 build their
+indexes with `CREATE INDEX CONCURRENTLY`, so on a large installation they take
+longer than the other migrations but do not block ingestion while they run (014
+took 3 seconds over 3 million events).
+
+If one of those builds stops partway, what to do depends on how it stopped:
 
 - **The build failed** (an error was reported, or the connection dropped) and
   `migrate` exited. Run `migrate` again. It drops the index the failed build
   left invalid and builds it afresh.
 - **The migrate process was killed** (`kill -9`, an evicted pod, a stopped
-  container). Because 013 runs outside a transaction, the migration lock is
+  container). Because 013, 014, and 016 run outside a transaction, the migration lock is
   still set and every `migrate` after it fails with a message that the
   migration table is locked; the Helm Job's retries fail the same way and
   `/ready` stays `migrations_pending`. First make sure no `migrate` is still
@@ -723,7 +803,9 @@ twice.
 
 The request duration buckets are 5, 10, 25, 50, 100, 250 and 500 milliseconds,
 then 1, 2.5, 5, 10 and 30 seconds. Ingestion into a nearby database lands in the
-first few, a search in the tens of milliseconds, and anything in seconds is worth
+first few. So does a search for a value that matches a few journeys, which is
+under a millisecond in the database at a million journeys; one matching tens of
+thousands of journeys takes tens of milliseconds. Anything in seconds is worth
 a look. A request that ran into the default 15-second statement timeout lands in
 the 30-second bucket, apart from ordinary slow ones.
 

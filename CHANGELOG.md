@@ -41,7 +41,8 @@ changes far less often.
   more of an API key than its prefix. In the API image beside `key:create`;
   `pnpm doctor` from a checkout (`docs/OPERATIONS.md` §12).
 - **A statement timeout.** `DATABASE_STATEMENT_TIMEOUT_MS`, 15000 by default,
-  cancels any statement the API runs past it, so one slow search can no longer
+  cancels any statement the API runs past it, so one runaway query, from a
+  pathological search to a table scan behind a missing index, can no longer
   hold a connection ingestion needs. The request gets 503 `query_timeout`; the
   log names the route and never the query. `0` disables it. The database CLI
   does not apply it, and deletions lift it for their own transactions: each
@@ -127,6 +128,14 @@ changes far less often.
     packages/database/dist/cli.js project:create acme "Acme Payments"
   ```
 
+- **Disk per event is measured, not guessed.** `scripts/measure-storage.mjs`
+  ingests journeys of the demo's shape through the real ingestion code in each
+  capture mode against a scratch database, and reports table and index sizes
+  and what a retention sweep and VACUUM do to them. `docs/OPERATIONS.md` §10
+  has the results (about 1.0 KB per event in `metadata-only` and 1.5 KB in
+  `redacted-payload` for small payloads), what retention does to disk, and a
+  sizing formula.
+
 ### Security
 
 - **Searched identifiers no longer reach the API's log.** Fastify's request log
@@ -183,6 +192,16 @@ changes far less often.
   change keep the URL; `docs/OPERATIONS.md` §8 has the statement that strips it.
 
 ### Fixed
+
+- **Search is fast at a million journeys.** It walked every journey in the
+  project and probed its events and aliases, which took about 1.5 seconds at
+  120,000 journeys and 20 seconds or more at a million, whatever the value. It
+  is now one index lookup per kind of identifier, joined to the journeys that
+  match, with identical results and cursors. A value matching a few journeys
+  takes well under a millisecond at either size. A value matching thousands
+  still scans the project's journeys to join them, 64 ms for 20,000 matches at
+  a million. Migration `014_search_indexes.js` adds the one index that lookup
+  lacked, on span id, built concurrently so upgrading does not block ingestion.
 
 The eight defects and seven smaller findings from the 2026-08-09 first-contact
 audit, all merged the same day. The pattern behind them is written up in
