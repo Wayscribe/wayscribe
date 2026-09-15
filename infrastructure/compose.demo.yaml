@@ -14,7 +14,10 @@
 name: flight-recorder
 
 x-demo: &demo
-  image: flight-recorder-demo:local
+  # One image for the five demo services, named after the Compose project so two
+  # checkouts started with different `-p` names do not build over each other's
+  # image. The default keeps the old name where Compose does not provide it.
+  image: ${COMPOSE_PROJECT_NAME:-flight-recorder}-demo:local
   build:
     context: ..
     dockerfile: apps/demo/Dockerfile

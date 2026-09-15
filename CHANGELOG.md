@@ -441,6 +441,10 @@ changes far less often.
 
 ### Fixed
 
+- **Two demo stacks with different `-p` names no longer share an image.** The
+  demo services were tagged `flight-recorder-demo:local` whatever the project
+  name, so a second checkout's build replaced the first's image. The tag now
+  starts with the Compose project name.
 - **The browser suite runs against the demo stack.** On a database with more
   than one project, every signed-in spec landed on the project picker instead of
   the page it tested, and 13 of 18 failed. Each spec now chooses the project its
