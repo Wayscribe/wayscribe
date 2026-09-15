@@ -8,6 +8,8 @@ export interface JourneyAlias {
 
 export interface JourneyDetail {
   journeyId: string;
+  /** The environment's name. */
+  environment: string;
   entityType: string;
   encryptedPrimaryEntityId: string | null;
   status: string;
@@ -35,18 +37,21 @@ export async function findJourneyDetail(
   scope: ReadScope,
   journeyId: string
 ): Promise<JourneyDetail | undefined> {
-  const row: unknown = await scoped(db("journeys"), scope)
-    .where({ id: journeyId })
-    .first(
-      "id as journeyId",
-      "entity_type as entityType",
-      "encrypted_primary_entity_id as encryptedPrimaryEntityId",
-      "status",
-      "event_count as eventCount",
-      "started_at as startedAt",
-      "completed_at as completedAt",
-      "last_event_at as lastEventAt"
-    );
+  const row: unknown = await scoped(db("journeys"), scope).where({ id: journeyId }).first(
+    "id as journeyId",
+    // A subquery rather than a join: the scope filters on unqualified
+    // project_id and environment_id, which a join would make ambiguous.
+    db.raw(
+      "(select name from environments where environments.id = journeys.environment_id) as environment"
+    ),
+    "entity_type as entityType",
+    "encrypted_primary_entity_id as encryptedPrimaryEntityId",
+    "status",
+    "event_count as eventCount",
+    "started_at as startedAt",
+    "completed_at as completedAt",
+    "last_event_at as lastEventAt"
+  );
 
   if (row === undefined) return undefined;
 

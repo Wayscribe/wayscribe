@@ -315,6 +315,21 @@ describe("replay routes", () => {
     expect(audit.some((entry) => entry.action === "replay_destination.created")).toBe(true);
   });
 
+  it("records a destination's creation by name, without its base URL", async () => {
+    // A base URL can carry credentials or an internal hostname, audit rows are
+    // never swept, and deleting the destination cannot reach its audit row.
+    const baseUrl = "http://user:secret@build-box.internal.example:3200/base";
+    const destinationId = await makeDestination(baseUrl, "audited without its url");
+
+    const entry = (await listAudit(db, projectId, 500)).find(
+      (candidate) =>
+        candidate.action === "replay_destination.created" && candidate.resourceId === destinationId
+    );
+    expect(entry?.metadata).toEqual({ name: "audited without its url" });
+    expect(JSON.stringify(entry)).not.toContain("build-box.internal.example");
+    expect(JSON.stringify(entry)).not.toContain("secret");
+  });
+
   it("does not return another project's replay", async () => {
     const otherProject = await insertReturningId(db, "projects", { name: "O", slug: "o" });
     const destinationId = await makeDestination(

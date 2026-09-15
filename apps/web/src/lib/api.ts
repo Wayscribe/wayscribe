@@ -11,6 +11,7 @@ export interface SearchItem {
 
 export interface JourneyDetail {
   journeyId: string;
+  environment: string;
   entity: { type: string; id: string | null };
   status: string;
   aliases: { type: string; displayValue: string | null }[];
@@ -57,6 +58,8 @@ export interface ProjectSummary {
   id: string;
   name: string;
   slug: string;
+  /** Environment names, sorted. */
+  environments: string[];
 }
 
 export interface ReplayDestination {
@@ -85,6 +88,19 @@ export interface ReplayRun {
 export class ApiUnavailableError extends Error {
   public override readonly name = "ApiUnavailableError";
 }
+
+/**
+ * The API refused the query or cursor a page link carried.
+ *
+ * A stale or hand-edited link, not an outage. Reporting it as "cannot reach
+ * the API" sent people to check an API that was running and answering.
+ */
+export class InvalidPageLinkError extends Error {
+  public override readonly name = "InvalidPageLinkError";
+}
+
+/** Error codes that mean the request's own query string was refused. */
+const PAGE_LINK_ERROR_CODES = new Set(["invalid_cursor", "invalid_query"]);
 
 /**
  * The API could not tell which project to read from.
@@ -138,6 +154,12 @@ async function get<T>(path: string, projectId?: string): Promise<T | null> {
       "The API rejected this request. The web and API containers may hold different ADMIN_TOKEN values."
     );
   }
+  if (response.status === 400) {
+    const body = (await response.json().catch(() => ({}))) as { error?: { code?: string } };
+    if (PAGE_LINK_ERROR_CODES.has(body.error?.code ?? "")) {
+      throw new InvalidPageLinkError("The API refused this page's query.");
+    }
+  }
   if (!response.ok) {
     throw new ApiUnavailableError(`API responded ${String(response.status)}.`);
   }
@@ -157,6 +179,24 @@ export async function search(query: string, projectId: string): Promise<SearchIt
     projectId
   );
   return data?.items ?? [];
+}
+
+export interface RecentItem extends SearchItem {
+  environment: string;
+}
+
+export interface RecentPage {
+  items: RecentItem[];
+  nextCursor: string | null;
+}
+
+/**
+ * One page of recent journeys. `query` comes from `recentJourneysQuery`, which
+ * owns what the Recent page's filters mean.
+ */
+export async function listRecentJourneys(query: string, projectId: string): Promise<RecentPage> {
+  const data = await get<RecentPage>(`/v1/journeys?${query}`, projectId);
+  return data ?? { items: [], nextCursor: null };
 }
 
 export const getJourney = (journeyId: string, projectId: string): Promise<JourneyDetail | null> =>
@@ -258,3 +298,46 @@ export const createReplay = (
 
 export const getReplay = (replayId: string, projectId: string): Promise<ReplayRun | null> =>
   get<ReplayRun>(`/v1/replays/${encodeURIComponent(replayId)}`, projectId);
+
+/**
+ * Delete one journey, its events, aliases, and replay runs.
+ *
+ * Resolves to what happened rather than throwing for a journey that is not
+ * there: an operator who confirms twice, or in two tabs, finds it already gone,
+ * which is not an outage. Failures the operator cannot fix by retrying throw
+ * the same typed errors as a read.
+ */
+export async function deleteJourney(
+  journeyId: string,
+  projectId: string
+): Promise<"deleted" | "not_found"> {
+  const config = webConfig();
+  let response: Response;
+  try {
+    response = await fetch(`${config.API_URL}/v1/journeys/${encodeURIComponent(journeyId)}`, {
+      method: "DELETE",
+      headers: {
+        authorization: `Bearer ${config.ADMIN_TOKEN}`,
+        ...(projectId === "" ? {} : { "x-flight-project-id": projectId })
+      },
+      cache: "no-store"
+    });
+  } catch (cause) {
+    throw new ApiUnavailableError("The Flight Recorder API is unreachable.", { cause });
+  }
+
+  if (response.status === 204) return "deleted";
+  if (response.status === 404) {
+    const body = (await response.json().catch(() => ({}))) as { error?: { code?: string } };
+    if (body.error?.code === "project_not_found") {
+      throw new ProjectNotSelectedError("No project is selected.");
+    }
+    return "not_found";
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw new ApiUnavailableError(
+      "The API rejected this request. The web and API containers may hold different ADMIN_TOKEN values."
+    );
+  }
+  throw new ApiUnavailableError(`API responded ${String(response.status)}.`);
+}

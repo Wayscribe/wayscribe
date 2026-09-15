@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "pnpm --filter @flight-recorder/database migrate",
+    "db:migrate:unlock": "pnpm --filter @flight-recorder/database \"migrate:unlock\"",
     "db:rollback": "pnpm --filter @flight-recorder/database rollback",
     "db:seed": "pnpm --filter @flight-recorder/database seed",
     "db:seed-demo": "pnpm --filter @flight-recorder/database seed-demo",
@@ -31,7 +32,11 @@
     "key:list": "pnpm --filter @flight-recorder/database \"key:list\" --",
     "retention:sweep": "pnpm --filter @flight-recorder/database \"retention:sweep\" --",
     "rotate:reencrypt": "pnpm --filter @flight-recorder/database \"rotate:reencrypt\" --",
-    "rotate:status": "pnpm --filter @flight-recorder/database \"rotate:status\" --"
+    "rotate:status": "pnpm --filter @flight-recorder/database \"rotate:status\" --",
+    "delete:journey": "pnpm --filter @flight-recorder/database \"delete:journey\" --",
+    "delete:identifier": "pnpm --filter @flight-recorder/database \"delete:identifier\" --",
+    "delete:range": "pnpm --filter @flight-recorder/database \"delete:range\" --",
+    "delete:destination": "pnpm --filter @flight-recorder/database \"delete:destination\" --"
   },
   "packageManager": "pnpm@11.20.0+sha512.9a6f330a95b66446ea088faf1521405a8a01f07fde7124cc9958dfed52d4bb436737e65b08f85f37b46fcba375092558ac51262b816844b22f63406ed166bfee",
   "devDependencies": {

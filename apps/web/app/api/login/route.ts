@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { redirectTarget } from "../../../src/lib/redirect-url";
 import { webConfig } from "../../../src/lib/config";
 import { LoginLimiter } from "../../../src/lib/login-limiter";
+import { rejectCrossOrigin } from "../../../src/lib/same-origin";
 import { SESSION_COOKIE_NAME, signSession } from "../../../src/lib/session";
 
 const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
@@ -12,6 +13,11 @@ const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
 const limiter = new LoginLimiter();
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Before the limiter: a cross-origin page must not be able to spend the
+  // operator's attempts, or sign the browser into a session of its choosing.
+  const refused = rejectCrossOrigin(request);
+  if (refused !== null) return refused;
+
   const config = webConfig();
   const now = Date.now();
   const key = request.headers.get("x-forwarded-for") ?? "local";

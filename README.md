@@ -100,6 +100,10 @@ One changed field. The fix works, tested against the input that actually failed.
 
 That is the whole loop: **find where the value was lost, then prove the fix.**
 
+No identifier yet, only an alert that deliveries are failing? The Recent page
+lists the journeys that failed in the last hour, day or week, narrowed by
+environment and service, and each one opens the same timeline.
+
 ---
 
 ## Try it
@@ -314,10 +318,11 @@ The fixed SDK was then pointed at a service this repository's authors had not
 written, with a real ORM, which found four more, including a credential leak in
 the redaction itself. Those are fixed too. The whole account, and what changed
 about how this is tested because of it, is in
-[What running it found](docs/WHAT_RUNNING_IT_FOUND.md). What remains open is in
-the [roadmap](docs/ROADMAP.md): captured data cannot be deleted. Credentials
-inside error messages are now masked by shape, which catches the common ones and
-not a credential in an unfamiliar shape (ADR-046).
+[What running it found](docs/WHAT_RUNNING_IT_FOUND.md). Nothing from that
+account remains open. Captured data can be deleted on demand (ADR-045), and
+credentials inside error messages are masked by shape, which catches the common
+ones and not a credential in an unfamiliar shape (ADR-046). The
+[roadmap](docs/ROADMAP.md) lists what is still known to be missing.
 
 [CHANGELOG.md](CHANGELOG.md) lists what is done and what is known to be missing.
 
@@ -433,7 +438,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | Document | Purpose |
 | --- | --- |
 | [Local development](docs/LOCAL_DEVELOPMENT.md) | Setup, commands, keys, troubleshooting |
-| [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention |
+| [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention, deleting data |
 | [Node SDK](packages/sdk-node/README.md) | The SDK's full surface |
 | [Demo scenario](docs/DEMO_SCENARIO.md) | The reference journey, end to end |
 | [Architecture](docs/ARCHITECTURE.md) | Components, flows, boundaries, scaling path |

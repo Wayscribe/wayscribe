@@ -11,3 +11,8 @@ next-env.d.ts
 .superpowers/
 examples/*/package-lock.json
 /test-results/
+
+# Local agent state, including git worktrees that other branches are checked out
+# into. Nothing here belongs in the repository, and tools that walk the tree
+# (Prettier, ESLint) must not reach into another branch's working files.
+/.claude/

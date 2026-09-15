@@ -31,6 +31,31 @@ changes far less often.
 
 ### Added
 
+- **Captured data can be deleted on demand.** Retention was the only way
+  anything left the database, so a redaction miss stayed stored until it aged
+  out and an erasure request had no answer. `delete:journey`,
+  `delete:identifier`, `delete:range`, and `delete:destination` remove one
+  journey, every journey matching an identifier, an environment's journeys by
+  last activity, or a replay destination with its runs. The admin API has
+  `DELETE /v1/journeys/:journeyId`, `POST /v1/erasures`, and
+  `DELETE /v1/replay-destinations/:destinationId`, and a journey's page links to
+  a confirmation that deletes it. Deletion is hard and admin-only; the selecting
+  deletions have a dry run; every deletion writes its audit row in the same
+  transaction, and an erasure's row holds the search token, never the value. An
+  erasure or range deletion leaves journeys created while it ran for the next
+  run, and marks its audit row `complete: false` if it stops part way. Deleted
+  rows remain until vacuum and in earlier backups. The procedure is in
+  `docs/OPERATIONS.md` §8 (ADR-045).
+- **`GET /v1/journeys/:journeyId` includes the environment's name.**
+- **Start from what failed, not from an identifier.** A Recent page, linked
+  from the search heading, lists journeys by latest activity. It shows failed
+  journeys from the last 24 hours by default, and can be filtered by status,
+  window (an hour, a day or a week), environment and service. The filter is
+  stated in words and the view is a shareable URL. The API behind it is
+  `GET /v1/journeys` with a required `since` (`docs/API_SPEC.md` §6), and
+  `GET /v1/projects` now names each project's environments. Migration
+  `013_journeys_status_recent_index.js` adds two indexes for it, built
+  concurrently so upgrading does not block ingestion while they build.
 - **`ENCRYPTION_KEY` can be rotated without losing data.** Every encrypted value
   now names the key that wrote it, and `ENCRYPTION_KEY_PREVIOUS` holds the key
   being replaced while the new one takes over. Through that grace period old
@@ -104,6 +129,10 @@ changes far less often.
   out without the credentials the destination was configured with. It is now
   refused, recorded as blocked with the reason and the key id involved, and
   audited as `replay.blocked`.
+- **A replay destination's audit row no longer records its base URL.** A base
+  URL can carry credentials or an internal hostname, audit rows are never swept,
+  and deleting the destination could not reach the row. Rows written before this
+  change keep the URL; `docs/OPERATIONS.md` §8 has the statement that strips it.
 
 ### Fixed
 
@@ -194,9 +223,9 @@ audit, all merged the same day. The pattern behind them is written up in
 - **Rows written before the upgrade are not masked retroactively.** Their error
   messages and their stacks stay exactly as they were stored, including any
   credential in them. Masking applies to events ingested after the upgrade.
-  Removing the old rows is the job of deleting captured data, which is not yet
-  available and is listed as open in the roadmap. Until it is, there is no
-  supported way to remove them.
+  To remove them, delete the affected journeys, every journey matching an
+  identifier, or an environment's time window (`docs/OPERATIONS.md` §8,
+  ADR-045).
 - Redaction reaching further means more `[REDACTED]` than before. If a key name
   on the built-in list appears somewhere it is not a secret, scope it with a
   dotted path in your own `redact` list.

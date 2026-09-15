@@ -97,6 +97,7 @@ h3 {
 }
 
 input,
+select,
 button {
   font: inherit;
   padding: 0.5rem 0.65rem;
@@ -142,6 +143,42 @@ button {
 }
 .status.failed {
   color: var(--failed);
+}
+.environment {
+  font-size: 0.75rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+
+/* A heading with a link to the other way in: search or recent. */
+.page-heading {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+/* Recent journeys: a plain GET form of filters, wrapping on a narrow screen. */
+.recent-filters {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+.recent-filters label {
+  display: flex;
+  flex-direction: column;
+}
+.recent-summary {
+  font-weight: 600;
+  margin: 0.5rem 0;
+}
+.pager {
+  margin-top: 1rem;
 }
 
 /* Master-detail: the timeline stays visible while an event is inspected. */
@@ -305,4 +342,33 @@ button.plain {
 }
 button.plain:hover {
   text-decoration: underline;
+}
+
+/* One line of confirmation after an action, such as a deletion. */
+.notice {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+/* The facts a destructive confirmation states. */
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+}
+.facts dt {
+  color: var(--muted);
+}
+.facts dd {
+  margin: 0;
+}
+.confirm {
+  align-items: flex-start;
+}
+button.danger {
+  background: var(--failed);
+  /* The page colour: white on the light theme's red, dark on the dark theme's pink. */
+  color: var(--bg);
 }

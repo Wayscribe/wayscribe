@@ -1,18 +1,30 @@
 import Link from "next/link";
 import { ApiUnavailableError, ProjectNotSelectedError, search } from "../../src/lib/api";
 import { requireProjectId } from "../../src/lib/current-project";
+import { JourneyRow } from "../components/JourneyRow";
 
 export default async function SearchPage({
   searchParams
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; deleted?: string }>;
 }) {
-  const { q } = await searchParams;
+  const { q, deleted } = await searchParams;
   const query = q?.trim() ?? "";
 
   return (
     <main>
-      <h1>Find a record</h1>
+      {deleted === undefined ? null : (
+        // Set by the delete route handler, which only ever puts an entity type
+        // here. React escapes it either way.
+        <p className="notice" role="status">
+          {deleted === "journey" ? "Deleted the journey." : `Deleted the ${deleted} journey.`} It no
+          longer appears in search.
+        </p>
+      )}
+      <header className="page-heading">
+        <h1>Find a record</h1>
+        <Link href="/recent">No identifier? See recent failures</Link>
+      </header>
       <p className="muted">
         Search any identifier you have — a customer ID, an external reference, a trace or message
         ID. You do not need to know which system it came from.
@@ -67,18 +79,7 @@ async function Results({ query }: { query: string }) {
   return (
     <ul className="results">
       {items.map((item) => (
-        <li key={item.journeyId}>
-          <Link href={`/journeys/${item.journeyId}`} className="mono">
-            {item.entity.type}: {item.entity.id ?? "—"}
-          </Link>
-          <span className={item.status === "failed" ? "status failed" : "status"}>
-            {item.status}
-          </span>
-          <span className="muted">
-            {item.eventCount} events · last activity{" "}
-            {item.lastEventAt.slice(0, 19).replace("T", " ")}
-          </span>
-        </li>
+        <JourneyRow key={item.journeyId} item={item} />
       ))}
     </ul>
   );

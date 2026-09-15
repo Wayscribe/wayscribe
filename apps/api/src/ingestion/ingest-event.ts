@@ -21,10 +21,10 @@ import {
 } from "@flight-recorder/payload-security";
 import { PROTOCOL_ERROR_CODES, parseEnvelope } from "@flight-recorder/protocol";
 import type { JourneyEvent, ParseDetail } from "@flight-recorder/protocol";
-
-type EventError = NonNullable<JourneyEvent["error"]>;
 import type { Knex } from "knex";
 import { authorizeEnvironment } from "../auth.js";
+
+type EventError = NonNullable<JourneyEvent["error"]>;
 
 export interface IngestResult {
   eventId: string | null;

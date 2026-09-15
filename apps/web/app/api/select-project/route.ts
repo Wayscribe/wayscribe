@@ -5,6 +5,7 @@ import { listProjects } from "../../../src/lib/api";
 import { safeReturnTo } from "../../../src/lib/return-to";
 import { SESSION_COOKIE_NAME, signSession } from "../../../src/lib/session";
 import { requestSession } from "../../../src/lib/request-session";
+import { rejectCrossOrigin } from "../../../src/lib/same-origin";
 
 /**
  * Record which project the session reads from, and return where you were.
@@ -16,6 +17,9 @@ import { requestSession } from "../../../src/lib/request-session";
  * 404s on every page with no way out.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const refused = rejectCrossOrigin(request);
+  if (refused !== null) return refused;
+
   const config = webConfig();
   const now = Date.now();
 

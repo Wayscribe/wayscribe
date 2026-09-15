@@ -16,6 +16,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "migrate": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts migrate",
+    "migrate:unlock": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts migrate:unlock",
     "rollback": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts rollback",
     "seed": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts seed",
     "seed-demo": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts seed-demo",
@@ -26,7 +27,11 @@
     "key:list": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts key:list",
     "retention:sweep": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts retention:sweep",
     "rotate:reencrypt": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts rotate:reencrypt",
-    "rotate:status": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts rotate:status"
+    "rotate:status": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts rotate:status",
+    "delete:journey": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts delete:journey",
+    "delete:identifier": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts delete:identifier",
+    "delete:range": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts delete:range",
+    "delete:destination": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts delete:destination"
   },
   "dependencies": {
     "@flight-recorder/config": "workspace:*",

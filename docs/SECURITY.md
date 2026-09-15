@@ -159,7 +159,8 @@ What it does not catch, by design or by limitation:
   masked.
 - **`metadata` strings and payload strings.** Those keep path redaction only.
 - **Rows written before this masking existed.** Their messages and stacks are
-  stored as they arrived, until they are deleted.
+  stored as they arrived, until they are deleted (section 14, deletion on
+  demand).
 
 `error.stack` is stored only when the environment captures full payloads, which
 requires both `ALLOW_FULL_PAYLOAD_CAPTURE` and the environment's `full-payload`
@@ -347,6 +348,19 @@ Audit at least:
 
 Audit metadata must itself be sanitized.
 
+A deletion's audit row is written in the same transaction as the delete, so
+data never leaves without a record. An erasure's row records the search token
+of the erased identifier under the current key, and counts, **never the
+identifier itself**: the identifier is the personal data the erasure removed,
+and an audit trail that kept it would be the one place it survived. A later
+erasure of the same value produces the same token, so the two rows can be
+matched without storing what they erased. A replay destination's creation and
+deletion record its name, not its base URL, which can carry credentials or name
+a host the operator considers internal (ADR-045). **Audit rows written before
+this change record the base URL at creation**, and deleting the destination does
+not remove them; `OPERATIONS.md` §8 gives the statement that strips the URL
+from them.
+
 ## 14. Retention
 
 - default to short local retention
@@ -355,6 +369,24 @@ Audit metadata must itself be sanitized.
 - document backup implications
 - ensure deleted aliases and payloads are removed
 - avoid retaining replay responses longer than the source environment requires
+
+### Deletion on demand
+
+Retention is not the only way out. An operator can delete one journey, every
+journey matching an identifier (an erasure request, or the rows a redaction miss
+wrote), an environment's time window, or a replay destination
+(`OPERATIONS.md` §8).
+
+- Deletion is hard: rows are deleted, and a journey's events, aliases, and replay
+  runs go with it. A soft delete would keep what the operator asked to remove.
+- Only the admin token, a signed-in web session, and the database CLI can delete.
+  An API key cannot: it sits in application configuration on many servers, and a
+  leaked one must not be able to erase the record of what it sent.
+- Erasure matches the identifier's search tokens under every configured key, so
+  it finds journeys still under the previous key during a rotation.
+- Deleted rows remain in PostgreSQL's files until vacuum, and in every backup
+  taken before the deletion. The documentation says so rather than implying
+  otherwise.
 
 ## 15. Future BYOK AI security
 

@@ -3,6 +3,7 @@ import {
   findEventDetail,
   findJourneyDetail,
   listJourneyEvents,
+  listRecentJourneys,
   searchJourneys,
   type ReadScope
 } from "@flight-recorder/database";
@@ -15,7 +16,8 @@ import {
   resolvePrincipal,
   type Principal
 } from "../principal.js";
-import { presentAliases, presentEntityId } from "./present.js";
+import { presentAliases, presentEntityId, presentJourneySummary } from "./present.js";
+import { parseRecentJourneysQuery } from "./recent-query.js";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
@@ -87,16 +89,45 @@ export function registerQueryRoutes(
 
       return await reply.send({
         data: {
-          items: page.items.map((hit) => ({
-            journeyId: hit.journeyId,
-            entity: {
-              type: hit.entityType,
-              id: presentEntityId(keyring, hit.encryptedPrimaryEntityId, warnUnknownKey)
-            },
-            status: hit.status,
-            eventCount: hit.eventCount,
-            startedAt: hit.startedAt.toISOString(),
-            lastEventAt: hit.lastEventAt.toISOString()
+          items: page.items.map((hit) => presentJourneySummary(keyring, hit, warnUnknownKey)),
+          nextCursor: page.nextCursor
+        }
+      });
+    } catch (error) {
+      return cursorError(error, reply, request.id);
+    }
+  });
+
+  /**
+   * Recent journeys, for an investigation that starts from "what failed"
+   * rather than from an identifier.
+   *
+   * Scoped exactly as search is. An API key asking for another environment
+   * gets an empty page, not an error, because outside its scope nothing exists.
+   */
+  app.get("/v1/journeys", async (request, reply) => {
+    const principal = await authenticate(request, reply);
+    if (principal === undefined) return reply;
+
+    const parsed = parseRecentJourneysQuery(request.query, new Date());
+    if (!parsed.ok) {
+      return reply.code(400).send(errorBody("invalid_query", parsed.message, request.id));
+    }
+
+    try {
+      const page = await listRecentJourneys(
+        app.db,
+        readScope(principal),
+        parsed.filters,
+        parseLimit(request.query),
+        (request.query as { cursor?: string }).cursor
+      );
+
+      return await reply.send({
+        data: {
+          items: page.items.map((journey) => ({
+            ...presentJourneySummary(keyring, journey, warnUnknownKey),
+            environment: journey.environment
           })),
           nextCursor: page.nextCursor
         }
@@ -121,6 +152,7 @@ export function registerQueryRoutes(
     return reply.send({
       data: {
         journeyId: detail.journeyId,
+        environment: detail.environment,
         entity: {
           type: detail.entityType,
           id: presentEntityId(keyring, detail.encryptedPrimaryEntityId, warnUnknownKey)

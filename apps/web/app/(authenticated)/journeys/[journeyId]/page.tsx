@@ -48,6 +48,12 @@ export default async function JourneyPage({
           </p>
         )}
 
+        <p className="muted">
+          <Link href={`/journeys/${encodeURIComponent(journeyId)}/delete`}>
+            Delete this journey
+          </Link>
+        </p>
+
         <JourneyTimeline
           journeyId={journeyId}
           initialStatus={journey.status}
