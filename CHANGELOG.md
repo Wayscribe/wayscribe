@@ -145,7 +145,13 @@ changes far less often.
   each destination header, and any header on the blocklist, by name with the
   value `[REDACTED]`; the request itself still carries the real values. The
   replay result page lists the headers and says a redacted one was sent with
-  its real value. Migration `015_redact_replay_run_headers.js` rewrites rows
+  its real value. A destination that echoes its request no longer puts the
+  values back: each destination header value of 8 or more characters is
+  replaced with `[REDACTED]` in the stored response body and error message.
+  That is exact matching, so a shorter value, a fragment left where the
+  response size cap cut the body, and an encoded echo are not caught, and
+  responses stored before the upgrade are not scrubbed. Migration
+  `015_redact_replay_run_headers.js` rewrites rows
   written before the upgrade, replacing every header value with `[REDACTED]`.
   Backups, WAL archives, and replicas taken before the migration still hold the
   values; see the upgrade note.

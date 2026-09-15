@@ -122,6 +122,13 @@ and for any blocked name. Destination headers are encrypted at rest because they
 are credentials; a plain copy in each run would undo that. The result screen
 lists the headers and states that a redacted value was sent with its real value.
 
+A destination that echoes its request would return those values. Before the
+response body and any error message are stored, each destination header value
+of at least 8 characters is replaced with `[REDACTED]` wherever it occurs
+exactly: within the strings of a JSON body, and in a text body. A shorter value
+is not replaced, and neither is a fragment of one left where the response size
+cap cut the body.
+
 ## 9. Redirect policy
 
 Default:

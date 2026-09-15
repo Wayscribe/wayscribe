@@ -15,6 +15,7 @@ import { diffPayloads } from "@flight-recorder/payload-diff";
 import type { Keyring } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
 import { adminGuard, errorBody as error } from "../admin.js";
+import { echoScrubber } from "../replay/echo-scrub.js";
 import { applyHeaderPolicy } from "../replay/header-policy.js";
 import { sendReplay } from "../replay/send.js";
 
@@ -199,6 +200,11 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
       return reply.code(422).send({ data: await present(app, projectId, runId, event) });
     }
 
+    // A destination can echo its request back, in a body or an error, and the
+    // request carried the destination's real header values. What the
+    // destination returns is scrubbed of them before it is stored.
+    const scrub = echoScrubber(Object.values(configured.headers));
+
     const outcome = await sendReplay({
       baseUrl: destination.baseUrl,
       path: body.path,
@@ -211,7 +217,7 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     if (!outcome.ok && outcome.blocked) {
       await finishRun(app.db, projectId, runId, {
         status: "blocked",
-        error: { reason: outcome.reason, message: outcome.message }
+        error: { reason: outcome.reason, message: scrub.text(outcome.message) }
       });
       await recordAudit(app.db, {
         projectId,
@@ -228,7 +234,7 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
       await finishRun(app.db, projectId, runId, {
         status: "failed",
         durationMs: outcome.durationMs,
-        error: { reason: outcome.reason, message: outcome.message }
+        error: { reason: outcome.reason, message: scrub.text(outcome.message) }
       });
       await recordAudit(app.db, {
         projectId,
@@ -244,7 +250,7 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     await finishRun(app.db, projectId, runId, {
       status: "completed",
       responseStatus: outcome.status,
-      responsePayload: outcome.body,
+      responsePayload: scrub.value(outcome.body),
       durationMs: outcome.durationMs
     });
     await recordAudit(app.db, {
