@@ -320,11 +320,16 @@ was.
 
 ### At shutdown
 
-`shutdown()` drains what it can until its timeout. Whatever is left, events the
-server was still refusing for now, events queued behind an unreachable endpoint,
-and a batch still in flight when the timeout wins, is given up: requests in
-flight are aborted, and each of those events is counted once as `dropped`, with
-a reason starting `shutdown:`. An aborted request may already have been stored
+`shutdown()` sends what is queued, one batch after another, until the queue is
+empty, a pass leaves the queue no shorter than it was, or its timeout passes,
+whichever comes first. A pass makes no progress when every event in it comes
+back unsent, as against an unreachable endpoint or a server refusing everything
+for now, so shutdown stops there, usually well before its timeout, rather than
+waiting out the 30-second retry budget. Whatever is left, events the server was
+still refusing for now, events queued behind an unreachable endpoint, and a
+batch still in flight when the timeout wins, is given up: requests in flight are
+aborted, and each of those events is counted once as `dropped`, with a reason
+starting `shutdown:`. An aborted request may already have been stored
 by the server, so an event counted this way is not known to be lost, only not
 known to be stored.
 
