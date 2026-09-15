@@ -256,11 +256,13 @@ describe("replay routes", () => {
     });
     const destinationId = created.json<{ data: { id: string } }>().data.id;
 
+    const logLines: string[] = [];
     const afterRemoval = buildApp({
       db,
       keyring: createKeyring(KEY_B),
       adminToken: ADMIN_TOKEN,
-      logLevel: "silent",
+      logLevel: "warn",
+      logStream: { write: (line: string) => logLines.push(line) },
       replayAllowedHosts: ["localhost"]
     });
     const before = targetRequests;
@@ -287,6 +289,21 @@ describe("replay routes", () => {
         (item) => item.action === "replay.blocked" && item.resourceId === data.id
       );
       expect(entry?.metadata).toMatchObject({ reason: "headers_key_not_configured" });
+
+      // The operator learns of the missing key from the log too, once per key
+      // id however many replays meet it, and never with the credential.
+      await afterRemoval.inject({
+        method: "POST",
+        url: "/v1/replays",
+        headers: admin(),
+        payload: { eventId: eventWithInput, destinationId, path: "/replay/customer" }
+      });
+      const warnings = logLines
+        .map((line) => JSON.parse(line) as { level: number; keyId?: string })
+        .filter((line) => line.level === 40 && line.keyId !== undefined);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.keyId).toBe(keyring.current.id);
+      expect(logLines.join("")).not.toContain("destination-credential");
     } finally {
       await afterRemoval.close();
     }
