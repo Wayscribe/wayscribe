@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { redirectTarget } from "../../../src/lib/redirect-url";
 import { createReplay } from "../../../src/lib/api";
 import { requestSession } from "../../../src/lib/request-session";
+import { rejectCrossOrigin } from "../../../src/lib/same-origin";
 
 /**
  * Send a replay on behalf of the signed-in operator.
@@ -15,6 +16,9 @@ import { requestSession } from "../../../src/lib/request-session";
  * group's gate.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const refused = rejectCrossOrigin(request);
+  if (refused !== null) return refused;
+
   const session = requestSession(request);
 
   if (session === null) {

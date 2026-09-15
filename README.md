@@ -290,7 +290,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 44 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 45 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -320,7 +320,7 @@ the redaction itself. Those are fixed too. The whole account, and what changed
 about how this is tested because of it, is in
 [What running it found](docs/WHAT_RUNNING_IT_FOUND.md). What remains open is in
 the [roadmap](docs/ROADMAP.md): free text inside error messages is not
-redacted, and captured data cannot be deleted.
+redacted.
 
 [CHANGELOG.md](CHANGELOG.md) lists what is done and what is known to be missing.
 
@@ -436,7 +436,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | Document | Purpose |
 | --- | --- |
 | [Local development](docs/LOCAL_DEVELOPMENT.md) | Setup, commands, keys, troubleshooting |
-| [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention |
+| [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention, deleting data |
 | [Node SDK](packages/sdk-node/README.md) | The SDK's full surface |
 | [Demo scenario](docs/DEMO_SCENARIO.md) | The reference journey, end to end |
 | [Architecture](docs/ARCHITECTURE.md) | Components, flows, boundaries, scaling path |

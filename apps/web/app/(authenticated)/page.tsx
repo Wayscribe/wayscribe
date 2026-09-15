@@ -6,13 +6,21 @@ import { JourneyRow } from "../components/JourneyRow";
 export default async function SearchPage({
   searchParams
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; deleted?: string }>;
 }) {
-  const { q } = await searchParams;
+  const { q, deleted } = await searchParams;
   const query = q?.trim() ?? "";
 
   return (
     <main>
+      {deleted === undefined ? null : (
+        // Set by the delete route handler, which only ever puts an entity type
+        // here. React escapes it either way.
+        <p className="notice" role="status">
+          {deleted === "journey" ? "Deleted the journey." : `Deleted the ${deleted} journey.`} It no
+          longer appears in search.
+        </p>
+      )}
       <header className="page-heading">
         <h1>Find a record</h1>
         <Link href="/recent">No identifier? See recent failures</Link>

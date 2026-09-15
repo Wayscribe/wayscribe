@@ -18,6 +18,8 @@ export type PrincipalResult =
   | { ok: true; principal: Principal }
   | { ok: false; status: 401 | 403 | 404; code: string; message: string };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const UNAUTHORIZED = {
   ok: false as const,
   status: 401 as const,
@@ -79,7 +81,9 @@ async function resolveAdminProject(
     };
   }
 
-  const exists: unknown = await db("projects").where({ id: projectId }).first("id");
+  const exists: unknown = UUID_PATTERN.test(projectId)
+    ? await db("projects").where({ id: projectId }).first("id")
+    : undefined;
   if (exists === undefined) {
     return {
       ok: false,
@@ -105,7 +109,9 @@ export async function resolveAdminProjectId(
   requestedProjectId: string | undefined
 ): Promise<string | undefined> {
   const projectId = requestedProjectId ?? (await onlyProjectId(db));
-  if (projectId === undefined) return undefined;
+  // Not a uuid cannot be a project, and PostgreSQL would answer the lookup with
+  // an error, a 500, rather than with nothing.
+  if (projectId === undefined || !UUID_PATTERN.test(projectId)) return undefined;
 
   const exists: unknown = await db("projects").where({ id: projectId }).first("id");
   return exists === undefined ? undefined : projectId;

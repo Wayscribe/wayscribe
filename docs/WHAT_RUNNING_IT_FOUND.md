@@ -138,18 +138,21 @@ purpose.
 
 ## The honest remainder
 
-Fixing things is easy to write up. These are open:
+Fixing things is easy to write up. This is open:
 
 - **Free text inside `error.message` and `error.stack` is not redacted.** Path
   redaction matches key names and cannot reach inside a string. `SECURITY.md`
   names stack traces as carriers of credentials.
-- **There is no way to delete captured data.** When redaction misses — which has
-  now happened twice — fixing the matcher does nothing about the rows already
-  written.
 
-They are on [the roadmap](ROADMAP.md), listed as open rather than as done.
+It is on [the roadmap](ROADMAP.md), listed as open rather than as done.
 
-One item on this list when it was first written has since closed. **Rotating
+Two items on this list when it was first written have since closed. **Rotating
 `ENCRYPTION_KEY` was permanently destructive**, because the ciphertext envelope
 carried no key identifier. Every value now names its key, and rotation is a
 grace period with a re-encryption command (ADR-044).
+
+The other: **there was no way to delete captured data**, so when
+redaction missed, fixing the matcher did nothing about the rows already written.
+A journey, every journey matching an identifier, or an environment's time window
+can now be deleted, each audited and each with a dry run where it selects by
+criteria (ADR-045).

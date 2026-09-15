@@ -11,6 +11,7 @@ export interface SearchItem {
 
 export interface JourneyDetail {
   journeyId: string;
+  environment: string;
   entity: { type: string; id: string | null };
   status: string;
   aliases: { type: string; displayValue: string | null }[];
@@ -297,3 +298,46 @@ export const createReplay = (
 
 export const getReplay = (replayId: string, projectId: string): Promise<ReplayRun | null> =>
   get<ReplayRun>(`/v1/replays/${encodeURIComponent(replayId)}`, projectId);
+
+/**
+ * Delete one journey, its events, aliases, and replay runs.
+ *
+ * Resolves to what happened rather than throwing for a journey that is not
+ * there: an operator who confirms twice, or in two tabs, finds it already gone,
+ * which is not an outage. Failures the operator cannot fix by retrying throw
+ * the same typed errors as a read.
+ */
+export async function deleteJourney(
+  journeyId: string,
+  projectId: string
+): Promise<"deleted" | "not_found"> {
+  const config = webConfig();
+  let response: Response;
+  try {
+    response = await fetch(`${config.API_URL}/v1/journeys/${encodeURIComponent(journeyId)}`, {
+      method: "DELETE",
+      headers: {
+        authorization: `Bearer ${config.ADMIN_TOKEN}`,
+        ...(projectId === "" ? {} : { "x-flight-project-id": projectId })
+      },
+      cache: "no-store"
+    });
+  } catch (cause) {
+    throw new ApiUnavailableError("The Flight Recorder API is unreachable.", { cause });
+  }
+
+  if (response.status === 204) return "deleted";
+  if (response.status === 404) {
+    const body = (await response.json().catch(() => ({}))) as { error?: { code?: string } };
+    if (body.error?.code === "project_not_found") {
+      throw new ProjectNotSelectedError("No project is selected.");
+    }
+    return "not_found";
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw new ApiUnavailableError(
+      "The API rejected this request. The web and API containers may hold different ADMIN_TOKEN values."
+    );
+  }
+  throw new ApiUnavailableError(`API responded ${String(response.status)}.`);
+}

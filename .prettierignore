@@ -20,3 +20,6 @@ docs/
 # accepts. `helm lint` and `helm template` are what check these; the chart's
 # plain values.yaml and Chart.yaml are still formatted.
 deploy/helm/*/templates/
+
+# Local agent state and worktrees of other branches (see .gitignore).
+.claude/

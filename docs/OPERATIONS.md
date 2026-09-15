@@ -369,11 +369,155 @@ metrics endpoint; each sweep that deleted anything writes one line:
 { "journeysDeleted": 1420, "batches": 2, "environmentsExamined": 3, "durationMs": 91 }
 ```
 
+Retention is not the only way data leaves: §8 deletes a journey, an identifier,
+or a time window on demand.
+
 `DEFAULT_RETENTION_DAYS` applies to environments created by `db:seed` and
 `key:create`. Changing it does not alter environments that already exist —
 update `environments.retention_days` for those.
 
-## 8. Exposure
+## 8. Deleting data
+
+Retention removes data by age. Three commands remove it on demand: one journey,
+every journey matching an identifier, and an environment's journeys in a time
+window. They cover what retention cannot wait for: a redaction miss that stored
+something it should not have, a customer asking to be forgotten, and a noisy
+window such as a load test. A fourth command removes a replay destination
+(ADR-045).
+
+Every deletion is a hard delete. A journey's events, its aliases, and the replay
+runs of those events go with it. Each deletion writes a row to `audit_events` in
+the same transaction as the delete, so nothing is deleted without a record.
+
+### Dry run first
+
+`delete:identifier` and `delete:range` take `--dry-run`, which lists exactly what
+the same command would delete and deletes nothing. Run it, read the table, then
+run the command again without the flag.
+
+```bash
+pnpm delete:identifier local CLI-CUST-1 --dry-run
+```
+
+```text
+Dry run: 2 journeys match in local (all environments). Nothing was deleted.
+
+ID         ENVIRONMENT  ENTITY TYPE  EVENTS  LAST ACTIVITY
+jrn_cli_b  development  customer     1       2026-08-11 10:00:00
+jrn_cli_a  development  customer     2       2026-08-10 10:00:05
+```
+
+```bash
+pnpm delete:identifier local CLI-CUST-1
+```
+
+```text
+  batch 1: 2 journeys deleted so far
+Deleted 2 journeys and 3 events in local (all environments). The audit log records the search token, not the value.
+Journeys recorded after the run started were left alone; run it again with --dry-run to check for any.
+```
+
+### The commands
+
+| Command | Deletes |
+| --- | --- |
+| `pnpm delete:journey <project> <journey-id>` | one journey |
+| `pnpm delete:identifier <project> <value> [--environment <name>] [--dry-run]` | every journey whose entity id or any alias is the value, which is what search finds for it |
+| `pnpm delete:range <project> <environment> --before <date> [--after <date>] [--dry-run]` | the environment's journeys whose last event falls in `[after, before)` |
+| `pnpm delete:destination <project> <destination-id>` | a replay destination and every replay run sent to it |
+
+Each exits 1 whenever what was asked did not fully happen: an unknown project,
+environment, journey, or destination, a value that is only whitespace, an
+invalid date, a held lock, or a run that stopped part way. A script can rely on
+the exit code.
+
+A date is an ISO-8601 date, read as midnight UTC, or a timestamp with an explicit
+offset such as `2026-09-01T00:00:00Z`. A timestamp without an offset is refused,
+because it would delete a different window depending on the server's time zone.
+`--after` defaults to the beginning of time and must be earlier than `--before`.
+
+`delete:identifier` needs `ENCRYPTION_KEY`, and `ENCRYPTION_KEY_PREVIOUS` during a
+rotation, because the value is matched by its search tokens under both keys. It
+never prints the value.
+
+**The value you type is still recorded outside Flight Recorder.** It stays in
+your shell's history, and anyone who can list processes on that host sees it in
+`ps` while the command runs. In bash with `HISTCONTROL=ignorespace` (or zsh with
+`setopt HIST_IGNORE_SPACE`), start the command with a space and it is not saved;
+otherwise remove the line afterwards (`history -d <number>` in bash). Run it on a
+host whose process list only operators can read.
+
+A value or id that begins with a dash goes after `--`, so it is not read as an
+option: `pnpm delete:identifier acme -- -A1`.
+
+`delete:range` takes the retention sweep's advisory lock, so a range deletion
+and a sweep never run at once. While the sweep holds it the command deletes
+nothing, says so, and exits 1; run it again when the sweep has finished.
+
+From the published image, without a checkout:
+
+```bash
+docker compose -f compose.published.yaml run --rm --entrypoint node api \
+  packages/database/dist/cli.js delete:identifier acme customer-42@example.com --dry-run
+```
+
+The admin API deletes a journey, an identifier, and a destination
+(`docs/API_SPEC.md` §17 to §19), and a journey's page links to a confirmation
+page that deletes it. Range deletion is in the CLI only.
+
+### Late arrivals
+
+An erasure or a range deletion deletes the journeys that existed when it
+started. A journey created while it runs, because the customer is still being
+ingested or the environment is live, is left for the next run; without that
+limit a busy environment could keep a run going, and holding the retention lock,
+indefinitely. **Run the dry run again afterwards**, and if it lists anything, run
+the deletion again.
+
+### What the audit row holds
+
+| Action | Records |
+| --- | --- |
+| `journey.deleted` | the journey id, its environment, its event count |
+| `erasure.completed` | the current key's search token for the value, the environment if one was named, journeys and events deleted, `complete` |
+| `range.deleted` | the environment id, `after`, `before`, journeys deleted, `complete` |
+| `replay_destination.deleted` | the destination id, its name, replay runs deleted |
+
+An erasure's row never holds the value. A later erasure of the same value
+records the same token under the same key, so the two can be matched.
+
+A destination's audit rows, at creation and at deletion, hold its name and not
+its base URL. Rows written by `replay_destination.created` before that changed
+do hold the base URL, and deleting the destination leaves them. If a URL carried
+something that must go, strip it and keep the rest of the record:
+
+```sql
+update audit_events
+   set metadata = metadata - 'baseUrl'
+ where action = 'replay_destination.created';
+```
+
+Erasure and range deletion commit in batches, each its own transaction. The row
+is written with the first batch and updated with every batch after it, and the
+last batch, which finds nothing left, sets `complete: true`. **`complete: false`
+means the run stopped before it finished**: the process died, the database
+connection failed, or a range deletion lost its lock, in which case the row also
+has `lockLost: true`. Its counts are exactly what was deleted. Run the same
+command again to delete the rest; that run writes a row of its own.
+
+### What deletion does not remove
+
+- **The bytes, until vacuum.** A deleted row stays in the table's files as a dead
+  row until autovacuum processes the table, and even then the space is marked
+  reusable rather than overwritten. `VACUUM` on `journeys`, `journey_events`,
+  and `entity_aliases` hastens the first; `VACUUM FULL` rewrites the files, and
+  locks the tables while it does.
+- **Backups.** Every dump and every WAL archive taken before the deletion still
+  holds the data. Deleting from the database does not reach them; how long they
+  are kept is your backup retention, and an erasure request covers them too.
+- **What your services logged.** Deletion removes what Flight Recorder stored.
+
+## 9. Exposure
 
 Every published port binds to `127.0.0.1`. A `docker compose up` on a cloud host
 does not expose the stack to the internet, and that is the only thing standing
@@ -386,7 +530,7 @@ The admin token grants project-wide read of every recorded payload. It is a
 single shared secret with no user accounts and no audit of who used it — treat
 it as an operator credential, not a login.
 
-## 9. Sizing
+## 10. Sizing
 
 Event volume drives everything. One journey is one row plus one row per event,
 plus a row per alias. Payloads are stored inline as JSONB.
@@ -422,7 +566,7 @@ If that build stops partway, what to do depends on how it stopped:
   (`pnpm db:migrate:unlock` from a checkout.) Releasing the lock while another
   `migrate` is running lets two run at once, so check first.
 
-## 10. Security scanning
+## 11. Security scanning
 
 Three jobs run in the `security` stage, and all three block.
 
@@ -464,7 +608,7 @@ ignore. The first run found seven CVEs in `npm` and `corepack`, which the base
 image ships and the runtime never uses; both Dockerfiles now delete them, which
 is a smaller attack surface as well as a clean scan.
 
-## 11. When something is wrong
+## 12. When something is wrong
 
 | Symptom | Look at |
 | --- | --- |
@@ -476,6 +620,8 @@ is a smaller attack surface as well as a clean scan.
 | New keys changed nothing after `docker compose restart` | `restart` does not re-read `env_file`; recreate with `docker compose … up -d` |
 | Replay blocked with `headers_key_not_configured` | the destination's headers are under a key that is not configured; restore it as `ENCRYPTION_KEY_PREVIOUS` and run `rotate:reencrypt` |
 | `rotate:reencrypt` exits 1 saying the lock is held | another run is still going; let it finish, then `rotate:status` |
+| `delete:range` exits 1 saying the retention lock is held | the retention sweep is running; run it again when that finishes |
+| An audit row for a deletion says `complete: false` | the run stopped part way; run the same command again (§8) |
 | SDK sends nothing | key validity, environment match, and the SDK's `onDiagnostic` counters |
 | Ingestion returns 403 | the key's environment does not match the event's |
 | Ingestion returns 401 after working | the key was revoked, which `pnpm key:list` shows, or it had not authenticated before `ENCRYPTION_KEY_PREVIOUS` was removed (§6) |

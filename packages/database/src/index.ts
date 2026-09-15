@@ -22,6 +22,28 @@ export { maskDisplayValue } from "./mask.js";
 export { listProjects, type ProjectSummary } from "./repositories/projects.js";
 export { listAudit, recordAudit, type AuditEntry, type AuditRecord } from "./repositories/audit.js";
 export {
+  deleteJourney,
+  deleteRange,
+  deleteReplayDestination,
+  eraseIdentifier,
+  findJourneysByIdentifier,
+  findJourneysInRange,
+  type BatchOptions,
+  type BatchProgress,
+  type DestinationDeletion,
+  type EmptyValue,
+  type EnvironmentNotFound,
+  type ErasureResult,
+  type IdentifierMatches,
+  type IdentifierSelection,
+  type JourneyDeletion,
+  type JourneyMatches,
+  type MatchedJourney,
+  type MatchOptions,
+  type RangeDeletion,
+  type RangeSelection
+} from "./repositories/deletion.js";
+export {
   createDestination,
   destinationHeaders,
   findDestination,

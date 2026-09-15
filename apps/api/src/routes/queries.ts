@@ -152,6 +152,7 @@ export function registerQueryRoutes(
     return reply.send({
       data: {
         journeyId: detail.journeyId,
+        environment: detail.environment,
         entity: {
           type: detail.entityType,
           id: presentEntityId(keyring, detail.encryptedPrimaryEntityId, warnUnknownKey)
