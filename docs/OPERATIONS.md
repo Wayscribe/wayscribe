@@ -535,9 +535,76 @@ it as an operator credential, not a login.
 Event volume drives everything. One journey is one row plus one row per event,
 plus a row per alias. Payloads are stored inline as JSONB.
 
-The practical lever is `captureMode`. `metadata-only` stores no payloads at all
-and shrinks the table by roughly the size of your traffic; `redacted-payload`
-(the default) stores both input and output per wrapped step.
+### Measured disk per event
+
+`scripts/measure-storage.mjs` records journeys of the demo's shape (ten events
+and two aliases each, with small Salesforce and customer payloads averaging 120
+bytes of JSON input and output per event) through the real ingestion code, in
+each capture mode, and reports what `journeys`, `journey_events`, and
+`entity_aliases` occupy with their indexes and TOAST. Run on an Apple M3 Pro,
+PostgreSQL 17.11 (`postgres:17-alpine`, default configuration) in Docker
+Desktop with 12 CPUs and 7.75 GiB:
+
+| Capture mode | 100,000 events | 1,000,000 events | Compacted, per event | Per journey |
+|---|---|---|---|---|
+| `metadata-only` | 113.5 MiB (1,190 B) | 1,001 MiB (1,049 B) | 873 B | 10.2 KiB |
+| `allowlisted-fields` | 134.8 MiB (1,414 B) | 1.19 GiB (1,273 B) | 1,097 B | 12.4 KiB |
+| `redacted-payload` | 154.2 MiB (1,617 B) | 1.39 GiB (1,494 B) | 1,320 B | 14.6 KiB |
+| `full-payload` | 151.3 MiB (1,586 B) | 1.39 GiB (1,496 B) | 1,320 B | 14.6 KiB |
+
+The first two columns are as ingested, after a plain `VACUUM`; the per-event
+figure is the total divided by events, so each event carries its share of its
+journey and aliases. Compacted is after `VACUUM FULL`. The difference is
+mostly the `journeys` table: every event updates its journey, the updates
+cannot be HOT because indexed columns change, and at a million events the
+table and its indexes were 121 MiB as ingested against 77 MiB compacted. A
+running installation sits between the two.
+
+What the numbers say:
+
+- **Indexes are 40 to 55 percent of the disk.** At a million events in
+  `metadata-only`, the three tables held 559 MiB of indexes out of 1,001 MiB;
+  in `redacted-payload`, 556 MiB out of 1.39 GiB.
+- **Payload capture costs about four times the payload's JSON size.**
+  `redacted-payload` added 445 bytes per event over `metadata-only` for 120
+  bytes of JSON: JSONB is larger than JSON text for small objects, and a step
+  with both an input and an output also stores their diff. `full-payload` and
+  `redacted-payload` match here because the demo payloads hold no secrets.
+- **Retention does not shrink the files, and does not need to.** Deleting half
+  the journeys with the retention sweep and running a plain `VACUUM` left the
+  size unchanged (832.7 MiB before, 832.9 MiB after, `metadata-only`). Ingesting
+  as many journeys again brought it to 982 MiB, below the 1,001 MiB the same
+  volume took the first time: the freed space was reused. Disk therefore
+  plateaus at the retention window's volume rather than growing, and a sweep or
+  a §8 deletion is not a way to get space back. `VACUUM FULL` returns it, but
+  holds an exclusive lock that stops ingestion for as long as it runs.
+
+### A formula
+
+```text
+disk ≈ events per day × retention days × bytes per event × 1.5
+```
+
+Take bytes per event from the 1,000,000-event column for your capture mode, and
+for payloads larger than the demo's add four times their average JSON size
+(input plus output). The margin of 1.5 covers what the measurement does not:
+autovacuum falling behind a burst, journeys that keep receiving events and so
+outlive the window, and index growth beyond what a million events shows. It
+does not cover WAL (`max_wal_size`, 1 GB by default), backups, or the
+database's other tenants.
+
+For example, a million events a day kept 30 days in `redacted-payload`:
+1,000,000 × 30 × 1,494 × 1.5 is 67 GB, about 63 GiB.
+
+To measure your own shape, against a scratch database (it refuses one that
+already holds journeys, and works in schemas of its own that it drops after):
+
+```bash
+pnpm --filter "@flight-recorder/api..." build
+node scripts/measure-storage.mjs --database-url postgresql://… --journeys 10000
+```
+
+### Indexes
 
 Search looks a value up in one index per kind of identifier:
 `journeys_pkey` for a journey id, `journeys_entity_value_idx` and

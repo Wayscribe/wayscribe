@@ -93,6 +93,14 @@ changes far less often.
     packages/database/dist/cli.js project:create acme "Acme Payments"
   ```
 
+- **Disk per event is measured, not guessed.** `scripts/measure-storage.mjs`
+  ingests journeys of the demo's shape through the real ingestion code in each
+  capture mode against a scratch database, and reports table and index sizes
+  and what a retention sweep and VACUUM do to them. `docs/OPERATIONS.md` §10
+  has the results (about 1.0 KB per event in `metadata-only` and 1.5 KB in
+  `redacted-payload` for small payloads), what retention does to disk, and a
+  sizing formula.
+
 ### Security
 
 - **Built-in secret redaction now applies at any depth.** The shipped list paired
