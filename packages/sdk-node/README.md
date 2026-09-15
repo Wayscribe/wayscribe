@@ -156,7 +156,9 @@ no library. This one is built so that cannot happen:
   counts the drops rather than growing without limit.
 - The transport retries with a circuit breaker, and gives up rather than piling
   up.
-- `shutdown()` never hangs; it races the final flush against a timeout.
+- `shutdown()` never hangs; it races the final flush against a timeout, and
+  counts every event it could not deliver as `dropped`, so `sent`, `rejected`,
+  and `dropped` add up to what was recorded.
 - Nothing is written to your console unless you set `logDiagnostics`. Pass
   `onDiagnostic` if you want to hear about failures in your own logger.
 
@@ -224,7 +226,8 @@ not the message.
 
 `delivered_first` also reaches `onDiagnostic`, as
 `{ kind: "delivered_first", reason, endpoint, accepted }`, whether or not
-`logDiagnostics` is on. It is the only diagnostic that is good news and does not
+`logDiagnostics` is on. Its `endpoint` is the scheme, host, and port only: a
+path or query can carry a credential, so neither is reported or printed. It is the only diagnostic that is good news and does not
 change any counter.
 
 | Kind | Means | Counter |
@@ -233,7 +236,7 @@ change any counter.
 | `insecure_endpoint` | the endpoint is `http:` to a dotted name or an IP address off this machine, so the API key travels unencrypted | none |
 | `rejected` | the server understood an event and refused it; it is not retried | `rejected` |
 | `transport_error` | a request failed, or the server could not store an event for now; see below | `transportErrors` |
-| `dropped` | an event, or a payload, was not recorded: the queue was full, the payload was too large, the recorder was shut down, or the server was still refusing it after 30 seconds or 10 sends | `dropped` |
+| `dropped` | an event, or a payload, was not recorded: the queue was full, the payload was too large, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it (`no_verdict`) | `dropped` |
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
 | `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
 
@@ -271,8 +274,9 @@ refusal of 500 or above, such as `storage_error` or `query_timeout`, means the
 server could not store it this time, so the SDK sends that event again, on its
 own, after the same backoff it uses for a failed request.
 
-Each send tries a refused event three times, a few hundred milliseconds apart.
-If the server is still refusing it, the event goes back to the front of the
+Each send tries a refused event three times: after the first refusal it waits a
+random 0 to 100 ms, and after the second a random 0 to 200 ms. If the server is
+still refusing it, the event goes back to the front of the
 queue and rides in a later send, and each send that ends that way reports a
 `transport_error` with the server's reason. A database restart takes seconds,
 so the event keeps being retried for 30 seconds from its first refusal, or
@@ -291,6 +295,36 @@ A send in which the server stored other events does not count toward the
 breaker, so one event the server can never store does not pause delivery of
 everything else. A send in which it stored nothing does, as a failed request
 does.
+
+**The 30 seconds and 10 sends apply only to these per-event refusals.** When a
+whole request fails (the connection is refused or times out, or the API answers
+the request itself with a 5xx), nothing reached a verdict, so the batch goes
+back to the queue and is retried, with the same backoff and breaker, for as long
+as the outage lasts. What bounds that is the queue: past `maxBufferedEvents`
+(1,000 by default) the oldest events are dropped and counted, and whatever is
+still queued when `shutdown()` finishes is dropped and counted then.
+
+### When the response has no verdict
+
+The batch route answers 202 with one result per event. If a 2xx response is not
+JSON, has no results, or has fewer results than events, each event without a
+result is counted as `dropped` with reason `no_verdict`, and **not sent again**.
+The request did succeed, so the server may well have stored those events, and
+sending them again could store them twice; the SDK cannot tell which, so it
+counts them as not known to be stored. This is what a proxy that rewrites
+responses produces. The body of such a response is never printed or passed to
+`onDiagnostic`: the line says `unparseable response body`, not what the body
+was.
+
+### At shutdown
+
+`shutdown()` drains what it can until its timeout. Whatever is left, events the
+server was still refusing for now, events queued behind an unreachable endpoint,
+and a batch still in flight when the timeout wins, is given up: requests in
+flight are aborted, and each of those events is counted once as `dropped`, with
+a reason starting `shutdown:`. An aborted request may already have been stored
+by the server, so an event counted this way is not known to be lost, only not
+known to be stored.
 
 ## Redaction
 
@@ -457,8 +491,9 @@ event loop spends that time whichever call it lands in.
 or answering after 200 ms, the added p50 stayed in the range measured against
 the local stub: across three full runs, 20 to 116 µs at 1 KiB and 694 to
 1,854 µs at 64 KiB for every endpoint, with no ordering by endpoint that held
-from one run to the next. Unreachable, every event is eventually dropped from
-the bounded queue and counted. Against the 200 ms stub at 2,000 calls a second,
+from one run to the next. Unreachable, every event is dropped and counted:
+those beyond the queue's 1,000 as it fills, and the rest when `shutdown()`
+finishes. Against the 200 ms stub at 2,000 calls a second,
 one process sending 4 batches at a time stores about 1,000 events a second and
 drops the rest, which the concurrency table below shows in detail.
 
@@ -473,6 +508,9 @@ alternating `transform` and `persist`.
 | Event-loop delay beyond its 10 ms timer, p50 / p99 | 0.39 / 0.96 ms | 0.19 / 1.71 ms |
 | Events stored / dropped | | 124,000 / 0 |
 
+The 124,000 events stored are the 120,000 of the measured minute and the 4,000
+recorded during the two seconds of warm-up before it.
+
 The heap after collection does not grow over the minute. The heap figure
 between collections is a sample taken once a second, not a true peak. The
 resident set is about 140 MiB larger; the heap between collections accounts for
@@ -485,12 +523,26 @@ This table models one process against a server that can serve any number of
 requests at once. It shows what a low cap costs that one process; it does not
 justify a higher default for a fleet, and the default stays 4 because of what it
 leaves out. Every ingestion request holds one database connection, so a fleet of
-processes shares instances times pool size. Simulated with one API instance, a
-pool of ten, and ten SDK processes under a burst, a cap of 8 queued requests past
-`requestTimeoutMs`: the SDK abandoned and resent batches the server went on to
-store, 44 to 48 percent of the server's work was duplicates, the breaker opened
-40 times, and unique events stored fell from about 43,600 at a cap of 4 to about
-14,000.
+processes shares instances times pool size.
+
+`pnpm --filter @flight-recorder/node bench:fleet` models that case: ten SDK
+processes at 200 events a second each, five times that for ten seconds of a
+thirty-second run, against one API instance with a pool of ten connections and
+4 ms per event (about 2,500 events a second). The model copies the API's batch
+route, pool, and behaviour when a client gives up, and nothing else.
+
+| | `maxConcurrentSends` 4 | `maxConcurrentSends` 8 |
+| --- | --- | --- |
+| Unique events the server stored | 70,558 | 16,175 |
+| Server work spent on duplicates | 0 | 10,320 of 26,495 (39%) |
+| Replies nobody was waiting for | 0 | 280 |
+| Breaker opened, across the fleet | 0 | 40 |
+| SDK sent / dropped, of about 140,000 | 70,495 / 69,494 | 12,495 / 127,500 |
+
+At 8, requests queued for a connection past `requestTimeoutMs`, so the SDK
+abandoned batches the server went on to store and sent them again. The server
+stored more unique events than the fleet counted as sent: an abandoned batch is
+counted as dropped even when the server finished it.
 
 | Server time per batch | Events/s produced | `maxConcurrentSends` | Stored per second | Dropped |
 | --- | --- | --- | --- | --- |

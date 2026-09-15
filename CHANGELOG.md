@@ -47,7 +47,28 @@ changes far less often.
   that ends with it refused reports a `transport_error`. Refusals below 500
   stay permanent. A send in which the server stored other events no longer
   counts toward the circuit breaker, so one unstorable event cannot pause
-  delivery of the rest.
+  delivery of the rest. The 30-second and 10-send bounds apply only to these
+  per-event refusals: a whole request that fails (refused connection, timeout,
+  or a 5xx for the request itself) is retried for as long as the outage lasts,
+  bounded by the queue's `maxBufferedEvents`, whose overflow is dropped and
+  counted.
+- **SDK counters add up.** `sent + rejected + dropped` now equals the events
+  recorded. `shutdown()` counts everything it could not deliver as `dropped`
+  (events still refused for now, the queue left behind an unreachable endpoint,
+  and a batch in flight when its timeout wins, whose request it aborts); these
+  vanished before, 1,000 of 3,000 in one probe. A batch the server refuses
+  outright counts one `rejected` per event rather than one per batch. A 2xx
+  whose body is not JSON, has no results, or has fewer results than events
+  counts each event without a result as `dropped` with reason `no_verdict` and
+  does not resend it, because the server may have stored it; a body that was
+  not JSON used to resend the whole batch and print the parser's message,
+  which quotes the body. `shutdown()` also no longer holds the process open for
+  the rest of its timeout after the drain finishes.
+- **`delivered_first` names the endpoint's scheme, host, and port only**, not
+  its path or query, which can carry a credential. Printed diagnostic lines also
+  strip U+061C with the other bidirectional formatting characters.
+- **A public `flush()` counts against `maxConcurrentSends`.** Its sends were
+  not tracked, so a burst during a flush could exceed the cap by one set.
 
 ### Added
 

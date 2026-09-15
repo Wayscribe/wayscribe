@@ -41,6 +41,7 @@
     "build": "node scripts/bundle.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "bench": "node bench/overhead.mjs",
+    "bench:fleet": "node bench/fleet.mjs",
     "prepack": "pnpm run build"
   },
   "devDependencies": {
