@@ -117,8 +117,61 @@ describe("formatRotationStatus", () => {
       "journeys has rows under cccccccccccc, which is not configured."
     );
     expect(lines.find((line) => line.startsWith("fr_abcdefghi"))).toMatch(
-      /^fr_abcdefghi\s+acme\/production\s+worker\s+unrecorded\s+never$/
+      /^fr_abcdefghi\s+acme\/production\s+worker\s+not recorded\s+never$/
     );
     expect(lines.at(-1)).toBe("Not complete: 2 rows and 1 API key are not under the current key.");
+  });
+
+  it("warns that rows with no value stop matching search once the previous key is removed", () => {
+    const status = cleanStatus();
+    const [journeys, aliases, destinations] = status.tables;
+    if (journeys === undefined || aliases === undefined || destinations === undefined) {
+      throw new Error("fixture");
+    }
+    journeys.noValue = 2;
+    destinations.noValue = 5;
+
+    const lines = formatRotationStatus(status);
+    expect(lines).toContain(
+      "journeys has 2 rows with no stored value. Their search tokens stay under the previous key, " +
+        "so they will stop matching search once ENCRYPTION_KEY_PREVIOUS is removed."
+    );
+    // Replay destinations have no search token; no headers is just no headers.
+    expect(lines.join("\n")).not.toContain("replay_destinations has");
+    expect(lines.at(-1)).toMatch(/^Complete:/);
+
+    expect(formatRotationStatus({ ...status, previousKeyId: null }).join("\n")).not.toContain(
+      "stop matching search"
+    );
+  });
+
+  it("calls a key with no recorded id not recorded yet when no rotation is under way", () => {
+    // An install from before key ids were stored, with no previous key: the
+    // key is under the only key there is, and records its id when next used.
+    const unrecorded = {
+      keyPrefix: "fr_abcdefghi",
+      name: "worker",
+      projectSlug: "acme",
+      environmentName: "production",
+      keyHashKeyId: null,
+      lastUsedAt: null
+    };
+    const lines = formatRotationStatus(
+      cleanStatus({
+        previousKeyId: null,
+        complete: false,
+        apiKeys: { current: 1, notCurrent: [unrecorded] }
+      })
+    );
+
+    expect(lines).toContain("API keys not yet under the current key: 0");
+    expect(lines).toContain("API keys with key id not recorded yet; recorded on next use: 1");
+    expect(lines.find((line) => line.startsWith("fr_abcdefghi"))).toMatch(
+      /^fr_abcdefghi\s+acme\/production\s+worker\s+not recorded\s+never$/
+    );
+    expect(lines.join("\n")).not.toContain("Each moves to the current key");
+    expect(lines.at(-1)).toBe(
+      "Not complete: 1 API key has no key id recorded yet; it is recorded on next use."
+    );
   });
 });

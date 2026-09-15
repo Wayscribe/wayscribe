@@ -1,4 +1,5 @@
 import type {
+  ApiKeyNotCurrent,
   ReencryptProgress,
   RotationStatus,
   TableReencryption
@@ -129,36 +130,74 @@ export function formatRotationStatus(status: RotationStatus): string[] {
     }
   }
 
-  const keys = status.apiKeys.notCurrent;
+  // With no previous key there is only one key a verifier can be under. A key
+  // with no recorded id (issued before ids were stored) is under it, and
+  // records the id the next time it authenticates; it is not waiting to move.
+  const rotating = status.previousKeyId !== null;
+  const notRecorded = rotating
+    ? []
+    : status.apiKeys.notCurrent.filter((key) => key.keyHashKeyId === null);
+  const keys = status.apiKeys.notCurrent.filter((key) => !notRecorded.includes(key));
+
   lines.push("", `API keys under the current key: ${String(status.apiKeys.current)}`);
   lines.push(`API keys not yet under the current key: ${String(keys.length)}`);
   if (keys.length > 0) {
-    lines.push(
-      `${"PREFIX".padEnd(12)}  ${"PROJECT/ENVIRONMENT".padEnd(30)}  ${"NAME".padEnd(20)}  ${"KEY ID".padEnd(12)}  LAST USED`
-    );
-    for (const key of keys) {
-      const scope = `${key.projectSlug}/${key.environmentName}`;
-      const used = key.lastUsedAt?.toISOString().slice(0, 19).replace("T", " ") ?? "never";
-      lines.push(
-        `${key.keyPrefix.padEnd(12)}  ${scope.padEnd(30)}  ${key.name.padEnd(20)}  ${(key.keyHashKeyId ?? "unrecorded").padEnd(12)}  ${used}`
-      );
-    }
+    lines.push(...keyTable(keys));
     lines.push(
       "Each moves to the current key the next time it authenticates. A key that will not be used again",
       "can be replaced: issue a new one with key:create and revoke the old one with key:revoke."
     );
   }
+  if (notRecorded.length > 0) {
+    lines.push(
+      `API keys with key id not recorded yet; recorded on next use: ${String(notRecorded.length)}`,
+      ...keyTable(notRecorded)
+    );
+  }
+
+  if (rotating) {
+    // Search tokens are recomputed from the decrypted value, so a row with no
+    // value keeps the token it was written with.
+    for (const table of status.tables) {
+      if (table.table === "replay_destinations" || table.noValue === 0) continue;
+      lines.push(
+        "",
+        `${table.table} has ${plural(table.noValue, "row")} with no stored value. Their search tokens stay under the previous key, ` +
+          "so they will stop matching search once ENCRYPTION_KEY_PREVIOUS is removed."
+      );
+    }
+  }
 
   lines.push("");
   if (status.complete) {
     lines.push(
-      status.previousKeyId === null
-        ? "Complete: every row and API key is under the current key."
-        : "Complete: every row and API key is under the current key. Remove ENCRYPTION_KEY_PREVIOUS and restart."
+      rotating
+        ? "Complete: every row and API key is under the current key. Remove ENCRYPTION_KEY_PREVIOUS and restart."
+        : "Complete: every row and API key is under the current key."
+    );
+  } else if (status.rowsRemaining === 0 && keys.length === 0) {
+    lines.push(
+      notRecorded.length === 1
+        ? "Not complete: 1 API key has no key id recorded yet; it is recorded on next use."
+        : `Not complete: ${String(notRecorded.length)} API keys have no key id recorded yet; each is recorded on next use.`
     );
   } else {
     lines.push(
       `Not complete: ${plural(status.rowsRemaining, "row")} and ${plural(keys.length, "API key")} are not under the current key.`
+    );
+  }
+  return lines;
+}
+
+function keyTable(keys: readonly ApiKeyNotCurrent[]): string[] {
+  const lines = [
+    `${"PREFIX".padEnd(12)}  ${"PROJECT/ENVIRONMENT".padEnd(30)}  ${"NAME".padEnd(20)}  ${"KEY ID".padEnd(12)}  LAST USED`
+  ];
+  for (const key of keys) {
+    const scope = `${key.projectSlug}/${key.environmentName}`;
+    const used = key.lastUsedAt?.toISOString().slice(0, 19).replace("T", " ") ?? "never";
+    lines.push(
+      `${key.keyPrefix.padEnd(12)}  ${scope.padEnd(30)}  ${key.name.padEnd(20)}  ${(key.keyHashKeyId ?? "not recorded").padEnd(12)}  ${used}`
     );
   }
   return lines;
