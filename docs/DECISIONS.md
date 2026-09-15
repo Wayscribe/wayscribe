@@ -1505,8 +1505,10 @@ without the destination's credentials would be a different request from the one 
   Status reports these rather than holding the rotation open for them.
 - The re-encryption and the retention sweep each hold their advisory lock on a dedicated
   connection for the whole run, so each needs two connections, and a server
-  `idle_in_transaction_session_timeout` shorter than a run releases the lock early. Rewrites are
-  conditional on the value read, so an early release costs a repeated run, not data.
+  `idle_in_transaction_session_timeout` shorter than one batch releases the lock early. Both
+  check the lock before every batch and stop when it is gone, the command exiting 1 and the sweep
+  reporting that it stopped early. Rewrites are conditional on the value read, so an early release
+  costs a repeated run, not data.
 - `infrastructure/compose.yaml` stacks now take the keys only from `defaults.env` and the
   root `.env`. Interpolating them in `environment:` meant a key set in `.env` never reached the
   API, so `ENCRYPTION_KEY_PREVIOUS` could not either. Shell exports no longer reach those stacks.

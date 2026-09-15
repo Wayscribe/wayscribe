@@ -216,4 +216,70 @@ describe("retention sweep", () => {
       await probe.destroy();
     }
   });
+
+  it("stops early and says so when the connection holding its lock is terminated", async () => {
+    for (let i = 0; i < 4; i += 1) await journey(`jrn_t${String(i)}`, shortEnv, 30);
+
+    // Hold the first journey the sweep will delete, so its first batch waits,
+    // and terminate the connection holding the sweep's lock meanwhile.
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holding: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+    const rowLock = db.transaction(async (trx) => {
+      await trx("journeys").where({ id: "jrn_t0" }).forUpdate().select("id");
+      holding();
+      await released;
+    });
+    await held;
+
+    const sweeping = sweepExpiredJourneys(db, { batchSize: 1 });
+    try {
+      await waitFor(async () => {
+        const result: unknown = await db.raw(
+          "select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock'"
+        );
+        return (result as { rows: { n: number }[] }).rows[0]?.n === 1;
+      });
+      const holders: unknown = await db.raw(
+        "select pid from pg_locks where locktype = 'advisory' and granted"
+      );
+      const pid = (holders as { rows: { pid: number }[] }).rows[0]?.pid;
+      if (pid === undefined) throw new Error("No backend holds the sweep's lock.");
+      await db.raw("select pg_terminate_backend(?)", [pid]);
+      await waitFor(async () => {
+        const result: unknown = await db.raw(
+          "select count(*)::int as n from pg_stat_activity where pid = ?",
+          [pid]
+        );
+        return (result as { rows: { n: number }[] }).rows[0]?.n === 0;
+      });
+    } finally {
+      release();
+      await rowLock;
+    }
+
+    const result = await sweeping;
+    // The batch that was running commits; nothing after it runs without the lock.
+    expect(result).toMatchObject({ ran: true, stoppedEarly: true, journeysDeleted: 1 });
+    expect(await db("journeys").whereLike("id", "jrn_t%").count({ n: "*" }).first()).toEqual({
+      n: "3"
+    });
+
+    const next = await sweepExpiredJourneys(db);
+    expect(next).toMatchObject({ ran: true, stoppedEarly: false, journeysDeleted: 3 });
+  });
 });
+
+async function waitFor(condition: () => Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (await condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("The condition never held.");
+}

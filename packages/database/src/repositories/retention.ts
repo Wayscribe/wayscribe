@@ -1,4 +1,5 @@
 import type { Knex } from "knex";
+import { lockHolderAlive } from "./advisory-lock.js";
 
 // debtwatch:start
 // id: DEBT-N11B8K
@@ -21,6 +22,13 @@ export interface SweepResult {
   journeysDeleted: number;
   batches: number;
   environmentsExamined: number;
+  /**
+   * The connection holding the lock ended mid-sweep, for example by
+   * `idle_in_transaction_session_timeout`, and the sweep stopped after the
+   * batch in progress. The counts are what committed; the next sweep deletes
+   * the rest.
+   */
+  stoppedEarly: boolean;
 }
 
 export interface SweepOptions {
@@ -76,7 +84,13 @@ export async function sweepExpiredJourneys(
     );
     const locked = (acquired as { rows: { locked: boolean }[] }).rows[0]?.locked === true;
     if (!locked) {
-      return { ran: false, journeysDeleted: 0, batches: 0, environmentsExamined: 0 };
+      return {
+        ran: false,
+        journeysDeleted: 0,
+        batches: 0,
+        environmentsExamined: 0,
+        stoppedEarly: false
+      };
     }
 
     const rows: unknown = await db("environments").select(
@@ -88,9 +102,20 @@ export async function sweepExpiredJourneys(
 
     let journeysDeleted = 0;
     let batches = 0;
+    const result = (stoppedEarly: boolean): SweepResult => ({
+      ran: true,
+      journeysDeleted,
+      batches,
+      environmentsExamined: environments.length,
+      stoppedEarly
+    });
 
     for (const environment of environments) {
       for (let batch = 0; batch < maxBatches; batch += 1) {
+        // Before every batch: without the lock another replica may be sweeping
+        // too, so a lost lock ends this sweep after the batch that committed.
+        if (!(await lockHolderAlive(holder))) return result(true);
+
         // `last_event_at`, not `started_at`: a journey that is still receiving
         // events is still interesting, however long ago it began.
         const deleted: unknown = await db.raw(
@@ -113,12 +138,7 @@ export async function sweepExpiredJourneys(
       }
     }
 
-    return {
-      ran: true,
-      journeysDeleted,
-      batches,
-      environmentsExamined: environments.length
-    };
+    return result(false);
   } finally {
     // Nothing was written through the holder. If its connection has already
     // gone, so has the lock, and a failure here must not hide the sweep's own

@@ -6,6 +6,7 @@ import {
   type Keyring
 } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
+import { lockHolderAlive } from "./advisory-lock.js";
 import { isAliasUniqueViolation } from "./aliases.js";
 
 /**
@@ -93,7 +94,19 @@ export type ReencryptMode = "rotate" | "upgrade";
 
 export type ReencryptResult =
   | { ran: false; reason: "lock_held" }
-  | { ran: true; mode: ReencryptMode; tables: TableReencryption[] };
+  | {
+      ran: true;
+      mode: ReencryptMode;
+      /** Tables reached before the run ended; all three unless the lock was lost. */
+      tables: TableReencryption[];
+      /**
+       * The connection holding the lock ended mid-run, for example by
+       * `idle_in_transaction_session_timeout`. The run stopped after the batch
+       * in progress. Every rewrite it made is conditional and stands; another
+       * run finishes the work.
+       */
+      lockLost: boolean;
+    };
 
 /**
  * Rewrite every encrypted value and search token under the keyring's current key.
@@ -143,9 +156,11 @@ export async function reencryptValues(
 
     const tables: TableReencryption[] = [];
     for (const spec of ENCRYPTED_TABLES) {
-      tables.push(await reencryptTable(db, keyring, mode, spec, options));
+      const { result, lockLost } = await reencryptTable(db, holder, keyring, mode, spec, options);
+      tables.push(result);
+      if (lockLost) return { ran: true, mode, tables, lockLost: true };
     }
-    return { ran: true, mode, tables };
+    return { ran: true, mode, tables, lockLost: false };
   } finally {
     // Nothing was written through the holder. If its connection has already
     // gone, so has the lock, and a failure here must not hide the run's own
@@ -158,11 +173,12 @@ type Row = Record<string, unknown>;
 
 async function reencryptTable(
   db: Knex,
+  holder: Knex.Transaction,
   keyring: Keyring,
   mode: ReencryptMode,
   spec: TableSpec,
   options: ReencryptOptions
-): Promise<TableReencryption> {
+): Promise<{ result: TableReencryption; lockLost: boolean }> {
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const currentPattern = `^fr1\\.${keyring.current.id}\\.[^.]+$`;
 
@@ -182,6 +198,9 @@ async function reencryptTable(
 
   let cursor: Knex.Value[] | null = null;
   for (;;) {
+    // Checked before every batch, so a lost lock stops the run after the batch
+    // that was in progress rather than letting it carry on unguarded.
+    if (!(await lockHolderAlive(holder))) return { result, lockLost: true };
     const after = cursor;
     const rows = await db.transaction(async (trx) => {
       const query = trx(spec.table)
@@ -224,7 +243,7 @@ async function reencryptTable(
     if (rows.length < batchSize) break;
   }
 
-  return result;
+  return { result, lockLost: false };
 }
 
 async function reencryptRow(

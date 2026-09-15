@@ -202,6 +202,12 @@ try {
           ? `Deleted ${String(result.journeysDeleted)} journeys in ${String(result.batches)} batches across ${String(result.environmentsExamined)} environments.`
           : "Another process holds the retention lock; nothing was examined."
       );
+      if (result.stoppedEarly) {
+        console.log(
+          "The sweep lost its lock (the database connection holding it ended) and stopped early. " +
+            "What it deleted stands; run retention:sweep again to continue."
+        );
+      }
       break;
     }
     case "rotate:reencrypt": {
@@ -230,6 +236,10 @@ try {
         break;
       }
       for (const line of report.formatReencryption(result.mode, result.tables)) console.log(line);
+      if (result.lockLost) {
+        console.error(report.LOCK_LOST_MESSAGE);
+        process.exitCode = 1;
+      }
       break;
     }
     case "rotate:status": {

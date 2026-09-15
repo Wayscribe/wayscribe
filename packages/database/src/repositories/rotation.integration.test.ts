@@ -570,6 +570,34 @@ describe("key rotation commands", () => {
       expect(seen).toEqual(seen.map(() => ({ xmin: null })));
     });
 
+    it("stops after the current batch and says so when the connection holding its lock is terminated", async () => {
+      // For example by idle_in_transaction_session_timeout. Carrying on would
+      // run without the lock, beside any second run that took it meanwhile.
+      for (const n of [1, 2, 3, 4, 5, 6])
+        await journeyUnder(keyringA, `jrn_${String(n)}`, `E-${String(n)}`);
+
+      let terminated = false;
+      const result = await reencryptValues(db, rotated, {
+        batchSize: 2,
+        onBatch: async () => {
+          if (terminated) return;
+          terminated = true;
+          await terminateAdvisoryLockHolder(db);
+        }
+      });
+
+      expect(result).toMatchObject({ ran: true, lockLost: true });
+      expect(result.ran && result.tables.map((entry) => entry.table)).toEqual(["journeys"]);
+      expect(table(result, "journeys")).toMatchObject({ rewritten: 2, batches: 1 });
+      const keyIds = (await journeyRows()).map((row) => keyIdOf(row.encrypted ?? ""));
+      expect(keyIds.filter((id) => id === keyringB.current.id)).toHaveLength(2);
+
+      // Nothing it did needs undoing; the next run finishes the work.
+      const again = await reencryptValues(db, rotated, { batchSize: 2 });
+      expect(again).toMatchObject({ ran: true, lockLost: false });
+      expect(table(again, "journeys")).toMatchObject({ rewritten: 4, alreadyCurrent: 2 });
+    });
+
     it("releases the lock when a run fails", async () => {
       await journeyUnder(keyringA, "jrn_1", "E-1");
       await expect(
@@ -868,6 +896,42 @@ describe("key rotation commands", () => {
       }
     }, 60_000);
 
+    it("rotate:reencrypt exits 1 and says to start again when it loses its lock mid-run", async () => {
+      await journeyUnder(keyringA, "jrn_1", "E-1");
+      await aliasUnder(keyringA, "jrn_1", "salesforceAccountId", "SF-1");
+
+      // Hold the journey row so the CLI's first batch waits on it, which is
+      // the moment to terminate the connection holding its lock.
+      let release: () => void = () => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let holding: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        holding = resolve;
+      });
+      const rowLock = db.transaction(async (trx) => {
+        await trx("journeys").where({ id: "jrn_1" }).forUpdate().select("id");
+        holding();
+        await released;
+      });
+      await held;
+
+      const running = cli("rotate:reencrypt", rotating);
+      try {
+        await waitForLockWait(db);
+        await terminateAdvisoryLockHolder(db);
+      } finally {
+        release();
+        await rowLock;
+      }
+
+      const run = await running;
+      expect(run.code).toBe(1);
+      expect(run.stderr).toContain("lost the rotation lock");
+      expect(run.stderr).toContain("run rotate:reencrypt again");
+    }, 60_000);
+
     it("refuses one key set as both current and previous with a message, not a stack trace", async () => {
       const run = await cli("rotate:status", {
         ENCRYPTION_KEY: KEY_A,
@@ -892,4 +956,30 @@ async function waitForLockWait(db: Knex): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error("Nothing ever waited on a lock.");
+}
+
+/**
+ * Terminate the backend holding a granted advisory lock, as a server timeout
+ * would, and wait until it is gone.
+ */
+async function terminateAdvisoryLockHolder(db: Knex): Promise<void> {
+  const holders: unknown = await db.raw(
+    "select pid from pg_locks where locktype = 'advisory' and granted"
+  );
+  const pids = (holders as { rows: { pid: number }[] }).rows.map((row) => row.pid);
+  expect(pids).toHaveLength(1);
+  const [pid] = pids;
+  if (pid === undefined) throw new Error("No backend holds an advisory lock.");
+  await db.raw("select pg_terminate_backend(?)", [pid]);
+
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const alive: unknown = await db.raw(
+      "select count(*)::int as n from pg_stat_activity where pid = ?",
+      [pid]
+    );
+    if ((alive as { rows: { n: number }[] }).rows[0]?.n === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("The lock holder was not terminated.");
 }

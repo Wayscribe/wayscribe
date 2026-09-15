@@ -274,12 +274,17 @@ and one doing the work. The retention sweep is built the same way. A connection
 pooler or a role `CONNECTION LIMIT` that allows this process one connection will
 stall it.
 
-**A server `idle_in_transaction_session_timeout` shorter than the run drops the
-lock**, because the connection holding it sits in an idle transaction. The data
-stays safe, since every rewrite is conditional, but a second run could then
-start beside the first. If PostgreSQL logs that it terminated a connection for
-that timeout during a run, let the run finish and start it again. Check the
-setting first with `SHOW idle_in_transaction_session_timeout;`.
+**A lost lock stops the run.** The connection holding the lock sits in an idle
+transaction while the batches run on another, so a server
+`idle_in_transaction_session_timeout` shorter than one batch, a pooler, or an
+administrator can end it. The command checks that connection before every
+batch, which also resets that timeout, so only a single batch that outlasts it
+drops the lock. When it is lost the command stops after the batch in progress,
+prints that it `lost the rotation lock`, and exits 1. Nothing needs undoing,
+since every rewrite is conditional on the value it read: run `rotate:reencrypt`
+again. Check the setting with `SHOW idle_in_transaction_session_timeout;`. The
+retention sweep checks its lock the same way; when it loses it, the API logs
+`retention sweep lost its lock and stopped early` and the next sweep continues.
 
 API keys are not touched. See above for why they move on use instead.
 

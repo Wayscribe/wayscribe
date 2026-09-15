@@ -48,6 +48,15 @@ export function startRetentionJob(
         app.log.debug("retention sweep skipped; another replica holds the lock");
         return;
       }
+      if (result.stoppedEarly) {
+        // The lock's connection ended mid-sweep, so another replica may now be
+        // sweeping. What committed stands, and the next interval sweeps the rest.
+        app.log.warn(
+          { journeysDeleted: result.journeysDeleted, batches: result.batches },
+          "retention sweep lost its lock and stopped early; the next sweep continues"
+        );
+        return;
+      }
       if (result.journeysDeleted > 0) {
         app.log.info(
           {

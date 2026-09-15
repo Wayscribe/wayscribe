@@ -21,6 +21,12 @@ export const LOCK_HELD_MESSAGE =
   "Another rotate:reencrypt holds the rotation lock, so this run changed nothing. " +
   "Let that one finish, then run rotate:status.";
 
+export const LOCK_LOST_MESSAGE =
+  "rotate:reencrypt lost the rotation lock: the database connection holding it ended, " +
+  "for example through idle_in_transaction_session_timeout. It stopped after the batch in progress. " +
+  "Everything it rewrote is safe, because every rewrite is conditional on the value it read; " +
+  "run rotate:reencrypt again to finish.";
+
 export function formatReencryptStart(currentKeyId: string, previousKeyId: string | null): string {
   return previousKeyId === null
     ? `Upgrading legacy values under key ${currentKeyId}. ENCRYPTION_KEY_PREVIOUS is not set, so nothing is rotated.`
