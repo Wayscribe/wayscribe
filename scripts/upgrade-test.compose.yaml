@@ -1,0 +1,73 @@
+# The stack scripts/upgrade-test.mjs runs. Not for anything else.
+#
+# Its own file rather than infrastructure/compose.yaml from each ref, because
+# the baseline and the build under test read their keys differently there, and
+# the test is about what an upgrade does to stored data, not about Compose. This
+# is the shape of a published-image installation: one API image, migrations run
+# with that image's database CLI, and a database volume that outlives the API.
+#
+# Every variable is set by the script. The project name is too (`-p`), so two
+# runs on one machine do not share a volume.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: flight
+      POSTGRES_PASSWORD: flight
+      POSTGRES_DB: flight
+    # No published port: the script reaches the database with `compose exec`,
+    # so a developer's own PostgreSQL on 5432 is never in the way.
+    volumes:
+      - upgrade-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flight -d flight"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  api:
+    image: ${UPGRADE_API_IMAGE:?set by scripts/upgrade-test.mjs}
+    environment:
+      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+      APP_URL: http://localhost:3000
+      API_URL: http://localhost:8080
+      PORT: "8080"
+      LOG_LEVEL: info
+      ENCRYPTION_KEY: ${UPGRADE_ENCRYPTION_KEY:?set by scripts/upgrade-test.mjs}
+      ADMIN_TOKEN: ${UPGRADE_ADMIN_TOKEN:?set by scripts/upgrade-test.mjs}
+      DEFAULT_RETENTION_DAYS: "7"
+      # The shipped default, stated so the test runs every step under it and
+      # doctor reads the value the API has. Builds before it ignore the variable.
+      DATABASE_STATEMENT_TIMEOUT_MS: "15000"
+      MAX_EVENT_PAYLOAD_BYTES: "262144"
+      ALLOW_FULL_PAYLOAD_CAPTURE: "false"
+      REPLAY_ALLOWED_HOSTS: replay-echo
+    ports:
+      - "${UPGRADE_BIND_ADDRESS:-127.0.0.1}:${UPGRADE_API_PORT:-18080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The replay destination. It answers every request with what it received, so
+  # the test can see a destination's encrypted headers arrive after the upgrade.
+  replay-echo:
+    image: node:24-alpine
+    command:
+      - node
+      - -e
+      - |
+        require("node:http").createServer((req, res) => {
+          let body = "";
+          req.on("data", (chunk) => { body += chunk; });
+          req.on("end", () => {
+            // Logged as well as returned: a build that scrubs echoed
+            // credentials from the stored response still leaves this record.
+            console.log(JSON.stringify({ received: req.headers }));
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ method: req.method, path: req.url, headers: req.headers, body }));
+          });
+        }).listen(3999, "0.0.0.0");
+
+volumes:
+  upgrade-data:
