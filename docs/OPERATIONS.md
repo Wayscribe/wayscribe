@@ -68,7 +68,19 @@ will not serve reads against a schema it does not recognise.
 
 ## 2. Backup
 
-With the bundled overlay, the data is in the `postgres-data` volume.
+On your own database, Flight Recorder's tables are ordinary tables in it: back
+them up the way that database is already backed up.
+
+With the bundled overlay, the data is in the `postgres-data` volume. With
+`COMPOSE_FILE` set as in §1:
+
+```bash
+docker compose exec -T postgres \
+  pg_dump -U flight -d flight --format=custom > flight-$(date +%F).dump
+```
+
+The stack built from source runs the same PostgreSQL service. Name its file
+instead of relying on `COMPOSE_FILE`:
 
 ```bash
 docker compose -f infrastructure/compose.yaml exec -T postgres \
@@ -87,9 +99,19 @@ store it somewhere you will still have it when you need the backup.
 
 ## 3. Restore
 
+Name the dump you are restoring. With the bundled overlay and `COMPOSE_FILE` set
+as in §1:
+
+```bash
+docker compose exec -T postgres \
+  pg_restore -U flight -d flight --clean --if-exists < flight-2026-09-15.dump
+```
+
+On the stack built from source:
+
 ```bash
 docker compose -f infrastructure/compose.yaml exec -T postgres \
-  pg_restore -U flight -d flight --clean --if-exists < flight-2026-08-07.dump
+  pg_restore -U flight -d flight --clean --if-exists < flight-2026-09-15.dump
 ```
 
 Restore against the **same `ENCRYPTION_KEY`**. A restore under a different key

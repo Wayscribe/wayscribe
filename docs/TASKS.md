@@ -2,10 +2,10 @@
 
 This checklist is ordered to produce a working vertical slice early.
 
-**State as of 2026-08-07.** Epics 0 through 12 are complete and merged; the boxes
+**State as of 2026-09-15.** Epics 0 through 14 are complete and merged; the boxes
 below were audited against the code rather than ticked from memory. What remains
-for V0 is Epic 13 (replay), Epic 14 (retention and operations), and Epic 15
-(release readiness), plus the handful of items left open inside earlier epics.
+for V0 is the unticked part of Epic 15 (release readiness), most of which waits
+on publishing, plus the handful of items left open inside earlier epics.
 
 ## Product gates applied to every epic
 
@@ -265,14 +265,16 @@ the honest picture.
 
 - [x] Implement retention selection.
 - [x] Implement bounded deletion.
-- [x] Add cleanup metrics. One structured log line per sweep; ADR-012 rules out
-      a metrics dependency, and the number is read while reading logs anyway.
+- [x] Add cleanup metrics. One structured log line per sweep (ADR-026), and the
+      `flight_recorder_retention_*` counters and last-success timestamp on
+      `/metrics` (ADR-047).
 - [x] Add backup documentation.
 - [x] Add restore documentation.
 - [x] Add structured logs.
-- [x] Add basic internal metrics endpoint or diagnostics. Covered by `/health`,
-      `/ready`, the retention log line, and the SDK's shutdown counters. A
-      Prometheus endpoint is a V1 item.
+- [x] Add basic internal metrics endpoint or diagnostics. `/health`, `/ready`,
+      the retention log line, the SDK's shutdown counters, and a Prometheus
+      `/metrics` listener on its own port when `METRICS_PORT` is set (ADR-047,
+      `docs/OPERATIONS.md` §13).
 - [x] Add readiness dependency checks.
 
 ## Epic 15: Release readiness
@@ -310,7 +312,8 @@ the honest picture.
 - [ ] Go SDK
 - [ ] automatic PostgreSQL CDC
 - [ ] Kafka
-- [ ] Kubernetes
+- [x] Kubernetes: a Helm chart for a local single-node cluster, `deploy/helm`
+      (ADR-042). Managed clusters remain untested.
 - [ ] OTLP receiver
 - [ ] S3 payload storage
 - [ ] ClickHouse

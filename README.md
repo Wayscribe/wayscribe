@@ -163,9 +163,15 @@ are still in use.
 
 ## Instrument your own service
 
+The SDK is not published to npm yet. Until it is, build it from a clone of this
+repository and install it from there:
+
 ```bash
-npm install @flight-recorder/node
+pnpm install && pnpm --filter @flight-recorder/node build
+npm install /path/to/flight-recorder/packages/sdk-node
 ```
+
+Once it is published, that becomes `npm install @flight-recorder/node`.
 
 ```typescript
 import { createRecorder } from "@flight-recorder/node";
