@@ -480,24 +480,46 @@ publish-images:
     paths:
       - sboms/
 
-# Requires NPM_TOKEN in the project's CI/CD variables, and somebody must own the
-# @flight-recorder scope on npm. The dry run below needs neither, so the job
-# proves the tarball is correct even before the scope exists.
+# npm trusted publishing with provenance. There is no npm credential in this
+# project: GitLab mints NPM_ID_TOKEN for this job alone, npm exchanges it for a
+# publish token that expires almost immediately, and SIGSTORE_ID_TOKEN signs the
+# provenance statement naming this pipeline and commit.
+#
+# The aud values are exact strings and are the whole handshake. npm rejects a
+# token minted for any other audience, which is what stops another project's
+# pipeline from publishing this package. npm also has to know this project: the
+# trusted publisher is registered once on npmjs.com, per package, before the
+# first release (docs/OPERATIONS.md §11). With trusted publishing, whoever can
+# create a `v*` tag can publish, so the tag must be protected first.
+#
+# The dry run needs neither token, so a failure in the tarball shows before
+# anything is exchanged. Both steps are scripts/publish-sdk.sh, which can be run
+# anywhere with DRY_RUN=1.
 publish-sdk:
   stage: release
   needs: ["release-verify"]
   <<: *release-rules
   when: manual
+  id_tokens:
+    NPM_ID_TOKEN:
+      aud: "npm:registry.npmjs.org"
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
   script:
-    - pnpm --filter @flight-recorder/node build
-    - pnpm --filter @flight-recorder/node publish --dry-run --no-git-checks
-    - |
-      if [ -z "$NPM_TOKEN" ]; then
-        echo "NPM_TOKEN is not set. The dry run above passed; set the variable to publish for real."
-        exit 1
-      fi
-    - npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-    - pnpm --filter @flight-recorder/node publish --no-git-checks
+    - DRY_RUN=1 scripts/publish-sdk.sh "$CI_COMMIT_TAG"
+    - scripts/publish-sdk.sh "$CI_COMMIT_TAG"
+
+# The same dry run on the default branch, so scripts/publish-sdk.sh is exercised
+# before the release that depends on it, as `sbom` is for publish-images. The
+# tag it passes is the package's own version, which is what a release tag must
+# match.
+sdk-publish-dry-run:
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - DRY_RUN=1 scripts/publish-sdk.sh "v$(node -p "require('./packages/sdk-node/package.json').version")"
 
 # The GitHub mirror.
 #

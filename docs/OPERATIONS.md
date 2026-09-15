@@ -775,6 +775,45 @@ ignore. The first run found seven CVEs in `npm` and `corepack`, which the base
 image ships and the runtime never uses; both Dockerfiles now delete them, which
 is a smaller attack surface as well as a clean scan.
 
+### Publishing the SDK to npm
+
+`@flight-recorder/node` is published by the manual `publish-sdk` job on a
+`vMAJOR.MINOR.PATCH` tag, with npm trusted publishing and provenance. No npm
+token exists anywhere in the project: the job's GitLab OIDC token, with the
+audience `npm:registry.npmjs.org`, is exchanged by npm for a short-lived publish
+token, and a second token with the audience `sigstore` signs the provenance
+statement that npmjs.com shows beside the version. npm stopped issuing classic
+and Automation tokens in November 2025, and the granular tokens left expire in
+90 days at most.
+
+**Once, before the first release**, the project owner must:
+
+1. Own the `@flight-recorder` scope on npmjs.com.
+2. Register the trusted publisher. It is set per package, and the package must
+   exist first, so for the very first version publish it once by hand with
+   `npm login` and `npm publish` from the packed tarball
+   (`DRY_RUN=1 scripts/publish-sdk.sh vX.Y.Z` shows it builds), then open
+   *npmjs.com → @flight-recorder/node → Settings → Trusted publisher → GitLab CI/CD*
+   and enter exactly:
+   - Namespace: `jojithedev`
+   - Project name: `flight-recorder`
+   - Top-level CI file path: `.gitlab-ci.yml`
+   - Environment: leave empty
+3. In the same settings page, under *Publishing access*, choose to require
+   two-factor authentication and disallow tokens, so trusted publishing is the
+   only way to publish.
+4. Protect `v*` tags (below). Anyone who can create one can run the job.
+
+A field that does not match fails during `npm publish` with an authentication
+error, not at the start of the job. The job needs npm 11.5.1 or later, which the
+`node:24-alpine` image has; `scripts/publish-sdk.sh` checks the version and says
+so rather than failing inside publish. To rehearse a release anywhere, run
+`DRY_RUN=1 scripts/publish-sdk.sh vX.Y.Z`, which builds, packs, checks the
+packed manifest, and runs `npm publish --dry-run`.
+
+To verify a published version's provenance, run `npm audit signatures` in a
+project that depends on it, or read the provenance panel on the package page.
+
 ### Verifying a published image
 
 Every released `api` and `web` image is signed, and carries a CycloneDX software

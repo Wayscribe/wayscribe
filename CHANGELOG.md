@@ -157,6 +157,12 @@ changes far less often.
 
 ### Security
 
+- **The SDK is published with npm trusted publishing and provenance.** The
+  `publish-sdk` job used a long-lived `NPM_TOKEN` and attached no provenance. It
+  now exchanges a GitLab OIDC token for a short-lived publish token and signs a
+  provenance statement, through `scripts/publish-sdk.sh`. The trusted publisher
+  must be registered on npmjs.com before the first release
+  (`docs/OPERATIONS.md` §11).
 - **The Helm chart runs every pod locked down.** Non-root users (the images'
   `node` user, and uid 70 for the bundled PostgreSQL), `seccompProfile:
   RuntimeDefault`, no privilege escalation, all capabilities dropped, and a
