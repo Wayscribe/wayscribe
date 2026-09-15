@@ -1,8 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-
-const ADMIN_TOKEN = process.env["ADMIN_TOKEN"] ?? "";
-const API_URL = process.env["API_URL"] ?? "http://localhost:8080";
-const API_KEY = process.env["FLIGHT_API_KEY"] ?? "";
+import { expect, test } from "@playwright/test";
+import { API_KEY, API_URL, signIn } from "./session";
 
 // The demo triggers journeys under the bare Salesforce account id, so a seed
 // that used it could not assert "exactly one result" on a database the demo had
@@ -114,13 +111,6 @@ async function seed(): Promise<void> {
   }
 }
 
-async function signIn(page: Page): Promise<void> {
-  await page.goto("/login");
-  await page.fill("#token", ADMIN_TOKEN);
-  await page.click("button[type=submit]");
-  await expect(page).toHaveURL("/");
-}
-
 test.beforeAll(seed);
 
 test("redirects an unauthenticated visit to login", async ({ page }) => {
@@ -137,7 +127,7 @@ test("rejects a wrong token and stays on login", async ({ page }) => {
 });
 
 test("finds the customer by entity id", async ({ page }) => {
-  await signIn(page);
+  await signIn(page, JOURNEY_ID);
   await page.fill("input[name=q]", ENTITY_ID);
   await page.click("button[type=submit]");
   await expect(page.locator(".results li")).toHaveCount(1);
@@ -147,7 +137,7 @@ test("finds the customer by entity id", async ({ page }) => {
 test("finds the customer by alias value without supplying its type", async ({ page }) => {
   // ADR-028: the alias value differs from the entity id, so this can only match
   // through the alias path.
-  await signIn(page);
+  await signIn(page, JOURNEY_ID);
   await page.fill("input[name=q]", ALIAS_VALUE);
   await page.click("button[type=submit]");
   await expect(page.locator(".results li")).toHaveCount(1);
@@ -155,7 +145,7 @@ test("finds the customer by alias value without supplying its type", async ({ pa
 });
 
 test("renders the whole journey in order and shows where phone became null", async ({ page }) => {
-  await signIn(page);
+  await signIn(page, JOURNEY_ID);
   await page.goto(`/journeys/${JOURNEY_ID}`);
 
   await expect(page.locator(".timeline li")).toHaveCount(8);
@@ -177,7 +167,7 @@ test("renders the whole journey in order and shows where phone became null", asy
 });
 
 test("masks the alias display value", async ({ page }) => {
-  await signIn(page);
+  await signIn(page, JOURNEY_ID);
   await page.goto(`/journeys/${JOURNEY_ID}`);
   // Read from the API's displayValue for ALIAS_VALUE; re-read it when SEED_VERSION changes.
   await expect(page.locator("body")).toContainText("SF-A…-V4");
@@ -185,14 +175,14 @@ test("masks the alias display value", async ({ page }) => {
 });
 
 test("renders an empty state rather than nothing for an unmatched search", async ({ page }) => {
-  await signIn(page);
+  await signIn(page, JOURNEY_ID);
   await page.fill("input[name=q]", "no-such-identifier-anywhere");
   await page.click("button[type=submit]");
   await expect(page.locator("body")).toContainText("Nothing matched");
 });
 
 test("returns a not-found page for an unknown journey", async ({ page }) => {
-  await signIn(page);
+  await signIn(page, JOURNEY_ID);
   const response = await page.goto("/journeys/jrn_does_not_exist");
   expect(response?.status()).toBe(404);
 });
@@ -200,7 +190,7 @@ test("returns a not-found page for an unknown journey", async ({ page }) => {
 test("walks the timeline with the keyboard and narrows it to failures without reloading", async ({
   page
 }) => {
-  await signIn(page);
+  await signIn(page, JOURNEY_ID);
   await page.goto(`/journeys/${JOURNEY_ID}`);
   await expect(page.locator(".detail h2")).toHaveText("receive-salesforce-webhook");
   // The heading above is in the server's HTML, so it does not prove React has

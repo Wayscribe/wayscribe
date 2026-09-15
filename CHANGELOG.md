@@ -416,6 +416,11 @@ changes far less often.
 
 ### Fixed
 
+- **The browser suite runs against the demo stack.** On a database with more
+  than one project, every signed-in spec landed on the project picker instead of
+  the page it tested, and 13 of 18 failed. Each spec now chooses the project its
+  key wrote to, and `docs/LOCAL_DEVELOPMENT.md` lists the variables the suite
+  needs.
 - **The instrument-a-service example runs from a clean clone.** Its README
   skipped building the SDK its `file:` dependency points at, migrating the
   stack, and creating the project, and it pointed at `pnpm db:seed`. It now

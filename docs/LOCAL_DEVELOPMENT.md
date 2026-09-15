@@ -84,6 +84,34 @@ the ten events and their order, the phone diff, the target's 422, the retries,
 and the dead-letter state. Bring the stack up first — unlike `pnpm test` and
 `pnpm test:integration`, it starts nothing itself.
 
+### Running the browser suite
+
+`pnpm test:e2e` drives the interface with Playwright against a **running** API
+and web app, and starts nothing itself either. It reads four variables from the
+shell:
+
+| Variable | What it must be |
+|---|---|
+| `ADMIN_TOKEN` | the token the web app and the API run with; the specs sign in with it and call the admin API |
+| `FLIGHT_API_KEY` | an unrevoked key for an environment named `development`; the specs seed their journeys through it |
+| `API_URL` | the API as this shell reaches it; default `http://localhost:8080` |
+| `WEB_URL` | the interface; default `http://localhost:3000` |
+
+The specs seed their own journeys, so the database needs no fixture. When it has
+more than one project, each spec chooses the project its key wrote to in the
+picker after signing in. Against the demo stack on its default ports and
+secrets, the demo's own key works:
+
+```bash
+ADMIN_TOKEN=replace-for-local-development-0000 \
+  FLIGHT_API_KEY=fr_demo00000000000000000000000000000 pnpm test:e2e
+```
+
+With your own `.env`, use its `ADMIN_TOKEN`, and set `API_URL` and `WEB_URL`
+when `API_PORT` or `WEB_PORT` moved the stack. A key from
+`pnpm key:create <project> development e2e` works as well as the demo's. The
+first run needs the browser: `pnpm exec playwright install chromium`.
+
 ## 4. Local URLs
 
 ```text
@@ -157,7 +185,7 @@ your back is a library that behaves differently in tests.
 | `pnpm lint` · `pnpm format` · `pnpm typecheck` | the three verify gates |
 | `pnpm test` | unit; starts nothing, needs nothing running |
 | `pnpm test:integration` | real PostgreSQL via Testcontainers; needs Docker |
-| `pnpm test:e2e` | Playwright browser suite; needs the API and web running |
+| `pnpm test:e2e` | Playwright browser suite; needs the API and web running, and `ADMIN_TOKEN` and `FLIGHT_API_KEY` set (§3, Running the browser suite) |
 | `pnpm test:demo` | the product acceptance test; needs the demo stack up |
 | `pnpm db:migrate` · `pnpm db:rollback` · `pnpm db:seed` | schema and local seed |
 | `pnpm db:migrate:unlock` | release a migration lock a killed `migrate` left behind; only when no migrate is running |
