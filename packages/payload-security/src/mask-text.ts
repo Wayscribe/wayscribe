@@ -261,7 +261,9 @@ function maskAssignments(text: string): string {
     const kind = classifyName(text, match.index, quote, rawName, separator, blankAfter !== "");
 
     const replacement =
-      kind === undefined ? undefined : maskedValue(text, valueStart, kind.name, kind.prose);
+      kind === undefined || (kind.quotedValueOnly && !startsWithQuote(text, valueStart))
+        ? undefined
+        : maskedValue(text, valueStart, kind.name, kind.prose);
 
     if (replacement !== undefined) {
       output += text.slice(copied, valueStart) + replacement.text;
@@ -279,6 +281,8 @@ interface SecretName {
   name: string;
   /** Whether a plain word in the value reads as a sentence and is left alone. */
   prose: boolean;
+  /** Whether only a quoted value counts, as for `pass: 'x'` after an unquoted colon. */
+  quotedValueOnly: boolean;
 }
 
 /**
@@ -306,20 +310,32 @@ function classifyName(
 
   const words = nameWords(rawName);
   const name = words.join("");
-  if (SECRET_NAMES.has(name)) return { name, prose: unquotedColon };
+  if (SECRET_NAMES.has(name)) return { name, prose: unquotedColon, quotedValueOnly: false };
 
   if (words.length === 1) {
+    // `pass: 'hunter2x'` is util.inspect output, and the quotes are what make
+    // it an object's value rather than a sentence like `Invalid token: expired`.
+    if (ASSIGNED_SECRET_NAMES.has(name)) {
+      return { name, prose: unquotedColon, quotedValueOnly: unquotedColon };
+    }
     if (unquotedColon) return undefined;
-    if (ASSIGNED_SECRET_NAMES.has(name)) return { name, prose: false };
     // `key` alone is far too common a word, so only a query parameter counts.
     const previous = text[index - 1];
     if (name === "key" && quote === "" && (previous === "?" || previous === "&")) {
-      return { name, prose: false };
+      return { name, prose: false, quotedValueOnly: false };
     }
     return undefined;
   }
 
-  return isSecretPhrase(words) ? { name, prose: quote === "" } : undefined;
+  // Prose only after an unquoted colon, or after `=` and a blank.
+  // `DB_PASSWORD=changeme` is the .env and Compose shape, which is exactly where
+  // default and dictionary-word passwords live, so a word attached to `=` is a
+  // value. `DB_PASSWORD= loaded` is an empty assignment followed by a sentence,
+  // and `DB_PASSWORD=undefined` is kept by the empty-literal check.
+  const detached = quote === "" && blankAfter;
+  return isSecretPhrase(words)
+    ? { name, prose: unquotedColon || detached, quotedValueOnly: false }
+    : undefined;
 }
 
 function isSecretPhrase(words: readonly string[]): boolean {
@@ -425,6 +441,9 @@ function maskedValue(
   if (token === "" || EMPTY_LITERALS.has(token) || (prose && isPlainWord(token))) {
     return undefined;
   }
+  // `tests pass=12 fail=0` is a count. Only `pass`: every other secret name
+  // holding a number, such as a PIN, is still a secret.
+  if (name === "pass" && isNumber(token)) return undefined;
   return { text: REDACTED, end };
 }
 
@@ -445,6 +464,13 @@ function maskContent(content: string, name: string): string | undefined {
     }
   }
   return REDACTED;
+}
+
+function startsWithQuote(text: string, start: number): boolean {
+  const first = text[start];
+  return (
+    first === '"' || first === "'" || text.startsWith('\\"', start) || text.startsWith("\\'", start)
+  );
 }
 
 /**

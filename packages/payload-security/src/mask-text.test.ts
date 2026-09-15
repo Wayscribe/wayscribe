@@ -517,6 +517,48 @@ describe("maskSecretsInText", () => {
       expect(maskSecretsInText(`x-auth-token:${value}`)).toBe(`x-auth-token:${value}`);
       expect(maskSecretsInText(`x-auth-token: ${value}`)).toBe("x-auth-token: [REDACTED]");
     });
+
+    it("masks a dictionary word or default assigned with = to a secret name", () => {
+      // `NAME=value` is the .env and Compose shape, which is where default and
+      // dictionary-word passwords actually live.
+      for (const [name, word] of [
+        ["DB_PASSWORD", "sunshine"],
+        ["POSTGRES_PASSWORD", "postgres"],
+        ["JWT_SECRET", "secret"],
+        ["DB_PASSWORD", "changeme"]
+      ] as const) {
+        expect(maskSecretsInText(`env ${name}=${word} loaded`)).toBe(
+          `env ${name}=[REDACTED] loaded`
+        );
+      }
+    });
+
+    it("keeps an empty or absent value assigned to a secret name", () => {
+      for (const text of ["env DB_PASSWORD= loaded", "env DB_PASSWORD=undefined loaded"]) {
+        expect(maskSecretsInText(text)).toBe(text);
+      }
+    });
+
+    it("masks a quoted value after an unquoted colon for the assigned-only words", () => {
+      // util.inspect output, which is how nodemailer's auth object reaches an
+      // error message.
+      const inspected = "Invalid login: { auth: { user: 'ops', pass: 'hunter2x' } }";
+      expect(maskSecretsInText(inspected)).toBe(
+        "Invalid login: { auth: { user: 'ops', pass: '[REDACTED]' } }"
+      );
+      expect(maskSecretsInText("retry with { token: 'abc123def' }")).toBe(
+        "retry with { token: '[REDACTED]' }"
+      );
+      // Unquoted, the colon form is still prose.
+      expect(maskSecretsInText("Invalid token: expired")).toBe("Invalid token: expired");
+    });
+
+    it("keeps a count assigned to pass", () => {
+      for (const text of ["tests pass=12 fail=0", '{"pass": 12, "fail": 0}']) {
+        expect(maskSecretsInText(text)).toBe(text);
+      }
+      expect(maskSecretsInText("smtp pass=hunter2x")).toBe("smtp pass=[REDACTED]");
+    });
   });
 
   it("is idempotent: masking masked text changes nothing", () => {

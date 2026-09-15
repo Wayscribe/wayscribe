@@ -123,7 +123,10 @@ server before storing, whoever sent the event (ADR-045). The masker replaces:
   - the built-in secret names (`authorization`, `cookie`, `password`, `api_key`,
     `access_token` and the rest) count in every form
   - `token`, `signature`, `sig`, `passwd`, `pwd` and `pass` count when assigned
-    with `=` or as a quoted key; `key` counts only as a query parameter
+    with `=` or as a quoted key, and after an unquoted colon only with a quoted
+    value, as in `util.inspect` output such as `pass: 'hunter2x'`. A number
+    assigned to `pass` is a count, as in `tests pass=12`, and is kept. `key`
+    counts only as a query parameter.
   - a name of several words counts when it ends in `password`, `passwd`, `pwd`,
     `passphrase`, `secret`, `token`, `credential` or `credentials`, or in a pair
     such as `api key`, `secret key`, `private key` or `access key`. A token that
@@ -145,11 +148,12 @@ What it does not catch, by design or by limitation:
 - **A credential in a shape not listed.** It does not guess at entropy. Long
   random-looking strings are exactly the identifiers the product shows, such as
   Salesforce ids, UUIDs and hashes, so there is no "looks random" rule.
-- **Prose after a secret name.** An unquoted value that is a plain word, after a
-  colon or after a name of several words, is read as a sentence:
+- **Prose after a secret name.** An unquoted value that is a plain word after a
+  colon, or after `=` and a blank, is read as a sentence:
   `client_secret: missing`, `DB_PASSWORD: not set`. A credential that is a
-  single dictionary word in that position, such as `DB_PASSWORD=sunshine`, is
-  stored.
+  single dictionary word in that position, such as `DB_PASSWORD: sunshine`, is
+  stored. Attached to `=`, as `.env` and Compose files write it,
+  `DB_PASSWORD=sunshine` is masked.
 - **A name without separators.** `DBPASSWORD` is one word and not on any list.
 - **The error's `type` and `code`.** Only `message`, and a kept `stack`, are
   masked.

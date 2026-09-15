@@ -239,8 +239,9 @@ It does not guess at entropy, so record identifiers such as Salesforce ids,
 UUIDs and order numbers are never masked, and a credential in an unlisted shape
 is sent as written. It also misses:
 
-- a plain word after a secret's name where it reads as a sentence, so
-  `DB_PASSWORD: not set` is kept and so is `DB_PASSWORD=sunshine`
+- a plain word after a secret's name and a colon, where it reads as a
+  sentence: `DB_PASSWORD: not set` is kept, and so is `DB_PASSWORD: sunshine`.
+  Attached to `=`, as in `DB_PASSWORD=sunshine`, it is masked.
 - a name written without separators, such as `DBPASSWORD`
 - the error's `type` and `code`, which are sent as they are
 

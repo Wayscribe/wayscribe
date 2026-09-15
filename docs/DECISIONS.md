@@ -1543,8 +1543,9 @@ one.
   prose, skipping the auth-params of a `WWW-Authenticate` challenge.
 - Values assigned to a secret name. A name is split into words on `_`, `-`, `.` and case
   changes. The built-in names, compared as ADR-039 compares them, count in every form. Any other
-  single word counts only when assigned with `=` or as a quoted key, and only from a short list
-  (`token`, `signature`, `sig`, `passwd`, `pwd`, `pass`); `key` counts only as a query
+  single word counts only from a short list (`token`, `signature`, `sig`, `passwd`, `pwd`,
+  `pass`), when assigned with `=` or as a quoted key, or after an unquoted colon with a quoted
+  value; a number assigned to `pass` is a count and is kept. `key` counts only as a query
   parameter. A name of several words counts when its last word is `password`, `passwd`, `pwd`,
   `passphrase`, `secret`, `token` (unless it follows `page`, `next`, `continuation`,
   `pagination`, `cursor`, `sync`, `resume`, `marker`, `csrf` or `xsrf`), `credential` or
@@ -1559,8 +1560,9 @@ one.
   and this product's own `fr_` keys.
 
 After an unquoted colon a value needs a blank before it, so `secret:prod/db` inside an ARN is a
-path. An unquoted value that is a plain word, after a colon or after a name of several words, is
-read as prose and kept.
+path. An unquoted value that is a plain word after a colon, or after `=` and a blank, is read as
+prose and kept. Attached to `=` it is a value: `DB_PASSWORD=changeme` is how `.env` and Compose
+files hold the default and dictionary-word passwords that most need masking.
 
 It runs in two places, the same function in both. The SDK masks every error record before it is
 queued, and bounds the message and any string stack to the protocol's 4096 and 16384 characters
