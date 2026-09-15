@@ -236,6 +236,12 @@ changes far less often.
   `journey_environment_mismatch` and stores nothing for it (ADR-048). `doctor`
   gains a `Journey environments` check that fails when an earlier build already
   stored events across environments; `docs/OPERATIONS.md` §12 lists them.
+- **The project picker is no longer an open redirect.** Its return path was
+  checked before normalisation and used after it, so `/.//evil.test/phish`,
+  `/..//evil.test`, `/%2e//evil.test` and `/./\evil.test` passed as local paths
+  and came back as a redirect to `http://evil.test`. A path that normalises to
+  two leading separators is now refused, the result is checked again against a
+  second origin, and every redirect the web app builds is held to its own host.
 
 ### Fixed
 

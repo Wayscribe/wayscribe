@@ -30,6 +30,35 @@ describe("safeReturnTo", () => {
     }
   });
 
+  it("refuses a path that normalises into a protocol-relative URL", () => {
+    // Each of these is a path on the throwaway origin, so the origin check
+    // passed, and each normalises to a pathname beginning `//`. Handed to
+    // redirectTarget, `new URL("//evil.test/phish", base)` is another host:
+    // the picker redirected a signed-in operator to http://evil.test/phish.
+    for (const hostile of [
+      "/.//evil.test/phish",
+      "/..//evil.test",
+      "/%2e//evil.test",
+      "/%2E%2E//evil.test",
+      "/a/..//evil.test",
+      "/./\\evil.test",
+      "/.\\/evil.test",
+      "/a/../\\evil.test/x?y=1",
+      "/./\t/evil.test"
+    ]) {
+      const kept = safeReturnTo(hostile);
+      expect(kept, hostile).toBe("/");
+      expect(new URL(kept, "https://flight.example").origin, hostile).toBe(
+        "https://flight.example"
+      );
+    }
+  });
+
+  it("keeps a path with dot segments that stays a path", () => {
+    expect(safeReturnTo("/journeys/./jrn_1")).toBe("/journeys/jrn_1");
+    expect(safeReturnTo("/recent/../journeys/jrn_1?q=a")).toBe("/journeys/jrn_1?q=a");
+  });
+
   it("refuses anything that is not a path at all", () => {
     for (const value of [undefined, "", "   ", "relative/path", "?q=only-a-query"]) {
       expect(safeReturnTo(value)).toBe("/");

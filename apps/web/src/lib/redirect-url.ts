@@ -29,5 +29,11 @@ export function redirectTarget(request: NextRequest, path: string): URL {
     request.headers.get("x-forwarded-proto") ??
     (request.url.startsWith("https:") ? "https" : "http");
 
-  return new URL(path, `${proto}://${host}`);
+  const base = new URL(`${proto}://${host}`);
+  const target = new URL(path, base);
+  // Every caller passes a path on this application. One that resolves to
+  // another host (`//evil.test`, `/\evil.test`, an absolute URL) is a caller
+  // handing through unchecked input, and becomes the home page rather than an
+  // open redirect.
+  return target.origin === base.origin ? target : new URL("/", base);
 }
