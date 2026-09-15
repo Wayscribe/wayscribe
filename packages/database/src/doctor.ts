@@ -470,7 +470,7 @@ async function projectsResult(db: Knex): Promise<CheckResult> {
 /**
  * Events stored under a different environment from the journey they belong to.
  *
- * Ingestion refuses these since ADR-048. Before it, an API key for one
+ * Ingestion refuses these since the ADR-038 amendment. Before it, an API key for one
  * environment could write events and aliases into another environment's
  * journey, and an installation that ran such a build may hold the result.
  * `journey_events` records the environment of the key that wrote each event,

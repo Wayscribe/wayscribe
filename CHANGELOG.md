@@ -233,7 +233,7 @@ changes far less often.
   mark a production journey failed and add a searchable alias to it, or create a
   journey id production later wrote into and read production's aliases through
   it. Ingestion now refuses such an event with 409
-  `journey_environment_mismatch` and stores nothing for it (ADR-048). `doctor`
+  `journey_environment_mismatch` and stores nothing for it (ADR-038). `doctor`
   gains a `Journey environments` check that fails when an earlier build already
   stored events across environments; `docs/OPERATIONS.md` §12 lists them.
 - **The project picker is no longer an open redirect.** Its return path was

@@ -173,7 +173,7 @@ describe("doctor", () => {
 
   /**
    * A journey created by production with events written into it by a
-   * development key, as ingestion allowed before ADR-048. Readable under the
+   * development key, as ingestion allowed before the ADR-038 amendment. Readable under the
    * installation's key, so only the new check can fail.
    */
   const crossedEnvironments = async (db: Knex): Promise<void> => {
@@ -340,7 +340,7 @@ describe("doctor", () => {
   });
 
   it("fails when events were written into a journey of another environment", async () => {
-    // Ingestion refuses this now (ADR-048); an installation that ran an
+    // Ingestion refuses this now (ADR-038); an installation that ran an
     // earlier build may already hold such rows, and nothing else would say so.
     await withDatabase("crossed", crossedEnvironments);
 

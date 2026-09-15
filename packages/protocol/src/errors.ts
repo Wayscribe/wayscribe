@@ -13,7 +13,7 @@ export const PROTOCOL_ERROR_CODES = {
   invalidTimestamp: "invalid_timestamp",
   invalidOperation: "invalid_operation",
   eventIdConflict: "event_id_conflict",
-  /** The journey id belongs to another environment of the project (ADR-048). */
+  /** The journey id belongs to another environment of the project (ADR-038). */
   journeyEnvironmentMismatch: "journey_environment_mismatch"
 } as const;
 

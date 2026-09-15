@@ -938,7 +938,7 @@ beneath it:
 | `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
 | Projects and keys | | no project, or no unrevoked API key |
-| Journey environments | an event was written by another environment's API key than its journey's own, which ingestion refuses since ADR-048 and earlier builds did not | |
+| Journey environments | an event was written by another environment's API key than its journey's own, which ingestion now refuses (ADR-038, amendment) and earlier builds did not | |
 | API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
 | API reachable (`--api-url`) | `GET /ready` does not answer 200; its `reason` is printed | |
 | Statement timeout | the value is invalid | it is 0 |
@@ -964,7 +964,7 @@ does not have, left by a newer build, is a `FAIL` of its own.
 
 ### Events written across environments
 
-Before ADR-048 an API key for one environment could write events and aliases into
+Before the amendment to ADR-038 an API key for one environment could write events and aliases into
 a journey another environment created. `Journey environments` counts the events
 that were. It prints counts and no journey ids, because a journey id can carry a
 business identifier. List them with:

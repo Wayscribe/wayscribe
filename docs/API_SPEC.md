@@ -176,7 +176,7 @@ Conflicts use `409`:
 | Code | When |
 | --- | --- |
 | `event_id_conflict` | the event id is already stored with different content |
-| `journey_environment_mismatch` | the journey id belongs to another environment of the project. A journey cannot span environments (ADR-048); nothing is stored for the event, and the message does not name the other environment |
+| `journey_environment_mismatch` | the journey id belongs to another environment of the project. A journey cannot span environments (ADR-038); nothing is stored for the event, and the message does not name the other environment |
 
 ## 4. Ingest a batch
 
