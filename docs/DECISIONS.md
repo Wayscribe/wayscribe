@@ -1222,12 +1222,25 @@ batch the rest are unaffected, and nothing is written for it: no event, no alias
 to the journey's summary.
 
 The check is inside the ingestion transaction. `ensureJourney` inserts the journey if absent
-and then reads it back `FOR UPDATE`. A concurrent create of the same id waits on the
+and then reads it back `FOR KEY SHARE`. A concurrent create of the same id waits on the
 insert's conflict until the other transaction commits, so the read sees whichever
 environment won; the row lock holds until the event is stored, so a deletion cannot remove
-the journey between the check and the insert. `FOR SHARE` was rejected because the same
-transaction then updates the row, and two transactions upgrading shared locks on one row
-deadlock.
+the journey between the check and the insert.
+
+Of the four row locks, KEY SHARE is the one that holds the row without holding up other
+events for it:
+
+- `FOR UPDATE` was the first version. It is correct and serialises every event for a
+  journey behind whichever holds it: measured with 16 concurrent streams on one journey,
+  p50 went from 22 ms without the check to 31-33 ms.
+- `FOR SHARE` deadlocks. The same transaction then updates the journey's summary, and two
+  transactions each holding SHARE and each asking for the update's lock wait on each other.
+- `FOR NO KEY UPDATE` serialises like `FOR UPDATE`, since holders conflict with each other.
+- `FOR KEY SHARE` conflicts only with a DELETE or a change to a key column. The summary
+  update changes no key column, so it takes `FOR NO KEY UPDATE`, which KEY SHARE does not
+  block: 20 ms p50 under the same load, and the race and deletion probes passed with no
+  deadlock and no journey holding two environments' events. `environment_id` is in no
+  unique index, and nothing updates it.
 
 The message says the journey id is in use by another environment and that a journey cannot
 span environments. It does not name the environment. That a journey id exists elsewhere in

@@ -336,6 +336,8 @@ changes far less often.
   `journey_environment_mismatch` and stores nothing for it (ADR-038). `doctor`
   gains a `Journey environments` check that fails when an earlier build already
   stored events across environments; `docs/OPERATIONS.md` §12 lists them.
+  The check holds the journey row `FOR KEY SHARE`, which keeps a deletion out
+  and does not queue other events for the same journey behind it.
 - **The project picker is no longer an open redirect.** Its return path was
   checked before normalisation and used after it, so `/.//evil.test/phish`,
   `/..//evil.test`, `/%2e//evil.test` and `/./\evil.test` passed as local paths
