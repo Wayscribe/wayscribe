@@ -229,8 +229,11 @@ until pnpm rotate:status > /dev/null; do sleep 300; done
   will not be used again should be revoked with `key:revoke`, and reissued with
   `key:create` if something still needs one. Revoked keys are not counted.
 - **API keys whose key id is `not recorded`.** Issued before key ids were
-  stored. They record one the next time they authenticate, and are treated like
-  the keys above.
+  stored. They record one the next time they authenticate. During a rotation
+  they may be under either key, so they are treated like the keys above and keep
+  the exit code at 1. With no previous key configured they are listed as `key id
+  not recorded yet; recorded on next use` and do not affect the exit code: they
+  can only be under the one key there is.
 - **Rows under the previous key.** Run `rotate:reencrypt` again. A row that
   ingestion changed while the command was reading it is left for the next run,
   and the command says how many there were.
@@ -252,8 +255,13 @@ each row. A large table takes a long time; run it when you can leave it. It is
 safe under live traffic: each rewrite is conditional on the value it read, so a
 concurrent write is never overwritten.
 
-**It refuses to run without `ENCRYPTION_KEY_PREVIOUS`**, because with one key
-there is nothing to rotate from and a run then usually means step 2 was skipped.
+**Without `ENCRYPTION_KEY_PREVIOUS` it upgrades instead of rotating.** It
+rewrites legacy values the current key opens into the `fr1` format under that
+same key, leaves search tokens as they are, and counts anything under another
+key as unrecoverable. Its first line names the mode: `Upgrading legacy values
+under key …` or `Re-encrypting under key …, reading values under … and legacy
+values`. If the first line says `Upgrading` when you meant to rotate, step 2 did
+not reach this process; nothing under the old key was touched.
 
 **It exits 1 when another run holds the rotation lock**, and changes nothing.
 The retention sweep exits 0 in the same situation, and the difference is
@@ -303,9 +311,12 @@ under it.
 ### Installations from before key ids
 
 Values written before this release carry no key id. They read normally, and
-`rotate:status` counts them as legacy and exits 1 until a rotation rewrites
-them. API keys issued before it show their key id as `not recorded` until each
-next authenticates.
+`rotate:status` counts them as legacy and exits 1 until they are rewritten. A
+rotation rewrites them; so does one run of `rotate:reencrypt` with only
+`ENCRYPTION_KEY` set, which upgrades them into the new format under the key they
+are already under. `rotate:status` then exits 0. API keys issued before this
+release are listed as `key id not recorded yet; recorded on next use`, which
+does not hold the exit code at 1 while no rotation is under way.
 
 ### `ADMIN_TOKEN` and API keys
 

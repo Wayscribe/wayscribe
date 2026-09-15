@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { RotationStatus, TableReencryption } from "./repositories/rotation.js";
-import { formatReencryption, formatRotationStatus } from "./rotation-report.js";
+import {
+  formatReencryptStart,
+  formatReencryption,
+  formatRotationStatus
+} from "./rotation-report.js";
 
 const tableResult = (
   table: TableReencryption["table"],
@@ -30,7 +34,7 @@ const cleanStatus = (overrides: Partial<RotationStatus> = {}): RotationStatus =>
     noValue: 0,
     unknownKeyIds: []
   })),
-  apiKeys: { current: 2, notCurrent: [] },
+  apiKeys: { current: 2, notCurrent: [], notRecorded: [] },
   rowsRemaining: 0,
   complete: true,
   ...overrides
@@ -38,7 +42,7 @@ const cleanStatus = (overrides: Partial<RotationStatus> = {}): RotationStatus =>
 
 describe("formatReencryption", () => {
   it("prints one line per table, beginning with its name, counts in a fixed order", () => {
-    const lines = formatReencryption([
+    const lines = formatReencryption("rotate", [
       tableResult("journeys", { rewritten: 1200, alreadyCurrent: 4, noValue: 2 }),
       tableResult("entity_aliases", { rewritten: 7, duplicatesRemoved: 1, unrecoverable: 3 }),
       tableResult("replay_destinations")
@@ -55,16 +59,34 @@ describe("formatReencryption", () => {
   });
 
   it("says so when there was nothing to rewrite", () => {
-    const lines = formatReencryption([tableResult("journeys", { alreadyCurrent: 9 })]);
+    const lines = formatReencryption("rotate", [tableResult("journeys", { alreadyCurrent: 9 })]);
     expect(lines).toContain(
       "Nothing to rewrite: every readable value was already under the current key."
     );
   });
 
   it("asks for another run when rows changed underneath it", () => {
-    const lines = formatReencryption([tableResult("journeys", { changedDuringRun: 1 })]);
+    const lines = formatReencryption("rotate", [tableResult("journeys", { changedDuringRun: 1 })]);
     expect(lines).toContain(
       "1 row changed while this ran and was left alone. Run rotate:reencrypt again."
+    );
+  });
+});
+
+describe("formatReencryptStart", () => {
+  it("names the mode that ran", () => {
+    expect(formatReencryptStart("bbbbbbbbbbbb", null)).toBe(
+      "Upgrading legacy values under key bbbbbbbbbbbb. ENCRYPTION_KEY_PREVIOUS is not set, so nothing is rotated."
+    );
+    expect(formatReencryptStart("bbbbbbbbbbbb", "aaaaaaaaaaaa")).toBe(
+      "Re-encrypting under key bbbbbbbbbbbb, reading values under aaaaaaaaaaaa and legacy values."
+    );
+  });
+
+  it("says when an upgrade had nothing to do", () => {
+    const lines = formatReencryption("upgrade", [tableResult("journeys", { alreadyCurrent: 3 })]);
+    expect(lines).toContain(
+      "Nothing to upgrade: no legacy value the current key can read was left."
     );
   });
 });
@@ -96,6 +118,7 @@ describe("formatRotationStatus", () => {
       ],
       apiKeys: {
         current: 0,
+        notRecorded: [],
         notCurrent: [
           {
             keyPrefix: "fr_abcdefghi",
@@ -145,7 +168,7 @@ describe("formatRotationStatus", () => {
     );
   });
 
-  it("calls a key with no recorded id not recorded yet when no rotation is under way", () => {
+  it("lists keys with no recorded id apart when no rotation is under way, without holding status open", () => {
     // An install from before key ids were stored, with no previous key: the
     // key is under the only key there is, and records its id when next used.
     const unrecorded = {
@@ -159,8 +182,8 @@ describe("formatRotationStatus", () => {
     const lines = formatRotationStatus(
       cleanStatus({
         previousKeyId: null,
-        complete: false,
-        apiKeys: { current: 1, notCurrent: [unrecorded] }
+        complete: true,
+        apiKeys: { current: 1, notCurrent: [], notRecorded: [unrecorded] }
       })
     );
 
@@ -170,8 +193,6 @@ describe("formatRotationStatus", () => {
       /^fr_abcdefghi\s+acme\/production\s+worker\s+not recorded\s+never$/
     );
     expect(lines.join("\n")).not.toContain("Each moves to the current key");
-    expect(lines.at(-1)).toBe(
-      "Not complete: 1 API key has no key id recorded yet; it is recorded on next use."
-    );
+    expect(lines.at(-1)).toBe("Complete: every row and API key is under the current key.");
   });
 });

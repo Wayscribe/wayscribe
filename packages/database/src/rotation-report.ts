@@ -1,5 +1,6 @@
 import type {
   ApiKeyNotCurrent,
+  ReencryptMode,
   ReencryptProgress,
   RotationStatus,
   TableReencryption
@@ -16,18 +17,14 @@ import type {
 
 const TABLE_WIDTH = 20;
 
-export const NO_PREVIOUS_KEY_MESSAGE = [
-  "rotate:reencrypt needs ENCRYPTION_KEY_PREVIOUS: it moves data written under that key onto ENCRYPTION_KEY.",
-  "To rotate, set ENCRYPTION_KEY to the new key and ENCRYPTION_KEY_PREVIOUS to the key being replaced,",
-  "restart the API, then run rotate:reencrypt with the same two variables."
-].join("\n");
-
 export const LOCK_HELD_MESSAGE =
   "Another rotate:reencrypt holds the rotation lock, so this run changed nothing. " +
   "Let that one finish, then run rotate:status.";
 
-export function formatReencryptStart(currentKeyId: string, previousKeyId: string): string {
-  return `Re-encrypting under key ${currentKeyId}, reading values under ${previousKeyId} and legacy values.`;
+export function formatReencryptStart(currentKeyId: string, previousKeyId: string | null): string {
+  return previousKeyId === null
+    ? `Upgrading legacy values under key ${currentKeyId}. ENCRYPTION_KEY_PREVIOUS is not set, so nothing is rotated.`
+    : `Re-encrypting under key ${currentKeyId}, reading values under ${previousKeyId} and legacy values.`;
 }
 
 export function formatReencryptProgress(progress: ReencryptProgress): string {
@@ -37,7 +34,10 @@ export function formatReencryptProgress(progress: ReencryptProgress): string {
   );
 }
 
-export function formatReencryption(tables: readonly TableReencryption[]): string[] {
+export function formatReencryption(
+  mode: ReencryptMode,
+  tables: readonly TableReencryption[]
+): string[] {
   const header = [
     "TABLE".padEnd(TABLE_WIDTH),
     "REWRITTEN".padStart(9),
@@ -69,7 +69,9 @@ export function formatReencryption(tables: readonly TableReencryption[]): string
   const lines = ["", header, ...rows, ""];
   lines.push(
     rewritten === 0 && duplicates === 0
-      ? "Nothing to rewrite: every readable value was already under the current key."
+      ? mode === "upgrade"
+        ? "Nothing to upgrade: no legacy value the current key can read was left."
+        : "Nothing to rewrite: every readable value was already under the current key."
       : `Rewrote ${plural(rewritten, "value")}${duplicates === 0 ? "" : ` and removed ${plural(duplicates, "duplicate alias row")}`}.`
   );
   if (changed > 0) {
@@ -130,14 +132,9 @@ export function formatRotationStatus(status: RotationStatus): string[] {
     }
   }
 
-  // With no previous key there is only one key a verifier can be under. A key
-  // with no recorded id (issued before ids were stored) is under it, and
-  // records the id the next time it authenticates; it is not waiting to move.
   const rotating = status.previousKeyId !== null;
-  const notRecorded = rotating
-    ? []
-    : status.apiKeys.notCurrent.filter((key) => key.keyHashKeyId === null);
-  const keys = status.apiKeys.notCurrent.filter((key) => !notRecorded.includes(key));
+  const keys = status.apiKeys.notCurrent;
+  const notRecorded = status.apiKeys.notRecorded;
 
   lines.push("", `API keys under the current key: ${String(status.apiKeys.current)}`);
   lines.push(`API keys not yet under the current key: ${String(keys.length)}`);
@@ -174,12 +171,6 @@ export function formatRotationStatus(status: RotationStatus): string[] {
       rotating
         ? "Complete: every row and API key is under the current key. Remove ENCRYPTION_KEY_PREVIOUS and restart."
         : "Complete: every row and API key is under the current key."
-    );
-  } else if (status.rowsRemaining === 0 && keys.length === 0) {
-    lines.push(
-      notRecorded.length === 1
-        ? "Not complete: 1 API key has no key id recorded yet; it is recorded on next use."
-        : `Not complete: ${String(notRecorded.length)} API keys have no key id recorded yet; each is recorded on next use.`
     );
   } else {
     lines.push(

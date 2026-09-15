@@ -1490,10 +1490,11 @@ without the destination's credentials would be a different request from the one 
 
 ### Consequences
 
-- Upgrading needs no data migration. Legacy values read as before and are
-  rewritten by the next rotation; API keys issued before key ids record one when they next
-  authenticate. Until then `rotate:status` counts both, and exits 1 on an installation that has
-  not rotated since upgrading.
+- Upgrading needs no data migration. Legacy values read as before and are rewritten by the next
+  rotation, or by `rotate:reencrypt` run with no previous key, which wraps them in the envelope
+  under the key they are already under. API keys issued before key ids record one when they next
+  authenticate; with no rotation under way `rotate:status` lists them without holding its exit
+  code at 1, so an installation that upgrades and never rotates can still reach 0.
 - Keys are trimmed of surrounding whitespace. A key that was configured with a trailing newline
   derives different subkeys after the upgrade, which the CHANGELOG says in its upgrade notes.
 - An API key that never authenticates during the grace period cannot be moved, and fails once

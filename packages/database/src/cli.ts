@@ -210,13 +210,10 @@ try {
 
       const { reencryptValues } = await import("./repositories/rotation.js");
       const report = await import("./rotation-report.js");
-      if (keyring.previous === null) {
-        console.error(report.NO_PREVIOUS_KEY_MESSAGE);
-        process.exitCode = 1;
-        break;
-      }
 
-      const previousKeyId = keyring.previous.id;
+      // With ENCRYPTION_KEY_PREVIOUS this is a rotation; without it, an upgrade
+      // of legacy values under the one key there is. The first line says which.
+      const previousKeyId = keyring.previous?.id ?? null;
       const result = await reencryptValues(db, keyring, {
         // Only once the lock is held: a run refused the lock re-encrypts nothing.
         onLocked: () => {
@@ -228,13 +225,11 @@ try {
       });
       if (!result.ran) {
         // An operator scripting the rotation needs to know nothing was done.
-        console.error(
-          result.reason === "lock_held" ? report.LOCK_HELD_MESSAGE : report.NO_PREVIOUS_KEY_MESSAGE
-        );
+        console.error(report.LOCK_HELD_MESSAGE);
         process.exitCode = 1;
         break;
       }
-      for (const line of report.formatReencryption(result.tables)) console.log(line);
+      for (const line of report.formatReencryption(result.mode, result.tables)) console.log(line);
       break;
     }
     case "rotate:status": {

@@ -192,15 +192,71 @@ describe("key rotation commands", () => {
       .select("name", "encrypted_headers as encrypted");
 
   describe("reencryptValues", () => {
-    it("refuses to run without a previous key and writes nothing", async () => {
-      await journeyUnder(keyringA, "jrn_1", "E-1");
-      const before = await journeyRows();
+    it("with no previous key, upgrades legacy values the current key opens and leaves tokens as they are", async () => {
+      // An install that predates key ids and never rotates. Its values are
+      // under the one key it has, so they only need the envelope; the same key
+      // produces the same token.
+      await journey("jrn_1", legacy(keyringB, "E-1"), token(keyringB, "E-1"));
+      await journeyUnder(keyringB, "jrn_2", "E-2");
+      // Neither of these is under the current key, and there is no other key
+      // to read them with.
+      await journey("jrn_3", legacy(keyringC, "E-3"), token(keyringC, "E-3"));
+      await journeyUnder(keyringA, "jrn_4", "E-4");
+      await alias(
+        "jrn_1",
+        "salesforceAccountId",
+        token(keyringB, "SF-1"),
+        legacy(keyringB, "SF-1")
+      );
+      await destination("legacy", legacy(keyringB, '{"x-api-key":"k"}'));
+      const journeysBefore = await journeyRows();
+      const aliasesBefore = await aliasRows();
 
-      expect(await reencryptValues(db, keyringA)).toEqual({
-        ran: false,
-        reason: "no_previous_key"
+      const first = await reencryptValues(db, keyringB);
+      expect(first).toMatchObject({ ran: true, mode: "upgrade" });
+      expect(table(first, "journeys")).toMatchObject({
+        rewritten: 1,
+        alreadyCurrent: 1,
+        unrecoverable: 2
       });
-      expect(await journeyRows()).toEqual(before);
+      expect(table(first, "entity_aliases")).toMatchObject({ rewritten: 1 });
+      expect(table(first, "replay_destinations")).toMatchObject({ rewritten: 1 });
+
+      const journeysAfter = await journeyRows();
+      expect(journeysAfter.map((row) => row.hash)).toEqual(journeysBefore.map((row) => row.hash));
+      expect(keyIdOf(journeysAfter[0]?.encrypted ?? "")).toBe(keyringB.current.id);
+      expect(decryptValue(keyringB, journeysAfter[0]?.encrypted ?? "")).toBe("E-1");
+      expect(journeysAfter.slice(1)).toEqual(journeysBefore.slice(1));
+      const [aliasAfter] = await aliasRows();
+      expect(aliasAfter?.hash).toBe(aliasesBefore[0]?.hash);
+      expect(decryptValue(keyringB, aliasAfter?.encrypted ?? "")).toBe("SF-1");
+      const [destinationAfter] = await destinationRows();
+      expect(keyIdOf(destinationAfter?.encrypted ?? "")).toBe(keyringB.current.id);
+
+      const second = await reencryptValues(db, keyringB);
+      expect(table(second, "journeys")).toMatchObject({ rewritten: 0, unrecoverable: 2 });
+    });
+
+    it("brings an upgraded install to a complete status in one run with no previous key", async () => {
+      await journey("jrn_1", legacy(keyringB, "E-1"), token(keyringB, "E-1"));
+      await alias(
+        "jrn_1",
+        "salesforceAccountId",
+        token(keyringB, "SF-1"),
+        legacy(keyringB, "SF-1")
+      );
+      await apiKey("current", keyringB.current.id);
+      // Issued before key ids were recorded, and not used since.
+      await apiKey("pre-012", null);
+
+      expect((await rotationStatus(db, keyringB)).complete).toBe(false);
+      await reencryptValues(db, keyringB);
+
+      const status = await rotationStatus(db, keyringB);
+      expect(status.rowsRemaining).toBe(0);
+      expect(status.apiKeys.notCurrent).toEqual([]);
+      expect(status.apiKeys.notRecorded.map((key) => key.name)).toEqual(["pre-012"]);
+      expect(status.complete).toBe(true);
     });
 
     it("moves every value and token onto the current key in batches, and finds nothing the second time", async () => {
@@ -220,6 +276,7 @@ describe("key rotation commands", () => {
       }
 
       const first = await reencryptValues(db, rotated, { batchSize: 2 });
+      expect(first).toMatchObject({ ran: true, mode: "rotate" });
       expect(table(first, "journeys")).toMatchObject({
         rewritten: 5,
         alreadyCurrent: 1,
@@ -321,6 +378,7 @@ describe("key rotation commands", () => {
       const before = await journeyRows();
 
       const first = await reencryptValues(db, rotated, { batchSize: 2 });
+      expect(first).toMatchObject({ ran: true, mode: "rotate" });
       expect(table(first, "journeys")).toMatchObject({ rewritten: 1, unrecoverable: 4 });
 
       const after = await journeyRows();
@@ -598,6 +656,8 @@ describe("key rotation commands", () => {
         ])
       );
       expect(status.apiKeys.notCurrent).toHaveLength(3);
+      // During a rotation a key with no recorded id may be under either key.
+      expect(status.apiKeys.notRecorded).toEqual([]);
       expect(status.rowsRemaining).toBe(6);
       expect(status.complete).toBe(false);
     });
@@ -733,7 +793,11 @@ describe("key rotation commands", () => {
       const run = await cli("rotate:reencrypt", rotating);
       expect(run.stderr).toBe("");
       expect(run.code).toBe(0);
-      expect(run.stdout).toMatch(/^Re-encrypting under key /);
+      expect(run.stdout).toMatch(
+        new RegExp(
+          `^Re-encrypting under key ${keyringB.current.id}, reading values under ${keyringA.current.id} and legacy values\\.`
+        )
+      );
       expect(run.stdout).toMatch(/^journeys\s+1\s+0\s+0\s+0\s/m);
       expect(run.stdout).toMatch(/^entity_aliases\s+1\s+0\s+0\s+0\s+0/m);
 
@@ -750,10 +814,30 @@ describe("key rotation commands", () => {
       expect(run.stdout).toContain("worker");
     }, 60_000);
 
-    it("rotate:reencrypt refuses without a previous key and says what to set", async () => {
-      const run = await cli("rotate:reencrypt", { ENCRYPTION_KEY: KEY_B });
-      expect(run.code).toBe(1);
-      expect(run.stderr).toContain("ENCRYPTION_KEY_PREVIOUS");
+    it("rotate:reencrypt with no previous key upgrades legacy values, says so, and lets status reach 0", async () => {
+      await journey("jrn_1", legacy(keyringB, "E-1"), token(keyringB, "E-1"));
+      await apiKey("pre-012", null);
+      const upgrading = { ENCRYPTION_KEY: KEY_B };
+
+      expect((await cli("rotate:status", upgrading)).code).toBe(1);
+
+      const run = await cli("rotate:reencrypt", upgrading);
+      expect(run.stderr).toBe("");
+      expect(run.code).toBe(0);
+      expect(run.stdout).toMatch(
+        new RegExp(`^Upgrading legacy values under key ${keyringB.current.id}\\.`)
+      );
+      expect(run.stdout).toMatch(/^journeys\s+1\s+0\s+0\s+0\s/m);
+
+      const again = await cli("rotate:reencrypt", upgrading);
+      expect(again.code).toBe(0);
+      expect(again.stdout).toContain("Nothing to upgrade");
+
+      const status = await cli("rotate:status", upgrading);
+      expect(status.stdout).toContain(
+        "API keys with key id not recorded yet; recorded on next use: 1"
+      );
+      expect(status.code).toBe(0);
     }, 60_000);
 
     it("rotate:reencrypt says the lock is held and exits 1 while another run holds it", async () => {

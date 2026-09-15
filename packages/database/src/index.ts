@@ -46,6 +46,7 @@ export {
   rotationStatus,
   type ApiKeyNotCurrent,
   type EncryptedTable,
+  type ReencryptMode,
   type ReencryptOptions,
   type ReencryptProgress,
   type ReencryptResult,

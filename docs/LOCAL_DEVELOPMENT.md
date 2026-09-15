@@ -163,7 +163,7 @@ your back is a library that behaves differently in tests.
 | `pnpm key:create <project> <environment> [name]` | issue an API key |
 | `pnpm key:revoke <prefix>` | revoke one; `key:list` shows prefixes |
 | `pnpm key:list [project]` | scope, name, and last use |
-| `pnpm rotate:reencrypt` | move stored data onto `ENCRYPTION_KEY`; needs `ENCRYPTION_KEY_PREVIOUS` |
+| `pnpm rotate:reencrypt` | move stored data onto `ENCRYPTION_KEY` from `ENCRYPTION_KEY_PREVIOUS`; without a previous key, upgrade legacy values into the current format |
 | `pnpm rotate:status` | what is still under another key; exits 0 when nothing is |
 | `pnpm demo:trigger` | fire the reference journey |
 

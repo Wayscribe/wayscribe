@@ -192,9 +192,12 @@ audit, all merged the same day. The pattern behind them is written up in
   changing keys, recreate the containers with `docker compose … up -d`;
   `docker compose restart` does not re-read `env_file`.
 - **Values written before this release carry no key id.** They read as before.
-  `rotate:status` counts them as legacy, and API keys issued before it as `not
-  recorded` until each next authenticates, so it exits 1 on an installation that
-  has not rotated since upgrading.
+  `rotate:status` counts them as legacy and exits 1 until they are rewritten.
+  Run `rotate:reencrypt` once with only `ENCRYPTION_KEY` set: with no previous
+  key it upgrades legacy values the current key opens into the new format, under
+  the same key, and `rotate:status` then exits 0. API keys issued before this
+  release show `key id not recorded yet; recorded on next use` and do not hold
+  the exit code at 1 unless a rotation is under way.
 
 ### Added
 

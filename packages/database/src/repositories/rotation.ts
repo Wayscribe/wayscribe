@@ -83,9 +83,17 @@ export interface ReencryptOptions {
   onBatch?: (progress: ReencryptProgress) => void | Promise<void>;
 }
 
+/**
+ * `rotate` moves data from the previous key onto the current one, tokens
+ * included. `upgrade` runs with no previous key: it wraps legacy values the
+ * current key opens in the envelope, and leaves their tokens alone, since the
+ * same key gives the same token.
+ */
+export type ReencryptMode = "rotate" | "upgrade";
+
 export type ReencryptResult =
-  | { ran: false; reason: "no_previous_key" | "lock_held" }
-  | { ran: true; tables: TableReencryption[] };
+  | { ran: false; reason: "lock_held" }
+  | { ran: true; mode: ReencryptMode; tables: TableReencryption[] };
 
 /**
  * Rewrite every encrypted value and search token under the keyring's current key.
@@ -98,8 +106,11 @@ export type ReencryptResult =
  * catch. A bad row is counted and passed over; a throw would abort its batch,
  * and every resume would stop on the same row.
  *
- * Refuses without a previous key: with only one key there is nothing to
- * rotate from, and a run then usually means the procedure was skipped.
+ * With no previous key there is nothing to rotate from, but an install from
+ * before key ids still holds legacy values. Those the current key opens are
+ * upgraded into the envelope under it; anything else is unrecoverable, as it
+ * would be in a rotation. This is how such an install reaches a clean
+ * `rotate:status` without ever rotating.
  *
  * API keys are not touched. An HMAC verifier cannot be recomputed without the
  * plaintext key, so they move when they next authenticate.
@@ -109,7 +120,7 @@ export async function reencryptValues(
   keyring: Keyring,
   options: ReencryptOptions = {}
 ): Promise<ReencryptResult> {
-  if (keyring.previous === null) return { ran: false, reason: "no_previous_key" };
+  const mode: ReencryptMode = keyring.previous === null ? "upgrade" : "rotate";
 
   // A transaction-scoped lock on a connection held for the whole run. A
   // session lock taken through the pool could be released on a different
@@ -132,9 +143,9 @@ export async function reencryptValues(
 
     const tables: TableReencryption[] = [];
     for (const spec of ENCRYPTED_TABLES) {
-      tables.push(await reencryptTable(db, keyring, spec, options));
+      tables.push(await reencryptTable(db, keyring, mode, spec, options));
     }
-    return { ran: true, tables };
+    return { ran: true, mode, tables };
   } finally {
     // Nothing was written through the holder. If its connection has already
     // gone, so has the lock, and a failure here must not hide the run's own
@@ -148,6 +159,7 @@ type Row = Record<string, unknown>;
 async function reencryptTable(
   db: Knex,
   keyring: Keyring,
+  mode: ReencryptMode,
   spec: TableSpec,
   options: ReencryptOptions
 ): Promise<TableReencryption> {
@@ -195,7 +207,7 @@ async function reencryptTable(
       }
 
       const batch = (await query) as Row[];
-      for (const row of batch) await reencryptRow(trx, keyring, spec, row, result);
+      for (const row of batch) await reencryptRow(trx, keyring, mode, spec, row, result);
       return batch;
     });
 
@@ -218,6 +230,7 @@ async function reencryptTable(
 async function reencryptRow(
   trx: Knex.Transaction,
   keyring: Keyring,
+  mode: ReencryptMode,
   spec: TableSpec,
   row: Row,
   result: TableReencryption
@@ -242,7 +255,8 @@ async function reencryptRow(
   try {
     plaintext = decryptValue(keyring, value);
   } catch {
-    // An unknown key id, a legacy value neither key opens, or a tampered one.
+    // An unknown key id, a legacy value no configured key opens, or a tampered
+    // one. With no previous key, a value under any other key is among these.
     result.unrecoverable += 1;
     return;
   }
@@ -260,7 +274,11 @@ async function reencryptRow(
     case "journeys":
       updated = await trx("journeys")
         .where(unchanged)
-        .update({ [spec.column]: next, primary_entity_id_hash: currentToken(keyring, plaintext) });
+        .update({
+          [spec.column]: next,
+          // An upgrade stays under the key that wrote the token.
+          ...(mode === "rotate" ? { primary_entity_id_hash: currentToken(keyring, plaintext) } : {})
+        });
       break;
     case "replay_destinations":
       updated = await trx("replay_destinations")
@@ -268,6 +286,13 @@ async function reencryptRow(
         .update({ [spec.column]: next });
       break;
     case "entity_aliases": {
+      if (mode === "upgrade") {
+        // The token is unchanged, so no other row can collide with this one.
+        updated = await trx("entity_aliases")
+          .where(unchanged)
+          .update({ [spec.column]: next });
+        break;
+      }
       const outcome = await reencryptAlias(trx, keyring, row, unchanged, next, plaintext);
       if (outcome === "duplicate_removed") {
         result.duplicatesRemoved += 1;
@@ -373,12 +398,22 @@ export interface RotationStatus {
   tables: TableKeyStatus[];
   apiKeys: {
     current: number;
-    /** Unrevoked keys whose verifier is not recorded as under the current key. */
+    /**
+     * Unrevoked keys whose verifier is not recorded as under the current key.
+     * During a rotation this includes keys with no recorded id, which may be
+     * under either key.
+     */
     notCurrent: ApiKeyNotCurrent[];
+    /**
+     * With no previous key configured, unrevoked keys with no recorded id. They
+     * verify under the current key or not at all, so they leave no rotation
+     * unfinished, and each records its id the next time it authenticates.
+     */
+    notRecorded: ApiKeyNotCurrent[];
   };
   /** Rows under the previous key, an unknown key, a legacy format, or malformed. */
   rowsRemaining: number;
-  /** True when no row and no unrevoked API key remains under another key. */
+  /** True when no row and no unrevoked API key remains under another key. `notRecorded` keys do not count. */
   complete: boolean;
 }
 
@@ -447,7 +482,10 @@ export async function rotationStatus(db: Knex, keyring: Keyring): Promise<Rotati
       "api_keys.last_used_at as lastUsedAt"
     );
   const keys = keyRows as ApiKeyNotCurrent[];
-  const notCurrent = keys.filter((key) => key.keyHashKeyId !== keyring.current.id);
+  const notRecorded = previousKeyId === null ? keys.filter((key) => key.keyHashKeyId === null) : [];
+  const notCurrent = keys.filter(
+    (key) => key.keyHashKeyId !== keyring.current.id && !notRecorded.includes(key)
+  );
 
   const rowsRemaining = tables.reduce(
     (sum, table) => sum + table.previous + table.legacy + table.unknownKey + table.malformed,
@@ -458,7 +496,11 @@ export async function rotationStatus(db: Knex, keyring: Keyring): Promise<Rotati
     currentKeyId: keyring.current.id,
     previousKeyId,
     tables,
-    apiKeys: { current: keys.length - notCurrent.length, notCurrent },
+    apiKeys: {
+      current: keys.length - notCurrent.length - notRecorded.length,
+      notCurrent,
+      notRecorded
+    },
     rowsRemaining,
     complete: rowsRemaining === 0 && notCurrent.length === 0
   };
