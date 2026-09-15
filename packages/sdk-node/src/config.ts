@@ -23,6 +23,12 @@ export interface RecorderConfig {
    * on until `delivered_first` appears, then off.
    */
   logDiagnostics?: boolean;
+  /**
+   * Batches in flight at once from this process. Default 4, clamped to 1-16.
+   * Across every process sending to one installation, the total should stay
+   * under API instances times database pool size; see the README.
+   */
+  maxConcurrentSends?: number;
 }
 
 export interface ResolvedConfig {
@@ -40,6 +46,7 @@ export interface ResolvedConfig {
   propagate: PropagationLevel;
   onDiagnostic: ((diagnostic: Diagnostic) => void) | undefined;
   logDiagnostics: boolean;
+  maxConcurrentSends: number;
 }
 
 /**
@@ -62,7 +69,8 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     maxPayloadBytes: config.maxPayloadBytes ?? 262_144,
     propagate: config.propagate ?? "journey-and-type",
     onDiagnostic: config.onDiagnostic,
-    logDiagnostics: config.logDiagnostics === true
+    logDiagnostics: config.logDiagnostics === true,
+    maxConcurrentSends: clampConcurrentSends(config.maxConcurrentSends)
   };
 }
 
@@ -83,4 +91,29 @@ function clampBatchSize(configured: number | undefined): number {
   if (configured === undefined) return 50;
   if (!Number.isInteger(configured) || configured < 1) return 50;
   return Math.min(configured, MAX_BATCH_SIZE);
+}
+
+/**
+ * Four, and not the eight a benchmark of one process against an unconstrained
+ * stub favoured.
+ *
+ * Every ingestion request holds one database connection for its transaction,
+ * so what the server can take is instances times pool size, shared by every
+ * process sending to it. Simulated with one API instance, a pool of ten, and
+ * ten SDK processes under a burst, eight per process queued requests past
+ * `requestTimeoutMs`: the SDK aborted and resent batches the server went on to
+ * store, 44 to 48 percent of the server's work was duplicates, the breaker
+ * opened 40 times, and unique events stored fell from about 43,600 to about
+ * 14,000. At four there were no duplicates and the breaker never opened.
+ */
+export const DEFAULT_MAX_CONCURRENT_SENDS = 4;
+
+/** Past this, one process alone can exhaust a typical API instance's pool. */
+export const MAX_CONCURRENT_SENDS_LIMIT = 16;
+
+function clampConcurrentSends(configured: number | undefined): number {
+  if (configured === undefined || !Number.isInteger(configured)) {
+    return DEFAULT_MAX_CONCURRENT_SENDS;
+  }
+  return Math.min(Math.max(configured, 1), MAX_CONCURRENT_SENDS_LIMIT);
 }

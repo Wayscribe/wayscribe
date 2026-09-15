@@ -199,7 +199,7 @@ async function sustained() {
  */
 async function concurrency() {
   const payload = payloadOf(args.bytes);
-  const recorder = recorderFor(args.endpoint);
+  const recorder = recorderFor(args.endpoint, { maxConcurrentSends: args.maxConcurrentSends });
   const journey = recorder.startJourney({ entity: { type: "customer", id: payload.Id } });
   const delay = monitorEventLoopDelay({ resolution: LOOP_RESOLUTION_MS });
   delay.enable();

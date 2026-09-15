@@ -366,7 +366,7 @@ would not serialize is very often the step you are trying to debug.
 
 Measured with the SDK's own benchmark on an Apple M3 Pro (12 cores, 18 GiB),
 macOS 26.2, Node 24.19.0, with the default configuration and
-`MAX_CONCURRENT_SENDS` of 8. The machine was running other work at the time, so
+`maxConcurrentSends` of 4. The machine was running other work at the time, so
 read the numbers as orders of magnitude; the maximums in particular are noisy.
 To reproduce, from the repository root (about ten minutes):
 
@@ -376,14 +376,16 @@ pnpm --filter @flight-recorder/node bench
 
 **Time added to each wrapped call**, in microseconds, against a local stub
 answering like ingestion. A `transform` records its input and its output, so it
-captures the payload twice; the `persist` here returns a small object.
+captures the payload twice; the `persist` here returns a small object. Each 1 KiB
+row is 10,000 calls; each 64 KiB row is 2,500, so its p99 is the 25th slowest
+call and moves a lot between runs.
 
 | Wrapper | Payload | Added p50 | Added p99 |
 | --- | --- | --- | --- |
-| `transform` (sync) | 1 KiB | 72 | 1,215 |
-| `persist` (async) | 1 KiB | 21 | 418 |
-| `transform` (sync) | 64 KiB | 1,374 | 11,993 |
-| `persist` (async) | 64 KiB | 694 | 6,320 |
+| `transform` (sync) | 1 KiB | 30 | 513 |
+| `persist` (async) | 1 KiB | 75 | 1,146 |
+| `transform` (sync) | 64 KiB | 1,420 | 19,555 |
+| `persist` (async) | 64 KiB | 1,079 | 10,337 |
 
 Most of that is redaction and the copy that makes a payload safe to store, and
 it grows with the payload. The p99 is dominated by one call in every batch of
@@ -394,45 +396,79 @@ event loop spends that time whichever call it lands in.
 
 **Capture never waits on the network.** With the endpoint refusing connections,
 or answering after 200 ms, the added p50 stayed in the range measured against
-the local stub: across two full runs, 20 to 116 µs at 1 KiB and 694 to
+the local stub: across three full runs, 20 to 116 µs at 1 KiB and 694 to
 1,854 µs at 64 KiB for every endpoint, with no ordering by endpoint that held
 from one run to the next. Unreachable, every event is eventually dropped from
-the bounded queue and counted.
+the bounded queue and counted. Against the 200 ms stub at 2,000 calls a second,
+one process sending 4 batches at a time stores about 1,000 events a second and
+drops the rest, which the concurrency table below shows in detail.
 
 **Sustained load:** 2,000 wrapped calls a second for 60 seconds, 1 KiB,
 alternating `transform` and `persist`.
 
 | | Unwrapped | Wrapped |
 | --- | --- | --- |
-| Heap after GC, start to end | 6.9 to 7.8 MiB | 9.0 to 9.2 MiB |
-| Heap peak between collections | 8.6 MiB | 59.3 MiB |
-| Resident set size | 67 MiB | 199 MiB |
-| Event-loop delay p50 / p99 | 0.20 / 1.03 ms | 0.20 / 1.34 ms |
+| Heap after GC, start to end | 6.9 to 7.8 MiB | 9.0 to 9.1 MiB |
+| Heap, highest of one sample a second | 8.6 MiB | 61.3 MiB |
+| Resident set size at the end | 76 MiB | 219 MiB |
+| Event-loop delay beyond its 10 ms timer, p50 / p99 | 0.39 / 0.96 ms | 0.19 / 1.71 ms |
 | Events stored / dropped | | 124,000 / 0 |
 
-The heap after collection does not grow over the minute. The resident set is
-about 130 MiB larger; the heap peak between collections accounts for about
-50 MiB of that, and the benchmark does not break down the rest.
+The heap after collection does not grow over the minute. The heap figure
+between collections is a sample taken once a second, not a true peak. The
+resident set is about 140 MiB larger; the heap between collections accounts for
+about 50 MiB of that, and the benchmark does not break down the rest.
 
-**Send concurrency:** events produced at 2,000 a second for 15 seconds against
-a stub with a fixed delay per batch.
+**Send concurrency:** one process producing events for 15 seconds against a stub
+with a fixed delay per batch.
 
-| Server time per batch | Concurrent sends | Stored per second | Dropped |
-| --- | --- | --- | --- |
-| 50 ms | 1 | 923 | 50.3% |
-| 50 ms | 2 | 1,830 | 5.1% |
-| 50 ms | 4 | 1,994 | 0% |
-| 50 ms | 8 | 1,991 | 0%, never more than 4 in flight |
-| 200 ms | 1 | 240 | 84.5% |
-| 200 ms | 2 | 480 | 72.3% |
-| 200 ms | 4 | 960 | 48.1% |
-| 200 ms | 8 | 1,930 | 0% |
+This table models one process against a server that can serve any number of
+requests at once. It shows what a low cap costs that one process; it does not
+justify a higher default for a fleet, and the default stays 4 because of what it
+leaves out. Every ingestion request holds one database connection, so a fleet of
+processes shares instances times pool size. Simulated with one API instance, a
+pool of ten, and ten SDK processes under a burst, a cap of 8 queued requests past
+`requestTimeoutMs`: the SDK abandoned and resent batches the server went on to
+store, 44 to 48 percent of the server's work was duplicates, the breaker opened
+40 times, and unique events stored fell from about 43,600 at a cap of 4 to about
+14,000.
 
-That is why the default is 8 rather than 4: the cap only binds while a backlog
-is building, which is when the alternative is dropping events, and event-loop
-delay did not change with it. A stub does not slow down as requests pile up and
-a real server does, so for a server that is already the bottleneck, more
-concurrency buys less than this table shows.
+| Server time per batch | Events/s produced | `maxConcurrentSends` | Stored per second | Dropped |
+| --- | --- | --- | --- | --- |
+| 50 ms | 2,000 | 1 | 873 | 52.9% |
+| 50 ms | 2,000 | 2 | 1,733 | 9.8% |
+| 50 ms | 2,000 | 4 | 1,994 | 0% |
+| 50 ms | 2,000 | 8 | 1,993 | 0%, never more than 4 in flight |
+| 50 ms | 8,000 | 1 | 867 | 88.3% |
+| 50 ms | 8,000 | 2 | 1,726 | 77.6% |
+| 50 ms | 8,000 | 4 | 3,466 | 55.8% |
+| 50 ms | 8,000 | 8 | 7,092 | 10.3% |
+| 200 ms | 2,000 | 1 | 240 | 84.7% |
+| 200 ms | 2,000 | 2 | 473 | 72.7% |
+| 200 ms | 2,000 | 4 | 947 | 48.7% |
+| 200 ms | 2,000 | 8 | 1,916 | 0.0% (6 events) |
+| 200 ms | 8,000 | 1 | 240 | 96.1% |
+| 200 ms | 8,000 | 2 | 477 | 93.2% |
+| 200 ms | 8,000 | 4 | 947 | 87.2% |
+| 200 ms | 8,000 | 8 | 1,893 | 75.2% |
+
+### Sizing `maxConcurrentSends`
+
+Keep the sum of `maxConcurrentSends` across every process that sends to one
+installation under **API instances × database pool size**, with headroom for
+searches and the retention sweep. The API's pool is 10 connections per instance.
+Twenty services at the default of 4 want 80 connections at once in a burst,
+which is eight instances' worth.
+
+Past that, requests wait for a connection, run past `requestTimeoutMs`, and are
+abandoned by the SDK and sent again while the server still finishes the first
+copy. The duplicates are harmless to the data, because event ids are
+idempotent, but they are pure load on a server that is already behind, and the
+table above cannot show it.
+
+Raise it only for a few high-volume processes in front of a scaled-out API, and
+watch `transportErrors` and `breakerOpened` when you do. Lower it for a large
+fleet against one instance. It is clamped to 1-16.
 
 ## Configuration
 
@@ -452,6 +488,7 @@ concurrency buys less than this table shows.
 | `maxPayloadBytes` | `262144` | larger payloads record a marker instead |
 | `onDiagnostic` | — | |
 | `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending) |
+| `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends) |
 
 The SDK reads no environment variables. A library that changes behaviour based on
 ambient state is a library that behaves differently in your tests.

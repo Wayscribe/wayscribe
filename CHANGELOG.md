@@ -36,10 +36,6 @@ changes far less often.
   `transport_error` and a `dropped`. Refusals below 500 stay permanent. A send
   in which the server stored other events no longer counts toward the circuit
   breaker, so one unstorable event cannot pause delivery of the rest.
-- **The SDK sends up to eight batches at once, up from four.** Measured: at
-  2,000 events a second against a server taking 200 ms per batch, four dropped
-  48% of events and eight dropped none, with no change in event-loop delay.
-  The cap only binds while a backlog builds.
 
 ### Added
 
@@ -51,6 +47,12 @@ changes far less often.
   payload or a key. Off by default: nothing reaches the console unless it is
   set. The quick start and `examples/instrument-a-service` turn it on while
   setting up.
+- **`maxConcurrentSends` in the SDK**, default 4 and clamped to 1-16: how many
+  batches one process sends at once. Across every process sending to an
+  installation, the total should stay under API instances times database pool
+  size (10 per instance); past that, requests time out and are resent while the
+  server finishes them. The SDK README's "Sizing `maxConcurrentSends`" says
+  when to raise it.
 - **What the SDK costs is measured.** `pnpm --filter @flight-recorder/node bench`
   reports added latency per wrapped call, heap and event-loop delay under
   sustained load, and throughput by send concurrency; the SDK README's "What it

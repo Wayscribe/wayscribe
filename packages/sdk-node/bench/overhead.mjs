@@ -7,7 +7,7 @@ import { buildRecorder, defaultMaxConcurrentSends } from "./build.mjs";
 /**
  * What the SDK costs the process it is embedded in.
  *
- *   pnpm --filter @flight-recorder/node bench            full run, about eight minutes
+ *   pnpm --filter @flight-recorder/node bench            full run, about ten minutes
  *   pnpm --filter @flight-recorder/node bench -- --quick  shorter windows, for checking the harness
  *   pnpm --filter @flight-recorder/node bench -- --only=latency,sustained,concurrency
  *
@@ -95,10 +95,12 @@ log(`# Flight Recorder SDK overhead${quick ? " (quick)" : ""}`);
 log();
 log(
   `${cpu}, ${String(cpus().length)} cores, ${fixed(totalmem() / 2 ** 30, 0)} GiB; ` +
-    `Node ${process.version} on ${process.platform}; MAX_CONCURRENT_SENDS default ${String(defaultMaxConcurrentSends())}`
+    `Node ${process.version} on ${process.platform}; maxConcurrentSends default ${String(defaultMaxConcurrentSends())}`
 );
 
-const defaultModule = await buildRecorder();
+const bundle = await buildRecorder();
+const defaultModule = bundle.module;
+process.on("exit", bundle.remove);
 
 // 1 and 2: added latency per wrapped call.
 if (only.has("latency")) {
@@ -149,6 +151,10 @@ if (only.has("latency")) {
   log("## Latency per call (microseconds, p50 / p99)");
   log();
   log(
+    `Samples per row: ${quick ? "1,000" : "10,000 at 1 KiB and 2,500 at 64 KiB, so a 64 KiB p99 is the 25th slowest call"}.`
+  );
+  log();
+  log(
     table(
       ["endpoint", "wrapper", "payload", "unwrapped", "wrapped", "added", "sent", "dropped"],
       rows
@@ -196,7 +202,7 @@ if (only.has("sustained")) {
         "run",
         "calls/s achieved",
         "heap after GC, start → end (MiB)",
-        "heap peak (MiB)",
+        "heap peak, sampled once a second (MiB)",
         "RSS (MiB)",
         "event-loop delay beyond 10 ms, p50 / p99 / max (ms)",
         "sent",
@@ -218,7 +224,8 @@ if (only.has("concurrency")) {
         const result = await runScenario(
           {
             scenario: "concurrency",
-            module: await buildRecorder({ maxConcurrentSends }),
+            module: defaultModule,
+            maxConcurrentSends,
             endpoint: stub.endpoint,
             bytes: 1_024,
             rate,
@@ -247,11 +254,15 @@ if (only.has("concurrency")) {
   log(`## Send concurrency (${String(seconds)} s per run, 1 KiB events, batch size 50)`);
   log();
   log(
+    "One process against a stub that serves any number of requests at once. It shows what a cap costs a single process, not what a fleet sharing one API's database pool can take."
+  );
+  log();
+  log(
     table(
       [
         "server latency",
         "events/s produced",
-        "MAX_CONCURRENT_SENDS",
+        "maxConcurrentSends",
         "stored/s",
         "dropped",
         "dropped share",

@@ -132,26 +132,6 @@ const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
 const UNCAPTURABLE = "[UNCAPTURABLE]";
 
 /**
- * Simultaneous in-flight batches.
- *
- * Eight, measured by `bench/overhead.mjs` (README, "What it costs"). At 2,000
- * events a second against a server taking 200 ms per batch, four in flight
- * store 960 a second and drop 48% of events; eight store all of them. At 50 ms
- * per batch the same load never had more than four requests in flight with a
- * cap of eight, because the cap only binds while a backlog is building, which
- * is exactly when the alternative is dropping events. Event-loop delay on the
- * host did not change with the cap.
- *
- * Not higher: each ingestion request holds one database connection for its
- * transaction, and the API's pool is ten per instance, so eight from one
- * process still fits one instance. A stub server does not slow down with
- * concurrency and a real one does, so what the benchmark shows beyond that is
- * the most extra requests could buy, not what they buy. A server that does
- * slow down is bounded by the request timeout and the breaker.
- */
-const MAX_CONCURRENT_SENDS = 8;
-
-/**
  * The protocol's limits on `error.message` and `error.stack`
  * (`packages/protocol` `errorSchema`). The server refuses anything longer, so
  * text beyond them is never worth masking or sending.
@@ -552,9 +532,20 @@ export function createRecorder(config: RecorderConfig): Recorder {
     await settle();
   }
 
-  /** Starts a background flush unless the cap is already reached. */
+  // debtwatch:start
+  // id: DEBT-WGN0N4
+  // owner: flight-recorder
+  // expires: 2027-03-01
+  // reason: A fixed cap cannot fit both one process in front of a scaled-out API and a fleet sharing one pool; adaptive concurrency, lowering the cap on timeouts and 5xx and raising it while sends succeed, is the long-term fix
+  // tags: sdk, performance
+  // debtwatch:end
+  /**
+   * Starts a background flush unless the cap is already reached.
+   *
+   * The cap is `maxConcurrentSends` (config.ts says why the default is four).
+   */
   function maybeFlush(): void {
-    if (inFlight.size < MAX_CONCURRENT_SENDS) track(flush());
+    if (inFlight.size < resolved.maxConcurrentSends) track(flush());
   }
 
   // The interval goes through the same cap. Without that it could add one more

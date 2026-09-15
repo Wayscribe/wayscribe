@@ -632,7 +632,8 @@ describe("payloads the application cannot serialize", () => {
 describe("burst behaviour", () => {
   /** Counts concurrent requests, so fan-out is measured rather than assumed. */
   async function burst(
-    count: number
+    count: number,
+    extra: { maxConcurrentSends?: number } = {}
   ): Promise<{ peak: number; requests: number; received: number }> {
     let inFlight = 0;
     let peak = 0;
@@ -670,7 +671,8 @@ describe("burst behaviour", () => {
     const recorder = createRecorder({
       ...base,
       endpoint: `http://127.0.0.1:${String(port)}`,
-      batchSize: 10
+      batchSize: 10,
+      ...extra
     });
     const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
     for (let i = 0; i < count; i += 1) {
@@ -689,9 +691,17 @@ describe("burst behaviour", () => {
     // 400 events at batchSize 10 used to open 40 sockets at once. The queue is
     // bounded and the interval drains the remainder, so capping costs nothing
     // but a little latency.
+    //
+    // Exactly the default: the burst is recorded in one turn of the event loop,
+    // so every send it can start begins before the first one returns.
     const { peak } = await burst(400);
-    // Eight is MAX_CONCURRENT_SENDS, measured in bench/overhead.mjs.
-    expect(peak).toBeLessThanOrEqual(8);
+    expect(peak).toBe(4);
+  });
+
+  it("uses the configured maxConcurrentSends", async () => {
+    // Both directions, so a cap that ignored the option would fail one of them.
+    expect((await burst(400, { maxConcurrentSends: 2 })).peak).toBe(2);
+    expect((await burst(400, { maxConcurrentSends: 6 })).peak).toBe(6);
   });
 
   it("still delivers every event", async () => {
