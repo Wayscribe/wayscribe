@@ -201,11 +201,14 @@ the protocol's limit and then cuts the result, a message to 4096 characters and
 a stack passed to `record()` to 16384, ending in `[TRUNCATED]`; it masks the cut
 text once more, so the server's pass leaves it unchanged.
 
-The content hash stored with each event is an unkeyed SHA-256 over the event as
-received, before any masking or redaction. With read access to the database, a
-low-entropy secret that was masked can be guessed offline by rebuilding the
-event with a candidate and comparing hashes. This was already true of redacted
-payload values, and is recorded as a known limitation in ADR-046.
+The content hash stored with each event covers the event as received, before any
+masking or redaction, so that a policy change cannot turn an identical resend
+into a conflict (ADR-021). It is an HMAC-SHA256 under a subkey of
+`ENCRYPTION_KEY`, stored as `h1.<keyId>.<hex>` (ADR-048), so a database read
+without the key cannot confirm guesses at a masked or redacted value by
+rebuilding the event and comparing hashes. Rows written before ADR-048 keep an
+unkeyed SHA-256, with no prefix, and remain that oracle for what they masked
+until they are deleted (section 14).
 
 ## 5. API keys
 
@@ -269,6 +272,12 @@ Rotation is a grace period rather than a cut-over (ADR-044):
   reissued.
 - `rotate:reencrypt` rewrites the stored values and tokens, and `rotate:status`
   confirms nothing is left under the old key before it is removed.
+- Event content hashes are compared under the key they name, current or
+  previous, and are never rewritten: a hash can only be recomputed from the
+  event, which is not stored. After the previous key is removed, a duplicate
+  delivery of an event whose hash names it is refused with 409
+  `event_id_conflict`, which the SDK treats as permanent. The stored event is
+  unaffected (ADR-048).
 - GCM authentication makes a value under the wrong key fail to decrypt rather
   than produce garbage. A value under a key that is not configured is reported
   with that key's id, once per id, and the API logs a count at boot.

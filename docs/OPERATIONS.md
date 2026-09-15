@@ -205,8 +205,8 @@ touching everywhere an operator has written it down.
 ## 6. Key rotation
 
 **Changing `ENCRYPTION_KEY` outright loses access to what is already stored.**
-Three things derive from it by HKDF: field encryption, search tokens, and the
-API-key pepper. Swap the value and recreate the API containers, and every stored entity identifier,
+Four things derive from it by HKDF: field encryption, search tokens, the
+API-key pepper, and event content hashes. Swap the value and recreate the API containers, and every stored entity identifier,
 alias value, and replay destination header stops decrypting, every existing
 journey stops being findable by identifier, and every issued API key answers
 401.
@@ -295,6 +295,13 @@ services.
 
 From step 3 on, nothing is interrupted: new events record, old journeys search
 and open, and every API key still authenticates.
+
+Event content hashes are not moved by any step, because a hash can only be
+recomputed from the event it describes. After step 6, a resend of an event
+recorded under the old key, which only a duplicate delivery produces, is
+answered 409 `event_id_conflict` rather than recognised as a duplicate. The SDK
+treats that as permanent and drops the resend; the event stored the first time
+is unchanged (ADR-048).
 
 A script can wait on step 5, since the exit code is the answer:
 

@@ -157,6 +157,13 @@ changes far less often.
 
 ### Security
 
+- **The stored content hash is keyed.** It covered the event as received,
+  before masking, and was an unkeyed SHA-256, so anyone who could read the
+  database could rebuild an event from its row with guesses in place of
+  `[REDACTED]` and confirm a masked dictionary password by hash match; the
+  security review did. It is now an HMAC-SHA256 under a subkey of
+  `ENCRYPTION_KEY`, stored as `h1.<keyId>.<hex>`, and a resend is compared under
+  the key the stored hash names (ADR-048).
 - **Header credentials filed by position or inside a header block are
   redacted.** Name rules matched object keys only, so three ordinary shapes
   were stored verbatim in the default capture mode, through the SDK and through
@@ -325,6 +332,13 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
+- **Content hashes need no migration.** Rows written before this release keep
+  their unkeyed hash, and a resend is still compared against it, so a delivery
+  that straddles the upgrade dedupes. Those rows remain an oracle for what they
+  masked until they are deleted or retention removes them. After a key rotation
+  completes, a duplicate delivery of an event recorded under the removed key is
+  answered 409 `event_id_conflict`, which the SDK treats as permanent; the stored
+  event is unaffected.
 - **Migration 015 rewrites every replay run row.** It replaces each value in
   `replay_runs.request_headers` with `[REDACTED]` in one transaction (about 2
   seconds for 100,000 runs, blocking updates to existing runs but not inserts,

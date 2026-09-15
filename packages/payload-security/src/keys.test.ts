@@ -54,7 +54,7 @@ describe("keyFingerprint", () => {
     // piece of any key that protects that data.
     const fingerprint = keyFingerprint(master);
     const keys = deriveSubkeys(master);
-    for (const subkey of [keys.fieldEncryption, keys.searchToken, keys.apiKey]) {
+    for (const subkey of [keys.fieldEncryption, keys.searchToken, keys.apiKey, keys.contentHash]) {
       expect(subkey.toString("hex")).not.toContain(fingerprint);
     }
   });

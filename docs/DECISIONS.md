@@ -453,7 +453,7 @@ which, leaving foreign key shapes undefined.
 
 ## ADR-021: Conflicting duplicate event IDs are rejected
 
-**Status:** Accepted
+**Status:** Accepted. The hash is keyed by ADR-048.
 
 ### Context
 
@@ -1589,7 +1589,7 @@ never run together.
 
 ## ADR-046: Error text is masked by shape, and stacks are kept only under full capture
 
-**Status:** Accepted
+**Status:** Accepted. Its content-hash limitation is closed by ADR-048.
 
 ### Context
 
@@ -1683,6 +1683,7 @@ destroy the record a reader came for.
   covered is in the row or guessable, which a masked error message on an event with no dropped
   payload often is. The same was already true of redacted payload values. Keying the hash
   would close it, and would change every stored hash, so it belongs in its own decision.
+  **Closed by ADR-048**, which keys the hash.
 
 ## ADR-047: Metrics on their own port, in a format written here
 
@@ -1733,3 +1734,51 @@ carries a project id, a key prefix, an entity, or any request value.
   the documentation says to alert on `increase()`.
 - The retention sweep's log line stays, for installations that read logs and do
   not scrape.
+
+## ADR-048: The content hash is keyed, and compared under the key it names
+
+**Status:** Accepted. Amends ADR-021 and closes the known limitation recorded in ADR-046.
+
+### Context
+
+ADR-021 stores a `content_hash` beside each event so ingestion can tell an identical resend
+from an event id reused for different content. It is computed over the event as received, before
+redaction and masking, so a server-side policy change cannot manufacture conflicts, and it was an
+unkeyed SHA-256.
+
+That made it an offline oracle. The security review ingested an error whose message carried a
+dictionary password in a connection string, read the row as someone with database access and no
+`ENCRYPTION_KEY` would (a dump, a replica, a backup), rebuilt the event from the row with each
+dictionary word in place of `[REDACTED]`, and recovered the password by hash match. ADR-046
+recorded exactly this as a known limitation and left it for its own decision because keying the
+hash changes every hash written afterwards.
+
+### Decision
+
+The hash is an HMAC-SHA256 of the same canonical serialization, under a subkey HKDF derives from
+`ENCRYPTION_KEY` with the label `flight-recorder/content-hash`, beside the three subkeys ADR-044
+already derives. It is stored as `h1.<keyId>.<hex>`, the key id being the fingerprint ADR-044
+stores on encrypted values.
+
+Ingestion writes under the current key. On an id that already exists, it compares by recomputing
+rather than by string equality: under the key the stored value names, current or previous; and
+for a value with no prefix, a hash written before this decision, by computing the unkeyed SHA-256.
+A resend that straddles the upgrade or a rotation therefore still dedupes.
+
+No migration. Legacy hashes stay comparable, and rewriting them is impossible anyway: the hash
+is of the event as received, which is not stored.
+
+### Consequences
+
+- A database read alone no longer confirms guesses at a masked or redacted value. Anyone holding
+  `ENCRYPTION_KEY` still can, as they can already decrypt identifiers.
+- Rows written before this decision keep their unkeyed hashes, and those rows stay an oracle for
+  what they masked until they are deleted or age out under retention (ADR-045).
+- `rotate:reencrypt` does not touch hashes, because it cannot: a hash can be recomputed only from
+  the event. Once `ENCRYPTION_KEY_PREVIOUS` is removed, a resend of an event whose hash names the
+  removed key cannot be compared and is refused with 409 `event_id_conflict`, which the SDK
+  treats as permanent. Only a duplicate delivery of an event older than the rotation's grace
+  period is affected; the stored event is untouched. `rotate:status` does not count hashes, since
+  holding a rotation open for them would hold it open until retention removed every row.
+- One HMAC per ingested event, and a second only when an id already exists. The cost is the same
+  order as the SHA-256 it replaces.
