@@ -33,35 +33,70 @@ export function clientAddress(
   return throttleKey(hops[hops.length - trustedProxyCount] ?? socket);
 }
 
+// throttleKey: begin
 /**
  * The throttling key for an address: an IPv4 address as it is, an IPv6 address
- * by its /64, and an IPv4-mapped IPv6 address as the IPv4 address it carries.
+ * by its /64, and an IPv6 address that carries an IPv4 address as that address.
  *
  * One IPv6 host is routinely assigned a whole /64, so keying on the full
- * address would give it 2^64 separate budgets. The same function as the API's
- * (`apps/api/src/auth-throttle.ts`), repeated because the web app does not
- * depend on the API. Anything that is not an IP
- * address (an unknown socket, a proxy's opaque token) is kept as it is.
+ * address would give it 2^64 separate budgets. Every spelling of one address
+ * must key alike, or a new spelling is a new budget: brackets and a port
+ * (`[2001:db8::1]:443`, `203.0.113.7:5555`) and an interface zone (`%eth0`)
+ * are removed, and an IPv4-mapped address in any form (`::ffff:203.0.113.7`,
+ * `0:0:0:0:0:ffff:203.0.113.7`, `::ffff:cb00:7107`) or an IPv4-compatible one
+ * written with its dotted quad (`::203.0.113.7`) is the IPv4 address. `::1` and
+ * `::` are IPv6. Anything that is not an address (an unknown socket, a proxy's
+ * opaque token) is kept as it is.
+ *
+ * Kept identical in `apps/api/src/address-throttle.ts` and
+ * `apps/web/src/lib/client-address.ts`; `tests/throttle-key-parity.test.ts`
+ * checks both the behaviour and the text.
  */
-export function throttleKey(address: string): string {
-  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);
-  if (mapped?.[1] !== undefined) return mapped[1];
-  if (isIP(address) !== 6) return address;
+export function throttleKey(raw: string): string {
+  const address = withoutPort(raw.trim());
+  if (isIP(address) === 4) return address;
 
-  const [head = "", tail = ""] = address.toLowerCase().split("::");
-  const left = head === "" ? [] : head.split(":");
-  const right = address.includes("::") ? (tail === "" ? [] : tail.split(":")) : [];
-  const groups = address.includes("::")
-    ? [...left, ...Array<string>(8 - width(left) - width(right)).fill("0"), ...right]
-    : left;
-  const prefix = groups
+  const zoneAt = address.indexOf("%");
+  const bare = zoneAt === -1 ? address : address.slice(0, zoneAt);
+  const groups = isIP(bare) === 6 ? ipv6Groups(bare) : undefined;
+  if (groups === undefined) return raw;
+
+  const zeroes = (count: number): boolean => groups.slice(0, count).every((group) => group === 0);
+  const mapped = zeroes(5) && groups[5] === 0xffff;
+  const compatible = zeroes(6) && bare.includes(".");
+  if (mapped || compatible) {
+    const high = groups[6] ?? 0;
+    const low = groups[7] ?? 0;
+    return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
+  }
+  return `${groups
     .slice(0, 4)
-    .map((group) => (group.includes(".") ? group : Number.parseInt(group, 16).toString(16)))
-    .join(":");
-  return `${prefix}::/64`;
+    .map((group) => group.toString(16))
+    .join(":")}::/64`;
 }
 
-/** Groups a list of IPv6 pieces occupies: an embedded dotted quad is two. */
-function width(pieces: readonly string[]): number {
-  return pieces.reduce((sum, piece) => sum + (piece.includes(".") ? 2 : 1), 0);
+/** The address without `[` `]` around an IPv6 address, or a port after either. */
+function withoutPort(address: string): string {
+  const bracketed = /^\[([^\]]+)\](?::\d{1,5})?$/.exec(address);
+  if (bracketed?.[1] !== undefined) return bracketed[1];
+  const ipv4WithPort = /^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$/.exec(address);
+  return ipv4WithPort?.[1] ?? address;
 }
+
+/** The eight 16-bit groups of a valid IPv6 address, an embedded dotted quad as the last two. */
+function ipv6Groups(address: string): number[] {
+  const parse = (part: string): number[] =>
+    part === ""
+      ? []
+      : part.split(":").flatMap((piece) => {
+          if (!piece.includes(".")) return [Number.parseInt(piece, 16)];
+          const [a = 0, b = 0, c = 0, d = 0] = piece.split(".").map(Number);
+          return [(a << 8) | b, (c << 8) | d];
+        });
+  const gap = address.indexOf("::");
+  if (gap === -1) return parse(address);
+  const head = parse(address.slice(0, gap));
+  const tail = parse(address.slice(gap + 2));
+  return [...head, ...Array<number>(8 - head.length - tail.length).fill(0), ...tail];
+}
+// throttleKey: end

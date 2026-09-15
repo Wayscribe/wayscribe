@@ -377,7 +377,9 @@ changes far less often.
   holds under concurrency: the API admits credentials other than the admin token
   before verifying them, and the web login checks its lock after reading the
   form, so a burst of guesses gets exactly five comparisons at either. An IPv6
-  address counts as its /64. Each throttle remembers at most 50,000 addresses,
+  address counts as its /64, and every spelling of one address (a port, brackets,
+  an IPv4-mapped form) counts as that address. Each throttle remembers at most
+  50,000 addresses,
   forgetting the least recently seen, and sweeps expired entries at most once a
   minute, so neither memory nor the cost of a failure grows with the number of
   addresses seen.

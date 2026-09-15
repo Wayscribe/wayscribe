@@ -710,7 +710,10 @@ reads are not limited either. The web login compares synchronously and holds at
 five.
 
 An IPv6 address counts as its /64, the block one host is usually given, and an
-IPv4 client on a dual-stack socket (`::ffff:203.0.113.5`) as its IPv4 address.
+IPv6 address carrying an IPv4 one, as a dual-stack socket reports an IPv4 client
+(`::ffff:203.0.113.5`, in any spelling), as that IPv4 address. A port, brackets,
+and an interface zone are ignored, so `[2001:db8::1]:443` and `2001:db8::1` are
+one address.
 Both counts are held in memory, per process: they reset on restart, N replicas
 allow N times the attempts, and each remembers at most 50,000 addresses, forgetting
 the least recently seen beyond that.
