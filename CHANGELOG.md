@@ -129,7 +129,7 @@ changes far less often.
   and whether the API reports ready. Exits 1 when anything failed. It prints
   neither the database password, the admin token, the encryption keys, nor
   more of an API key than its prefix. In the API image beside `key:create`;
-  `pnpm doctor` from a checkout (`docs/OPERATIONS.md` §12).
+  `pnpm run doctor` from a checkout (`docs/OPERATIONS.md` §12).
 - **A statement timeout.** `DATABASE_STATEMENT_TIMEOUT_MS`, 15000 by default,
   cancels any statement the API runs past it, so one runaway query, from a
   pathological search to a table scan behind a missing index, can no longer
@@ -416,6 +416,11 @@ changes far less often.
 
 ### Fixed
 
+- **The documented doctor command runs doctor.** pnpm 11 has a built-in
+  command of the same name, which answered the documented form with a report on
+  the pnpm installation and exit 0, and the root script failed with
+  `Unknown option: 'recursive'`. The command is `pnpm run doctor`, and every
+  root script now filters into its package with `run`.
 - **`cp .env.example .env` no longer empties the interface.** `.env.example`
   set `PORT=8080`, the web container reads the root `.env`, and Next listened on
   8080 inside it, so `localhost:3000` answered nothing. The web service now pins

@@ -1059,7 +1059,7 @@ docker compose -f compose.published.yaml run --rm --entrypoint node api \
   packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
 ```
 
-From a checkout, `pnpm doctor -- --api-url http://localhost:8080 --api-key fr_…`
+From a checkout, `pnpm run doctor --api-url http://localhost:8080 --api-key fr_…`
 reads the repository-root `.env`.
 
 Run it with the API's environment, because that is what it checks: the same

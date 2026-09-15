@@ -137,6 +137,34 @@ describe("the documentation's checkable claims", () => {
     }
   });
 
+  it("never tells anyone to run a repository script that pnpm has a built-in for", () => {
+    // pnpm 11 has its own `doctor`, and `pnpm doctor` runs it rather than the
+    // root script: it checks the pnpm installation, prints its own report, and
+    // exits 0 on a database it never looked at. `pnpm run doctor` always means
+    // the script. Every markdown file, for the reason the checks above give.
+    for (const file of markdownFiles()) {
+      expect(read(file), `${file} says \`pnpm doctor\`; write \`pnpm run doctor\``).not.toMatch(
+        /\bpnpm doctor\b/
+      );
+    }
+  });
+
+  it("runs package scripts from the root with `run`, so a pnpm built-in cannot shadow one", () => {
+    // `pnpm --filter <package> doctor` ran pnpm's built-in doctor across the
+    // workspace and failed with "Unknown option: 'recursive'". Every name, not
+    // only doctor: pnpm adds built-ins, and the next one would shadow silently.
+    const scripts = (JSON.parse(read("package.json")) as { scripts: Record<string, string> })
+      .scripts;
+    for (const [name, command] of Object.entries(scripts)) {
+      const filtered = /^pnpm --filter \S+ (\S+)/.exec(command);
+      if (filtered === null) continue;
+      expect(
+        ["run", "exec"],
+        `root script ${name} runs \`${command}\`; filter into the package with \`run\``
+      ).toContain(filtered[1]);
+    }
+  });
+
   it("keeps the pre-implementation documents marked as such", () => {
     // They predate every ADR and describe an install premise ADR-037 inverted.
     // They are kept for provenance, which only works if a reader is told.
