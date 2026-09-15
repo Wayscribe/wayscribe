@@ -229,6 +229,27 @@ describe("query strings in the log", () => {
     await app.close();
   });
 
+  it("treats a semicolon like a question mark, in the log and in a not-found body", async () => {
+    // `;` starts matrix parameters, and some clients and proxies put session
+    // ids and tokens there.
+    const { app, lines } = appWithCapturedLogs();
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/v1/serach;jsessionid=${VALUE}?q=${VALUE}-q`
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.body).not.toContain(VALUE);
+    expect(response.json<{ error: { message: string } }>().error.message).toContain(
+      "GET /v1/serach."
+    );
+    const written = lines.join("");
+    expect(written).not.toContain(VALUE);
+    expect(written).toContain("/v1/serach;[REDACTED]?q=[REDACTED]");
+    await app.close();
+  });
+
   it("keeps the value out of an error the request caused", async () => {
     const { app, lines } = appWithCapturedLogs();
 

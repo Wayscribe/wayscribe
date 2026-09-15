@@ -18,18 +18,33 @@ const PARAMETER_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
  * which the API's own warnings already log.
  */
 export function urlForLog(url: string): string {
-  const at = url.indexOf("?");
-  if (at === -1) return url;
+  const path = pathOf(url);
+  let rest = url.slice(path.length);
 
-  const query = url.slice(at + 1);
-  if (query === "") return url.slice(0, at);
+  // Matrix parameters (`;jsessionid=…`) are hidden whole: some clients and
+  // proxies put session ids and tokens there, and no route uses them.
+  let matrix = "";
+  if (rest.startsWith(";")) {
+    const query = rest.indexOf("?");
+    matrix = `;${REDACTED}`;
+    rest = query === -1 ? "" : rest.slice(query);
+  }
+
+  const query = rest.slice(1);
+  if (query === "") return `${path}${matrix}`;
 
   const parameters = query.split("&").map((pair) => {
     if (pair === "") return "";
     const name = pair.split("=", 1)[0] ?? "";
     return PARAMETER_NAME.test(name) ? `${name}=${REDACTED}` : REDACTED;
   });
-  return `${url.slice(0, at)}?${parameters.join("&")}`;
+  return `${path}${matrix}?${parameters.join("&")}`;
+}
+
+/** The path alone: everything before the first `?` or `;`. */
+export function pathOf(url: string): string {
+  const end = url.search(/[?;]/);
+  return end === -1 ? url : url.slice(0, end);
 }
 
 /**

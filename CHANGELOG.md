@@ -60,6 +60,11 @@ changes far less often.
   timeouts, pool connections, retention sweep outcomes and last success, the
   boot check's unreadable counts, memory and event loop lag. Compose and Helm
   do not publish it. No new dependency (ADR-047, `docs/OPERATIONS.md` §13).
+- **Known gap until the SDK change lands:** a batch event refused with
+  `query_timeout` or `storage_error` (`httpStatus` 5xx) is transient and safe
+  to resend (`docs/API_SPEC.md` §4), but the Node SDK treats every per-event
+  refusal as permanent and drops it. Retrying those refusals comes with the SDK
+  half of this work.
 - **Captured data can be deleted on demand.** Retention was the only way
   anything left the database, so a redaction miss stayed stored until it aged
   out and an erasure request had no answer. `delete:journey`,

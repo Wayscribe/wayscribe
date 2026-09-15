@@ -193,14 +193,7 @@ function errorBody(code: string, message: string, requestId: string): unknown {
   return { error: { code, message, requestId } };
 }
 
-/**
- * A storage failure, described without leaking the database's own vocabulary.
- *
- * A pg error carries `.code` — a SQLSTATE like `22P05` — and no `.statusCode`,
- * so the shared error handler used to publish it verbatim as the API's error
- * code. `22P05` tells an SDK user nothing; naming the likely cause tells them
- * where to look.
- */
+/** A batch event whose statement ran past DATABASE_STATEMENT_TIMEOUT_MS: transient, so 503. */
 const QUERY_TIMEOUT_REJECTION: IngestResult = {
   eventId: null,
   journeyId: null,
@@ -215,6 +208,14 @@ function eventResult(result: IngestResult): EventResult {
   return result.duplicate === true ? "duplicate" : "accepted";
 }
 
+/**
+ * A storage failure, described without leaking the database's own vocabulary.
+ *
+ * A pg error carries `.code` — a SQLSTATE like `22P05` — and no `.statusCode`,
+ * so the shared error handler used to publish it verbatim as the API's error
+ * code. `22P05` tells an SDK user nothing; naming the likely cause tells them
+ * where to look.
+ */
 function storageRejection(error: unknown): IngestResult {
   const sqlState = (error as { code?: unknown } | null)?.code;
   const unsupportedText = sqlState === "22P05" || sqlState === "22021";

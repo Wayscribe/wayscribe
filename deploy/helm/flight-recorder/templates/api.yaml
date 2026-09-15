@@ -1,3 +1,11 @@
+{{- /* The API listens on 8080 inside the pod (PORT below). The API itself refuses
+a METRICS_PORT equal to PORT at boot; refusing here says so at render time,
+before a pod crash-loops. */}}
+{{- with .Values.api.metricsPort }}
+{{- if eq (int .) 8080 }}
+{{- fail "api.metricsPort cannot be 8080, the API's own port. Metrics are served on a port of their own; 9464 is conventional." }}
+{{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

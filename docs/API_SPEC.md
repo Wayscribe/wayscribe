@@ -89,7 +89,10 @@ cancelled is refused on its own with `query_timeout` and `httpStatus` 503
 (section 4).
 
 A request that matches no route gets `404` with code `not_found`, in this shape.
-Its message names the method and path, never the query string.
+Its message names the method and path, never the query string or matrix
+parameters. A URL the router cannot read gets `400` with code `bad_url` when its
+percent-encoding is malformed, and `414` with code `parameter_too_long` when a
+path parameter is longer than any id the API accepts. Neither quotes the URL.
 
 ## 3. Ingest one event
 

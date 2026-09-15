@@ -1,9 +1,9 @@
 import { isStatementTimeout } from "@flight-recorder/database";
 import type { Keyring } from "@flight-recorder/payload-security";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import type { Knex } from "knex";
 import { unknownKeyWarning } from "./key-warnings.js";
-import { serializeError, serializeRequest } from "./log-url.js";
+import { pathOf, serializeError, serializeRequest } from "./log-url.js";
 import { createApiMetrics, type ApiMetrics } from "./metrics/api-metrics.js";
 import { registerDeletionRoutes } from "./routes/deletions.js";
 import { registerEventRoutes } from "./routes/events.js";
@@ -78,6 +78,7 @@ const LOG_REDACT_PATHS = [
 
 export function buildApp(options: BuildAppOptions): FastifyInstance {
   const maxEventPayloadBytes = options.maxEventPayloadBytes ?? 262_144;
+  const metrics = options.metrics ?? createApiMetrics(options.db);
 
   const app = Fastify({
     logger: {
@@ -91,10 +92,29 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       ...(options.logStream === undefined ? {} : { stream: options.logStream })
     },
     bodyLimit: options.bodyLimit ?? MAX_BATCH_EVENTS * maxEventPayloadBytes + BODY_LIMIT_HEADROOM,
-    routerOptions: { maxParamLength: MAX_PARAM_LENGTH }
+    routerOptions: { maxParamLength: MAX_PARAM_LENGTH },
+    // A malformed percent-encoding (400) or a path parameter over
+    // MAX_PARAM_LENGTH (414) is refused by the router before any route or hook
+    // runs. Fastify's own answer quoted the path in its own shape, and no
+    // onResponse hook saw it, so neither was counted.
+    frameworkErrors: (error, request, reply) => {
+      const tooLong = error.code === "FST_ERR_MAX_PARAM_LENGTH";
+      const status = tooLong ? 414 : 400;
+      metrics.observeRequest(request.method, undefined, status, reply.elapsedTime / 1000);
+      // Typed for any route generic here; this reply has none.
+      void (reply as unknown as FastifyReply)
+        .code(status)
+        .send(
+          errorBody(
+            tooLong ? "parameter_too_long" : "bad_url",
+            tooLong
+              ? "A path parameter is longer than any id the API accepts."
+              : "The URL is not validly percent-encoded.",
+            request.id
+          )
+        );
+    }
   });
-
-  const metrics = options.metrics ?? createApiMetrics(options.db);
 
   // Counted in onResponse, once the status is final. The route label is the
   // pattern the router matched, never the path: `/v1/journeys/:journeyId` is
@@ -119,7 +139,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       .send(
         errorBody(
           "not_found",
-          `No route matches ${request.method} ${request.url.split("?")[0] ?? ""}.`,
+          `No route matches ${request.method} ${pathOf(request.url)}.`,
           request.id
         )
       )

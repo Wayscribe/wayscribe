@@ -710,6 +710,11 @@ describe traffic, so keep it on a network only your monitoring reaches.
 path. `method` is one of the seven methods the API uses or `other`. No label
 carries a project id, key prefix, entity, or any value from a request.
 
+A URL the router refuses before any route runs is counted too, as `unmatched`:
+400 for malformed percent-encoding and 414 for a path parameter longer than any
+id. A request too malformed for Node's HTTP parser never becomes a request, so
+it is not counted; at `LOG_LEVEL=trace` it is logged as `client error`.
+
 `rejected` counts every event the API told a client it did not store: a
 validation failure, an environment the key does not cover, a conflicting event
 id, and also a storage failure or a timed-out statement, which the client may
@@ -728,7 +733,11 @@ replica too: the replica that holds the lock sweeps, and the others count
 `locked`.
 
 `flight_recorder_unreadable_values` is set by the boot check a moment after the
-API starts, and not afterwards. It is absent while migrations are pending.
+API starts, and not afterwards. The check is skipped while migrations are
+pending, so an API started before `migrate` ran (the `infrastructure/compose.yaml`
+stack has no migrate service) has no such series at all until it is restarted
+after migrating. Alert on its absence only if every API is started after
+migrations, as `compose.published.yaml` and the Helm chart do.
 
 ### Alerts worth starting with
 
@@ -807,7 +816,8 @@ parameters with every value replaced by `[REDACTED]`:
 A searched value is usually a customer identifier, and the Recent page's filters
 name services and environments, so no query value is ever logged. A parameter
 name that does not look like one (an email address pasted without `=`, or
-anything longer than 64 characters) is replaced too. The path is logged whole,
+anything longer than 64 characters) is replaced too, and so is anything after a
+`;` in the path, where some clients put session ids. The path is logged whole,
 so a journey id in `/v1/journeys/:journeyId` does appear. A request that matches
 no route writes no line of its own beyond these two.
 

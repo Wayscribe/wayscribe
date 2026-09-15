@@ -122,6 +122,33 @@ describe("request metrics", () => {
     const response = await app().inject({ method: "GET", url: "/metrics" });
     expect(response.statusCode).toBe(404);
   });
+
+  it("counts a URL the router refuses, in the API's error shape, without echoing it", async () => {
+    // Fastify answers these two before any route or hook runs, in its own
+    // shape and quoting the path, so they were neither counted nor enveloped.
+    const api = app();
+    const malformed = await api.inject({ method: "GET", url: "/v1/journeys/%E0%A4%A" });
+    const tooLong = await api.inject({
+      method: "GET",
+      url: `/v1/journeys/${"jrn_long_secret_".repeat(80)}`
+    });
+
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.json<{ error: { code: string } }>().error.code).toBe("bad_url");
+    expect(malformed.body).not.toContain("%E0%A4%A");
+    expect(tooLong.statusCode).toBe(414);
+    expect(tooLong.json<{ error: { code: string } }>().error.code).toBe("parameter_too_long");
+    expect(tooLong.body).not.toContain("jrn_long_secret_");
+
+    const text = await api.metrics.render();
+    expect(text).toContain(
+      'flight_recorder_http_requests_total{method="GET",route="unmatched",status="400"} 1'
+    );
+    expect(text).toContain(
+      'flight_recorder_http_requests_total{method="GET",route="unmatched",status="414"} 1'
+    );
+    expect(text).not.toContain("jrn_long_secret_");
+  });
 });
 
 describe("the metrics listener", () => {
