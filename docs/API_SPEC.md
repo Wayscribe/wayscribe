@@ -191,6 +191,12 @@ Conflicts use `409`:
 | `event_id_conflict` | the event id is already stored with different content |
 | `journey_environment_mismatch` | the journey id belongs to another environment of the project. A journey cannot span environments (ADR-038); nothing is stored for the event, and the message does not name the other environment |
 
+Because the environment that records a journey id first owns it, a caller that
+chooses journey ids must make them unpredictable: a key for another environment
+can record a guessable id first, and every event the owner later sends for it is
+refused with this code. A journey id propagated from a service in one environment
+to a service in another is refused the same way (`EVENT_PROTOCOL.md` §4).
+
 ## 4. Ingest a batch
 
 ```http

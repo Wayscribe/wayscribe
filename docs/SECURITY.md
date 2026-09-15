@@ -47,6 +47,15 @@ Nor may an API key write into one. A journey belongs to the environment that cre
 and ingestion refuses an event for it from another environment's key with
 `journey_environment_mismatch` (ADR-038).
 
+That refusal is itself something a key can aim. A key for one environment that
+records a journey id first owns it, so if ids are predictable (`jrn_order_1001`)
+a leaked development key can pre-record the ids production will use, and
+production's events for them are refused and never stored. Journey ids must be
+unpredictable: the Node SDK uses random UUIDs, and an application choosing its
+own should too (`EVENT_PROTOCOL.md` §4). Event ids are unique per project and can
+be claimed the same way, answered `event_id_conflict`; they should be random for
+the same reason. A journey id propagated across environments is refused too.
+
 ### Guessing the admin token
 
 The admin token reads every payload of every project, and it is one shared
@@ -439,6 +448,11 @@ By default, propagate only:
 Do not propagate aliases automatically.
 
 Allow projects to propagate only the journey ID.
+
+Propagation does not cross environments. A journey id propagated from a service
+in one environment to one in another is refused at ingestion with
+`journey_environment_mismatch`, and the receiving service's events for it are not
+stored; the receiving service should start a journey of its own.
 
 ## 11. Input limits
 

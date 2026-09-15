@@ -337,7 +337,11 @@ changes far less often.
   gains a `Journey environments` check that fails when an earlier build already
   stored events across environments; `docs/OPERATIONS.md` §12 lists them.
   The check holds the journey row `FOR KEY SHARE`, which keeps a deletion out
-  and does not queue other events for the same journey behind it.
+  and does not queue other events for the same journey behind it. Journey ids
+  an application chooses itself must now be unpredictable, since a key for
+  another environment that records a guessable id first owns it, and a journey
+  id propagated from one environment to another is refused
+  (`docs/EVENT_PROTOCOL.md` §4).
 - **The project picker is no longer an open redirect.** Its return path was
   checked before normalisation and used after it, so `/.//evil.test/phish`,
   `/..//evil.test`, `/%2e//evil.test` and `/./\evil.test` passed as local paths
