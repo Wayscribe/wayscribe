@@ -116,22 +116,58 @@ a name in exactly these shapes, in the SDK and on the server alike:
 - **a name-value pair**: an array element that is itself a two-element array
   whose first item is a string, such as the `[["Authorization", "Bearer …"]]`
   header list fetch and undici accept. The second item is replaced.
+- **a name-value object**: an array element that is a plain object with exactly
+  the keys `name` and `value`, as in a HAR file, or `key` and `value`, as in
+  Playwright's `headersArray`, with a string name. `value` is replaced.
 - **an interleaved header list**: a flat array of strings of even length whose
-  every even-indexed item is a valid HTTP header name token, and at least one of
-  them a common header (`host`, `user-agent`, `content-type`, `authorization`,
-  `cookie` and a few others). Node's `rawHeaders` is this shape. The item after
-  a secret name is replaced. A list of strings that fails any of those tests is
-  left as it is, so `["password", "x"]` on its own is not reinterpreted.
+  every even-indexed item is a valid HTTP header name token or an HTTP/2
+  pseudo-header (`:` followed by a token, such as `:path` or `:status`), and at
+  least one of them a common header (`host`, `user-agent`, `content-type`,
+  `authorization`, `cookie`, the HTTP/2 pseudo-headers and a few others). Node's
+  `rawHeaders` is this shape, from `node:http` and `node:http2`, on a server's
+  request and on a client's response. The item after a secret name is replaced.
+  A list of strings that fails any of those tests is left as it is, so
+  `["password", "x"]` on its own is not reinterpreted.
 - **a header line in an HTTP header block**: a string holding a CRLF, read line
   by line up to the first empty line, where a line `Name: value` with a secret
-  name has its whole value replaced, as in `Authorization: [REDACTED]`. A
+  name has the rest of that line replaced, as in `Authorization: [REDACTED]`. A
   `http.ClientRequest`'s `_header`, which axios puts on `error.request`, is this
   shape. Nothing else in the string is touched, and a string without a CRLF is
   never examined.
 
-A secret filed in any other shape, such as a string that is not a header block
-or a list whose structure does not match the above, keeps whatever the payload
-held. Payload strings are deliberately not masked by shape (ADR-046).
+In the three positional shapes, a value that is itself one of those common
+header names is kept, so a list of header names such as
+`allowedHeaders: ["Authorization", "Content-Type"]` or a `vary` list is not
+altered. No credential is a header name.
+
+A secret filed in any other shape keeps whatever the payload held. Payload
+strings are deliberately not masked by shape (ADR-046). These are known and not
+covered:
+
+- **Header values held as `Buffer`s**, as undici can report them. A `Buffer` is
+  stored as its bytes, `{"type": "Buffer", "data": [...]}`, and no name rule
+  reads bytes.
+- **A header block whose lines end in LF alone, or CR alone**, including one
+  that mixes them with CRLF before the secret line. Only CRLF marks a header
+  block.
+- **A header line after an empty line**, such as a second request logged after
+  the first one's headers. The first empty line ends the block.
+- **obs-fold continuation lines.** In `Authorization: Bearer\r\n abc`, only
+  the first line's value is replaced, and ` abc` is stored.
+- **Names padded with whitespace**: a key `" Authorization"`, a pair or list
+  item `" Authorization"`, a header line indented by a blank, or
+  `Authorization :` with a blank before the colon.
+- **Arrays of three or more elements**, such as `["authorization", "…", "x"]`,
+  which are not pairs, and interleaved lists holding any item that is not a
+  string.
+- **Header-looking text inside prose**: a line such as `x Authorization: …`
+  whose name is not at the start of the line.
+
+The shapes also replace some values that were not secrets: a two-element array
+such as `["secret", "public-tag"]`, and a line such as `Secret: the surprise
+party` in text that happens to use CRLF line endings. Scope a rule with a dotted
+path in your own `redact` list if a name on the built-in list appears in such a
+place.
 
 ### Credentials inside error text
 

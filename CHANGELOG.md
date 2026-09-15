@@ -179,15 +179,18 @@ changes far less often.
   `ENCRYPTION_KEY`, stored as `h1.<keyId>.<hex>`, and a resend is compared under
   the key the stored hash names (ADR-048).
 - **Header credentials filed by position or inside a header block are
-  redacted.** Name rules matched object keys only, so three ordinary shapes
+  redacted.** Name rules matched object keys only, so ordinary header shapes
   were stored verbatim in the default capture mode, through the SDK and through
   ingestion: fetch and undici header tuples (`[["Authorization", "Bearer …"]]`),
-  Node's interleaved `rawHeaders`, and the `_header` string of a
-  `http.ClientRequest`, which axios puts on `error.request`. A built-in or
-  `**.` name now also matches the name of a two-element `[name, value]` array
-  element, a name in a flat string array that reads as a header list, and a
-  `Name: value` line in a CRLF-delimited header block. `SECURITY.md` §4 lists
-  exactly which shapes are covered. Rows stored earlier keep what they held.
+  Node's interleaved `rawHeaders` from HTTP/1.1 and HTTP/2, HAR and Playwright
+  `{ name, value }` arrays, and the `_header` string of a `http.ClientRequest`,
+  which axios puts on `error.request`. A built-in or `**.` name now also matches
+  the name of a two-element `[name, value]` array element, of a `{ name, value }`
+  or `{ key, value }` array element, a name in a flat string array that reads as
+  a header list (HTTP/2 pseudo-headers included), and a `Name: value` line in a
+  CRLF-delimited header block. A value that is itself a header name is kept.
+  `SECURITY.md` §4 lists exactly which shapes are covered and which are not.
+  Rows stored earlier keep what they held.
 - **Searched identifiers no longer reach the API's log.** Fastify's request log
   line carried `req.url` whole, so every `GET /v1/search?q=…` wrote the searched
   value, usually a customer identifier, to the log at `info`, along with the

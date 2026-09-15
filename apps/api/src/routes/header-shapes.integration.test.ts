@@ -1,3 +1,5 @@
+import { connect as connectHttp2, createServer as createHttp2Server } from "node:http2";
+import type { AddressInfo } from "node:net";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
 import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
@@ -14,6 +16,41 @@ const TUPLE = "Bearer " + "tok" + "_ingest_shape_" + "TUPLE21";
 const RAW = "Bearer " + "tok" + "_ingest_shape_" + "RAW22";
 const COOKIE = "sid=" + "cookie" + "_ingest_shape_" + "RAW23";
 const REQUEST = "Bearer " + "tok" + "_ingest_shape_" + "REQ24";
+const H2_BEARER = "Bearer " + "tok" + "_ingest_shape_" + "H2REQ25";
+const H2_SET_COOKIE = "sid=" + "cookie" + "_ingest_shape_" + "H2RES26";
+const H2_API_KEY = "key" + "_ingest_shape_" + "H2HAR27";
+
+/** rawHeaders from a real HTTP/2 exchange: the server's request and the client's response. */
+async function http2RawHeaders(): Promise<{ request: string[]; response: string[] }> {
+  const server = createHttp2Server();
+  let received: string[] = [];
+  server.on("request", (incoming, outgoing) => {
+    received = incoming.rawHeaders;
+    outgoing.setHeader("set-cookie", H2_SET_COOKIE);
+    outgoing.end("ok");
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address() as AddressInfo;
+  const client = connectHttp2(`http://127.0.0.1:${String(port)}`);
+  const response = await new Promise<string[]>((resolve, reject) => {
+    const stream = client.request({ ":path": "/orders", authorization: H2_BEARER });
+    stream.on("response", (_headers, _flags, rawHeaders: string[]) => {
+      resolve(rawHeaders);
+    });
+    stream.on("error", reject);
+    stream.resume();
+    stream.end();
+  });
+  client.close();
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      resolve();
+    });
+  });
+  return { request: received, response };
+}
 
 /**
  * The security review's reproduction, read back out of PostgreSQL: header
@@ -122,5 +159,55 @@ describe("header credentials in array and header-block shapes", () => {
     expect(row.input_payload.request._header).toBe(
       "POST /oauth/token HTTP/1.1\r\nAuthorization: [REDACTED]\r\nHost: 127.0.0.1:1\r\n\r\n"
     );
+  });
+
+  it("stores no credential from HTTP/2 rawHeaders or a HAR headers array", async () => {
+    const exchange = await http2RawHeaders();
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/events",
+      headers: { authorization: `Bearer ${apiKey}` },
+      payload: {
+        protocolVersion: "0.1",
+        event: {
+          id: "evt_http2_shapes",
+          journeyId: "jrn_http2_shapes",
+          environment: "development",
+          service: "customer-integration",
+          entity: { type: "customer", id: "0018Z00002ABC" },
+          operation: "delivered",
+          name: "call-upstream-h2",
+          timestamp: "2026-09-15T10:00:00.000Z",
+          input: {
+            request: { rawHeaders: exchange.request },
+            har: [
+              { name: "x-api-key", value: H2_API_KEY },
+              { name: "accept", value: "application/json" }
+            ]
+          },
+          output: { response: { rawHeaders: exchange.response } }
+        }
+      }
+    });
+    expect(response.statusCode).toBe(202);
+
+    const row = await db("journey_events")
+      .where({ project_id: projectId, id: "evt_http2_shapes" })
+      .first();
+    const stored = JSON.stringify([row.input_payload, row.output_payload, row.payload_diff]);
+
+    expect(stored).not.toContain("H2REQ25");
+    expect(stored).not.toContain("H2RES26");
+    expect(stored).not.toContain("H2HAR27");
+    const requestHeaders = row.input_payload.request.rawHeaders as string[];
+    expect(requestHeaders.slice(0, 2)).toEqual([":path", "/orders"]);
+    expect(requestHeaders[requestHeaders.indexOf("authorization") + 1]).toBe("[REDACTED]");
+    const responseHeaders = row.output_payload.response.rawHeaders as string[];
+    expect(responseHeaders.slice(0, 2)).toEqual([":status", "200"]);
+    expect(responseHeaders[responseHeaders.indexOf("set-cookie") + 1]).toBe("[REDACTED]");
+    expect(row.input_payload.har).toEqual([
+      { name: "x-api-key", value: "[REDACTED]" },
+      { name: "accept", value: "application/json" }
+    ]);
   });
 });

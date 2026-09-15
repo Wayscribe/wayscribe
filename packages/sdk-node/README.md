@@ -207,16 +207,26 @@ case, `-` and `_` ignored:
   contents of a `Map`, `Headers` or `URLSearchParams`
 - a name-value pair: an array element that is a two-element array whose first
   item is a string, such as fetch's `[["Authorization", "Bearer …"]]`
+- a name-value object in an array, with exactly the keys `name` and `value`
+  (HAR) or `key` and `value` (Playwright's `headersArray`)
 - an interleaved header list: a flat string array of even length whose
-  even-indexed items are all valid HTTP header names and include at least one
-  common header (`host`, `user-agent`, `content-type`, `authorization`, `cookie`
-  and a few others), such as Node's `rawHeaders`
+  even-indexed items are all valid HTTP header names or HTTP/2 pseudo-headers
+  such as `:path`, and include at least one common header (`host`,
+  `user-agent`, `content-type`, `authorization`, `cookie`, the pseudo-headers
+  and a few others), such as Node's `rawHeaders` from `node:http` and
+  `node:http2`, on a request or a response
 - a `Name: value` line in an HTTP header block: a string containing a CRLF, read
   up to its first empty line, such as the `_header` of the `http.ClientRequest`
-  axios puts on `error.request`; only the secret line's value is replaced
+  axios puts on `error.request`; only the rest of that line is replaced
 
-A name filed any other way, such as inside a string that is not a header block,
-is not matched. Payload strings are not masked by shape.
+In the positional shapes, a value that is itself a common header name is kept,
+so `allowedHeaders: ["Authorization", "Content-Type"]` is not altered.
+
+A name filed any other way is not matched. Payload strings are not masked by
+shape. The known gaps are listed in `SECURITY.md` section 4: header values held
+as `Buffer`s, header blocks with LF-only or CR-only line endings, a header block
+after an empty line, obs-fold continuation lines, names padded with whitespace,
+and arrays of three or more elements.
 
 Matched values are replaced with `[REDACTED]` rather than deleted, so the
 timeline still shows that the field existed.

@@ -1,4 +1,6 @@
-import { request } from "node:http";
+import { createServer, request } from "node:http";
+import { connect as connectHttp2, createServer as createHttp2Server } from "node:http2";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
 import { REDACTED, redact } from "./redact.js";
@@ -190,4 +192,195 @@ describe("header recognition scales linearly", () => {
       expect(fastest(large)).toBeLessThan(Math.max(8 * fastest(small), NOISE_FLOOR_MS));
     });
   }
+});
+
+// Built by concatenation, as above.
+const H2_BEARER = "Bearer " + "tok" + "_header_shape_" + "H2REQ05";
+const H2_COOKIE = "sid=" + "cookie" + "_header_shape_" + "H2REQ06";
+const H2_SET_COOKIE = "sid=" + "cookie" + "_header_shape_" + "H2RES07";
+const H1_BEARER = "Bearer " + "tok" + "_header_shape_" + "H1REQ08";
+const H1_SET_COOKIE = "sid=" + "cookie" + "_header_shape_" + "H1RES09";
+
+interface Exchange {
+  request: string[];
+  response: string[];
+}
+
+/**
+ * Real HTTP/2 rawHeaders from both ends of one exchange: the server's view of
+ * the request and the client's view of the response.
+ */
+async function http2Exchange(): Promise<Exchange> {
+  const server = createHttp2Server();
+  let received: string[] = [];
+  server.on("request", (incoming, outgoing) => {
+    received = incoming.rawHeaders;
+    outgoing.setHeader("set-cookie", H2_SET_COOKIE);
+    outgoing.end("ok");
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address() as AddressInfo;
+  const client = connectHttp2(`http://127.0.0.1:${String(port)}`);
+  const response = await new Promise<string[]>((resolve, reject) => {
+    const stream = client.request({ ":path": "/", authorization: H2_BEARER, cookie: H2_COOKIE });
+    stream.on("response", (_headers, _flags, rawHeaders: string[]) => {
+      resolve(rawHeaders);
+    });
+    stream.on("error", reject);
+    stream.resume();
+    stream.end();
+  });
+  client.close();
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      resolve();
+    });
+  });
+  return { request: received, response };
+}
+
+/** The same for HTTP/1.1: IncomingMessage.rawHeaders on the server and on the client. */
+async function http1Exchange(): Promise<Exchange> {
+  let received: string[] = [];
+  const server = createServer((incoming, outgoing) => {
+    received = incoming.rawHeaders;
+    outgoing.setHeader("set-cookie", H1_SET_COOKIE);
+    outgoing.end("ok");
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address() as AddressInfo;
+  const response = await new Promise<string[]>((resolve) => {
+    const outgoing = request({ host: "127.0.0.1", port, headers: { Authorization: H1_BEARER } });
+    outgoing.on("response", (incoming) => {
+      incoming.resume();
+      resolve(incoming.rawHeaders);
+    });
+    outgoing.end();
+  });
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      resolve();
+    });
+  });
+  return { request: received, response };
+}
+
+describe("rawHeaders from real HTTP/1.1 and HTTP/2 exchanges", () => {
+  it("redacts HTTP/2 request rawHeaders, pseudo-headers and all", async () => {
+    const exchange = await http2Exchange();
+    // The shape under test, asserted so a Node change cannot make this vacuous.
+    expect(exchange.request[0]).toBe(":path");
+    const stored = JSON.stringify(builtIn({ rawHeaders: exchange.request }));
+    expect(stored).not.toContain("H2REQ05");
+    expect(stored).not.toContain("H2REQ06");
+    expect(stored).toContain('":method","GET"');
+    expect(stored).toContain('"authorization","[REDACTED]"');
+  });
+
+  it("redacts HTTP/2 response rawHeaders a client receives", async () => {
+    const exchange = await http2Exchange();
+    expect(exchange.response[0]).toBe(":status");
+    const stored = JSON.stringify(builtIn({ rawHeaders: exchange.response }));
+    expect(stored).not.toContain("H2RES07");
+    expect(stored).toContain('":status","200"');
+    expect(stored).toContain('"set-cookie","[REDACTED]"');
+  });
+
+  it("redacts HTTP/1.1 rawHeaders in both directions", async () => {
+    const exchange = await http1Exchange();
+    const stored = JSON.stringify(builtIn(exchange));
+    expect(stored).not.toContain("H1REQ08");
+    expect(stored).not.toContain("H1RES09");
+    expect(stored).toContain('"Authorization","[REDACTED]"');
+  });
+
+  it("does not accept a colon that is not followed by a token as a pseudo-header", () => {
+    const bare = [":", "kept", "host", "h", "authorization", "kept too"];
+    const spaced = [": path", "kept", "host", "h", "authorization", "kept too"];
+    expect(builtIn({ bare, spaced })).toEqual({ bare, spaced });
+  });
+});
+
+describe("headers filed as name and value objects", () => {
+  it("redacts a HAR or Playwright headersArray entry", () => {
+    const result = builtIn({
+      har: [
+        { name: "Authorization", value: BEARER },
+        { name: "Accept", value: "application/json" }
+      ],
+      playwright: [
+        { key: "Cookie", value: RAW_COOKIE },
+        { key: "x-request-id", value: "req_42" }
+      ]
+    });
+    expect(JSON.stringify(result)).not.toContain("TUPLE01");
+    expect(JSON.stringify(result)).not.toContain("RAW03");
+    expect(result).toEqual({
+      har: [
+        { name: "Authorization", value: REDACTED },
+        { name: "Accept", value: "application/json" }
+      ],
+      playwright: [
+        { key: "Cookie", value: REDACTED },
+        { key: "x-request-id", value: "req_42" }
+      ]
+    });
+  });
+
+  it("uses a configured any-depth name as well", () => {
+    expect(redact({ fields: [{ name: "ssn", value: "111-22-3333" }] }, ["**.ssn"])).toEqual({
+      fields: [{ name: "ssn", value: REDACTED }]
+    });
+  });
+
+  it("leaves objects with other names, other keys or extra keys unchanged", () => {
+    const rows = [
+      { name: "color", value: "red" },
+      { label: "authorization", value: "kept" },
+      { name: "authorization", value: "kept", comment: "three keys" },
+      { name: "authorization", data: "kept" },
+      { name: 7, value: "kept" }
+    ];
+    expect(builtIn({ rows })).toEqual({ rows });
+  });
+});
+
+describe("values that are themselves header names", () => {
+  // A list of header names is configuration, not headers. Read as pairs, the
+  // name after `authorization` or `cookie` was replaced, which a diff then
+  // showed as a change nobody made.
+  it("keeps an allowedHeaders list", () => {
+    const allowedHeaders = ["Authorization", "Content-Type"];
+    expect(builtIn({ allowedHeaders })).toEqual({ allowedHeaders });
+  });
+
+  it("keeps a vary list", () => {
+    const vary = ["content-type", "authorization", "cookie", "accept"];
+    expect(builtIn({ vary })).toEqual({ vary });
+  });
+
+  it("keeps a pair whose value is a header name", () => {
+    const exposeHeaders = [
+      ["authorization", "x-api-key"],
+      ["set-cookie", "Set-Cookie"]
+    ];
+    expect(builtIn({ exposeHeaders })).toEqual({ exposeHeaders });
+  });
+
+  it("still redacts a real value in the same shapes", () => {
+    expect(builtIn(["Authorization", BEARER, "Content-Type", "application/json"])).toEqual([
+      "Authorization",
+      REDACTED,
+      "Content-Type",
+      "application/json"
+    ]);
+    expect(builtIn([["cookie", RAW_COOKIE]])).toEqual([["cookie", REDACTED]]);
+    expect(builtIn([{ name: "cookie", value: RAW_COOKIE }])).toEqual([
+      { name: "cookie", value: REDACTED }
+    ]);
+  });
 });

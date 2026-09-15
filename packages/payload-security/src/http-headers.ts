@@ -8,6 +8,9 @@
  * keeps in `_header`, which axios puts on `error.request`. The security review
  * stored all three verbatim in the default capture mode.
  *
+ * HAR files and Playwright's `headersArray` add a fourth, `{ name, value }` or
+ * `{ key, value }` objects in an array.
+ *
  * Every shape is recognised narrowly. A pair or an interleaved list is read as
  * headers only when its structure says so, and only a header *line* inside a
  * header block is masked, never the rest of the string: ADR-046 rejected
@@ -25,13 +28,49 @@ export function isNamedPair(value: unknown): value is [string, unknown] {
 }
 
 /**
+ * The key holding the name, when the value is a plain object with exactly the
+ * keys `name` and `value` (HAR) or `key` and `value` (Playwright), and the name
+ * is a string. Any other key, or a third one, and it is an ordinary object.
+ */
+export function namedValueKey(value: unknown): "name" | "key" | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  if (prototype !== Object.prototype && prototype !== null) return undefined;
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !keys.includes("value")) return undefined;
+  const record = value as Record<string, unknown>;
+  if (keys.includes("name") && typeof record["name"] === "string") return "name";
+  if (keys.includes("key") && typeof record["key"] === "string") return "key";
+  return undefined;
+}
+
+/**
+ * Whether a value filed under a header's name is itself a header name.
+ *
+ * `allowedHeaders: ["Authorization", "Content-Type"]` and a `vary` list read as
+ * name-value pairs, and replacing `Content-Type` after `Authorization` put a
+ * change into the diff that nobody made. No credential is a header name, so a
+ * value that is one is kept in every positional shape.
+ */
+export function isKnownHeaderName(value: unknown): boolean {
+  return typeof value === "string" && KNOWN_HEADER_NAMES.has(value.toLowerCase());
+}
+
+/**
  * Header names common enough that one of them marks a flat list as headers.
  *
  * A flat string array of even length whose even items are all tokens is still
  * most often just a list, `["apple", "banana"]`, so structure alone is not
- * enough: at least one name must be a header nearly every request carries.
+ * enough: at least one name must be a header nearly every request or response
+ * carries. HTTP/2's pseudo-headers count, since nothing else is spelled that way.
  */
 const KNOWN_HEADER_NAMES: ReadonlySet<string> = new Set([
+  ":authority",
+  ":method",
+  ":path",
+  ":protocol",
+  ":scheme",
+  ":status",
   "accept",
   "accept-encoding",
   "accept-language",
@@ -42,23 +81,32 @@ const KNOWN_HEADER_NAMES: ReadonlySet<string> = new Set([
   "content-type",
   "cookie",
   "date",
+  "etag",
   "host",
+  "if-none-match",
+  "location",
   "origin",
   "proxy-authorization",
   "referer",
   "set-cookie",
   "transfer-encoding",
   "user-agent",
+  "vary",
+  "www-authenticate",
   "x-api-key",
   "x-forwarded-for",
   "x-request-id"
 ]);
 
 /**
- * Node's `rawHeaders` shape: `[name, value, name, value, ...]`.
+ * Node's `rawHeaders` shape, from `node:http` and `node:http2` alike:
+ * `[name, value, name, value, ...]`.
  *
  * Every item a string, an even length, every name a valid HTTP token (RFC 9110
- * section 5.6.2), and at least one name from {@link KNOWN_HEADER_NAMES}.
+ * section 5.6.2) or an HTTP/2 pseudo-header, `:` and a token, and at least one
+ * name from {@link KNOWN_HEADER_NAMES}. HTTP/2 rawHeaders open with `:path` or
+ * `:status`, and requiring plain tokens rejected every one of them, so their
+ * `authorization` and `set-cookie` were stored verbatim.
  */
 export function isInterleavedHeaders(value: readonly unknown[]): value is string[] {
   if (value.length === 0 || value.length % 2 !== 0) return false;
@@ -67,7 +115,7 @@ export function isInterleavedHeaders(value: readonly unknown[]): value is string
     const item = value[index];
     if (typeof item !== "string") return false;
     if (index % 2 !== 0) continue;
-    if (!isToken(item)) return false;
+    if (!isToken(item.startsWith(":") ? item.slice(1) : item)) return false;
     known ||= KNOWN_HEADER_NAMES.has(item.toLowerCase());
   }
   return known;
