@@ -690,7 +690,8 @@ describe("burst behaviour", () => {
     // bounded and the interval drains the remainder, so capping costs nothing
     // but a little latency.
     const { peak } = await burst(400);
-    expect(peak).toBeLessThanOrEqual(4);
+    // Eight is MAX_CONCURRENT_SENDS, measured in bench/overhead.mjs.
+    expect(peak).toBeLessThanOrEqual(8);
   });
 
   it("still delivers every event", async () => {
