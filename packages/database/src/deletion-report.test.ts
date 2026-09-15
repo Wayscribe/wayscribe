@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatBatchProgress,
   formatJourneyTable,
   parseIdentifierArgs,
   parseRangeArgs,
@@ -124,6 +125,17 @@ describe("argument parsing", () => {
     const missing = parseRangeArgs(["acme", "production"]);
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.message).toContain("--before is required");
+  });
+});
+
+describe("formatBatchProgress", () => {
+  it("counts in words that agree with the number", () => {
+    expect(formatBatchProgress({ batch: 1, deletedJourneys: 1, deletedEvents: 3 })).toBe(
+      "  batch 1: 1 journey deleted so far"
+    );
+    expect(formatBatchProgress({ batch: 2, deletedJourneys: 1000, deletedEvents: 3 })).toBe(
+      "  batch 2: 1000 journeys deleted so far"
+    );
   });
 });
 

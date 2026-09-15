@@ -378,10 +378,12 @@ update `environments.retention_days` for those.
 
 ## 8. Deleting data
 
-Retention removes data by age. These commands remove it on demand, for the two
-cases retention cannot wait for: a redaction miss that stored something it
-should not have, and a customer asking to be forgotten. A fourth removes a
-replay destination (ADR-045).
+Retention removes data by age. Three commands remove it on demand: one journey,
+every journey matching an identifier, and an environment's journeys in a time
+window. They cover what retention cannot wait for: a redaction miss that stored
+something it should not have, a customer asking to be forgotten, and a noisy
+window such as a load test. A fourth command removes a replay destination
+(ADR-045).
 
 Every deletion is a hard delete. A journey's events, its aliases, and the replay
 runs of those events go with it. Each deletion writes a row to `audit_events` in
@@ -437,6 +439,16 @@ because it would delete a different window depending on the server's time zone.
 `delete:identifier` needs `ENCRYPTION_KEY`, and `ENCRYPTION_KEY_PREVIOUS` during a
 rotation, because the value is matched by its search tokens under both keys. It
 never prints the value.
+
+**The value you type is still recorded outside Flight Recorder.** It stays in
+your shell's history, and anyone who can list processes on that host sees it in
+`ps` while the command runs. In bash with `HISTCONTROL=ignorespace` (or zsh with
+`setopt HIST_IGNORE_SPACE`), start the command with a space and it is not saved;
+otherwise remove the line afterwards (`history -d <number>` in bash). Run it on a
+host whose process list only operators can read.
+
+A value or id that begins with a dash goes after `--`, so it is not read as an
+option: `pnpm delete:identifier acme -- -A1`.
 
 `delete:range` takes the retention sweep's advisory lock, so a range deletion
 and a sweep never run at once. While the sweep holds it the command deletes

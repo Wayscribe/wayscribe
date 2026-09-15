@@ -187,6 +187,11 @@ export function parseRangeArgs(args: readonly string[]): RangeArgs {
   };
 }
 
+/** One line as each batch commits, so a long run shows it is moving. */
+export function formatBatchProgress(progress: BatchProgress): string {
+  return `  batch ${String(progress.batch)}: ${count(progress.deletedJourneys, "journey")} deleted so far`;
+}
+
 export function formatJourneyTable(journeys: readonly MatchedJourney[]): string[] {
   const header = ["ID", "ENVIRONMENT", "ENTITY TYPE", "EVENTS", "LAST ACTIVITY"];
   const rows = journeys.map((journey) => [

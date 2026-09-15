@@ -1,6 +1,7 @@
 import type { Keyring } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import {
+  formatBatchProgress,
   parseIdArgs,
   parseIdentifierArgs,
   parseRangeArgs,
@@ -55,9 +56,7 @@ export async function runDeletionCommand(
 ): Promise<Report> {
   const { db } = deps;
   const onBatch = (progress: BatchProgress): void => {
-    deps.progress(
-      `  batch ${String(progress.batch)}: ${String(progress.deletedJourneys)} journeys deleted so far`
-    );
+    deps.progress(formatBatchProgress(progress));
   };
 
   switch (command) {
