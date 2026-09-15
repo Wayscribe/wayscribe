@@ -47,7 +47,7 @@ export function decryptField(key: Buffer, encoded: string): string {
 const ENVELOPE_PREFIX = "fr1.";
 const KEY_ID_PATTERN = /^[0-9a-f]{12}$/;
 
-export type ParsedValue =
+export type ParsedEncryptedValue =
   { kind: "legacy" } | { kind: "envelope"; keyId: string; payload: string } | { kind: "malformed" };
 
 /**
@@ -73,7 +73,7 @@ export function encryptValue(keyring: Keyring, plaintext: string): string {
  * as the ordinary decryption failure: there is no id to blame.
  */
 export function decryptValue(keyring: Keyring, value: string): string {
-  const parsed = parseEnvelope(value);
+  const parsed = parseEncryptedValue(value);
   if (parsed.kind === "malformed") throw new Error(MALFORMED);
   if (parsed.kind === "envelope") {
     const material = keyMaterialFor(keyring, parsed.keyId);
@@ -98,10 +98,10 @@ export function decryptValue(keyring: Keyring, value: string): string {
  *
  * A malformed envelope throws rather than returning null: calling it legacy
  * would send it down a path that tries both keys and reports a misleading cause.
- * Code that must keep going past a bad row uses `parseEnvelope` instead.
+ * Code that must keep going past a bad row uses `parseEncryptedValue` instead.
  */
 export function keyIdOf(value: string): string | null {
-  const parsed = parseEnvelope(value);
+  const parsed = parseEncryptedValue(value);
   if (parsed.kind === "malformed") throw new Error(MALFORMED);
   return parsed.kind === "envelope" ? parsed.keyId : null;
 }
@@ -113,7 +113,7 @@ export function keyIdOf(value: string): string | null {
  * unrecoverable. A throw there would abort the batch, and every resume would
  * stop on the same row, so the malformed case is a result rather than an error.
  */
-export function parseEnvelope(value: string): ParsedValue {
+export function parseEncryptedValue(value: string): ParsedEncryptedValue {
   // Standard base64 never contains ".", so no legacy value starts with the prefix.
   if (!value.startsWith(ENVELOPE_PREFIX)) return { kind: "legacy" };
 

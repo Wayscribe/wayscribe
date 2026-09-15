@@ -20,8 +20,8 @@ export {
   decryptValue,
   encryptValue,
   keyIdOf,
-  parseEnvelope,
-  type ParsedValue
+  parseEncryptedValue,
+  type ParsedEncryptedValue
 } from "./encryption.js";
 export { createKeyring, UnknownKeyError, type KeyMaterial, type Keyring } from "./keyring.js";
 export {

@@ -5,7 +5,7 @@ import {
   encryptField,
   encryptValue,
   keyIdOf,
-  parseEnvelope
+  parseEncryptedValue
 } from "./encryption.js";
 import { createKeyring, UnknownKeyError } from "./keyring.js";
 import { deriveSubkeys, keyFingerprint } from "./keys.js";
@@ -194,16 +194,16 @@ describe("decryptValue", () => {
   });
 });
 
-describe("parseEnvelope", () => {
+describe("parseEncryptedValue", () => {
   const payload = encryptField(key, "secret");
 
   it("calls a value without the prefix legacy", () => {
-    expect(parseEnvelope(payload)).toEqual({ kind: "legacy" });
-    expect(parseEnvelope("")).toEqual({ kind: "legacy" });
+    expect(parseEncryptedValue(payload)).toEqual({ kind: "legacy" });
+    expect(parseEncryptedValue("")).toEqual({ kind: "legacy" });
   });
 
   it("splits an envelope into its key id and payload", () => {
-    expect(parseEnvelope(`fr1.${idA}.${payload}`)).toEqual({
+    expect(parseEncryptedValue(`fr1.${idA}.${payload}`)).toEqual({
       kind: "envelope",
       keyId: idA,
       payload
@@ -211,7 +211,7 @@ describe("parseEnvelope", () => {
   });
 
   it("parses what encryptValue writes", () => {
-    const parsed = parseEnvelope(encryptValue(createKeyring(masterB, masterA), "secret"));
+    const parsed = parseEncryptedValue(encryptValue(createKeyring(masterB, masterA), "secret"));
     expect(parsed.kind === "envelope" && parsed.keyId).toBe(idB);
   });
 
@@ -232,7 +232,7 @@ describe("parseEnvelope", () => {
       "fr1.ABCDEF012345." + payload
     ];
     for (const value of malformed) {
-      expect(parseEnvelope(value)).toEqual({ kind: "malformed" });
+      expect(parseEncryptedValue(value)).toEqual({ kind: "malformed" });
     }
   });
 });
