@@ -797,6 +797,9 @@ describe("key rotation commands", () => {
             cwd: packageRoot,
             env: {
               PATH: process.env["PATH"] ?? "",
+              // Workspace packages resolve to their TypeScript source, as they do
+              // under the package scripts, so this runs from an unbuilt checkout.
+              NODE_OPTIONS: "--conditions=development",
               DATABASE_URL: container.getConnectionUri(),
               ...keys
             }
