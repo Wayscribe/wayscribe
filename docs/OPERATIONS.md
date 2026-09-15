@@ -132,7 +132,7 @@ touching everywhere an operator has written it down.
 
 **Changing `ENCRYPTION_KEY` outright loses access to what is already stored.**
 Three things derive from it by HKDF: field encryption, search tokens, and the
-API-key pepper. Swap the value and restart, and every stored entity identifier,
+API-key pepper. Swap the value and recreate the API containers, and every stored entity identifier,
 alias value, and replay destination header stops decrypting, every existing
 journey stops being findable by identifier, and every issued API key answers
 401.

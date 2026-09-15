@@ -146,9 +146,10 @@ Fixing things is easy to write up. These are open:
 - **There is no way to delete captured data.** When redaction misses — which has
   now happened twice — fixing the matcher does nothing about the rows already
   written.
-- **Rotating `ENCRYPTION_KEY` is permanently destructive**, because the
-  ciphertext envelope carries no key identifier. Since closed: every value now
-  names its key, and rotation is a grace period with a re-encryption command
-  (ADR-044), so this one is no longer on the roadmap.
 
 They are on [the roadmap](ROADMAP.md), listed as open rather than as done.
+
+One item on this list when it was first written has since closed. **Rotating
+`ENCRYPTION_KEY` was permanently destructive**, because the ciphertext envelope
+carried no key identifier. Every value now names its key, and rotation is a
+grace period with a re-encryption command (ADR-044).

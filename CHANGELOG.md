@@ -198,6 +198,9 @@ audit, all merged the same day. The pattern behind them is written up in
   the same key, and `rotate:status` then exits 0. API keys issued before this
   release show `key id not recorded yet; recorded on next use` and do not hold
   the exit code at 1 unless a rotation is under way.
+- **This release cannot be rolled back once it has written `fr1.` values.** An
+  earlier build cannot read them, and it would send replays without their
+  destination headers. To roll back, restore the backup taken before upgrading.
 
 ### Added
 
@@ -239,7 +242,8 @@ The first development release. Everything below works, is tested, and runs.
 - The admin token is a single shared secret with no user accounts and no record
   of who used it.
 - Rotating `ENCRYPTION_KEY` is destructive: it orphans every search token and
-  invalidates every API key. There is no re-encryption tool.
+  invalidates every API key. There is no re-encryption tool. (Resolved under
+  Unreleased: rotation is a grace period with `rotate:reencrypt`, ADR-044.)
 - Propagated journey context is validated for shape but is not authenticated.
 - Of the five verbs in the product promise, **changed** and **rejected** are
   demonstrated end to end. Duplication and loss are not yet first-class.

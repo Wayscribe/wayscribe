@@ -1484,9 +1484,10 @@ write across every encrypted table, and it should start when someone decides it 
 
 When data is under a key that is not configured, the API still starts and says so: one warning
 at boot with counts per table, and one per unknown key id on read. Refusing to start would stop
-ingestion over a read problem whose fix, putting the key back, is a restart either way. A
-replay whose destination headers cannot be decrypted is refused and recorded, because sending it
-without the destination's credentials would be a different request from the one configured.
+ingestion over a read problem whose fix, putting the key back, means recreating the API with it
+either way. A replay whose destination headers cannot be decrypted is refused and recorded,
+because sending it without the destination's credentials would be a different request from the
+one configured.
 
 ### Consequences
 

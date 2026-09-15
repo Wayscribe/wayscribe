@@ -1,5 +1,7 @@
 # Rotating `ENCRYPTION_KEY` — design
 
+> Superseded where they differ by the plan (`docs/superpowers/plans/2026-09-15-key-rotation.md`) and ADR-044: notably `rotate:reencrypt`'s upgrade mode with no previous key, the boot check sampling the first and last legacy row, and recreating rather than restarting the API after a key change.
+
 Date: 2026-09-15. Status: approved for planning (autonomous v1 work, see the
 project's v1 scope).
 
