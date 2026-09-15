@@ -56,6 +56,58 @@ web:
     port: 3000
   resources: {}
 
+# Security contexts for the API, web and migrate pods.
+#
+# The images run as the `node` user (uid and gid 1000) from node:24-alpine, and
+# nothing they execute writes to the image: the root filesystem is mounted
+# read-only, with an emptyDir at /tmp for all three and at the Next.js cache
+# directory for the web pod. How that was checked is in deploy/helm/README.md.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# Optional NetworkPolicies, off by default: a policy is only enforced by a CNI
+# that supports it, and one that silently does nothing reads as protection.
+#
+# When on, the API and web pods accept traffic only on their HTTP ports (and the
+# API's metrics port when set), the web pod reaches only the API and DNS, and the
+# API and migrate pods reach only DNS and the database. Replay sends requests to
+# the hosts in api.replayAllowedHosts, so a cluster that replays needs those
+# destinations in `apiExtraEgress`, or replays fail to connect.
+networkPolicy:
+  enabled: false
+  # Peers allowed to reach the API and web HTTP ports. Empty allows every
+  # source, which an ingress controller and in-cluster SDK clients both need.
+  # Readiness probes come from the kubelet on the node; check your CNI allows
+  # them before narrowing this.
+  ingressFrom: []
+  # Where the database is, for egress from the API and migrate pods. Ignored
+  # when postgresql.enabled, which selects the in-cluster pod instead. An empty
+  # `to` allows the port to any destination.
+  database:
+    port: 5432
+    to: []
+    # - ipBlock:
+    #     cidr: 10.0.12.0/24
+  # Extra egress rules for the API pod, such as replay destinations.
+  apiExtraEgress: []
+  # - to:
+  #     - ipBlock:
+  #         cidr: 192.168.1.0/24
+  #   ports:
+  #     - port: 8081
+  #       protocol: TCP
+
 # Applied before install and before upgrade, mirroring the `migrate` service in
 # Compose so there is one answer to who applies schema. Turn it off if your team
 # runs migrations through its own process.
@@ -75,6 +127,22 @@ postgresql:
   storage: 2Gi
   # Empty uses the cluster default, which is what a local cluster wants.
   storageClass: ""
+  # The postgres image's own user is uid and gid 70. Started as that user
+  # rather than as root, the entrypoint skips its chown and privilege drop,
+  # which is why the data volume needs fsGroup to be writable. Its socket
+  # directory and /tmp are emptyDirs so the root filesystem can be read-only.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 70
+    runAsGroup: 70
+    fsGroup: 70
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
 
 # Off. A local cluster reaches the interface with `kubectl port-forward`, and a
 # chart that assumes an ingress controller fails on the machine it was written

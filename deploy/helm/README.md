@@ -67,6 +67,7 @@ restart them yourself; the procedure is in `docs/OPERATIONS.md` §6.
 | `Secret` | unless you bring your own |
 | `postgresql` StatefulSet | only when `postgresql.enabled` |
 | `Ingress` | only when `ingress.enabled`; off by default |
+| `NetworkPolicy` per pod | only when `networkPolicy.enabled`; off by default |
 
 `api.metricsPort` turns on the metrics listener and adds a container port named
 `metrics`. Neither Service nor ingress carries it, so it is reachable only by
@@ -76,6 +77,54 @@ statement timeout (`docs/OPERATIONS.md` §13).
 Values are named after the environment variables they set, so the mapping to
 `infrastructure/compose.published.yaml` is mechanical. Two deployment shapes now
 exist and a variable added to one has to reach the other.
+
+## Pod security
+
+Every pod runs as a non-root user with `seccompProfile: RuntimeDefault`, no
+privilege escalation, every capability dropped, and a read-only root filesystem.
+The API, web and migrate pods run as the images' `node` user (uid and gid
+1000); the bundled PostgreSQL runs as the postgres image's own user (uid and
+gid 70), with `fsGroup` making its volume writable, since started that way its
+entrypoint does not chown anything.
+
+Writable paths are emptyDirs: `/tmp` in every pod, `.next/cache` in the web
+pod, and the socket directory `/var/run/postgresql` in PostgreSQL. The API and
+web images were started with `docker run --read-only`, no capabilities and no
+new privileges, and served ingestion, the journey page and sign-in; they also
+started with no writable mount at all, so the emptyDirs are for what Node and
+Next.js may write rather than something observed. PostgreSQL initialised its
+data directory and accepted connections the same way. The chart was then
+installed on kind with these settings and the NetworkPolicies below, and
+recorded and displayed an event.
+
+Override `podSecurityContext`, `containerSecurityContext`, or the same two
+under `postgresql`, if your images run as a different user.
+
+## Network policies
+
+`networkPolicy.enabled` (off by default) adds a NetworkPolicy per pod. A policy
+is enforced only by a CNI that supports them; kind's default does.
+
+| Pod | Ingress | Egress |
+| --- | --- | --- |
+| api | port 8080 from `networkPolicy.ingressFrom` (everything when empty), and the metrics port when set | DNS, the database, `networkPolicy.apiExtraEgress` |
+| web | port 3000 from `networkPolicy.ingressFrom` | DNS, the API on 8080 |
+| migrate | none | DNS, the database |
+| postgresql | 5432 from the api and migrate pods | none |
+
+The database is the bundled PostgreSQL pod when `postgresql.enabled`, and
+otherwise port `networkPolicy.database.port` (5432) to `networkPolicy.database.to`,
+or to anywhere when that is empty.
+
+Two things the policies change:
+
+- **Replay.** The API sends replays to the hosts in `api.replayAllowedHosts`.
+  Add those destinations to `networkPolicy.apiExtraEgress`, or replays fail to
+  connect.
+- **Running the CLI in the cluster.** With the bundled database, a pod without
+  the chart's labels cannot reach PostgreSQL, so the `kubectl run` above times
+  out. Give it the migrate pod's labels:
+  `--labels=app.kubernetes.io/name=flight-recorder,app.kubernetes.io/instance=fr,app.kubernetes.io/component=migrate`.
 
 ## Why migrations run *after* install
 

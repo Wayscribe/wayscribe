@@ -157,6 +157,14 @@ changes far less often.
 
 ### Security
 
+- **The Helm chart runs every pod locked down.** Non-root users (the images'
+  `node` user, and uid 70 for the bundled PostgreSQL), `seccompProfile:
+  RuntimeDefault`, no privilege escalation, all capabilities dropped, and a
+  read-only root filesystem with emptyDirs for `/tmp`, the Next.js cache and the
+  PostgreSQL socket directory. `networkPolicy.enabled`, off by default, adds a
+  NetworkPolicy per pod limiting ingress to the HTTP ports and egress to DNS,
+  the database and the API; replay destinations go in
+  `networkPolicy.apiExtraEgress` (`deploy/helm/README.md`).
 - **The stored content hash is keyed.** It covered the event as received,
   before masking, and was an unkeyed SHA-256, so anyone who could read the
   database could rebuild an event from its row with guesses in place of
