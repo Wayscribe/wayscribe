@@ -160,18 +160,34 @@ const TRUNCATED = "[TRUNCATED]";
  * recognises it, as `postgres://app:hunt` without its `@` shows. With the wider
  * window, a credential that reaches the kept part was seen whole unless it is
  * itself longer than the limit.
+ *
+ * The cut text is then masked again, and cut again if that changed it, until
+ * masking leaves it alone. A cut can change how what remains reads:
+ * `cookie: session expired` is a sentence, and `cookie: session[TRUNCATED]` is
+ * not. Sending that would let the server's pass rewrite a message the SDK had
+ * already masked. Text that has not settled after a few rounds, which no known
+ * input reaches, is sent as the marker alone rather than as something the
+ * server would change.
  */
-function boundedMaskedText(text: string, limit: number): string {
-  if (text.length <= limit) {
-    const masked = maskSecretsInText(text);
-    if (masked.length <= limit) return masked;
-    return cut(masked, limit);
+export function boundedMaskedText(text: string, limit: number): string {
+  const window = text.length <= limit ? text : text.slice(0, 2 * limit);
+  let bounded = fit(maskSecretsInText(window), limit);
+  for (let round = 0; round < SETTLING_ROUNDS; round += 1) {
+    const remasked = maskSecretsInText(bounded);
+    if (remasked === bounded) return bounded;
+    bounded = fit(remasked, limit);
   }
-  return cut(maskSecretsInText(text.slice(0, 2 * limit)), limit);
+  return TRUNCATED;
 }
 
-/** Cut to `limit` including the marker, repairing a surrogate pair split by the cut. */
-function cut(text: string, limit: number): string {
+const SETTLING_ROUNDS = 4;
+
+/**
+ * `text` if it fits, or cut to `limit` including the marker. Either way a
+ * surrogate pair split by a cut, here or at the window's edge, is repaired.
+ */
+function fit(text: string, limit: number): string {
+  if (text.length <= limit) return text.toWellFormed();
   return text.slice(0, limit - TRUNCATED.length).toWellFormed() + TRUNCATED;
 }
 
