@@ -26,6 +26,8 @@ export interface ReplayRouteOptions {
   adminToken: string;
   keyring: Keyring;
   allowedHosts: readonly string[];
+  /** Told the id of a key a read needed and the keyring lacks. */
+  warnUnknownKey?: (keyId: string) => void;
 }
 
 /**
@@ -211,6 +213,9 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
     // unauthenticated and look like the destination had broken, so the attempt
     // is refused and recorded like any other refusal.
     if (!configured.ok) {
+      if (configured.reason === "headers_key_not_configured") {
+        options.warnUnknownKey?.(configured.keyId);
+      }
       const refusal = headersRefusal(configured);
       await finishRun(app.db, projectId, runId, { status: "blocked", error: refusal });
       await recordAudit(app.db, {

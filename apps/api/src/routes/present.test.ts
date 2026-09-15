@@ -24,6 +24,14 @@ describe("presentEntityId", () => {
     expect(presentEntityId(createKeyring(KEY_B), written)).toBeNull();
   });
 
+  it("reports the missing key's id, and only for a missing key", () => {
+    const met: string[] = [];
+    const written = encryptValue(key, "0018Z00002ABC");
+    expect(presentEntityId(createKeyring(KEY_B), written, (keyId) => met.push(keyId))).toBeNull();
+    expect(presentEntityId(key, "not-real-ciphertext", (keyId) => met.push(keyId))).toBeNull();
+    expect(met).toEqual([key.current.id]);
+  });
+
   it("returns null when nothing was stored", () => {
     expect(presentEntityId(key, null)).toBeNull();
   });
@@ -52,6 +60,17 @@ describe("presentAliases", () => {
       }
     ]);
     expect(result).toEqual([{ type: "salesforceAccountId", displayValue: "SF-A…001" }]);
+  });
+
+  it("reports the missing key's id for an alias under a removed key", () => {
+    const met: string[] = [];
+    const result = presentAliases(
+      createKeyring(KEY_B),
+      [{ aliasType: "salesforceAccountId", encryptedDisplayValue: encryptValue(key, "SF-1") }],
+      (keyId) => met.push(keyId)
+    );
+    expect(result).toEqual([{ type: "salesforceAccountId", displayValue: null }]);
+    expect(met).toEqual([key.current.id]);
   });
 
   it("fully masks short values", () => {

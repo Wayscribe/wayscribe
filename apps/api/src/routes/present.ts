@@ -1,5 +1,5 @@
 import { maskDisplayValue, type JourneyAlias } from "@flight-recorder/database";
-import { decryptValue, type Keyring } from "@flight-recorder/payload-security";
+import { decryptValue, UnknownKeyError, type Keyring } from "@flight-recorder/payload-security";
 
 export interface PresentedAlias {
   type: string;
@@ -15,31 +15,30 @@ export interface PresentedAlias {
  *
  * Undecryptable data returns null rather than throwing. A row under a key the
  * keyring no longer holds should degrade one field, not fail the whole request.
+ * That case, and only that one, is reported to `onUnknownKey` with the key's id,
+ * so the operator learns a key was removed too early rather than seeing blanks.
  */
-export function presentEntityId(keyring: Keyring, encrypted: string | null): string | null {
+export function presentEntityId(
+  keyring: Keyring,
+  encrypted: string | null,
+  onUnknownKey?: (keyId: string) => void
+): string | null {
   if (encrypted === null) return null;
   try {
     return decryptValue(keyring, encrypted);
-  } catch {
+  } catch (error) {
+    if (error instanceof UnknownKeyError) onUnknownKey?.(error.keyId);
     return null;
   }
 }
 
 export function presentAliases(
   keyring: Keyring,
-  aliases: readonly JourneyAlias[]
+  aliases: readonly JourneyAlias[],
+  onUnknownKey?: (keyId: string) => void
 ): PresentedAlias[] {
-  return aliases.map((alias) => ({
-    type: alias.aliasType,
-    displayValue:
-      alias.encryptedDisplayValue === null ? null : safeMask(keyring, alias.encryptedDisplayValue)
-  }));
-}
-
-function safeMask(keyring: Keyring, encrypted: string): string | null {
-  try {
-    return maskDisplayValue(decryptValue(keyring, encrypted));
-  } catch {
-    return null;
-  }
+  return aliases.map((alias) => {
+    const value = presentEntityId(keyring, alias.encryptedDisplayValue, onUnknownKey);
+    return { type: alias.aliasType, displayValue: value === null ? null : maskDisplayValue(value) };
+  });
 }

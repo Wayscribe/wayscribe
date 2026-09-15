@@ -23,7 +23,9 @@ const MAX_LIMIT = 100;
 export function registerQueryRoutes(
   app: FastifyInstance,
   keyring: Keyring,
-  adminToken: string
+  adminToken: string,
+  /** Told the id of a key a read needed and the keyring lacks. */
+  warnUnknownKey: (keyId: string) => void
 ): void {
   const apiKeys = databaseApiKeys(app.db, keyring, logVerifierReplaceFailure(app.log));
 
@@ -89,7 +91,7 @@ export function registerQueryRoutes(
             journeyId: hit.journeyId,
             entity: {
               type: hit.entityType,
-              id: presentEntityId(keyring, hit.encryptedPrimaryEntityId)
+              id: presentEntityId(keyring, hit.encryptedPrimaryEntityId, warnUnknownKey)
             },
             status: hit.status,
             eventCount: hit.eventCount,
@@ -121,10 +123,10 @@ export function registerQueryRoutes(
         journeyId: detail.journeyId,
         entity: {
           type: detail.entityType,
-          id: presentEntityId(keyring, detail.encryptedPrimaryEntityId)
+          id: presentEntityId(keyring, detail.encryptedPrimaryEntityId, warnUnknownKey)
         },
         status: detail.status,
-        aliases: presentAliases(keyring, detail.aliases),
+        aliases: presentAliases(keyring, detail.aliases, warnUnknownKey),
         services: detail.services,
         eventCount: detail.eventCount,
         startedAt: detail.startedAt.toISOString(),
