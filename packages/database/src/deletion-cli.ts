@@ -1,6 +1,7 @@
 import type { Keyring } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import {
+  parseIdArgs,
   parseIdentifierArgs,
   parseRangeArgs,
   reportDestination,
@@ -61,10 +62,9 @@ export async function runDeletionCommand(
 
   switch (command) {
     case "delete:journey": {
-      const [projectSlug, journeyId, ...extra] = args;
-      if (projectSlug === undefined || journeyId === undefined || extra.length > 0) {
-        return usage("Usage: delete:journey <project-slug> <journey-id>");
-      }
+      const parsed = parseIdArgs(args, "Usage: delete:journey <project-slug> <journey-id>");
+      if (!parsed.ok) return usage(parsed.message);
+      const { projectSlug, id: journeyId } = parsed;
       const project = await findProject(db, projectSlug);
       if (!project.ok) return project.report;
       const result = await deleteJourney(db, { projectId: project.id, journeyId, actor: ACTOR });
@@ -144,10 +144,9 @@ export async function runDeletionCommand(
     }
 
     case "delete:destination": {
-      const [projectSlug, destinationId, ...extra] = args;
-      if (projectSlug === undefined || destinationId === undefined || extra.length > 0) {
-        return usage("Usage: delete:destination <project-slug> <destination-id>");
-      }
+      const parsed = parseIdArgs(args, "Usage: delete:destination <project-slug> <destination-id>");
+      if (!parsed.ok) return usage(parsed.message);
+      const { projectSlug, id: destinationId } = parsed;
       const project = await findProject(db, projectSlug);
       if (!project.ok) return project.report;
       const result = await deleteReplayDestination(db, {

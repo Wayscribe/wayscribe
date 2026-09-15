@@ -4,8 +4,12 @@ import { createKnexConfig } from "./knex-config.js";
 
 const command = process.argv[2];
 // pnpm forwards a literal `--` separator through to the script when a run is
-// filtered to one package, so it arrives as an argument rather than as syntax.
-const args = process.argv.slice(3).filter((argument) => argument !== "--");
+// filtered to one package, so it arrives as the first argument rather than as
+// syntax. Only that one is dropped: a later `--` is the operator's own, marking
+// where values that begin with a dash start, and removing every one of them
+// made a value such as `-A1` impossible to pass.
+const forwarded = process.argv.slice(3);
+const args = forwarded[0] === "--" ? forwarded.slice(1) : forwarded;
 const databaseUrl = process.env["DATABASE_URL"];
 
 if (databaseUrl === undefined || databaseUrl === "") {

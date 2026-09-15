@@ -164,6 +164,34 @@ describe("deletion CLI", () => {
       expect(await auditActions()).toEqual(["erasure.completed"]);
     }, 60_000);
 
+    it("takes a value beginning with a dash after --, including the -- pnpm forwards", async () => {
+      await journey("jrn_dash", { hash: token("-A1") });
+      await journey("jrn_other");
+
+      const dryRun = await cli(["delete:identifier", "acme", "--dry-run", "--", "-A1"]);
+      expect(dryRun.stderr).toBe("");
+      expect(dryRun.code).toBe(0);
+      expect(dryRun.stdout).toMatch(/^jrn_dash\s+production/m);
+
+      const unmarked = await cli(["delete:identifier", "acme", "-A1"]);
+      expect(unmarked.code).toBe(1);
+      expect(unmarked.stderr).toContain("delete:identifier acme -- -A1");
+
+      // What `pnpm delete:identifier acme -- -A1` runs: pnpm puts its own --
+      // before the arguments, and only that one may be dropped.
+      const forwarded = await cli(["delete:identifier", "--", "acme", "--", "-A1"]);
+      expect(forwarded.stderr).toBe("");
+      expect(forwarded.code).toBe(0);
+      expect(forwarded.stdout).toContain("Deleted 1 journey and 1 event");
+      expect(await journeyIds()).toEqual(["jrn_other"]);
+
+      await journey("-jrn_dash_id");
+      const byId = await cli(["delete:journey", "--", "acme", "--", "-jrn_dash_id"]);
+      expect(byId.stderr).toBe("");
+      expect(byId.code).toBe(0);
+      expect(await journeyIds()).toEqual(["jrn_other"]);
+    }, 60_000);
+
     it("exits 1 for an unknown environment, an empty value, and a missing key", async () => {
       await journey("jrn_match", { hash: token(VALUE) });
 

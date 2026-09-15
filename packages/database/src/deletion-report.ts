@@ -31,7 +31,8 @@ export interface ReportContext {
 }
 
 const IDENTIFIER_USAGE =
-  "Usage: delete:identifier <project-slug> <value> [--environment <name>] [--dry-run]";
+  "Usage: delete:identifier <project-slug> <value> [--environment <name>] [--dry-run]\n" +
+  "A value beginning with a dash goes after --, as in: delete:identifier acme -- -A1";
 const RANGE_USAGE =
   "Usage: delete:range <project-slug> <environment> --before <iso-8601> [--after <iso-8601>] [--dry-run]";
 
@@ -66,6 +67,27 @@ export function parseTimestamp(
 
   const time = Date.parse(raw);
   return Number.isNaN(time) ? invalid : { ok: true, date: new Date(time) };
+}
+
+/**
+ * `<project-slug> <id>` for the commands with no flags, with `--` accepted
+ * before an id that begins with a dash, as for the others.
+ */
+export function parseIdArgs(
+  args: readonly string[],
+  usage: string
+): { ok: true; projectSlug: string; id: string } | { ok: false; message: string } {
+  let positionals: string[];
+  try {
+    positionals = parseArgs({ args: [...args], allowPositionals: true, strict: true }).positionals;
+  } catch (error) {
+    return { ok: false, message: `${messageOf(error)}\n${usage}` };
+  }
+  const [projectSlug, id, ...extra] = positionals;
+  if (projectSlug === undefined || id === undefined || extra.length > 0) {
+    return { ok: false, message: usage };
+  }
+  return { ok: true, projectSlug, id };
 }
 
 export type IdentifierArgs =

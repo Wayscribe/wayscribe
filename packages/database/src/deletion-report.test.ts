@@ -76,6 +76,17 @@ describe("argument parsing", () => {
     });
   });
 
+  it("takes a value beginning with a dash after --", () => {
+    expect(parseIdentifierArgs(["acme", "--dry-run", "--", "-A1"])).toMatchObject({
+      ok: true,
+      value: "-A1",
+      dryRun: true
+    });
+    const unmarked = parseIdentifierArgs(["acme", "-A1"]);
+    expect(unmarked.ok).toBe(false);
+    if (!unmarked.ok) expect(unmarked.message).toContain("delete:identifier acme -- -A1");
+  });
+
   it("refuses delete:identifier with a missing value or an unknown flag", () => {
     for (const args of [["acme"], ["acme", "v", "--force"], ["acme", "v", "extra"]]) {
       const parsed = parseIdentifierArgs(args);
