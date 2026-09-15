@@ -28,9 +28,18 @@ spec:
         {{- include "flight-recorder.labels" . | nindent 8 }}
         app.kubernetes.io/component: postgresql
     spec:
+      securityContext:
+        {{- toYaml .Values.postgresql.podSecurityContext | nindent 8 }}
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: postgresql
           image: {{ .Values.postgresql.image }}
+          securityContext:
+            {{- toYaml .Values.postgresql.containerSecurityContext | nindent 12 }}
           ports:
             - name: postgresql
               containerPort: 5432
@@ -53,6 +62,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
   volumeClaimTemplates:
     - metadata:
         name: data

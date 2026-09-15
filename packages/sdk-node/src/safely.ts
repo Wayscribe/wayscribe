@@ -1,4 +1,4 @@
-import type { DiagnosticKind, Diagnostics } from "./diagnostics.js";
+import type { Diagnostics, FailureKind } from "./diagnostics.js";
 
 /**
  * The single failure boundary. Every public entry point goes through it.
@@ -12,7 +12,7 @@ import type { DiagnosticKind, Diagnostics } from "./diagnostics.js";
  */
 export function safely<T>(
   diagnostics: Diagnostics,
-  kind: DiagnosticKind,
+  kind: FailureKind,
   operation: () => T
 ): T | undefined {
   try {
@@ -32,7 +32,7 @@ export function safely<T>(
  */
 export async function safelyAsync<T>(
   diagnostics: Diagnostics,
-  kind: DiagnosticKind,
+  kind: FailureKind,
   operation: () => Promise<T>
 ): Promise<T | undefined> {
   try {
@@ -43,7 +43,7 @@ export async function safelyAsync<T>(
   }
 }
 
-function report(diagnostics: Diagnostics, kind: DiagnosticKind, error: unknown): void {
+function report(diagnostics: Diagnostics, kind: FailureKind, error: unknown): void {
   diagnostics.report({
     kind,
     reason: error instanceof Error ? error.message : String(error),

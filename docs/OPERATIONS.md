@@ -205,8 +205,8 @@ touching everywhere an operator has written it down.
 ## 6. Key rotation
 
 **Changing `ENCRYPTION_KEY` outright loses access to what is already stored.**
-Three things derive from it by HKDF: field encryption, search tokens, and the
-API-key pepper. Swap the value and recreate the API containers, and every stored entity identifier,
+Four things derive from it by HKDF: field encryption, search tokens, the
+API-key pepper, and event content hashes. Swap the value and recreate the API containers, and every stored entity identifier,
 alias value, and replay destination header stops decrypting, every existing
 journey stops being findable by identifier, and every issued API key answers
 401.
@@ -295,6 +295,13 @@ services.
 
 From step 3 on, nothing is interrupted: new events record, old journeys search
 and open, and every API key still authenticates.
+
+Event content hashes are not moved by any step, because a hash can only be
+recomputed from the event it describes. After step 6, a resend of an event
+recorded under the old key, which only a duplicate delivery produces, is
+answered 409 `event_id_conflict` rather than recognised as a duplicate. The SDK
+treats that as permanent and drops the resend; the event stored the first time
+is unchanged (ADR-048).
 
 A script can wait on step 5, since the exit code is the answer:
 
@@ -847,6 +854,45 @@ ignore. The first run found seven CVEs in `npm` and `corepack`, which the base
 image ships and the runtime never uses; both Dockerfiles now delete them, which
 is a smaller attack surface as well as a clean scan.
 
+### Publishing the SDK to npm
+
+`@flight-recorder/node` is published by the manual `publish-sdk` job on a
+`vMAJOR.MINOR.PATCH` tag, with npm trusted publishing and provenance. No npm
+token exists anywhere in the project: the job's GitLab OIDC token, with the
+audience `npm:registry.npmjs.org`, is exchanged by npm for a short-lived publish
+token, and a second token with the audience `sigstore` signs the provenance
+statement that npmjs.com shows beside the version. npm stopped issuing classic
+and Automation tokens in November 2025, and the granular tokens left expire in
+90 days at most.
+
+**Once, before the first release**, the project owner must:
+
+1. Own the `@flight-recorder` scope on npmjs.com.
+2. Register the trusted publisher. It is set per package, and the package must
+   exist first, so for the very first version publish it once by hand with
+   `npm login` and `npm publish` from the packed tarball
+   (`DRY_RUN=1 scripts/publish-sdk.sh vX.Y.Z` shows it builds), then open
+   *npmjs.com → @flight-recorder/node → Settings → Trusted publisher → GitLab CI/CD*
+   and enter exactly:
+   - Namespace: `jojithedev`
+   - Project name: `flight-recorder`
+   - Top-level CI file path: `.gitlab-ci.yml`
+   - Environment: leave empty
+3. In the same settings page, under *Publishing access*, choose to require
+   two-factor authentication and disallow tokens, so trusted publishing is the
+   only way to publish.
+4. Protect `v*` tags (below). Anyone who can create one can run the job.
+
+A field that does not match fails during `npm publish` with an authentication
+error, not at the start of the job. The job needs npm 11.5.1 or later, which the
+`node:24-alpine` image has; `scripts/publish-sdk.sh` checks the version and says
+so rather than failing inside publish. To rehearse a release anywhere, run
+`DRY_RUN=1 scripts/publish-sdk.sh vX.Y.Z`, which builds, packs, checks the
+packed manifest, and runs `npm publish --dry-run`.
+
+To verify a published version's provenance, run `npm audit signatures` in a
+project that depends on it, or read the provenance panel on the package page.
+
 ### Verifying a published image
 
 Every released `api` and `web` image is signed, and carries a CycloneDX software
@@ -1241,6 +1287,11 @@ personal data, and let them age out or delete them.
 | Ingestion returns 403 | the key's environment does not match the event's |
 | Ingestion returns 401 after working | the key was revoked, which `pnpm key:list` shows, or it had not authenticated before `ENCRYPTION_KEY_PREVIOUS` was removed (§6) |
 
-The SDK's `shutdown()` returns counters — `dropped`, `transportErrors`,
-`captureErrors`, `breakerOpened`, `sent`. A non-zero `dropped` means the bounded
-queue shed events under backpressure, which is by design and worth knowing.
+The SDK's `shutdown()` returns counters: `sent`, `rejected`, `dropped`,
+`transportErrors`, `captureErrors`, and `breakerOpened`. `sent`, `rejected`, and
+`dropped` add up to the events recorded; `payloadsOmitted` counts payloads
+replaced by `[PAYLOAD_TOO_LARGE]` on events that were still sent. A non-zero `dropped` means events were
+not delivered: the bounded queue shed them under backpressure, the server kept
+refusing them for now past the retry budget, its reply gave no verdict for them,
+or `shutdown()` finished with them undelivered. Each diagnostic's reason says
+which (`packages/sdk-node/README.md`, "Is it sending?").

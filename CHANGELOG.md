@@ -28,9 +28,80 @@ changes far less often.
   in `.env` as the README says never reached the API, the web app, or the demo
   bootstrap: they ran on the published defaults. `compose.published.yaml` is
   unchanged and still reads the shell.
+- **The SDK's `Diagnostic` type is a union.** It is now
+  `FailureDiagnostic | DeliveredFirstDiagnostic | InsecureEndpointDiagnostic`,
+  for the new `delivered_first` kind, which carries `endpoint` and `accepted`,
+  and `insecure_endpoint`, which carries `scheme` and `host`. Reading `kind`, `reason`, and
+  `detail` compiles as before. TypeScript code must change if it switches over
+  `kind` exhaustively with a `never` default, which now needs
+  `delivered_first`, `insecure_endpoint`, and `payload_omitted` cases (the last
+  a new `FailureKind`, which a payload over `maxPayloadBytes` reports instead of
+  `dropped`), or if it builds a `Diagnostic` from a `kind` typed as
+  `DiagnosticKind` with only `reason`, which must use `FailureDiagnostic` or
+  `FailureKind` instead.
+- **The SDK retries an event the server could not store for now.** A per-event
+  refusal with a status of 500 or above (`storage_error`, `query_timeout`) was
+  treated as permanent, so a database hiccup lost the event and reported it as
+  `rejected`. That event is now sent again on its own with the transport's
+  backoff, three times a send, and requeued for later sends while it is still
+  refused, for up to 30 seconds from its first refusal or 10 sends, whichever
+  comes first; only then is it given up and counted as `dropped`. Each send
+  that ends with it refused reports a `transport_error`. Refusals below 500
+  stay permanent. A send in which the server stored other events no longer
+  counts toward the circuit breaker, so one unstorable event cannot pause
+  delivery of the rest. The 30-second and 10-send bounds apply only to these
+  per-event refusals: a whole request that fails (refused connection, timeout,
+  or a 5xx for the request itself) is retried for as long as the outage lasts,
+  bounded by the queue's `maxBufferedEvents`, whose overflow is dropped and
+  counted.
+- **SDK counters add up.** `sent + rejected + dropped` now equals the events
+  recorded. A payload too large to capture is no longer counted as `dropped`,
+  since its event is still sent with `[PAYLOAD_TOO_LARGE]` in its place; it has
+  its own `payload_omitted` diagnostic and `payloadsOmitted` counter. `shutdown()` counts everything it could not deliver as `dropped`
+  (events still refused for now, the queue left behind an unreachable endpoint,
+  and a batch in flight when its timeout wins, whose request it aborts); these
+  vanished before, 1,000 of 3,000 in one probe. A batch the server refuses
+  outright counts one `rejected` per event rather than one per batch. A 2xx
+  whose body is not JSON, has no results, or has fewer results than events
+  counts each event without a result as `dropped` with reason `no_verdict` and
+  does not resend it, because the server may have stored it; a body that was
+  not JSON used to resend the whole batch and print the parser's message,
+  which quotes the body. `shutdown()` also no longer holds the process open for
+  the rest of its timeout after the drain finishes.
+- **`delivered_first` names the endpoint's scheme, host, and port only**, not
+  its path or query, which can carry a credential. Printed diagnostic lines also
+  strip U+061C with the other bidirectional formatting characters.
+- **A public `flush()` counts against `maxConcurrentSends`.** Its sends were
+  not tracked, so a burst during a flush could exceed the cap by one set.
 
 ### Added
 
+- **The SDK says when it is connected, when asked.** `logDiagnostics: true`
+  writes each diagnostic to `console.error` as one `[flight-recorder]` line, at
+  most one per kind per minute with a count of suppressed repeats, and a new
+  `delivered_first` diagnostic reports the first batch the server stored
+  anything from. Lines carry the kind and a masked, bounded reason, never a
+  payload or a key; a refusal prints the server's error code and field path,
+  and its message goes only to `onDiagnostic`. Off by default: nothing reaches the console unless it is
+  set. The quick start and `examples/instrument-a-service` turn it on while
+  setting up.
+- **The SDK warns about an unencrypted endpoint.** An `http:` endpoint on a
+  dotted name or an IP address sends the API key and payloads across a network
+  in cleartext; the recorder now reports one `insecure_endpoint` diagnostic
+  when it is created, naming only the scheme and host. It still starts and
+  sends. `localhost`, `127.0.0.1`, `[::1]`, `.localhost` names, and
+  single-label names such as `api`, which resolve only through container or
+  cluster DNS, are not reported.
+- **`maxConcurrentSends` in the SDK**, default 4 and clamped to 1-16: how many
+  batches one process sends at once. Across every process sending to an
+  installation, the total should stay under API instances times database pool
+  size (10 per instance); past that, requests time out and are resent while the
+  server finishes them. The SDK README's "Sizing `maxConcurrentSends`" says
+  when to raise it.
+- **What the SDK costs is measured.** `pnpm --filter @flight-recorder/node bench`
+  reports added latency per wrapped call, heap and event-loop delay under
+  sustained load, and throughput by send concurrency; the SDK README's "What it
+  costs" has the numbers and the machine they came from.
 - **An upgrade test gates every release.** `scripts/upgrade-test.mjs` builds
   the API at the previous release tag (`vMAJOR.MINOR.PATCH`; before the first
   release, main just before the key rotation merge), records journeys, aliases, a transformation diff, an
@@ -80,11 +151,6 @@ changes far less often.
   timeouts, pool connections, retention sweep outcomes and last success, the
   boot check's unreadable counts, memory and event loop lag. Compose and Helm
   do not publish it. No new dependency (ADR-047, `docs/OPERATIONS.md` §13).
-- **Known gap until the SDK change lands:** a batch event refused with
-  `query_timeout` or `storage_error` (`httpStatus` 5xx) is transient and safe
-  to resend (`docs/API_SPEC.md` §4), but the Node SDK treats every per-event
-  refusal as permanent and drops it. Retrying those refusals comes with the SDK
-  half of this work.
 - **Captured data can be deleted on demand.** Retention was the only way
   anything left the database, so a redaction miss stayed stored until it aged
   out and an erasure request had no answer. `delete:journey`,
@@ -157,6 +223,40 @@ changes far less often.
 
 ### Security
 
+- **The SDK is published with npm trusted publishing and provenance.** The
+  `publish-sdk` job used a long-lived `NPM_TOKEN` and attached no provenance. It
+  now exchanges a GitLab OIDC token for a short-lived publish token and signs a
+  provenance statement, through `scripts/publish-sdk.sh`. The trusted publisher
+  must be registered on npmjs.com before the first release
+  (`docs/OPERATIONS.md` §11).
+- **The Helm chart runs every pod locked down.** Non-root users (the images'
+  `node` user, and uid 70 for the bundled PostgreSQL), `seccompProfile:
+  RuntimeDefault`, no privilege escalation, all capabilities dropped, and a
+  read-only root filesystem with emptyDirs for `/tmp`, the Next.js cache and the
+  PostgreSQL socket directory. `networkPolicy.enabled`, off by default, adds a
+  NetworkPolicy per pod limiting ingress to the HTTP ports and egress to DNS,
+  the database and the API; replay destinations go in
+  `networkPolicy.apiExtraEgress` (`deploy/helm/README.md`).
+- **The stored content hash is keyed.** It covered the event as received,
+  before masking, and was an unkeyed SHA-256, so anyone who could read the
+  database could rebuild an event from its row with guesses in place of
+  `[REDACTED]` and confirm a masked dictionary password by hash match; the
+  security review did. It is now an HMAC-SHA256 under a subkey of
+  `ENCRYPTION_KEY`, stored as `h1.<keyId>.<hex>`, and a resend is compared under
+  the key the stored hash names (ADR-048).
+- **Header credentials filed by position or inside a header block are
+  redacted.** Name rules matched object keys only, so ordinary header shapes
+  were stored verbatim in the default capture mode, through the SDK and through
+  ingestion: fetch and undici header tuples (`[["Authorization", "Bearer …"]]`),
+  Node's interleaved `rawHeaders` from HTTP/1.1 and HTTP/2, HAR and Playwright
+  `{ name, value }` arrays, and the `_header` string of a `http.ClientRequest`,
+  which axios puts on `error.request`. A built-in or `**.` name now also matches
+  the name of a two-element `[name, value]` array element, of a `{ name, value }`
+  or `{ key, value }` array element, a name in a flat string array that reads as
+  a header list (HTTP/2 pseudo-headers included), and a `Name: value` line in a
+  CRLF-delimited header block. A value that is itself a header name is kept.
+  `SECURITY.md` §4 lists exactly which shapes are covered and which are not.
+  Rows stored earlier keep what they held.
 - **Searched identifiers no longer reach the API's log.** Fastify's request log
   line carried `req.url` whole, so every `GET /v1/search?q=…` wrote the searched
   value, usually a customer identifier, to the log at `info`, along with the
@@ -371,6 +471,13 @@ audit, all merged the same day. The pattern behind them is written up in
   (`REPLAY_ALLOWED_HOSTS=localhost,host.docker.internal`, or
   `api.replayAllowedHosts`); replays to it are otherwise refused with
   `host_not_allowed`.
+- **Content hashes need no migration.** Rows written before this release keep
+  their unkeyed hash, and a resend is still compared against it, so a delivery
+  that straddles the upgrade dedupes. Those rows remain an oracle for what they
+  masked until they are deleted or retention removes them. After a key rotation
+  completes, a duplicate delivery of an event recorded under the removed key is
+  answered 409 `event_id_conflict`, which the SDK treats as permanent; the stored
+  event is unaffected.
 - **Migration 015 rewrites every replay run row.** It replaces each value in
   `replay_runs.request_headers` with `[REDACTED]` in one transaction (about 2
   seconds for 100,000 runs, blocking updates to existing runs but not inserts,
@@ -383,8 +490,8 @@ audit, all merged the same day. The pattern behind them is written up in
   `contentHash` is computed over what the SDK sent. Resending the same event id
   from a mixed-version fleet mid-rollout returns 409 `event_id_conflict`.
 - A `Map` that measured as `{}` may now exceed `maxPayloadBytes` and record
-  `[PAYLOAD_TOO_LARGE]` with a `dropped` diagnostic. That is the size guard
-  seeing the data for the first time, not a regression.
+  `[PAYLOAD_TOO_LARGE]` with a `payload_omitted` diagnostic. That is the size
+  guard seeing the data for the first time, not a regression.
 - **A client that sends `error.stack` stops having it stored** unless the
   environment uses `full-payload` on an installation with
   `ALLOW_FULL_PAYLOAD_CAPTURE`.

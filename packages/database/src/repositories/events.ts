@@ -34,11 +34,18 @@ export type InsertOutcome = { kind: "inserted" } | { kind: "duplicate" } | { kin
  * ON CONFLICT DO NOTHING followed by a hash comparison, rather than read-then-
  * write: the read-then-write ordering races, where two identical events both
  * observe "absent" and one insert then fails outright.
+ *
+ * `sameContent` decides whether the stored hash describes this event. Ingestion
+ * passes one that recomputes under the key the stored hash names (ADR-048),
+ * since a hash written under the previous key, or before hashes were keyed, is
+ * not string-equal to the one just computed. Without it the hashes are compared
+ * as strings.
  */
 export async function insertEvent(
   db: Knex,
   projectId: string,
-  event: EventRow
+  event: EventRow,
+  sameContent: (storedHash: string) => boolean = (storedHash) => storedHash === event.contentHash
 ): Promise<InsertOutcome> {
   const inserted: unknown = await db("journey_events")
     .insert({
@@ -77,7 +84,9 @@ export async function insertEvent(
     .first("content_hash as contentHash");
 
   const existingHash = (existing as { contentHash?: string } | undefined)?.contentHash;
-  return existingHash === event.contentHash ? { kind: "duplicate" } : { kind: "conflict" };
+  return existingHash !== undefined && sameContent(existingHash)
+    ? { kind: "duplicate" }
+    : { kind: "conflict" };
 }
 
 function toJson(value: unknown): string | null {

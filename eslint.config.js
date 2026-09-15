@@ -58,7 +58,7 @@ export default tseslint.config(
   {
     // Developer commands, run with plain `node` and belonging to no TypeScript
     // project, so type-aware rules have nothing to work from.
-    files: ["**/scripts/**/*.mjs", "examples/**/*.mjs"],
+    files: ["**/scripts/**/*.mjs", "**/bench/**/*.mjs", "examples/**/*.mjs"],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       // The project service is switched off explicitly. Disabling the

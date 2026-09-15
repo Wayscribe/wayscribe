@@ -174,7 +174,10 @@ const recorder = createRecorder({
   endpoint: "http://localhost:8080",
   apiKey: process.env.FLIGHT_RECORDER_API_KEY,
   serviceName: "billing-api",
-  environment: "development"
+  environment: "development",
+  // Prints `delivered_first` once events are stored, or why they are not.
+  // Turn it off once the service is known to send.
+  logDiagnostics: true
 });
 
 // A journey is one record's history. The entity is what you will search for.
@@ -290,7 +293,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 47 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 48 ADRs, including the several that were
 wrong the first time and say so.
 
 ---

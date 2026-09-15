@@ -87,6 +87,39 @@ helm:
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
       --set api.metricsPort=9464
       > /dev/null
+    # NetworkPolicies are off by default too, and have a branch for the bundled
+    # database and one for an external one.
+    - helm template fr deploy/helm/flight-recorder
+      --set postgresql.enabled=true
+      --set networkPolicy.enabled=true
+      --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
+      --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
+      > /dev/null
+    - helm template fr deploy/helm/flight-recorder
+      --set databaseUrl=postgresql://u:p@db.internal:5432/fr
+      --set networkPolicy.enabled=true
+      --set networkPolicy.database.to[0].ipBlock.cidr=10.0.0.0/24
+      --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
+      --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
+      > /dev/null
+    # Narrowing who may reach the API must never cut off the web pod, whose
+    # server calls the API for every page. The API's policy is read out of the
+    # render and must name both the configured peer and the web pod.
+    - |
+      helm template fr deploy/helm/flight-recorder \
+        --set postgresql.enabled=true \
+        --set networkPolicy.enabled=true \
+        --set networkPolicy.ingressFrom[0].namespaceSelector.matchLabels.team=ingress \
+        --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
+        --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111 \
+        --show-only templates/networkpolicy.yaml > networkpolicy.yaml
+      sed -n '/^  name: fr-flight-recorder-api$/,/^---$/p' networkpolicy.yaml > api-policy.yaml
+      if ! grep -q "team: ingress" api-policy.yaml; then
+        echo "the API policy lost networkPolicy.ingressFrom"; cat api-policy.yaml; exit 1
+      fi
+      if ! grep -q "app.kubernetes.io/component: web" api-policy.yaml; then
+        echo "the API policy does not admit the web pod when ingressFrom is set"; cat api-policy.yaml; exit 1
+      fi
     # And refuses a metrics port equal to the API's. An `if`, not `!`: a
     # negated command does not fail a job under `set -e`.
     - if helm template fr deploy/helm/flight-recorder
@@ -480,24 +513,56 @@ publish-images:
     paths:
       - sboms/
 
-# Requires NPM_TOKEN in the project's CI/CD variables, and somebody must own the
-# @flight-recorder scope on npm. The dry run below needs neither, so the job
-# proves the tarball is correct even before the scope exists.
+# npm trusted publishing with provenance. There is no npm credential in this
+# project: GitLab mints NPM_ID_TOKEN for this job alone, npm exchanges it for a
+# publish token that expires almost immediately, and SIGSTORE_ID_TOKEN signs the
+# provenance statement naming this pipeline and commit.
+#
+# The aud values are exact strings and are the whole handshake. npm rejects a
+# token minted for any other audience, which is what stops another project's
+# pipeline from publishing this package. npm also has to know this project: the
+# trusted publisher is registered once on npmjs.com, per package, before the
+# first release (docs/OPERATIONS.md §11). With trusted publishing, whoever can
+# create a `v*` tag can publish, so the tag must be protected first.
+#
+# The dry run needs neither token, so a failure in the tarball shows before
+# anything is exchanged. Both steps are scripts/publish-sdk.sh, which can be run
+# anywhere with DRY_RUN=1.
 publish-sdk:
   stage: release
   needs: ["release-verify"]
   <<: *release-rules
   when: manual
+  id_tokens:
+    NPM_ID_TOKEN:
+      aud: "npm:registry.npmjs.org"
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
   script:
-    - pnpm --filter @flight-recorder/node build
-    - pnpm --filter @flight-recorder/node publish --dry-run --no-git-checks
-    - |
-      if [ -z "$NPM_TOKEN" ]; then
-        echo "NPM_TOKEN is not set. The dry run above passed; set the variable to publish for real."
-        exit 1
-      fi
-    - npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-    - pnpm --filter @flight-recorder/node publish --no-git-checks
+    - DRY_RUN=1 scripts/publish-sdk.sh "$CI_COMMIT_TAG"
+    - scripts/publish-sdk.sh "$CI_COMMIT_TAG"
+
+# The same dry run on the default branch, so scripts/publish-sdk.sh is exercised
+# before the release that depends on it, as `sbom` is for publish-images. The
+# tag it passes is the package's own version, which is what a release tag must
+# match.
+#
+# Also on a merge request that touches the script, the package, or this file,
+# so a change that breaks publishing is seen before it merges rather than on
+# main. This project has no workflow rules, so that runs as a merge request
+# pipeline holding this job alone, beside the usual branch pipeline.
+sdk-publish-dry-run:
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - scripts/publish-sdk.sh
+        - packages/sdk-node/**/*
+        - .gitlab-ci.yml
+  script:
+    - DRY_RUN=1 scripts/publish-sdk.sh "v$(node -p "require('./packages/sdk-node/package.json').version")"
 
 # The GitHub mirror.
 #

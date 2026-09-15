@@ -22,10 +22,26 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
       containers:
         - name: web
           image: {{ include "flight-recorder.image" (dict "Values" .Values "Chart" .Chart "component" "web") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          # Next.js writes its fetch and image cache under .next/cache, which the
+          # image does not ship and a read-only root cannot create.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/apps/web/.next/cache
           ports:
             - name: http
               containerPort: 3000

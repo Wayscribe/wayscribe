@@ -140,7 +140,7 @@ An alias value may intentionally map to more than one journey over time. Do not 
 | `journey_id` | text | Required |
 | `parent_event_id` | text | Nullable |
 | `protocol_version` | text | Required |
-| `content_hash` | text | Canonical hash for duplicate-conflict detection |
+| `content_hash` | text | Keyed canonical hash for duplicate-conflict detection: `h1.<keyId>.<hex>`, HMAC-SHA256 of the event as received (ADR-021, ADR-048). A value with no prefix is a legacy unkeyed SHA-256, still compared |
 | `operation` | text | Required |
 | `name` | text | Required |
 | `service` | text | Required |
