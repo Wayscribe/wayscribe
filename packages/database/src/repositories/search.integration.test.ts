@@ -227,9 +227,21 @@ describe("searchJourneys", () => {
     await expect(find("SHARED-VALUE", 1, "not-a-cursor")).rejects.toThrow(InvalidCursorError);
   });
 
-  it("rejects a well-formed cursor whose timestamp is not a date", async () => {
-    // Decoded fine and then failed in PostgreSQL's timestamptz cast, as a 500.
-    const cursor = encodeCursor({ lastEventAt: "not-a-date", id: "jrn_2" });
-    await expect(find("SHARED-VALUE", 1, cursor)).rejects.toThrow(InvalidCursorError);
+  // Each decoded fine and then failed in PostgreSQL's timestamptz cast, as a
+  // 500. "1" and "March 7" are ones Date.parse understands and PostgreSQL does
+  // not, so only the canonical form this API writes is accepted.
+  it.each(["not-a-date", "1", "March 7", "2026-08-06 11:00:00Z"])(
+    "rejects a well-formed cursor whose timestamp is %j",
+    async (lastEventAt) => {
+      const cursor = encodeCursor({ lastEventAt, id: "jrn_2" });
+      await expect(find("SHARED-VALUE", 1, cursor)).rejects.toThrow(InvalidCursorError);
+    }
+  );
+
+  it("accepts the cursor timestamp it wrote", async () => {
+    const cursor = encodeCursor({ lastEventAt: "2026-08-06T11:00:00.000Z", id: "jrn_2" });
+    expect((await find("SHARED-VALUE", 1, cursor)).items.map((i) => i.journeyId)).toEqual([
+      "jrn_1"
+    ]);
   });
 });

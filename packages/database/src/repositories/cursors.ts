@@ -34,8 +34,10 @@ export function decodeSearchCursor(encoded: string): SearchCursor {
     throw new InvalidCursorError("Cursor is not a search cursor.");
   }
   // Checked here rather than left to the query: PostgreSQL's timestamptz cast
-  // would reject it as a server error, not as the caller's bad cursor.
-  if (Number.isNaN(Date.parse(parsed["lastEventAt"]))) {
+  // would reject it as a server error, not as the caller's bad cursor. Only
+  // the exact form encodeCursor writes: Date.parse also accepts "1" and
+  // "March 7", which PostgreSQL does not.
+  if (!isCanonicalInstant(parsed["lastEventAt"])) {
     throw new InvalidCursorError("Cursor timestamp is not a date.");
   }
   return { lastEventAt: parsed["lastEventAt"], id: parsed["id"] };
@@ -55,6 +57,11 @@ export function decodeEventCursor(encoded: string): EventCursor {
     receivedAt: parsed["receivedAt"],
     id: parsed["id"]
   };
+}
+
+function isCanonicalInstant(value: string): boolean {
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
 }
 
 function decode(encoded: string): Record<string, unknown> {

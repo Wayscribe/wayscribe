@@ -287,11 +287,14 @@ describe("listRecentJourneys", () => {
       );
     });
 
-    it("rejects a well-formed cursor whose timestamp is not a date", async () => {
-      const cursor = encodeCursor({ lastEventAt: "not-a-date", id: "jrn_tie_c" });
-      await expect(listRecentJourneys(db, project, staging, 2, cursor)).rejects.toThrow(
-        InvalidCursorError
-      );
-    });
+    it.each(["not-a-date", "1", "March 7", "2026-09-10 09:00:00Z"])(
+      "rejects a well-formed cursor whose timestamp is %j",
+      async (lastEventAt) => {
+        const cursor = encodeCursor({ lastEventAt, id: "jrn_tie_c" });
+        await expect(listRecentJourneys(db, project, staging, 2, cursor)).rejects.toThrow(
+          InvalidCursorError
+        );
+      }
+    );
   });
 });
