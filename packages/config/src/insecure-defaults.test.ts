@@ -30,6 +30,20 @@ describe("findInsecureDefaults", () => {
     expect(findings.map((f) => f.variable)).toEqual(["ENCRYPTION_KEY_PREVIOUS"]);
   });
 
+  it("tells an operator mid-rotation to finish it, not to replace the previous key", () => {
+    // The generic advice, to set your own value, would replace the key the
+    // stored data is still under and make it unreadable.
+    const [finding] = findInsecureDefaults({
+      ENCRYPTION_KEY: "5f3a9c1e7b2d8046f1a3c5e79b0d2468",
+      ENCRYPTION_KEY_PREVIOUS: "replace-for-local-development-0000"
+    });
+    expect(finding?.message).toBe(
+      "ENCRYPTION_KEY_PREVIOUS, the key being rotated out, is a published development default, so data still under it is readable by anyone. " +
+        "Do not replace it: finish rotate:reencrypt, then remove it (docs/OPERATIONS.md §6)."
+    );
+    expect(finding?.message).not.toContain("openssl");
+  });
+
   it("recognises a published default despite surrounding whitespace", () => {
     const findings = findInsecureDefaults({
       ENCRYPTION_KEY: "replace-for-local-development-0000\n"
