@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import {
   ApiUnavailableError,
+  InvalidPageLinkError,
   ProjectNotSelectedError,
   listProjects,
   listRecentJourneys,
@@ -12,6 +13,7 @@ import {
   RECENT_STATUSES,
   RECENT_WINDOWS,
   describeRecentFilters,
+  emptyListMessage,
   firstPageHref,
   nextPageHref,
   readRecentFilters,
@@ -51,6 +53,18 @@ export default async function RecentPage({
     environments = projects.find((project) => project.id === projectId)?.environments ?? [];
     page = listed;
   } catch (error) {
+    if (error instanceof InvalidPageLinkError) {
+      // A stale or edited link: a cursor or query the API refused. The API is
+      // fine, so say what is wrong and offer the same filters from the top.
+      return (
+        <Shell>
+          <p className="error">
+            This page link is no longer valid.{" "}
+            <Link href={firstPageHref(filters)}>Back to the newest</Link>
+          </p>
+        </Shell>
+      );
+    }
     if (error instanceof ApiUnavailableError) {
       return (
         <Shell>
@@ -79,10 +93,7 @@ export default async function RecentPage({
       <p className="recent-summary">{description}</p>
 
       {page.items.length === 0 ? (
-        <p className="muted">
-          {filters.cursor === "" ? "Nothing here. " : "No more journeys. "}
-          Widen the window or choose any status to see more.
-        </p>
+        <p className="muted">{emptyListMessage(filters)}</p>
       ) : (
         <ul className="results">
           {page.items.map((item) => (

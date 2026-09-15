@@ -61,6 +61,73 @@ test.beforeAll(async () => {
   await ingest(COMPLETED, "completed", 5);
 });
 
+const base64url = (value: unknown): string =>
+  Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+
+test.describe("a page link the API refuses", () => {
+  const past = new Date(Date.now() - 60 * 60_000).toISOString();
+
+  for (const [label, cursor] of [
+    ["a garbled cursor", "garbage"],
+    // Decodes, and then names a timestamp PostgreSQL cannot cast.
+    ["a crafted cursor", base64url({ lastEventAt: "March 7", id: "jrn_x" })]
+  ] as const) {
+    test(`says so for ${label} and offers the newest`, async ({ page }) => {
+      await signIn(page);
+      const query = new URLSearchParams({
+        status: "failed",
+        window: "24h",
+        environment: "",
+        service: SERVICE,
+        since: past,
+        cursor
+      });
+      await page.goto(`/recent?${query.toString()}`);
+
+      await expect(page.locator(".error")).toHaveText(
+        "This page link is no longer valid. Back to the newest"
+      );
+      await expect(page.locator("body")).not.toContainText("Cannot reach");
+
+      await page.getByRole("link", { name: "Back to the newest" }).click();
+      await expect(page.locator(".recent-summary")).toHaveText(
+        `Failed journeys in the last 24 hours, all environments, from ${SERVICE}`
+      );
+      await expect(page.locator(".results li")).toHaveCount(1);
+    });
+  }
+
+  // Titles are fixed strings: Playwright matches a test by title between its
+  // runner and worker processes, so a timestamp in one cannot be found again.
+  for (const [label, since] of [
+    ["an hour ahead", () => new Date(Date.now() + 60 * 60_000).toISOString()],
+    ["in year 10000", () => "+010000-01-01T00:00:00.000Z"]
+  ] as const) {
+    test(`recomputes a carried since ${label} rather than erroring`, async ({ page }) => {
+      await signIn(page);
+      // The cursor is real in shape; the since is what the page must not trust.
+      const cursor = base64url({ lastEventAt: new Date().toISOString(), id: "jrn_~" });
+      const query = new URLSearchParams({
+        status: "",
+        window: "24h",
+        service: SERVICE,
+        since: since(),
+        cursor
+      });
+      await page.goto(`/recent?${query.toString()}`);
+
+      await expect(page.locator(".error")).toHaveCount(0);
+      await expect(page.locator(".results li")).toHaveCount(2);
+    });
+  }
+});
+
+test("offers no widening the filters already have", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`/recent?status=&window=7d&service=${SERVICE}-nothing`);
+  await expect(page.locator("main p.muted")).toHaveText("Nothing here.");
+});
+
 test("starts from recent failures, widens to any status, and follows a row", async ({ page }) => {
   await signIn(page);
 

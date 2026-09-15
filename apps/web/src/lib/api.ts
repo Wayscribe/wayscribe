@@ -89,6 +89,19 @@ export class ApiUnavailableError extends Error {
 }
 
 /**
+ * The API refused the query or cursor a page link carried.
+ *
+ * A stale or hand-edited link, not an outage. Reporting it as "cannot reach
+ * the API" sent people to check an API that was running and answering.
+ */
+export class InvalidPageLinkError extends Error {
+  public override readonly name = "InvalidPageLinkError";
+}
+
+/** Error codes that mean the request's own query string was refused. */
+const PAGE_LINK_ERROR_CODES = new Set(["invalid_cursor", "invalid_query"]);
+
+/**
  * The API could not tell which project to read from.
  *
  * Distinct from "not found", and the distinction is the whole point. A journey
@@ -139,6 +152,12 @@ async function get<T>(path: string, projectId?: string): Promise<T | null> {
     throw new ApiUnavailableError(
       "The API rejected this request. The web and API containers may hold different ADMIN_TOKEN values."
     );
+  }
+  if (response.status === 400) {
+    const body = (await response.json().catch(() => ({}))) as { error?: { code?: string } };
+    if (PAGE_LINK_ERROR_CODES.has(body.error?.code ?? "")) {
+      throw new InvalidPageLinkError("The API refused this page's query.");
+    }
   }
   if (!response.ok) {
     throw new ApiUnavailableError(`API responded ${String(response.status)}.`);

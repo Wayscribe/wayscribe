@@ -46,11 +46,15 @@ export function readRecentFilters(params: SearchParams, now: Date): RecentFilter
   const window: RecentWindow = rawWindow !== undefined && isWindow(rawWindow) ? rawWindow : "24h";
 
   // A next-page link carries the since its first page used. Recomputing it from
-  // the window would slide the list under the cursor between pages. Anything
-  // that is not exactly what this function writes is recomputed instead.
+  // the window would slide the list under the cursor between pages. It is
+  // honoured only beside a cursor, because that is the only link that carries
+  // one: a bare `?since=2000-…&window=1h` would otherwise list years of
+  // journeys under "in the last hour". Anything that is not an instant this
+  // function could have written is recomputed too.
+  const cursor = single(params["cursor"]) ?? "";
   const carried = single(params["since"]);
   const since =
-    carried !== undefined && isOwnInstant(carried)
+    cursor !== "" && carried !== undefined && isOwnInstant(carried, now)
       ? carried
       : new Date(now.getTime() - RECENT_WINDOWS[window].milliseconds).toISOString();
 
@@ -60,8 +64,22 @@ export function readRecentFilters(params: SearchParams, now: Date): RecentFilter
     environment: single(params["environment"])?.trim() ?? "",
     service: single(params["service"])?.trim() ?? "",
     since,
-    cursor: single(params["cursor"]) ?? ""
+    cursor
   };
+}
+
+/** What an empty list says, suggesting only the widenings still available. */
+export function emptyListMessage(filters: RecentFilters): string {
+  if (filters.cursor !== "") return "No more journeys.";
+
+  const canWiden = filters.window !== "7d";
+  const canChooseAny = filters.status !== "";
+  if (canWiden && canChooseAny) {
+    return "Nothing here. Widen the window or choose any status to see more.";
+  }
+  if (canWiden) return "Nothing here. Widen the window to see more.";
+  if (canChooseAny) return "Nothing here. Choose any status to see more.";
+  return "Nothing here.";
 }
 
 /** The query string for `GET /v1/journeys`. */
@@ -124,7 +142,19 @@ function isWindow(value: string): value is RecentWindow {
   return Object.hasOwn(RECENT_WINDOWS, value);
 }
 
-function isOwnInstant(value: string): boolean {
+/**
+ * Whether `value` is an instant this page could have written: the canonical
+ * ISO form with a four-digit year, and not later than now. `toISOString`
+ * writes `+010000-…` for far-future years, which round-trips but which the
+ * API refuses, and a future since is refused too; either would leave the page
+ * with nothing to show but an error.
+ */
+function isOwnInstant(value: string, now: Date): boolean {
   const parsed = new Date(value);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    /^\d{4}-/.test(value) &&
+    parsed.toISOString() === value &&
+    parsed.getTime() <= now.getTime()
+  );
 }

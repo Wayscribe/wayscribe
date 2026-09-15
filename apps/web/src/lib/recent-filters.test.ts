@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   describeRecentFilters,
+  emptyListMessage,
   firstPageHref,
   nextPageHref,
   readRecentFilters,
@@ -40,6 +41,25 @@ describe("readRecentFilters", () => {
     expect(readRecentFilters({ window }, NOW).since).toBe(since);
   });
 
+  it("ignores a carried since without a cursor, which the page never writes", () => {
+    // Otherwise `?since=2000-…&window=1h` lists years under "in the last hour".
+    expect(readRecentFilters({ window: "1h", since: "2000-01-01T00:00:00.000Z" }, NOW).since).toBe(
+      "2026-09-15T11:00:00.000Z"
+    );
+  });
+
+  it("recomputes a carried since later than now, or outside four-digit years", () => {
+    for (const since of [
+      "2026-09-15T12:00:00.001Z",
+      "+010000-01-01T00:00:00.000Z",
+      "-000001-01-01T00:00:00.000Z"
+    ]) {
+      expect(readRecentFilters({ since, cursor: "c" }, NOW).since, since).toBe(
+        "2026-09-14T12:00:00.000Z"
+      );
+    }
+  });
+
   it("keeps the since a next-page link carries, so the window does not move", () => {
     const filters = readRecentFilters(
       { window: "24h", since: "2026-09-14T11:00:00.000Z", cursor: "abc" },
@@ -51,7 +71,9 @@ describe("readRecentFilters", () => {
 
   it("recomputes a since that is not an instant it could have written", () => {
     for (const since of ["yesterday", "2026-09-14", "2026-02-30T00:00:00.000Z"]) {
-      expect(readRecentFilters({ since }, NOW).since, since).toBe("2026-09-14T12:00:00.000Z");
+      expect(readRecentFilters({ since, cursor: "c" }, NOW).since, since).toBe(
+        "2026-09-14T12:00:00.000Z"
+      );
     }
   });
 
@@ -135,6 +157,24 @@ describe("firstPageHref", () => {
       environment: "production",
       service: ""
     });
+  });
+});
+
+describe("emptyListMessage", () => {
+  const message = (params: Record<string, string>): string =>
+    emptyListMessage(readRecentFilters(params, NOW));
+
+  it("suggests only the widenings still available", () => {
+    expect(message({})).toBe("Nothing here. Widen the window or choose any status to see more.");
+    expect(message({ status: "" })).toBe("Nothing here. Widen the window to see more.");
+    expect(message({ window: "7d" })).toBe("Nothing here. Choose any status to see more.");
+    expect(message({ status: "", window: "7d" })).toBe("Nothing here.");
+  });
+
+  it("says a later page ran out rather than that nothing matched", () => {
+    expect(
+      message({ status: "", window: "7d", since: "2026-09-08T12:00:00.000Z", cursor: "c" })
+    ).toBe("No more journeys.");
   });
 });
 
