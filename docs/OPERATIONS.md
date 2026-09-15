@@ -400,9 +400,27 @@ Two indexes carry the read path: `journeys_entity_value_idx` for search and
 `journeys_status_recent_idx` and `journey_events_service_idx`; the second costs
 one more index write on every event insert. Migration 013 builds both with
 `CREATE INDEX CONCURRENTLY`, so on a large installation it takes longer than
-the other migrations but does not block ingestion while it runs. If it is
-interrupted, running `migrate` again drops the half-built index and builds it
-afresh.
+the other migrations but does not block ingestion while it runs.
+
+If that build stops partway, what to do depends on how it stopped:
+
+- **The build failed** (an error was reported, or the connection dropped) and
+  `migrate` exited. Run `migrate` again. It drops the index the failed build
+  left invalid and builds it afresh.
+- **The migrate process was killed** (`kill -9`, an evicted pod, a stopped
+  container). Because 013 runs outside a transaction, the migration lock is
+  still set and every `migrate` after it fails with a message that the
+  migration table is locked; the Helm Job's retries fail the same way and
+  `/ready` stays `migrations_pending`. First make sure no `migrate` is still
+  running anywhere, then release the lock and migrate:
+
+  ```bash
+  node packages/database/dist/cli.js migrate:unlock
+  node packages/database/dist/cli.js migrate
+  ```
+
+  (`pnpm db:migrate:unlock` from a checkout.) Releasing the lock while another
+  `migrate` is running lets two run at once, so check first.
 
 ## 10. Security scanning
 
