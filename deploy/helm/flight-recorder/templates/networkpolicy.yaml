@@ -28,8 +28,15 @@ spec:
         - port: 8080
           protocol: TCP
       {{- with .Values.networkPolicy.ingressFrom }}
+      # The web pod is always a peer: its server calls the API for every page,
+      # and narrowing ingressFrom to an ingress controller must not cut it off.
       from:
         {{- toYaml . | nindent 8 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/component: web
       {{- end }}
     {{- with .Values.api.metricsPort }}
     # Scraped from the pods. Not narrowed by ingressFrom, which describes who

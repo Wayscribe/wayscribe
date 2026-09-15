@@ -88,8 +88,10 @@ networkPolicy:
   enabled: false
   # Peers allowed to reach the API and web HTTP ports. Empty allows every
   # source, which an ingress controller and in-cluster SDK clients both need.
-  # Readiness probes come from the kubelet on the node; check your CNI allows
-  # them before narrowing this.
+  # When set, the API also always admits this release's web pod, which calls it
+  # server-side for every page; list your SDK clients' pods or namespaces here
+  # too, or their events are refused. Readiness probes come from the kubelet on
+  # the node; check your CNI allows them before narrowing this.
   ingressFrom: []
   # Where the database is, for egress from the API and migrate pods. Ignored
   # when postgresql.enabled, which selects the in-cluster pod instead. An empty
@@ -136,6 +138,9 @@ postgresql:
     runAsUser: 70
     runAsGroup: 70
     fsGroup: 70
+    # Change the volume's ownership only when its root does not already match,
+    # rather than walking every file of the data directory on each start.
+    fsGroupChangePolicy: OnRootMismatch
     seccompProfile:
       type: RuntimeDefault
   containerSecurityContext:

@@ -107,7 +107,7 @@ is enforced only by a CNI that supports them; kind's default does.
 
 | Pod | Ingress | Egress |
 | --- | --- | --- |
-| api | port 8080 from `networkPolicy.ingressFrom` (everything when empty), and the metrics port when set | DNS, the database, `networkPolicy.apiExtraEgress` |
+| api | port 8080 from `networkPolicy.ingressFrom` plus the web pod (everything when `ingressFrom` is empty), and the metrics port when set | DNS, the database, `networkPolicy.apiExtraEgress` |
 | web | port 3000 from `networkPolicy.ingressFrom` | DNS, the API on 8080 |
 | migrate | none | DNS, the database |
 | postgresql | 5432 from the api and migrate pods | none |
