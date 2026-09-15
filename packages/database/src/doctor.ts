@@ -6,7 +6,7 @@ import {
 } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import { keyringFromEnvironment } from "./keyring-env.js";
-import { pendingMigrationCount } from "./migration-status.js";
+import { migrationStatusReadOnly } from "./migration-status.js";
 import { findUnreadableData } from "./repositories/rotation.js";
 
 export type CheckStatus = "PASS" | "WARN" | "FAIL" | "SKIP";
@@ -40,20 +40,36 @@ const MINIMUM_POSTGRES = 150_000;
 const TESTED_POSTGRES = 170_000;
 
 /**
- * Shorter values are not scrubbed from output, because a short password such
- * as the bundled `flight` also names the database and would blank ordinary
- * words. They cannot reach the output anyway: no message doctor prints is
- * built from them, and PostgreSQL's own errors never repeat a password.
+ * The shortest secret scrubbed from output.
+ *
+ * Every exact occurrence of a secret this long or longer is replaced, however
+ * it got into a message. A shorter one is left alone: a two-character password
+ * would blank digits of a version number and letters of every word, and the
+ * output would become unreadable to protect a password that is not worth
+ * guessing at. It still cannot reach the output, because no message doctor
+ * prints includes DATABASE_URL, and PostgreSQL's own errors never repeat a
+ * password. For the same reason doctor no longer prints the database's name,
+ * which on the bundled stack is `flight`, the same word as its password.
  */
-const MINIMUM_SCRUBBED_LENGTH = 8;
+const MINIMUM_SCRUBBED_LENGTH = 4;
+
+/** The fix for a check that failed with a SQLSTATE doctor recognises. */
+const SQLSTATE_FIXES: Record<string, string> = {
+  "42501":
+    "GRANT the role in DATABASE_URL SELECT, INSERT, UPDATE and DELETE on Flight Recorder's tables, as the API needs them (docs/OPERATIONS.md §1).",
+  "42P01": "A table is missing: run migrate against this database (docs/OPERATIONS.md §4).",
+  "57014": "A query was cancelled: check the database's load, or its own statement_timeout.",
+  "53300": "PostgreSQL has no connection to spare: check max_connections and what holds them."
+};
 
 /**
  * Check an installation end to end and say what to fix.
  *
- * Read-only apart from what `/ready` also does (knex creates its migrations
- * table if it is missing). Every check that depends on another is reported as
- * SKIP when that one failed, rather than failing again with a less useful
- * message.
+ * Read-only: it counts pending migrations from knex's table without creating
+ * it, and records nothing about an API key it verifies. Every check that
+ * depends on another is reported as SKIP when that one failed, rather than
+ * failing again with a less useful message, and a check that throws is
+ * reported as FAIL with its SQLSTATE rather than ending the run.
  *
  * Nothing printed contains the database password, the admin token, either
  * encryption key, or the API key beyond its prefix. Messages are built from
@@ -70,20 +86,20 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
   else results.push(skip("PostgreSQL version", "the database is unreachable"));
 
   let migrated = false;
+  let dataReason: string | null = "the database is unreachable";
   if (database.version === null) {
     results.push(skip("Migrations", "the database is unreachable"));
   } else {
-    const pending = await pendingMigrationCount(db);
-    migrated = pending === 0;
-    results.push(
-      migrated
-        ? pass("Migrations", "Every migration is applied.")
-        : fail(
-            "Migrations",
-            `${String(pending)} migration${pending === 1 ? " is" : "s are"} pending, so the API reports /ready 503 migrations_pending.`,
-            "Run migrate against this database (docs/OPERATIONS.md §4)."
-          )
-    );
+    const migrations = await guarded("Migrations", () => migrationsResult(db));
+    results.push(migrations);
+    migrated = migrations.status === "PASS";
+    dataReason = migrated
+      ? null
+      : migrations.detail.includes("could not run")
+        ? "the migration check could not run"
+        : migrations.detail.includes("pending")
+          ? "migrations are pending"
+          : "this build does not know the database's migrations";
   }
 
   results.push(...defaultSecretResults(env));
@@ -96,12 +112,6 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
     keyringProblem = error instanceof Error ? error.message.replace(/\s*\n\s*/g, " ") : "invalid";
   }
 
-  const dataReason = !migrated
-    ? database.version === null
-      ? "the database is unreachable"
-      : "migrations are pending"
-    : null;
-
   if (keyring === null) {
     results.push(
       fail(
@@ -113,24 +123,28 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
   } else if (dataReason !== null) {
     results.push(skip("Keys readable", dataReason));
   } else {
-    results.push(await keysReadableResult(db, keyring));
+    const readable = keyring;
+    results.push(await guarded("Keys readable", () => keysReadableResult(db, readable)));
   }
 
   if (dataReason !== null) results.push(skip("Projects and keys", dataReason));
-  else results.push(await projectsResult(db));
+  else results.push(await guarded("Projects and keys", () => projectsResult(db)));
 
   if (options.apiKey !== undefined) {
+    const apiKey = options.apiKey;
     if (keyring === null) results.push(skip("API key", "ENCRYPTION_KEY cannot be used"));
     else if (dataReason !== null) results.push(skip("API key", dataReason));
-    else results.push(await apiKeyResult(db, keyring, options.apiKey));
+    else {
+      const verifying = keyring;
+      results.push(await guarded("API key", () => apiKeyResult(db, verifying, apiKey)));
+    }
   }
 
   if (options.apiUrl !== undefined) {
+    const apiUrl = options.apiUrl;
     results.push(
-      await apiReachableResult(
-        options.apiUrl,
-        options.fetch ?? fetch,
-        options.apiTimeoutMs ?? 5_000
+      await guarded("API reachable", () =>
+        apiReachableResult(apiUrl, options.fetch ?? fetch, options.apiTimeoutMs ?? 5_000)
       )
     );
   }
@@ -138,6 +152,57 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
   results.push(statementTimeoutResult(env));
 
   return scrub(results, secretsIn(env, options.apiKey));
+}
+
+/**
+ * Run one check, and report an error it throws as that check's FAIL.
+ *
+ * A role without grants, a table dropped by hand, or a connection lost part
+ * way used to end doctor with a stack trace and no summary, which is the
+ * installation doctor exists to explain.
+ */
+async function guarded(check: string, run: () => Promise<CheckResult>): Promise<CheckResult> {
+  try {
+    return await run();
+  } catch (error) {
+    const { code, message } = error as { code?: unknown; message?: unknown };
+    const sqlState = typeof code === "string" ? code : undefined;
+    // knex prefixes the SQL it sent; PostgreSQL's own reason follows the last " - ".
+    const reason = typeof message === "string" ? message.split(" - ").pop() : undefined;
+    return fail(
+      check,
+      `This check could not run${sqlState === undefined ? "" : ` (${sqlState})`}: ${reason ?? String(error)}.`,
+      (sqlState === undefined ? undefined : SQLSTATE_FIXES[sqlState]) ??
+        "Run doctor again; if it fails the same way, check the database's log for this error."
+    );
+  }
+}
+
+/**
+ * Pending migrations, counted without writing.
+ *
+ * knex's own `migrate.list()` creates its migrations and lock tables when they
+ * are missing, which is a write to a database doctor was only asked to look at
+ * and a failure on a role that may not create tables.
+ */
+async function migrationsResult(db: Knex): Promise<CheckResult> {
+  const status = await migrationStatusReadOnly(db);
+  if (status.unknown.length > 0) {
+    return fail(
+      "Migrations",
+      `${plural(status.unknown.length, "applied migration")} ${status.unknown.length === 1 ? "is" : "are"} not in this build, so a newer build migrated this database.`,
+      "Run the build that migrated it, or a later one; do not roll the schema back by hand."
+    );
+  }
+  if (status.pending.length > 0) {
+    const pending = status.pending.length;
+    return fail(
+      "Migrations",
+      `${String(pending)} migration${pending === 1 ? " is" : "s are"} pending, so the API reports /ready 503 migrations_pending.`,
+      "Run migrate against this database (docs/OPERATIONS.md §4)."
+    );
+  }
+  return pass("Migrations", "Every migration is applied.");
 }
 
 /** Exit 0 when nothing failed. Warnings and skips do not fail. */
@@ -215,12 +280,12 @@ async function checkDatabase(
 ): Promise<{ result: CheckResult; version: { num: number; text: string } | null }> {
   try {
     const found: unknown = await db.raw(
-      "select current_setting('server_version_num')::int as num, current_setting('server_version') as text, current_database() as name"
+      "select current_setting('server_version_num')::int as num, current_setting('server_version') as text"
     );
-    const row = (found as { rows: { num: number; text: string; name: string }[] }).rows[0];
+    const row = (found as { rows: { num: number; text: string }[] }).rows[0];
     if (row === undefined) throw new Error("The version query returned no row.");
     return {
-      result: pass("Database reachable", `Connected to database "${row.name}".`),
+      result: pass("Database reachable", "Connected with DATABASE_URL."),
       version: { num: row.num, text: row.text }
     };
   } catch (error) {
@@ -477,7 +542,14 @@ async function apiReachableResult(
   timeoutMs: number
 ): Promise<CheckResult> {
   const shown = displayUrl(apiUrl);
-  const readyUrl = `${apiUrl.replace(/\/+$/, "")}/ready`;
+  // Built as a URL, so a query string, fragment, or credentials in --api-url
+  // are dropped rather than left in front of /ready or sent along.
+  const readyUrl = new URL(apiUrl);
+  readyUrl.pathname = `${readyUrl.pathname.replace(/\/+$/, "")}/ready`;
+  readyUrl.search = "";
+  readyUrl.hash = "";
+  readyUrl.username = "";
+  readyUrl.password = "";
   const unreachableFix =
     "Check the URL and that the API is running; inside Compose the API is http://api:8080, not localhost.";
 
@@ -546,7 +618,10 @@ function statementTimeoutResult(env: Record<string, string | undefined>): CheckR
   return pass("Statement timeout", `The API cancels a statement after ${String(timeoutMs)} ms.`);
 }
 
-function secretsIn(env: Record<string, string | undefined>, apiKey: string | undefined): string[] {
+export function secretsIn(
+  env: Record<string, string | undefined>,
+  apiKey: string | undefined
+): string[] {
   const secrets = [
     env["ADMIN_TOKEN"],
     env["ENCRYPTION_KEY"],
@@ -554,9 +629,10 @@ function secretsIn(env: Record<string, string | undefined>, apiKey: string | und
     apiKey,
     ...databasePassword(env["DATABASE_URL"])
   ];
-  return secrets
+  const usable = secrets
     .map((secret) => secret?.trim() ?? "")
     .filter((secret) => secret.length >= MINIMUM_SCRUBBED_LENGTH);
+  return [...new Set(usable)];
 }
 
 function databasePassword(databaseUrl: string | undefined): string[] {
@@ -569,7 +645,7 @@ function databasePassword(databaseUrl: string | undefined): string[] {
   }
 }
 
-function scrub(results: CheckResult[], secrets: readonly string[]): CheckResult[] {
+export function scrub(results: readonly CheckResult[], secrets: readonly string[]): CheckResult[] {
   const clean = (text: string): string =>
     secrets.reduce((current, secret) => current.split(secret).join("[redacted]"), text);
   return results.map((result) => ({

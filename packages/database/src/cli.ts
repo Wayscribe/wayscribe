@@ -21,9 +21,13 @@ if (databaseUrl === undefined || databaseUrl === "") {
 }
 
 // doctor exists to report an unreachable database, so it gives up on a
-// connection after ten seconds rather than knex's sixty.
+// connection after ten seconds rather than knex's sixty, and says so in its
+// own words rather than under knex's warning.
 const db = knex(
-  createKnexConfig(databaseUrl, command === "doctor" ? { acquireConnectionTimeoutMs: 10_000 } : {})
+  createKnexConfig(
+    databaseUrl,
+    command === "doctor" ? { acquireConnectionTimeoutMs: 10_000, quiet: true } : {}
+  )
 );
 
 /** DEFAULT_RETENTION_DAYS, applied to any environment these commands create. */

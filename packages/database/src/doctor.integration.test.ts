@@ -18,6 +18,7 @@ const ENCRYPTION_KEY = "doctor-encryption-key-3b9f7c21e4d8a605";
 const OTHER_KEY = "doctor-other-encryption-key-81c4e2f7a9";
 const ADMIN_TOKEN = "doctor-admin-token-c52e9a17b3f84d60";
 const PUBLISHED_KEY = "replace-for-local-development-0000";
+const UNGRANTED_PASSWORD = "doctor-ungranted-pw-6f0a2b";
 
 const keyring = createKeyring(ENCRYPTION_KEY);
 const otherKeyring = createKeyring(OTHER_KEY);
@@ -32,6 +33,8 @@ describe("doctor", () => {
   let readyServer: Server;
   let readyStatus = 200;
   let readyBody: unknown = { status: "ready" };
+  /** The path and query of every request the /ready stub received. */
+  const readyRequests: string[] = [];
   let apiUrl = "";
 
   const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -109,7 +112,8 @@ describe("doctor", () => {
       .withPassword(DB_PASSWORD)
       .start();
 
-    readyServer = createServer((_request, response) => {
+    readyServer = createServer((request, response) => {
+      readyRequests.push(request.url ?? "");
       response.writeHead(readyStatus, { "content-type": "application/json" });
       response.end(JSON.stringify(readyBody));
     });
@@ -224,6 +228,55 @@ describe("doctor", () => {
     expectNoSecrets(run, apiKey);
   });
 
+  it("changes nothing: it does not create knex's migrations table on a fresh database", async () => {
+    await withDatabase("pristine", async () => {
+      // Nothing: a database nobody has migrated.
+    });
+
+    const run = await doctor([], {}, "pristine");
+
+    expect(statusOf(run, "Migrations")).toBe("FAIL");
+    expect(lineOf(run, "Migrations")).toMatch(/\d+ migrations are pending/);
+    const check = knex(createKnexConfig(urlFor("pristine")));
+    try {
+      const tables: unknown = await check.raw(
+        "select to_regclass('knex_migrations') as migrations, to_regclass('knex_migrations_lock') as lock"
+      );
+      expect((tables as { rows: unknown[] }).rows).toEqual([{ migrations: null, lock: null }]);
+    } finally {
+      await check.destroy();
+    }
+  });
+
+  it("reports a check it could not run as FAIL, with its SQLSTATE, and still exits", async () => {
+    // A role that can connect and read nothing, as when DATABASE_URL names a
+    // role the operator never granted anything to.
+    const admin = knex(createKnexConfig(urlFor("installed")));
+    try {
+      await admin.raw(`create role doctor_ungranted login password '${UNGRANTED_PASSWORD}'`);
+    } finally {
+      await admin.destroy();
+    }
+    const url = new URL(urlFor("installed"));
+    url.username = "doctor_ungranted";
+    url.password = UNGRANTED_PASSWORD;
+
+    const run = await doctor(["--api-key", apiKey], { DATABASE_URL: url.toString() });
+
+    expect(run.code).toBe(1);
+    expect(statusOf(run, "Database reachable")).toBe("PASS");
+    expect(statusOf(run, "Migrations")).toBe("FAIL");
+    expect(lineOf(run, "Migrations")).toContain("42501");
+    expect(run.output).toContain("GRANT");
+    expect(statusOf(run, "Projects and keys")).toBe("SKIP");
+    // Every check still printed, then the summary: no stack trace instead.
+    expect(statusOf(run, "Statement timeout")).toBe("PASS");
+    expect(run.output).toMatch(/\d+ failed, \d+ warnings?, \d+ passed/);
+    expect(run.output).not.toMatch(/^\s+at /m);
+    expectNoSecrets(run, apiKey);
+    expect(run.output).not.toContain(UNGRANTED_PASSWORD);
+  });
+
   it("fails when stored data is under a key the installation does not have", async () => {
     const run = await doctor([], {}, "unreadable");
 
@@ -336,7 +389,22 @@ describe("doctor", () => {
 
     expect(run.code).toBe(1);
     expect(lineOf(run, "Database reachable")).toContain("ECONNREFUSED");
+    // knex's own logger stays quiet: doctor's line is the only account of it.
+    expect(run.output).not.toContain("Acquire connection error");
+    expect(run.output).not.toMatch(/^\s+at /m);
     expectNoSecrets(run);
+  });
+
+  it("asks for /ready at the API URL's path, without the URL's query string", async () => {
+    readyStatus = 200;
+    readyBody = { status: "ready" };
+    readyRequests.length = 0;
+
+    const run = await doctor(["--api-url", `${apiUrl}/?token=doctor-query-secret`], {});
+
+    expect(statusOf(run, "API reachable")).toBe("PASS");
+    expect(readyRequests).toEqual(["/ready"]);
+    expect(run.output).not.toContain("doctor-query-secret");
   });
 
   it("refuses an unknown argument without echoing it", async () => {

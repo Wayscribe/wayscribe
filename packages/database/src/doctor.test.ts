@@ -3,6 +3,8 @@ import {
   doctorExitCode,
   formatDoctor,
   parseDoctorArgs,
+  scrub,
+  secretsIn,
   versionResult,
   type CheckResult
 } from "./doctor.js";
@@ -64,6 +66,56 @@ describe("formatDoctor", () => {
   it("exits 1 only when something failed", () => {
     expect(doctorExitCode(results)).toBe(1);
     expect(doctorExitCode(results.filter((result) => result.status !== "FAIL"))).toBe(0);
+  });
+});
+
+describe("scrubbing secrets from results", () => {
+  const result = (detail: string, fix?: string): CheckResult => ({
+    status: "FAIL",
+    check: "Probe",
+    detail,
+    ...(fix === undefined ? {} : { fix })
+  });
+
+  it("collects every configured secret, the database password raw and decoded", () => {
+    expect(
+      secretsIn(
+        {
+          ADMIN_TOKEN: "admin-token-value-0000000000000000",
+          ENCRYPTION_KEY: " encryption-key-value-000000000000 ",
+          ENCRYPTION_KEY_PREVIOUS: "",
+          DATABASE_URL: "postgresql://flight:p%40ss%2Fword@db:5432/flight"
+        },
+        "fr_presentedkey000000000000000000000"
+      ).sort()
+    ).toEqual(
+      [
+        "admin-token-value-0000000000000000",
+        "encryption-key-value-000000000000",
+        "fr_presentedkey000000000000000000000",
+        "p%40ss%2Fword",
+        "p@ss/word"
+      ].sort()
+    );
+  });
+
+  it("scrubs a password of four characters or more wherever it appears, in detail and fix", () => {
+    const secrets = secretsIn({ DATABASE_URL: "postgresql://u:hunt@db/flight" }, undefined);
+    expect(scrub([result("role said hunt", "not hunt again")], secrets)).toEqual([
+      result("role said [redacted]", "not [redacted] again")
+    ]);
+  });
+
+  it("leaves a password shorter than four characters alone, since it would blank ordinary text", () => {
+    const secrets = secretsIn({ DATABASE_URL: "postgresql://u:a1@db/flight" }, undefined);
+    expect(secrets).toEqual([]);
+    expect(scrub([result("PostgreSQL 17.1a1")], secrets)).toEqual([result("PostgreSQL 17.1a1")]);
+  });
+
+  it("scrubs every occurrence, not only the first", () => {
+    expect(scrub([result("xsecretx and secret")], ["secret"])).toEqual([
+      result("x[redacted]x and [redacted]")
+    ]);
   });
 });
 

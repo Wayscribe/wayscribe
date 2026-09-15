@@ -637,7 +637,7 @@ beneath it:
 | --- | --- | --- |
 | Database reachable | the connection is refused, the host does not resolve, or authentication fails | |
 | PostgreSQL version | below 15 | below 17, the version CI tests |
-| Migrations | any are pending | |
+| Migrations | any are pending, or the database has one this build does not | |
 | `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
 | Projects and keys | | no project, or no unrevoked API key |
@@ -646,16 +646,23 @@ beneath it:
 | Statement timeout | the value is invalid | it is 0 |
 
 A check that depends on one that failed prints `SKIP` rather than failing a
-second time: with migrations pending, nothing that reads the tables runs. The
-exit code is 1 when anything failed and 0 otherwise, so warnings do not break a
-script.
+second time: with migrations pending, nothing that reads the tables runs. A
+check that cannot run at all, such as one refused by a role without grants,
+prints `FAIL` with PostgreSQL's SQLSTATE (`42501` for a missing grant) and a fix
+where doctor knows one, and the remaining checks still run. The exit code is 1
+when anything failed and 0 otherwise, so warnings do not break a script.
 
 The API key is checked locally, with the keyring, and never sent anywhere. The
 output names its prefix and the project and environment it belongs to, which is
 the environment every event it sends must name. Doctor never prints the database
 password, the admin token, either encryption key, or more of a key than its
-prefix, and it changes nothing: it does not record the key as used and does not
-move a verifier during a rotation.
+prefix.
+
+It changes nothing. It reads applied migrations from `knex_migrations` only when
+that table exists, so on a database nobody has migrated it does not create knex's
+tables the way `migrate` and `/ready` do; it does not record a key as used; and
+it does not move a verifier during a rotation. An applied migration this build
+does not have, left by a newer build, is a `FAIL` of its own.
 
 ## 13. Monitoring
 
