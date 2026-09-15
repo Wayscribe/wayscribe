@@ -11,7 +11,7 @@ import {
   eraseIdentifier,
   findJourneysByIdentifier,
   findJourneysInRange,
-  type JourneyMatches
+  type IdentifierMatches
 } from "./deletion.js";
 import { createDestination, startRun } from "./replay.js";
 import { RETENTION_LOCK_KEY, sweepExpiredJourneys } from "./retention.js";
@@ -28,7 +28,7 @@ const token = (keyring: Keyring, value: string): string => {
   return current;
 };
 
-const ids = (matches: JourneyMatches): string[] => {
+const ids = (matches: IdentifierMatches): string[] => {
   if (!matches.ok) throw new Error(`no matches: ${matches.reason}`);
   return matches.journeys.map((journey) => journey.id).sort();
 };
@@ -494,9 +494,11 @@ describe("deletion", () => {
           token: token(keyringA, VALUE),
           environment: null,
           deletedJourneys: 5,
-          deletedEvents: 15
+          deletedEvents: 15,
+          complete: true
         }
       });
+      expect(row?.metadata).not.toHaveProperty("lockLost");
 
       const serialized = JSON.stringify(row);
       for (const spelling of [VALUE, VALUE.toLowerCase(), "Customer-42", "Example.com"]) {
@@ -515,7 +517,11 @@ describe("deletion", () => {
       expect(result).toMatchObject({ ok: true, deletedJourneys: 0, deletedEvents: 0, batches: 0 });
       const audit = await auditRows();
       expect(audit).toHaveLength(1);
-      expect(audit[0]?.metadata).toMatchObject({ deletedJourneys: 0, deletedEvents: 0 });
+      expect(audit[0]?.metadata).toMatchObject({
+        deletedJourneys: 0,
+        deletedEvents: 0,
+        complete: true
+      });
       expect(await journeyIds(projectA)).toEqual(["jrn_kept"]);
     });
 
@@ -544,12 +550,20 @@ describe("deletion", () => {
       expect(await journeyIds(projectA)).toHaveLength(3);
       const interrupted = await auditRows();
       expect(interrupted).toHaveLength(1);
-      expect(interrupted[0]?.metadata).toMatchObject({ deletedJourneys: 2, deletedEvents: 4 });
+      // Distinguishable from a finished erasure of two journeys.
+      expect(interrupted[0]?.metadata).toMatchObject({
+        deletedJourneys: 2,
+        deletedEvents: 4,
+        complete: false
+      });
 
       const resumed = await eraseIdentifier(db, keyringA, input, { batchSize: 2 });
       expect(resumed).toMatchObject({ ok: true, deletedJourneys: 3 });
       expect(await journeyIds(projectA)).toEqual([]);
-      expect((await auditRows()).map((row) => row.metadata?.["deletedJourneys"])).toEqual([2, 3]);
+      expect((await auditRows()).map((row) => row.metadata)).toMatchObject([
+        { deletedJourneys: 2, complete: false },
+        { deletedJourneys: 3, complete: true }
+      ]);
     });
 
     it("does not commit a later batch whose audit update fails", async () => {
@@ -578,7 +592,164 @@ describe("deletion", () => {
       expect(await journeyIds(projectA)).toHaveLength(2);
       const audit = await auditRows();
       expect(audit).toHaveLength(1);
-      expect(audit[0]?.metadata).toMatchObject({ deletedJourneys: 2 });
+      expect(audit[0]?.metadata).toMatchObject({ deletedJourneys: 2, complete: false });
+    });
+
+    it("ends with what existed at its start while matching journeys keep arriving", async () => {
+      for (let i = 0; i < 3; i += 1) {
+        await journey({
+          project: projectA,
+          environment: productionA,
+          id: `jrn_${String(i)}`,
+          hash: token(keyringA, VALUE)
+        });
+      }
+
+      const result = await eraseIdentifier(
+        db,
+        keyringA,
+        { projectId: projectA, value: VALUE, actor: "admin" },
+        {
+          batchSize: 2,
+          // An ingester writing the same customer while the erasure runs.
+          onBatch: async ({ batch }) => {
+            if (batch > 10) throw new Error("the erasure is chasing new arrivals");
+            await journey({
+              project: projectA,
+              environment: productionA,
+              id: `jrn_late_${String(batch)}`,
+              hash: token(keyringA, VALUE)
+            });
+          }
+        }
+      );
+
+      expect(result).toMatchObject({ ok: true, deletedJourneys: 3, batches: 2 });
+      expect(await journeyIds(projectA)).toEqual(["jrn_late_1", "jrn_late_2"]);
+      expect((await auditRows())[0]?.metadata).toMatchObject({ complete: true });
+    });
+
+    it("does not match an alias another project carries for a journey with the same id", async () => {
+      // The keyring is installation-wide, so project B's alias carries the very
+      // token an erasure in project A computes. Only the alias's project keeps
+      // it from pointing at A's journey of the same id.
+      await journey({ project: projectA, environment: productionA, id: "jrn_same" });
+      await journey({ project: projectB, environment: productionB, id: "jrn_same" });
+      await alias(projectB, "jrn_same", token(keyringA, VALUE));
+
+      const selection = { projectId: projectA, value: VALUE };
+      expect(await findJourneysByIdentifier(db, keyringA, selection)).toMatchObject({
+        ok: true,
+        total: 0
+      });
+      expect(await eraseIdentifier(db, keyringA, { ...selection, actor: "admin" })).toMatchObject({
+        ok: true,
+        deletedJourneys: 0
+      });
+      expect(await journeyIds(projectA)).toEqual(["jrn_same"]);
+      expect(await journeyIds(projectB)).toEqual(["jrn_same"]);
+    });
+
+    /**
+     * Holds `lockedIds` while an erasure's first batch reaches them, then
+     * deletes them from another transaction, so that batch deletes fewer than
+     * it selected while later matches remain.
+     */
+    const eraseWhileAnotherDeletes = async (lockedIds: string[]): Promise<unknown> => {
+      for (let i = 0; i < 4; i += 1) {
+        await journey({
+          project: projectA,
+          environment: productionA,
+          id: `jrn_${String(i)}`,
+          hash: token(keyringA, VALUE)
+        });
+      }
+
+      let release: () => void = () => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let holding: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        holding = resolve;
+      });
+      const other = db.transaction(async (trx) => {
+        await trx("journeys")
+          .where({ project_id: projectA })
+          .whereIn("id", lockedIds)
+          .forUpdate()
+          .select("id");
+        holding();
+        await released;
+        await trx("journeys").where({ project_id: projectA }).whereIn("id", lockedIds).del();
+      });
+      await held;
+
+      const erasing = eraseIdentifier(
+        db,
+        keyringA,
+        { projectId: projectA, value: VALUE, actor: "admin" },
+        { batchSize: 2 }
+      );
+      try {
+        await waitFor(async () => {
+          const waiting: unknown = await db.raw(
+            "select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock'"
+          );
+          return ((waiting as { rows: { n: number }[] }).rows[0]?.n ?? 0) > 0;
+        });
+      } finally {
+        release();
+        await other;
+      }
+      return erasing;
+    };
+
+    it("keeps going after a batch that a concurrent deletion shortened", async () => {
+      const result = await eraseWhileAnotherDeletes(["jrn_0"]);
+
+      expect(result).toMatchObject({ ok: true, deletedJourneys: 3 });
+      expect(await journeyIds(projectA)).toEqual([]);
+      expect((await auditRows())[0]?.metadata).toMatchObject({
+        deletedJourneys: 3,
+        complete: true
+      });
+    });
+
+    it("keeps going after a batch that a concurrent deletion emptied", async () => {
+      const result = await eraseWhileAnotherDeletes(["jrn_0", "jrn_1"]);
+
+      expect(result).toMatchObject({ ok: true, deletedJourneys: 2 });
+      expect(await journeyIds(projectA)).toEqual([]);
+      expect((await auditRows())[0]?.metadata).toMatchObject({
+        deletedJourneys: 2,
+        complete: true
+      });
+    });
+
+    it("refuses a value that is empty once normalized, before any query or audit row", async () => {
+      // A journey whose entity id is the empty string: an erasure of "   " would
+      // otherwise match it, and nothing an operator meant.
+      await journey({
+        project: projectA,
+        environment: productionA,
+        id: "jrn_blank",
+        hash: token(keyringA, "")
+      });
+
+      for (const value of ["", "   ", "\t\n"]) {
+        const selection = { projectId: projectA, value };
+        expect(await findJourneysByIdentifier(db, keyringA, selection)).toEqual({
+          ok: false,
+          reason: "empty_value"
+        });
+        expect(await eraseIdentifier(db, keyringA, { ...selection, actor: "admin" })).toEqual({
+          ok: false,
+          reason: "empty_value"
+        });
+      }
+      expect(await journeyIds(projectA)).toEqual(["jrn_blank"]);
+      expect(await auditRows()).toHaveLength(0);
     });
   });
 
@@ -674,7 +845,8 @@ describe("deletion", () => {
         metadata: {
           after: "2026-01-01T00:00:00.000Z",
           before: "2026-02-01T00:00:00.000Z",
-          deletedJourneys: 3
+          deletedJourneys: 3,
+          complete: true
         }
       });
     });
@@ -831,7 +1003,11 @@ describe("deletion", () => {
       expect(await journeyIds(projectA)).toHaveLength(3);
       const audit = await auditRows();
       expect(audit).toHaveLength(1);
-      expect(audit[0]?.metadata).toMatchObject({ deletedJourneys: 1 });
+      expect(audit[0]?.metadata).toMatchObject({
+        deletedJourneys: 1,
+        complete: false,
+        lockLost: true
+      });
 
       const next = await deleteRange(db, {
         projectId: projectA,
@@ -840,6 +1016,64 @@ describe("deletion", () => {
         actor: "cli"
       });
       expect(next).toMatchObject({ ok: true, deletedJourneys: 3, lockLost: false });
+      const [, second] = await auditRows();
+      expect(second?.metadata).toMatchObject({ deletedJourneys: 3, complete: true });
+      expect(second?.metadata).not.toHaveProperty("lockLost");
+    });
+
+    it("ends with what existed at its start while journeys keep arriving in the range", async () => {
+      await seedWindow();
+      const now = new Date();
+      const tomorrow = offset(now, DAY);
+      let arrivals = 0;
+
+      // A live environment with `before` in the future: every new journey lands
+      // in the range. The run must not hold the sweep's lock chasing them.
+      const result = await deleteRange(
+        db,
+        { projectId: projectA, environment: "production", before: tomorrow, actor: "cli" },
+        {
+          batchSize: 2,
+          onBatch: async () => {
+            arrivals += 1;
+            if (arrivals > 10) throw new Error("the range deletion is chasing new arrivals");
+            await journey({
+              project: projectA,
+              environment: productionA,
+              id: `jrn_live_${String(arrivals)}`,
+              lastEventAt: now
+            });
+          }
+        }
+      );
+
+      expect(result).toMatchObject({ ok: true, deletedJourneys: 5, batches: 3, lockLost: false });
+      expect(await journeyIds(projectA)).toEqual([
+        "jrn_live_1",
+        "jrn_live_2",
+        "jrn_live_3",
+        "jrn_other_environment"
+      ]);
+      const dryRun = await findJourneysInRange(db, {
+        projectId: projectA,
+        environment: "production",
+        before: tomorrow
+      });
+      expect(ids(dryRun)).toEqual(["jrn_live_1", "jrn_live_2", "jrn_live_3"]);
+    });
+
+    it("rejects an inverted or empty range before any query or audit row", async () => {
+      await seedWindow();
+      for (const [after, before] of [
+        [BEFORE, AFTER],
+        [AFTER, AFTER]
+      ] as const) {
+        const selection = { projectId: projectA, environment: "production", after, before };
+        await expect(findJourneysInRange(db, selection)).rejects.toThrow(RangeError);
+        await expect(deleteRange(db, { ...selection, actor: "cli" })).rejects.toThrow(RangeError);
+      }
+      expect(await journeyIds(projectA)).toHaveLength(6);
+      expect(await auditRows()).toHaveLength(0);
     });
 
     it("rejects an invalid date instead of querying with it", async () => {

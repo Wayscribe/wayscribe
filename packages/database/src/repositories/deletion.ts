@@ -1,4 +1,8 @@
-import { searchTokens, type Keyring } from "@flight-recorder/payload-security";
+import {
+  normalizeSearchValue,
+  searchTokens,
+  type Keyring
+} from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import { lockHolderAlive, withTransactionLock } from "./advisory-lock.js";
 import { recordAudit, updateAuditMetadata } from "./audit.js";
@@ -14,6 +18,12 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 export interface EnvironmentNotFound {
   ok: false;
   reason: "environment_not_found";
+}
+
+/** An identifier that is empty once normalized: it names nobody, so nothing is matched. */
+export interface EmptyValue {
+  ok: false;
+  reason: "empty_value";
 }
 
 /** One journey a dry run reports. */
@@ -34,6 +44,8 @@ export type JourneyMatches =
       total: number;
     }
   | EnvironmentNotFound;
+
+export type IdentifierMatches = JourneyMatches | EmptyValue;
 
 export interface MatchOptions {
   /** Ceiling on `journeys`. `total` still counts everything. Unlimited when absent. */
@@ -110,13 +122,14 @@ export async function findJourneysByIdentifier(
   keyring: Keyring,
   selection: IdentifierSelection,
   options: MatchOptions = {}
-): Promise<JourneyMatches> {
+): Promise<IdentifierMatches> {
+  if (isEmptyValue(selection.value)) return { ok: false, reason: "empty_value" };
   const environmentId = await optionalEnvironmentId(db, selection.projectId, selection.environment);
   if (environmentId === null) return { ok: false, reason: "environment_not_found" };
 
   const tokens = searchTokens(keyring, selection.value);
   return listMatches(
-    (trx) => identifierSelection(trx, selection.projectId, environmentId, tokens),
+    (trx, cutoff) => identifierSelection(trx, selection.projectId, environmentId, tokens, cutoff),
     db,
     options
   );
@@ -132,22 +145,25 @@ export type ErasureResult =
       batches: number;
       auditId: string;
     }
-  | EnvironmentNotFound;
+  | EnvironmentNotFound
+  | EmptyValue;
 
 /**
  * Delete every journey matching an identifier, in transactions of 500.
  *
  * One audit row per erasure, `erasure.completed`, carrying the current key's
- * search token and never the value. It is inserted in the first batch's
- * transaction, even when nothing matches, and each later batch that deletes
- * something updates its counts in that batch's own transaction. So a process
- * that dies part way leaves a row whose counts are exactly what committed,
- * never deleted journeys with no row, and never a row claiming more than was
- * deleted. Running the erasure again finishes the job and writes a second row.
+ * search token and never the value. It is inserted with `complete: false` in
+ * the first batch's transaction, and each later batch updates its counts in
+ * that batch's own transaction; the final batch, which finds nothing left,
+ * sets `complete: true`. So a process that dies part way leaves a row whose
+ * counts are exactly what committed and which says it did not finish: never
+ * deleted journeys with no row, and never a row claiming more than was deleted.
+ * Running the erasure again finishes the job and writes a second row.
  *
- * Batches continue until one deletes nothing rather than until one comes back
- * short: a concurrent deletion of a selected row shortens a batch without
- * meaning nothing is left.
+ * Only journeys created by the time the erasure starts are selected. A
+ * customer still being written by live ingestion would otherwise keep every
+ * batch full and the run would never end; what arrives later is left for the
+ * next erasure, which a dry run will show.
  */
 export async function eraseIdentifier(
   db: Knex,
@@ -155,6 +171,7 @@ export async function eraseIdentifier(
   input: IdentifierSelection & { actor: string },
   options: BatchOptions = {}
 ): Promise<ErasureResult> {
+  if (isEmptyValue(input.value)) return { ok: false, reason: "empty_value" };
   const environmentId = await optionalEnvironmentId(db, input.projectId, input.environment);
   if (environmentId === null) return { ok: false, reason: "environment_not_found" };
 
@@ -167,7 +184,8 @@ export async function eraseIdentifier(
   const outcome = await deleteInBatches(
     db,
     options.batchSize ?? ERASURE_BATCH_SIZE,
-    (trx) => identifierSelection(trx, input.projectId, environmentId, tokens),
+    (trx, cutoff) => identifierSelection(trx, input.projectId, environmentId, tokens, cutoff),
+    ["j.id"],
     {
       projectId: input.projectId,
       actor: input.actor,
@@ -221,7 +239,11 @@ export async function findJourneysInRange(
   const environmentId = await environmentIdByName(db, selection.projectId, selection.environment);
   if (environmentId === null) return { ok: false, reason: "environment_not_found" };
 
-  return listMatches((trx) => rangeSelection(trx, selection, environmentId), db, options);
+  return listMatches(
+    (trx, cutoff) => rangeSelection(trx, selection, environmentId, cutoff),
+    db,
+    options
+  );
 }
 
 export type RangeDeletion =
@@ -252,7 +274,13 @@ export type RangeDeletion =
  * Holds the retention sweep's advisory lock for the whole run, so a range
  * deletion and a sweep never run at once, and checks before every batch that
  * the lock is still held. The audit row, `range.deleted`, follows the same rule
- * as an erasure's: inserted with the first batch, updated with each later one.
+ * as an erasure's: inserted with the first batch as incomplete, updated with
+ * each later one, and marked complete by the batch that finds nothing left. A
+ * run that loses its lock leaves it incomplete and adds `lockLost: true`.
+ *
+ * As with an erasure, only journeys created by the time the run starts are
+ * selected, so a `before` in the future on a live environment still ends
+ * rather than holding the sweep's lock while new journeys arrive.
  */
 export async function deleteRange(
   db: Knex,
@@ -267,7 +295,8 @@ export async function deleteRange(
     deleteInBatches(
       db,
       options.batchSize ?? RANGE_BATCH_SIZE,
-      (trx) => rangeSelection(trx, input, environmentId),
+      (trx, cutoff) => rangeSelection(trx, input, environmentId, cutoff),
+      ["j.last_event_at", "j.id"],
       {
         projectId: input.projectId,
         actor: input.actor,
@@ -322,8 +351,11 @@ export async function deleteReplayDestination(
   }
 
   return db.transaction(async (trx): Promise<DestinationDeletion> => {
-    // Locked first, so a replay starting now waits on the destination row and
-    // then fails its foreign key, rather than adding a run this delete misses.
+    // FOR UPDATE conflicts with the key-share lock a replay_runs insert takes on
+    // the destination it references. A replay starting while this runs waits,
+    // then fails its foreign key once the destination is gone, instead of
+    // committing a run after the runs were deleted, which would make the
+    // destination's own delete fail.
     const found: unknown = await trx("replay_destinations")
       .where({ project_id: input.projectId, id: input.destinationId })
       .forUpdate()
@@ -355,24 +387,32 @@ export async function deleteReplayDestination(
   });
 }
 
-/** A query over `journeys as j` restricted to what a deletion selects. */
-type Selection = (db: Knex) => Knex.QueryBuilder;
+/**
+ * A query over `journeys as j` restricted to what a deletion selects, among
+ * journeys created no later than `cutoff`, a timestamp the database gave.
+ */
+type Selection = (db: Knex, cutoff: string) => Knex.QueryBuilder;
 
 function identifierSelection(
   db: Knex,
   projectId: string,
   environmentId: string | undefined,
-  tokens: readonly string[]
+  tokens: readonly string[],
+  cutoff: string
 ): Knex.QueryBuilder {
   // The same token match as search: entity id or any alias, every token the
   // keyring gives the value, scoped inside the query.
   return db({ j: "journeys" })
     .where("j.project_id", projectId)
+    .andWhereRaw("j.created_at <= ?::timestamptz", [cutoff])
     .modify((scoped) => {
       if (environmentId !== undefined) void scoped.andWhere("j.environment_id", environmentId);
     })
     .andWhere((match) => {
       void match.whereIn("j.primary_entity_id_hash", tokens).orWhereExists((exists) => {
+        // Correlated on project as well as journey id: journey ids repeat across
+        // projects, and the keyring is installation-wide, so another project's
+        // alias carries the same token.
         void exists
           .select(db.raw("1"))
           .from({ a: "entity_aliases" })
@@ -385,11 +425,16 @@ function identifierSelection(
 function rangeSelection(
   db: Knex,
   selection: RangeSelection,
-  environmentId: string
+  environmentId: string,
+  cutoff: string
 ): Knex.QueryBuilder {
+  // Not fixed, and the same as the retention sweep: a batch's delete selects
+  // its rows and then locks them, so a journey whose new event moves its
+  // `last_event_at` out of the range in between is still deleted.
   return db({ j: "journeys" })
     .where("j.project_id", selection.projectId)
     .andWhere("j.environment_id", environmentId)
+    .andWhereRaw("j.created_at <= ?::timestamptz", [cutoff])
     .andWhere("j.last_event_at", "<", selection.before)
     .modify((bounded) => {
       if (selection.after !== undefined) {
@@ -403,13 +448,15 @@ async function listMatches(
   db: Knex,
   options: MatchOptions
 ): Promise<JourneyMatches> {
-  // One transaction, so the total and the list see the same snapshot.
+  // One transaction, so the total and the list see the same snapshot, and the
+  // cutoff is taken as a real run takes it: when the run starts.
   return db.transaction(
     async (trx): Promise<JourneyMatches> => {
-      const counted: unknown = await selection(trx).count({ n: "*" });
+      const cutoff = await databaseNow(trx);
+      const counted: unknown = await selection(trx, cutoff).count({ n: "*" });
       const total = Number((counted as { n: string | number }[])[0]?.n ?? 0);
 
-      const rows: unknown = await selection(trx)
+      const rows: unknown = await selection(trx, cutoff)
         .join({ e: "environments" }, "e.id", "j.environment_id")
         .select(
           "j.id as id",
@@ -453,6 +500,15 @@ interface BatchOutcome {
  * Delete a selection batch by batch, one transaction per batch, keeping one
  * audit row current with what has committed.
  *
+ * The cutoff is read from the database once, before the first batch, so the
+ * selection is bounded by what existed then and the run ends however fast
+ * matching journeys arrive.
+ *
+ * The run ends with a batch that deletes nothing and then finds nothing left
+ * to select. A batch coming back short, or even empty, is not enough: a
+ * concurrent deletion of rows it selected shortens it while later matches
+ * remain. That final batch marks the audit row complete.
+ *
  * With a `holder`, the lock it holds is checked before every batch, and a lost
  * lock ends the run after the batch that committed.
  */
@@ -460,6 +516,7 @@ async function deleteInBatches(
   db: Knex,
   batchSize: number,
   selection: Selection,
+  order: readonly string[],
   audit: AuditPlan,
   onBatch: BatchOptions["onBatch"],
   holder: Knex.Transaction | null
@@ -468,6 +525,7 @@ async function deleteInBatches(
     throw new RangeError("batchSize must be a positive integer.");
   }
 
+  const cutoff = await databaseNow(db);
   let deletedJourneys = 0;
   let deletedEvents = 0;
   let batches = 0;
@@ -475,26 +533,44 @@ async function deleteInBatches(
 
   for (;;) {
     if (holder !== null && !(await lockHolderAlive(holder))) {
+      if (auditId !== null) {
+        await updateAuditMetadata(db, audit.projectId, auditId, {
+          ...audit.metadata({ deletedJourneys, deletedEvents }),
+          complete: false,
+          lockLost: true
+        });
+      }
       return { deletedJourneys, deletedEvents, batches, auditId, lockLost: true };
     }
 
     const existingAuditId = auditId;
     const committed = await db.transaction(
-      async (trx): Promise<{ journeys: number; events: number; auditId: string }> => {
+      async (
+        trx
+      ): Promise<{ journeys: number; events: number; auditId: string; done: boolean }> => {
         const deleted: unknown = await trx("journeys")
           .whereIn(
             ["project_id", "id"],
-            selection(trx).select("j.project_id", "j.id").limit(batchSize)
+            selection(trx, cutoff)
+              .select("j.project_id", "j.id")
+              .orderBy([...order])
+              .limit(batchSize)
           )
           .del()
           .returning("event_count as eventCount");
         const rows = deleted as { eventCount: number }[];
         const journeys = rows.length;
         const events = rows.reduce((sum, row) => sum + row.eventCount, 0);
-        const metadata = audit.metadata({
-          deletedJourneys: deletedJourneys + journeys,
-          deletedEvents: deletedEvents + events
-        });
+        const remaining: unknown =
+          journeys === 0 ? await selection(trx, cutoff).first(trx.raw("1 as found")) : true;
+        const done = remaining === undefined;
+        const metadata = {
+          ...audit.metadata({
+            deletedJourneys: deletedJourneys + journeys,
+            deletedEvents: deletedEvents + events
+          }),
+          complete: done
+        };
 
         if (existingAuditId === null) {
           const id = await recordAudit(trx, {
@@ -505,19 +581,20 @@ async function deleteInBatches(
             resourceId: audit.resourceId,
             metadata
           });
-          return { journeys, events, auditId: id };
+          return { journeys, events, auditId: id, done };
         }
-        if (journeys > 0) {
+        if (journeys > 0 || done) {
           await updateAuditMetadata(trx, audit.projectId, existingAuditId, metadata);
         }
-        return { journeys, events, auditId: existingAuditId };
+        return { journeys, events, auditId: existingAuditId, done };
       }
     );
 
     // Only after commit: an id assigned inside a transaction that then failed
     // would name a row that does not exist.
     auditId = committed.auditId;
-    if (committed.journeys === 0) break;
+    if (committed.done) break;
+    if (committed.journeys === 0) continue;
 
     deletedJourneys += committed.journeys;
     deletedEvents += committed.events;
@@ -526,6 +603,26 @@ async function deleteInBatches(
   }
 
   return { deletedJourneys, deletedEvents, batches, auditId, lockLost: false };
+}
+
+/**
+ * The database's current time, to the microsecond, as text.
+ *
+ * Text rather than a JavaScript Date, which keeps milliseconds only: a cutoff
+ * truncated to the millisecond would exclude a journey created earlier in that
+ * same millisecond.
+ */
+async function databaseNow(db: Knex): Promise<string> {
+  const result: unknown = await db.raw(
+    `select to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as now`
+  );
+  const now = (result as { rows: { now: string }[] }).rows[0]?.now;
+  if (now === undefined) throw new Error("The database returned no time.");
+  return now;
+}
+
+function isEmptyValue(value: string): boolean {
+  return normalizeSearchValue(value) === "";
 }
 
 /**
@@ -569,8 +666,12 @@ async function environmentName(
 
 function assertValidRange(selection: { after?: Date | undefined; before: Date }): void {
   if (Number.isNaN(selection.before.getTime())) throw new RangeError("before is not a valid date.");
-  if (selection.after !== undefined && Number.isNaN(selection.after.getTime())) {
-    throw new RangeError("after is not a valid date.");
+  if (selection.after === undefined) return;
+  if (Number.isNaN(selection.after.getTime())) throw new RangeError("after is not a valid date.");
+  // An empty range selects nothing, and an inverted one is almost certainly the
+  // two dates swapped: refused rather than recorded as a deletion of nothing.
+  if (selection.after.getTime() >= selection.before.getTime()) {
+    throw new RangeError("after must be earlier than before.");
   }
 }
 
