@@ -8,7 +8,7 @@ import {
 } from "@flight-recorder/database";
 import { searchTokens, type Keyring } from "@flight-recorder/payload-security";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { databaseApiKeys } from "../auth.js";
+import { databaseApiKeys, logVerifierReplaceFailure } from "../auth.js";
 import {
   principalEnvironmentId,
   principalProjectId,
@@ -25,9 +25,7 @@ export function registerQueryRoutes(
   keyring: Keyring,
   adminToken: string
 ): void {
-  const apiKeys = databaseApiKeys(app.db, keyring, (error: unknown) => {
-    app.log.warn({ err: error }, "failed to move an API key verifier to the current key");
-  });
+  const apiKeys = databaseApiKeys(app.db, keyring, logVerifierReplaceFailure(app.log));
 
   /** Returns undefined and sends the error response when authentication fails. */
   async function authenticate(

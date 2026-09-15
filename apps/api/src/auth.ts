@@ -26,15 +26,33 @@ export interface ApiKeyAuthenticator {
     expectedKeyHash: string,
     next: { keyHash: string; keyHashKeyId: string }
   ) => Promise<unknown>;
-  /** Told when that write fails. Authentication has already succeeded. */
-  onReplaceFailure: (error: unknown) => void;
+  /** Told when that write fails, with the row's id. Authentication has already succeeded. */
+  onReplaceFailure: (error: unknown, apiKeyId: string) => void;
+}
+
+/**
+ * The failure report every route passes to `databaseApiKeys`.
+ *
+ * Names the `api_keys` row, which is not secret, so an operator reading the
+ * warning can tell which key is still under the old key and will fail once the
+ * previous key is removed.
+ */
+export function logVerifierReplaceFailure(log: {
+  warn: (fields: Record<string, unknown>, message: string) => void;
+}): (error: unknown, apiKeyId: string) => void {
+  return (error, apiKeyId) => {
+    log.warn(
+      { err: error, apiKeyId },
+      "failed to move an API key verifier to the current key; the next request retries"
+    );
+  };
 }
 
 /** The authenticator every route uses, backed by the `api_keys` table. */
 export function databaseApiKeys(
   db: Knex,
   keyring: Keyring,
-  onReplaceFailure: (error: unknown) => void
+  onReplaceFailure: (error: unknown, apiKeyId: string) => void
 ): ApiKeyAuthenticator {
   return {
     keyring,
@@ -104,7 +122,7 @@ export async function authenticatePresentedKey(
     try {
       await authenticator.replaceVerifier(context.id, context.keyHash, verification.migrate);
     } catch (error) {
-      authenticator.onReplaceFailure(error);
+      authenticator.onReplaceFailure(error, context.id);
     }
   }
 

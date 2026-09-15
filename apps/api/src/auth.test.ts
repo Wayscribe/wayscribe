@@ -1,7 +1,7 @@
 import type { ApiKeyContext } from "@flight-recorder/database";
 import { apiKeyRecordFor, createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import { describe, expect, it } from "vitest";
-import { resolveApiKey, type ApiKeyAuthenticator } from "./auth.js";
+import { logVerifierReplaceFailure, resolveApiKey, type ApiKeyAuthenticator } from "./auth.js";
 
 const KEY_A = "0123456789abcdef0123456789abcdef";
 const KEY_B = "fedcba9876543210fedcba9876543210";
@@ -33,7 +33,7 @@ interface Replacement {
 interface Harness {
   authenticator: ApiKeyAuthenticator;
   replacements: Replacement[];
-  failures: unknown[];
+  failures: { error: unknown; apiKeyId: string }[];
 }
 
 function harness(
@@ -42,7 +42,7 @@ function harness(
   replace: () => Promise<unknown> = () => Promise.resolve(true)
 ): Harness {
   const replacements: Replacement[] = [];
-  const failures: unknown[] = [];
+  const failures: { error: unknown; apiKeyId: string }[] = [];
   return {
     replacements,
     failures,
@@ -53,7 +53,7 @@ function harness(
         replacements.push({ id, expectedKeyHash, next });
         return replace();
       },
-      onReplaceFailure: (error) => failures.push(error)
+      onReplaceFailure: (error, apiKeyId) => failures.push({ error, apiKeyId })
     }
   };
 }
@@ -119,14 +119,14 @@ describe("resolveApiKey", () => {
       ]);
     });
 
-    it("still authenticates when moving the verifier fails, and reports the failure", async () => {
+    it("still authenticates when moving the verifier fails, and reports it with the key's row id", async () => {
       const failure = new Error("connection reset");
       const { authenticator, failures } = harness(rotated, baseContext, () =>
         Promise.reject(failure)
       );
       const result = await resolveApiKey(bearer(generated.apiKey), authenticator);
       expect(result.ok).toBe(true);
-      expect(failures).toEqual([failure]);
+      expect(failures).toEqual([{ error: failure, apiKeyId: "key_1" }]);
     });
 
     it("refuses a wrong key with the same response as an unknown one", async () => {
@@ -156,5 +156,26 @@ describe("resolveApiKey", () => {
         next: { keyHash: generated.verifier, keyHashKeyId: keyringA.current.id }
       }
     ]);
+  });
+});
+
+describe("logVerifierReplaceFailure", () => {
+  it("logs a warning naming the API key row, so an operator knows which key did not move", () => {
+    const lines: { fields: Record<string, unknown>; message: string }[] = [];
+    const report = logVerifierReplaceFailure({
+      warn: (fields: Record<string, unknown>, message: string) => {
+        lines.push({ fields, message });
+      }
+    });
+
+    const failure = new Error("connection reset");
+    report(failure, "3f0c9a52-7a51-4c1e-9b7e-5d2b1f7c0a11");
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.fields).toEqual({
+      err: failure,
+      apiKeyId: "3f0c9a52-7a51-4c1e-9b7e-5d2b1f7c0a11"
+    });
+    expect(lines[0]?.message).toContain("API key verifier");
   });
 });

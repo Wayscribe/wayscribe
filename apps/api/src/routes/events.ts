@@ -1,7 +1,7 @@
 import { touchApiKey } from "@flight-recorder/database";
 import type { Keyring } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
-import { databaseApiKeys, resolveApiKey } from "../auth.js";
+import { databaseApiKeys, logVerifierReplaceFailure, resolveApiKey } from "../auth.js";
 import { ingestEvent, type IngestResult } from "../ingestion/ingest-event.js";
 
 const MAX_BATCH_SIZE = 100;
@@ -57,9 +57,7 @@ export function registerEventRoutes(
   maxEventPayloadBytes: number,
   allowFullPayload: boolean
 ): void {
-  const apiKeys = databaseApiKeys(app.db, keyring, (error: unknown) => {
-    app.log.warn({ err: error }, "failed to move an API key verifier to the current key");
-  });
+  const apiKeys = databaseApiKeys(app.db, keyring, logVerifierReplaceFailure(app.log));
 
   app.post("/v1/events", async (request, reply) => {
     const auth = await resolveApiKey(request.headers.authorization, apiKeys);
