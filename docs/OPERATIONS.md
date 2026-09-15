@@ -1094,7 +1094,7 @@ beneath it:
 | --- | --- | --- |
 | Database reachable | the connection is refused, the host does not resolve, or authentication fails | |
 | PostgreSQL version | below 15 | below 17, the version CI tests |
-| Migrations | any are pending, or the database has one this build does not | |
+| Migrations | any are pending, the database has one this build does not, or the role has no `USAGE` on the schema holding them (the fix names the `GRANT`) | |
 | `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
 | Projects and keys | | no project, or no unrevoked API key |

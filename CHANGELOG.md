@@ -416,6 +416,11 @@ changes far less often.
 
 ### Fixed
 
+- **doctor names a missing schema grant instead of pending migrations.** A role
+  without `USAGE` on the schema holding the tables cannot see
+  `knex_migrations`, and doctor reported every migration pending on a current
+  database. It now fails the check with the `GRANT USAGE ON SCHEMA` that fixes
+  it.
 - **The published install's commands work with the bundled overlay.** The
   install added `-f compose.bundled.yaml` to start the stack and then showed
   every later command naming only the published file, which failed and

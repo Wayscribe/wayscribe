@@ -329,6 +329,34 @@ describe("doctor", () => {
     expect(run.output).not.toContain(UNGRANTED_PASSWORD);
   });
 
+  it("says a role that cannot use the schema lacks USAGE, not that every migration is pending", async () => {
+    // A migrated database whose schema the role in DATABASE_URL has no USAGE
+    // on. PostgreSQL skips such a schema when it resolves an unqualified name,
+    // so knex_migrations looked absent and doctor reported all 16 migrations
+    // pending, sending the operator to run migrate against a current schema.
+    await withDatabase("unusable", async (db) => {
+      await db.migrate.latest();
+      await db.raw("revoke usage on schema public from public");
+      await db.raw(`create role doctor_no_usage login password '${UNGRANTED_PASSWORD}'`);
+    });
+    const url = new URL(urlFor("unusable"));
+    url.username = "doctor_no_usage";
+    url.password = UNGRANTED_PASSWORD;
+
+    const run = await doctor([], { DATABASE_URL: url.toString() });
+
+    expect(run.code).toBe(1);
+    expect(statusOf(run, "Database reachable")).toBe("PASS");
+    expect(statusOf(run, "Migrations"), run.output).toBe("FAIL");
+    expect(lineOf(run, "Migrations")).not.toMatch(/pending/);
+    expect(lineOf(run, "Migrations")).toContain("USAGE");
+    expect(run.output).toContain("GRANT USAGE ON SCHEMA public TO doctor_no_usage");
+    expect(statusOf(run, "Projects and keys")).toBe("SKIP");
+    expect(run.output).not.toMatch(/^\s+at /m);
+    expectNoSecrets(run);
+    expect(run.output).not.toContain(UNGRANTED_PASSWORD);
+  });
+
   it("fails when stored data is under a key the installation does not have", async () => {
     const run = await doctor([], {}, "unreadable");
 
