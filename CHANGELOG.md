@@ -101,6 +101,10 @@ changes far less often.
   out without the credentials the destination was configured with. It is now
   refused, recorded as blocked with the reason and the key id involved, and
   audited as `replay.blocked`.
+- **A replay destination's audit row no longer records its base URL.** A base
+  URL can carry credentials or an internal hostname, audit rows are never swept,
+  and deleting the destination could not reach the row. Rows written before this
+  change keep the URL; `docs/OPERATIONS.md` §8 has the statement that strips it.
 
 ### Fixed
 

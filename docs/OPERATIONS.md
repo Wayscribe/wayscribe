@@ -474,6 +474,17 @@ the deletion again.
 An erasure's row never holds the value. A later erasure of the same value
 records the same token under the same key, so the two can be matched.
 
+A destination's audit rows, at creation and at deletion, hold its name and not
+its base URL. Rows written by `replay_destination.created` before that changed
+do hold the base URL, and deleting the destination leaves them. If a URL carried
+something that must go, strip it and keep the rest of the record:
+
+```sql
+update audit_events
+   set metadata = metadata - 'baseUrl'
+ where action = 'replay_destination.created';
+```
+
 Erasure and range deletion commit in batches, each its own transaction. The row
 is written with the first batch and updated with every batch after it, and the
 last batch, which finds nothing left, sets `complete: true`. **`complete: false`

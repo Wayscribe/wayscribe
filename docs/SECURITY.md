@@ -278,9 +278,12 @@ of the erased identifier under the current key, and counts, **never the
 identifier itself**: the identifier is the personal data the erasure removed,
 and an audit trail that kept it would be the one place it survived. A later
 erasure of the same value produces the same token, so the two rows can be
-matched without storing what they erased. A destination's deletion records its
-name, not its base URL, which can name a host the operator considers internal
-(ADR-045).
+matched without storing what they erased. A replay destination's creation and
+deletion record its name, not its base URL, which can carry credentials or name
+a host the operator considers internal (ADR-045). **Audit rows written before
+this change record the base URL at creation**, and deleting the destination does
+not remove them; `OPERATIONS.md` §8 gives the statement that strips the URL
+from them.
 
 ## 14. Retention
 

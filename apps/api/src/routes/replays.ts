@@ -87,7 +87,10 @@ export function registerReplayRoutes(app: FastifyInstance, options: ReplayRouteO
       action: "replay_destination.created",
       resourceType: "replay_destination",
       resourceId: created.id,
-      metadata: { name: created.name, baseUrl: created.baseUrl }
+      // The name only. A base URL can carry credentials or an internal hostname,
+      // audit rows are never swept, and deleting the destination cannot reach
+      // this row, so recording the URL here would outlive every other copy.
+      metadata: { name: created.name }
     });
 
     return reply.code(201).send({ data: created });
