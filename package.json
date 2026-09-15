@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "pnpm --filter @flight-recorder/database migrate",
+    "db:migrate:unlock": "pnpm --filter @flight-recorder/database \"migrate:unlock\"",
     "db:rollback": "pnpm --filter @flight-recorder/database rollback",
     "db:seed": "pnpm --filter @flight-recorder/database seed",
     "db:seed-demo": "pnpm --filter @flight-recorder/database seed-demo",

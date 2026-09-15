@@ -174,9 +174,56 @@ describe("schema constraints", () => {
     const columns = await db("api_keys").columnInfo();
     expect(columns["key_hash_key_id"]).toMatchObject({ type: "text", nullable: true });
 
-    await db.migrate.down();
+    // By name: a bare down() reverts whichever migration is newest, which
+    // stopped being this one when 013 was added.
+    await db.migrate.down({ name: "012_key_rotation.js" });
     expect(await db.schema.hasColumn("api_keys", "key_hash_key_id")).toBe(false);
-    await db.migrate.up();
+    await db.migrate.up({ name: "012_key_rotation.js" });
     expect(await db.schema.hasColumn("api_keys", "key_hash_key_id")).toBe(true);
+  });
+
+  describe("recent-journeys indexes (013)", () => {
+    const MIGRATION = "013_journeys_status_recent_index.js";
+
+    /** Name and validity of each 013 index that exists, sorted by name. */
+    const indexes = async (): Promise<{ name: string; valid: boolean }[]> => {
+      const result: unknown = await db.raw(
+        `select c.relname as name, i.indisvalid as valid
+         from pg_index i join pg_class c on c.oid = i.indexrelid
+         where c.relname in ('journeys_status_recent_idx', 'journey_events_service_idx')
+         order by c.relname`
+      );
+      return (result as { rows: { name: string; valid: boolean }[] }).rows;
+    };
+
+    const BOTH_VALID = [
+      { name: "journey_events_service_idx", valid: true },
+      { name: "journeys_status_recent_idx", valid: true }
+    ];
+
+    it("adds both indexes and removes them on the way down", async () => {
+      expect(await indexes()).toEqual(BOTH_VALID);
+      await db.migrate.down({ name: MIGRATION });
+      expect(await indexes()).toEqual([]);
+      await db.migrate.up({ name: MIGRATION });
+      expect(await indexes()).toEqual(BOTH_VALID);
+    });
+
+    it("rebuilds an index a cancelled concurrent build left invalid", async () => {
+      // What a cancelled `create index concurrently` leaves behind: an index of
+      // the right name that PostgreSQL will not use. `if not exists` alone
+      // would accept it, and the migrate Job's retry would record 013 as done.
+      await db.migrate.down({ name: MIGRATION });
+      await db.raw(
+        "create index journeys_status_recent_idx on journeys (project_id, status, last_event_at, id)"
+      );
+      await db.raw(
+        "update pg_index set indisvalid = false where indexrelid = 'journeys_status_recent_idx'::regclass"
+      );
+      expect(await indexes()).toEqual([{ name: "journeys_status_recent_idx", valid: false }]);
+
+      await db.migrate.up({ name: MIGRATION });
+      expect(await indexes()).toEqual(BOTH_VALID);
+    });
   });
 });

@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { JOURNEY_STATUSES } from "../packages/database/src/repositories/journey-list.js";
+import { parseRecentJourneysQuery } from "../apps/api/src/routes/recent-query.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -148,5 +150,57 @@ describe("the documentation's checkable claims", () => {
         "Written before implementation"
       );
     }
+  });
+
+  describe("GET /v1/journeys in API_SPEC.md", () => {
+    const section = (): string => {
+      const match = /## 6\. List recent journeys\n([\s\S]*?)\n## 7\./.exec(
+        read("docs/API_SPEC.md")
+      );
+      expect(match, "API_SPEC.md has no section 6 for recent journeys").not.toBeNull();
+      return match?.[1] ?? "";
+    };
+    /** First-column names of the parameter table. */
+    const documented = (): string[] =>
+      [...section().matchAll(/^\| `([a-z]+)` \|/gm)].map((m) => m[1] ?? "");
+
+    it("documents exactly the query parameters the route reads", () => {
+      expect(documented()).toEqual([
+        "since",
+        "status",
+        "environment",
+        "service",
+        "limit",
+        "cursor"
+      ]);
+    });
+
+    it.each(["since", "status", "environment", "service"])(
+      "documents %s, which the parser validates",
+      (name) => {
+        // A repeated parameter is refused by name only if the parser reads it.
+        const query: Record<string, unknown> = {
+          since: "2026-01-01T00:00:00Z",
+          [name]: ["a", "b"]
+        };
+        expect(parseRecentJourneysQuery(query, new Date("2026-09-15T00:00:00Z"))).toEqual({
+          ok: false,
+          message: `${name} must be given once.`
+        });
+      }
+    );
+
+    it("documents limit and cursor, which the route reads as other lists do", () => {
+      const route = /app\.get\("\/v1\/journeys", [\s\S]*?\n {2}\}\);/.exec(
+        read("apps/api/src/routes/queries.ts")
+      );
+      expect(route?.[0]).toContain("parseLimit(request.query)");
+      expect(route?.[0]).toContain("(request.query as { cursor?: string }).cursor");
+    });
+
+    it("lists the statuses the database allows", () => {
+      const row = /^\| `status` \|(.*)$/m.exec(section())?.[1] ?? "";
+      expect([...row.matchAll(/`([a-z]+)`/g)].map((m) => m[1])).toEqual([...JOURNEY_STATUSES]);
+    });
   });
 });

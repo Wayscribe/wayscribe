@@ -1,4 +1,4 @@
-import { maskDisplayValue, type JourneyAlias } from "@flight-recorder/database";
+import { maskDisplayValue, type JourneyAlias, type SearchHit } from "@flight-recorder/database";
 import { decryptValue, UnknownKeyError, type Keyring } from "@flight-recorder/payload-security";
 
 export interface PresentedAlias {
@@ -30,6 +30,39 @@ export function presentEntityId(
     if (error instanceof UnknownKeyError) onUnknownKey?.(error.keyId);
     return null;
   }
+}
+
+export interface PresentedJourneySummary {
+  journeyId: string;
+  entity: { type: string; id: string | null };
+  status: string;
+  eventCount: number;
+  startedAt: string;
+  lastEventAt: string;
+}
+
+/**
+ * One row of a journey list, as search and the recent list both return it.
+ *
+ * One function so the two lists cannot drift: a reader following a link from
+ * either expects the same fields, decrypted the same way.
+ */
+export function presentJourneySummary(
+  keyring: Keyring,
+  hit: SearchHit,
+  onUnknownKey?: (keyId: string) => void
+): PresentedJourneySummary {
+  return {
+    journeyId: hit.journeyId,
+    entity: {
+      type: hit.entityType,
+      id: presentEntityId(keyring, hit.encryptedPrimaryEntityId, onUnknownKey)
+    },
+    status: hit.status,
+    eventCount: hit.eventCount,
+    startedAt: hit.startedAt.toISOString(),
+    lastEventAt: hit.lastEventAt.toISOString()
+  };
 }
 
 export function presentAliases(

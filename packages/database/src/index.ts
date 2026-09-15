@@ -96,6 +96,14 @@ export {
   type SearchCursor
 } from "./repositories/cursors.js";
 export { searchJourneys, type SearchHit, type SearchPage } from "./repositories/search.js";
+export {
+  JOURNEY_STATUSES,
+  listRecentJourneys,
+  type JourneyStatus,
+  type RecentJourney,
+  type RecentJourneyFilters,
+  type RecentJourneyPage
+} from "./repositories/journey-list.js";
 export { type ReadScope } from "./repositories/read-scope.js";
 export {
   findEventDetail,

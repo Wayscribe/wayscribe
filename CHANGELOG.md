@@ -47,6 +47,15 @@ changes far less often.
   rows remain until vacuum and in earlier backups. The procedure is in
   `docs/OPERATIONS.md` §8 (ADR-045).
 - **`GET /v1/journeys/:journeyId` includes the environment's name.**
+- **Start from what failed, not from an identifier.** A Recent page, linked
+  from the search heading, lists journeys by latest activity. It shows failed
+  journeys from the last 24 hours by default, and can be filtered by status,
+  window (an hour, a day or a week), environment and service. The filter is
+  stated in words and the view is a shareable URL. The API behind it is
+  `GET /v1/journeys` with a required `since` (`docs/API_SPEC.md` §6), and
+  `GET /v1/projects` now names each project's environments. Migration
+  `013_journeys_status_recent_index.js` adds two indexes for it, built
+  concurrently so upgrading does not block ingestion while they build.
 - **`ENCRYPTION_KEY` can be rotated without losing data.** Every encrypted value
   now names the key that wrote it, and `ENCRYPTION_KEY_PREVIOUS` holds the key
   being replaced while the new one takes over. Through that grace period old

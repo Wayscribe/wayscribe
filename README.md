@@ -100,6 +100,10 @@ One changed field. The fix works, tested against the input that actually failed.
 
 That is the whole loop: **find where the value was lost, then prove the fix.**
 
+No identifier yet, only an alert that deliveries are failing? The Recent page
+lists the journeys that failed in the last hour, day or week, narrowed by
+environment and service, and each one opens the same timeline.
+
 ---
 
 ## Try it

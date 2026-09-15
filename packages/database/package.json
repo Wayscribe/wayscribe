@@ -16,6 +16,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "migrate": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts migrate",
+    "migrate:unlock": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts migrate:unlock",
     "rollback": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts rollback",
     "seed": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts seed",
     "seed-demo": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts seed-demo",

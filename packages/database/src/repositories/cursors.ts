@@ -1,7 +1,7 @@
 /**
  * Opaque keyset cursors.
  *
- * API_SPEC.md section 14 forbids exposing database offsets as a compatibility
+ * API_SPEC.md section 15 forbids exposing database offsets as a compatibility
  * contract, and offset pagination silently skips or repeats rows when new events
  * arrive mid-scroll — which, for a tool whose entire job is showing a complete
  * history, would be a correctness bug rather than a cosmetic one.
@@ -33,6 +33,13 @@ export function decodeSearchCursor(encoded: string): SearchCursor {
   if (typeof parsed["lastEventAt"] !== "string" || typeof parsed["id"] !== "string") {
     throw new InvalidCursorError("Cursor is not a search cursor.");
   }
+  // Checked here rather than left to the query: PostgreSQL's timestamptz cast
+  // would reject it as a server error, not as the caller's bad cursor. Only
+  // the exact form encodeCursor writes: Date.parse also accepts "1" and
+  // "March 7", which PostgreSQL does not.
+  if (!isCanonicalInstant(parsed["lastEventAt"])) {
+    throw new InvalidCursorError("Cursor timestamp is not a date.");
+  }
   return { lastEventAt: parsed["lastEventAt"], id: parsed["id"] };
 }
 
@@ -50,6 +57,11 @@ export function decodeEventCursor(encoded: string): EventCursor {
     receivedAt: parsed["receivedAt"],
     id: parsed["id"]
   };
+}
+
+function isCanonicalInstant(value: string): boolean {
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
 }
 
 function decode(encoded: string): Record<string, unknown> {

@@ -65,6 +65,16 @@ try {
       );
       break;
     }
+    case "migrate:unlock": {
+      // For a lock nothing holds any more. A migration that runs outside a
+      // transaction (013 builds its indexes concurrently) takes knex's lock in
+      // a transaction that commits at once, so a migrate killed mid-build
+      // leaves the lock set and every later migrate refuses with "locked".
+      // Run this only when no migrate is running: it does not check.
+      await db.migrate.forceFreeMigrationsLock();
+      console.log("Migration lock released. Run migrate again.");
+      break;
+    }
     case "seed": {
       const keyring = await requireKeyring();
       if (keyring === undefined) break;
@@ -278,7 +288,7 @@ try {
     default: {
       console.error(`Unknown command: ${command ?? "(none)"}`);
       console.error(
-        "Usage: tsx src/cli.ts <migrate|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep|rotate:reencrypt|rotate:status|delete:journey|delete:identifier|delete:range|delete:destination>"
+        "Usage: tsx src/cli.ts <migrate|migrate:unlock|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep|rotate:reencrypt|rotate:status|delete:journey|delete:identifier|delete:range|delete:destination>"
       );
       process.exitCode = 1;
       break;
