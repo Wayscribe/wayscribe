@@ -114,6 +114,7 @@ Constraints and indexes:
 - index `(project_id, environment_id, last_event_at desc)`
 - index `(project_id, entity_type, primary_entity_id_hash)`
 - index `(project_id, status, last_event_at, id)` for recent failures across environments (migration `013_journeys_status_recent_index.js`)
+- index `journeys_project_recent_idx` `(project_id, last_event_at, id)` for the journey list in every environment with any status, so a page is read in order and the list stops after it (migration `019_journey_browse_indexes.js`)
 - check event count is nonnegative
 
 The label and last-step columns were added by migration `018_journey_browse.js` with no backfill: a journey recorded before it reads null in all six. Its `last_step` columns fill on its next event; its `label` columns stay null, which the UI shows as no label, until an event that carries a label arrives.
@@ -137,6 +138,7 @@ Constraints and indexes:
 - unique `(project_id, journey_id, alias_type, alias_value_hash)`
 - index `(project_id, alias_type, alias_value_hash)`
 - index `(project_id, alias_value_hash)`
+- partial index `entity_aliases_displayable_idx` `(project_id, journey_id) include (display_value) where displayable`, so the journey list's text filter tests a journey's displayable values with an index-only scan (migration `019_journey_browse_indexes.js`)
 - check `entity_aliases_display_value_only_when_displayable`: `displayable or display_value is null`, so a masked alias can never hold a plain value, whatever writes the row (migration `018_journey_browse.js`). Added `not valid` with the columns and validated in a separate transaction, which takes only a SHARE UPDATE EXCLUSIVE lock and so does not block ingestion
 
 `display_value` has no backfill either. A displayable alias stored before migration `018_journey_browse.js` gets its copy the next time an event states it displayable; that statement also replaces the row's ciphertext, so the two keep the same spelling. Until then it reads null.

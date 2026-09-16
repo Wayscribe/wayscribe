@@ -792,4 +792,177 @@ describe("schema constraints", () => {
       expect((await indexes()).map((found) => found.valid)).toEqual([true]);
     });
   });
+
+  describe("journey browse indexes (019)", () => {
+    const MIGRATION = "019_journey_browse_indexes.js";
+    const NAMES = ["entity_aliases_displayable_idx", "journeys_project_recent_idx"];
+    const VALID = [
+      {
+        name: "entity_aliases_displayable_idx",
+        valid: true,
+        definition:
+          "CREATE INDEX entity_aliases_displayable_idx ON public.entity_aliases USING btree (project_id, journey_id) INCLUDE (display_value) WHERE displayable"
+      },
+      {
+        name: "journeys_project_recent_idx",
+        valid: true,
+        definition:
+          "CREATE INDEX journeys_project_recent_idx ON public.journeys USING btree (project_id, last_event_at, id)"
+      }
+    ];
+
+    const indexes = async (): Promise<{ name: string; valid: boolean; definition: string }[]> => {
+      const result: unknown = await db.raw(
+        `select c.relname as name, i.indisvalid as valid, pg_get_indexdef(c.oid) as definition
+         from pg_index i join pg_class c on c.oid = i.indexrelid
+         where c.relname = any(?) order by c.relname`,
+        [NAMES]
+      );
+      return (result as { rows: { name: string; valid: boolean; definition: string }[] }).rows;
+    };
+
+    /** A promise and the function that settles it, for holding a transaction open. */
+    const signal = (): { promise: Promise<void>; resolve: () => void } => {
+      let resolve: () => void = () => undefined;
+      const promise = new Promise<void>((settle) => {
+        resolve = settle;
+      });
+      return { promise, resolve };
+    };
+
+    const journeyRow = (id: string): Record<string, unknown> => ({
+      id,
+      project_id: projectId,
+      environment_id: environmentId,
+      entity_type: "customer",
+      primary_entity_id_hash: `hash-${id}`,
+      status: "active",
+      started_at: db.fn.now(),
+      last_event_at: db.fn.now(),
+      event_count: 1
+    });
+
+    const cleanUp = async (): Promise<void> => {
+      await db("journeys").where("id", "like", "jrn_019%").delete();
+    };
+
+    it("adds both indexes, valid, and removes them on the way down", async () => {
+      // Migration 018's tests drop display_value and add it back, which drops
+      // the alias index with it, so start from a fresh run of this one.
+      await db.migrate.down({ name: MIGRATION });
+      expect(await indexes()).toEqual([]);
+      await db.migrate.up({ name: MIGRATION });
+      expect(await indexes()).toEqual(VALID);
+    });
+
+    it("rebuilds an index a cancelled concurrent build left invalid", async () => {
+      // `if not exists` alone would accept the invalid index, and the list
+      // would go back to sorting the whole window with the migration recorded
+      // as applied.
+      await db.migrate.down({ name: MIGRATION });
+      await db.raw(
+        "create index journeys_project_recent_idx on journeys (project_id, last_event_at, id)"
+      );
+      await db.raw(
+        "update pg_index set indisvalid = false where indexrelid = 'journeys_project_recent_idx'::regclass"
+      );
+      expect((await indexes()).map((found) => [found.name, found.valid])).toEqual([
+        ["journeys_project_recent_idx", false]
+      ]);
+
+      await db.migrate.up({ name: MIGRATION });
+      expect(await indexes()).toEqual(VALID);
+    });
+
+    it("lets ingestion write while a build waits, and finishes once older writes end", async () => {
+      // A concurrent build waits for every transaction already writing the
+      // table. An open write holds it at that point for as long as this test
+      // likes, which makes "writes during the build" something to observe
+      // rather than a race with a build over a handful of rows.
+      await db.migrate.down({ name: MIGRATION });
+      const release = signal();
+      const opened = signal();
+      const earlier = db.transaction(async (trx) => {
+        await trx("journeys").insert(journeyRow("jrn_019_earlier"));
+        opened.resolve();
+        await release.promise;
+      });
+      await opened.promise;
+      let migrated = false;
+      const migration = db.migrate.up({ name: MIGRATION }).then(() => {
+        migrated = true;
+      });
+      try {
+        await waitForBuildToWait();
+
+        const started = Date.now();
+        await db("journeys").insert(journeyRow("jrn_019_during"));
+        await db("entity_aliases").insert({
+          project_id: projectId,
+          journey_id: "jrn_019_during",
+          alias_type: "company",
+          alias_value_hash: "hash-019",
+          displayable: true,
+          display_value: "During Co"
+        });
+        await db("journeys")
+          .where({ id: "jrn_019_during" })
+          .update({ last_event_at: db.fn.now(), label: "during" });
+        expect(Date.now() - started).toBeLessThan(2_000);
+        expect(migrated).toBe(false);
+      } finally {
+        release.resolve();
+        await earlier;
+        await migration;
+      }
+      expect(await indexes()).toEqual(VALID);
+      await cleanUp();
+    }, 30_000);
+
+    it("gives up after its lock timeout rather than waiting indefinitely, and a rerun succeeds", async () => {
+      // Another holder of SHARE UPDATE EXCLUSIVE (an index build, a VACUUM, an
+      // ALTER) keeps a concurrent build from starting. The build does not
+      // block ingestion while it waits, but a migrate step that never ends
+      // is its own outage, so it fails after LOCK_TIMEOUT (30 seconds).
+      await db.migrate.down({ name: MIGRATION });
+      const release = signal();
+      const opened = signal();
+      const holder = db.transaction(async (trx) => {
+        await trx.raw("lock table journeys in share update exclusive mode");
+        opened.resolve();
+        await release.promise;
+      });
+      await opened.promise;
+      try {
+        const started = Date.now();
+        await expect(db.migrate.up({ name: MIGRATION })).rejects.toThrow(/lock timeout/);
+        expect(Date.now() - started).toBeGreaterThanOrEqual(29_000);
+        expect(Date.now() - started).toBeLessThan(45_000);
+      } finally {
+        release.resolve();
+        await holder;
+      }
+      // The pinned connection went back to the pool without the setting.
+      const settings: unknown = await db.raw("select current_setting('lock_timeout') as value");
+      expect((settings as { rows: unknown[] }).rows).toEqual([{ value: "0" }]);
+
+      await db.migrate.up({ name: MIGRATION });
+      expect(await indexes()).toEqual(VALID);
+    }, 90_000);
+
+    /** Until a concurrent build on journeys is waiting for older transactions. */
+    async function waitForBuildToWait(): Promise<void> {
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        const result: unknown = await db.raw(
+          `select 1 from pg_stat_activity
+            where query ilike 'create index concurrently%journeys_project_recent_idx%'
+              and wait_event_type = 'Lock'`
+        );
+        if ((result as { rows: unknown[] }).rows.length > 0) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error("The index build never started waiting.");
+    }
+  });
 });

@@ -154,6 +154,16 @@ changes far less often.
   it are ordinary characters. It filters inside the `since`/`until` window, so
   its cost follows the window, not the table. See `docs/API_SPEC.md` section 6
   for what "ignoring case" means on a given database.
+- **The journey list is indexed for every environment and for text.**
+  Migration `019_journey_browse_indexes.js` adds `journeys (project_id,
+  last_event_at, id)` and a partial covering index on `entity_aliases
+  (project_id, journey_id) include (display_value) where displayable`, both
+  built concurrently. At 120,000 journeys, an admin's list over 30 days went
+  from 32 ms to 3 ms at p95, text matching many journeys from 845 ms to 5 ms,
+  and text matching nothing, which still tests every journey in the window,
+  from 843 ms to 316 ms. Ingestion measured the same with and without them.
+  `scripts/measure-journey-list.mjs` reproduces the figures
+  (`docs/OPERATIONS.md` section 10).
 
 - **The SDK can name a journey.** `journey.label(text)`, or `label` in the
   options of `startJourney`, sets the text the Journeys page will show for the
@@ -851,6 +861,12 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
+- **Migration 019 builds two indexes concurrently.** It does not block
+  ingestion, but it waits for transactions that started before it, and gives
+  up after 30 seconds with a lock timeout if one (a long retention batch, an
+  admin deletion, a `pg_dump`) is still running. Run `migrate` again once it
+  ends; the rerun drops what the interrupted build left and builds it afresh
+  (docs/OPERATIONS.md section 10).
 - **Migration 017 adds a column to `entity_aliases`.** It is a catalogue change
   on PostgreSQL 11 and later and finishes at once, but it gives up after five
   seconds if a long transaction holds the table, rather than stalling ingestion

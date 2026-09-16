@@ -14,7 +14,8 @@
 // all in the figure, and only the network is not) for each case below, and
 // prints the median and 95th percentile. The slowest cases are run once more
 // under EXPLAIN (ANALYZE, BUFFERS) with the exact SQL and parameters the API
-// sent.
+// sent. It then times ingestion (a batch of 100 events and a single event),
+// because every index this list uses is also written on every event.
 //
 // Like measure-storage.mjs it works in a schema of its own
 // (measure_storage_journey_list), created with the real migrations and
@@ -23,8 +24,8 @@
 //
 // --keep leaves the schema behind and --reuse measures a kept one again
 // without recording anything, after applying any migration added since, so an
-// index can be measured before and after on the same rows. --drop-index
-// measures once more after dropping the named index from the schema, which
+// index can be measured before and after on the same rows. Each --drop-index
+// adds a stage measured without that index and the ones before it, which
 // gives the same comparison in one run.
 import { createRequire } from "node:module";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -41,8 +42,12 @@ const USAGE = `Usage: node scripts/measure-journey-list.mjs --database-url <url>
   --samples <n>          Timed requests per case, after three warm-up requests (default: 40)
   --concurrency <n>      Journeys ingested at once (default: 8)
   --explain <n>          Cases to run under EXPLAIN (ANALYZE, BUFFERS), slowest first (default: 4)
-  --drop-index <name>    Measure again after dropping this index (repeatable; a kept
-                         schema stays without it)
+  --drop-index <name>    Measure again after dropping this index; repeated, each stage
+                         drops one more (a kept schema stays without them)
+  --ingest-samples <n>   Timed ingestion requests of each kind per stage per round,
+                         0 for none (default: 100)
+  --ingest-rounds <n>    Rounds in which the stages take turns at ingestion (default: 3)
+  --no-list              Measure ingestion only
   --force                Run even though the database already holds journeys
   --keep                 Leave the schema behind for inspection or --reuse
   --reuse                Measure a schema an earlier --keep run left, without recording
@@ -118,6 +123,9 @@ const { values: args } = parseArgs({
     concurrency: { type: "string", default: "8" },
     explain: { type: "string", default: "4" },
     "drop-index": { type: "string", multiple: true, default: [] },
+    "ingest-samples": { type: "string", default: "100" },
+    "ingest-rounds": { type: "string", default: "3" },
+    "no-list": { type: "boolean", default: false },
     force: { type: "boolean", default: false },
     keep: { type: "boolean", default: false },
     reuse: { type: "boolean", default: false },
@@ -135,13 +143,17 @@ const journeyCount = Number(args.journeys);
 const samples = Number(args.samples);
 const concurrency = Number(args.concurrency);
 const explainCount = Number(args.explain);
+const ingestSamples = Number(args["ingest-samples"]);
+const ingestRounds = Number(args["ingest-rounds"]);
 
 if (databaseUrl === undefined || databaseUrl === "") fail("--database-url is required.");
 for (const [name, value, least] of [
   ["--journeys", journeyCount, 100],
   ["--samples", samples, 2],
   ["--concurrency", concurrency, 1],
-  ["--explain", explainCount, 0]
+  ["--explain", explainCount, 0],
+  ["--ingest-samples", ingestSamples, 0],
+  ["--ingest-rounds", ingestRounds, 1]
 ]) {
   if (!Number.isInteger(value) || value < least)
     fail(`${name} must be an integer of at least ${least}.`);
@@ -202,19 +214,52 @@ async function run() {
     await db.raw(sql, bindings);
     await describeData(db);
 
-    const results = await measure(db, app, setup);
-    printResults("GET /v1/journeys, page of 25, milliseconds", results);
-    await explainSlowest(db, app, setup, results);
-
-    const indexes = args["drop-index"];
-    if (indexes.length > 0) {
-      for (const index of indexes) await db.raw("drop index ??", [`${SCHEMA}.${index}`]);
+    // Every index first, then one stage per --drop-index, each without the
+    // indexes dropped so far, all on the same rows.
+    const drops = args["drop-index"];
+    const definitions = await indexDefinitions(db, drops);
+    const setStage = async (stage) => {
+      for (const [i, index] of drops.entries()) {
+        await (i < stage
+          ? db.raw("drop index if exists ??", [`${SCHEMA}.${index}`])
+          : db.raw(definitions.get(index)));
+      }
       await db.raw(sql, bindings);
-      const without = await measure(db, app, setup);
-      printResults(`Without ${indexes.join(", ")}`, without);
-      printComparison(without, results);
-      await explainSlowest(db, app, setup, without);
+    };
+    const labels = [0, ...drops.map((_, i) => i + 1)].map((stage) =>
+      stage === 0 ? "every index" : `without ${drops.slice(0, stage).join(", ")}`
+    );
+    const stages = labels.map((label) => ({ label }));
+
+    if (!args["no-list"]) {
+      for (const [i, stage] of stages.entries()) {
+        await setStage(i);
+        stage.list = await measure(db, app, setup);
+        printResults(`GET /v1/journeys, page of 25, milliseconds, ${stage.label}`, stage.list);
+        await explainSlowest(db, app, setup, stage.list);
+      }
     }
+
+    // Ingestion is a few milliseconds an event and drifts as the tables grow
+    // and the cache warms, so the stages take turns, round after round, and
+    // each stage's samples are pooled.
+    if (ingestSamples > 0) {
+      const pooled = stages.map(() => new Map());
+      for (let round = 0; round < ingestRounds; round += 1) {
+        for (const [i, pool] of pooled.entries()) {
+          await setStage(i);
+          for (const [name, times] of await measureIngestion(app, setup)) {
+            pool.set(name, [...(pool.get(name) ?? []), ...times]);
+          }
+        }
+      }
+      for (const [i, stage] of stages.entries()) {
+        stage.ingestion = [...pooled[i]].map(([name, times]) => summarize(name, times));
+        printResults(`Ingestion, milliseconds, ${stage.label}`, stage.ingestion);
+      }
+    }
+    await setStage(0);
+    if (stages.length > 1) printComparison(stages);
   } finally {
     await app?.close();
     await db.destroy();
@@ -483,6 +528,85 @@ async function measure(db, app, setup) {
   return results;
 }
 
+/**
+ * POST /v1/events/batch with 100 events (ten new journeys of ten events, each
+ * with a label and three aliases, two of them displayable in half the
+ * journeys and one in the rest), and POST /v1/events with one event that
+ * starts a new journey with the same label and aliases. Timed through the API
+ * with the busy environment's key, `--ingest-samples` of each after five
+ * warm-up requests. Returns the times by name.
+ */
+async function measureIngestion(app, setup) {
+  const headers = { authorization: `Bearer ${setup.apiKey}` };
+  let serial = 0;
+  const journeyEvents = (count, withTail) => {
+    serial += 1;
+    const journeyId = `jrn_ingest_${randomUUID()}`;
+    const company = COMPANIES[serial % COMPANIES.length];
+    const now = Date.now();
+    return Array.from({ length: count }, (_, step) => ({
+      id: `evt_${randomUUID()}`,
+      journeyId,
+      environment: setup.keyEnvironment,
+      service: "worker",
+      entity: { type: "order", id: `ORD-I${String(serial).padStart(8, "0")}` },
+      operation: step === count - 1 && withTail ? "completed" : "transformed",
+      name: `step-${String(step)}`,
+      timestamp: new Date(now + step).toISOString(),
+      ...(step === 0 || step === count - 1
+        ? { journeyLabel: `Ship order ORD-I${String(serial)} for ${company}` }
+        : {}),
+      ...(step === 0
+        ? {
+            aliases: {
+              reference: `REF-I${String(serial)}`,
+              account: `${company} ${String(serial % 997)}`,
+              internalId: String(50_000_000 + serial)
+            },
+            displayableAliases: serial % 2 === 0 ? ["reference", "account"] : ["reference"]
+          }
+        : {})
+    }));
+  };
+  const time = async (name, request) => {
+    const once = async () => {
+      const started = performance.now();
+      const response = await app.inject(request());
+      const elapsed = performance.now() - started;
+      if (response.statusCode !== 202) {
+        throw new Error(`${name}: ${response.statusCode} ${response.body}`);
+      }
+      const results = response.json().data.results;
+      if (results !== undefined && results.some((one) => one.status !== "accepted")) {
+        throw new Error(`${name}: an event was rejected: ${response.body}`);
+      }
+      return elapsed;
+    };
+    for (let i = 0; i < 5; i += 1) await once();
+    const times = [];
+    for (let i = 0; i < ingestSamples; i += 1) times.push(await once());
+    return [name, times];
+  };
+  return [
+    await time("batch of 100 events, 10 new journeys", () => ({
+      method: "POST",
+      url: "/v1/events/batch",
+      headers,
+      payload: {
+        events: Array.from({ length: 10 }, () => journeyEvents(10, true))
+          .flat()
+          .map((event) => ({ protocolVersion: "0.1", event }))
+      }
+    })),
+    await time("single event, new journey", () => ({
+      method: "POST",
+      url: "/v1/events",
+      headers,
+      payload: { protocolVersion: "0.1", event: journeyEvents(1, false)[0] }
+    }))
+  ];
+}
+
 /** Three warm-up requests, then `samples` timed ones. */
 async function timeCase(db, app, entry, query) {
   const url = `/v1/journeys?${new URLSearchParams(query).toString()}`;
@@ -547,12 +671,52 @@ function printResults(title, results) {
   );
 }
 
-function printComparison(before, after) {
-  console.log("\nBefore (without) and after (with), p95 in milliseconds");
-  printTable(
-    ["case", "without", "with"],
-    before.map((r, i) => [r.name, r.p95.toFixed(1), after[i].p95.toFixed(1)])
-  );
+/** p95 of every case in every stage, stages as columns (1 is every index). */
+function printComparison(stages) {
+  console.log("\np95 in milliseconds by stage:");
+  stages.forEach((stage, i) => console.log(`  ${String(i + 1)}: ${stage.label}`));
+  const rows = [];
+  for (const part of ["list", "ingestion"]) {
+    const names = [...new Set(stages.flatMap((stage) => (stage[part] ?? []).map((r) => r.name)))];
+    for (const name of names) {
+      rows.push([
+        name,
+        ...stages.map((stage) => stage[part]?.find((r) => r.name === name)?.p95.toFixed(1) ?? "")
+      ]);
+    }
+  }
+  printTable(["case", ...stages.map((_, i) => String(i + 1))], rows);
+}
+
+function summarize(name, times) {
+  const sorted = [...times].sort((a, b) => a - b);
+  return {
+    name: `${name} (${String(sorted.length)})`,
+    p50: percentile(sorted, 0.5),
+    p95: percentile(sorted, 0.95),
+    rows: ""
+  };
+}
+
+/** Each index's own CREATE INDEX statement, to put it back between stages. */
+async function indexDefinitions(db, names) {
+  const definitions = new Map();
+  for (const name of names) {
+    const found = await db.raw(
+      `select pg_get_indexdef(c.oid) as definition
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where c.relname = ? and n.nspname = ? and c.relkind = 'i'`,
+      [name, SCHEMA]
+    );
+    if (found.rows.length === 0) fail(`--drop-index: there is no index ${name} in ${SCHEMA}.`);
+    // Schema-qualified by PostgreSQL, and built only when missing. Not
+    // concurrently: nothing else writes this schema.
+    definitions.set(
+      name,
+      found.rows[0].definition.replace(/^CREATE INDEX /, "CREATE INDEX IF NOT EXISTS ")
+    );
+  }
+  return definitions;
 }
 
 function printTable(headers, rows) {

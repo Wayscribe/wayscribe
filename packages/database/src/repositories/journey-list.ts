@@ -41,9 +41,10 @@ export type RecentJourneyPage = JourneyPage<RecentJourney>;
  * from "what failed" rather than from an identifier.
  *
  * `since` is required rather than defaulted so every query is bounded by
- * `last_event_at`, which both `journeys_recent_idx` (environment first) and
- * `journeys_status_recent_idx` (status first, migration 013) lead with after
- * the project. Measured plans are summarised on that migration.
+ * `last_event_at`, which `journeys_recent_idx` (environment first),
+ * `journeys_status_recent_idx` (status first, migration 013) and
+ * `journeys_project_recent_idx` (nothing between, migration 019) lead with
+ * after the project. Measured plans are summarised on those migrations.
  *
  * `until`, `entityType` and `text` narrow the same window. The cursor holds a
  * position only, `(last_event_at, id)`, and the filters always come from the
@@ -106,6 +107,9 @@ export async function listRecentJourneys(
         // Only the two plain-text columns are compared. Masked aliases hold
         // no display_value (migration 018's check), and entity ids and alias
         // values are otherwise stored as ciphertext and tokens.
+        //
+        // The alias side is an index-only scan of
+        // entity_aliases_displayable_idx (migration 019).
         //
         // An aggregate rather than EXISTS on purpose. PostgreSQL may run an
         // EXISTS under OR as a hashed subplan: one sequential scan of every

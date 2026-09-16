@@ -913,10 +913,18 @@ event insert, and the span id index adds one on every event that carries a
 span id. `replay_runs_journey_event_idx` (migration 016) serves deletion rather
 than reads: every event a deleted journey takes with it looks up its replay runs
 through that foreign key, and without the index each one scanned the project's
-replay runs (§13, Statement timeout). Migrations 013, 014, and 016 build their
-indexes with `CREATE INDEX CONCURRENTLY`, so on a large installation they take
-longer than the other migrations but do not block ingestion while they run (014
-took 3 seconds over 3 million events).
+replay runs (§13, Statement timeout). The journey list over every environment
+and its text filter use `journeys_project_recent_idx` and
+`entity_aliases_displayable_idx` (migration 019, *Listing journeys* below).
+Migrations 013, 014, 016, and 019 build their indexes with
+`CREATE INDEX CONCURRENTLY`, so on a large installation they take longer than
+the other migrations but do not block ingestion while they run (014 took 3
+seconds over 3 million events). A concurrent build waits for
+transactions that started before it, in any table of the database, to end: a
+long retention batch, an admin deletion, a `pg_dump`. 019 gives up after
+waiting 30 seconds for any one of those or for its lock, and reports a lock
+timeout rather than holding the migrate step open; run `migrate` again once
+they finish.
 
 If one of those builds stops partway, what to do depends on how it stopped:
 
@@ -924,7 +932,7 @@ If one of those builds stops partway, what to do depends on how it stopped:
   `migrate` exited. Run `migrate` again. It drops the index the failed build
   left invalid and builds it afresh.
 - **The migrate process was killed** (`kill -9`, an evicted pod, a stopped
-  container). Because 013, 014, and 016 run outside a transaction, the migration lock is
+  container). Because 013, 014, 016, and 019 run outside a transaction, the migration lock is
   still set and every `migrate` after it fails with a message that the
   migration table is locked; the Helm Job's retries fail the same way and
   `/ready` stays `migrations_pending`. First make sure no `migrate` is still
@@ -964,74 +972,96 @@ holds about 2,940 journeys and a 30-day window about 89,860. The API key is
 scoped to the busy environment. `q` matching none is the worst case: nothing
 lets the query stop early, so every journey in the window is tested.
 
-| Case | 24 h p50 | 24 h p95 | 30 d p50 | 30 d p95 |
-|---|---|---|---|---|
-| No filter, admin (every environment) | 13.0 | 14.0 | 30.9 | 32.0 |
-| No filter, admin, second page | 12.6 | 14.1 | 30.9 | 33.2 |
-| No filter, API key (one environment) | 2.2 | 3.8 | 1.5 | 2.8 |
-| `status=failed`, admin | 1.5 | 2.7 | 1.5 | 2.2 |
-| `q=sync` (matches many), admin | 15.7 | 16.2 | 779.0 | 849.9 |
-| `q=sync`, admin, second page | 15.0 | 15.9 | 800.5 | 900.7 |
-| `q` matching none, admin | 14.8 | 15.7 | 834.9 | 885.6 |
-| `q` matching none, API key | 10.6 | 11.3 | 525.5 | 536.7 |
-| `q=acme` and `entityType=invoice`, admin | | | 114.7 | 117.1 |
+Migration 019 adds two indexes for this list, `journeys_project_recent_idx` on
+`journeys (project_id, last_event_at, id)` and `entity_aliases_displayable_idx`
+on `entity_aliases (project_id, journey_id) include (display_value) where
+displayable`. Before is the same run with both dropped, on the same rows;
+p50 / p95 in milliseconds:
 
-Milliseconds. Four runs on the same rows put the worst case, `q` matching none
-for an admin over 30 days, between 850 and 930 ms at p95.
+| Case | 24 h before | 24 h after | 30 d before | 30 d after |
+|---|---|---|---|---|
+| No filter, admin (every environment) | 13.2 / 15.0 | 1.6 / 2.8 | 30.7 / 32.3 | 1.5 / 3.4 |
+| No filter, admin, second page | 12.8 / 13.3 | 1.7 / 1.8 | 31.4 / 32.3 | 1.7 / 2.0 |
+| No filter, API key (one environment) | 2.6 / 2.9 | 2.3 / 3.4 | 2.9 / 3.8 | 1.9 / 2.1 |
+| `status=failed`, admin | 1.6 / 5.2 | 2.6 / 3.3 | 2.5 / 3.9 | 2.1 / 3.5 |
+| `q=sync` (matches many), admin | 16.3 / 17.2 | 4.8 / 7.5 | 770.1 / 844.6 | 4.3 / 5.4 |
+| `q=sync`, admin, second page | 15.2 / 17.5 | 2.6 / 3.8 | 772.3 / 799.2 | 4.2 / 5.4 |
+| `q` matching none, admin | 14.9 / 15.6 | 10.1 / 11.7 | 805.7 / 842.7 | 261.6 / 315.6 |
+| `q` matching none, API key | 10.6 / 11.1 | 8.4 / 9.1 | 517.6 / 538.0 | 207.5 / 214.1 |
+| `q=acme` and `entityType=invoice`, admin | | | 113.6 / 117.0 | 4.5 / 5.4 |
+
+Before the indexes, four runs on the same rows put the worst case, `q`
+matching none for an admin over 30 days, between 840 and 930 ms at p95: under
+the one second this list was measured against, but too close to it on a fast
+machine with a warm cache. With the journeys index alone, the two `q`
+matching none cases over 30 days were 731 and 614 ms at p95; the alias index
+is what brings them to about 300 and 200.
 
 What the plans show:
 
-- **Every environment, any status, reads the whole window.** No index leads
-  with `(project_id, last_event_at)`: `journeys_recent_idx` has the environment
-  second and `journeys_status_recent_idx` the status, so the planner scans
-  `journeys_recent_idx` over the window, merges it with the environments, and
-  sorts. Without `q` the sort is cheap (a top-25 heapsort of 89,864 rows, 31 ms).
-  With `q` every row in the window has its label and displayable aliases
-  tested before the sort, so a `q` that matches many journeys costs as much as
-  one that matches none: 89,864 journeys and 89,864 alias probes, 545,000
-  buffers, about 800 ms. The API key's list, one environment, walks
-  `journeys_recent_idx` backwards in order and stops after a page.
-- **`q` matching none cannot stop early**, whatever the index: 71,918 journeys
-  and alias probes for the API key over 30 days (530 ms), 2,300 over 24 hours
-  (9 ms). Its cost grows with the number of journeys in the window, 7 to 9 ms
-  per thousand here.
-- **JIT compilation is about 170 ms of it.** The planner's estimate for these
-  plans passes `jit_above_cost`, and compiling took 171 to 176 ms of the 786
-  to 848 ms they executed in. With `jit = off` on the database, the same slow cases measured 626,
-  618 and 704 ms at p95.
+- **Before, every environment with any status read the whole window.** No
+  index led with `(project_id, last_event_at)`: `journeys_recent_idx` has the
+  environment second and `journeys_status_recent_idx` the status, so the
+  planner scanned `journeys_recent_idx` over the window, merged it with the
+  environments, and sorted. Without `q` that sort was cheap (a top-25 heapsort
+  of 89,864 rows, 31 ms). With `q` every journey in the window had its label
+  and aliases tested before the sort, so a `q` matching many journeys cost as
+  much as one matching none: 89,864 journeys and 89,864 alias probes, about
+  545,000 buffers, about 800 ms. Now the list walks
+  `journeys_project_recent_idx` backwards in order and stops after a page, so
+  `q=sync` reads a few hundred journeys. The API key's list, one environment,
+  already walked `journeys_recent_idx` that way and is unchanged.
+- **`q` matching none still cannot stop early**, whatever the index: it tests
+  all 89,864 journeys for an admin over 30 days, 71,918 for the API key, 2,944
+  over 24 hours. What changed is the price of each test. Each alias probe is
+  now an index-only scan of `entity_aliases_displayable_idx` with no heap
+  fetch (363,699 buffers for the admin case, all cached, against 548,398
+  before, a quarter of them read from disk), and the whole plan is cheap enough that
+  PostgreSQL no longer JIT-compiles it. The cost still grows with the journeys
+  in the window, about 3 ms per thousand here.
+- **JIT compilation was about 170 ms of the old plans.** Their estimated cost
+  passed `jit_above_cost`, and compiling took 171 to 176 ms of the 786 to 848
+  ms they executed in; with `jit = off` on the database, the three slowest
+  cases measured 626, 618 and 704 ms at p95. The new plans are estimated below
+  the threshold and do not compile, but a larger window or table can bring
+  it back.
 
-**No index was added.** Every case stayed under one second at p95, the bound
-this list was measured against. Two indexes that need no extension were
-measured on the same rows, built by hand, and then dropped (the first two
-columns are one run; *Both* is another, whose own *Neither* was within 10
-percent of the first):
+At 120,000 journeys the journeys index is 11 MB and the alias index 19 MB.
 
-| p95, ms, 30 d | Neither | `(project_id, last_event_at, id)` on journeys | Both |
+**What they cost ingestion.** Every event updates its journey's
+`last_event_at`, which is now written to one more index, and every displayable
+alias is written to the alias index. Timed through the API with the busy
+environment's key: a batch of 100 events (ten new journeys of ten events, each
+with a label and three aliases, one or two of them displayable) and a single
+event that starts a journey with the same label and aliases. The three index
+sets took turns, round after round, on the same tables, so drift as the
+tables grew is shared. p50 / p95 in milliseconds:
+
+| | Both indexes | Journeys index only | Neither |
 |---|---|---|---|
-| No filter, admin | 31.5 | 3.1 | 2.9 |
-| `q=sync`, admin | 790.3 | 12.6 | 3.9 |
-| `q=sync`, admin, second page | 783.0 | 3.6 | 4.0 |
-| `q` matching none, admin | 853.0 | 690.7 | 258.7 |
-| `q` matching none, API key | 540.1 | 684.9 | 204.3 |
-| `q=acme` and `entityType=invoice`, admin | 118.6 | 8.7 | 7.4 |
+| Batch of 100, run 1 (400 each) | 230.6 / 279.6 | 237.3 / 288.5 | 234.3 / 289.1 |
+| Single event, run 1 (400 each) | 4.3 / 6.5 | 4.0 / 5.8 | 4.6 / 7.1 |
+| Batch of 100, run 2 (800 each) | 248.3 / 294.4 | 248.9 / 299.6 | 243.1 / 294.0 |
+| Single event, run 2 (800 each) | 4.7 / 7.0 | 4.9 / 6.7 | 4.6 / 6.5 |
 
-"Both" adds a partial covering index on `entity_aliases (project_id,
-journey_id) include (display_value) where displayable`, which turns each alias
-probe into an index-only scan with no heap fetch; alone it brought the two
-`q`-matching-none cases to 244 and 205 ms. At this size the journeys index is
-11 MB and the alias index 19 MB. The cost not measured here is ingestion's: the
-journeys index adds one index write to every event's journey update, and the
-alias index one to every displayable alias written.
+The difference is inside the noise. A batch, which is how the SDK sends, costs
+the same with either index set. A single event's p95 moves by less than a
+millisecond in either direction and not consistently: in run 1 both indexes
+were 12 percent slower than the journeys index alone but faster than neither,
+and in run 2 both were 4 percent slower than the journeys index alone and 8
+percent slower than neither. Run 2 started from 133,860 journeys, after run 1's
+ingestion.
 
 **What to expect, then.** A 24-hour window, the Journeys page's default, is
-under 20 ms in every case at this size. Text over 30 days reads every journey
-in the window and takes 0.5 to 0.9 s with 70,000 to 90,000 journeys in it, and
-that grows in proportion to the journeys in the window: somewhere between 1.5
-and 2 million journeys in the window it would reach the 15-second statement timeout (§13)
-and fail with `query_timeout`. An installation recording tens of thousands of
-journeys a day should search text over a day or a week rather than a month,
-and can take the JIT share off with `ALTER ROLE … SET jit = off` for the API's
-role.
+under 12 ms in every case at this size. Text over 30 days that matches
+something returns in a few milliseconds. Text that matches nothing reads every
+journey in the window, 0.2 to 0.3 s with 70,000 to 90,000 journeys in it, and
+that grows in proportion to the journeys in the window: somewhere around 5
+million journeys in the window it would reach the 15-second statement timeout
+(§13) and fail with `query_timeout`. An installation recording tens of
+thousands of journeys a day should search text over a day or a week rather
+than a month. If a plan of this list shows JIT in `EXPLAIN ANALYZE` on your
+data, `ALTER ROLE … SET jit = off` for the API's role takes that share off.
 
 To measure your own shape, against a scratch database (it refuses one that
 already holds journeys, and works in a schema of its own that it drops after):
@@ -1042,8 +1072,9 @@ node scripts/measure-journey-list.mjs --database-url postgresql://… --journeys
 ```
 
 `--keep` leaves the schema for a second run with `--reuse`, which applies any
-new migration first, and `--drop-index <name>` measures once more without an
-index, so an index can be compared on the same rows.
+new migration first. Each `--drop-index <name>` adds a stage without that index
+and the ones named before it, so indexes can be compared on the same rows;
+`--no-list` measures ingestion only.
 
 ## 11. Security scanning
 
