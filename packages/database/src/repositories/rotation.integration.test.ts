@@ -14,7 +14,7 @@ import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
-import { upsertAliases } from "./aliases.js";
+import { ALIAS_DISPLAY_VALUE_TRIGGER, upsertAliases } from "./aliases.js";
 import {
   ROTATION_LOCK_KEY,
   findUnreadableData,
@@ -470,8 +470,15 @@ describe("key rotation commands", () => {
           .update({ displayable: currentFlag, display_value: copyOf(currentFlag) });
 
         // Migration 018's constraint refuses the fold if it lowers the flag
-        // and leaves the copy, so a passing run cannot have done that.
-        const result = await reencryptValues(db, rotated);
+        // and leaves the copy, so a passing run cannot have done that. 018's
+        // trigger would clear the copy first and hide it, so it is off here.
+        await db.raw(`alter table entity_aliases disable trigger ${ALIAS_DISPLAY_VALUE_TRIGGER}`);
+        let result: ReencryptResult;
+        try {
+          result = await reencryptValues(db, rotated);
+        } finally {
+          await db.raw(`alter table entity_aliases enable trigger ${ALIAS_DISPLAY_VALUE_TRIGGER}`);
+        }
         expect(table(result, "entity_aliases")).toMatchObject({ duplicatesRemoved: 1 });
         const rows: unknown = await db("entity_aliases").select("displayable", "display_value");
         expect(rows).toEqual([

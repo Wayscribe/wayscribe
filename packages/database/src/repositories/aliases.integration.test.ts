@@ -5,6 +5,7 @@ import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
 import {
   ALIAS_DISPLAY_VALUE_CONSTRAINT,
+  ALIAS_DISPLAY_VALUE_TRIGGER,
   ALIAS_UNIQUE_CONSTRAINT,
   upsertAliases
 } from "./aliases.js";
@@ -195,6 +196,10 @@ describe("upsertAliases", () => {
      * the flag in one statement and cleared the copy in the next would fail
      * these tests rather than pass them. Asserted present, so the proof cannot
      * lapse silently if the constraint is ever dropped.
+     *
+     * 018's trigger would clear such a copy before the check saw it, which
+     * would hide the mistake, so it is disabled while the work runs: these
+     * tests prove the statement clears the copy itself.
      */
     const runAfterAssertingConstraint = async (work: () => Promise<void>): Promise<void> => {
       const found: unknown = await db.raw(
@@ -202,7 +207,12 @@ describe("upsertAliases", () => {
         [ALIAS_DISPLAY_VALUE_CONSTRAINT]
       );
       expect((found as { rows: unknown[] }).rows).toEqual([{ convalidated: true }]);
-      await work();
+      await db.raw(`alter table entity_aliases disable trigger ${ALIAS_DISPLAY_VALUE_TRIGGER}`);
+      try {
+        await work();
+      } finally {
+        await db.raw(`alter table entity_aliases enable trigger ${ALIAS_DISPLAY_VALUE_TRIGGER}`);
+      }
     };
 
     it("is stored with a displayable alias", async () => {

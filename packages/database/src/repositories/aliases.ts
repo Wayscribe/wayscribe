@@ -119,6 +119,15 @@ export const ALIAS_UNIQUE_CONSTRAINT =
  */
 export const ALIAS_DISPLAY_VALUE_CONSTRAINT = "entity_aliases_display_value_only_when_displayable";
 
+/**
+ * The trigger from migration 018, and the function it runs, both under this
+ * name: before a row is inserted or updated masked, it clears the row's
+ * plain-text copy. The build before 018 lowers the flag without knowing the
+ * copy exists; during a rollout its statements would otherwise violate the
+ * check above. `schema.integration.test.ts` reads it back from `pg_trigger`.
+ */
+export const ALIAS_DISPLAY_VALUE_TRIGGER = "entity_aliases_clear_masked_display_value";
+
 /** Whether an error is a violation of the alias uniqueness constraint, and nothing else. */
 export function isAliasUniqueViolation(error: unknown): boolean {
   const pgError = error as { code?: unknown; constraint?: unknown } | null;

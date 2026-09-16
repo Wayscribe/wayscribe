@@ -130,7 +130,7 @@ The label and last-step columns were added by migration `018_journey_browse.js` 
 | `alias_value_hash` | text | Normalized search hash |
 | `encrypted_display_value` | text | Optional, in the envelope format (§5) |
 | `displayable` | boolean | Not null, default false. True only while every event that stated the alias listed it in `displayableAliases`; ingestion lowers it and never raises it (ADR-053, migration `017_alias_displayable.js`) |
-| `display_value` | text | Nullable. Plain-text copy of the alias value, present only while `displayable` is true; cleared in the same statement that lowers the flag, and by key rotation's duplicate folding when the folded flag is false (ADR-053, migration `018_journey_browse.js`). Holds the same spelling as `encrypted_display_value` |
+| `display_value` | text | Nullable. Plain-text copy of the alias value, present only while `displayable` is true; cleared in the same statement that lowers the flag, and by key rotation's duplicate folding when the folded flag is false, and by the trigger below for any other writer (ADR-053, migration `018_journey_browse.js`). Holds the same spelling as `encrypted_display_value` |
 | `created_at` | timestamptz | Required |
 
 Constraints and indexes:
@@ -140,6 +140,7 @@ Constraints and indexes:
 - index `(project_id, alias_value_hash)`
 - partial index `entity_aliases_displayable_idx` `(project_id, journey_id) include (display_value) where displayable`, so the journey list's text filter tests a journey's displayable values with an index-only scan (migration `019_journey_browse_indexes.js`)
 - check `entity_aliases_display_value_only_when_displayable`: `displayable or display_value is null`, so a masked alias can never hold a plain value, whatever writes the row (migration `018_journey_browse.js`). Added `not valid` with the columns and validated in a separate transaction, which takes only a SHARE UPDATE EXCLUSIVE lock and so does not block ingestion
+- trigger `entity_aliases_clear_masked_display_value`, `before insert or update ... for each row`, running the plpgsql function of the same name, which sets `display_value` to null when `displayable` is false (migration `018_journey_browse.js`). The build before 018 lowers the flag without knowing the copy exists; during a rollout that statement would otherwise violate the check above, fail the event, and log the row. The check stays for a write that skips triggers
 
 `display_value` has no backfill either. A displayable alias stored before migration `018_journey_browse.js` gets its copy the next time an event states it displayable; that statement also replaces the row's ciphertext, so the two keep the same spelling. Until then it reads null.
 

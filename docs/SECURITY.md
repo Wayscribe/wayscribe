@@ -355,6 +355,12 @@ that records them (ADR-054):
   `entity_aliases_display_value_only_when_displayable`
   (`displayable or display_value is null`), so no code path, including a
   future bug or a manual update, can leave a masked alias with a plain value.
+  A trigger, `entity_aliases_clear_masked_display_value`, clears the copy of
+  any row written masked before the check runs. It is there for the previous
+  API during an upgrade: that build lowers the flag without clearing a copy it
+  does not know about, and without the trigger the statement would fail and
+  its database error, which prints the row, would log the value it was
+  masking. With it, masking succeeds and the copy goes in the same statement.
 
 Masked aliases and entity identifiers stay encrypted and tokenised exactly as
 before.

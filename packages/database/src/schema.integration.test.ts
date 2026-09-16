@@ -5,7 +5,10 @@ import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig, migrationsDirectory } from "./knex-config.js";
-import { ALIAS_DISPLAY_VALUE_CONSTRAINT } from "./repositories/aliases.js";
+import {
+  ALIAS_DISPLAY_VALUE_CONSTRAINT,
+  ALIAS_DISPLAY_VALUE_TRIGGER
+} from "./repositories/aliases.js";
 
 describe("schema constraints", () => {
   let container: StartedPostgreSqlContainer;
@@ -365,6 +368,19 @@ describe("schema constraints", () => {
 
   describe("the alias display flag (017)", () => {
     const MIGRATION = "017_alias_displayable.js";
+    // 018's check, trigger and 019's index read the column, so they are
+    // rolled back first and restored after, as an operator would.
+    const LATER = ["019_journey_browse_indexes.js", "018_journey_browse.js"];
+
+    const downThrough017 = async (): Promise<void> => {
+      for (const name of LATER) await db.migrate.down({ name });
+      await db.migrate.down({ name: MIGRATION });
+    };
+
+    const upFrom017 = async (): Promise<void> => {
+      await db.migrate.up({ name: MIGRATION });
+      for (const name of [...LATER].reverse()) await db.migrate.up({ name });
+    };
 
     const column = async (): Promise<
       { data_type: string; is_nullable: string; column_default: string | null } | undefined
@@ -386,9 +402,9 @@ describe("schema constraints", () => {
         is_nullable: "NO",
         column_default: "false"
       });
-      await db.migrate.down({ name: MIGRATION });
+      await downThrough017();
       expect(await column()).toBeUndefined();
-      await db.migrate.up({ name: MIGRATION });
+      await upFrom017();
       expect(await column()).toBeDefined();
     });
 
@@ -408,7 +424,7 @@ describe("schema constraints", () => {
         last_event_at: db.fn.now(),
         event_count: 1
       });
-      await db.migrate.down({ name: MIGRATION });
+      await downThrough017();
       await db("entity_aliases").insert({
         project_id: projectId,
         journey_id: journeyId,
@@ -426,6 +442,7 @@ describe("schema constraints", () => {
       expect(
         await db("entity_aliases").where({ alias_value_hash: "old-017" }).pluck("displayable")
       ).toEqual([false]);
+      for (const name of [...LATER].reverse()) await db.migrate.up({ name });
       await db("journeys").where({ id: journeyId }).delete();
     });
 
@@ -433,7 +450,7 @@ describe("schema constraints", () => {
       // ALTER TABLE waits for every lock on the table, and every insert that
       // arrives meanwhile waits behind the ALTER. lock_timeout makes the
       // migration fail after five seconds instead; running it again retries.
-      await db.migrate.down({ name: MIGRATION });
+      await downThrough017();
       let release: () => void = () => undefined;
       const released = new Promise<void>((resolve) => {
         release = resolve;
@@ -456,7 +473,7 @@ describe("schema constraints", () => {
         release();
         await reader;
       }
-      await db.migrate.up({ name: MIGRATION });
+      await upFrom017();
       expect(await column()).toBeDefined();
     }, 30_000);
   });
@@ -520,6 +537,24 @@ describe("schema constraints", () => {
         [CONSTRAINT]
       );
       return (result as { rows: { definition: string; validated: boolean }[] }).rows;
+    };
+
+    const TRIGGER = ALIAS_DISPLAY_VALUE_TRIGGER;
+
+    const trigger = async (): Promise<{ trigger: boolean; fn: boolean }> => {
+      const result: unknown = await db.raw(
+        `select exists (select 1 from pg_trigger
+                         where tgrelid = 'entity_aliases'::regclass and tgname = ?) as trigger,
+                exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                         where p.proname = ? and n.nspname = current_schema()) as fn`,
+        [TRIGGER, TRIGGER]
+      );
+      return (
+        (result as { rows: { trigger: boolean; fn: boolean }[] }).rows[0] ?? {
+          trigger: false,
+          fn: false
+        }
+      );
     };
 
     const aliasRow = (journeyId: string, hash: string): Record<string, unknown> => ({
@@ -626,23 +661,46 @@ describe("schema constraints", () => {
         { definition: "CHECK ((displayable OR (display_value IS NULL)))", validated: true }
       ]);
       await withJourney("jrn_018_check", async () => {
-        await expect(
-          db("entity_aliases").insert({
-            ...aliasRow("jrn_018_check", "masked-with-copy"),
-            displayable: false,
-            display_value: "leaked"
+        // The trigger clears the copy before the check sees the row, so the
+        // check is exercised with the trigger disabled, in a transaction that
+        // is rolled back.
+        await db
+          .transaction(async (trx) => {
+            await trx.raw(`alter table entity_aliases disable trigger ${TRIGGER}`);
+            await expect(
+              trx.transaction(async (savepoint) => {
+                await savepoint("entity_aliases").insert({
+                  ...aliasRow("jrn_018_check", "masked-with-copy"),
+                  displayable: false,
+                  display_value: "leaked"
+                });
+              })
+            ).rejects.toMatchObject({ code: "23514", constraint: CONSTRAINT });
+            await trx("entity_aliases").insert({
+              ...aliasRow("jrn_018_check", "shown"),
+              displayable: true,
+              display_value: "shown"
+            });
+            // Lowering the flag alone, without clearing the copy, is refused too.
+            await expect(
+              trx.transaction(async (savepoint) => {
+                await savepoint("entity_aliases")
+                  .where({ alias_value_hash: "shown" })
+                  .update({ displayable: false });
+              })
+            ).rejects.toMatchObject({ code: "23514" });
+            throw new Error("roll back");
           })
-        ).rejects.toMatchObject({ code: "23514", constraint: CONSTRAINT });
+          .catch((error: unknown) => {
+            if (!(error instanceof Error && error.message === "roll back")) throw error;
+          });
+        expect(await trigger()).toEqual({ trigger: true, fn: true });
         // The rows the rule allows.
         await db("entity_aliases").insert([
           { ...aliasRow("jrn_018_check", "shown"), displayable: true, display_value: "shown" },
           { ...aliasRow("jrn_018_check", "shown-no-copy"), displayable: true },
           { ...aliasRow("jrn_018_check", "masked"), displayable: false }
         ]);
-        // Lowering the flag alone, without clearing the copy, is refused too.
-        await expect(
-          db("entity_aliases").where({ alias_value_hash: "shown" }).update({ displayable: false })
-        ).rejects.toMatchObject({ code: "23514" });
 
         await db("entity_aliases").where({ journey_id: "jrn_018_check" }).delete();
         await db.migrate.down({ name: MIGRATION });
@@ -650,6 +708,136 @@ describe("schema constraints", () => {
         await db.migrate.up({ name: MIGRATION });
         expect((await constraint()).map((found) => found.validated)).toEqual([true]);
       });
+    });
+
+    it("clears the copy of a row a statement masks, and removes the trigger on the way down", async () => {
+      expect(await trigger()).toEqual({ trigger: true, fn: true });
+      await withJourney("jrn_018_trigger", async () => {
+        await db("entity_aliases").insert([
+          {
+            ...aliasRow("jrn_018_trigger", "inserted-masked"),
+            displayable: false,
+            display_value: "never kept"
+          },
+          { ...aliasRow("jrn_018_trigger", "shown"), displayable: true, display_value: "shown" }
+        ]);
+        await db("entity_aliases")
+          .where({ alias_value_hash: "shown" })
+          .update({ displayable: false });
+        expect(
+          await db("entity_aliases")
+            .where({ journey_id: "jrn_018_trigger" })
+            .orderBy("alias_value_hash")
+            .select("alias_value_hash", "displayable", "display_value")
+        ).toEqual([
+          { alias_value_hash: "inserted-masked", displayable: false, display_value: null },
+          { alias_value_hash: "shown", displayable: false, display_value: null }
+        ]);
+        await db("entity_aliases").where({ journey_id: "jrn_018_trigger" }).delete();
+      });
+      await db.migrate.down({ name: MIGRATION });
+      expect(await trigger()).toEqual({ trigger: false, fn: false });
+      await db.migrate.up({ name: MIGRATION });
+      expect(await trigger()).toEqual({ trigger: true, fn: true });
+    });
+
+    describe("the previous build's statements, still running during a rollout", () => {
+      // The build before 018 knows nothing of display_value. Its masking
+      // statements lower the flag and leave the column alone, so without the
+      // trigger they would violate the check, fail the event, and log the row.
+
+      /** The alias upsert exactly as the previous build ran it (6f2d66a). */
+      const previousUpsert = async (
+        journeyId: string,
+        hash: string,
+        displayable: boolean
+      ): Promise<void> => {
+        await db("entity_aliases")
+          .insert([
+            {
+              project_id: projectId,
+              journey_id: journeyId,
+              alias_type: "company",
+              alias_value_hash: hash,
+              encrypted_display_value: "cipher",
+              displayable
+            }
+          ])
+          .onConflict(["project_id", "journey_id", "alias_type", "alias_value_hash"])
+          .merge({ displayable: false })
+          .where("entity_aliases.displayable", true)
+          .andWhereRaw("not excluded.displayable");
+      };
+
+      it("masks a row with a copy through the previous alias upsert, and the copy goes", async () => {
+        await withJourney("jrn_018_old_upsert", async () => {
+          await db("entity_aliases").insert({
+            ...aliasRow("jrn_018_old_upsert", "old-upsert"),
+            displayable: true,
+            display_value: "Acme"
+          });
+          await previousUpsert("jrn_018_old_upsert", "old-upsert", false);
+          expect(
+            await db("entity_aliases")
+              .where({ journey_id: "jrn_018_old_upsert" })
+              .select("displayable", "display_value")
+          ).toEqual([{ displayable: false, display_value: null }]);
+          await db("entity_aliases").where({ journey_id: "jrn_018_old_upsert" }).delete();
+        });
+      });
+
+      it("folds a masked stale row into a survivor with a copy through the previous rotation fold", async () => {
+        await withJourney("jrn_018_old_fold", async () => {
+          const staleId = await insertReturningId(db, "entity_aliases", {
+            ...aliasRow("jrn_018_old_fold", "stale-token"),
+            displayable: false
+          });
+          await db("entity_aliases").insert({
+            ...aliasRow("jrn_018_old_fold", "current-token"),
+            displayable: true,
+            display_value: "Acme"
+          });
+          // The previous build's reencryptAlias removeStale update (6f2d66a).
+          await db.transaction(async (trx) => {
+            await trx("entity_aliases")
+              .where({
+                project_id: projectId,
+                journey_id: "jrn_018_old_fold",
+                alias_type: "company",
+                alias_value_hash: "current-token",
+                displayable: true
+              })
+              .whereNot({ id: staleId })
+              .whereExists((stale) => {
+                void stale
+                  .select(trx.raw("1"))
+                  .from({ s: "entity_aliases" })
+                  .where({ "s.id": staleId, "s.displayable": false });
+              })
+              .update({ displayable: false });
+            await trx("entity_aliases").where({ id: staleId }).del();
+          });
+          expect(
+            await db("entity_aliases")
+              .where({ journey_id: "jrn_018_old_fold" })
+              .select("displayable", "display_value")
+          ).toEqual([{ displayable: false, display_value: null }]);
+          await db("entity_aliases").where({ journey_id: "jrn_018_old_fold" }).delete();
+        });
+      });
+    });
+
+    it("adds the trigger when a run finds the columns and the constraint but not the trigger", async () => {
+      await db.migrate.down({ name: MIGRATION });
+      await db.migrate.up({ name: MIGRATION });
+      await db.raw(`drop trigger ${TRIGGER} on entity_aliases`);
+      await db.raw(`drop function ${TRIGGER}()`);
+      await db("knex_migrations").where({ name: MIGRATION }).delete();
+      expect(await trigger()).toEqual({ trigger: false, fn: false });
+
+      await db.migrate.up({ name: MIGRATION });
+      expect(await trigger()).toEqual({ trigger: true, fn: true });
+      expect((await constraint()).map((found) => found.validated)).toEqual([true]);
     });
 
     it("finishes a run that stopped part way: some columns present, no constraint", async () => {
@@ -663,9 +851,11 @@ describe("schema constraints", () => {
       await db.raw("alter table entity_aliases add column display_value text null");
       expect(await columns()).toHaveLength(3);
       expect(await constraint()).toEqual([]);
+      expect(await trigger()).toEqual({ trigger: false, fn: false });
 
       await db.migrate.up({ name: MIGRATION });
       expect(await columns()).toHaveLength(ADDED.length);
+      expect(await trigger()).toEqual({ trigger: true, fn: true });
       expect(await constraint()).toEqual([
         { definition: "CHECK ((displayable OR (display_value IS NULL)))", validated: true }
       ]);
@@ -750,6 +940,7 @@ describe("schema constraints", () => {
         }
         expect(await columns()).toEqual([]);
         expect(await constraint()).toEqual([]);
+        expect(await trigger()).toEqual({ trigger: false, fn: false });
         await db.migrate.up({ name: MIGRATION });
         expect(await columns()).toHaveLength(ADDED.length);
         expect((await constraint()).map((found) => found.validated)).toEqual([true]);

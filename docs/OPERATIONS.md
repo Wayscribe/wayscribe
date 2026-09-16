@@ -187,22 +187,23 @@ public values (ADR-054). Two migrations run, and neither rewrites a table.
 
 **Migration 018** (`018_journey_browse.js`) adds six nullable columns to
 `journeys` (`label`, `last_step`, and the timestamp and event id that decide
-which event set each), `display_value` to `entity_aliases`, and the check
-constraint `entity_aliases_display_value_only_when_displayable`. None of the
-columns has a default, so each is a catalogue change with no table rewrite. It
-runs in two transactions of its own:
+which event set each), `display_value` to `entity_aliases`, the check
+constraint `entity_aliases_display_value_only_when_displayable`, and the
+trigger `entity_aliases_clear_masked_display_value` with its plpgsql function
+of the same name. None of the columns has a default, so each is a catalogue
+change with no table rewrite. It runs in two transactions of its own:
 
 1. The ALTERs, with the constraint added `not valid`, which is also a catalogue
-   change. The lock handling is the same as 017: five seconds of
+   change, and the trigger, created under the lock the ALTERs already hold. The lock handling is the same as 017: five seconds of
    `lock_timeout` per lock request, and running `migrate` again retries after
    `canceling statement due to lock timeout`. The query above finds the
    transaction in the way; check `'journeys'::regclass` as well.
 2. `VALIDATE CONSTRAINT`, which reads every row of `entity_aliases` but takes
    only a SHARE UPDATE EXCLUSIVE lock, so reads and ingestion carry on while it
    runs. The column is null in every existing row, so validation always
-   passes. If it gives up behind a lock, the columns and the unvalidated
-   constraint stay, the migration is not recorded, and the next `migrate`
-   skips the ALTERs and validates.
+   passes. If it gives up behind a lock, the columns, the trigger and the
+   unvalidated constraint stay, the migration is not recorded, and the next
+   `migrate` skips the first transaction and validates.
 
 The timeout applies to each lock request, and the first transaction takes two
 locks. The ALTER on `journeys` can wait up to five seconds, then holds that
@@ -233,9 +234,16 @@ arrives; until then the Journeys page shows it by entity type and identifier,
 as the Recent page did. Only aliases stated displayable after the upgrade get
 a plain-text copy, so `q` does not find an older displayable alias until an
 event states it again. The previous API, still running between migrate and
-deploy, writes rows without these columns, and they read null in the same way,
-which the constraint allows. The upgrade test checks that journeys the previous
-build recorded list with `label` and `lastStep` null.
+deploy or alongside the new one during a rolling upgrade, writes rows without
+these columns, and they read null in the same way, which the constraint
+allows. It also masks aliases the new API has already given a copy, and it
+lowers the flag without clearing the copy, because it does not know the column
+exists; its key rotation (`rotate:reencrypt`) folds duplicates the same way.
+The constraint would refuse those statements, failing the event with a 500.
+The trigger clears the copy of any row written masked before the constraint
+is checked, so the previous build's statements succeed and the copy goes with
+the flag. The upgrade test checks that journeys the previous build recorded
+list with `label` and `lastStep` null.
 
 ### Migration 015 rewrites every replay run's headers
 

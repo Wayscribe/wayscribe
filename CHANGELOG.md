@@ -171,8 +171,11 @@ changes far less often.
   `entity_aliases.display_value`, which ingestion fills only while an alias is
   displayable and clears in the statement that masks it. A check constraint,
   `entity_aliases_display_value_only_when_displayable`, refuses a masked alias
-  with a plain value whatever writes the row. Deletion, erasure and retention
-  remove all of it with the journey.
+  with a plain value whatever writes the row, and a trigger,
+  `entity_aliases_clear_masked_display_value`, clears the copy of any row
+  written masked before the check runs, so the previous build, which masks
+  without knowing the copy exists, keeps working during a rollout. Deletion,
+  erasure and retention remove all of it with the journey.
 - **`GET /v1/journeys` filters by time range, entity type and text.** `until`
   ends the window (an instant after `since`, exclusive), `entityType` matches
   one entity type exactly, and `q` (2 to 200 characters) matches, ignoring
@@ -900,10 +903,12 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
-- **Migration 018 adds columns and a constraint.** The columns are nullable
-  with no default, a catalogue change with no table rewrite; the constraint is
-  added unvalidated and then validated in a second transaction that does not
-  block writes. Each lock request gives up after five seconds, so in the worst
+- **Migration 018 adds columns, a constraint and a trigger.** The columns are
+  nullable with no default, a catalogue change with no table rewrite; the
+  constraint is added unvalidated and then validated in a second transaction
+  that does not block writes. The trigger clears a masked alias's plain-text
+  copy, so the previous API can keep ingesting and rotating keys alongside the
+  new one during a rolling upgrade. Each lock request gives up after five seconds, so in the worst
   case writes to `journeys` stall for about ten seconds; run `migrate` again if
   it gives up. There is no backfill: journeys recorded before the upgrade show
   no label or last step until new events arrive, and older displayable aliases
