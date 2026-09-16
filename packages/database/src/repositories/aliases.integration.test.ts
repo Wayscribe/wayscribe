@@ -3,7 +3,11 @@ import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
-import { ALIAS_UNIQUE_CONSTRAINT, upsertAliases } from "./aliases.js";
+import {
+  ALIAS_DISPLAY_VALUE_CONSTRAINT,
+  ALIAS_UNIQUE_CONSTRAINT,
+  upsertAliases
+} from "./aliases.js";
 
 interface StoredAlias {
   alias_type: string;
@@ -192,9 +196,10 @@ describe("upsertAliases", () => {
      * these tests rather than pass them. Asserted present, so the proof cannot
      * lapse silently if the constraint is ever dropped.
      */
-    const withInvariant = async (work: () => Promise<void>): Promise<void> => {
+    const runAfterAssertingConstraint = async (work: () => Promise<void>): Promise<void> => {
       const found: unknown = await db.raw(
-        "select convalidated from pg_constraint where conrelid = 'entity_aliases'::regclass and conname = 'entity_aliases_display_value_only_when_displayable'"
+        "select convalidated from pg_constraint where conrelid = 'entity_aliases'::regclass and conname = ?",
+        [ALIAS_DISPLAY_VALUE_CONSTRAINT]
       );
       expect((found as { rows: unknown[] }).rows).toEqual([{ convalidated: true }]);
       await work();
@@ -214,7 +219,7 @@ describe("upsertAliases", () => {
     });
 
     it("is cleared in the same statement that lowers the flag", async () => {
-      await withInvariant(async () => {
+      await runAfterAssertingConstraint(async () => {
         await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
         await upsertAliases(db, projectId, [{ ...alias, displayable: false }]);
       });
@@ -286,7 +291,7 @@ describe("upsertAliases", () => {
       await db("entity_aliases")
         .where({ alias_value_hash: "old-hash" })
         .update({ displayable: true, display_value: "POST-1" });
-      await withInvariant(async () => {
+      await runAfterAssertingConstraint(async () => {
         await upsertAliases(db, projectId, [
           { ...alias, displayable: false, supersedesValueHash: "old-hash" }
         ]);
@@ -311,7 +316,7 @@ describe("upsertAliases", () => {
       // and not, each in its own transaction as ingestion runs them. The row
       // lock the conflict update takes is what keeps flag and copy together.
       const types = ["a", "b", "c", "d"];
-      await withInvariant(async () => {
+      await runAfterAssertingConstraint(async () => {
         for (let round = 0; round < 25; round += 1) {
           await db("entity_aliases").delete();
           await Promise.all(

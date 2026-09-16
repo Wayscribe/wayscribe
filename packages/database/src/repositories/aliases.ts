@@ -111,6 +111,14 @@ const UNIQUE_VIOLATION = "23505";
 export const ALIAS_UNIQUE_CONSTRAINT =
   "entity_aliases_project_id_journey_id_alias_type_alias_value_has";
 
+/**
+ * The check constraint from migration 018 that refuses a masked alias holding
+ * a plain value: `displayable or display_value is null`. The migration names
+ * it with this same string; `schema.integration.test.ts` reads it back from
+ * `pg_constraint`, so a rename in either place fails a test.
+ */
+export const ALIAS_DISPLAY_VALUE_CONSTRAINT = "entity_aliases_display_value_only_when_displayable";
+
 /** Whether an error is a violation of the alias uniqueness constraint, and nothing else. */
 export function isAliasUniqueViolation(error: unknown): boolean {
   const pgError = error as { code?: unknown; constraint?: unknown } | null;

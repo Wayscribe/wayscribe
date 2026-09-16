@@ -1,4 +1,9 @@
-import { createKnexConfig, insertReturningId, type ApiKeyContext } from "@flight-recorder/database";
+import {
+  ALIAS_DISPLAY_VALUE_CONSTRAINT,
+  createKnexConfig,
+  insertReturningId,
+  type ApiKeyContext
+} from "@flight-recorder/database";
 import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { FastifyInstance } from "fastify";
@@ -233,7 +238,8 @@ describe("ingestion stores labels, last steps and plain-text copies", () => {
     // moment of disagreement inside a statement fails the event, and the
     // assertion that every event was accepted catches it.
     const found: unknown = await db.raw(
-      "select convalidated from pg_constraint where conrelid = 'entity_aliases'::regclass and conname = 'entity_aliases_display_value_only_when_displayable'"
+      "select convalidated from pg_constraint where conrelid = 'entity_aliases'::regclass and conname = ?",
+      [ALIAS_DISPLAY_VALUE_CONSTRAINT]
     );
     expect((found as { rows: unknown[] }).rows).toEqual([{ convalidated: true }]);
     const rounds = 20;

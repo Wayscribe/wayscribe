@@ -3,6 +3,7 @@ import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig } from "./knex-config.js";
+import { ALIAS_DISPLAY_VALUE_CONSTRAINT } from "./repositories/aliases.js";
 
 describe("schema constraints", () => {
   let container: StartedPostgreSqlContainer;
@@ -507,7 +508,7 @@ describe("schema constraints", () => {
       return (result as { rows: unknown[] }).rows;
     };
 
-    const CONSTRAINT = "entity_aliases_display_value_only_when_displayable";
+    const CONSTRAINT = ALIAS_DISPLAY_VALUE_CONSTRAINT;
 
     const constraint = async (): Promise<{ definition: string; validated: boolean }[]> => {
       const result: unknown = await db.raw(
@@ -647,6 +648,25 @@ describe("schema constraints", () => {
         await db.migrate.up({ name: MIGRATION });
         expect((await constraint()).map((found) => found.validated)).toEqual([true]);
       });
+    });
+
+    it("finishes a run that stopped part way: some columns present, no constraint", async () => {
+      // Not a state this migration's own transaction can leave, but one a
+      // hand-applied fix or an earlier draft of it can. Up must add what is
+      // missing and validate, not fail on what is there.
+      await db.migrate.down({ name: MIGRATION });
+      await db.raw(
+        "alter table journeys add column label text null, add column last_step text null"
+      );
+      await db.raw("alter table entity_aliases add column display_value text null");
+      expect(await columns()).toHaveLength(3);
+      expect(await constraint()).toEqual([]);
+
+      await db.migrate.up({ name: MIGRATION });
+      expect(await columns()).toHaveLength(ADDED.length);
+      expect(await constraint()).toEqual([
+        { definition: "CHECK ((displayable OR (display_value IS NULL)))", validated: true }
+      ]);
     });
 
     it("validates without blocking writes when a run stopped after adding the rule", async () => {

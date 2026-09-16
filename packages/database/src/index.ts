@@ -9,7 +9,11 @@ export {
   type ApiKeyContext
 } from "./repositories/api-keys.js";
 export { keyringFromEnvironment } from "./keyring-env.js";
-export { upsertAliases, type AliasRow } from "./repositories/aliases.js";
+export {
+  ALIAS_DISPLAY_VALUE_CONSTRAINT,
+  upsertAliases,
+  type AliasRow
+} from "./repositories/aliases.js";
 export { insertEvent, type EventRow, type InsertOutcome } from "./repositories/events.js";
 export {
   applyJourneyEvent,
