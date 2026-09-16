@@ -252,6 +252,9 @@ describe("journey.label", () => {
   it.each([
     ["an empty string", ""],
     ["a lone NUL, empty once made storable", "\u0000"],
+    ["only spaces", "   "],
+    ["only whitespace of other kinds", "\t\n\u00a0\u2003\ufeff"],
+    ["whitespace around a NUL", " \u0000 "],
     ["a number", 42],
     ["null", null],
     ["undefined", undefined],

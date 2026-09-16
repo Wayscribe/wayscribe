@@ -52,6 +52,39 @@ describe("shownAs", () => {
     expect(shownAs({ ...item, label: "" }).kind).toBe("aliases");
   });
 
+  it("treats a label of only whitespace as none, so the row's link is never blank", () => {
+    for (const label of [" ", "\t\n", "\u00a0\u2003", "\ufeff"]) {
+      expect(shownAs({ ...item, label }).kind).toBe("aliases");
+    }
+  });
+
+  it("shows a label without the whitespace around it", () => {
+    expect(shownAs({ ...item, label: "  Mirantis  " })).toEqual({
+      kind: "label",
+      text: "Mirantis"
+    });
+  });
+
+  it("skips blank alias values, and falls back to the entity when every one is blank", () => {
+    expect(
+      shownAs({
+        ...item,
+        label: null,
+        displayableAliases: [
+          { type: "a", value: "  " },
+          { type: "b", value: " Mirantis " }
+        ]
+      })
+    ).toEqual({ kind: "aliases", text: "Mirantis" });
+    expect(
+      shownAs({
+        ...item,
+        label: " ",
+        displayableAliases: [{ type: "a", value: "\u2003" }]
+      })
+    ).toEqual({ kind: "entity", text: "job_posting: 0018Z00002ABC" });
+  });
+
   it("falls back to the entity type and identifier when there is neither", () => {
     expect(shownAs({ ...item, label: null, displayableAliases: [] })).toEqual({
       kind: "entity",

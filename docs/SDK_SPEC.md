@@ -475,8 +475,9 @@ A label is the journey's name on the Journeys page, where partial text finds it
   `journeyLabel`. When it does, it MUST send only labels the protocol accepts.
   A label over 200 code points MUST be cut, at a code point boundary so that no
   surrogate pair is split, to at most 200 code points, and reported; the events
-  carrying it MUST still be sent. A label that is empty, or is not a string,
-  MUST NOT be sent and MUST be reported, and the event it would have been on
+  carrying it MUST still be sent. A label that is empty, consists only of
+  whitespace (Unicode White_Space, line terminators and U+FEFF, as ECMAScript's
+  `trim` removes), or is not a string, MUST NOT be sent and MUST be reported, and the event it would have been on
   MUST still be sent. Setting a label records nothing by itself. An SDK SHOULD
   carry the label on every later event of the journey, not only the next one:
   the server keeps the label of the event that started last, so repeating it
@@ -489,7 +490,7 @@ A label is the journey's name on the Journeys page, where partial text finds it
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-58 | EVENT_PROTOCOL section 3; packages/protocol/src/limits.ts; docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1 | sdk/journey-label, sdk/journey-label-cut, sdk/journey-label-empty |
+| SDK-58 | EVENT_PROTOCOL section 3; packages/protocol/src/limits.ts; docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1 | sdk/journey-label, sdk/journey-label-blank, sdk/journey-label-cut, sdk/journey-label-empty |
 | SDK-59 | docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1 | section 14 |
 
 ### Configuration that cannot be used

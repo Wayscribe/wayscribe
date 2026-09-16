@@ -21,12 +21,19 @@ export interface ShownAs {
  * returns them; otherwise its entity type and identifier, as search shows it.
  * The first two are public by declaration (ADR-053 and the label's contract);
  * the identifier is whatever the API chose to return for it.
+ *
+ * A label or alias value of only whitespace is valid on the wire but shows
+ * nothing, and this text is the row's only link, so blank values are skipped
+ * and the rest shown trimmed.
  */
 export function shownAs(item: JourneyListRow): ShownAs {
-  if (item.label !== null && item.label !== "") return { kind: "label", text: item.label };
-  if (item.displayableAliases.length > 0) {
-    const joined = item.displayableAliases.map((alias) => alias.value).join(" · ");
-    return { kind: "aliases", text: cut(joined, SHOWN_AS_LIMIT) };
+  const label = item.label?.trim() ?? "";
+  if (label !== "") return { kind: "label", text: label };
+  const values = item.displayableAliases
+    .map((alias) => alias.value.trim())
+    .filter((value) => value !== "");
+  if (values.length > 0) {
+    return { kind: "aliases", text: cut(values.join(" · "), SHOWN_AS_LIMIT) };
   }
   return { kind: "entity", text: `${item.entity.type}: ${item.entity.id ?? "—"}` };
 }

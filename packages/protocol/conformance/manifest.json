@@ -59,6 +59,7 @@
     "sdk/identify",
     "sdk/identify-displayable",
     "sdk/journey-label",
+    "sdk/journey-label-blank",
     "sdk/journey-label-cut",
     "sdk/journey-label-empty",
     "sdk/lone-surrogate",

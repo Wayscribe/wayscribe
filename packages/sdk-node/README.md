@@ -155,8 +155,8 @@ reader of the journey list should not see.
 
 It never throws. A label over 200 characters (Unicode code points, as the
 server counts them) is cut to its first 199 and `…`, never inside a character,
-and reported once as `payload_truncated`. A label that is empty, or is not a
-string, is not set, and is reported as `key_dropped`; the journey keeps any
+and reported once as `payload_truncated`. A label that is empty, is only
+whitespace, or is not a string, is not set, and is reported as `key_dropped`; the journey keeps any
 label it already had, and its events are sent as usual. Both are counted
 (`payloadsTruncated`, `keysDropped`) once, when `label()` is called, not once
 per event that carries the label.

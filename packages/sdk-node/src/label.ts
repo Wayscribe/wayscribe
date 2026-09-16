@@ -31,7 +31,8 @@ export function firstCodePoints(text: string, max: number): string {
  * `text` as the server will accept it for `journeyLabel`, or undefined.
  *
  * Made storable first, as every payload string is: a NUL removed and a lone
- * surrogate replaced, so neither costs the event. What is left over the limit
+ * surrogate replaced, so neither costs the event. Empty, or only whitespace
+ * (as `String.prototype.trim` defines it), is refused. What is left over the limit
  * is cut, with the protocol's own constant, so the SDK and the API cannot
  * disagree about the number. Anything that is not a string is refused unread:
  * converting it would run the host's own `toString`. Neither report quotes
@@ -43,11 +44,14 @@ export function firstCodePoints(text: string, max: number): string {
  */
 export function acceptLabel(text: unknown, diagnostics: Diagnostics): string | undefined {
   const storable = typeof text === "string" ? toStorableText(text) : "";
-  if (storable === "") {
+  // A label of only whitespace is valid on the wire, but it names nothing and
+  // shows as a blank, so it is dropped like an empty one. What is sent is the
+  // host's text as given, surrounding whitespace included.
+  if (storable.trim() === "") {
     diagnostics.report({
       kind: "key_dropped",
       reason:
-        "A journey label that is not a non-empty string was not set; later events carry the label set before it, if any.",
+        "A journey label that is not a string with visible text was not set; later events carry the label set before it, if any.",
       detail: { field: "journeyLabel", keys: 1 }
     });
     return undefined;
