@@ -15,6 +15,21 @@ changes far less often.
 
 ### Changed
 
+- **The SDK fits every event to the server's limits before sending it**
+  (ADR-051). It used to measure each payload on its own and scale its string
+  limit with `maxPayloadBytes`, while the server measures the whole envelope and
+  never scaled anything, so a 70,000 character string, two payloads that each
+  fit, or a payload 31 levels deep left the SDK and were refused, losing the
+  whole event. Now a string over 65,536 characters is cut to its start and
+  `[TRUNCATED: <n> characters removed]`; a payload that still does not fit, or
+  is too deep or too wide, becomes `[PAYLOAD_TOO_LARGE]`, the larger of `input`
+  and `output` first and `metadata` last; and the event is always sent. The SDK
+  runs the same check as ingestion, `eventLimits` from `payload-security`.
+  **`maxPayloadBytes` is now the budget of one whole event**, and should be set
+  to the server's `MAX_EVENT_PAYLOAD_BYTES`; the default is unchanged. A new
+  diagnostic, `payload_truncated`, and counter, `payloadsTruncated`, report cut
+  payloads separately from omitted ones, and `payload_omitted` now names the
+  `field` in its detail.
 - **The refusals that happen before a route runs carry codes this API owns.**
   A body over the limit was `413 FST_ERR_CTP_BODY_TOO_LARGE`, a content type
   with no parser `415 FST_ERR_CTP_INVALID_MEDIA_TYPE`, and a body that is not
@@ -517,6 +532,10 @@ changes far less often.
 
 ### Fixed
 
+- **The SDK conformance harness decodes a request body as a stream.** It
+  decoded each chunk on its own, so a two-byte character split between two
+  chunks arrived as two replacement characters and a string the SDK had cut to
+  the limit reached the dry run one code unit over it.
 - **A header entry carrying a third field no longer hides a credential.**
   Redaction read `{"name": "authorization", "value": "Bearer …"}` as a header
   and replaced the value, but only when the object had *exactly* those two

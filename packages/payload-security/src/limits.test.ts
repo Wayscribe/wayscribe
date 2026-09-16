@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LIMITS, checkLimits } from "./limits.js";
+import {
+  DEFAULT_LIMITS,
+  PAYLOAD_DEPTH,
+  checkLimits,
+  eventLimits,
+  payloadLimits
+} from "./limits.js";
+import { MAX_STRING_LENGTH, truncateText } from "./truncate.js";
 
 describe("checkLimits", () => {
   it("accepts a small payload", () => {
@@ -149,5 +156,82 @@ describe("checkLimits", () => {
     const result = checkLimits(hostile, DEFAULT_LIMITS);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("unserialisable_payload");
+  });
+});
+
+/**
+ * The limits ingestion applies, and the same limits as they fall on a payload.
+ *
+ * The SDK used to apply its own reading of these and the server refused what
+ * the SDK had counted as fine. Both sides now call these two functions.
+ */
+describe("eventLimits and payloadLimits", () => {
+  const nest = (depth: number): unknown => {
+    let value: unknown = "leaf";
+    for (let level = 0; level < depth; level += 1) value = { n: value };
+    return value;
+  };
+  const envelopeAround = (input: unknown): unknown => ({
+    protocolVersion: "0.1",
+    event: { id: "evt_1", input }
+  });
+
+  it("is the shared default with the event byte budget", () => {
+    expect(eventLimits(1_000)).toEqual({ ...DEFAULT_LIMITS, maxBytes: 1_000 });
+    expect(DEFAULT_LIMITS.maxStringLength).toBe(MAX_STRING_LENGTH);
+  });
+
+  it("places a payload two levels below the envelope, so its depth budget is two less", () => {
+    expect(PAYLOAD_DEPTH).toBe(2);
+    expect(payloadLimits(262_144).maxDepth).toBe(DEFAULT_LIMITS.maxDepth - 2);
+
+    // The two checks agree at the boundary, which is the whole point.
+    for (const depth of [29, 30, 31, 32]) {
+      const payload = nest(depth);
+      expect(checkLimits(payload, payloadLimits(262_144)).ok, `depth ${String(depth)}`).toBe(
+        checkLimits(envelopeAround(payload), eventLimits(262_144)).ok
+      );
+    }
+    expect(checkLimits(nest(30), payloadLimits(262_144)).ok).toBe(true);
+    expect(checkLimits(nest(31), payloadLimits(262_144)).ok).toBe(false);
+  });
+
+  it("does not refuse a long string it has been told will be truncated", () => {
+    const payload = { note: "a".repeat(70_000) };
+    expect(checkLimits(payload, eventLimits(262_144))).toEqual({
+      ok: false,
+      reason: "max_string_length_exceeded"
+    });
+    expect(checkLimits(payload, payloadLimits(262_144)).ok).toBe(true);
+  });
+
+  it("measures a long string at its truncated length", () => {
+    // Four strings of 70,000 characters are 280 KB as they are and 262 KB
+    // truncated, which fits a 270 KB budget only if the measurement is of the
+    // truncated form. Five are over a 300 KB budget either way.
+    const four = { list: Array.from({ length: 4 }, () => "a".repeat(70_000)) };
+    expect(checkLimits(four, payloadLimits(270_000)).ok).toBe(true);
+    const { truncateStringsTo: _unused, ...untruncated } = payloadLimits(270_000);
+    expect(checkLimits(four, untruncated)).toEqual({
+      ok: false,
+      reason: "max_string_length_exceeded"
+    });
+    const five = { list: Array.from({ length: 5 }, () => "a".repeat(70_000)) };
+    expect(checkLimits(five, payloadLimits(300_000))).toEqual({
+      ok: false,
+      reason: "payload_too_large"
+    });
+  });
+
+  it("measures exactly what truncation produces", () => {
+    const text = "é".repeat(70_000);
+    const truncatedBytes = Buffer.byteLength(
+      JSON.stringify({ t: truncateText(text, MAX_STRING_LENGTH) })
+    );
+    expect(checkLimits({ t: text }, payloadLimits(truncatedBytes)).ok).toBe(true);
+    expect(checkLimits({ t: text }, payloadLimits(truncatedBytes - 1))).toEqual({
+      ok: false,
+      reason: "payload_too_large"
+    });
   });
 });

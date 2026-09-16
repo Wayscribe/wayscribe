@@ -1,0 +1,67 @@
+{
+  "id": "sdk/long-string-truncated",
+  "title": "A string over 65,536 code units is cut with a marker, and the event is stored",
+  "source": "ADR-051; docs/INGESTION_CONTRACT.md limits table",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "note": {
+            "$string": {
+              "char": "a",
+              "count": 70000
+            }
+          },
+          "orderTotal": 4210
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "note": {
+          "$concat": [
+            {
+              "$string": {
+                "char": "a",
+                "count": 65500
+              }
+            },
+            "[TRUNCATED: 4500 characters removed]"
+          ]
+        },
+        "orderTotal": 4210
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "note": {
+                "$concat": [
+                  {
+                    "$string": {
+                      "char": "a",
+                      "count": 65500
+                    }
+                  },
+                  "[TRUNCATED: 4500 characters removed]"
+                ]
+              },
+              "orderTotal": 4210
+            }
+          }
+        }
+      }
+    ]
+  }
+}

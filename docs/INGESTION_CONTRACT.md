@@ -143,6 +143,16 @@ Two details a client author needs:
 - The size limit is measured over the **whole envelope as the server received
   it**, not over `input` alone, and the structural limits are measured before
   anything walks the payload.
+- **A client should fit an event before sending it**, because a refusal loses
+  the whole event. The Node SDK runs the server's own check,
+  `eventLimits(MAX_EVENT_PAYLOAD_BYTES)` from `packages/payload-security`, on
+  every envelope before it is queued. It cuts a string over the limit to its
+  start and `[TRUNCATED: <n> characters removed]`, exactly 65,536 code units in
+  all, with `<n>` in code units; replaces a payload that still does not fit, or
+  is nested too deep or too wide, with `[PAYLOAD_TOO_LARGE]`, the larger of
+  `input` and `output` first; and leaves off `metadata` last (ADR-051). A
+  payload sits two levels below the envelope's root, so it has 30 levels of
+  its own. The server treats both markers as ordinary strings.
 - The units differ, deliberately. The schema's own string maxima count Unicode
   **code points**, so 128 astral characters fit a 128-character id. The
   structural cap that produces `max_string_length_exceeded` counts UTF-16 **code

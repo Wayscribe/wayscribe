@@ -474,22 +474,22 @@ describe("docs/SDK_SPEC.md", () => {
       ].map((one) => one.id)
     );
     for (const one of requirements()) {
-      if (one.checkedBy === "section 13") continue;
+      if (one.checkedBy === "section 14") continue;
       expect(cases, `${one.id} names a case that does not exist: ${one.checkedBy}`).toContain(
         one.checkedBy
       );
     }
   });
 
-  it("lists every requirement no fixture checks in section 13", () => {
-    // Otherwise "checked by section 13" is a promise nobody kept, and an
+  it("lists every requirement no fixture checks in section 14", () => {
+    // Otherwise "checked by section 14" is a promise nobody kept, and an
     // implementer following this document would leave it untested.
-    const section = /\n## 13\.[\s\S]*$/.exec(spec())?.[0] ?? "";
+    const section = /\n## 14\.[\s\S]*$/.exec(spec())?.[0] ?? "";
     for (const one of requirements()) {
-      if (one.checkedBy !== "section 13") continue;
+      if (one.checkedBy !== "section 14") continue;
       expect(
         section,
-        `${one.id} says section 13 checks it, and section 13 does not name it`
+        `${one.id} says section 14 checks it, and section 14 does not name it`
       ).toContain(one.id);
     }
   });
@@ -510,7 +510,7 @@ describe("docs/SDK_SPEC.md", () => {
     const defaults = new Map(
       [
         ...spec().matchAll(
-          /^\| (batch size|flush interval|request timeout|queue|payload budget) \| (.+?) \|\s*$/gm
+          /^\| (batch size|flush interval|request timeout|queue|event budget) \| (.+?) \|\s*$/gm
         )
       ].map((match) => [match[1] ?? "", match[2] ?? ""])
     );
@@ -530,7 +530,7 @@ describe("docs/SDK_SPEC.md", () => {
     expect(defaults.get("queue")).toBe(
       `${resolved.maxBufferedEvents.toLocaleString("en-US")} events`
     );
-    expect(defaults.get("payload budget")).toBe(
+    expect(defaults.get("event budget")).toBe(
       `${resolved.maxPayloadBytes.toLocaleString("en-US")} bytes`
     );
   });

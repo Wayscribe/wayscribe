@@ -159,7 +159,8 @@ no library. This one is built so that cannot happen:
 - `shutdown()` never hangs; it races the final flush against a timeout, and
   counts every event it could not deliver as `dropped`, so `sent`, `rejected`,
   and `dropped` add up to the events recorded. A payload too large to capture
-  is counted in `payloadsOmitted` instead, because its event is still sent.
+  is counted in `payloadsOmitted` instead, and one sent with a string cut in
+  `payloadsTruncated`, because its event is still sent.
 - Nothing is written to your console unless you set `logDiagnostics`. Pass
   `onDiagnostic` if you want to hear about failures in your own logger.
 
@@ -170,7 +171,8 @@ const recorder = createRecorder({
 });
 
 const counters = await recorder.shutdown();
-// { dropped, rejected, transportErrors, captureErrors, breakerOpened, payloadsOmitted, sent }
+// { dropped, rejected, transportErrors, captureErrors, breakerOpened,
+//   payloadsOmitted, payloadsTruncated, sent }
 ```
 
 ## Is it sending?
@@ -237,7 +239,8 @@ change any counter.
 | `insecure_endpoint` | the endpoint is `http:` to a dotted name or an IP address off this machine, so the API key travels unencrypted | none |
 | `rejected` | the server understood an event and refused it; it is not retried | `rejected` |
 | `transport_error` | a request failed, or the server could not store an event for now; see below | `transportErrors` |
-| `payload_omitted` | a payload exceeded `maxPayloadBytes` and was replaced by `[PAYLOAD_TOO_LARGE]`; the event is still sent | `payloadsOmitted` |
+| `payload_omitted` | a payload could not fit the server's limits and was replaced by `[PAYLOAD_TOO_LARGE]`; `detail` names the `field` and the `reason`; the event is still sent | `payloadsOmitted` |
+| `payload_truncated` | strings in a payload were longer than the server accepts and were cut; `detail` is `{ field, strings, charactersRemoved }`; the event is still sent | `payloadsTruncated` |
 | `dropped` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it (`no_verdict`) | `dropped` |
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
 | `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
@@ -464,7 +467,9 @@ Every row below is what the SDK actually stored, not what it intends to.
 | `Set` | an array |
 | `Error` | `{name, message}` plus its own properties and its `cause` — no `stack` |
 | `RegExp` | the literal, `"/secret-(\\d+)/gi"` |
-| over `maxPayloadBytes` | `"[PAYLOAD_TOO_LARGE]"`, and a `payload_omitted` diagnostic |
+| a string over 65,536 characters | its start and `[TRUNCATED: 4500 characters removed]`, 65,536 characters in all, and a `payload_truncated` diagnostic |
+| a payload that cannot fit the event's budget, even cut | `"[PAYLOAD_TOO_LARGE]"`, and a `payload_omitted` diagnostic |
+| nested more than 30 levels, or an object or array of more than 1,000 entries | `"[PAYLOAD_TOO_LARGE]"`, and a `payload_omitted` diagnostic |
 | a getter that throws | `"[UNCAPTURABLE]"`, and the event is still recorded |
 
 Redaction runs *inside* all of these, so an `authorization` entry in a header
@@ -485,6 +490,28 @@ Two consequences worth knowing:
 An `Error`'s `stack` is left out: it is the largest field on a typical error and
 the timeline already carries the failure. An error with its own `toJSON` is
 asked first, so a library that chooses to include its stack still does.
+
+### Fitting the server's limits
+
+The server refuses a whole event that breaks one of its limits (the
+[ingestion contract](../../docs/INGESTION_CONTRACT.md#3-limits) lists them), so
+the SDK makes every event fit before sending it, with the same check the server
+runs:
+
+1. A payload nested more than 30 levels deep (the envelope takes the other two),
+   or with an object or array of more than 1,000 entries, is replaced with
+   `[PAYLOAD_TOO_LARGE]`.
+2. Every string longer than 65,536 characters is cut to its start and
+   `[TRUNCATED: 4500 characters removed]`, 65,536 characters in all.
+   "Characters" are UTF-16 code units, what `string.length` counts. Cutting
+   happens after redaction, so it never reveals a masked value.
+3. If the whole event is still over `maxPayloadBytes`, the larger of `input` and
+   `output` is replaced with `[PAYLOAD_TOO_LARGE]`, then the other, then
+   `metadata` is left off.
+
+The event is always sent. `maxPayloadBytes` is the budget of the whole event,
+not of one payload, and should be the server's `MAX_EVENT_PAYLOAD_BYTES`:
+raising it above that only produces events the server refuses.
 
 A value that cannot be captured never costs you the event. The step is recorded
 either way, with a marker in place of the payload, because the step whose payload
@@ -631,7 +658,7 @@ fleet against one instance. It is clamped to 1-16.
 | `flushIntervalMs` | `1000` | |
 | `requestTimeoutMs` | `1500` | |
 | `maxBufferedEvents` | `1000` | oldest are dropped past this |
-| `maxPayloadBytes` | `262144` | larger payloads record a marker instead |
+| `maxPayloadBytes` | `262144` | the byte budget of one whole event; set it to the server's `MAX_EVENT_PAYLOAD_BYTES` |
 | `onDiagnostic` | — | |
 | `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending) |
 | `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends) |

@@ -62,6 +62,7 @@ export const recorder = createRecorder({
   flushIntervalMs: 1_000,
   requestTimeoutMs: 1_500,
   maxBufferedEvents: 1_000,
+  // The budget of one whole event: the server's MAX_EVENT_PAYLOAD_BYTES.
   maxPayloadBytes: 262_144,
   maxConcurrentSends: 4,
 
@@ -328,7 +329,7 @@ The SDK should avoid forcing an OpenTelemetry SDK installation.
 Moved to [`SDK_SPEC.md`](SDK_SPEC.md): host safety and error identity in section
 2, shutdown and its accounting in section 8, diagnostics in section 9, and the
 list of requirements no fixture can check, with what a test for each has to do,
-in section 13.
+in section 14.
 
 What stays Node's: a wrapper returns a value for a synchronous callback and a
 promise for an asynchronous one, and never converts between them, so

@@ -2049,3 +2049,64 @@ operation; it is for conformance suites, for a setup check, and for a mapping un
   anybody holding an ingest key can make, and this is the one way it can affect a live service
   rather than only its own transaction. The contract says so, and says to use a separate
   environment and separate journey ids for a conformance run.
+
+---
+
+## ADR-051: The SDK fits an event to the server's limits, by the server's own check
+
+**Status:** Accepted. Changes what `maxPayloadBytes` means, and stops the SDK scaling its
+string limit with it.
+
+### Context
+
+The SDK measured each payload on its own against `maxPayloadBytes`, and raised its string
+limit to the same number so that raising the budget would let a long HTML body through. The
+API measures the whole envelope, with `MAX_EVENT_PAYLOAD_BYTES` for bytes, strings at 65,536
+UTF-16 code units, and depth counted from the envelope's root. Nothing on the server scaled.
+
+Instrumenting a real job showed what that disagreement costs. A 70,000 character string was
+refused `max_string_length_exceeded`; two payloads that each fit the budget were refused
+`payload_too_large` together; a payload 31 levels deep would be refused for depth. Each time
+the SDK had counted the event as fine, and each time the server refused the whole event, so
+the step vanished from the timeline rather than losing only its payload. The job worked around
+it by fitting events itself before the SDK saw them.
+
+### Decision
+
+**Truncate, then omit.** Before an event is queued, the SDK applies exactly the limits the API
+enforces, using the same functions:
+
+- `packages/payload-security` exports `eventLimits(maxEventBytes)`, which ingestion calls on
+  every envelope, and `payloadLimits(maxEventBytes)`, the same limits placed two levels down
+  where a payload sits, with long strings measured as they will be cut.
+- A payload that fails `payloadLimits` is replaced with `[PAYLOAD_TOO_LARGE]`, as before.
+- Every string over 65,536 code units is cut, after redaction, to its start and
+  `[TRUNCATED: <n> characters removed]`, exactly 65,536 code units in all.
+- The envelope is then checked with `eventLimits`. While it is over the byte budget, the larger
+  of `input` and `output` is replaced with the marker, then the other, then `metadata` is
+  dropped. The event is always sent.
+- A `payload_truncated` diagnostic and a `payloadsTruncated` counter report a payload sent with
+  a string cut, separately from `payload_omitted`. Neither is part of
+  `sent + rejected + dropped`.
+
+`maxPayloadBytes` is now the byte budget of one event and should equal the server's
+`MAX_EVENT_PAYLOAD_BYTES`. The default, 262,144, is unchanged.
+
+Truncation is per string, because the limit is per string and the case that found it was one
+long field among many short ones. It happens after redaction, so a cut can only shorten a
+string that has already been masked.
+
+### Consequences
+
+- An event the SDK sends is one the server's limit check has already passed, and a unit test
+  in `apps/api` runs hostile inputs through the recorder and then through `ingestEvent` to
+  hold that. It found a defect on its first run, in the test harness rather than the SDK: the
+  stub endpoint decoded request chunks one at a time, so a two-byte character split between
+  chunks arrived as two replacement characters.
+- A payload with a long string is now stored, cut, where it used to be stored as a marker (on
+  the SDK's side) or lost with its event (on the server's). `maxPayloadBytes` set above the
+  server's limit no longer lets a long string through; it could never be stored anyway.
+- Capture costs one more serialization per event, of the envelope. The payload check already
+  serialized each payload.
+- A client in another language gets the same guarantee only by doing the same thing, which
+  `SDK_SPEC.md` now requires.

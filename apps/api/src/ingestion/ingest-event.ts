@@ -12,6 +12,7 @@ import {
   redactAlways,
   checkLimits,
   contentHash,
+  eventLimits,
   contentHashMatches,
   encryptValue,
   maskSecretsInText,
@@ -64,7 +65,9 @@ export async function ingestEvent(
   /** From ALLOW_FULL_PAYLOAD_CAPTURE. */
   allowFullPayload = false
 ): Promise<IngestResult> {
-  const limits = checkLimits(body, { ...DEFAULT_LIMITS, maxBytes: maxPayloadBytes });
+  // The same call the SDK makes before it sends (ADR-051), so an event the SDK
+  // fitted is one this check has already passed.
+  const limits = checkLimits(body, eventLimits(maxPayloadBytes));
   if (!limits.ok) {
     return reject(400, limits.reason, "The event exceeded a configured limit.");
   }

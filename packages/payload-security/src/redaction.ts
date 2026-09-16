@@ -8,11 +8,22 @@
  */
 export {
   DEFAULT_LIMITS,
+  PAYLOAD_DEPTH,
   checkLimits,
+  eventLimits,
+  payloadLimits,
   type LimitResult,
   type LimitViolation,
   type Limits
 } from "./limits.js";
+export {
+  MAX_STRING_LENGTH,
+  TRUNCATION_MARKER_PATTERN,
+  truncateStrings,
+  truncateText,
+  truncationMarker,
+  type TruncationStats
+} from "./truncate.js";
 export { CIRCULAR, REDACTED, redact } from "./redact.js";
 export { maskSecretsInText } from "./mask-text.js";
 export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";

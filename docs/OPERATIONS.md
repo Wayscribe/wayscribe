@@ -1379,7 +1379,10 @@ personal data, and let them age out or delete them.
 The SDK's `shutdown()` returns counters: `sent`, `rejected`, `dropped`,
 `transportErrors`, `captureErrors`, and `breakerOpened`. `sent`, `rejected`, and
 `dropped` add up to the events recorded; `payloadsOmitted` counts payloads
-replaced by `[PAYLOAD_TOO_LARGE]` on events that were still sent. A non-zero `dropped` means events were
+replaced by `[PAYLOAD_TOO_LARGE]` on events that were still sent, and
+`payloadsTruncated` payloads sent with a string cut to the 65,536 character
+limit. If you raised `MAX_EVENT_PAYLOAD_BYTES`, raise the SDK's
+`maxPayloadBytes` to match, or the SDK keeps fitting events to the default. A non-zero `dropped` means events were
 not delivered: the bounded queue shed them under backpressure, the server kept
 refusing them for now past the retry budget, its reply gave no verdict for them,
 or `shutdown()` finished with them undelivered. Each diagnostic's reason says

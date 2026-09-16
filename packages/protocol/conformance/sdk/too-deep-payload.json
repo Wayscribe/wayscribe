@@ -1,0 +1,33 @@
+{
+  "id": "sdk/too-deep-payload",
+  "title": "A payload deeper than the envelope's depth limit leaves room for is omitted, not sent and refused",
+  "source": "ADR-051; docs/INGESTION_CONTRACT.md limits table",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "$nest": {
+            "depth": 31,
+            "leaf": 1
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": "[PAYLOAD_TOO_LARGE]"
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
-  DEFAULT_LIMITS,
+  MAX_STRING_LENGTH,
   checkLimits,
+  eventLimits,
   maskSecretsInText,
+  payloadLimits,
   redact,
-  toStorable
+  toStorable,
+  truncateStrings,
+  type TruncationStats
 } from "@flight-recorder/payload-security/redaction";
 import { resolveConfig, type RecorderConfig } from "./config.js";
 import { createDiagnostics, type Counters, type Diagnostics } from "./diagnostics.js";
@@ -130,6 +134,15 @@ export interface Recorder {
 
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
 const UNCAPTURABLE = "[UNCAPTURABLE]";
+
+type PayloadField = "input" | "output" | "metadata";
+const PAYLOAD_FIELDS: readonly PayloadField[] = ["input", "output", "metadata"];
+
+/** A captured payload, and how many of its strings were cut, if any were. */
+interface Captured {
+  value: unknown;
+  truncated?: TruncationStats;
+}
 
 /**
  * The protocol's limits on `error.message` and `error.stack`
@@ -544,8 +557,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
    *
    * The size guard bounds the cost, because a server-side limit does not help a
    * host process that has already spent the CPU walking the payload.
+   *
+   * Returns what to send and, when strings were cut, how many. The cut is not
+   * reported here: the payload may still be omitted once the whole event is
+   * measured, and then nothing cut reached the server.
    */
-  function capture(value: unknown): unknown {
+  function capture(value: unknown, field: PayloadField): Captured | undefined {
     if (value === undefined) return undefined;
     if (resolved.captureMode === "metadata-only") return undefined;
 
@@ -561,43 +578,107 @@ export function createRecorder(config: RecorderConfig): Recorder {
     // was uncapturable is far more useful than no event at all — especially
     // since the step being recorded is often the one that failed.
     try {
-      const limits = checkLimits(value, {
-        ...DEFAULT_LIMITS,
-        maxBytes: resolved.maxPayloadBytes,
-        // Scaled with the budget the operator actually set. Overriding only
-        // maxBytes left maxStringLength pinned at 64 KiB, so raising
-        // maxPayloadBytes to 5 MB still discarded a 70 KB HTML email body —
-        // while the README documents maxPayloadBytes as the knob for exactly
-        // that. A single string cannot exceed the whole payload anyway.
-        maxStringLength: Math.max(DEFAULT_LIMITS.maxStringLength, resolved.maxPayloadBytes)
-      });
+      // The server's own limits, as they fall on a payload two levels below the
+      // envelope, with long strings measured as they will be cut (ADR-051). The
+      // string limit used to be scaled with maxPayloadBytes, which the server
+      // never did, so a 70 KB string passed here and cost the whole event there.
+      const limits = checkLimits(value, payloadLimits(resolved.maxPayloadBytes));
       if (!limits.ok) {
         // Discarding a payload silently made a full timeline look like a step
         // that genuinely carried nothing.
-        diagnostics.report({
-          kind: "payload_omitted",
-          reason: `A payload was not captured: ${limits.reason}.`,
-          detail: { reason: limits.reason }
-        });
-        return TOO_LARGE;
+        reportOmitted(field, limits.reason, `A payload was not captured: ${limits.reason}.`);
+        return { value: TOO_LARGE };
       }
 
-      // Sanitized last, so redaction markers are untouched and every string
-      // that leaves this process is one PostgreSQL will accept.
-      return toStorable(redact(value, resolved.redact));
+      // Sanitized, then cut. Cutting a masked string cannot reveal anything the
+      // mask hid, and every string that leaves this process is one PostgreSQL
+      // will accept and the server's string limit allows.
+      const stats: TruncationStats = { strings: 0, charactersRemoved: 0 };
+      const stored = truncateStrings(
+        toStorable(redact(value, resolved.redact)),
+        MAX_STRING_LENGTH,
+        stats
+      );
+      return stats.strings === 0 ? { value: stored } : { value: stored, truncated: stats };
     } catch {
-      return UNCAPTURABLE;
+      return { value: UNCAPTURABLE };
     }
   }
 
+  function reportOmitted(field: PayloadField, reason: string, message: string): void {
+    diagnostics.report({
+      kind: "payload_omitted",
+      reason: message,
+      detail: { field, reason }
+    });
+  }
+
   /** Captured metadata, or nothing at all when it cannot be represented. */
-  function metadataFor(metadata: Record<string, unknown> | undefined): {
-    metadata?: Record<string, unknown>;
-  } {
-    if (metadata === undefined) return {};
-    const captured = capture(metadata);
-    if (typeof captured !== "object" || captured === null) return {};
-    return { metadata: captured as Record<string, unknown> };
+  function metadataFor(metadata: Record<string, unknown> | undefined): Captured | undefined {
+    if (metadata === undefined) return undefined;
+    const captured = capture(metadata, "metadata");
+    if (typeof captured?.value !== "object" || captured.value === null) return undefined;
+    return captured;
+  }
+
+  /**
+   * Makes the event fit the budget the server measures it against, by the same
+   * check the server runs (ADR-051).
+   *
+   * Every payload has already passed the per-payload limits, so an envelope
+   * that fails here fails on bytes: the payloads share one budget. The larger
+   * of `input` and `output` is omitted first, then the other, then `metadata`,
+   * which is dropped rather than replaced because the protocol types it as a
+   * record. An envelope that still fails, or fails on something no payload
+   * caused, is sent as it is and the server's refusal is counted. The event is
+   * never withheld.
+   */
+  function fitToBudget(envelope: { event: Record<string, unknown> }): void {
+    const { event } = envelope;
+    const limits = eventLimits(resolved.maxPayloadBytes);
+    for (;;) {
+      const result = checkLimits(envelope, limits);
+      if (result.ok || result.reason !== "payload_too_large") return;
+      const field = nextToOmit(event);
+      if (field === undefined) return;
+      if (field === "metadata") delete event["metadata"];
+      else event[field] = TOO_LARGE;
+      reportOmitted(
+        field,
+        "payload_too_large",
+        `The event exceeded maxPayloadBytes, so its ${field} was not captured.`
+      );
+    }
+  }
+
+  function nextToOmit(event: Record<string, unknown>): PayloadField | undefined {
+    const size = (field: "input" | "output"): number => {
+      const value = event[field];
+      if (value === undefined || value === TOO_LARGE || value === UNCAPTURABLE) return 0;
+      return Buffer.byteLength(JSON.stringify(value), "utf8");
+    };
+    const input = size("input");
+    const output = size("output");
+    if (input > 0 || output > 0) return input >= output ? "input" : "output";
+    return event["metadata"] === undefined ? undefined : "metadata";
+  }
+
+  /** One `payload_truncated` per payload that reached the event with a string cut. */
+  function reportTruncations(
+    event: Record<string, unknown>,
+    captured: Record<PayloadField, Captured | undefined>
+  ): void {
+    for (const field of PAYLOAD_FIELDS) {
+      const one = captured[field];
+      // Omitted after all: nothing cut is being sent.
+      if (one?.truncated === undefined || event[field] !== one.value) continue;
+      const { strings } = one.truncated;
+      diagnostics.report({
+        kind: "payload_truncated",
+        reason: `${String(strings)} ${strings === 1 ? "string" : "strings"} in the ${field} were cut to ${MAX_STRING_LENGTH.toLocaleString("en-US")} characters.`,
+        detail: { field, ...one.truncated }
+      });
+    }
   }
 
   /**
@@ -642,34 +723,42 @@ export function createRecorder(config: RecorderConfig): Recorder {
       return;
     }
 
-    queue.push({
-      protocolVersion: "0.1",
-      event: {
-        id: `evt_${randomUUID()}`,
-        journeyId,
-        environment: resolved.environment,
-        service: resolved.serviceName,
-        entity,
-        operation: input.operation,
-        name: input.name,
-        timestamp: new Date(input.startedAt ?? Date.now()).toISOString(),
-        ...(readTrace() ?? {}),
-        ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
-        ...(input.input === undefined ? {} : { input: capture(input.input) }),
-        ...(input.output === undefined ? {} : { output: capture(input.output) }),
-        ...(input.error === undefined ? {} : { error: maskedError(input.error) }),
-        ...(input.aliases === undefined ? {} : { aliases: input.aliases }),
-        // Through capture like input and output: metadata used to go in raw,
-        // so a Prisma BigInt or a circular request object threw inside
-        // JSON.stringify at flush time and took the whole batch with it.
-        //
-        // Omitted rather than replaced when capture cannot represent it. The
-        // protocol types metadata as a record, so substituting a marker string
-        // makes the whole event fail validation — trading a lost payload for a
-        // lost event, which is the worse half of the trade.
-        ...metadataFor(input.metadata)
-      }
-    });
+    const captured = {
+      input: capture(input.input, "input"),
+      output: capture(input.output, "output"),
+      // Through capture like input and output: metadata used to go in raw,
+      // so a Prisma BigInt or a circular request object threw inside
+      // JSON.stringify at flush time and took the whole batch with it.
+      //
+      // Omitted rather than replaced when capture cannot represent it. The
+      // protocol types metadata as a record, so substituting a marker string
+      // makes the whole event fail validation — trading a lost payload for a
+      // lost event, which is the worse half of the trade.
+      metadata: metadataFor(input.metadata)
+    };
+
+    const event: Record<string, unknown> = {
+      id: `evt_${randomUUID()}`,
+      journeyId,
+      environment: resolved.environment,
+      service: resolved.serviceName,
+      entity,
+      operation: input.operation,
+      name: input.name,
+      timestamp: new Date(input.startedAt ?? Date.now()).toISOString(),
+      ...(readTrace() ?? {}),
+      ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
+      ...(captured.input === undefined ? {} : { input: captured.input.value }),
+      ...(captured.output === undefined ? {} : { output: captured.output.value }),
+      ...(input.error === undefined ? {} : { error: maskedError(input.error) }),
+      ...(input.aliases === undefined ? {} : { aliases: input.aliases }),
+      ...(captured.metadata === undefined ? {} : { metadata: captured.metadata.value })
+    };
+    const envelope = { protocolVersion: "0.1", event };
+
+    fitToBudget(envelope);
+    reportTruncations(event, captured);
+    queue.push(envelope);
 
     // Capped, because N events recorded in one turn of the event loop used to
     // start floor(N / batchSize) simultaneous requests: 1,000 records opened

@@ -1,0 +1,38 @@
+{
+  "id": "sdk/truncated-then-omitted",
+  "title": "Long strings that still do not fit once cut: the payload is omitted, and the event is stored",
+  "source": "ADR-051",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "$array": {
+            "value": {
+              "$string": {
+                "char": "a",
+                "count": 70000
+              }
+            },
+            "count": 5
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": "[PAYLOAD_TOO_LARGE]"
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

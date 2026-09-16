@@ -35,9 +35,13 @@ export async function captureCase(one: ConformanceCase, run: string): Promise<Ca
   let requests = 0;
 
   const server = createServer((incoming, response) => {
+    // Decoded as a stream, not chunk by chunk: a two-byte character split
+    // across two chunks decodes as two replacement characters, which made a
+    // string the SDK had cut to the limit arrive one code unit over it.
     let body = "";
-    incoming.on("data", (chunk: Buffer) => {
-      body += chunk.toString();
+    incoming.setEncoding("utf8");
+    incoming.on("data", (chunk: string) => {
+      body += chunk;
     });
     incoming.on("end", () => {
       requests += 1;

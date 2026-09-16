@@ -301,7 +301,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 50 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 51 ADRs, including the several that were
 wrong the first time and say so.
 
 ---

@@ -11,7 +11,13 @@ import { maskSecretsInText } from "@flight-recorder/payload-security/redaction";
  * wait for a recovery that is never coming.
  */
 export type FailureKind =
-  "dropped" | "rejected" | "transport_error" | "capture_error" | "breaker_open" | "payload_omitted";
+  | "dropped"
+  | "rejected"
+  | "transport_error"
+  | "capture_error"
+  | "breaker_open"
+  | "payload_omitted"
+  | "payload_truncated";
 
 /**
  * `delivered_first` is the one diagnostic that is good news. It exists because
@@ -68,6 +74,13 @@ export interface Counters {
    * there counted one event twice, once as dropped and once as sent.
    */
   payloadsOmitted: number;
+  /**
+   * Payloads sent with at least one string cut to the server's 65,536 code
+   * units, and a marker saying how much went. Like `payloadsOmitted`, not part
+   * of `dropped`: the event is sent. A payload cut and then omitted anyway is
+   * counted as omitted only.
+   */
+  payloadsTruncated: number;
   /** Accepted and stored. Not "handed to fetch" — actually stored. */
   sent: number;
 }
@@ -118,6 +131,7 @@ export function createDiagnostics(
     captureErrors: 0,
     breakerOpened: 0,
     payloadsOmitted: 0,
+    payloadsTruncated: 0,
     sent: 0
   };
   const log = options.log === true;
@@ -153,6 +167,7 @@ export function createDiagnostics(
       if (diagnostic.kind === "capture_error") counters.captureErrors += 1;
       if (diagnostic.kind === "breaker_open") counters.breakerOpened += 1;
       if (diagnostic.kind === "payload_omitted") counters.payloadsOmitted += 1;
+      if (diagnostic.kind === "payload_truncated") counters.payloadsTruncated += 1;
 
       if (log) {
         try {

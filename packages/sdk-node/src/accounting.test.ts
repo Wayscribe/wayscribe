@@ -123,7 +123,7 @@ describe("every recorded event is accounted for at shutdown", () => {
     const server = await serving((events, response) => {
       json(response, 202, { data: { results: events.map(() => ({ status: "accepted" })) } });
     });
-    const recorder = createRecorder({ ...base, endpoint: server.endpoint, maxPayloadBytes: 100 });
+    const recorder = createRecorder({ ...base, endpoint: server.endpoint, maxPayloadBytes: 1_000 });
     const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
     journey.record({ operation: "received", name: "small", input: { a: 1 } });
     journey.record({ operation: "received", name: "big", input: { blob: "x".repeat(5_000) } });

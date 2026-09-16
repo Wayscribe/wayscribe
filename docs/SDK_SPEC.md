@@ -24,14 +24,14 @@ as described in RFC 2119 and RFC 8174, and only when they appear in capitals.
 **Conformance** means two things. Every applicable `sdk` fixture passes: record
 the case's calls, capture the request body your SDK sent, compare it with
 `expect.wire`, then send those exact bytes to `POST /v1/events/batch?dryRun=true`
-and compare `expect.results[].stored`. And the requirements in section 13, which
+and compare `expect.results[].stored`. And the requirements in section 14, which
 no fixture can express, are covered by your own tests.
 
 Every requirement below carries a stable identifier and a source, so a reader
 can see which decision it comes from and nothing arrives without provenance.
 `tests/docs-truth.test.ts` fails if a requirement has no source, or names a
 fixture that does not exist, or says a fixture cannot check it without appearing
-in section 13.
+in section 14.
 
 **The propagation specification is pending.** Every requirement in it is a name:
 header names, queue attribute names, the value grammar, the identifier prefix.
@@ -61,12 +61,12 @@ impossible for it to break that application.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-1 | ADR-007; core invariant 1 | section 13 |
-| SDK-2 | ADR-007 | section 13 |
-| SDK-3 | ADR-007 | section 13 |
-| SDK-4 | ADR-007; NODE_SDK_SPEC section 4 | section 13 |
-| SDK-5 | AGENTS.md, SDK reliability rules | section 13 |
-| SDK-6 | ADR-007; packages/sdk-node/src/config.ts | section 13 |
+| SDK-1 | ADR-007; core invariant 1 | section 14 |
+| SDK-2 | ADR-007 | section 14 |
+| SDK-3 | ADR-007 | section 14 |
+| SDK-4 | ADR-007; NODE_SDK_SPEC section 4 | section 14 |
+| SDK-5 | AGENTS.md, SDK reliability rules | section 14 |
+| SDK-6 | ADR-007; packages/sdk-node/src/config.ts | section 14 |
 
 ## 3. Identifiers and idempotency
 
@@ -82,7 +82,7 @@ impossible for it to break that application.
 | --- | --- | --- |
 | SDK-7 | core invariant 3; ADR-038 | sdk/generated-ids |
 | SDK-8 | ADR-038 | sdk/generated-ids |
-| SDK-9 | core invariant 3; ADR-036 | section 13 |
+| SDK-9 | core invariant 3; ADR-036 | section 14 |
 
 ## 4. The event
 
@@ -111,7 +111,7 @@ them.
 | ID | Source | Checked by |
 | --- | --- | --- |
 | SDK-10 | EVENT_PROTOCOL section 3 | wire/invalid-event-unknown-operation |
-| SDK-11 | ADR-031 | section 13 |
+| SDK-11 | ADR-031 | section 14 |
 | SDK-12 | packages/protocol/src/event.ts | wire/duration-int4-boundary |
 | SDK-13 | ADR-022 | sdk/retried-attempt |
 | SDK-14 | ADR-022 | sdk/retried-attempt |
@@ -177,7 +177,8 @@ operator's own configuration, where over-redaction is their call to make.
 | --- | --- |
 | a cycle | `[CIRCULAR]` at the point the loop closes; the rest is kept |
 | the same object twice | expanded both times; a shared reference is not a cycle |
-| a payload over the configured budget | `[PAYLOAD_TOO_LARGE]`, counted, and the event is still sent |
+| a string over 65,536 UTF-16 code units | its start and `[TRUNCATED: <n> characters removed]`, 65,536 code units in all; counted, and the event is still sent |
+| a payload that cannot fit the event's budget, even cut, or nested or wide past the limits | `[PAYLOAD_TOO_LARGE]`, counted, and the event is still sent |
 | a value that cannot be read | `[UNCAPTURABLE]`, and the event is still sent |
 | an integer beyond the language's safe range | its decimal string, digits intact |
 | a non-finite number | null |
@@ -191,12 +192,12 @@ documents both halves.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-16 | ADR-034 | section 13 |
+| SDK-16 | ADR-034 | section 14 |
 | SDK-17 | ADR-035; SECURITY.md section 4 | sdk/secrets-at-depth |
 | SDK-18 | ADR-035; SECURITY.md section 4 | sdk/header-pairs |
 | SDK-19 | ADR-039 | wire/secret-name-spellings |
 | SDK-20 | SECURITY.md section 4 | sdk/secrets-at-depth |
-| SDK-21 | ADR-035 | section 13 |
+| SDK-21 | ADR-035 | section 14 |
 | SDK-22 | ADR-046 | sdk/error-masked-and-bounded |
 | SDK-23 | ADR-034; ADR-036 | sdk/oversize-payload |
 | SDK-24 | ADR-018 | wire/metadata-only-capture |
@@ -213,8 +214,8 @@ configurable policy that was never built.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-25 | AGENTS.md, SDK reliability rules | section 13 |
-| SDK-26 | NODE_SDK_SPEC section 8, narrowed to drop-oldest | section 13 |
+| SDK-25 | AGENTS.md, SDK reliability rules | section 14 |
+| SDK-26 | NODE_SDK_SPEC section 8, narrowed to drop-oldest | section 14 |
 
 ## 7. Transport
 
@@ -251,7 +252,7 @@ may differ; it should be able to say why.
 | flush interval | 1,000 ms |
 | request timeout | 1,500 ms |
 | queue | 1,000 events |
-| payload budget | 262,144 bytes |
+| event budget | 262,144 bytes |
 | concurrent sends | 4, clamped to 1 to 16 |
 | attempts per send | 3 |
 | backoff | 100 ms base, 2,000 ms maximum |
@@ -260,16 +261,16 @@ may differ; it should be able to say why.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-27 | INGESTION_CONTRACT section 1 | section 13 |
-| SDK-28 | INGESTION_CONTRACT section 1 | section 13 |
+| SDK-27 | INGESTION_CONTRACT section 1 | section 14 |
+| SDK-28 | INGESTION_CONTRACT section 1 | section 14 |
 | SDK-29 | packages/protocol MAX_BATCH_EVENTS | sdk/hundred-and-one-events |
-| SDK-30 | AGENTS.md, SDK reliability rules | section 13 |
-| SDK-31 | packages/sdk-node/src/transport.ts | section 13 |
-| SDK-32 | packages/sdk-node/src/transport.ts | section 13 |
-| SDK-33 | INGESTION_CONTRACT section 4 | section 13 |
-| SDK-34 | packages/sdk-node/src/config.ts | section 13 |
-| SDK-35 | packages/sdk-node/src/diagnostics.ts | section 13 |
-| SDK-36 | ADR-050 | section 13 |
+| SDK-30 | AGENTS.md, SDK reliability rules | section 14 |
+| SDK-31 | packages/sdk-node/src/transport.ts | section 14 |
+| SDK-32 | packages/sdk-node/src/transport.ts | section 14 |
+| SDK-33 | INGESTION_CONTRACT section 4 | section 14 |
+| SDK-34 | packages/sdk-node/src/config.ts | section 14 |
+| SDK-35 | packages/sdk-node/src/diagnostics.ts | section 14 |
+| SDK-36 | ADR-050 | section 14 |
 
 ## 8. Shutdown
 
@@ -283,9 +284,9 @@ may differ; it should be able to say why.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-37 | packages/sdk-node/src/recorder.ts | section 13 |
-| SDK-38 | packages/sdk-node/src/accounting.test.ts | section 13 |
-| SDK-39 | packages/sdk-node/src/recorder.ts | section 13 |
+| SDK-37 | packages/sdk-node/src/recorder.ts | section 14 |
+| SDK-38 | packages/sdk-node/src/accounting.test.ts | section 14 |
+| SDK-39 | packages/sdk-node/src/recorder.ts | section 14 |
 
 ## 9. Diagnostics
 
@@ -294,13 +295,13 @@ may differ; it should be able to say why.
   message from the server, or the endpoint's path or query. A path or a query
   can carry a credential.
 - **SDK-42.** An SDK SHOULD expose counters: recorded, sent, rejected, dropped,
-  and payloads omitted.
+  and payloads omitted and truncated, counted separately.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-40 | AGENTS.md, SDK reliability rules | section 13 |
-| SDK-41 | SECURITY.md section 12 | section 13 |
-| SDK-42 | packages/sdk-node/src/diagnostics.ts | section 13 |
+| SDK-40 | AGENTS.md, SDK reliability rules | section 14 |
+| SDK-41 | SECURITY.md section 12 | section 14 |
+| SDK-42 | packages/sdk-node/src/diagnostics.ts | section 14 |
 
 ## 10. Propagation
 
@@ -321,10 +322,10 @@ test vectors are the pending propagation specification.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-43 | SECURITY.md section 10 | section 13 |
-| SDK-44 | SECURITY.md section 10 | section 13 |
-| SDK-45 | SECURITY.md section 10 | section 13 |
-| SDK-46 | ADR-010 | section 13 |
+| SDK-43 | SECURITY.md section 10 | section 14 |
+| SDK-44 | SECURITY.md section 10 | section 14 |
+| SDK-45 | SECURITY.md section 10 | section 14 |
+| SDK-46 | ADR-010 | section 14 |
 | SDK-47 | ADR-038 | wire/cross-environment-journey |
 
 ## 11. Optional trace correlation
@@ -335,8 +336,8 @@ test vectors are the pending propagation specification.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-48 | ADR-010 | section 13 |
-| SDK-49 | ADR-010; ADR-049 | section 13 |
+| SDK-48 | ADR-010 | section 14 |
+| SDK-49 | ADR-010; ADR-049 | section 14 |
 
 ## 12. Configuration
 
@@ -355,9 +356,33 @@ names carry the product's:
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-50 | ADR-012 | section 13 |
+| SDK-50 | ADR-012 | section 14 |
 
-## 13. Conformance, and what the fixtures cannot check
+## 13. Fitting the limits, and the helpers running it found missing
+
+Requirements added after the first edition, from instrumenting a real service.
+They are numbered after the rest so that no identifier above moved.
+
+### Fitting an event to the server's limits
+
+- **SDK-51.** An SDK MUST apply the limits in `INGESTION_CONTRACT.md` section 3
+  to the whole envelope before sending it, so that a limit never refuses an
+  event it sent. A string over the length limit MUST be cut to its start and
+  `[TRUNCATED: <n> characters removed]`, where `<n>` counts the code units
+  removed and the result is exactly the limit long. A payload that still does
+  not fit, or is nested or wide past the limits, MUST be replaced with
+  `[PAYLOAD_TOO_LARGE]`, the larger of `input` and `output` first, and
+  `metadata` left off last. The event MUST still be sent.
+- **SDK-52.** Truncation MUST run after redaction, and a truncated payload MUST
+  be reported and counted separately from an omitted one. A payload cut and
+  then omitted is an omission.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-51 | ADR-051 | sdk/long-string-truncated |
+| SDK-52 | ADR-051 | section 14 |
+
+## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive
 your recorder through each `sdk` case's calls against a stub endpoint, compare
@@ -390,3 +415,4 @@ either.
 | SDK-43, SDK-44, SDK-45, SDK-46 | Assert the default level, that aliases never propagate, that the entity id propagates only at the highest level, and that `traceparent` is never written. |
 | SDK-48, SDK-49 | Assert trace correlation works with the tracing library present and that the SDK works without it. |
 | SDK-50 | Assert the recorder reads no ambient environment variable of its own. |
+| SDK-52 | Record a payload with a secret-named field holding a string over the limit and assert it arrives masked and is not counted as truncated; cut a payload and then force its omission and assert it is counted once, as omitted. |

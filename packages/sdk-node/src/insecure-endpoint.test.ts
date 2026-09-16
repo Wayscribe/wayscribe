@@ -119,6 +119,7 @@ describe("an endpoint that sends the API key in cleartext", () => {
       captureErrors: 0,
       breakerOpened: 0,
       payloadsOmitted: 0,
+      payloadsTruncated: 0,
       sent: 0
     });
     await recorder.shutdown({ timeoutMs: 50 });

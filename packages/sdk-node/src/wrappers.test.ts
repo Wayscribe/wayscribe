@@ -616,12 +616,14 @@ describe("payloads the application cannot serialize", () => {
 
   it("still refuses a payload that is genuinely too large", async () => {
     // The control for both tests above. Tolerating cycles and bigints must not
-    // turn the size guard off.
+    // turn the size guard off. Eight strings of 50,000 characters, because one
+    // long string is now cut rather than refused (ADR-051), and cutting cannot
+    // bring 400 KB of short strings under the budget.
     const events = await collect((journey) => {
       journey.record({
         operation: "received",
         name: "load-blob",
-        input: { blob: "x".repeat(400_000) }
+        input: { blob: Array.from({ length: 8 }, () => "x".repeat(50_000)) }
       });
     });
 

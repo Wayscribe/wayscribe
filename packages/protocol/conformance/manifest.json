@@ -44,12 +44,14 @@
     "sdk/cycle",
     "sdk/date-in-payload",
     "sdk/error-masked-and-bounded",
+    "sdk/event-over-budget",
     "sdk/generated-ids",
     "sdk/header-block-in-string",
     "sdk/header-pairs",
     "sdk/hundred-and-one-events",
     "sdk/identify",
     "sdk/lone-surrogate",
+    "sdk/long-string-truncated",
     "sdk/metadata-uncapturable",
     "sdk/nan-and-infinity",
     "sdk/nul-byte",
@@ -60,6 +62,8 @@
     "sdk/retried-attempt",
     "sdk/secrets-at-depth",
     "sdk/shared-reference",
+    "sdk/too-deep-payload",
+    "sdk/truncated-then-omitted",
     "sdk/uncapturable-payload",
     "sdk/undefined-key"
   ]
