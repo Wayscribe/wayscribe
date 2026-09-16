@@ -36,9 +36,12 @@ release will not.
 - **Context crosses process boundaries** over HTTP headers, SQS message
   attributes or a payload envelope. The entity id is not propagated by default,
   and aliases never are.
-- **Diagnostics are opt-in.** `logDiagnostics: true` prints at most one line per
-  kind a minute, including `delivered_first` when the server first stores a batch. Each
-  diagnostic has a stable `code` to match on.
+- **Diagnostics go to `onDiagnostic` and counters; printing is opt-in.**
+  `logDiagnostics: true` prints at most one line per kind a minute, including
+  `delivered_first` when the server first stores a batch. A few problems print
+  once regardless: a missing or unusable required setting, a renamed option, a
+  missing journey-id secret, and a secret-looking field name no redaction rule
+  covers. Each diagnostic has a stable `code` to match on.
 - **What it costs is measured.** On an Apple M3 Pro, wrapping a call with a
   1 KiB payload added 30 µs at p50 and 513 µs at p99 for `transform`, and 75 µs
   and 1,146 µs for `persist`; at 64 KiB a `transform` added 1,420 µs at p50. At
@@ -80,8 +83,8 @@ release will not.
   entity type, environment, service, and part of a journey's label or of an
   alias marked displayable, with a Failures shortcut. At 120,000 journeys, a
   24-hour window returned in under 12 ms in every measured case; text that
-  matches nothing over 30 days, the worst case, took 0.2 to 0.3 s with 70,000 to
-  90,000 journeys in the window (OPERATIONS section 10, "Listing journeys").
+  matches nothing over 30 days, the worst case, took 262 ms at p50 and 316 ms at
+  p95 with about 90,000 journeys in the window (OPERATIONS section 10, "Listing journeys").
 - **The timeline** shows every event of a journey across services. It can be
   filtered to one service or to failures, navigated with the arrow keys, and set
   to follow a journey that is still recording.
