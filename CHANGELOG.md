@@ -15,6 +15,12 @@ changes far less often.
 
 ### Changed
 
+- **Timeline rows lead with the step's name.** A row read as its operation and
+  service, so a long journey of one operation read "transformed, transformed,
+  transformed". The name now comes first, with the operation as a small badge
+  beside it and the service after; an event with no name shows its operation
+  once. The Recent page and search results list journeys by entity, not steps,
+  and are unchanged.
 - **The SDK fits every event to the server's limits before sending it**
   (ADR-051). It used to measure each payload on its own and scale its string
   limit with `maxPayloadBytes`, while the server measures the whole envelope and

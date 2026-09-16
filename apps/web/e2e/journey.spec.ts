@@ -151,6 +151,9 @@ test("renders the whole journey in order and shows where phone became null", asy
   await expect(page.locator(".timeline li")).toHaveCount(8);
   await expect(page.locator(".timeline li").first()).toContainText("received");
   await expect(page.locator(".timeline li").last()).toContainText("failed");
+  // Each row leads with its step's name, so a run of one operation still reads
+  // as distinct steps.
+  await expect(page.locator(".timeline li .step")).toHaveText(STEPS.map(([, , name]) => name));
 
   await page.click("text=transformed");
 

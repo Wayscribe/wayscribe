@@ -232,12 +232,24 @@ button {
   font-size: 0.8rem;
   color: var(--muted);
 }
-.op {
+.step {
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.step.failed {
+  color: var(--failed);
+}
+.op {
+  font-size: 0.75rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
 }
 .op.failed {
   color: var(--failed);
+  border-color: var(--failed);
 }
 .aliases .masked {
   font-style: italic;
