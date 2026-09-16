@@ -1,7 +1,7 @@
 {
   "extends": "./tsconfig.json",
   // conformance-harness.ts drives the recorder for two test suites. It is not a
-  // test file by name, so it would otherwise emit a declaration into dist with
-  // no implementation beside it, in a package other companies install.
+  // test file by name, and the declarations are only for the public surface
+  // scripts/bundle.mjs rolls up.
   "exclude": ["src/**/*.test.ts", "src/**/*.integration.test.ts", "src/conformance-harness.ts"]
 }

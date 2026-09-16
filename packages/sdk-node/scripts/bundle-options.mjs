@@ -11,7 +11,7 @@ export function bundleOptions() {
     entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
     bundle: true,
     platform: "node",
-    target: "node20",
+    target: "node22",
     format: "esm",
     // Resolved through the source condition so the workspace package is inlined
     // rather than left as an import of a package that will not exist.

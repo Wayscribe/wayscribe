@@ -129,9 +129,15 @@ Exported and named: `Entity`, `StartJourneyOptions`, `ContinueJourneyOptions`,
 | Before | After | Item |
 | --- | --- | --- |
 | `engines.node` `>=20.19.0` | `>=22.12.0`; the bundle targets `node22` | M10 |
-| 13 `.d.ts` and 14 `.d.ts.map` files in `dist` | one rolled-up `dist/index.d.ts` (API Extractor), no maps, and a checked-in API report | S1 |
+| 13 `.d.ts` and 14 `.d.ts.map` files in `dist` | one rolled-up `dist/index.d.ts` (API Extractor), no maps | S1 |
 | `exports` has `.` | also `./package.json` | S8 |
 | packed manifest keeps `devDependencies` and `scripts` | stripped by the release pack script | S8 |
+
+No API report is checked in, although the review suggested one: the demo
+image builds this package from a Docker context that excludes markdown, where
+API Extractor fails a build whose report is missing. API Extractor still fails
+the build when a public type refers to one that is not exported. A report can
+follow with a check of its own.
 
 Node 20 reached end of life in April 2026, and `require()` of an ES module is
 unflagged from 22.12, so `>=22.12.0` is the one honest floor.

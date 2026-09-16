@@ -23,7 +23,7 @@
     "self-hosted"
   ],
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.12.0"
   },
   "sideEffects": false,
   "files": [
@@ -36,6 +36,7 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./package.json": "./package.json",
     "./conformance-harness": {
       "development": "./src/conformance-harness.ts"
     }
@@ -45,11 +46,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "bench": "node bench/overhead.mjs",
     "bench:fleet": "node bench/fleet.mjs",
+    "pack:release": "node scripts/pack.mjs",
     "prepack": "pnpm run build"
   },
   "devDependencies": {
     "@flight-recorder/payload-security": "workspace:*",
     "@flight-recorder/protocol": "workspace:*",
+    "@microsoft/api-extractor": "^7.59.1",
     "esbuild": "^0.25.12"
   },
   "publishConfig": {
@@ -58,7 +61,8 @@
       ".": {
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
-      }
+      },
+      "./package.json": "./package.json"
     }
   }
 }
