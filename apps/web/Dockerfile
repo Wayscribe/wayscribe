@@ -29,6 +29,11 @@ FROM node:24-alpine AS runtime
 # for CVE-2026-14456, when this was added) reaches the image on the next build
 # rather than when the upstream tag is rebuilt.
 RUN apk upgrade --no-cache
+LABEL org.opencontainers.image.title="Flight Recorder web"
+LABEL org.opencontainers.image.description="Developer interface for searching journeys, reading their timelines, and seeing where a value changed."
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://gitlab.com/jojithedev/flight-recorder"
+LABEL org.opencontainers.image.documentation="https://gitlab.com/jojithedev/flight-recorder#readme"
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
