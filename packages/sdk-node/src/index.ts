@@ -11,6 +11,14 @@ export type {
 export { OPERATIONS } from "./operations.js";
 export type { Operation } from "./operations.js";
 export { createRecorder } from "./recorder.js";
-export type { Journey, JourneyContext, RecordInput, Recorder, WrapOptions } from "./recorder.js";
+export type {
+  Journey,
+  JourneyContext,
+  JourneyGroup,
+  JourneyOperations,
+  RecordInput,
+  Recorder,
+  WrapOptions
+} from "./recorder.js";
 export type { PropagatedContext, PropagationLevel } from "./propagation.js";
 export type { TraceContext } from "./trace.js";

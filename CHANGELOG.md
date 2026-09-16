@@ -121,6 +121,14 @@ changes far less often.
 
 ### Added
 
+- **`recorder.across(journeys)` records one operation on many journeys.** A
+  digest written once for many records is one call:
+  `recorder.across(journeys).persist("write-digest", digest, write)`. Each
+  journey gets its own event and id, the events share one timestamp and
+  duration, and the callback runs once with the wrappers' usual guarantees. A
+  group has `record`, the four wrappers, `fail` and `finish`, and no `identify`.
+  Nothing on the wire changes. `Journey` now extends a new `JourneyOperations`
+  interface, which `JourneyGroup` extends too.
 - **Wrappers can record a projection of what they wrap.** `captureInput` and
   `captureOutput` choose what is recorded while the wrapper still returns the
   callback's own value, so a step that returns a PDF can record

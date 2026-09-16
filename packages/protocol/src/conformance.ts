@@ -46,6 +46,12 @@ const recorderCallSchema = z.object({
   ]),
   name: z.string().optional(),
   repeat: z.number().int().positive().optional(),
+  /**
+   * Make the call on a group of this many journeys rather than on the case's
+   * one: the case's journey and others the harness starts. `identify` has no
+   * group form.
+   */
+  journeys: z.number().int().min(2).max(100).optional(),
   args: z.record(z.string(), z.unknown()).optional()
 });
 

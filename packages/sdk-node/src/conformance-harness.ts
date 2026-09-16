@@ -1,7 +1,13 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { expand, type ConformanceCase } from "@flight-recorder/protocol/conformance";
-import { createRecorder, type Journey, type RecordInput } from "./recorder.js";
+import {
+  createRecorder,
+  type Journey,
+  type JourneyGroup,
+  type RecordInput,
+  type Recorder
+} from "./recorder.js";
 
 /**
  * Drive a conformance case against the real recorder and capture what it sent.
@@ -74,8 +80,10 @@ export async function captureCase(one: ConformanceCase, run: string): Promise<Ca
   try {
     const journey = recorder.startJourney({ entity: { type: "customer", id: "0018Z00002ABC" } });
     for (const call of one.calls ?? []) {
+      const target =
+        call.journeys === undefined ? journey : groupOf(recorder, journey, call.journeys);
       for (let repeat = 0; repeat < (call.repeat ?? 1); repeat += 1) {
-        await makeCall(journey, call, run);
+        await makeCall(target, call, run);
       }
     }
     await recorder.shutdown({ timeoutMs: 5_000 });
@@ -92,27 +100,38 @@ export async function captureCase(one: ConformanceCase, run: string): Promise<Ca
 
 type Call = NonNullable<ConformanceCase["calls"]>[number];
 
-async function makeCall(journey: Journey, call: Call, run: string): Promise<void> {
+/** The case's journey and `size - 1` more, for a call that records on a group. */
+function groupOf(recorder: Recorder, first: Journey, size: number): JourneyGroup {
+  const others = Array.from({ length: size - 1 }, (_unused, index) =>
+    recorder.startJourney({
+      entity: { type: "customer", id: `0018Z00002ABC-${String(index + 2)}` }
+    })
+  );
+  return recorder.across([first, ...others]);
+}
+
+async function makeCall(target: Journey | JourneyGroup, call: Call, run: string): Promise<void> {
   const args = expand(call.args ?? {}, { run, host: true }) as Record<string, unknown>;
   const name = call.name ?? "receive-order";
 
   switch (call.call) {
     case "record":
-      journey.record(args as unknown as RecordInput);
+      target.record(args as unknown as RecordInput);
       return;
     case "identify":
-      journey.identify(args["aliases"] as Record<string, string>);
+      if (!("identify" in target)) throw new Error("identify has no group form.");
+      target.identify(args["aliases"] as Record<string, string>);
       return;
     case "fail":
-      journey.fail(name, args["error"], args["metadata"] as Record<string, unknown>);
+      target.fail(name, args["error"], args["metadata"] as Record<string, unknown>);
       return;
     case "finish":
-      journey.finish({ status: args["status"] as "completed" | "failed" });
+      target.finish({ status: args["status"] as "completed" | "failed" });
       return;
     default: {
       // The four wrappers take the same shape: a name, the value going in, a
       // callback whose return value is the value coming out, and options.
-      const wrapper = journey[call.call].bind(journey) as (
+      const wrapper = target[call.call].bind(target) as (
         wrapperName: string,
         input: unknown,
         fn: () => unknown,

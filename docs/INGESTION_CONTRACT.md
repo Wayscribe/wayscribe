@@ -403,7 +403,9 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   "publish" | "deliver" | "identify" | "fail" | "finish", "name": "…", "args":
   { } }`, with an optional `repeat`, and a `recorder` object for the settings
   the case needs. A wrapper call's `args` are `input`, `output` (what the
-  callback returns) and `options`, the wrapper's options. An `sdk` case's `expect` may carry `wire`, the event the SDK
+  callback returns) and `options`, the wrapper's options. A call with
+  `"journeys": n` is made on a group of n journeys, the case's own first, and
+  expects n results. An `sdk` case's `expect` may carry `wire`, the event the SDK
   is expected to send, beside `results`.
 - **`languages`** is `["*"]` or a list. A harness skips what it cannot express
   **and reports the skip**; a skip nobody sees is a case that quietly stopped

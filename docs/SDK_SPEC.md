@@ -395,6 +395,18 @@ They are numbered after the rest so that no identifier above moved.
 | --- | --- | --- |
 | SDK-53 | ADR-007; docs/superpowers/specs/2026-09-16-dogfood-gaps-design.md | sdk/projection-throws |
 
+### One operation on many journeys
+
+- **SDK-54.** An SDK SHOULD let a host record one operation on several journeys
+  in one call. Each journey MUST get its own event with its own id, the events
+  MUST share one timestamp and one duration, a wrapper MUST run its callback
+  once, and a journey named twice MUST be recorded once. Nothing on the wire
+  changes: the server receives ordinary events.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-54 | docs/superpowers/specs/2026-09-16-dogfood-gaps-design.md | sdk/across-journeys |
+
 ## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive

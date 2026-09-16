@@ -87,10 +87,13 @@ export interface WrapOptions<T = unknown> {
   captureOutput?: (result: T, journey: JourneyContext) => unknown;
 }
 
-export interface Journey {
-  context(): JourneyContext;
+/**
+ * What a journey and a group of journeys both do. On a group, each call
+ * records one event per journey, with its own id and the same timing, and a
+ * wrapper runs its callback once.
+ */
+export interface JourneyOperations {
   record(input: RecordInput): void;
-  identify(aliases: Record<string, string>): void;
   /**
    * Each wrapper returns whatever shape its callback returns.
    *
@@ -131,12 +134,31 @@ export interface Journey {
   finish(options?: { status?: "completed" | "failed" }): void;
 }
 
+export interface Journey extends JourneyOperations {
+  context(): JourneyContext;
+  identify(aliases: Record<string, string>): void;
+}
+
+/**
+ * Several journeys that one operation touched, such as a digest written once
+ * for many records. There is no `identify`: an alias identifies one record.
+ */
+export interface JourneyGroup extends JourneyOperations {
+  /** The journeys this group records on, each once, in the order given. */
+  journeys(): JourneyContext[];
+}
+
 export interface Recorder {
   startJourney(options: {
     entity: { type: string; id: string };
     aliases?: Record<string, string>;
   }): Journey;
   continueJourney(context: JourneyContext): Journey;
+  /**
+   * The journeys one operation touched, to record it on each of them in one
+   * call. A journey named twice, by handle or by context, is recorded once.
+   */
+  across(journeys: Iterable<Journey | JourneyContext>): JourneyGroup;
   consume(options: {
     context?: PropagatedContext | undefined;
     entityFallback?: { type: string; id: string };
@@ -219,6 +241,17 @@ const SETTLING_ROUNDS = 4;
 function fit(text: string, limit: number): string {
   if (text.length <= limit) return text.toWellFormed();
   return text.slice(0, limit - TRUNCATED.length).toWellFormed() + TRUNCATED;
+}
+
+function isContext(value: unknown): value is JourneyContext {
+  if (typeof value !== "object" || value === null) return false;
+  const { journeyId, entity } = value as Partial<JourneyContext>;
+  return (
+    typeof journeyId === "string" &&
+    typeof entity === "object" &&
+    typeof entity.type === "string" &&
+    typeof entity.id === "string"
+  );
 }
 
 /** Duck-typed rather than `instanceof Promise`: a thenable from any library counts. */
@@ -1088,14 +1121,59 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
   }
 
-  function makeJourney(context: JourneyContext): Journey {
+  /**
+   * `input` on every journey in `contexts`, with one timestamp for all of them.
+   * Each event goes through its own boundary, so one that cannot be recorded
+   * does not cost the others.
+   */
+  function recordOn(contexts: readonly JourneyContext[], input: RecordInput): void {
+    const startedAt = input.startedAt ?? Date.now();
+    for (const context of contexts) {
+      safely(diagnostics, "capture_error", () => {
+        enqueue(context.journeyId, context.entity, { ...input, startedAt });
+      });
+    }
+  }
+
+  function operationsOn(contexts: readonly JourneyContext[]): JourneyOperations {
     return {
-      context: () => context,
       record(input) {
         safely(diagnostics, "capture_error", () => {
-          enqueue(context.journeyId, context.entity, input);
+          recordOn(contexts, input);
         });
       },
+      transform: (name, input, fn, options) =>
+        wrap(contexts, "transformed", name, input, fn, options),
+      persist: (name, input, fn, options) => wrap(contexts, "persisted", name, input, fn, options),
+      publish: (name, message, fn, options) =>
+        wrap(contexts, "published", name, message, fn, options),
+      deliver: (name, payload, fn, options) =>
+        wrap(contexts, "delivered", name, payload, fn, options),
+      fail(name, error, metadata) {
+        safely(diagnostics, "capture_error", () => {
+          recordOn(contexts, {
+            operation: "failed",
+            name,
+            error: toErrorRecord(error),
+            ...(metadata === undefined ? {} : { metadata })
+          });
+        });
+      },
+      finish(options) {
+        safely(diagnostics, "capture_error", () => {
+          recordOn(contexts, {
+            operation: options?.status === "failed" ? "failed" : "completed",
+            name: "finish"
+          });
+        });
+      }
+    };
+  }
+
+  function makeJourney(context: JourneyContext): Journey {
+    return {
+      ...operationsOn([context]),
+      context: () => context,
       identify(aliases) {
         safely(diagnostics, "capture_error", () => {
           enqueue(context.journeyId, context.entity, {
@@ -1107,33 +1185,35 @@ export function createRecorder(config: RecorderConfig): Recorder {
             aliases
           });
         });
-      },
-      transform: (name, input, fn, options) =>
-        wrap([context], "transformed", name, input, fn, options),
-      persist: (name, input, fn, options) => wrap([context], "persisted", name, input, fn, options),
-      publish: (name, message, fn, options) =>
-        wrap([context], "published", name, message, fn, options),
-      deliver: (name, payload, fn, options) =>
-        wrap([context], "delivered", name, payload, fn, options),
-      fail(name, error, metadata) {
-        safely(diagnostics, "capture_error", () => {
-          enqueue(context.journeyId, context.entity, {
-            operation: "failed",
-            name,
-            error: toErrorRecord(error),
-            ...(metadata === undefined ? {} : { metadata })
-          });
-        });
-      },
-      finish(options) {
-        safely(diagnostics, "capture_error", () => {
-          enqueue(context.journeyId, context.entity, {
-            operation: options?.status === "failed" ? "failed" : "completed",
-            name: "finish"
-          });
-        });
       }
     };
+  }
+
+  /**
+   * The distinct journeys in `journeys`, by id, in the order given.
+   *
+   * Something that is neither a journey nor a context is reported and left
+   * out, so a bad element costs its own event and not the host's call.
+   */
+  function contextsOf(journeys: Iterable<Journey | JourneyContext>): JourneyContext[] {
+    const seen = new Set<string>();
+    const contexts: JourneyContext[] = [];
+    for (const one of journeys) {
+      const context = safely(diagnostics, "capture_error", () => {
+        const candidate: unknown =
+          typeof (one as Partial<Journey> | null)?.context === "function"
+            ? (one as Journey).context()
+            : one;
+        if (!isContext(candidate)) {
+          throw new TypeError("across() was given something that is not a journey.");
+        }
+        return candidate;
+      });
+      if (context === undefined || seen.has(context.journeyId)) continue;
+      seen.add(context.journeyId);
+      contexts.push(context);
+    }
+    return contexts;
   }
 
   return {
@@ -1150,6 +1230,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
       return journey;
     },
     continueJourney: (context) => makeJourney(context),
+    across(journeys) {
+      const contexts = safely(diagnostics, "capture_error", () => contextsOf(journeys)) ?? [];
+      return { ...operationsOn(contexts), journeys: () => [...contexts] };
+    },
     // At the default propagation level the journey ID crosses the boundary and
     // the entity does not, so the consumer supplies the entity it already has
     // from the message body.

@@ -40,6 +40,7 @@
     "wire/unsupported-protocol-version"
   ],
   "sdk": [
+    "sdk/across-journeys",
     "sdk/bigint",
     "sdk/cycle",
     "sdk/date-in-payload",

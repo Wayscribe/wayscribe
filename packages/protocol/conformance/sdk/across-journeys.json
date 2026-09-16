@@ -1,0 +1,48 @@
+{
+  "id": "sdk/across-journeys",
+  "title": "One operation recorded on three journeys sends three events, each with its own id",
+  "source": "docs/superpowers/specs/2026-09-16-dogfood-gaps-design.md section 3",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "persist",
+      "name": "write-digest",
+      "journeys": 3,
+      "args": {
+        "input": {
+          "lines": 3
+        },
+        "output": "digest-2026-09-16.md"
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "persisted",
+      "name": "write-digest",
+      "entity": {
+        "type": "customer",
+        "id": "0018Z00002ABC"
+      },
+      "input": {
+        "lines": 3
+      },
+      "output": "digest-2026-09-16.md"
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

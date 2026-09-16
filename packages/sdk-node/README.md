@@ -123,6 +123,27 @@ in a different process consuming a redelivered message.
 await journey.deliver("send-to-crm", payload, () => post(payload), { attempt: 2 });
 ```
 
+## One operation, many records
+
+A write that covers many records at once, such as a digest or a batch export,
+is one operation in each of their timelines. `recorder.across` records it on
+all of them in one call:
+
+```typescript
+const group = recorder.across(journeys);
+await group.persist("write-digest", digest, () => writeDigest(digest), {
+  // Each journey's event can carry its own view of the shared input.
+  captureInput: (_digest, journey) => digest.lineFor(journey.entity.id)
+});
+```
+
+Each journey gets its own event, with its own id, and all of them share one
+timestamp and one duration. The callback runs once, and the group's wrappers
+keep every promise the single-journey ones make. A group also has `record`,
+`fail` and `finish`. It has no `identify`, because an alias identifies one
+record. A journey named twice, as a handle or as a context, is recorded once;
+an empty group runs the callback and records nothing.
+
 ## Crossing a process boundary
 
 A journey that stops at a service boundary is three unrelated timelines. Inject

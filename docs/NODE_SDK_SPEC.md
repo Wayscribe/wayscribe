@@ -181,6 +181,19 @@ await journey.publish(
 
 The helper should make propagation metadata available without forcing payload mutation.
 
+### `across`
+
+```typescript
+const group = recorder.across(journeys); // Iterable<Journey | JourneyContext>
+await group.persist("write-digest", digest, () => writeDigest(digest));
+```
+
+Returns a `JourneyGroup`: `record`, `transform`, `persist`, `publish`,
+`deliver`, `fail` and `finish`, as on a journey, plus `journeys()`. Each call
+records one event per distinct journey id, each with its own event id and the
+same `timestamp` and `durationMs`; a wrapper runs its callback once. There is no
+`identify`. SDK-54.
+
 ### `consume`
 
 ```typescript
