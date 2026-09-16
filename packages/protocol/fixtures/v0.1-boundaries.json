@@ -1690,5 +1690,96 @@
     },
     "valid": false,
     "code": "invalid_event"
+  },
+  {
+    "name": "journey-label-200-astral-characters",
+    "why": "200 code points, the most a label may hold. They are 400 UTF-16 units, so a validator counting units would refuse what the contract accepts.",
+    "envelope": {
+      "protocolVersion": "0.1",
+      "event": {
+        "id": "evt_boundary",
+        "journeyId": "jrn_boundary",
+        "environment": "development",
+        "service": "customer-integration",
+        "entity": {
+          "type": "customer",
+          "id": "18492"
+        },
+        "operation": "received",
+        "name": "receive-salesforce-webhook",
+        "timestamp": "2026-08-06T18:31:02.000Z",
+        "journeyLabel": "𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "journey-label-201-astral-characters",
+    "why": "One code point over 200.",
+    "envelope": {
+      "protocolVersion": "0.1",
+      "event": {
+        "id": "evt_boundary",
+        "journeyId": "jrn_boundary",
+        "environment": "development",
+        "service": "customer-integration",
+        "entity": {
+          "type": "customer",
+          "id": "18492"
+        },
+        "operation": "received",
+        "name": "receive-salesforce-webhook",
+        "timestamp": "2026-08-06T18:31:02.000Z",
+        "journeyLabel": "𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞𝄞"
+      }
+    },
+    "valid": false,
+    "code": "invalid_event"
+  },
+  {
+    "name": "journey-label-empty",
+    "why": "An empty label is refused rather than read as clearing the label; a host that wants no label sends none.",
+    "envelope": {
+      "protocolVersion": "0.1",
+      "event": {
+        "id": "evt_boundary",
+        "journeyId": "jrn_boundary",
+        "environment": "development",
+        "service": "customer-integration",
+        "entity": {
+          "type": "customer",
+          "id": "18492"
+        },
+        "operation": "received",
+        "name": "receive-salesforce-webhook",
+        "timestamp": "2026-08-06T18:31:02.000Z",
+        "journeyLabel": ""
+      }
+    },
+    "valid": false,
+    "code": "invalid_event"
+  },
+  {
+    "name": "journey-label-not-a-string",
+    "why": "A label is display text, so a number is refused rather than converted.",
+    "envelope": {
+      "protocolVersion": "0.1",
+      "event": {
+        "id": "evt_boundary",
+        "journeyId": "jrn_boundary",
+        "environment": "development",
+        "service": "customer-integration",
+        "entity": {
+          "type": "customer",
+          "id": "18492"
+        },
+        "operation": "received",
+        "name": "receive-salesforce-webhook",
+        "timestamp": "2026-08-06T18:31:02.000Z",
+        "journeyLabel": 7
+      }
+    },
+    "valid": false,
+    "code": "invalid_event"
   }
 ]

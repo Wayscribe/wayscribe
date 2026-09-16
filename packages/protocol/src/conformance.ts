@@ -23,7 +23,18 @@ const expectedResultSchema = z.object({
   status: z.enum(["accepted", "rejected"]),
   duplicate: z.boolean().optional(),
   eventId: z.union([z.string(), matcherSchema, z.null()]).optional(),
-  error: z.object({ code: z.string(), httpStatus: z.number().int() }).optional(),
+  error: z
+    .object({
+      code: z.string(),
+      httpStatus: z.number().int(),
+      /**
+       * The refusal's `details`, by path and in order. The message is the
+       * server's own wording and not part of the contract, so it is not listed.
+       */
+      details: z.array(z.object({ path: z.string() }).strict()).optional()
+    })
+    .strict()
+    .optional(),
   stored: z
     .object({
       event: z.record(z.string(), z.unknown()),

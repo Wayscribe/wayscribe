@@ -193,6 +193,7 @@ describe("Zod and Ajv agree", () => {
       expect(names).toContain("error.message");
       expect(names).toContain("aliases.<propertyNames>");
       expect(names).toContain("displayableAliases.<items>");
+      expect(names).toContain("journeyLabel");
       expect(capped.length).toBeGreaterThan(15);
     });
 

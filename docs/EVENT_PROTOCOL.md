@@ -56,6 +56,7 @@ interface JourneyEventV01 {
 
   aliases?: Record<string, string>;
   displayableAliases?: string[]; // alias types a reader may see in full
+  journeyLabel?: string; // public display text for the journey, 1 to 200 characters
 
   durationMs?: number; // whole milliseconds, 0 to 2147483647
   parentEventId?: string;
@@ -91,6 +92,15 @@ interface JourneyEventV01 {
   metadata?: Record<string, unknown>;
 }
 ```
+
+`journeyLabel` is optional display text for the event's journey, written by the
+instrumenting code, for example `"Mirantis · Senior SWE, AI Infra"`. It holds 1
+to 200 characters, counted as Unicode code points like every other string
+maximum in this schema. An empty string is refused as `invalid_event` with the
+detail path `event.journeyLabel`, rather than read as clearing the label: a
+host that wants no label sends none, and an event without the field leaves the
+journey's label as it was. The label is shown and searchable in full and is not
+redacted, so it must not hold personal data.
 
 ## 4. Required field semantics
 

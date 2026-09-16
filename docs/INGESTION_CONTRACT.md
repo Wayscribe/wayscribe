@@ -319,6 +319,11 @@ what a dry run previews.
   it without listing it (ADR-053). A listed type that the event's `aliases`
   does not name is ignored, not refused. A read returns each alias as
   `{ type, displayValue, displayable }`.
+- **`journeyLabel`**, optional, is public display text for the journey: 1 to
+  200 code points. An empty string refuses that event alone as `invalid_event`,
+  with `details[0].path` equal to `event.journeyLabel`; a label is never cleared
+  by sending one. The label is not redacted, because the host wrote it to be
+  shown.
 - **Unknown fields are accepted and dropped.** There is no column to store them
   in, and an unvalidated, unredacted field is not something to write to one. The
   rule is "accepted, not refused", which is what makes an additive optional
@@ -430,7 +435,11 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   **`setup.otherEnvironment`** is ingested with a second environment's key,
   which is how a cross-environment case gets its journey.
 - **`expect`** is either `request` (a whole-request refusal: a status and a
-  code, and nothing stored) or `results`, one entry per sent event.
+  code, and nothing stored) or `results`, one entry per sent event. A refused
+  result's `error` carries `code` and `httpStatus`, and may carry `details`, a
+  list of `{ "path": "…" }` compared in order with the refusal's own details.
+  A detail's `message` is the server's wording and is not compared, so a case
+  may not list it.
 
 ### Comparison
 

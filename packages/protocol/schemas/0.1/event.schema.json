@@ -90,6 +90,12 @@
       },
       "description": "Alias types from this event's aliases that a reader may see in full. Every other alias is masked when read. An alias is shown in full only while every event that stated it listed it here; a type this event's aliases do not name is ignored."
     },
+    "journeyLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Public display text for this event's journey, 1 to 200 characters. It is shown and searchable in full, so it must not hold personal data. An event without it leaves the journey's label unchanged."
+    },
     "durationMs": {
       "type": "integer",
       "minimum": 0,

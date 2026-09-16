@@ -65,6 +65,9 @@ export const recordKeySchema = z.string().max(128);
 /** As many as an object may have keys, so every alias of one event can be listed. */
 export const MAX_DISPLAYABLE_ALIASES = 1_000;
 export const aliasValueSchema = z.string().max(512);
+
+/** The most code points a journey label may hold, counted as every other cap here is. */
+export const MAX_JOURNEY_LABEL_LENGTH = 200;
 export const metadataValueSchema = z.unknown();
 
 export const journeyEventSchema = z.object({
@@ -91,6 +94,20 @@ export const journeyEventSchema = z.object({
     .max(MAX_DISPLAYABLE_ALIASES)
     .describe(
       "Alias types from this event's aliases that a reader may see in full. Every other alias is masked when read. An alias is shown in full only while every event that stated it listed it here; a type this event's aliases do not name is ignored."
+    )
+    .optional(),
+
+  /**
+   * Public display text for the journey, written by the instrumenting code.
+   * Empty is refused rather than read as "clear the label", which the protocol
+   * does not offer, so a label cannot be removed by accident.
+   */
+  journeyLabel: z
+    .string()
+    .min(1)
+    .max(MAX_JOURNEY_LABEL_LENGTH)
+    .describe(
+      "Public display text for this event's journey, 1 to 200 characters. It is shown and searchable in full, so it must not hold personal data. An event without it leaves the journey's label unchanged."
     )
     .optional(),
 

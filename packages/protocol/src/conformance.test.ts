@@ -223,6 +223,30 @@ describe("the committed wire cases", () => {
     expect(conformanceCaseSchema.safeParse(typo).success).toBe(false);
   });
 
+  it("lets a refusal name the fields it expects in details, by path only", () => {
+    const good = cases[0] as ConformanceCase;
+    const refusal = (details: unknown): unknown => ({
+      ...good,
+      expect: {
+        results: [
+          {
+            status: "rejected",
+            error: { code: "invalid_event", httpStatus: 400, details }
+          }
+        ]
+      }
+    });
+    expect(conformanceCaseSchema.safeParse(refusal([{ path: "event.journeyLabel" }])).success).toBe(
+      true
+    );
+    // The message is the server's own wording, not the contract, so a case
+    // that pins it is a typo rather than an expectation.
+    expect(
+      conformanceCaseSchema.safeParse(refusal([{ path: "event.journeyLabel", message: "x" }]))
+        .success
+    ).toBe(false);
+  });
+
   it("fails a wire case that carries recorder calls", () => {
     const good = cases[0] as ConformanceCase;
     expect(conformanceCaseSchema.safeParse({ ...good, calls: [{ call: "record" }] }).success).toBe(

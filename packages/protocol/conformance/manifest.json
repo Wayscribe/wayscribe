@@ -21,6 +21,8 @@
     "wire/invalid-event-missing-id",
     "wire/invalid-event-unknown-operation",
     "wire/invalid-timestamp-without-offset",
+    "wire/journey-label",
+    "wire/journey-label-empty",
     "wire/large-integer-in-payload",
     "wire/lone-surrogate-in-payload",
     "wire/max-depth",
