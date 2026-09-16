@@ -201,13 +201,13 @@ in place before the first release ([../SECURITY.md](../SECURITY.md#verifying-the
   Propagated journey context is not authenticated
   ([../SECURITY.md](../SECURITY.md#scope),
   [ROADMAP](ROADMAP.md#if-this-goes-public)).
-- A pre-release security review on 2026-09-16 reported no Critical, High or
-  Medium findings. Its two low notes are documented behaviour: a dry run holds
-  its row locks for the whole batch
+- The [pre-release security review of 2026-09-16](reviews/2026-09-16-security-review.md)
+  found no Critical, High or Medium issues. Its low notes include: a dry run
+  holds its row locks for the whole batch
   ([INGESTION_CONTRACT §8](INGESTION_CONTRACT.md#8-validating-without-storing)),
   and a journey text search that matches nothing reads every journey in its
-  window, which has no maximum length, so it is bounded only by the 15-second
-  statement timeout ([OPERATIONS §10](OPERATIONS.md#listing-journeys),
+  window, which has no maximum length, so only the 15-second statement timeout
+  bounds it ([OPERATIONS §10](OPERATIONS.md#listing-journeys),
   [journey-list-query.ts](../apps/api/src/routes/journey-list-query.ts)).
 
 ## Reporting a vulnerability

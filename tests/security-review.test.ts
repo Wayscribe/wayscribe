@@ -16,6 +16,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const read = (relative: string): string => readFileSync(join(root, relative), "utf8");
 const PAGE = "docs/SECURITY_REVIEW.md";
 const page = read(PAGE);
+const REVIEW = "docs/reviews/2026-09-16-security-review.md";
 
 /** GitLab's heading anchor: lower case, punctuation dropped, spaces to hyphens. */
 function slug(heading: string): string {
@@ -60,8 +61,23 @@ describe(PAGE, () => {
     }
   });
 
-  it("uses no em or en dashes", () => {
+  it("uses no em or en dashes, nor does the review it cites", () => {
     expect(page).not.toMatch(/[–—]/);
+    expect(read(REVIEW)).not.toMatch(/[–—]/);
+  });
+
+  it("cites the pre-release security review, whose own links resolve", () => {
+    expect(links).toContain("reviews/2026-09-16-security-review.md");
+    const review = read(REVIEW);
+    expect(review).toContain("No Critical, High or Medium findings.");
+    for (const [, link = ""] of review.matchAll(/\]\(([^)\s]+)\)/g)) {
+      const [path = "", anchor] = link.split("#");
+      const target = normalize(join(dirname(REVIEW), path));
+      expect(existsSync(join(root, target)), `${link} names a missing file`).toBe(true);
+      if (anchor !== undefined) {
+        expect(anchors(read(target)).has(anchor), `${link} names a missing heading`).toBe(true);
+      }
+    }
   });
 
   it("repeats the numbers the code enforces", () => {
