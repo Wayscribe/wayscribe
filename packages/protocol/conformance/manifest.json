@@ -82,6 +82,7 @@
     "sdk/truncated-header-block",
     "sdk/truncated-then-omitted",
     "sdk/uncapturable-payload",
-    "sdk/undefined-key"
+    "sdk/undefined-key",
+    "sdk/unredacted-secret-name"
   ]
 }

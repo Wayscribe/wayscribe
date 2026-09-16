@@ -28,6 +28,8 @@ export interface CapturedCase {
   events: Record<string, unknown>[];
   /** How many requests it took, which is what the batch-size case is about. */
   requests: number;
+  /** Every diagnostic the recorder reported, in order, as `{ kind, detail }`. */
+  diagnostics: { kind: string; detail?: unknown }[];
 }
 
 /**
@@ -69,11 +71,15 @@ export async function captureCase(one: ConformanceCase, run: string): Promise<Ca
     redact?: string[];
     captureMode?: "metadata-only" | "redacted-payload" | "full-payload";
   };
+  const diagnostics: CapturedCase["diagnostics"] = [];
   const recorder = createRecorder({
     endpoint: `http://127.0.0.1:${String(port)}`,
     apiKey: "fr_test_conformance",
     serviceName: "customer-integration",
     environment: "conformance",
+    onDiagnostic: ({ kind, detail }) => {
+      diagnostics.push({ kind, detail });
+    },
     ...settings
   });
 
@@ -95,7 +101,7 @@ export async function captureCase(one: ConformanceCase, run: string): Promise<Ca
     });
   }
 
-  return { id: one.id, events, requests };
+  return { id: one.id, events, requests, diagnostics };
 }
 
 type Call = NonNullable<ConformanceCase["calls"]>[number];

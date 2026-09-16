@@ -445,7 +445,12 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   after it carry the label. A call with `"journeys": n` is made on a group of n
   journeys, the case's own first, and expects n results; `identify` and `label`
   have no group form. An `sdk` case's `expect` may carry `wire`, the event the SDK
-  is expected to send, beside `results`.
+  is expected to send, beside `results`. It may also carry `diagnostics`, a list
+  of `{ "kind": "…", "detail": { … } }` the SDK is expected to report: of the
+  diagnostics your SDK reported whose kind the list names, the kinds must equal
+  the list's in order, and each `detail` given is compared as `wire` is. Other
+  kinds are not compared. The dry run never sees diagnostics, so a harness that
+  replays the bytes ignores the field.
 - **`languages`** is `["*"]` or a list. A harness skips what it cannot express
   **and reports the skip**; a skip nobody sees is a case that quietly stopped
   running.
