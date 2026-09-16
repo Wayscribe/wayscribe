@@ -13,7 +13,7 @@ export {
 export { applyCapture, redactAlways, type CaptureMode, type CapturePolicy } from "./capture.js";
 export { contentHash, contentHashMatches, legacyContentHash } from "./content-hash.js";
 export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
-export { looksLikeSecretName } from "./secret-name.js";
+export { looksLikeSecretName, SECRET_NAME_TERMS } from "./secret-name.js";
 // The single-key encryptField and decryptField stay internal: the keyring is
 // the only way in, so nothing outside this package can write a value without a
 // key id or read one under the wrong key.

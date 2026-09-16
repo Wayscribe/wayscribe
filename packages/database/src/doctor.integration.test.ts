@@ -243,6 +243,7 @@ describe("doctor", () => {
       "Keys readable",
       "Projects and keys",
       "Journey environments",
+      "Secret-looking names",
       "API key",
       "API reachable",
       "Statement timeout"
@@ -251,7 +252,7 @@ describe("doctor", () => {
     }
     expect(lineOf(run, "API key")).toContain(apiKey.slice(0, 12));
     expect(lineOf(run, "API key")).toContain("acme/production");
-    expect(run.output).toContain("0 failed, 0 warnings, 11 passed.");
+    expect(run.output).toContain("0 failed, 0 warnings, 12 passed.");
     expectNoSecrets(run, apiKey);
   });
 

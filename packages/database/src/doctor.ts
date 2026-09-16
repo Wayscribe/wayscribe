@@ -12,6 +12,7 @@ import type { Knex } from "knex";
 import { keyringFromEnvironment } from "./keyring-env.js";
 import { migrationStatusReadOnly, SchemaUsageError } from "./migration-status.js";
 import { findUnreadableData } from "./repositories/rotation.js";
+import { secretNamesCheck } from "./secret-names.js";
 
 export type CheckStatus = "PASS" | "WARN" | "FAIL" | "SKIP";
 
@@ -136,6 +137,9 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
 
   if (dataReason !== null) results.push(skip("Journey environments", dataReason));
   else results.push(await guarded("Journey environments", () => journeyEnvironmentsResult(db)));
+
+  if (dataReason !== null) results.push(skip("Secret-looking names", dataReason));
+  else results.push(await guarded("Secret-looking names", () => secretNamesCheck(db)));
 
   if (options.apiKey !== undefined) {
     const apiKey = options.apiKey;
