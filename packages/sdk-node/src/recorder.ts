@@ -11,7 +11,13 @@ import {
   type TruncationStats
 } from "@flight-recorder/payload-security/redaction";
 import { resolveConfig, type RecorderConfig } from "./config.js";
-import { createDiagnostics, type Counters, type Diagnostics } from "./diagnostics.js";
+import {
+  createDiagnostics,
+  printDiagnostic,
+  type Counters,
+  type Diagnostic,
+  type Diagnostics
+} from "./diagnostics.js";
 import type { Operation } from "./operations.js";
 import {
   extractHttpContext,
@@ -24,7 +30,12 @@ import {
 } from "./propagation.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
-import { deriveJourneyId, isEntity, journeyIdSecretProblem } from "./journey-id.js";
+import {
+  deriveJourneyId,
+  entityProblem,
+  firstSecretWarning,
+  journeyIdSecretProblem
+} from "./journey-id.js";
 import { createTraceReader } from "./trace.js";
 import { AbandonedError, Transport, UnsentError, type SendOutcome } from "./transport.js";
 
@@ -555,8 +566,26 @@ export function createRecorder(config: RecorderConfig): Recorder {
   // it surfaces at startup rather than at the first derived id. A missing one
   // is not: most recorders never derive an id.
   const secretProblem = journeyIdSecretProblem(resolved.journeyIdSecret);
+  /**
+   * A secret that cannot be used splits every derived journey into one per
+   * run, silently to anybody not reading diagnostics. So besides the
+   * diagnostic, one line is printed per process even with logDiagnostics off:
+   * the one exception to SDK-40 (SDK-56). With logging on, the ordinary line
+   * already says it.
+   */
+  const reportSecretProblem = (reason: string): void => {
+    const diagnostic: Diagnostic = { kind: "configuration_error", reason };
+    diagnostics.report(diagnostic);
+    if (!firstSecretWarning() || resolved.logDiagnostics) return;
+    printDiagnostic(
+      diagnostic,
+      "printed once per process, whether or not logDiagnostics is on, because derived journeys split until it is fixed"
+    );
+  };
   if (resolved.journeyIdSecret !== undefined && secretProblem !== undefined) {
-    diagnostics.report({ kind: "configuration_error", reason: secretProblem });
+    safely(diagnostics, "capture_error", () => {
+      reportSecretProblem(secretProblem);
+    });
   }
   const queue = new BoundedQueue<unknown>(resolved.maxBufferedEvents, diagnostics);
   // Resolved once: record() is synchronous, so this cannot be an async import.
@@ -1314,18 +1343,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
       const derived = safely(diagnostics, "capture_error", () => {
         const secret = resolved.journeyIdSecret;
         if (secretProblem !== undefined || secret === undefined) {
-          diagnostics.report({
-            kind: "configuration_error",
-            reason: secretProblem ?? "journeyIdSecret is not usable."
-          });
+          reportSecretProblem(secretProblem ?? "journeyIdSecret is not usable.");
           return undefined;
         }
-        if (!isEntity(entity)) {
-          diagnostics.report({
-            kind: "configuration_error",
-            reason:
-              "journeyIdFor needs an entity whose type and id are strings, so it returned a random journey id."
-          });
+        const problem = entityProblem(entity);
+        if (problem !== undefined) {
+          diagnostics.report({ kind: "configuration_error", reason: problem });
           return undefined;
         }
         return deriveJourneyId(secret, resolved.environment, entity);

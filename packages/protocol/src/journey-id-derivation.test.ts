@@ -21,6 +21,12 @@ interface Fixture {
     entity: { type: string; id: string };
     journeyId: string;
   }[];
+  refused: {
+    name: string;
+    secret: string;
+    environment: string;
+    entity: { type: string; id: string };
+  }[];
 }
 
 const fixture = JSON.parse(
@@ -51,6 +57,31 @@ describe("journey id derivation vectors", () => {
         )
         .digest("hex");
       expect(vector.journeyId).toBe(`${fixture.algorithm.prefix}${mac.slice(0, 32)}`);
+    }
+  );
+
+  it.each(fixture.refused.map((one) => [one.name, one] as const))(
+    "lists a refused entity that encoding would confuse with a vector: %s",
+    (_name, one) => {
+      // The reason to refuse: UTF-8 encoding replaces the unpaired surrogate,
+      // so the entity would derive the same id as its well-formed replacement.
+      expect(one.entity.type.isWellFormed() && one.entity.id.isWellFormed()).toBe(false);
+      const replaced = {
+        type: one.entity.type.toWellFormed(),
+        id: one.entity.id.toWellFormed()
+      };
+      expect(Buffer.from(one.entity.id, "utf8")).toEqual(Buffer.from(replaced.id, "utf8"));
+      if (one.entity.id !== replaced.id) {
+        expect(
+          fixture.vectors.some(
+            (vector) =>
+              vector.entity.id === replaced.id &&
+              vector.entity.type === replaced.type &&
+              vector.environment === one.environment &&
+              vector.secret === one.secret
+          )
+        ).toBe(true);
+      }
     }
   );
 

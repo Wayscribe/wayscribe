@@ -1,5 +1,5 @@
 {
-  "comment": "Test vectors for deriving a journey id from an entity under a secret the host configures (docs/SDK_SPEC.md SDK-55, ADR-052). Computed independently of the Node SDK. An SDK that implements the derivation reproduces every one.",
+  "comment": "Test vectors for deriving a journey id from an entity under a secret the host configures (docs/SDK_SPEC.md SDK-55, ADR-053). Computed independently of the Node SDK. An SDK that implements the derivation reproduces every one.",
   "algorithm": {
     "mac": "HMAC-SHA256",
     "key": "the UTF-8 bytes of the secret, at least 32 bytes",
@@ -57,7 +57,7 @@
       "environment": "production",
       "entity": {
         "type": "customer",
-        "id": "顧客-42 José"
+        "id": "\u9867\u5ba2-42 Jos\u00e9"
       },
       "journeyId": "jrn_9befbf2c9cb306f014e6d24588f1b48c"
     },
@@ -90,6 +90,37 @@
         "id": "bc"
       },
       "journeyId": "jrn_36d3f707b064a260431361731f1b32d7"
+    },
+    {
+      "name": "an id holding U+FFFD itself, which a lone surrogate must not be confused with",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "customer",
+        "id": "a\ufffd"
+      },
+      "journeyId": "jrn_2ea707f806ad145a0f58353072af0893"
+    }
+  ],
+  "refusedComment": "Entities an SDK must not derive an id for: text that is not well-formed UTF-16 cannot be encoded as UTF-8 without replacing a code unit, so it would share an id with the replacement. Report it and return a random id.",
+  "refused": [
+    {
+      "name": "an id holding an unpaired surrogate",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "customer",
+        "id": "a\ud800"
+      }
+    },
+    {
+      "name": "a type holding an unpaired surrogate",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "\udc00customer",
+        "id": "a"
+      }
     }
   ]
 }

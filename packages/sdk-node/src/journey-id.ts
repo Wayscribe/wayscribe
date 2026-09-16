@@ -62,6 +62,41 @@ export function deriveJourneyId(
   return `${PREFIX}${mac.digest("hex").slice(0, HEX_CHARACTERS)}`;
 }
 
+/**
+ * Why an entity cannot be derived from, or undefined when it can.
+ *
+ * Text that is not well-formed UTF-16 cannot be encoded as UTF-8 without
+ * replacing its unpaired surrogates with U+FFFD, so `"a\uD800"` would derive
+ * the id of `"a\uFFFD"`. The server refuses such an entity id anyway.
+ */
+export function entityProblem(entity: unknown): string | undefined {
+  if (!isEntity(entity)) {
+    return "journeyIdFor needs an entity whose type and id are strings, so it returned a random journey id.";
+  }
+  if (!entity.type.isWellFormed() || !entity.id.isWellFormed()) {
+    return "journeyIdFor was given an entity whose type or id holds an unpaired surrogate, which cannot be encoded faithfully, so it returned a random journey id.";
+  }
+  return undefined;
+}
+
+let warnedAboutSecret = false;
+
+/**
+ * Whether this process has yet to print the missing-secret warning, marking it
+ * printed. Once per process, not per recorder: a job that creates a recorder
+ * per task should not print it per task.
+ */
+export function firstSecretWarning(): boolean {
+  if (warnedAboutSecret) return false;
+  warnedAboutSecret = true;
+  return true;
+}
+
+/** For tests: the next missing-secret warning prints again. */
+export function forgetSecretWarning(): void {
+  warnedAboutSecret = false;
+}
+
 export function isEntity(value: unknown): value is { type: string; id: string } {
   if (typeof value !== "object" || value === null) return false;
   const { type, id } = value as { type?: unknown; id?: unknown };

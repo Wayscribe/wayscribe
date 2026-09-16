@@ -290,7 +290,8 @@ may differ; it should be able to say why.
 
 ## 9. Diagnostics
 
-- **SDK-40.** An SDK MUST be silent by default. Debug output is opt-in.
+- **SDK-40.** An SDK MUST be silent by default. Debug output is opt-in. The one
+  exception is the warning SDK-56 allows, at most once per process.
 - **SDK-41.** A printed diagnostic MUST NOT contain a payload, an API key, a
   message from the server, or the endpoint's path or query. A path or a query
   can carry a credential.
@@ -425,14 +426,21 @@ predictable journey id is the risk `INGESTION_CONTRACT.md` section 5 describes.
   this order: the label `journey-id/v1`, the recorder's environment, the entity
   type and the entity id, each written as a 4-byte big-endian length followed
   by its UTF-8 bytes. The id MUST be the journey id prefix followed by the first
-  32 lowercase hex characters of the MAC, and MUST reproduce every vector in
+  32 lowercase hex characters of the MAC. An SDK MUST NOT derive for an entity
+  whose type or id is not well-formed text (in UTF-16, one holding an unpaired
+  surrogate): encoding would replace the bad code unit and give it the id of
+  the replacement, and the server refuses such an id anyway. It MUST reproduce
+  every vector in
   `packages/protocol/fixtures/journey-id-derivation.json`. The SDK MUST NOT read
   the secret from an environment variable of its own.
-- **SDK-56.** Deriving without a usable secret, or for an entity whose type and
-  id are not strings, MUST NOT throw and MUST NOT fail startup. The SDK MUST
-  report it, and MUST return a fresh unpredictable journey id rather than an
-  unkeyed derivation. A secret too short to use MUST be reported when the
-  recorder is created, and MUST NOT be used.
+- **SDK-56.** Deriving without a usable secret, or for an entity that SDK-55
+  refuses or whose type and id are not strings, MUST NOT throw and MUST NOT
+  fail startup. The SDK MUST report it, and MUST return a fresh unpredictable
+  journey id rather than an unkeyed derivation. A secret too short to use MUST
+  be reported when the recorder is created, and MUST NOT be used. Because a
+  missing secret splits every derived journey without anybody noticing, an SDK
+  SHOULD also print one warning for it per process even when debug output is
+  off.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
@@ -486,5 +494,5 @@ either.
 | SDK-48, SDK-49 | Assert trace correlation works with the tracing library present and that the SDK works without it. |
 | SDK-50 | Assert the recorder reads no ambient environment variable of its own. |
 | SDK-55 | Reproduce every vector in `packages/protocol/fixtures/journey-id-derivation.json`, and assert the result is accepted by your own propagation extraction. |
-| SDK-56 | Derive without a secret, with a short one, and for an entity that is not a pair of strings; assert nothing throws, each is reported, the ids differ call to call, and a short secret is reported at creation. |
+| SDK-56 | Derive without a secret, with a short one, for each entity the fixture's `refused` list names, and for an entity that is not a pair of strings; assert nothing throws, each is reported, the ids differ call to call, a short secret is reported at creation, and a missing or short secret prints one warning per process with debug output off. |
 | SDK-52 | Record a payload with a secret-named field holding a string over the limit and assert it arrives masked and is not counted as truncated; cut a payload and then force its omission and assert it is counted once, as omitted. |

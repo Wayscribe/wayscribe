@@ -209,6 +209,21 @@ export function createDiagnostics(
   };
 }
 
+/**
+ * One diagnostic printed whatever `log` says, formatted and bounded like any
+ * other printed line, with `note` saying why it was printed.
+ *
+ * For the one warning SDK-40 allows by default: a misconfiguration that splits
+ * journeys and that nothing else would bring to anybody's attention.
+ */
+export function printDiagnostic(diagnostic: Diagnostic, note: string): void {
+  try {
+    write(`${PREFIX} ${diagnostic.kind}: ${printable(diagnostic.reason)} (${note})`);
+  } catch {
+    // As in report(): formatting must not become a failure of its own.
+  }
+}
+
 function plural(repeats: number): string {
   return `${String(repeats)} ${repeats === 1 ? "repeat" : "repeats"}`;
 }

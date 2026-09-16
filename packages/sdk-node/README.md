@@ -219,7 +219,12 @@ kept, and nothing links them to the new ones.
 `configuration_error`, counts it in `configurationErrors`, and returns a fresh
 random id, so recording carries on and the journeys split until the secret is
 set. A secret shorter than 32 bytes is reported once when the recorder is
-created, and never used. The SDK reads no environment variable for it: the
+created, and never used. Because split journeys are easy to miss, a missing or
+short secret also prints one line to stderr, once per process, even with
+`logDiagnostics` off; it is the only thing the SDK prints unasked. An entity
+whose type or id holds an unpaired surrogate is refused the same way (reported,
+random id, no warning line): it cannot be encoded faithfully, and the server
+refuses such an id anyway. The SDK reads no environment variable for it: the
 variable name above is your application's. Assert
 `recorder.diagnostics().configurationErrors === 0` in a test to catch a missing
 secret before it ships.

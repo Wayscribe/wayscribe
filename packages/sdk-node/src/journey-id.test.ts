@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder, type RecorderConfig } from "./index.js";
+import { forgetSecretWarning } from "./journey-id.js";
 import { extractHttpContext } from "./propagation.js";
 
 /**
@@ -26,7 +27,7 @@ const fixture = JSON.parse(
     new URL("../../protocol/fixtures/journey-id-derivation.json", import.meta.url),
     "utf8"
   )
-) as { vectors: Vector[] };
+) as { vectors: Vector[]; refused: Omit<Vector, "journeyId">[] };
 
 const base: RecorderConfig = {
   endpoint: "http://127.0.0.1:1",
@@ -140,6 +141,120 @@ describe("journeyIdFor", () => {
       expect(id).toMatch(/^jrn_/);
       expect(diagnostics.map((d) => d.kind)).toEqual(["configuration_error"]);
       expect(() => recorder.journeyIdFor(undefined as never)).not.toThrow();
+    });
+  });
+
+  describe("an entity that cannot be encoded faithfully", () => {
+    it("refuses a lone surrogate rather than deriving the id of its replacement", () => {
+      // UTF-8 encoding turns an unpaired surrogate into U+FFFD, so "a\uD800"
+      // and "a\uFFFD" would derive one id. Such an id is unstorable on the
+      // server anyway.
+      const { recorder, diagnostics } = recorderWith({ journeyIdSecret: SECRET });
+      const replaced = recorder.journeyIdFor({ type: "customer", id: "a\uFFFD" });
+      expect(recorder.journeyIdFor({ type: "customer", id: "a\uFFFD" })).toBe(replaced);
+
+      const lone = { type: "customer", id: "a\uD800" };
+      const first = recorder.journeyIdFor(lone);
+      expect(first).not.toBe(replaced);
+      expect(first).not.toBe(recorder.journeyIdFor(lone));
+      expect(diagnostics.map((d) => d.kind)).toEqual([
+        "configuration_error",
+        "configuration_error"
+      ]);
+      expect(diagnostics[0]?.reason).toContain("unpaired surrogate");
+    });
+
+    it("refuses one in the entity type too", () => {
+      const { recorder } = recorderWith({ journeyIdSecret: SECRET });
+      recorder.journeyIdFor({ type: "\uDC00x", id: "1" });
+      expect(recorder.diagnostics().configurationErrors).toBe(1);
+    });
+
+    it.each(fixture.refused.map((one) => [one.name, one] as const))(
+      "refuses the fixture's entity: %s",
+      (_name, one) => {
+        const { recorder } = recorderWith({
+          environment: one.environment,
+          journeyIdSecret: one.secret
+        });
+        const id = recorder.journeyIdFor(one.entity);
+        expect(id).toMatch(/^jrn_/);
+        expect(fixture.vectors.map((vector) => vector.journeyId)).not.toContain(id);
+        expect(recorder.diagnostics().configurationErrors).toBe(1);
+      }
+    );
+  });
+
+  describe("the warning a missing secret prints", () => {
+    const printed = (): { lines: string[]; restore: () => void } => {
+      const lines: string[] = [];
+      const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+        lines.push(String(line));
+      });
+      return {
+        lines,
+        restore: () => {
+          spy.mockRestore();
+        }
+      };
+    };
+
+    beforeEach(() => {
+      forgetSecretWarning();
+    });
+
+    it("prints one line per process, with logDiagnostics off", () => {
+      const { lines, restore } = printed();
+      try {
+        const first = recorderWith({}).recorder;
+        first.journeyIdFor({ type: "a", id: "1" });
+        first.journeyIdFor({ type: "a", id: "2" });
+        recorderWith({ journeyIdSecret: "too short" }).recorder.journeyIdFor({
+          type: "a",
+          id: "3"
+        });
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toContain("configuration_error");
+        expect(lines[0]).toContain("journeyIdSecret");
+        expect(lines[0]).toContain("once per process");
+      } finally {
+        restore();
+      }
+    });
+
+    it("prints for a short secret at creation, and never the secret", () => {
+      const { lines, restore } = printed();
+      try {
+        recorderWith({ journeyIdSecret: "a short secret value" });
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).not.toContain("a short secret value");
+      } finally {
+        restore();
+      }
+    });
+
+    it("prints nothing when the secret is fine or never needed", () => {
+      const { lines, restore } = printed();
+      try {
+        recorderWith({ journeyIdSecret: SECRET }).recorder.journeyIdFor({ type: "a", id: "1" });
+        recorderWith({}).recorder.startJourney({ entity: { type: "a", id: "1" } });
+        expect(lines).toEqual([]);
+      } finally {
+        restore();
+      }
+    });
+
+    it("prints nothing for an entity it refuses: that is not a missing secret", () => {
+      const { lines, restore } = printed();
+      try {
+        recorderWith({ journeyIdSecret: SECRET }).recorder.journeyIdFor({
+          type: "a",
+          id: "\uD800"
+        });
+        expect(lines).toEqual([]);
+      } finally {
+        restore();
+      }
     });
   });
 

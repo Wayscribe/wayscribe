@@ -2177,6 +2177,11 @@ kept and nothing links them.
 - The derivation is a SHOULD. An SDK without it still conforms.
 - The prefix is the one random ids carry, and will change with the rename; the vectors will be
   regenerated then.
+- After review: an entity holding an unpaired surrogate is refused rather than derived, since
+  UTF-8 encoding would give it the id of its U+FFFD replacement; the fixture lists such
+  entities under `refused`. And a missing or short secret prints one warning per process even
+  with `logDiagnostics` off, the one exception to SDK-40, because a counter nobody reads does
+  not stop journeys splitting in production.
 
 ---
 

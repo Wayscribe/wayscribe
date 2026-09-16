@@ -588,6 +588,12 @@ changes far less often.
 
 ### Fixed
 
+- **`journeyIdFor` refuses an entity it cannot encode faithfully, and a missing
+  secret is no longer silent.** An entity id holding an unpaired surrogate was
+  encoded with U+FFFD in its place, so `"a\uD800"` and `"a�"` derived one
+  id; such an entity is now reported and gets a random id, and the vectors list
+  it under `refused`. A missing or short `journeyIdSecret` now also prints one
+  warning line per process even with `logDiagnostics` off.
 - **`captureInput` records the input as it was at the call.** The projection
   ran before the callback, but what it returned was copied only once the
   callback had finished, so `captureInput: (i) => ({ items: i.items })` around a
