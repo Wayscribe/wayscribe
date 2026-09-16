@@ -239,6 +239,21 @@ describe("parseRecentJourneysQuery", () => {
     }
   );
 
+  it("repeats only the start of a long unknown key", () => {
+    const key = `${"k".repeat(31)}\u{1D11E}${"x".repeat(5000)}`;
+    expect(parse({ since: "2026-09-14T12:00:00Z", [key]: "x" })).toEqual({
+      ok: false,
+      message: `${"k".repeat(31)}\u{1D11E}… is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, limit, cursor.`
+    });
+  });
+
+  it("repeats a key of exactly 32 characters whole", () => {
+    const key = "k".repeat(32);
+    const parsed = parse({ since: "2026-09-14T12:00:00Z", [key]: "x" });
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.message.startsWith(`${key} is not`)).toBe(true);
+  });
+
   it("accepts limit and cursor, which are parsed elsewhere", () => {
     expect(parse({ since: "2026-09-14T12:00:00Z", limit: "5", cursor: "abc" }).ok).toBe(true);
   });

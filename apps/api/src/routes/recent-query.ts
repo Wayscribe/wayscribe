@@ -78,7 +78,7 @@ export function parseRecentJourneysQuery(query: unknown, now: Date): ParsedRecen
     if (!(RECENT_JOURNEYS_PARAMETERS as readonly string[]).includes(key)) {
       return {
         ok: false,
-        message: `${key} is not a parameter of this list. Known parameters: ${RECENT_JOURNEYS_PARAMETERS.join(", ")}.`
+        message: `${echoedKey(key)} is not a parameter of this list. Known parameters: ${RECENT_JOURNEYS_PARAMETERS.join(", ")}.`
       };
     }
   }
@@ -166,6 +166,26 @@ function instant(
   const parsed = new Date(raw.value);
   if (Number.isNaN(parsed.getTime())) return { ok: false, message: instantMessage(name) };
   return { ok: true, value: parsed };
+}
+
+/**
+ * How much of an unknown key the refusal repeats. Enough to recognise a typo;
+ * a key of any length would otherwise be copied back whole into the response
+ * and the request log.
+ */
+const ECHOED_KEY_LENGTH = 32;
+
+function echoedKey(key: string): string {
+  // By code point, as every length here is counted, so an astral character
+  // is never split in half.
+  let kept = "";
+  let count = 0;
+  for (const character of key) {
+    if (count === ECHOED_KEY_LENGTH) return `${kept}…`;
+    kept += character;
+    count += 1;
+  }
+  return kept;
 }
 
 function codePoints(value: string): number {

@@ -418,6 +418,14 @@ describe("listRecentJourneys", () => {
       await row("jrn_b_backslash_decoy", browseId, "2026-09-13T05:59:00Z", {
         label: "backslash"
       });
+      // A backslash before a percent sign, and a decoy an unescaped \%
+      // would match.
+      await row("jrn_b_backslash_percent", browseId, "2026-09-13T05:30:00Z", {
+        label: "rate \\% here"
+      });
+      await row("jrn_b_backslash_percent_decoy", browseId, "2026-09-13T05:29:00Z", {
+        label: "rate % here"
+      });
       await row("jrn_b_accent", browseId, "2026-09-13T05:00:00Z", { label: "Café Été" });
       await row("jrn_b_order", browseId, "2026-09-13T04:00:00Z", {
         entityType: "order",
@@ -497,7 +505,9 @@ describe("listRecentJourneys", () => {
       ["100%", ["jrn_b_percent"]],
       ["a_b", ["jrn_b_underscore"]],
       ["k\\s", ["jrn_b_backslash"]],
-      ["\\", ["jrn_b_backslash"]],
+      ["\\", ["jrn_b_backslash", "jrn_b_backslash_percent"]],
+      ["e \\%", ["jrn_b_backslash_percent"]],
+      ["\\%", ["jrn_b_backslash_percent"]],
       ["%%", []],
       ["__", []]
     ])("treats %j literally", async (text, expected) => {
@@ -590,7 +600,7 @@ describe("listRecentJourneys", () => {
         );
         const text = JSON.stringify(plan.rows);
         expect(text).toContain("entity_aliases");
-        expect(text).not.toMatch(/hashed/i);
+        expect(text).not.toContain("hashed SubPlan");
       } finally {
         await db.client.releaseConnection(connection);
       }

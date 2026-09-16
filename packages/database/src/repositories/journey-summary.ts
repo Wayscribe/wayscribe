@@ -19,7 +19,8 @@ export interface DisplayableAlias {
  * alias written before that migration has no copy yet and is left out until
  * an event states it again. The subquery runs once per returned row: the
  * `(project_id, journey_id, ...)` unique index finds a journey's aliases, and
- * PostgreSQL evaluates it after the limit when the list is read in index order.
+ * PostgreSQL defers a costly select-list expression past the limit, whether
+ * the rows come from an index in order or from a sort under the limit.
  */
 export function journeySummaryColumns(db: Knex): (string | Knex.Raw)[] {
   return [

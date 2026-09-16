@@ -129,6 +129,19 @@ describe("GET /v1/journeys browse filters", () => {
       timestamp: hoursAgo(7),
       journeyLabel: "100% a_b back\\slash"
     });
+    // A backslash before a percent sign, and one at the very end.
+    await ingest(browseKey, "browse", {
+      id: "evt_escape",
+      journeyId: "jrn_escape",
+      timestamp: hoursAgo(8),
+      journeyLabel: "rate \\% of total, ends with \\"
+    });
+    await ingest(browseKey, "browse", {
+      id: "evt_escape_decoy",
+      journeyId: "jrn_escape_decoy",
+      timestamp: hoursAgo(8.5),
+      journeyLabel: "rate \\ of total, rate % of total"
+    });
     await ingest(browseKey, "browse", {
       id: "evt_decoy",
       journeyId: "jrn_decoy",
@@ -242,6 +255,11 @@ describe("GET /v1/journeys browse filters", () => {
         "an unknown key",
         "entity_type=order",
         "entity_type is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, limit, cursor."
+      ],
+      [
+        "a long unknown key, repeated only in part",
+        `${"k".repeat(40)}=1`,
+        `${"k".repeat(32)}… is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, limit, cursor.`
       ]
     ])("refuses %s with invalid_query", async (_name, query, message) => {
       const url =
@@ -329,7 +347,14 @@ describe("GET /v1/journeys browse filters", () => {
     ["a_b", ["jrn_literal"]],
     ["k\\s", ["jrn_literal"]],
     ["%%", []],
-    ["__", []]
+    ["__", []],
+    // Unescaped, \% would be read as an escaped percent sign and match "e %".
+    ["e \\%", ["jrn_escape"]],
+    ["\\%", ["jrn_escape"]],
+    // Unescaped, a trailing backslash is an invalid LIKE pattern: an error,
+    // not an empty page.
+    ["with \\", ["jrn_escape"]],
+    ["h \\", ["jrn_escape"]]
   ])("treats %j literally", async (text, expected) => {
     expect(ids(await get(list(q(text))))).toEqual(expected);
   });

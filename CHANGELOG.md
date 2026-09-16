@@ -15,6 +15,18 @@ changes far less often.
 
 ### Changed
 
+- **`GET /v1/journeys` refuses a query key it does not read.** An unknown key
+  used to be ignored, so a misspelt filter such as `entity_type=order`
+  returned an unfiltered list that looked filtered. It is now `400
+  invalid_query`, and the message names the start of the key and lists the
+  parameters the route reads. A client that sends extra keys has to drop them.
+- **List and search rows carry `label`, `lastStep` and `displayableAliases`.**
+  Each row of `GET /v1/journeys` and `GET /v1/search` now has the journey's
+  label (or null), the name of its latest event (or null), and the aliases a
+  reader may see in full as `{ type, value }`, in alias type order. A masked
+  alias is never listed. `GET /v1/journeys/:journeyId`, and the dry run's
+  `stored.journey`, gain `label` and `lastStep`; aliases stay masked as before.
+
 - **`GET /v1/journeys` says what `since` should be when it is missing or
   malformed.** The refusal was `since is required.`; it now names the format
   and gives an example instant, and `API_SPEC.md` says at the top of the route
@@ -133,6 +145,15 @@ changes far less often.
   not tracked, so a burst during a flush could exceed the cap by one set.
 
 ### Added
+
+- **`GET /v1/journeys` filters by time range, entity type and text.** `until`
+  ends the window (an instant after `since`, exclusive), `entityType` matches
+  one entity type exactly, and `q` (2 to 200 characters) matches, ignoring
+  case, the journey label or the value of a displayable alias. `q` never
+  matches a masked alias, an entity id or a journey id; `%`, `_` and `\` in
+  it are ordinary characters. It filters inside the `since`/`until` window, so
+  its cost follows the window, not the table. See `docs/API_SPEC.md` section 6
+  for what "ignoring case" means on a given database.
 
 - **The SDK can name a journey.** `journey.label(text)`, or `label` in the
   options of `startJourney`, sets the text the Journeys page will show for the
