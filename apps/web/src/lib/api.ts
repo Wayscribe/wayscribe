@@ -7,6 +7,12 @@ export interface SearchItem {
   eventCount: number;
   startedAt: string;
   lastEventAt: string;
+  /** Public display text the instrumenting code set, or null. */
+  label: string | null;
+  /** The step name of the latest event, or null for a journey recorded before it was kept. */
+  lastStep: string | null;
+  /** Only aliases marked displayable (ADR-053), in alias-type order, in plain text. */
+  displayableAliases: { type: string; value: string }[];
 }
 
 export interface JourneyDetail {
@@ -186,21 +192,21 @@ export async function search(query: string, projectId: string): Promise<SearchIt
   return data?.items ?? [];
 }
 
-export interface RecentItem extends SearchItem {
+export interface JourneyListRow extends SearchItem {
   environment: string;
 }
 
-export interface RecentPage {
-  items: RecentItem[];
+export interface JourneyListPage {
+  items: JourneyListRow[];
   nextCursor: string | null;
 }
 
 /**
- * One page of recent journeys. `query` comes from `recentJourneysQuery`, which
- * owns what the Recent page's filters mean.
+ * One page of the journey list. `query` comes from `journeysApiQuery`, which
+ * owns what the Journeys page's filters mean.
  */
-export async function listRecentJourneys(query: string, projectId: string): Promise<RecentPage> {
-  const data = await get<RecentPage>(`/v1/journeys?${query}`, projectId);
+export async function listJourneys(query: string, projectId: string): Promise<JourneyListPage> {
+  const data = await get<JourneyListPage>(`/v1/journeys?${query}`, projectId);
   return data ?? { items: [], nextCursor: null };
 }
 

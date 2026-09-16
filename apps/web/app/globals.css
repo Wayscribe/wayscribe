@@ -152,7 +152,16 @@ button {
   color: var(--muted);
 }
 
-/* A heading with a link to the other way in: search or recent. */
+/* The two ways in, above every signed-in page. */
+.site-nav {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+/* A heading with the other ways in: search, or a status shortcut. */
 .page-heading {
   display: flex;
   gap: 0.75rem;
@@ -160,23 +169,167 @@ button {
   justify-content: space-between;
   flex-wrap: wrap;
 }
+.shortcuts {
+  display: flex;
+  gap: 0.75rem;
+}
+.shortcuts a[aria-current="true"] {
+  color: var(--fg);
+  font-weight: 600;
+}
 
-/* Recent journeys: a plain GET form of filters, wrapping on a narrow screen. */
-.recent-filters {
+/* Hidden on screen, still read by a screen reader. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Journeys: a plain GET form of filters, wrapping on a narrow screen. */
+.journey-filters {
   display: flex;
   gap: 0.75rem;
   align-items: flex-end;
   flex-wrap: wrap;
   margin: 1rem 0;
 }
-.recent-filters label {
+.journey-filters .field {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
 }
-.recent-summary {
+.journey-filters input,
+.journey-filters select {
+  max-width: 100%;
+}
+.journey-filters .field-contains {
+  flex: 1 1 100%;
+}
+/* A fieldset's minimum width is otherwise its content's, which is two date
+   inputs side by side: wider than a phone. */
+.journey-filters .range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.journey-filters .range legend {
+  padding: 0;
+}
+.journey-filters .hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.8rem;
+}
+.filter-notes {
+  list-style: none;
+  margin: 0 0 1rem;
+}
+.journeys-summary {
   font-weight: 600;
   margin: 0.5rem 0;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
+.empty-state p {
+  margin: 0.5rem 0;
+}
+
+/* One line per journey. A fixed layout sizes the columns from the header, not
+   from the content, so a 200-character label or a long alias value is cut
+   with an ellipsis instead of widening the page. */
+.journey-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.journey-table th {
+  text-align: left;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 500;
+}
+.journey-table th,
+.journey-table td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.journey-table tbody tr:hover {
+  background: var(--panel);
+}
+.journey-table td > a {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.journey-table .col-activity {
+  width: 9.5rem;
+  color: var(--muted);
+}
+.journey-table .col-status {
+  width: 6.5rem;
+}
+.journey-table .col-type {
+  width: 16%;
+}
+.journey-table .col-step {
+  width: 20%;
+}
+.journey-table .col-events {
+  width: 4.5rem;
+  text-align: right;
+}
+.journey-table .shown-label {
+  font-weight: 600;
+}
+.journey-table .shown-entity {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 40rem) {
+  /* A phone keeps what a row is shown as, and drops the two columns the
+     journey page repeats; the date sits above the time. */
+  .journey-table .col-type,
+  .journey-table .col-step {
+    display: none;
+  }
+  .journey-table .col-activity {
+    width: 5.5rem;
+  }
+  .journey-table .col-activity .day {
+    display: block;
+  }
+  .journey-table .col-status {
+    width: 5.75rem;
+  }
+  /* "COMPLETED" fits whole without the wide letter spacing. */
+  .journey-table .col-status .status {
+    font-size: 0.7rem;
+    letter-spacing: 0;
+  }
+  .journey-table .col-events {
+    width: 3.5rem;
+  }
+}
+
 .pager {
   margin-top: 1rem;
 }

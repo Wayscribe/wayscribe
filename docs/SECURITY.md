@@ -81,7 +81,7 @@ without a nonce would need `'unsafe-inline'`, which would allow an injected scri
 too; `apps/web/middleware.ts` sets the nonce and Next puts it on its own scripts.
 Every response also carries `X-Frame-Options: DENY`, `Referrer-Policy:
 no-referrer`, and `X-Content-Type-Options: nosniff`, and no `X-Powered-By`. The
-browser suite fails on any policy violation on the search, journey, recent,
+browser suite fails on any policy violation on the search, journey, journeys,
 replay, and delete pages.
 
 ### Replay abuse

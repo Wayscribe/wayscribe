@@ -100,9 +100,15 @@ One changed field. The fix works, tested against the input that actually failed.
 
 That is the whole loop: **find where the value was lost, then prove the fix.**
 
-No identifier yet, only an alert that deliveries are failing? The Recent page
-lists the journeys that failed in the last hour, day or week, narrowed by
-environment and service, and each one opens the same timeline.
+No identifier yet, only an alert that deliveries are failing? The Journeys page
+lists what happened in the last hour, day, week or month, or in a range you
+choose, narrowed by status, entity type, environment, service, or part of a
+journey's label or displayable alias. Its Failures shortcut shows only what
+failed, and each row opens the same timeline.
+
+![The Journeys page: a filter bar above a table of journeys with their last
+activity, status, entity type, what each is shown as, last step and event
+count](docs/images/journeys.png)
 
 ---
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiUnavailableError, InvalidPageLinkError, listRecentJourneys } from "./api";
+import { ApiUnavailableError, InvalidPageLinkError, listJourneys } from "./api";
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -21,10 +21,10 @@ afterEach(() => {
 const error = (code: string): Response =>
   json({ error: { code, message: "m", requestId: "r" } }, 400);
 
-describe("listRecentJourneys", () => {
+describe("listJourneys", () => {
   it("returns the page", async () => {
     fetchMock.mockResolvedValueOnce(json({ data: { items: [], nextCursor: "c" } }));
-    expect(await listRecentJourneys("since=x", "project-1")).toEqual({
+    expect(await listJourneys("since=x", "project-1")).toEqual({
       items: [],
       nextCursor: "c"
     });
@@ -37,7 +37,7 @@ describe("listRecentJourneys", () => {
       // A hand-edited or stale link. Reporting it as an outage sent people to
       // check a running API.
       fetchMock.mockResolvedValueOnce(error(code));
-      await expect(listRecentJourneys("since=x", "project-1")).rejects.toBeInstanceOf(
+      await expect(listJourneys("since=x", "project-1")).rejects.toBeInstanceOf(
         InvalidPageLinkError
       );
     }
@@ -45,12 +45,12 @@ describe("listRecentJourneys", () => {
 
   it("still reports any other failure as the API being unavailable", async () => {
     fetchMock.mockResolvedValueOnce(error("something_else"));
-    await expect(listRecentJourneys("since=x", "p")).rejects.toBeInstanceOf(ApiUnavailableError);
+    await expect(listJourneys("since=x", "p")).rejects.toBeInstanceOf(ApiUnavailableError);
 
     fetchMock.mockResolvedValueOnce(new Response("oops", { status: 400 }));
-    await expect(listRecentJourneys("since=x", "p")).rejects.toBeInstanceOf(ApiUnavailableError);
+    await expect(listJourneys("since=x", "p")).rejects.toBeInstanceOf(ApiUnavailableError);
 
     fetchMock.mockResolvedValueOnce(new Response("{}", { status: 500 }));
-    await expect(listRecentJourneys("since=x", "p")).rejects.toBeInstanceOf(ApiUnavailableError);
+    await expect(listJourneys("since=x", "p")).rejects.toBeInstanceOf(ApiUnavailableError);
   });
 });

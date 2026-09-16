@@ -80,3 +80,83 @@ for (const width of [400, 1280]) {
     expect(cut).toBe(true);
   });
 }
+
+/**
+ * The Journeys table: a 200-character label (the most a label may hold) and
+ * alias values of 300 and 500 characters are cut in their column. Stamped per
+ * run rather than versioned, because the list only shows recent activity.
+ */
+const LIST_RUN = Date.now().toString(36);
+const LIST_SERVICE = `e2e-layout-list-${LIST_RUN}`;
+const LONG_LABEL = `label-${LIST_RUN}-`.padEnd(200, "l");
+const LONG_ALIASES = {
+  company: `company-${"c".repeat(292)}`,
+  url: `https://jobs.example.test/${"p".repeat(474)}`
+};
+
+async function seedList(): Promise<void> {
+  const journeys = [
+    // The aliased journey is newer, so it lists first.
+    { suffix: "labelled", label: LONG_LABEL, secondsAgo: 2 },
+    { suffix: "aliased", label: undefined, secondsAgo: 1 }
+  ];
+  for (const { suffix, label, secondsAgo } of journeys) {
+    const id = `evt_layout_list_${suffix}_${LIST_RUN}`;
+    const response = await fetch(`${API_URL}/v1/events`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        protocolVersion: "0.1",
+        event: {
+          id,
+          journeyId: `jrn_e2e_layout_list_${suffix}_${LIST_RUN}`,
+          environment: "development",
+          service: LIST_SERVICE,
+          entity: { type: `entity-${"t".repeat(120)}`, id: `layout-list-${suffix}-${LIST_RUN}` },
+          operation: "failed",
+          name: STEP,
+          timestamp: new Date(Date.now() - secondsAgo * 1000).toISOString(),
+          aliases: LONG_ALIASES,
+          displayableAliases: ["company", "url"],
+          ...(label === undefined ? {} : { journeyLabel: label })
+        }
+      })
+    });
+    expect(response.ok, `seeding ${id} answered ${String(response.status)}`).toBe(true);
+  }
+}
+
+test.describe("the Journeys table", () => {
+  test.beforeAll(seedList);
+
+  for (const width of [400, 1280]) {
+    test(`long labels and alias values do not scroll sideways at ${String(width)} px`, async ({
+      page
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await signIn(page, JOURNEY_ID);
+      await page.goto(`/journeys?service=${LIST_SERVICE}`);
+      const shown = page.locator("tbody td.col-shown a");
+      await expect(shown).toHaveCount(2);
+      await expect(shown.nth(1)).toHaveText(LONG_LABEL);
+      // Joined alias values are cut to 200 characters before the stylesheet cuts them again.
+      await expect(shown.nth(0)).toHaveText(`${LONG_ALIASES.company.slice(0, 199)}…`);
+
+      expect(await horizontalOverflow(page)).toBe(0);
+
+      // The table keeps to the page, and each long value is cut rather than wrapped.
+      const tableBox = await page.locator("table").boundingBox();
+      const mainBox = await page.locator("main").boundingBox();
+      expect(tableBox?.width).toBeLessThanOrEqual(mainBox?.width ?? 0);
+      for (const index of [0, 1]) {
+        const cell = shown.nth(index);
+        expect(await cell.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+          true
+        );
+        const box = await cell.boundingBox();
+        // One line: no taller than two lines of the table's text.
+        expect(box?.height).toBeLessThan(40);
+      }
+    });
+  }
+});

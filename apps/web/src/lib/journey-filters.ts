@@ -1,0 +1,395 @@
+/**
+ * The Journeys page's filters, read from its URL.
+ *
+ * The page is a plain GET form, so everything here arrives as query-string
+ * text a person can edit. Values the API would refuse are set aside rather
+ * than sent: a hand-edited URL should still show a sensible page, and the API
+ * would otherwise refuse the request and the page could only say so. What was
+ * set aside is named in `notes`, so the page never silently shows a wider list
+ * than the one asked for.
+ */
+
+export const JOURNEY_STATUSES = ["failed", "active", "completed"] as const;
+/** An empty string is "any status": what the form's first option sends. */
+export type JourneyStatusFilter = (typeof JOURNEY_STATUSES)[number] | "";
+
+export const JOURNEY_PRESETS = {
+  "1h": { label: "last hour", milliseconds: 60 * 60 * 1000 },
+  "24h": { label: "last 24 hours", milliseconds: 24 * 60 * 60 * 1000 },
+  "7d": { label: "last 7 days", milliseconds: 7 * 24 * 60 * 60 * 1000 },
+  "30d": { label: "last 30 days", milliseconds: 30 * 24 * 60 * 60 * 1000 }
+} as const;
+export type JourneyPreset = keyof typeof JOURNEY_PRESETS;
+export type JourneyWindow = JourneyPreset | "custom";
+
+const DEFAULT_PRESET: JourneyPreset = "24h";
+
+/** The API's bounds for `q`, in code points (docs/API_SPEC.md section 6). */
+const MIN_TEXT_LENGTH = 2;
+const MAX_TEXT_LENGTH = 200;
+/** The API's bound for `entityType`, the longest type ingestion accepts. */
+const MAX_ENTITY_TYPE_LENGTH = 128;
+
+export interface JourneyFilters {
+  /** Partial text over labels and displayable alias values. Empty means none. */
+  q: string;
+  status: JourneyStatusFilter;
+  window: JourneyWindow;
+  /** Empty means any entity type. */
+  entityType: string;
+  /** Empty means every environment. */
+  environment: string;
+  /** Empty means any service. */
+  service: string;
+  /** The instant the list starts from, ISO-8601. */
+  since: string;
+  /** The instant the list ends before, ISO-8601; empty means up to now. */
+  until: string;
+  /** What the custom range inputs show; empty under a preset. */
+  sinceInput: string;
+  untilInput: string;
+  /** Empty on the first page. */
+  cursor: string;
+  /** Filters that were set aside, in words the page shows. */
+  notes: string[];
+}
+
+type SearchParams = Record<string, string | string[] | undefined>;
+
+export function readJourneyFilters(params: SearchParams, now: Date): JourneyFilters {
+  const notes: string[] = [];
+
+  const rawStatus = single(params["status"]);
+  const status: JourneyStatusFilter =
+    rawStatus !== undefined && isStatus(rawStatus) ? rawStatus : "";
+
+  const rawWindow = single(params["window"]);
+  const requested: JourneyWindow =
+    rawWindow === "custom" || (rawWindow !== undefined && isPreset(rawWindow))
+      ? rawWindow
+      : DEFAULT_PRESET;
+
+  let cursor = single(params["cursor"]) ?? "";
+  const rawSince = single(params["since"]);
+  const rawUntil = single(params["until"]);
+
+  const q = text(params["q"], "contains", notes, (value) => {
+    const length = codePoints(value);
+    return length < MIN_TEXT_LENGTH || length > MAX_TEXT_LENGTH
+      ? `Contains needs ${String(MIN_TEXT_LENGTH)} to ${String(MAX_TEXT_LENGTH)} characters, so it was left out.`
+      : null;
+  });
+  const entityType = text(params["entityType"], "entity type", notes, (value) =>
+    codePoints(value) > MAX_ENTITY_TYPE_LENGTH
+      ? `An entity type is at most ${String(MAX_ENTITY_TYPE_LENGTH)} characters, so that filter was left out.`
+      : null
+  );
+  const environment = text(params["environment"], "environment", notes, () => null);
+  const service = text(params["service"], "service", notes, () => null);
+
+  let window: JourneyWindow = requested;
+  let since: string;
+  let until = "";
+  let sinceInput = "";
+  let untilInput = "";
+
+  if (requested === "custom") {
+    const range = customRange(rawSince, rawUntil, now);
+    if (range.ok) {
+      since = range.since;
+      until = range.until;
+      sinceInput = toDateTimeLocal(range.since);
+      untilInput = range.until === "" ? "" : toDateTimeLocal(range.until);
+    } else {
+      notes.push(
+        `The custom range was not used (${range.reason}), so this shows the ${JOURNEY_PRESETS[DEFAULT_PRESET].label}.`
+      );
+      window = DEFAULT_PRESET;
+      since = presetSince(DEFAULT_PRESET, now);
+      // Echoed so the reader can correct what they typed.
+      sinceInput = rawSince ?? "";
+      untilInput = rawUntil ?? "";
+    }
+  } else {
+    // A next-page link carries the since its first page used. Recomputing it
+    // from the preset would slide the list under the cursor between pages. It
+    // is honoured only beside a cursor, because that is the only link that
+    // carries one for a preset: a bare `?since=2000-…&window=1h` would
+    // otherwise list years of journeys under "in the last hour". Anything that
+    // is not an instant this function could have written is recomputed too.
+    since =
+      cursor !== "" && rawSince !== undefined && isOwnInstant(rawSince, now)
+        ? rawSince
+        : presetSince(requested, now);
+  }
+
+  // The API does not refuse a cursor sent with different filters: it lists
+  // the rows those filters match after that position. A cursor from a list
+  // whose filters were just set aside would continue a different list under
+  // this one's heading, so start from the top instead.
+  if (notes.length > 0) cursor = "";
+
+  return {
+    q,
+    status,
+    window,
+    entityType,
+    environment,
+    service,
+    since,
+    until,
+    sinceInput,
+    untilInput,
+    cursor,
+    notes
+  };
+}
+
+/**
+ * An instant written the way a `datetime-local` input shows it, in UTC.
+ * Seconds and milliseconds appear only when there are any, as a browser
+ * writes them.
+ */
+export function toDateTimeLocal(iso: string): string {
+  const minutes = iso.slice(0, 16);
+  const seconds = iso.slice(17, 19);
+  const milliseconds = iso.slice(20, 23);
+  if (milliseconds !== "000") return `${minutes}:${seconds}.${milliseconds}`;
+  if (seconds !== "00") return `${minutes}:${seconds}`;
+  return minutes;
+}
+
+/** The query string for `GET /v1/journeys`. */
+export function journeysApiQuery(filters: JourneyFilters): string {
+  const query = new URLSearchParams({ since: filters.since });
+  // `readJourneyFilters` only ever sets an until after since; the API refuses
+  // anything else, so this is the one place that would have to check again.
+  if (filters.until !== "") query.set("until", filters.until);
+  if (filters.status !== "") query.set("status", filters.status);
+  if (filters.environment !== "") query.set("environment", filters.environment);
+  if (filters.service !== "") query.set("service", filters.service);
+  if (filters.entityType !== "") query.set("entityType", filters.entityType);
+  if (filters.q !== "") query.set("q", filters.q);
+  if (filters.cursor !== "") query.set("cursor", filters.cursor);
+  return query.toString();
+}
+
+/**
+ * The link to the page after this one: every filter, the same range.
+ *
+ * Every filter, because a cursor holds only a position: a link that dropped
+ * one would continue an unfiltered list from there.
+ */
+export function nextPageHref(filters: JourneyFilters, cursor: string): string {
+  const query = filterQuery(filters);
+  query.set("since", filters.since);
+  query.set("until", filters.until);
+  query.set("cursor", cursor);
+  return `/journeys?${query.toString()}`;
+}
+
+/**
+ * The same filters from the newest journey. A preset starts again from now;
+ * a custom range is the filter itself, so it stays.
+ */
+export function firstPageHref(filters: JourneyFilters): string {
+  const query = filterQuery(filters);
+  if (filters.window === "custom") {
+    query.set("since", filters.since);
+    query.set("until", filters.until);
+  }
+  return `/journeys?${query.toString()}`;
+}
+
+/** The same filters with another status, from the top: the Failures shortcut. */
+export function statusHref(filters: JourneyFilters, status: JourneyStatusFilter): string {
+  return firstPageHref({ ...filters, status });
+}
+
+/** Each filter that is set, in words: `contains "acme"`, `status failed`. */
+export function activeFilterList(filters: JourneyFilters): string[] {
+  const parts: string[] = [];
+  if (filters.q !== "") parts.push(`contains "${filters.q}"`);
+  if (filters.status !== "") parts.push(`status ${filters.status}`);
+  if (filters.entityType !== "") parts.push(`entity type ${filters.entityType}`);
+  if (filters.environment !== "") parts.push(`environment ${filters.environment}`);
+  if (filters.service !== "") parts.push(`service ${filters.service}`);
+  parts.push(rangeWords(filters));
+  return parts;
+}
+
+/**
+ * What an empty list says. The page adds, beside it, what partial text can
+ * match, because an identifier typed into Contains finds nothing.
+ */
+export function emptyListMessage(filters: JourneyFilters): string {
+  if (filters.cursor !== "") return "No more journeys.";
+  return `No journeys match: ${activeFilterList(filters).join(", ")}.`;
+}
+
+/** "Failed journeys in the last 24 hours, in production, containing "acme"". */
+export function describeJourneyFilters(filters: JourneyFilters): string {
+  const subject =
+    filters.status === ""
+      ? "Journeys"
+      : `${filters.status.charAt(0).toUpperCase()}${filters.status.slice(1)} journeys`;
+  const range = filters.window === "custom" ? rangeWords(filters) : `in ${rangeWords(filters)}`;
+  const parts = [
+    `${subject} ${range}`,
+    filters.environment === "" ? "all environments" : `in ${filters.environment}`
+  ];
+  if (filters.entityType !== "") parts.push(`entity type ${filters.entityType}`);
+  if (filters.service !== "") parts.push(`from ${filters.service}`);
+  if (filters.q !== "") parts.push(`containing "${filters.q}"`);
+  return parts.join(", ");
+}
+
+/**
+ * Where an old `/recent` link goes: the same query string on `/journeys`.
+ *
+ * The Recent page listed failures when no status was named, and its links and
+ * bookmarks (the search page's "See recent failures" among them) relied on
+ * that. The Journeys page defaults to any status, so a Recent link without a
+ * status gains `status=failed` and still shows what it always showed. A named
+ * status, including the empty "any", is kept as it came.
+ */
+export function recentRedirectHref(params: SearchParams): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+    for (const item of typeof value === "string" ? [value] : value) query.append(key, item);
+  }
+  if (!query.has("status")) query.set("status", "failed");
+  return `/journeys?${query.toString()}`;
+}
+
+function filterQuery(filters: JourneyFilters): URLSearchParams {
+  return new URLSearchParams({
+    q: filters.q,
+    status: filters.status,
+    window: filters.window,
+    entityType: filters.entityType,
+    environment: filters.environment,
+    service: filters.service
+  });
+}
+
+function rangeWords(filters: JourneyFilters): string {
+  if (filters.window !== "custom") return `the ${JOURNEY_PRESETS[filters.window].label}`;
+  const since = readable(filters.since);
+  return filters.until === ""
+    ? `since ${since} UTC`
+    : `from ${since} to ${readable(filters.until)} UTC`;
+}
+
+/** `2026-09-10 08:00`, with seconds when there are any. */
+function readable(iso: string): string {
+  return toDateTimeLocal(iso).replace("T", " ");
+}
+
+function presetSince(preset: JourneyPreset, now: Date): string {
+  return new Date(now.getTime() - JOURNEY_PRESETS[preset].milliseconds).toISOString();
+}
+
+type Range = { ok: true; since: string; until: string } | { ok: false; reason: string };
+
+/**
+ * A custom range from the form's two `datetime-local` inputs, read as UTC
+ * because every time on the page is UTC, or from the instants a next-page
+ * link carries. Checked against what the API refuses: a start in the future,
+ * and an end that is not after the start.
+ */
+function customRange(rawSince: string | undefined, rawUntil: string | undefined, now: Date): Range {
+  if (rawSince === undefined || rawSince === "") return { ok: false, reason: "choose a start" };
+  const since = rangeInstant(rawSince);
+  if (since === null) return { ok: false, reason: "the start is not a date and time" };
+  if (Date.parse(since) > now.getTime()) {
+    return { ok: false, reason: "the start is in the future" };
+  }
+
+  if (rawUntil === undefined || rawUntil === "") return { ok: true, since, until: "" };
+  const until = rangeInstant(rawUntil);
+  if (until === null) return { ok: false, reason: "the end is not a date and time" };
+  if (Date.parse(until) <= Date.parse(since)) {
+    return { ok: false, reason: "the end must be after the start" };
+  }
+  return { ok: true, since, until };
+}
+
+const DATETIME_LOCAL = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
+
+/**
+ * The canonical instant for a `datetime-local` value in UTC, or for an
+ * instant this page wrote; null for anything else. Written out in full and
+ * compared after parsing, so an impossible date such as 30 February, which
+ * `Date` would roll into March, is refused rather than moved.
+ */
+function rangeInstant(value: string): string | null {
+  if (isOwnInstant(value, null)) return value;
+  const match = DATETIME_LOCAL.exec(value);
+  if (match === null) return null;
+  const [, date, minutes, seconds = "00", fraction = ""] = match;
+  const candidate = `${date ?? ""}T${minutes ?? ""}:${seconds}.${fraction.padEnd(3, "0")}Z`;
+  const parsed = new Date(candidate);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === candidate ? candidate : null;
+}
+
+/**
+ * Leaves out a text filter the API would refuse, with a note saying so.
+ * `check` returns the note for a value outside the API's bounds.
+ */
+function text(
+  raw: string | string[] | undefined,
+  name: string,
+  notes: string[],
+  check: (value: string) => string | null
+): string {
+  const value = single(raw)?.trim() ?? "";
+  if (value === "") return "";
+  // PostgreSQL refuses a NUL in a comparison, so the API refuses it too.
+  if (value.includes(String.fromCharCode(0))) {
+    notes.push(`The ${name} filter held a character that cannot be searched, so it was left out.`);
+    return "";
+  }
+  const note = check(value);
+  if (note !== null) {
+    notes.push(note);
+    return "";
+  }
+  return value;
+}
+
+function codePoints(value: string): number {
+  let count = 0;
+  for (const _ of value) count += 1;
+  return count;
+}
+
+function single(value: string | string[] | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function isStatus(value: string): value is (typeof JOURNEY_STATUSES)[number] {
+  return (JOURNEY_STATUSES as readonly string[]).includes(value);
+}
+
+function isPreset(value: string): value is JourneyPreset {
+  return Object.hasOwn(JOURNEY_PRESETS, value);
+}
+
+/**
+ * Whether `value` is an instant this page could have written: the canonical
+ * ISO form with a four-digit year, and, when `now` is given, not later than
+ * it. `toISOString` writes `+010000-…` for far-future years, which
+ * round-trips but which the API refuses, and a future since is refused too;
+ * either would leave the page with nothing to show but an error.
+ */
+function isOwnInstant(value: string, now: Date | null): boolean {
+  const parsed = new Date(value);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    /^\d{4}-/.test(value) &&
+    parsed.toISOString() === value &&
+    (now === null || parsed.getTime() <= now.getTime())
+  );
+}
