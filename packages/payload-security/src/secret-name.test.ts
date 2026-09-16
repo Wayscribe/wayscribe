@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
-import { looksLikeSecretName } from "./secret-name.js";
+import { looksLikeSecretName, SECRET_NAME_TERMS } from "./secret-name.js";
 
 /**
  * Names as real APIs write them, each with where it comes from.
@@ -160,6 +160,19 @@ describe("looksLikeSecretName", () => {
 
   it.each(NOT_SECRET)("rejects %s (%s)", (name) => {
     expect(looksLikeSecretName(name)).toBe(false);
+  });
+
+  it("finds every term in its own table", () => {
+    // The lookup is keyed by a term's last three characters, so a shorter
+    // term, or a lower-case rule broken by an upper-case entry, would never
+    // match and nothing else would say so.
+    for (const { term, qualifiers, alone } of SECRET_NAME_TERMS) {
+      expect(term.length, term).toBeGreaterThanOrEqual(3);
+      expect(term, term).toBe(term.toLowerCase());
+      expect(looksLikeSecretName(term), term).toBe(alone ?? true);
+      const qualified = `${qualifiers?.[0] ?? "vendor"}${term}`;
+      expect(looksLikeSecretName(qualified), qualified).toBe(true);
+    }
   });
 
   it("accepts every built-in secret name, so the walk is what keeps them quiet", () => {

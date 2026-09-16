@@ -32,6 +32,7 @@ import {
 import { acceptLabel } from "./label.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
+import { createSecretNameWarnings, type PayloadField } from "./secret-names.js";
 import {
   deriveJourneyId,
   entityProblem,
@@ -243,7 +244,6 @@ export interface Recorder {
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
 const UNCAPTURABLE = "[UNCAPTURABLE]";
 
-type PayloadField = "input" | "output" | "metadata";
 const PAYLOAD_FIELDS: readonly PayloadField[] = ["input", "output", "metadata"];
 
 /** A captured payload, and how many of its strings were cut, if any were. */
@@ -657,6 +657,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
     });
   }
   const queue = new BoundedQueue<unknown>(resolved.maxBufferedEvents, diagnostics);
+  const secretNames = createSecretNameWarnings({
+    diagnostics,
+    knownSafeNames: new Set(resolved.knownSafeNames),
+    logDiagnostics: resolved.logDiagnostics
+  });
   // Resolved once: record() is synchronous, so this cannot be an async import.
   const readTrace = createTraceReader();
   let stopped = false;
@@ -801,9 +806,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // Sanitized, then cut. Cutting a masked string cannot reveal anything the
       // mask hid, and every string that leaves this process is one PostgreSQL
       // will accept and the server's string limit allows.
+      //
+      // The redaction walk also reports what it kept under a name that reads
+      // as a secret, so the warning costs no second walk (ADR-055).
       const stats: TruncationStats = { strings: 0, charactersRemoved: 0 };
       const stored = truncateStrings(
-        toStorable(redact(value, resolved.redact)),
+        toStorable(redact(value, resolved.redact, secretNames.observerFor(field))),
         MAX_STRING_LENGTH,
         stats
       );

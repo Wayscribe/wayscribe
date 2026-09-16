@@ -19,7 +19,10 @@ export type FailureKind =
   | "payload_omitted"
   | "payload_truncated"
   | "key_dropped"
-  | "configuration_error";
+  | "configuration_error"
+  // A warning rather than a failure: the event is sent unchanged. Here so it
+  // shares the one diagnostic shape, `{ kind, reason, detail }` (ADR-055).
+  | "unredacted_secret_name";
 
 /**
  * `delivered_first` is the one diagnostic that is good news. It exists because
@@ -99,6 +102,12 @@ export interface Counters {
    * notices it did not return what was meant.
    */
   configurationErrors: number;
+  /**
+   * Distinct key names, folded as redaction folds them, this recorder sent in
+   * plain text although they look like secrets (ADR-055). At most 100. The
+   * events were sent unchanged, so this is not part of `dropped`.
+   */
+  unredactedSecretNames: number;
   /** Accepted and stored. Not "handed to fetch" — actually stored. */
   sent: number;
 }
@@ -162,6 +171,7 @@ export function createDiagnostics(
     payloadsTruncated: 0,
     keysDropped: 0,
     configurationErrors: 0,
+    unredactedSecretNames: 0,
     sent: 0
   };
   const log = options.log === true;
@@ -201,6 +211,7 @@ export function createDiagnostics(
       if (diagnostic.kind === "payload_truncated") counters.payloadsTruncated += 1;
       if (diagnostic.kind === "configuration_error") counters.configurationErrors += 1;
       if (diagnostic.kind === "key_dropped") counters.keysDropped += keysIn(diagnostic.detail);
+      if (diagnostic.kind === "unredacted_secret_name") counters.unredactedSecretNames += 1;
 
       if (log) {
         try {

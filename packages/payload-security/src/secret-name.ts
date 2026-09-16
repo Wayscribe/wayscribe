@@ -9,7 +9,7 @@ import { normaliseName } from "./normalise-name.js";
  * term such as `pin` ends too many ordinary words (`spin`, `hairpin`) to be
  * matched as a plain suffix.
  */
-interface Term {
+export interface Term {
   term: string;
   except?: readonly string[];
   qualifiers?: readonly string[];
@@ -24,7 +24,7 @@ interface Term {
  * bare `session` (a Stripe Checkout session id), bare `code`, plurals such as
  * `tokens` (usage counts), and personal data, which is a different question.
  */
-const TERMS: readonly Term[] = [
+export const SECRET_NAME_TERMS: readonly Term[] = [
   {
     term: "token",
     // Pagination, sync and idempotency tokens are cursors, not credentials.
@@ -87,8 +87,8 @@ const TERMS: readonly Term[] = [
  * matching the end is what keeps this precise.
  *
  * Deterministic, and linear in the name's length: one fold, one backward scan
- * for the version suffix, and a constant number of `endsWith` checks against
- * short terms.
+ * for the version suffix, one map lookup on the last three characters, and at
+ * most a few `endsWith` checks against short terms.
  *
  * This is a warning heuristic only. It never decides what is redacted
  * (ADR-055): a diff must not change on a guess.
@@ -100,8 +100,36 @@ export function looksLikeSecretName(name: string): boolean {
 /** {@link looksLikeSecretName} for a name already passed through `normaliseName`. */
 export function looksLikeSecretFoldedName(folded: string): boolean {
   const name = withoutVersion(folded);
-  if (name === "") return false;
-  return TERMS.some((entry) => matchesTerm(name, entry));
+  if (name.length < 3) return false;
+  const candidates = TERMS_BY_TAIL.get(tailOf(name));
+  return candidates !== undefined && candidates.some((entry) => matchesTerm(name, entry));
+}
+
+/**
+ * The terms by their last three characters, three being the length of the
+ * shortest term.
+ *
+ * The walk asks about every key holding a string or a number, which in an
+ * ordinary payload is most of them, and almost none is a secret. Comparing
+ * each with every term cost about half again the time capture takes; one map
+ * lookup rules nearly all of them out and leaves at most a few terms to
+ * compare. The three characters are packed into one number rather than
+ * sliced, so the lookup allocates nothing.
+ */
+const TERMS_BY_TAIL = new Map<number, Term[]>();
+for (const entry of SECRET_NAME_TERMS) {
+  const tail = tailOf(entry.term);
+  TERMS_BY_TAIL.set(tail, [...(TERMS_BY_TAIL.get(tail) ?? []), entry]);
+}
+
+/** The last three UTF-16 code units of a name of at least three, as one number. */
+function tailOf(name: string): number {
+  const end = name.length;
+  return (
+    name.charCodeAt(end - 3) * 0x1_0000_0000 +
+    name.charCodeAt(end - 2) * 0x1_0000 +
+    name.charCodeAt(end - 1)
+  );
 }
 
 function matchesTerm(name: string, { term, except, qualifiers, alone }: Term): boolean {

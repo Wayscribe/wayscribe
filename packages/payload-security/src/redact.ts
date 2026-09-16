@@ -235,11 +235,9 @@ function walk(
         }
         if (observed === undefined) return walk(item, remaining, anyDepth, seen);
         observed.path.push(ANY_INDEX);
-        try {
-          return walk(item, remaining, anyDepth, seen, observed);
-        } finally {
-          observed.path.pop();
-        }
+        const walked = walk(item, remaining, anyDepth, seen, observed);
+        observed.path.pop();
+        return walked;
       });
     }
 
@@ -265,17 +263,15 @@ function walk(
         continue;
       }
       // Kept, so a warning is due if the name reads as a secret. The type test
-      // comes first: it is the cheap one, and most values are not scalars
-      // under such a name.
+      // comes first because it is cheaper than the name test. No `finally`
+      // around the push: the stack belongs to this one call of `redact`, and
+      // a throw abandons it along with the call.
       observed.path.push(key);
-      try {
-        if (isReportable(child) && looksLikeSecretFoldedName(name)) {
-          observed.report(key, joinPath(observed.path));
-        }
-        defineKey(result, key, walk(child, matching, anyDepth, seen, observed));
-      } finally {
-        observed.path.pop();
+      if (isReportable(child) && looksLikeSecretFoldedName(name)) {
+        observed.report(key, joinPath(observed.path));
       }
+      defineKey(result, key, walk(child, matching, anyDepth, seen, observed));
+      observed.path.pop();
     }
     return result;
   } finally {
