@@ -17,9 +17,10 @@
 # registered on npmjs.com, once, before the first release. docs/OPERATIONS.md
 # §11 has the exact values.
 #
-# The package is packed by pnpm and the tarball published by npm. Only pnpm
-# applies `publishConfig.exports` and rewrites `workspace:` ranges, and only npm
-# performs the OIDC exchange, so each does the half it can.
+# The package is packed by packages/sdk-node/scripts/pack.mjs and the tarball
+# published by npm. Only pnpm applies `publishConfig.exports` and rewrites
+# `workspace:` ranges, so the script packs with pnpm, strips the manifest of
+# build-only fields and repacks; only npm performs the OIDC exchange.
 #
 # A script rather than YAML because release logic written inline in CI is never
 # run before the release it is needed for. DRY_RUN=1 runs everything except the
@@ -70,11 +71,9 @@ if [ "${DRY_RUN:-}" != "1" ]; then
   unset NPM_TOKEN NODE_AUTH_TOKEN 2> /dev/null || true
 fi
 
-pnpm --filter @flight-recorder/node build
-
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
-pnpm --filter @flight-recorder/node pack --pack-destination "$OUT" > /dev/null
+node "${PACKAGE_DIR}/scripts/pack.mjs" "$OUT" > /dev/null
 set -- "$OUT"/*.tgz
 if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
   echo "FAIL: expected one tarball in ${OUT}, found: $*" >&2
@@ -83,8 +82,20 @@ fi
 TARBALL="$1"
 
 # The manifest a user installs, checked rather than trusted: a published
-# `development` condition would point at src/, which is not in the tarball, and
-# a `workspace:` range cannot be installed from the registry.
+# `development` condition would point at src/, which is not in the tarball, a
+# `workspace:` range cannot be installed from the registry, and build-only
+# fields are noise in every user's node_modules.
+#
+# And the files: the bundle, one declaration file, the README and the licence,
+# and nothing else. Thirteen internal declaration files and their maps once
+# shipped, importable under legacy module resolution and failing at runtime.
+FILES="$(tar -tzf "$TARBALL" | sort | tr '\n' ' ')"
+EXPECTED="package/LICENSE package/README.md package/dist/index.d.ts package/dist/index.js package/package.json "
+if [ "$FILES" != "$EXPECTED" ]; then
+  echo "FAIL: the tarball holds ${FILES}; expected ${EXPECTED}" >&2
+  exit 1
+fi
+
 tar -xzOf "$TARBALL" package/package.json | node -e '
   let text = "";
   process.stdin.on("data", (chunk) => (text += chunk));
@@ -95,6 +106,8 @@ tar -xzOf "$TARBALL" package/package.json | node -e '
     if (JSON.stringify(manifest.exports ?? {}).includes("development")) {
       problems.push("a development export condition");
     }
+    if (manifest.devDependencies !== undefined) problems.push("devDependencies");
+    if (manifest.scripts !== undefined) problems.push("scripts");
     if (!/gitlab\.com\/jojithedev\/flight-recorder/.test(manifest.repository?.url ?? "")) {
       problems.push("a repository.url npm cannot match to this project for provenance");
     }

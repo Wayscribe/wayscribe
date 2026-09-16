@@ -1,8 +1,84 @@
+import type { Entity } from "./types.js";
+
+/**
+ * Carrying a journey across a process boundary: in HTTP headers, in SQS
+ * message attributes, or in an envelope around a payload.
+ *
+ * The rule for the names is `inject<Carrier>` and `extract<Carrier>Context`,
+ * as OpenTelemetry's propagators have it. The header, attribute and envelope
+ * names themselves carry the product's name, which is about to change, so all
+ * of this is experimental until the propagation specification settles them.
+ */
+
+/**
+ * What crosses a boundary. `journey-only`: the journey id. `journey-and-type`:
+ * the journey id and the entity type. `full`: those and the entity id. Aliases
+ * never cross, at any level.
+ *
+ * @experimental The names and grammar wait on the propagation specification.
+ */
 export type PropagationLevel = "journey-only" | "journey-and-type" | "full";
 
+/**
+ * A journey as it crossed a boundary: its id, and its entity when the level
+ * sent one. A journey's own context is one.
+ *
+ * @experimental As `PropagationLevel`.
+ */
 export interface PropagatedContext {
   journeyId: string;
-  entity?: { type: string; id: string };
+  entity?: Entity | undefined;
+}
+
+/**
+ * Anything `extractHttpContext` reads: a fetch `Headers`, or a plain object of
+ * header names to values such as Node's `IncomingHttpHeaders`. Values that are
+ * not strings are ignored, and of a list the first is read.
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export type HttpHeadersInput =
+  | { get(name: string): string | null }
+  | Readonly<Record<string, string | readonly string[] | number | undefined>>;
+
+/**
+ * One SQS or SNS message attribute, as `injectSqsAttributes` writes it.
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export interface SqsMessageAttributeValue {
+  DataType: string;
+  StringValue: string;
+}
+
+/**
+ * SQS or SNS message attributes, by name.
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export type SqsMessageAttributes = Record<string, SqsMessageAttributeValue>;
+
+/**
+ * A payload with the journey beside it, for a carrier with no headers or
+ * attributes. The envelope's key carries the product's name and changes with
+ * it.
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export interface ContextEnvelope<T> {
+  _flight: { journeyId: string; entityType?: string; entityId?: string };
+  data: T;
+}
+
+/**
+ * What `extractPayload` returns: the payload, and the journey when the body
+ * was an envelope that carried a usable one.
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export interface ExtractedPayload {
+  context?: PropagatedContext;
+  data: unknown;
 }
 
 const HEADER_JOURNEY = "x-flight-journey-id";
@@ -12,6 +88,31 @@ const HEADER_ENTITY_ID = "x-flight-entity-id";
 const ATTR_JOURNEY = "flightJourneyId";
 const ATTR_ENTITY_TYPE = "flightEntityType";
 const ATTR_ENTITY_ID = "flightEntityId";
+
+const HEADERS: ReadonlySet<string> = new Set([
+  HEADER_JOURNEY,
+  HEADER_ENTITY_TYPE,
+  HEADER_ENTITY_ID
+]);
+const ATTRIBUTES: ReadonlySet<string> = new Set([ATTR_JOURNEY, ATTR_ENTITY_TYPE, ATTR_ENTITY_ID]);
+
+/**
+ * A copy of `carrier` without the journey's own names. A carrier forwarded
+ * from an inbound message still holds that journey's values, and merging over
+ * them would pair an old entity id with the new journey whenever the level
+ * does not send one. HTTP names compare without case; SQS names with it.
+ */
+function without<C extends object>(
+  carrier: C,
+  names: ReadonlySet<string>,
+  fold: (name: string) => string
+): C {
+  const copy: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(carrier)) {
+    if (!names.has(fold(name))) copy[name] = value;
+  }
+  return copy as C;
+}
 
 const MAX_VALUE_LENGTH = 256;
 // Printable, no whitespace or control characters: enough for our own identifiers,
@@ -73,7 +174,7 @@ export function injectHttpHeaders(
   const fields = fieldsFor(context, level);
   // A copy: mutating the caller's header object would surprise anyone reusing it.
   return {
-    ...headers,
+    ...without(headers, HEADERS, (name) => name.toLowerCase()),
     [HEADER_JOURNEY]: fields.journeyId,
     ...(fields.entityType === undefined ? {} : { [HEADER_ENTITY_TYPE]: fields.entityType }),
     ...(fields.entityId === undefined ? {} : { [HEADER_ENTITY_ID]: fields.entityId })
@@ -81,27 +182,47 @@ export function injectHttpHeaders(
 }
 
 export function extractHttpContext(
-  headers: Record<string, string | string[] | undefined> | undefined
+  headers: HttpHeadersInput | undefined
 ): PropagatedContext | undefined {
-  if (headers === undefined) return undefined;
-  return build(
-    single(headers[HEADER_JOURNEY]),
-    single(headers[HEADER_ENTITY_TYPE]),
-    single(headers[HEADER_ENTITY_ID])
-  );
+  // Typed as never null, but a plain-JavaScript host can pass anything.
+  const given: unknown = headers;
+  if (typeof given !== "object" || given === null) return undefined;
+  const read = headerReader(given as HttpHeadersInput);
+  return build(read(HEADER_JOURNEY), read(HEADER_ENTITY_TYPE), read(HEADER_ENTITY_ID));
 }
 
-export function toQueueAttributes(
+/**
+ * How to read one header, by its lower-case name. A `Headers` object compares
+ * names without case itself; a plain object is read by the exact name first,
+ * as Node gives it, and then by any key that differs only in case.
+ */
+function headerReader(headers: HttpHeadersInput): (name: string) => string | undefined {
+  const get = (headers as { get?: unknown }).get;
+  if (typeof get === "function") {
+    return (name) => stringOrUndefined((get as (key: string) => unknown).call(headers, name));
+  }
+  const record = headers as Readonly<Record<string, unknown>>;
+  return (name) => {
+    if (Object.hasOwn(record, name)) return single(record[name]);
+    const key = Object.keys(record).find((candidate) => candidate.toLowerCase() === name);
+    return key === undefined ? undefined : single(record[key]);
+  };
+}
+
+export function injectSqsAttributes<A extends object>(
+  attributes: A,
   context: PropagatedContext,
   level: PropagationLevel = "journey-and-type"
-): Record<string, { DataType: string; StringValue: string }> {
+): A & SqsMessageAttributes {
   const fields = fieldsFor(context, level);
-  const attribute = (StringValue: string): { DataType: string; StringValue: string } => ({
+  const attribute = (StringValue: string): SqsMessageAttributeValue => ({
     DataType: "String",
     StringValue
   });
 
+  // A copy, as the HTTP helper makes: the caller may reuse its attributes.
   return {
+    ...without(attributes, ATTRIBUTES, (name) => name),
     [ATTR_JOURNEY]: attribute(fields.journeyId),
     ...(fields.entityType === undefined
       ? {}
@@ -110,7 +231,7 @@ export function toQueueAttributes(
   };
 }
 
-export function fromQueueAttributes(attributes: unknown): PropagatedContext | undefined {
+export function extractSqsContext(attributes: unknown): PropagatedContext | undefined {
   if (typeof attributes !== "object" || attributes === null) return undefined;
   const record = attributes as Record<string, unknown>;
   return build(
@@ -120,15 +241,15 @@ export function fromQueueAttributes(attributes: unknown): PropagatedContext | un
   );
 }
 
-export function wrapPayload(
-  payload: unknown,
+export function injectPayload<T>(
+  payload: T,
   context: PropagatedContext,
   level: PropagationLevel = "journey-and-type"
-): { _flight: Fields; data: unknown } {
+): ContextEnvelope<T> {
   return { _flight: fieldsFor(context, level), data: payload };
 }
 
-export function unwrapPayload(body: unknown): { context?: PropagatedContext; data: unknown } {
+export function extractPayload(body: unknown): ExtractedPayload {
   if (typeof body !== "object" || body === null || !("_flight" in body)) {
     return { data: body };
   }
@@ -159,8 +280,9 @@ function attributeValue(value: unknown): string | undefined {
   return undefined;
 }
 
-function single(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
+/** A header's value: the value itself, or the first of a list, if it is a string. */
+function single(value: unknown): string | undefined {
+  return stringOrUndefined(Array.isArray(value) ? (value as unknown[])[0] : value);
 }
 
 function stringOrUndefined(value: unknown): string | undefined {

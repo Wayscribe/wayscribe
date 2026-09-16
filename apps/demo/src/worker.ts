@@ -43,11 +43,11 @@ function attemptFor(message: Message): number {
 
 async function handleMain(message: Message): Promise<void> {
   const body = JSON.parse(message.Body ?? "{}") as CustomerMessage;
-  const journey = recorder.consume({
-    context: recorder.fromQueueAttributes(message.MessageAttributes),
+  const journey = recorder.continueJourney({
+    context: recorder.extractSqsContext(message.MessageAttributes),
     // The default propagation level omits the entity ID (SECURITY.md section
     // 10), so the consumer supplies the one it already has from the body.
-    entityFallback: { type: "customer", id: body.customer.externalId }
+    entity: { type: "customer", id: body.customer.externalId }
   });
 
   const attempt = attemptFor(message);
@@ -90,15 +90,15 @@ async function handleMain(message: Message): Promise<void> {
 
 async function handleDeadLetter(message: Message): Promise<void> {
   const body = JSON.parse(message.Body ?? "{}") as CustomerMessage;
-  const journey = recorder.consume({
-    context: recorder.fromQueueAttributes(message.MessageAttributes),
-    entityFallback: { type: "customer", id: body.customer.externalId }
+  const journey = recorder.continueJourney({
+    context: recorder.extractSqsContext(message.MessageAttributes),
+    entity: { type: "customer", id: body.customer.externalId }
   });
 
   journey.fail(
     "move-message-to-dead-letter",
     new Error("Delivery failed on every attempt; the message moved to the dead-letter queue."),
-    { queue: "customer-updates-dlq", messageId: message.MessageId }
+    { metadata: { queue: "customer-updates-dlq", messageId: message.MessageId } }
   );
 
   await sqs.send(

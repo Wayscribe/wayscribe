@@ -49,7 +49,7 @@ async function against(
     ...base,
     endpoint: `http://127.0.0.1:${String(port)}`,
     logDiagnostics: true,
-    onDiagnostic: (d) => reasons.push(`${d.kind}|${d.reason}`)
+    onDiagnostic: (d) => reasons.push(`${d.kind}|${d.code}|${d.reason}`)
   });
   const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
   for (let i = 0; i < count; i += 1)
@@ -83,7 +83,9 @@ describe("a 2xx without a verdict for every event", () => {
     const everything = [...run.printed, ...run.reasons].join("\n");
     expect(everything).not.toContain("secret-customer-ssn");
     expect(everything).not.toContain("123-45-6789");
-    expect(run.printed.join("\n")).toContain("no_verdict: unparseable response body");
+    expect(run.printed.join("\n")).toContain(
+      "dropped: The server's reply gave no verdict for this event (unparseable response body)"
+    );
   });
 
   it("counts a JSON body with no results as no verdict", async () => {

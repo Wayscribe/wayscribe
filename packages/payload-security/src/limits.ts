@@ -39,7 +39,7 @@ export const PAYLOAD_DEPTH = 2;
  * The API calls exactly this, and so does the SDK before it sends, which is how
  * the two agree: an event the SDK sends is one this check has already passed.
  * `maxEventBytes` is `MAX_EVENT_PAYLOAD_BYTES` on the server and
- * `maxPayloadBytes` in the SDK, and the two should be set to the same number.
+ * `maxEventBytes` in the SDK, and the two should be set to the same number.
  */
 export function eventLimits(maxEventBytes: number): Limits {
   return { ...DEFAULT_LIMITS, maxBytes: maxEventBytes };
@@ -91,7 +91,7 @@ export function checkLimits(value: unknown, limits: Limits): LimitResult {
     bytes = Buffer.byteLength(serialized ?? "", "utf8");
   } catch {
     // A getter or a toJSON that throws. Not a size problem, and calling it one
-    // sent the operator to raise maxPayloadBytes, which cannot help.
+    // sent the operator to raise maxEventBytes, which cannot help.
     return { ok: false, reason: "unserialisable_payload" };
   }
   return bytes > limits.maxBytes ? { ok: false, reason: "payload_too_large" } : { ok: true };

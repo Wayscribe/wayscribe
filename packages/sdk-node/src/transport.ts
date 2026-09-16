@@ -172,11 +172,16 @@ export class Transport {
           // One per event, so `rejected` counts events as it does for a
           // per-event refusal, and sent, rejected, and dropped add up to what
           // was recorded.
+          const httpStatus = statusOf(error);
           for (const _event of pending) {
             this.diagnostics.report({
               kind: "rejected",
+              code: "request_refused",
               reason: error instanceof Error ? error.message : String(error),
-              detail: { permanent: true, events: pending.length }
+              detail: {
+                events: pending.length,
+                ...(httpStatus === undefined ? {} : { httpStatus })
+              }
             });
           }
           this.giveUp(abandoned, lastRefusal, lastRefusalLine);
@@ -206,6 +211,7 @@ export class Transport {
     this.diagnostics.report(
       {
         kind: "transport_error",
+        code: lastError === undefined ? "refused_for_now" : "request_failed",
         reason: lastError === undefined ? lastRefusal : messageOf(lastError),
         detail: { unsent: pending.length, abandoned: abandoned.length }
       },
@@ -222,7 +228,15 @@ export class Transport {
       this.consecutiveFailures += 1;
       if (this.consecutiveFailures >= this.options.breakerThreshold) {
         this.openedAt = now();
-        this.diagnostics.report({ kind: "breaker_open", reason: "consecutive failures" });
+        this.diagnostics.report({
+          kind: "breaker_opened",
+          code: "consecutive_failures",
+          reason: `${String(this.consecutiveFailures)} sends failed in a row, so sending pauses for ${String(Math.round(this.options.breakerCooldownMs / 1_000))} seconds.`,
+          detail: {
+            failures: this.consecutiveFailures,
+            cooldownMs: this.options.breakerCooldownMs
+          }
+        });
       }
     }
 
@@ -256,7 +270,9 @@ export class Transport {
       this.diagnostics.report(
         {
           kind: "dropped",
-          reason: `The server could not store an event ${bounds}: ${reason}`
+          code: "retry_budget",
+          reason: `The server could not store an event ${bounds}: ${reason}`,
+          detail: {}
         },
         `The server could not store an event ${bounds}: ${logReason}`
       );
@@ -289,6 +305,12 @@ interface Refusal {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The response status the sender attached to a refused request, if any. */
+function statusOf(error: unknown): number | undefined {
+  const status = (error as { httpStatus?: unknown } | null)?.httpStatus;
+  return typeof status === "number" ? status : undefined;
 }
 
 /** Marked by the sender when the server refused the batch outright. */

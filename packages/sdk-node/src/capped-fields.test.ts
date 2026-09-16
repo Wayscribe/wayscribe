@@ -90,7 +90,7 @@ describe("capped keys and fields", () => {
   });
 
   it("drops an alias whose type or value the server would refuse, and keeps the rest", async () => {
-    const { events, counters } = await capture((journey) => {
+    const { events, counters, diagnostics } = await capture((journey) => {
       journey.identify(
         {
           [long]: "x",
@@ -98,14 +98,20 @@ describe("capped keys and fields", () => {
           tooLongValue: "v".repeat(513),
           notAString: 7 as unknown as string
         },
-        { displayable: ["good", long] }
+        { displayableAliases: ["good", long] }
       );
     });
     // No marker among aliases: it would become a searchable alias.
     expect(events[0]?.["aliases"]).toEqual({ good: "y" });
     expect(events[0]?.["displayableAliases"]).toEqual(["good"]);
     expect(valid(events[0])).toBe(true);
-    expect(counters.keysDropped).toBe(4);
+    // Two reports, one per field, covering three aliases and one displayable
+    // type. The counter counts reports; the detail counts entries.
+    expect(counters.keysDropped).toBe(2);
+    expect(diagnostics.filter((d) => d.kind === "key_dropped")).toMatchObject([
+      { code: "alias_invalid", detail: { field: "aliases", keys: 3 } },
+      { code: "displayable_alias_invalid", detail: { field: "displayableAliases", keys: 1 } }
+    ]);
   });
 
   it("keeps a __proto__ alias as an own key", async () => {
@@ -138,7 +144,7 @@ describe("capped keys and fields", () => {
 
   it("changes nothing, and counts nothing, for fields within the caps", async () => {
     const { events, counters } = await capture((journey) => {
-      journey.identify({ [astral]: "y".repeat(512) }, { displayable: [astral] });
+      journey.identify({ [astral]: "y".repeat(512) }, { displayableAliases: [astral] });
     });
     expect(events[0]?.["aliases"]).toEqual({ [astral]: "y".repeat(512) });
     expect(counters.keysDropped).toBe(0);

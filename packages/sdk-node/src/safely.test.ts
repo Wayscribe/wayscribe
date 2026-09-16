@@ -34,7 +34,12 @@ describe("safely", () => {
       throw new Error("specific message");
     });
     expect(onDiagnostic).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "capture_error", reason: "specific message" })
+      expect.objectContaining({
+        kind: "capture_error",
+        code: "unexpected_error",
+        reason: "specific message",
+        detail: { error: new Error("specific message") }
+      })
     );
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder } from "./recorder.js";
 
 const base = {
@@ -10,7 +11,7 @@ const base = {
 
 describe("recorder propagation", () => {
   it("uses the configured level", () => {
-    const recorder = createRecorder({ ...base, propagate: "full" });
+    const recorder = createRecorder({ ...base, propagation: "full" });
     const journey = recorder.startJourney({ entity: { type: "customer", id: "42" } });
     expect(recorder.injectHttpHeaders({}, journey.context())["x-flight-entity-id"]).toBe("42");
   });
@@ -22,15 +23,15 @@ describe("recorder propagation", () => {
   });
 
   it("continues a journey across a simulated process boundary", () => {
-    const producer = createRecorder({ ...base, propagate: "full" });
+    const producer = createRecorder({ ...base, propagation: "full" });
     const journey = producer.startJourney({ entity: { type: "customer", id: "42" } });
-    const attributes = producer.toQueueAttributes(journey.context());
+    const attributes = producer.injectSqsAttributes({}, journey.context());
 
     // A separate recorder instance, as a different process would have.
     const consumer = createRecorder(base);
-    const continued = consumer.consume({
-      context: consumer.fromQueueAttributes(attributes),
-      entityFallback: { type: "customer", id: "42" }
+    const continued = consumer.continueJourney({
+      context: consumer.extractSqsContext(attributes),
+      entity: { type: "customer", id: "42" }
     });
 
     expect(continued.context().journeyId).toBe(journey.context().journeyId);
@@ -44,9 +45,9 @@ describe("recorder propagation", () => {
     const headers = producer.injectHttpHeaders({}, journey.context());
 
     const consumer = createRecorder(base);
-    const continued = consumer.consume({
+    const continued = consumer.continueJourney({
       context: consumer.extractHttpContext(headers),
-      entityFallback: { type: "customer", id: "42" }
+      entity: { type: "customer", id: "42" }
     });
 
     expect(continued.context().journeyId).toBe(journey.context().journeyId);
@@ -55,9 +56,9 @@ describe("recorder propagation", () => {
 
   it("starts a new journey when the inbound context is malformed", () => {
     const consumer = createRecorder(base);
-    const continued = consumer.consume({
-      context: consumer.fromQueueAttributes({ flightJourneyId: "forged" }),
-      entityFallback: { type: "customer", id: "42" }
+    const continued = consumer.continueJourney({
+      context: consumer.extractSqsContext({ flightJourneyId: "forged" }),
+      entity: { type: "customer", id: "42" }
     });
     expect(continued.context().journeyId).toMatch(/^jrn_/);
     expect(continued.context().entity.id).toBe("42");
@@ -86,20 +87,72 @@ describe("propagation cannot break the host", () => {
     expect(result).toEqual(headers);
   });
 
-  it("returns empty attributes rather than throwing", () => {
-    expect(recorder.toQueueAttributes(undefined as unknown as { journeyId: string })).toEqual({});
+  it("returns the caller's attributes rather than throwing", () => {
+    const attributes = { tenant: { DataType: "String", StringValue: "acme" } };
+    expect(
+      recorder.injectSqsAttributes(attributes, undefined as unknown as { journeyId: string })
+    ).toEqual(attributes);
   });
 
   it("returns the payload rather than throwing", () => {
     const payload = { id: 1 };
-    const wrapped = recorder.wrapPayload(payload, undefined as unknown as { journeyId: string });
+    const wrapped = recorder.injectPayload(payload, undefined as unknown as { journeyId: string });
     expect(wrapped.data).toEqual(payload);
   });
 
   it("survives junk on the extract side", () => {
     expect(recorder.extractHttpContext(undefined)).toBeUndefined();
-    expect(recorder.fromQueueAttributes("not an object")).toBeUndefined();
-    expect(recorder.unwrapPayload(null).data).toBeNull();
+    expect(recorder.extractHttpContext(null as never)).toBeUndefined();
+    expect(recorder.extractSqsContext("not an object")).toBeUndefined();
+    expect(recorder.extractPayload(null).data).toBeNull();
+  });
+
+  it("reports a context passed as the only argument, rather than sending it as attributes", () => {
+    const seen: Diagnostic[] = [];
+    const reporting = createRecorder({
+      endpoint: "http://127.0.0.1:1",
+      apiKey: "fr_test",
+      serviceName: "relay",
+      environment: "development",
+      onDiagnostic: (d) => seen.push(d)
+    });
+    const context = { journeyId: "jrn_1111", entity: { type: "customer", id: "C1" } };
+    const call = reporting.injectSqsAttributes.bind(reporting) as unknown as (
+      only: unknown
+    ) => unknown;
+    expect(call(context)).toEqual({});
+    expect(seen.map((d) => [d.kind, d.code])).toEqual([["capture_error", "context_missing"]]);
+  });
+
+  it("reports a missing context with its own code", () => {
+    const seen: Diagnostic[] = [];
+    const reporting = createRecorder({
+      endpoint: "http://127.0.0.1:1",
+      apiKey: "fr_test",
+      serviceName: "relay",
+      environment: "development",
+      onDiagnostic: (d) => seen.push(d)
+    });
+    const headers = { accept: "text/plain" };
+    expect(reporting.injectHttpHeaders(headers, undefined as never)).toEqual(headers);
+    expect(reporting.injectSqsAttributes({}, undefined as never)).toEqual({});
+    expect(reporting.injectPayload(1, undefined as never).data).toBe(1);
+    expect(seen.map((d) => d.code)).toEqual([
+      "context_missing",
+      "context_missing",
+      "context_missing"
+    ]);
+  });
+
+  it("no longer offers the old helper names", () => {
+    for (const name of [
+      "toQueueAttributes",
+      "fromQueueAttributes",
+      "wrapPayload",
+      "unwrapPayload"
+    ]) {
+      expect(name in recorder).toBe(false);
+    }
   });
 
   it("still propagates properly when the context is real", () => {
@@ -115,7 +168,7 @@ describe("an entity id that cannot be a header value", () => {
     apiKey: "fr_test",
     serviceName: "svc",
     environment: "development",
-    propagate: "full"
+    propagation: "full"
   });
 
   it.each([

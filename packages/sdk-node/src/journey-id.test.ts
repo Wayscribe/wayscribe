@@ -95,10 +95,10 @@ describe("journeyIdFor", () => {
       const second = recorder.journeyIdFor(entity);
       expect(first).toMatch(/^jrn_/);
       expect(first).not.toBe(second);
-      expect(recorder.diagnostics().configurationErrors).toBe(2);
-      expect(diagnostics.map((d) => d.kind)).toEqual([
-        "configuration_error",
-        "configuration_error"
+      expect(recorder.counters().configurationErrors).toBe(2);
+      expect(diagnostics.map((d) => [d.kind, d.code])).toEqual([
+        ["configuration_error", "journey_id_secret_missing"],
+        ["configuration_error", "journey_id_secret_missing"]
       ]);
       expect(diagnostics[0]?.reason).toContain("journeyIdSecret");
     });
@@ -106,20 +106,24 @@ describe("journeyIdFor", () => {
     it("reports a short secret once when the recorder is created, and never uses it", () => {
       const short = "only twenty-nine bytes long..";
       const { recorder, diagnostics } = recorderWith({ journeyIdSecret: short });
-      expect(recorder.diagnostics().configurationErrors).toBe(1);
+      expect(recorder.counters().configurationErrors).toBe(1);
+      expect(diagnostics[0]).toMatchObject({
+        code: "journey_id_secret_unusable",
+        detail: { setting: "journeyIdSecret" }
+      });
       expect(diagnostics[0]?.reason).toContain("32 bytes");
       // The secret itself is never repeated back.
       expect(JSON.stringify(diagnostics)).not.toContain(short);
 
       const entity = { type: "customer", id: "1" };
       expect(recorder.journeyIdFor(entity)).not.toBe(recorder.journeyIdFor(entity));
-      expect(recorder.diagnostics().configurationErrors).toBe(3);
+      expect(recorder.counters().configurationErrors).toBe(3);
     });
 
     it("counts bytes, not characters", () => {
       // Sixteen characters of three bytes each: 48 bytes.
       const { recorder } = recorderWith({ journeyIdSecret: "秘".repeat(16) });
-      expect(recorder.diagnostics().configurationErrors).toBe(0);
+      expect(recorder.counters().configurationErrors).toBe(0);
       const entity = { type: "customer", id: "1" };
       expect(recorder.journeyIdFor(entity)).toBe(recorder.journeyIdFor(entity));
     });
@@ -128,7 +132,7 @@ describe("journeyIdFor", () => {
       const { recorder } = recorderWith({
         journeyIdSecret: Buffer.alloc(64) as unknown as string
       });
-      expect(recorder.diagnostics().configurationErrors).toBe(1);
+      expect(recorder.counters().configurationErrors).toBe(1);
       expect(() => recorder.journeyIdFor({ type: "a", id: "b" })).not.toThrow();
     });
 
@@ -139,7 +143,9 @@ describe("journeyIdFor", () => {
         id: string;
       });
       expect(id).toMatch(/^jrn_/);
-      expect(diagnostics.map((d) => d.kind)).toEqual(["configuration_error"]);
+      expect(diagnostics.map((d) => [d.kind, d.code])).toEqual([
+        ["configuration_error", "entity_invalid"]
+      ]);
       expect(() => recorder.journeyIdFor(undefined as never)).not.toThrow();
     });
   });
@@ -167,7 +173,7 @@ describe("journeyIdFor", () => {
     it("refuses one in the entity type too", () => {
       const { recorder } = recorderWith({ journeyIdSecret: SECRET });
       recorder.journeyIdFor({ type: "\uDC00x", id: "1" });
-      expect(recorder.diagnostics().configurationErrors).toBe(1);
+      expect(recorder.counters().configurationErrors).toBe(1);
     });
 
     it.each(fixture.refused.map((one) => [one.name, one] as const))(
@@ -180,7 +186,7 @@ describe("journeyIdFor", () => {
         const id = recorder.journeyIdFor(one.entity);
         expect(id).toMatch(/^jrn_/);
         expect(fixture.vectors.map((vector) => vector.journeyId)).not.toContain(id);
-        expect(recorder.diagnostics().configurationErrors).toBe(1);
+        expect(recorder.counters().configurationErrors).toBe(1);
       }
     );
   });

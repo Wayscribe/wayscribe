@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
-import type { Counters } from "./diagnostics.js";
+import type { Counters, Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Journey, type Recorder } from "./index.js";
 
 /**
@@ -187,14 +187,21 @@ describe("recorder.across", () => {
   });
 
   it("does not break the host when handed something that is not a journey", () => {
+    const seen: Diagnostic[] = [];
     const recorder = createRecorder({
       endpoint: "http://127.0.0.1:1",
       apiKey: "fr_test",
       serviceName: "svc",
-      environment: "development"
+      environment: "development",
+      onDiagnostic: (d) => seen.push(d)
     });
     const group = recorder.across([null, 7, {}] as unknown as []);
     expect(group.transform("t", {}, () => "still runs")).toBe("still runs");
-    expect(recorder.diagnostics().captureErrors).toBeGreaterThan(0);
+    expect(recorder.counters().captureErrors).toBe(3);
+    expect(seen.filter((d) => d.kind === "capture_error").map((d) => d.code)).toEqual([
+      "not_a_journey",
+      "not_a_journey",
+      "not_a_journey"
+    ]);
   });
 });

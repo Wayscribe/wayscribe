@@ -19,9 +19,10 @@ leaves your infrastructure.
 repository and commit the tarball to your application:
 
 ```bash
-# In the clone. `pack` builds first, so the tarball holds the compiled package.
+# In the clone. `pack:release` builds first and prints the tarball's path. Give
+# it an absolute directory: it runs from packages/sdk-node.
 pnpm install
-pnpm --filter @flight-recorder/node pack --pack-destination /path/to/your-app/vendor/
+pnpm --filter @flight-recorder/node run pack:release /path/to/your-app/vendor/
 ```
 
 ```json
@@ -110,14 +111,15 @@ public by nature can be shown in full by listing its type:
 ```typescript
 journey.identify(
   { postingId: posting.id, recruiterEmail: posting.contact },
-  { displayable: ["postingId"] }
+  { displayableAliases: ["postingId"] }
 );
 ```
 
 List the type every time you state the alias: it is shown in full only while
 every event that stated it listed it, so one `identify` without the list masks
-it again for good (ADR-053). `startJourney({ entity, aliases, displayable })`
-and `record({ ..., aliases, displayableAliases })` take the same list. Never
+it again for good (ADR-053). `startJourney({ entity, aliases, displayableAliases })`
+and `record({ ..., aliases, displayableAliases })` take the same list, under the
+same name. Never
 list an email address, a customer number, or anything else a reader of the
 timeline should not see.
 
@@ -147,7 +149,8 @@ received them in, and the recorder sends a journey's events in the order they
 were recorded unless it sends several batches at once (`maxConcurrentSends`),
 in which case a label set within the same millisecond may lose to the one
 before it. The label belongs to the object: a second handle for the same
-journey, from `continueJourney` or `consume`, carries none until you set one,
+journey, from `continueJourney`, carries none until you set one (pass `label`
+to `continueJourney` to set it there),
 and a group made from a journey's context rather than the journey itself
 carries none either. In `recorder.across`, a journey handle made by a
 different recorder carries no label.
@@ -172,8 +175,9 @@ its value unchanged, and rethrow its exact error object. They differ only in the
 operation they record, which is what makes the timeline readable.
 
 **They preserve the shape of your callback.** A callback that returns a value
-returns a value; one that returns a promise returns a promise. So wrapping a
-synchronous call does not change the control flow around it:
+returns a value; one that returns a promise, or any other thenable, returns a
+native promise of its resolved value. So wrapping a synchronous call does not
+change the control flow around it:
 
 ```typescript
 try {
@@ -204,7 +208,8 @@ returns a PDF can record its size and still return the `Buffer`:
 
 ```typescript
 const pdf = await journey.transform("render-invoice", invoice, () => renderPdf(invoice), {
-  captureInput: (input) => ({ invoiceId: (input as Invoice).id }),
+  // Typed from the wrapper's input and the callback's resolved value.
+  captureInput: (input) => ({ invoiceId: input.id }),
   captureOutput: (buffer) => ({ bytes: buffer.length })
 });
 // pdf is the Buffer renderPdf returned, typed as one.
@@ -216,7 +221,7 @@ even when the projection returns objects your callback goes on to change. `captu
 resolved, and receives the resolved value; it is not called when the callback
 throws. Both receive the journey's context as a second argument. Both must be
 synchronous: one that throws or returns a promise records `[UNCAPTURABLE]` and a
-`payload_omitted` diagnostic with reason `projection_failed`, and your call and
+`payload_omitted` diagnostic with code `projection_failed`, and your call and
 its return value are unaffected.
 
 **Retries.** Pass the attempt number and the wrapper records `retried` instead of
@@ -226,6 +231,36 @@ in a different process consuming a redelivered message.
 ```typescript
 await journey.deliver("send-to-crm", payload, () => post(payload), { attempt: 2 });
 ```
+
+## Recording a step yourself
+
+`record` takes an event as it is, for a step no wrapper fits: one that already
+happened, or a verdict that ran no code.
+
+```typescript
+journey.record({
+  operation: "validated", // one of OPERATIONS
+  name: "check-credit",
+  input: application,
+  output: verdict,
+  metadata: { ruleSet: "credit-v2" },
+  startedAt: checkStartedAt, // epoch milliseconds; defaults to now
+  durationMs: 42,
+  error: { message: "limit exceeded", code: "over_limit" } // optional
+});
+
+journey.fail("move-to-dead-letter", error, { metadata: { queue: "orders-dlq" } });
+journey.finish({ status: "completed" }); // or "failed"
+```
+
+`OPERATIONS` is the list of the eleven operations the server accepts, and
+`Operation` is its type. `error` is an `ErrorInput`: `message`, and optionally
+`type`, `code` and `stack`, bounded and masked as [Error messages](#error-messages)
+describes. The wrappers and `fail` never send a stack, and you should not
+either: it is the largest part of an error, and the timeline already shows
+where the failure happened. `fail` is for a terminal failure; a failed attempt
+that will be retried is the attempt's own operation with an error, which the
+wrappers record.
 
 ## The same record, the same journey
 
@@ -271,7 +306,7 @@ whose type or id holds an unpaired surrogate is refused the same way (reported,
 random id, no warning line): it cannot be encoded faithfully, and the server
 refuses such an id anyway. The SDK reads no environment variable for it: the
 variable name above is your application's. Assert
-`recorder.diagnostics().configurationErrors === 0` in a test to catch a missing
+`recorder.counters().configurationErrors === 0` in a test to catch a missing
 secret before it ships.
 
 The derivation is specified in [SDK_SPEC.md](../../docs/SDK_SPEC.md) (SDK-55),
@@ -305,7 +340,8 @@ runs the callback and records nothing.
 ## Crossing a process boundary
 
 A journey that stops at a service boundary is three unrelated timelines. Inject
-context on the way out and extract it on the way in.
+context on the way out, extract it on the way in, and continue the journey
+with what you extracted.
 
 ```typescript
 // Producer
@@ -315,31 +351,78 @@ await sqs.send(
   new SendMessageCommand({
     QueueUrl: url,
     MessageBody: JSON.stringify(message),
-    MessageAttributes: recorder.toQueueAttributes(journey.context())
+    MessageAttributes: recorder.injectSqsAttributes({}, journey.context())
   })
 );
 ```
 
 ```typescript
-// Consumer
-const journey = recorder.consume({
-  context: recorder.fromQueueAttributes(message.MessageAttributes),
-  entityFallback: { type: "customer", id: body.customer.externalId }
+// Consumer of an HTTP request. A fetch Headers object works too.
+const journey = recorder.continueJourney({
+  context: recorder.extractHttpContext(request.headers),
+  entity: { type: "customer", id: body.customer.externalId }
+});
+
+// Consumer of an SQS message
+const journey = recorder.continueJourney({
+  context: recorder.extractSqsContext(message.MessageAttributes),
+  entity: { type: "customer", id: body.customer.externalId }
 });
 ```
 
-`entityFallback` is not optional in practice. By default the entity **ID does not
-propagate** — it is often a real customer identifier, and sending it by default
-would write it into the headers, queue metadata, and logs of systems you may not
-control. The consumer supplies the ID it already has from the message body.
+`continueJourney` takes the journey from `context` when there is one, and
+starts a new journey when there is none, as for a request from a caller that
+does not record. A context without a journey id, such as `{}` or a journey
+handle passed instead of its `context()`, is reported as `journey_id_invalid`
+and treated as absent. `entity` is the entity to use when the context carries
+none, which is the default. By default the entity **ID does not propagate**: it is
+often a real customer identifier, and sending it by default would write it into
+the headers, queue metadata, and logs of systems you may not control. The
+consumer supplies the ID it already has from the message body. A journey id you
+already hold, such as one from `journeyIdFor`, is passed as `journeyId`
+instead of `context`.
 
-| `propagate` | Emits |
+**An entity the server would refuse is not sent.** When `startJourney` or
+`continueJourney` gets no entity, or one whose type or id is not a non-empty
+string, it reports `entity_invalid` and records the journey's steps under the
+entity `{ type: "unknown", id: "unknown" }`, so they are kept rather than
+refused. Search finds them by their aliases and labels; fix the call to have
+them filed under the record. The entity is copied, so changing your object
+afterwards does not change what is recorded.
+
+The helpers return a copy: the headers or attributes you pass are not changed,
+and anything already in them is kept, except a journey's own headers or
+attributes, which are replaced, so forwarding an inbound message's cannot pair
+an old entity id with the new journey. Without a context, `injectHttpHeaders`
+and `injectSqsAttributes` return what you passed and report `context_missing`;
+a context passed as the only argument to `injectSqsAttributes` is not sent as
+attributes. The extract helpers return `undefined` for anything that does not
+carry a well-formed journey.
+
+**A carrier with neither headers nor attributes** can carry the journey in an
+envelope around the payload:
+
+```typescript
+const body = JSON.stringify(recorder.injectPayload(order, journey.context()));
+
+// On the other side
+const { context, data } = recorder.extractPayload(JSON.parse(raw));
+const journey = recorder.continueJourney({ context, entity: { type: "order", id: data.id } });
+```
+
+`extractPayload` returns a body that is not an envelope as `data`, with no
+context, so a consumer can read old and new messages alike.
+
+| `propagation` | Emits |
 | --- | --- |
 | `journey-only` | journey ID |
 | `journey-and-type` (default) | journey ID, entity type |
 | `full` | journey ID, entity type, entity ID |
 
 **Aliases never propagate, at any level.** Not configurable.
+
+The header, attribute and envelope names carry the product's name and will
+change with it, so these helpers are experimental (see [Stability](#stability)).
 
 ## It cannot break your application
 
@@ -349,41 +432,71 @@ no library. This one is built so that cannot happen:
 - Every public entry point is wrapped. A failure inside the recorder increments a
   counter and returns; it never propagates to your code.
 - Wrappers return your callback's value unchanged and rethrow its exact error
-  object — the same instance, so `instanceof` checks and custom properties on
+  object: the same instance, so `instanceof` checks and custom properties on
   your errors keep working.
 - The event queue is bounded. Under backpressure it drops the oldest events and
   counts the drops rather than growing without limit.
 - The transport retries with a circuit breaker, and gives up rather than piling
   up.
 - `shutdown()` never hangs; it races the final flush against a timeout, and
-  counts every event it could not deliver as `dropped`, so `sent`, `rejected`,
-  and `dropped` add up to the events recorded. A payload too large to capture
-  is counted in `payloadsOmitted` instead, and one sent with a string cut in
+  counts every event it could not deliver as `dropped`, so `sent + rejected +
+  dropped` equals `recorded`. A payload too large to capture is counted in
+  `payloadsOmitted` instead, and one sent with a string cut in
   `payloadsTruncated`, because its event is still sent.
 - Nothing is written to your console unless you set `logDiagnostics`, with
-  three exceptions, each printed once per process: a `journeyIdSecret` that
+  four exceptions, each printed once per process: a `journeyIdSecret` that
   cannot be used; a required setting (`endpoint`, `apiKey`, `serviceName`,
   `environment`) that is missing or not a string, since nothing recorded
-  reaches the server until it is fixed; and, once per name, a field whose name
-  looks like a secret that was sent in plain text. A line names the setting or
+  reaches the server until it is fixed; a setting under its old name
+  (`maxPayloadBytes`, `propagate`), since its value is not read; and, once per
+  name, a field whose name looks like a secret that was sent in plain text. A line names the setting or
   the field, never its value. Pass `onDiagnostic` if you want to hear about failures in your own
   logger.
 - A bad configuration value never stops your application starting. It is
   reported as a `configuration_error` and replaced by its default, or clamped
   into range. Values are not converted: `maxBufferedEvents: "5000"`, as read
   from `process.env`, is not a number, so the default is used and reported.
+  An option under the name it had before 0.1 (`maxPayloadBytes`,
+  `propagate`) is not read; it is reported as `setting_renamed`, naming the
+  new option, and printed once per process like a missing required setting.
+- A value your code throws that cannot even be described, such as a revoked
+  Proxy, is still handled: the wrapper rethrows it as it was, and the step is
+  recorded with the error message `The thrown value could not be read.`
 
 ```typescript
 const recorder = createRecorder({
   // ...
-  onDiagnostic: (d) => logger.warn({ kind: d.kind }, d.reason)
+  onDiagnostic: (d) => logger.warn({ kind: d.kind, code: d.code }, d.reason)
 });
-
-const counters = await recorder.shutdown();
-// { dropped, rejected, transportErrors, captureErrors, breakerOpened,
-//   payloadsOmitted, payloadsTruncated, keysDropped, configurationErrors,
-//   unredactedSecretNames, sent }
 ```
+
+## Sending and shutting down
+
+Events are sent in the background, in batches, and never while your code
+waits. Three calls control that:
+
+```typescript
+await recorder.flush(); // send everything queued now, and wait for it
+
+const counters = await recorder.shutdown({ timeoutMs: 2_000 }); // the default
+// { recorded, sent, rejected, dropped, transportErrors, captureErrors,
+//   breakerOpened, payloadsOmitted, payloadsTruncated, keysDropped,
+//   configurationErrors, unredactedSecretNames }
+
+recorder.counters(); // the same numbers, at any time
+```
+
+Call `shutdown()` before the process exits, or the last batch never leaves.
+It stops accepting events, sends what is queued for up to `timeoutMs`, gives up
+the rest, and resolves with the counters. An event recorded after it is not
+sent, and is counted as `recorded` and `dropped`. `flush()` is for a
+short-lived job that records more after sending, such as a test.
+
+**Counters count one thing each.** `recorded` is every event the recorder
+built, and `sent` every event the server stored. Every other counter counts the
+diagnostics of one kind, one per report (see the table below). Once
+`shutdown()` has returned, `sent + rejected + dropped === recorded`, which a
+test can assert.
 
 ## Is it sending?
 
@@ -424,39 +537,71 @@ and masking catches only credential shapes. Flight Recorder's API puts no event
 values in its messages, but the SDK cannot tell that API from a proxy or another
 server that echoes what it was sent, and a console line usually ends up in a
 log store you may not control. The whole message, with the field error, still
-reaches `onDiagnostic` as the diagnostic's `reason`, so while setting up:
+reaches `onDiagnostic` as the diagnostic's `reason`, and its error as
+`detail.serverError`, so while setting up:
 
 ```typescript
 onDiagnostic: (d) => {
-  if (d.kind === "rejected") console.error(d.reason);
+  if (d.kind === "rejected") console.error(d.reason, d.detail.serverError);
 }
 ```
 
-A code that does not look like an identifier prints as `rejected`, and a path
+A server error code that does not look like an identifier prints as `rejected`, and a path
 that does not look like a field path is left out. The same applies to a refusal
 for now (below), whose `transport_error` and `dropped` lines carry the code and
 not the message.
 
 `delivered_first` also reaches `onDiagnostic`, as
-`{ kind: "delivered_first", reason, endpoint, accepted }`, whether or not
-`logDiagnostics` is on. Its `endpoint` is the scheme, host, and port only: a
+`{ kind: "delivered_first", code: "first_delivery", reason, detail: { endpoint, accepted } }`,
+whether or not `logDiagnostics` is on. Its `endpoint` is the scheme, host, and port only: a
 path or query can carry a credential, so neither is reported or printed. It is the only diagnostic that is good news and does not
 change any counter.
 
-| Kind | Means | Counter |
-| --- | --- | --- |
-| `delivered_first` | the server stored events from this recorder for the first time | none |
-| `insecure_endpoint` | the endpoint is `http:` to a dotted name or an IP address off this machine, so the API key travels unencrypted | none |
-| `rejected` | the server understood an event and refused it; it is not retried | `rejected` |
-| `transport_error` | a request failed, or the server could not store an event for now; see below | `transportErrors` |
-| `payload_omitted` | a payload could not fit the server's limits and was replaced by `[PAYLOAD_TOO_LARGE]`; `detail` names the `field` and the `reason`; the event is still sent | `payloadsOmitted` |
-| `payload_truncated` | strings in a payload were longer than the server accepts and were cut; `detail` is `{ field, strings, charactersRemoved }`; the event is still sent | `payloadsTruncated` |
-| `key_dropped` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; `detail` is `{ field, keys }`; the event is still sent | `keysDropped`, per key |
-| `dropped` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it (`no_verdict`) | `dropped` |
-| `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
-| `configuration_error` | a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`, or a configured setting could not be used; the call returned something safe | `configurationErrors` |
-| `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
-| `unredacted_secret_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; `detail` is `{ field, name, path }`, never the value, with the name as written, cut to 128 characters; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `unredactedSecretNames`, per name |
+### Handling diagnostics in code
+
+Every diagnostic is `{ kind, code, reason, detail }`. **Match on `kind` and
+`code`**, never on `reason`: `reason` is a sentence for a person, and its
+wording may change in any release. `detail` is always an object, typed for each
+kind (`PayloadTruncatedDiagnostic`, `DroppedDiagnostic`, and so on), so it can
+be read without a cast once `kind` is narrowed.
+
+```typescript
+onDiagnostic: (d) => {
+  switch (d.kind) {
+    case "dropped":
+      metrics.increment("recorder.dropped", { code: d.code });
+      break;
+    case "payload_truncated":
+      logger.info({ field: d.detail.field, cut: d.detail.charactersRemoved }, d.reason);
+      break;
+    default:
+      // New kinds and codes may arrive in any minor release.
+      logger.warn({ kind: d.kind, code: d.code }, d.reason);
+  }
+}
+```
+
+Keep the `default` branch, and do not assign `d` to `never` in it: a new kind
+would then fail your build rather than reach your logger.
+
+A counter's name follows its kind: `<noun>_<participle>` counts in
+`<nouns><Participle>` (`payload_omitted` in `payloadsOmitted`), `<noun>_error`
+in `<noun>Errors`, and a bare participle in itself (`dropped`).
+
+| Kind | Codes | Means | `detail` | Counter |
+| --- | --- | --- | --- | --- |
+| `delivered_first` | `first_delivery` | the server stored events from this recorder for the first time | `{ endpoint, accepted }` | none |
+| `insecure_endpoint` | `unencrypted_endpoint` | the endpoint is `http:` to a dotted name or an IP address off this machine, so the API key travels unencrypted | `{ scheme, host }` | none |
+| `rejected` | `event_refused`, `request_refused` | the server understood an event and refused it (`event_refused`), or refused a whole request with a 4xx, once per event in it (`request_refused`); it is not retried | `{ serverError }`, or `{ events, httpStatus }` | `rejected` |
+| `transport_error` | `request_failed`, `refused_for_now`, `unexpected_error` | a request failed, or the server could not store an event for now; see below | `{ unsent, abandoned }`, or `{ error }` | `transportErrors` |
+| `payload_omitted` | `too_large`, `too_deep`, `too_wide`, `unserialisable`, `projection_failed` | a payload could not fit the server's limits, could not be read (a getter or `toJSON` threw), or a projection failed, and was replaced by a marker; the event is still sent | `{ field }`, and `error` for `unserialisable` and `projection_failed`, never printed | `payloadsOmitted` |
+| `payload_truncated` | `strings_cut`, `label_cut` | strings in a payload were longer than the server accepts and were cut, or a label was; the event is still sent | `{ field, strings, charactersRemoved }` | `payloadsTruncated` |
+| `key_dropped` | `aliases_not_object`, `alias_invalid`, `displayable_alias_invalid`, `metadata_key_too_long`, `label_invalid` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; or a label was not set; the event is still sent | `{ field, keys }`, `keys` being how many entries this report covers | `keysDropped`, per report |
+| `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it | `{ name, operation }` for `after_shutdown`, otherwise `{}` | `dropped` |
+| `capture_error` | `unexpected_error`, `not_a_journey`, `invalid_options`, `context_missing` | something threw inside the SDK; `across` was given something that is not a journey; a call's options were not an object or held keys it does not read (such as `fail`'s old positional metadata); or an inject helper was given no context; your call was unaffected | `{ error }` for `unexpected_error`, `{ call }` for `invalid_options` and `context_missing` | `captureErrors` |
+| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors` |
+| `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
+| `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
 
 ### An endpoint that is not encrypted
 
@@ -469,7 +614,8 @@ diagnostic as it is created:
 [flight-recorder] insecure_endpoint: The endpoint is http: to ingest.internal, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.
 ```
 
-It reaches `onDiagnostic` as `{ kind: "insecure_endpoint", reason, scheme, host }`
+It reaches `onDiagnostic` as
+`{ kind: "insecure_endpoint", code: "unencrypted_endpoint", reason, detail: { scheme, host } }`
 and names only the scheme and host, never a username, password, path, or query
 from the URL. It is a warning: the recorder still starts and still sends, because
 a telemetry library that refuses to start breaks the service it observes
@@ -526,7 +672,7 @@ still queued when `shutdown()` finishes is dropped and counted then.
 
 The batch route answers 202 with one result per event. If a 2xx response is not
 JSON, has no results, or has fewer results than events, each event without a
-result is counted as `dropped` with reason `no_verdict`, and **not sent again**.
+result is counted as `dropped` with code `no_verdict`, and **not sent again**.
 The request did succeed, so the server may well have stored those events, and
 sending them again could store them twice; the SDK cannot tell which, so it
 counts them as not known to be stored. This is what a proxy that rewrites
@@ -544,8 +690,8 @@ for now, so shutdown stops there, usually well before its timeout, rather than
 waiting out the 30-second retry budget. Whatever is left, events the server was
 still refusing for now, events queued behind an unreachable endpoint, and a
 batch still in flight when the timeout wins, is given up: requests in flight are
-aborted, and each of those events is counted once as `dropped`, with a reason
-starting `shutdown:`. An aborted request may already have been stored
+aborted, and each of those events is counted once as `dropped`, with code
+`shutdown`. An aborted request may already have been stored
 by the server, so an event counted this way is not known to be lost, only not
 known to be stored.
 
@@ -576,7 +722,7 @@ The grammar is small on purpose, so a rule never matches more than you expected:
 Use the `**.` form for anything that is a secret by virtue of its name rather
 than its location. The built-in list is written entirely that way, because a
 secret is identified by the name it is filed under and not by where in a request
-somebody happened to nest it — `config.headers.authorization` is three levels
+somebody happened to nest it: `config.headers.authorization` is three levels
 down and is exactly what an axios error carries.
 
 A `**.` rule, and every built-in name, is matched in exactly these shapes, with
@@ -734,19 +880,19 @@ Every row below is what the SDK actually stored, not what it intends to.
 
 | You pass | It is stored as |
 | --- | --- |
-| `Date` | ISO 8601 string — `"2026-01-02T03:04:05.678Z"` |
+| `Date` | ISO 8601 string, `"2026-01-02T03:04:05.678Z"` |
 | anything with `toJSON()` | whatever that returns, then walked again |
-| `BigInt` | decimal string — `"9007199254740993"`, digits intact |
+| `BigInt` | decimal string, `"9007199254740993"`, digits intact |
 | a cycle | `"[CIRCULAR]"` at the point the loop closes; the rest is kept |
-| the same object twice | expanded both times — a shared reference is not a cycle |
+| the same object twice | expanded both times; a shared reference is not a cycle |
 | `undefined`, a function, a symbol | the key is omitted, as `JSON.stringify` does |
 | `NaN`, `Infinity` | `null`, as `JSON.stringify` does |
-| a NUL byte in a string | removed — PostgreSQL rejects it in `jsonb` |
+| a NUL byte in a string | removed, because PostgreSQL rejects it in `jsonb` |
 | half an emoji left by `slice()` | repaired to `U+FFFD` |
 | `Buffer` | `{"type": "Buffer", "data": [...]}` |
 | `Map`, `Headers`, `URLSearchParams` | an object, under the keys the data already had |
 | `Set` | an array |
-| `Error` | `{name, message}` plus its own properties and its `cause` — no `stack` |
+| `Error` | `{name, message}` plus its own properties and its `cause`, and no `stack` |
 | `RegExp` | the literal, `"/secret-(\\d+)/gi"` |
 | a string over 65,536 characters | its start and `[TRUNCATED: 4500 characters removed]`, 65,536 characters in all, and a `payload_truncated` diagnostic |
 | a payload that cannot fit the event's budget, even cut | `"[PAYLOAD_TOO_LARGE]"`, and a `payload_omitted` diagnostic |
@@ -764,7 +910,7 @@ Two consequences worth knowing:
   price of storing them under their own keys: any wrapper that recorded the type
   would push the data a level down, and the redaction rule that looked right
   would match nothing.
-- A `Map` may be keyed by anything, and two keys can render to one name — `1`
+- A `Map` may be keyed by anything, and two keys can render to one name, such as `1`
   and `"1"`, or two different objects. When that happens the entry is reported
   as `"[COLLIDED_KEYS]": n` rather than lost quietly.
 
@@ -786,7 +932,7 @@ runs:
    `[TRUNCATED: 4500 characters removed]`, 65,536 characters in all.
    "Characters" are UTF-16 code units, what `string.length` counts. Cutting
    happens after redaction, so it never reveals a masked value.
-3. If the whole event is still over `maxPayloadBytes`, the larger of `input` and
+3. If the whole event is still over `maxEventBytes`, the larger of `input` and
    `output` is replaced with `[PAYLOAD_TOO_LARGE]`, then the other, then
    `metadata` is left off.
 
@@ -800,7 +946,7 @@ runs:
 6. A journey label over 200 code points is cut to 199 and `…`, as
    [Name a journey](#name-a-journey) describes.
 
-The event is always sent. `maxPayloadBytes` is the budget of the whole event,
+The event is always sent. `maxEventBytes` is the budget of the whole event,
 not of one payload, and should be the server's `MAX_EVENT_PAYLOAD_BYTES`:
 raising it above that only produces events the server refuses.
 
@@ -938,26 +1084,34 @@ fleet against one instance. It is clamped to 1-16.
 
 | Option | Default | |
 | --- | --- | --- |
-| `endpoint` | — | required |
-| `apiKey` | — | required |
-| `serviceName` | — | required |
-| `environment` | — | required; must match the API key's environment |
+| `endpoint` | none | required |
+| `apiKey` | none | required |
+| `serviceName` | none | required |
+| `environment` | none | required; must match the API key's environment |
 | `captureMode` | `redacted-payload` | or `metadata-only`, `full-payload` |
 | `redact` | `[]` | appended to the built-in secret paths |
-| `propagate` | `journey-and-type` | see above |
+| `propagation` | `journey-and-type` | see [Crossing a process boundary](#crossing-a-process-boundary); experimental |
 | `batchSize` | `50` | at most 100, the server's limit |
 | `flushIntervalMs` | `1000` | |
 | `requestTimeoutMs` | `1500` | |
 | `maxBufferedEvents` | `1000` | oldest are dropped past this |
-| `maxPayloadBytes` | `262144` | the byte budget of one whole event; set it to the server's `MAX_EVENT_PAYLOAD_BYTES` |
-| `onDiagnostic` | — | |
+| `maxEventBytes` | `262144` | the byte budget of one whole event; set it to the server's `MAX_EVENT_PAYLOAD_BYTES` |
+| `onDiagnostic` | none | |
 | `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending) |
-| `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends) |
-| `journeyIdSecret` | — | at least 32 bytes; see [The same record, the same journey](#the-same-record-the-same-journey) |
+| `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends); experimental |
+| `journeyIdSecret` | none | at least 32 bytes; see [The same record, the same journey](#the-same-record-the-same-journey); experimental |
 | `knownSafeNames` | `[]` | key names that look like secrets and are not; see [Names no rule covers](#names-no-rule-covers) |
 
 The SDK reads no environment variables. A library that changes behaviour based on
 ambient state is a library that behaves differently in your tests.
+
+Every optional setting, and every optional property of the options the SDK's
+calls take, accepts an explicit `undefined`, so
+`journeyIdSecret: process.env.JOURNEY_ID_SECRET` compiles with
+`exactOptionalPropertyTypes` on. Every option type has a name you can import:
+`RecorderConfig`, `StartJourneyOptions`, `ContinueJourneyOptions`,
+`IdentifyOptions`, `WrapOptions`, `RecordInput`, `ErrorInput`, `FailOptions`,
+`FinishOptions`, `ShutdownOptions`, and `Entity` for `{ type, id }`.
 
 ## OpenTelemetry
 
@@ -969,25 +1123,53 @@ own propagator.
 
 ## Requirements
 
-Node 20.19 or later.
+Node 22.12 or later.
 
-The package is ESM. `import` works on any Node 20; `require()` of it needs the
-`require(esm)` support backported in 20.19, which is why the floor is there
-rather than at 20.0. Verified against Node 20, 22, and 24, from both ESM and
-CommonJS.
+The package is ESM, with one bundled file and one declaration file. `import`
+works on any supported Node, and so does `require()`, because Node 22.12 is the
+first 22 release where `require()` of an ES module needs no flag. Node 20 is
+past its end of life and is not supported.
+
+## Stability
+
+This is a 0.x release. Before 1.0 a minor release may change the API; a patch
+release will not. Most of the API is settled. These parts are **experimental**,
+marked `@experimental` in the types, and may change in a minor release:
+
+- **The propagation helpers** (`injectHttpHeaders`, `extractHttpContext`,
+  `injectSqsAttributes`, `extractSqsContext`, `injectPayload`,
+  `extractPayload`), `PropagationLevel` and the `propagation` option: the
+  header, attribute and envelope names carry the product's current name, which
+  is about to change.
+- **`across` and `JourneyGroup`**: the name, the deduplication and label
+  rules, and what an empty group does came from one service instrumented with
+  them.
+- **`captureInput` and `captureOutput`**, for the same reason.
+- **`journeyIdFor` and `journeyIdSecret`**: the derivation is fixed by test
+  vectors, but what surrounds it, such as rotating the secret, is new.
+- **`label`**, the method and the option: it depends on the Journeys page,
+  which is new.
+- **`maxConcurrentSends`**: adaptive concurrency would make it unnecessary.
+- **The `Counters` fields**: new counters may be added.
+
+**Diagnostics.** New diagnostic kinds and new `code` values may be added in any
+minor release. Handle the ones you do not know in a `default` branch, as in
+[Handling diagnostics in code](#handling-diagnostics-in-code), and do not
+assign a diagnostic to `never`. `reason` is text for a person and may change in
+any release.
 
 ## The specifications behind this
 
 This package is one implementation of a specification that is not about Node.
 
-- **[SDK specification](../../docs/SDK_SPEC.md)** — what a recorder in any
+- **[SDK specification](../../docs/SDK_SPEC.md)**: what a recorder in any
   language must do, as numbered requirements with a source for each. Read it if
   you are writing a recorder, or if you want to know why this one behaves the
   way it does.
-- **[Node appendix](../../docs/NODE_SDK_SPEC.md)** — the Node half: the public
+- **[Node appendix](../../docs/NODE_SDK_SPEC.md)**: the Node half: the public
   API with its signatures, the context model, the helper names, and the Node
   value renderings.
-- **[Ingestion contract](../../docs/INGESTION_CONTRACT.md)** — what the server
+- **[Ingestion contract](../../docs/INGESTION_CONTRACT.md)**: what the server
   accepts and refuses, which is what this package sends to.
 
 ## License

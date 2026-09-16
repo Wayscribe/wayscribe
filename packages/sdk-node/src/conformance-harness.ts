@@ -3,6 +3,8 @@ import type { AddressInfo } from "node:net";
 import { expand, type ConformanceCase } from "@flight-recorder/protocol/conformance";
 import {
   createRecorder,
+  type FailOptions,
+  type IdentifyOptions,
   type Journey,
   type JourneyGroup,
   type RecordInput,
@@ -28,8 +30,8 @@ export interface CapturedCase {
   events: Record<string, unknown>[];
   /** How many requests it took, which is what the batch-size case is about. */
   requests: number;
-  /** Every diagnostic the recorder reported, in order, as `{ kind, reason, detail }`. */
-  diagnostics: { kind: string; reason: string; detail?: unknown }[];
+  /** Every diagnostic the recorder reported, in order, as `{ kind, code, reason, detail }`. */
+  diagnostics: { kind: string; code: string; reason: string; detail?: unknown }[];
 }
 
 /**
@@ -67,7 +69,7 @@ export async function captureCase(one: ConformanceCase, run: string): Promise<Ca
   const { port } = server.address() as AddressInfo;
 
   const settings = (one.recorder ?? {}) as {
-    maxPayloadBytes?: number;
+    maxEventBytes?: number;
     redact?: string[];
     captureMode?: "metadata-only" | "redacted-payload" | "full-payload";
   };
@@ -77,8 +79,8 @@ export async function captureCase(one: ConformanceCase, run: string): Promise<Ca
     apiKey: "fr_test_conformance",
     serviceName: "customer-integration",
     environment: "conformance",
-    onDiagnostic: ({ kind, reason, detail }) => {
-      diagnostics.push({ kind, reason, detail });
+    onDiagnostic: ({ kind, code, reason, detail }) => {
+      diagnostics.push({ kind, code, reason, detail });
     },
     ...settings
   });
@@ -128,7 +130,7 @@ async function makeCall(target: Journey | JourneyGroup, call: Call, run: string)
       if (!("identify" in target)) throw new Error("identify has no group form.");
       target.identify(
         args["aliases"] as Record<string, string>,
-        args["options"] as { displayable?: string[] } | undefined
+        args["options"] as IdentifyOptions | undefined
       );
       return;
     case "label":
@@ -136,7 +138,7 @@ async function makeCall(target: Journey | JourneyGroup, call: Call, run: string)
       target.label(args["text"] as string);
       return;
     case "fail":
-      target.fail(name, args["error"], args["metadata"] as Record<string, unknown>);
+      target.fail(name, args["error"], args["options"] as FailOptions | undefined);
       return;
     case "finish":
       target.finish({ status: args["status"] as "completed" | "failed" });

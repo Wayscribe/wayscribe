@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Journey } from "./recorder.js";
 
 // Port 1 refuses connections: the contract assertions below all hold with a dead
@@ -93,21 +94,21 @@ describe("wrapper contract", () => {
   it("fail and finish do not throw", () => {
     const journey = journeyFor();
     expect(() => {
-      journey.fail("f", new Error("boom"), { attempt: 3 });
+      journey.fail("f", new Error("boom"), { metadata: { attempt: 3 } });
       journey.finish({ status: "failed" });
     }).not.toThrow();
   });
 
-  it("consume builds a journey from a supplied context", () => {
-    const journey = createRecorder(base).consume({
+  it("continueJourney builds a journey from a supplied context", () => {
+    const journey = createRecorder(base).continueJourney({
       context: { journeyId: "jrn_existing", entity: { type: "customer", id: "9" } }
     });
     expect(journey.context().journeyId).toBe("jrn_existing");
   });
 
-  it("consume falls back to an entity when no context was propagated", () => {
-    const journey = createRecorder(base).consume({
-      entityFallback: { type: "customer", id: "9" }
+  it("continueJourney falls back to an entity when no context was propagated", () => {
+    const journey = createRecorder(base).continueJourney({
+      entity: { type: "customer", id: "9" }
     });
     expect(journey.context().journeyId).toMatch(/^jrn_/);
     expect(journey.context().entity.id).toBe("9");
@@ -277,7 +278,7 @@ describe("recorded events", () => {
       journey.record({
         operation: "failed",
         name: "charge",
-        error: { message: "charge failed", stack } as { message: string }
+        error: { message: "charge failed", stack }
       });
     });
 
@@ -451,7 +452,10 @@ describe("the server's verdict", () => {
 
 describe("payloads the application cannot serialize", () => {
   /** Its own collector: `recordAnd` above is scoped to another block. */
-  async function collect(use: (journey: Journey) => unknown): Promise<Record<string, unknown>[]> {
+  async function collect(
+    use: (journey: Journey) => unknown,
+    seen: Diagnostic[] = []
+  ): Promise<Record<string, unknown>[]> {
     const received: Record<string, unknown>[] = [];
     const server = createServer((request, response) => {
       let body = "";
@@ -474,7 +478,11 @@ describe("payloads the application cannot serialize", () => {
     });
     const { port } = server.address() as AddressInfo;
 
-    const recorder = createRecorder({ ...base, endpoint: `http://127.0.0.1:${String(port)}` });
+    const recorder = createRecorder({
+      ...base,
+      endpoint: `http://127.0.0.1:${String(port)}`,
+      onDiagnostic: (d) => seen.push(d)
+    });
     await use(recorder.startJourney({ entity: { type: "customer", id: "1" } }));
     await recorder.shutdown({ timeoutMs: 2_000 });
     await new Promise<void>((resolve) => {
@@ -498,13 +506,18 @@ describe("payloads the application cannot serialize", () => {
       }
     };
 
+    const seen: Diagnostic[] = [];
     const events = await collect((journey) => {
       journey.record({ operation: "received", name: "receive-order", input: order });
-    });
+    }, seen);
+    const omitted = seen.filter((d) => d.kind === "payload_omitted");
 
     const received = events.find((e) => e["name"] === "receive-order");
     expect(received).toBeDefined();
     expect(received?.["input"]).toBe("[UNCAPTURABLE]");
+    // Reported, and counted, like any other payload not captured.
+    expect(omitted.map((d) => [d.code, d.detail.field])).toEqual([["unserialisable", "input"]]);
+    expect(omitted[0]?.reason).not.toContain("lines");
   });
 
   it("keeps the event, and its error, when the failing step is the one recorded", async () => {
@@ -554,7 +567,7 @@ describe("payloads the application cannot serialize", () => {
   it("stores a bigint id as digits rather than dropping the payload", async () => {
     // A Postgres `bigint` column and a snowflake id are both routine. The
     // diagnostic said `payload_too_large`, which sends an operator to raise
-    // maxPayloadBytes — a setting that could never have helped.
+    // maxEventBytes — a setting that could never have helped.
     const events = await collect((journey) => {
       journey.record({
         operation: "received",
@@ -745,7 +758,7 @@ describe("after shutdown", () => {
 
     expect(seen.some((line) => line.startsWith("dropped|"))).toBe(true);
     expect(seen.join()).toContain("shut down");
-    expect(recorder.diagnostics().dropped).toBe(1);
+    expect(recorder.counters().dropped).toBe(1);
   });
 });
 

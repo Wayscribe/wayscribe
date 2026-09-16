@@ -137,7 +137,7 @@ describe("captureInput", () => {
           order.lines.length = 0;
           return order.id;
         },
-        { captureInput: (input) => ({ lineCount: (input as typeof order).lines.length }) }
+        { captureInput: (input) => ({ lineCount: input.lines.length }) }
       );
     });
     expect(events[0]?.["input"]).toEqual({ lineCount: 3 });
@@ -156,7 +156,7 @@ describe("captureInput", () => {
           order.items.push("b", "c");
           return Promise.resolve(order.items.length);
         },
-        { captureInput: (input) => ({ items: (input as typeof order).items }) }
+        { captureInput: (input) => ({ items: input.items }) }
       );
     });
     expect(events[0]?.["input"]).toEqual({ items: ["a"] });
@@ -215,7 +215,7 @@ describe("a projection that fails", () => {
     expect(counters.payloadsOmitted).toBe(1);
     expect(counters.captureErrors).toBe(0);
     const omitted = diagnostics.find((d) => d.kind === "payload_omitted");
-    expect(omitted?.detail).toMatchObject({ field: "output", reason: "projection_failed" });
+    expect(omitted).toMatchObject({ code: "projection_failed", detail: { field: "output" } });
     // The projection's own message can carry payload data, so it is not in the
     // reason that logDiagnostics would print.
     expect(omitted?.reason).not.toContain("projection bug");

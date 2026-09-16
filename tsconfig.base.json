@@ -2,8 +2,8 @@
   "compilerOptions": {
     "target": "ES2024",
     // ES2024 for String.prototype.toWellFormed, which repairs the lone
-    // surrogates PostgreSQL refuses. Verified present on Node 20.20, 22.23,
-    // and 24.19 — the whole range the SDK claims to support.
+    // surrogates PostgreSQL refuses. Verified present on Node 22.23 and 24.19;
+    // the SDK supports Node 22.12 and later.
     "lib": ["ES2024"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",

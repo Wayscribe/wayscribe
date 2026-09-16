@@ -15,6 +15,74 @@ changes far less often.
 
 ### Changed
 
+- **The Node SDK's public API is settled for its first release** (ADR-056).
+  Nothing is published yet, and the wire format is unchanged, but every host
+  that installs the SDK from a tarball has to follow these renames:
+
+  | Before | After |
+  | --- | --- |
+  | `recorder.consume({ context, entityFallback })` | `recorder.continueJourney({ context, entity })` |
+  | `recorder.continueJourney(context)` | `recorder.continueJourney({ journeyId, entity })`, the same object; `label` may be added |
+  | `recorder.diagnostics()` | `recorder.counters()` |
+  | `recorder.toQueueAttributes(context)` | `recorder.injectSqsAttributes({}, context)`, which copies the attributes it is given |
+  | `recorder.fromQueueAttributes(attributes)` | `recorder.extractSqsContext(attributes)` |
+  | `recorder.wrapPayload(payload, context)` | `recorder.injectPayload(payload, context)` |
+  | `recorder.unwrapPayload(body)` | `recorder.extractPayload(body)` |
+  | `journey.fail(name, error, metadata)` | `journey.fail(name, error, { metadata })` |
+  | `journey.identify(aliases, { displayable })` | `journey.identify(aliases, { displayableAliases })` |
+  | `startJourney({ displayable })` | `startJourney({ displayableAliases })` |
+  | option `maxPayloadBytes` | `maxEventBytes` |
+  | option `propagate` | `propagation` |
+  | diagnostic kind `breaker_open`, printed `[flight-recorder] breaker_open:` | `breaker_opened` |
+  | `{ kind, reason, detail? }` | `{ kind, code, reason, detail }`: match on `code`, never on `reason` |
+  | `delivered_first`'s `endpoint`, `accepted` | `detail.endpoint`, `detail.accepted` |
+  | `insecure_endpoint`'s `scheme`, `host` | `detail.scheme`, `detail.host` |
+  | `payload_omitted`'s `detail.reason` (`payload_too_large`, `max_depth_exceeded`, `max_keys_exceeded`, `projection_failed`) | `code` (`too_large`, `too_deep`, `too_wide`, `projection_failed`, and `unserialisable`, now also reported for a payload whose getter throws) |
+  | `dropped` reasons `queue_full`, `no_verdict: ...`, `shutdown: ...` | codes `queue_full`, `no_verdict`, `shutdown`, and `after_shutdown`, `retry_budget` |
+  | `rejected`'s `detail`, the server's error | `detail.serverError`; a whole request refused is code `request_refused` with `detail.events` and `detail.httpStatus` |
+  | `capture_error` and `transport_error` `detail`, the thrown value | `detail.error` |
+  | `keysDropped` counted keys | counts `key_dropped` reports; `detail.keys` still counts keys |
+  | no such counter | `recorded`; `sent + rejected + dropped === recorded` after `shutdown()` |
+  | types `FailureDiagnostic`, `FailureKind`, `TraceContext` | removed; one interface per kind (`DroppedDiagnostic`, `PayloadTruncatedDiagnostic`, ...) |
+  | `engines.node` `>=20.19.0` | `>=22.12.0` |
+  | `pnpm --filter @flight-recorder/node pack` | `pnpm --filter @flight-recorder/node run pack:release <absolute directory>` |
+
+  Also new: every option type is named and exported (`Entity`,
+  `StartJourneyOptions`, `ContinueJourneyOptions`, `FailOptions`,
+  `FinishOptions`, `ShutdownOptions`, `ErrorInput`, `CaptureMode`,
+  `HttpHeadersInput`, `SqsMessageAttributes`, `ContextEnvelope`,
+  `ExtractedPayload`, `DiagnosticCode`); every optional input accepts an
+  explicit `undefined`; a callback returning any thenable is typed
+  asynchronous and returns a native promise; `captureInput` is typed with the
+  wrapper's input; `record`'s error takes `stack`; `extractHttpContext` reads a
+  fetch `Headers`; a `continueJourney` `journeyId` that is not a non-empty
+  string, or a context without one, is reported as `journey_id_invalid` and
+  not used; an entity that is missing or malformed is reported as
+  `entity_invalid` and the steps recorded under the unknown entity; `fail`
+  options other than `{ metadata }` are reported as `invalid_options`; an
+  inject helper given no context reports `context_missing`, and replaces a
+  journey's own headers or attributes already in the carrier; an option under
+  its old name is reported as `setting_renamed` (and `maxPayloadBytes` and
+  `propagate` are printed once per process); a thrown value that cannot be
+  described no longer escapes the failure boundary; a callback's value whose
+  `then` getter throws gives a rejected promise instead of a throw; a
+  callback returning a native `Promise` subclass now gets a plain `Promise`
+  back; the tarball holds one
+  declaration file and no build-only manifest fields; and a Stability section
+  in the SDK README lists what is experimental.
+
+  **job-radar** (`src/recording/index.js`) changes two calls:
+  `recorder.diagnostics?.()` becomes `recorder.counters()` (with the optional
+  call left in place, the configuration check would silently stop running),
+  and `identify(aliases, { displayable })` becomes
+  `identify(aliases, { displayableAliases })`; its test doubles in
+  `test/recording.test.js` (`diagnostics:` and `identified[n].displayable`)
+  follow. Its `continueJourney({ journeyId, entity })`, `journeyIdFor`,
+  `across`, `label`, `record`, `transform`, `deliver`, `finish` and
+  `shutdown({ timeoutMs })` calls are unchanged. The counters line it prints
+  gains `recorded`, and its `keysDropped` now counts reports. Its `engines`
+  (`>=20.11 <25`) admits Node versions the SDK no longer supports; it runs on
+  Node 24. **The Leadline build** follows the same table.
 - **Webhook signature headers are redacted by default** (ADR-055).
   `stripe-signature`, `x-hub-signature`, `x-hub-signature-256`,
   `x-slack-signature`, `x-hubspot-signature`, `x-hubspot-signature-v3`,

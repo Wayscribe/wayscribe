@@ -8,6 +8,7 @@ import {
   redact,
   toStorable,
   truncateStrings,
+  type LimitViolation,
   type TruncationStats
 } from "@flight-recorder/payload-security/redaction";
 import { fitsCodePoints } from "./code-points.js";
@@ -15,20 +16,21 @@ import { firstRequiredSettingWarning, resolveConfig, type RecorderConfig } from 
 import {
   createDiagnostics,
   printDiagnostic,
-  type Counters,
   type Diagnostic,
-  type Diagnostics
+  type Diagnostics,
+  type KeyDroppedDiagnostic,
+  type PayloadOmittedDiagnostic
 } from "./diagnostics.js";
 import type { Operation } from "./operations.js";
 import {
   extractHttpContext,
-  fromQueueAttributes,
+  extractPayload,
+  extractSqsContext,
   injectHttpHeaders,
-  toQueueAttributes,
-  unwrapPayload,
-  wrapPayload,
-  type PropagatedContext
+  injectPayload,
+  injectSqsAttributes
 } from "./propagation.js";
+import type { ContextEnvelope, PropagatedContext, SqsMessageAttributes } from "./propagation.js";
 import { acceptLabel } from "./label.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
@@ -42,207 +44,53 @@ import {
 import { createTraceReader } from "./trace.js";
 import { AbandonedError, Transport, UnsentError, type SendOutcome } from "./transport.js";
 
-export interface JourneyContext {
-  journeyId: string;
-  entity: { type: string; id: string };
-}
+import type {
+  ContinueJourneyOptions,
+  Entity,
+  ErrorInput,
+  Journey,
+  JourneyContext,
+  JourneyOperations,
+  RecordInput,
+  Recorder,
+  WrapOptions
+} from "./types.js";
 
-export interface RecordInput {
-  /**
-   * One of the eleven operations the server accepts.
-   *
-   * A union rather than `string`: anything else is refused at ingestion, and a
-   * refused event leaves a timeline that is not empty but wrong.
-   */
-  operation: Operation;
-  name: string;
-  input?: unknown;
-  output?: unknown;
-  error?: { message: string; type?: string; code?: string };
-  aliases?: Record<string, string>;
-  /**
-   * Alias types from `aliases` that a reader may see in full. Every other alias
-   * is masked when read, and an alias is shown in full only while every event
-   * that stated it listed it here (ADR-053).
-   */
-  displayableAliases?: readonly string[];
-  metadata?: Record<string, unknown>;
-  durationMs?: number;
-  /**
-   * When the operation began, in epoch milliseconds. Defaults to now.
-   *
-   * The wrappers set this to the moment the callback started, because the
-   * timeline orders by timestamp and a step must not sort after the work it
-   * caused.
-   */
-  startedAt?: number;
-}
-
-/**
- * Options for the four wrappers. `T` is what the callback returns, resolved if
- * it returns a promise, and is inferred from the callback.
- */
-export interface WrapOptions<T = unknown> {
-  /** Marks a result that did not throw but represents a failure, e.g. HTTP 422. */
-  isFailure?: (result: T) => boolean;
-  /** 1 for a first attempt. Anything higher records `retried` (ADR-022). */
-  attempt?: number;
-  metadata?: Record<string, unknown>;
-  /**
-   * What to record as the input, given the input. Runs when the wrapper is
-   * called, before the callback, and what it returns is copied there and then,
-   * so the record is the input as it went in even when the projection returns
-   * objects the callback goes on to change. The callback still runs with
-   * whatever it closes over; this changes only what is recorded.
-   *
-   * Synchronous. A projection that throws or returns a promise records
-   * `[UNCAPTURABLE]` and a `payload_omitted` diagnostic, and never reaches your
-   * code.
-   */
-  captureInput?: (input: unknown, journey: JourneyContext) => unknown;
-  /**
-   * What to record as the output, given the callback's value. The wrapper
-   * still returns the value itself: a callback returning a `Buffer` can record
-   * `{ bytes: buffer.length }` and hand the caller the `Buffer`. Not called
-   * when the callback throws. Same failure rule as `captureInput`.
-   */
-  captureOutput?: (result: T, journey: JourneyContext) => unknown;
-}
-
-/**
- * What a journey and a group of journeys both do. On a group, each call
- * records one event per journey, with its own id and the same timing, and a
- * wrapper runs its callback once.
- */
-export interface JourneyOperations {
-  record(input: RecordInput): void;
-  /**
-   * Each wrapper returns whatever shape its callback returns.
-   *
-   * A callback returning a value returns a value; one returning a promise
-   * returns a promise. Instrumenting a synchronous call therefore does not
-   * change the control flow around it — which it used to, silently, turning a
-   * handled error into an unhandled rejection.
-   */
-  transform<T>(
-    name: string,
-    input: unknown,
-    fn: () => Promise<T>,
-    options?: WrapOptions<T>
-  ): Promise<T>;
-  transform<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions<T>): T;
-  persist<T>(
-    name: string,
-    input: unknown,
-    fn: () => Promise<T>,
-    options?: WrapOptions<T>
-  ): Promise<T>;
-  persist<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions<T>): T;
-  publish<T>(
-    name: string,
-    message: unknown,
-    fn: () => Promise<T>,
-    options?: WrapOptions<T>
-  ): Promise<T>;
-  publish<T>(name: string, message: unknown, fn: () => T, options?: WrapOptions<T>): T;
-  deliver<T>(
-    name: string,
-    payload: unknown,
-    fn: () => Promise<T>,
-    options?: WrapOptions<T>
-  ): Promise<T>;
-  deliver<T>(name: string, payload: unknown, fn: () => T, options?: WrapOptions<T>): T;
-  fail(name: string, error: unknown, metadata?: Record<string, unknown>): void;
-  finish(options?: { status?: "completed" | "failed" }): void;
-}
-
-export interface IdentifyOptions {
-  /**
-   * Alias types that may be shown in full to a reader. The default is none:
-   * every alias is masked. List a type every time you state it, because an
-   * alias is shown only while every statement of it says so (ADR-053).
-   */
-  displayable?: readonly string[];
-}
-
-export interface Journey extends JourneyOperations {
-  context(): JourneyContext;
-  identify(aliases: Record<string, string>, options?: IdentifyOptions): void;
-  /**
-   * Names the journey for the Journeys page, where partial text finds it.
-   * Records nothing itself: every later event of this journey object carries
-   * the label, including events recorded through `across`. The server keeps the
-   * label of the event that started last, so repeating it costs nothing, and a
-   * lost event cannot take the label with it.
-   *
-   * Stored and shown in plain text, and never redacted: do not put personal
-   * data in it. Over 200 code points it is cut to 199 and `…`, and reported as
-   * `payload_truncated`. Anything that is not a non-empty string is left unset,
-   * keeping any earlier label, and reported as `key_dropped`. Never throws.
-   */
-  label(text: string): void;
-}
-
-/**
- * Several journeys that one operation touched, such as a digest written once
- * for many records. There is no `identify`: an alias identifies one record.
- * There is no `label` either, for the same reason; an event a group records
- * carries the label of the journey it is recorded on.
- */
-export interface JourneyGroup extends JourneyOperations {
-  /** The journeys this group records on, each once, in the order given. */
-  journeys(): JourneyContext[];
-}
-
-export interface Recorder {
-  startJourney(options: {
-    entity: { type: string; id: string };
-    aliases?: Record<string, string>;
-    /** Passed to the `identify` that `aliases` makes. */
-    displayable?: readonly string[];
-    /** Set before anything is recorded, as `journey.label` would set it. */
-    label?: string;
-  }): Journey;
-  continueJourney(context: JourneyContext): Journey;
-  /**
-   * The journey id for an entity, the same on every run and every machine,
-   * derived under `journeyIdSecret` so that it cannot be guessed from the
-   * entity (ADR-052). The environment is part of the derivation.
-   *
-   * Never throws. Without a usable secret it reports a `configuration_error`
-   * and returns a fresh random id, so recording goes on and nothing guessable
-   * is ever produced.
-   */
-  journeyIdFor(entity: { type: string; id: string }): string;
-  /**
-   * The journeys one operation touched, to record it on each of them in one
-   * call. A journey named twice, by handle or by context, is recorded once.
-   */
-  across(journeys: Iterable<Journey | JourneyContext>): JourneyGroup;
-  consume(options: {
-    context?: PropagatedContext | undefined;
-    entityFallback?: { type: string; id: string };
-  }): Journey;
-  injectHttpHeaders(
-    headers: Record<string, string>,
-    context: PropagatedContext
-  ): Record<string, string>;
-  extractHttpContext(
-    headers: Record<string, string | string[] | undefined> | undefined
-  ): PropagatedContext | undefined;
-  toQueueAttributes(
-    context: PropagatedContext
-  ): Record<string, { DataType: string; StringValue: string }>;
-  fromQueueAttributes(attributes: unknown): PropagatedContext | undefined;
-  wrapPayload(payload: unknown, context: PropagatedContext): { _flight: unknown; data: unknown };
-  unwrapPayload(body: unknown): { context?: PropagatedContext; data: unknown };
-  flush(): Promise<void>;
-  shutdown(options?: { timeoutMs?: number }): Promise<Counters>;
-  diagnostics(): Counters;
-}
+export type {
+  ContinueJourneyOptions,
+  Entity,
+  ErrorInput,
+  FailOptions,
+  FinishOptions,
+  IdentifyOptions,
+  Journey,
+  JourneyContext,
+  JourneyGroup,
+  JourneyOperations,
+  RecordInput,
+  Recorder,
+  ShutdownOptions,
+  StartJourneyOptions,
+  WrapOptions
+} from "./types.js";
 
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
 const UNCAPTURABLE = "[UNCAPTURABLE]";
+
+/**
+ * The code a payload omitted for breaking a limit is reported with. The limit's
+ * own name goes in the reason only: codes are the SDK's API, and the limit
+ * names belong to payload-security.
+ */
+const OMITTED_CODE: Record<LimitViolation, PayloadOmittedDiagnostic["code"]> = {
+  payload_too_large: "too_large",
+  max_depth_exceeded: "too_deep",
+  max_keys_exceeded: "too_wide",
+  // Unreachable: payload limits measure a long string as it will be cut, so no
+  // string is ever over the limit here. Mapped only because the type is total.
+  max_string_length_exceeded: "too_large",
+  unserialisable_payload: "unserialisable"
+};
 
 const PAYLOAD_FIELDS: readonly PayloadField[] = ["input", "output", "metadata"];
 
@@ -329,9 +177,9 @@ function defineOwn(target: Record<string, unknown>, key: string, value: unknown)
 interface WrapSettings<T> {
   operation: Operation;
   metadata?: Record<string, unknown> | undefined;
-  captureInput?: WrapOptions<T>["captureInput"];
-  captureOutput?: WrapOptions<T>["captureOutput"];
-  isFailure?: WrapOptions<T>["isFailure"];
+  captureInput?: WrapOptions<T>["captureInput"] | undefined;
+  captureOutput?: WrapOptions<T>["captureOutput"] | undefined;
+  isFailure?: WrapOptions<T>["isFailure"] | undefined;
 }
 
 /**
@@ -345,19 +193,43 @@ interface Target {
 
 const NO_LABEL = (): undefined => undefined;
 
+/** The entity of a journey the host gave none for. */
+const UNKNOWN_ENTITY: Entity = { type: "unknown", id: "unknown" };
+
+/** A non-empty string, which is what the protocol requires of an identifier. */
+function isIdentifier(value: unknown): value is string {
+  return typeof value === "string" && value !== "";
+}
+
+/** An entity the server will accept: an object whose type and id are non-empty strings. */
+function isUsableEntity(value: unknown): value is Entity {
+  if (typeof value !== "object" || value === null) return false;
+  const { type, id } = value as Partial<Entity>;
+  return isIdentifier(type) && isIdentifier(id);
+}
+
+/** A journey's context the recorder can record on. Reading it runs the host's getters. */
 function isContext(value: unknown): value is JourneyContext {
   if (typeof value !== "object" || value === null) return false;
   const { journeyId, entity } = value as Partial<JourneyContext>;
-  return (
-    typeof journeyId === "string" &&
-    typeof entity === "object" &&
-    typeof entity.type === "string" &&
-    typeof entity.id === "string"
-  );
+  return isIdentifier(journeyId) && isUsableEntity(entity);
 }
 
+/** A copy, so a later change to the host's object does not change what is recorded. */
+function copyEntity(entity: Entity): Entity {
+  return { type: entity.type, id: entity.id };
+}
+
+/** Something shaped like a propagated context, as a one-argument inject call passes. */
+function isPropagated(value: unknown): boolean {
+  return typeof value === "object" && value !== null && "journeyId" in value;
+}
+
+/** What a journey's error becomes when the thrown value cannot be read at all. */
+const UNREADABLE_ERROR = "The thrown value could not be read.";
+
 /** Duck-typed rather than `instanceof Promise`: a thenable from any library counts. */
-function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
+function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -422,7 +294,9 @@ function readOutcome(
   const noVerdict = (why: string): void => {
     diagnostics.report({
       kind: "dropped",
-      reason: `no_verdict: ${why}; the server may have stored this event, so it is not sent again`
+      code: "no_verdict",
+      reason: `The server's reply gave no verdict for this event (${why}); the server may have stored it, so it is not sent again.`,
+      detail: {}
     });
   };
   if (verdicts.length < batch.length) {
@@ -461,7 +335,15 @@ function readOutcome(
       return;
     }
 
-    diagnostics.report({ kind: "rejected", reason: described, detail: result.error }, logLine);
+    diagnostics.report(
+      {
+        kind: "rejected",
+        code: "event_refused",
+        reason: described,
+        detail: { serverError: result.error }
+      },
+      logLine
+    );
   });
   return {
     accepted,
@@ -541,9 +423,9 @@ function warnIfInsecure(endpoint: string, diagnostics: Diagnostics): void {
   if (url.protocol !== "http:" || isLocalOrInternal(url.hostname)) return;
   diagnostics.report({
     kind: "insecure_endpoint",
-    scheme: "http:",
-    host: url.hostname,
-    reason: `The endpoint is http: to ${url.hostname}, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.`
+    code: "unencrypted_endpoint",
+    reason: `The endpoint is http: to ${url.hostname}, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.`,
+    detail: { scheme: "http:", host: url.hostname }
   });
 }
 
@@ -620,13 +502,20 @@ export function createRecorder(config: RecorderConfig): Recorder {
   // secret, it prints one line per process and setting even with
   // logDiagnostics off, the other exception to SDK-40 that SDK-56 allows.
   safely(diagnostics, "capture_error", () => {
-    for (const { setting, reason, required } of resolved.problems) {
-      const diagnostic: Diagnostic = { kind: "configuration_error", reason };
+    for (const { setting, code, reason, required, printed } of resolved.problems) {
+      const diagnostic: Diagnostic = {
+        kind: "configuration_error",
+        code,
+        reason,
+        detail: { setting }
+      };
       diagnostics.report(diagnostic, undefined, { unlimited: true });
-      if (!required || resolved.logDiagnostics || !firstRequiredSettingWarning(setting)) continue;
+      if (!printed || resolved.logDiagnostics || !firstRequiredSettingWarning(setting)) continue;
       printDiagnostic(
         diagnostic,
-        "printed once per process, whether or not logDiagnostics is on, because nothing recorded reaches the server until it is fixed"
+        required
+          ? "printed once per process, whether or not logDiagnostics is on, because nothing recorded reaches the server until it is fixed"
+          : "printed once per process, whether or not logDiagnostics is on, because the setting is otherwise lost unseen"
       );
     }
   });
@@ -642,7 +531,15 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * already says it.
    */
   const reportSecretProblem = (reason: string): void => {
-    const diagnostic: Diagnostic = { kind: "configuration_error", reason };
+    const diagnostic: Diagnostic = {
+      kind: "configuration_error",
+      code:
+        resolved.journeyIdSecret === undefined
+          ? "journey_id_secret_missing"
+          : "journey_id_secret_unusable",
+      reason,
+      detail: { setting: "journeyIdSecret" }
+    };
     // The first report is the warning, so with logging on it is printed even
     // when another configuration problem was printed this minute.
     const first = firstSecretWarning();
@@ -708,7 +605,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
             // process. Marked so the transport can tell the two apart.
             const error = new Error(`Ingestion responded ${String(response.status)}.`);
             if (response.status >= 400 && response.status < 500) {
-              (error as { permanent?: boolean }).permanent = true;
+              Object.assign(error, { permanent: true, httpStatus: response.status });
             }
             throw error;
           }
@@ -726,9 +623,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
             const endpoint = originOf(resolved.endpoint);
             diagnostics.report({
               kind: "delivered_first",
+              code: "first_delivery",
               reason: `Connected to ${endpoint}; the server accepted ${String(accepted)} ${accepted === 1 ? "event" : "events"}.`,
-              endpoint,
-              accepted
+              detail: { endpoint, accepted }
             });
           }
           return outcome;
@@ -795,13 +692,17 @@ export function createRecorder(config: RecorderConfig): Recorder {
     try {
       // The server's own limits, as they fall on a payload two levels below the
       // envelope, with long strings measured as they will be cut (ADR-051). The
-      // string limit used to be scaled with maxPayloadBytes, which the server
+      // string limit used to be scaled with maxEventBytes, which the server
       // never did, so a 70 KB string passed here and cost the whole event there.
-      const limits = checkLimits(value, payloadLimits(resolved.maxPayloadBytes));
+      const limits = checkLimits(value, payloadLimits(resolved.maxEventBytes));
       if (!limits.ok) {
         // Discarding a payload silently made a full timeline look like a step
         // that genuinely carried nothing.
-        reportOmitted(field, limits.reason, `A payload was not captured: ${limits.reason}.`);
+        reportOmitted(
+          field,
+          OMITTED_CODE[limits.reason],
+          `A payload was not captured: ${limits.reason}.`
+        );
         return { value: TOO_LARGE };
       }
 
@@ -825,17 +726,26 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ...(stats.strings === 0 ? {} : { truncated: stats }),
         ...(found === undefined ? {} : { secretNames: found })
       };
-    } catch {
+    } catch (error) {
+      // A getter or a toJSON that throws. The event is kept with a marker, and
+      // the omission is reported like any other; the reason never quotes what
+      // was thrown, which can carry the payload.
+      diagnostics.report({
+        kind: "payload_omitted",
+        code: "unserialisable",
+        reason: `The ${field} could not be read, so it was not captured.`,
+        detail: { field, error }
+      });
       return { value: UNCAPTURABLE };
     }
   }
 
-  function reportOmitted(field: PayloadField, reason: string, message: string): void {
-    diagnostics.report({
-      kind: "payload_omitted",
-      reason: message,
-      detail: { field, reason }
-    });
+  function reportOmitted(
+    field: PayloadField,
+    code: PayloadOmittedDiagnostic["code"],
+    message: string
+  ): void {
+    diagnostics.report({ kind: "payload_omitted", code, reason: message, detail: { field } });
   }
 
   /** Captured metadata, or nothing at all when it cannot be represented. */
@@ -860,7 +770,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
    */
   function fitToBudget(envelope: { event: Record<string, unknown> }): void {
     const { event } = envelope;
-    const limits = eventLimits(resolved.maxPayloadBytes);
+    const limits = eventLimits(resolved.maxEventBytes);
     for (;;) {
       const result = checkLimits(envelope, limits);
       if (result.ok || result.reason !== "payload_too_large") return;
@@ -870,8 +780,8 @@ export function createRecorder(config: RecorderConfig): Recorder {
       else event[field] = TOO_LARGE;
       reportOmitted(
         field,
-        "payload_too_large",
-        `The event exceeded maxPayloadBytes, so its ${field} was not captured.`
+        "too_large",
+        `The event exceeded maxEventBytes, so its ${field} was not captured.`
       );
     }
   }
@@ -888,9 +798,15 @@ export function createRecorder(config: RecorderConfig): Recorder {
     return event["metadata"] === undefined ? undefined : "metadata";
   }
 
-  function reportDropped(field: string, keys: number, what: string): void {
+  function reportDropped(
+    field: KeyDroppedDiagnostic["detail"]["field"],
+    code: KeyDroppedDiagnostic["code"],
+    keys: number,
+    what: string
+  ): void {
     diagnostics.report({
       kind: "key_dropped",
+      code,
       reason: `${String(keys)} ${keys === 1 ? "entry" : "entries"} left off the event's ${field}: ${what}.`,
       detail: { field, keys }
     });
@@ -906,7 +822,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
   function aliasesFor(aliases: unknown): { aliases?: Record<string, string> } {
     if (aliases === undefined) return {};
     if (typeof aliases !== "object" || aliases === null || Array.isArray(aliases)) {
-      reportDropped("aliases", 1, "aliases that are not an object of alias types to values");
+      reportDropped(
+        "aliases",
+        "aliases_not_object",
+        1,
+        "aliases that are not an object of alias types to values"
+      );
       return {};
     }
     const kept: Record<string, string> = {};
@@ -925,6 +846,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     if (dropped > 0) {
       reportDropped(
         "aliases",
+        "alias_invalid",
         dropped,
         "an alias type over 128 characters, or a value that is not a string of at most 512"
       );
@@ -942,6 +864,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     if (dropped > 0) {
       reportDropped(
         "displayableAliases",
+        "displayable_alias_invalid",
         dropped,
         "an entry that is not an alias type of at most 128 characters"
       );
@@ -967,7 +890,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
     if (dropped === 0) return metadata;
     defineOwn(record, KEY_TOO_LONG, dropped);
-    reportDropped("metadata", dropped, "a key over 128 characters");
+    reportDropped("metadata", "metadata_key_too_long", dropped, "a key over 128 characters");
     return record;
   }
 
@@ -983,6 +906,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       const { strings } = one.truncated;
       diagnostics.report({
         kind: "payload_truncated",
+        code: "strings_cut",
         reason: `${String(strings)} ${strings === 1 ? "string" : "strings"} in the ${field} were cut to ${MAX_STRING_LENGTH.toLocaleString("en-US")} characters.`,
         detail: { field, ...one.truncated }
       });
@@ -1010,18 +934,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
    *
    * Here rather than in `toErrorRecord`, because every error record reaches
    * the queue through this point and not every one comes from there:
-   * `record()` takes one straight from the application. The protocol's `stack`
-   * is masked too when a JavaScript caller passes one the type does not admit.
+   * `record()` takes one straight from the application, `stack` included.
    * The server masks again before storing, which changes nothing: masking is
    * idempotent.
    *
    * Both fields are bounded to what the protocol accepts, so a megabyte of
    * message costs the host no more than four kilobytes of one.
    */
-  function maskedError(error: NonNullable<RecordInput["error"]>): RecordInput["error"] {
-    const { message } = error;
-    const stack = (error as { stack?: unknown }).stack;
-    const { type, code } = error;
+  function maskedError(error: ErrorInput): ErrorInput {
+    // Read as unknown: a JavaScript caller can pass anything.
+    const { message, stack, type, code } = error as Record<keyof ErrorInput, unknown>;
     return {
       ...error,
       // A class name or an error code is not free text worth masking, but the
@@ -1052,14 +974,17 @@ export function createRecorder(config: RecorderConfig): Recorder {
     capturedInput?: { value: Captured | undefined }
   ): void {
     if (stopped) {
-      // Silent until now: after shutdown the wrappers still ran the callback
-      // and returned the right value, the server received nothing, and the
-      // counters kept reporting a clean bill of health. Reachable by ordinary
-      // reading, because `flush()` appears in no user-facing documentation and
-      // the example calls shutdown "flush".
+      // This was once silent: after shutdown the wrappers still ran the
+      // callback and returned the right value, the server received nothing,
+      // and the counters kept reporting a clean bill of health. It was
+      // reachable by ordinary reading, when `flush()` was documented nowhere
+      // and the example called shutdown "flush". Counted as recorded, so
+      // sent + rejected + dropped still equals recorded.
+      diagnostics.countRecorded();
       diagnostics.report({
         kind: "dropped",
-        reason: "The recorder was shut down; this event was not recorded.",
+        code: "after_shutdown",
+        reason: "The recorder was shut down, so this event was not sent.",
         detail: { name: input.name, operation: input.operation }
       });
       return;
@@ -1108,6 +1033,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     fitToBudget(envelope);
     reportTruncations(event, captured);
     reportSecretNames(event, captured);
+    diagnostics.countRecorded();
     queue.push(envelope);
 
     // Capped, because N events recorded in one turn of the event loop used to
@@ -1239,21 +1165,37 @@ export function createRecorder(config: RecorderConfig): Recorder {
     for (const _event of lost) {
       diagnostics.report({
         kind: "dropped",
-        reason: "shutdown: the recorder shut down before this event was delivered"
+        code: "shutdown",
+        reason: "The recorder shut down before this event was delivered.",
+        detail: {}
       });
     }
   }
 
-  function toErrorRecord(error: unknown): { message: string; type?: string; code?: string } {
-    if (error instanceof Error) {
-      const code = (error as { code?: unknown }).code;
-      return {
-        message: error.message,
-        type: error.name,
-        ...(typeof code === "string" ? { code } : {})
-      };
+  /**
+   * The error record for a thrown value. Never throws: a value that cannot be
+   * read, such as a revoked Proxy or a null-prototype object, is recorded with
+   * a fixed message, so the failure it stands for is still on the timeline.
+   */
+  function toErrorRecord(error: unknown): ErrorInput {
+    try {
+      if (error instanceof Error) {
+        // Typed as strings, but a host's error can hold anything.
+        const { message, name, code } = error as {
+          message: unknown;
+          name: unknown;
+          code?: unknown;
+        };
+        return {
+          message: String(message),
+          type: String(name),
+          ...(typeof code === "string" ? { code } : {})
+        };
+      }
+      return { message: String(error) };
+    } catch {
+      return { message: UNREADABLE_ERROR };
     }
-    return { message: String(error) };
   }
 
   /**
@@ -1286,7 +1228,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     naturalOperation: Operation,
     name: string,
     input: unknown,
-    fn: () => T | Promise<T>,
+    fn: () => T | PromiseLike<T>,
     options: WrapOptions<T> | undefined
   ): T | Promise<T> {
     const startedAt = Date.now();
@@ -1369,7 +1311,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       });
     };
 
-    let produced: T | Promise<T>;
+    let produced: T | PromiseLike<T>;
     try {
       produced = fn();
     } catch (error) {
@@ -1379,12 +1321,35 @@ export function createRecorder(config: RecorderConfig): Recorder {
       throw error;
     }
 
-    if (!isThenable(produced)) {
-      recordSuccess(produced);
-      return produced;
+    let thenable: boolean;
+    try {
+      thenable = isThenable(produced);
+    } catch (error) {
+      // A `then` getter that throws. `await` would reject with its error, so
+      // the wrapper does too, rather than throw into the host, and the step is
+      // recorded as failed with it.
+      safely(diagnostics, "capture_error", () => {
+        diagnostics.report({
+          kind: "capture_error",
+          code: "unexpected_error",
+          reason: `${name} returned a value whose then could not be read; the wrapper rejects with the error it threw.`,
+          detail: { error }
+        });
+      });
+      recordFailure(error);
+      // The host's own error, whatever it is, as the rethrow rule requires.
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+      return Promise.reject(error);
+    }
+    if (!thenable) {
+      recordSuccess(produced as T);
+      return produced as T;
     }
 
-    return produced.then(
+    // Through Promise.resolve, so a thenable from another library comes back
+    // as the native promise the types promise. A native promise is returned by
+    // Promise.resolve as it is, so nothing changes for one.
+    return Promise.resolve(produced as PromiseLike<T>).then(
       (result) => {
         recordSuccess(result);
         return result;
@@ -1415,8 +1380,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
     const failed = (reason: string, error?: unknown): string => {
       diagnostics.report({
         kind: "payload_omitted",
+        code: "projection_failed",
         reason,
-        detail: { field, reason: "projection_failed", ...(error === undefined ? {} : { error }) }
+        detail: { field, ...(error === undefined ? {} : { error }) }
       });
       return UNCAPTURABLE;
     };
@@ -1451,20 +1417,26 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   function operationsOn(targets: readonly Target[]): JourneyOperations {
+    // One untyped implementation behind the four overloaded wrappers: the
+    // overloads describe what `wrap` does with each shape of callback.
+    const wrapper =
+      (operation: Operation) =>
+      (name: string, input: unknown, fn: () => unknown, options?: WrapOptions): unknown =>
+        wrap(targets, operation, name, input, fn, options);
     return {
       record(input) {
         safely(diagnostics, "capture_error", () => {
           recordOn(targets, input);
         });
       },
-      transform: (name, input, fn, options) =>
-        wrap(targets, "transformed", name, input, fn, options),
-      persist: (name, input, fn, options) => wrap(targets, "persisted", name, input, fn, options),
-      publish: (name, message, fn, options) =>
-        wrap(targets, "published", name, message, fn, options),
-      deliver: (name, payload, fn, options) =>
-        wrap(targets, "delivered", name, payload, fn, options),
-      fail(name, error, metadata) {
+      transform: wrapper("transformed") as JourneyOperations["transform"],
+      persist: wrapper("persisted") as JourneyOperations["persist"],
+      publish: wrapper("published") as JourneyOperations["publish"],
+      deliver: wrapper("delivered") as JourneyOperations["deliver"],
+      fail(name, error, options) {
+        // The options apart from the event: options that cannot be read cost
+        // their metadata, not the failure being recorded.
+        const metadata = safely(diagnostics, "capture_error", () => failMetadata(options));
         safely(diagnostics, "capture_error", () => {
           recordOn(targets, {
             operation: "failed",
@@ -1509,6 +1481,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       },
       identify(aliases, options) {
         safely(diagnostics, "capture_error", () => {
+          reportRenamedOption(options, "displayable", "displayableAliases", "identify");
           enqueue(target, {
             operation: "identified",
             name: "identify",
@@ -1516,15 +1489,208 @@ export function createRecorder(config: RecorderConfig): Recorder {
             // event itself, and ingestion reads them from there. Nested, they
             // are accepted and then ignored, costing every alias-based search.
             aliases,
-            ...(options?.displayable === undefined
+            ...(options?.displayableAliases === undefined
               ? {}
-              : { displayableAliases: options.displayable })
+              : { displayableAliases: options.displayableAliases })
           });
         });
       }
     };
     labelOf.set(journey, target.label);
     return journey;
+  }
+
+  /**
+   * Whether an inject helper was given a context to inject, reporting it when
+   * not. A relay passing what `extractHttpContext` returned for a caller that
+   * does not record gets the carrier back unchanged.
+   */
+  function hasContext(context: unknown, call: string): context is PropagatedContext {
+    if (typeof context === "object" && context !== null) return true;
+    diagnostics.report({
+      kind: "capture_error",
+      code: "context_missing",
+      reason: `${call} was given no journey context, so it added none. Pass journey.context() as the last argument.`,
+      detail: { call }
+    });
+    return false;
+  }
+
+  /**
+   * A call's options that are not an object, or that hold something the call
+   * does not read, reported once. Key names are never quoted: a host's keys can
+   * be data.
+   */
+  function reportInvalidOptions(call: string, reason: string): void {
+    diagnostics.report({
+      kind: "capture_error",
+      code: "invalid_options",
+      reason,
+      detail: { call }
+    });
+  }
+
+  /**
+   * An option a JavaScript caller passed under the name it had before the
+   * first release. Reported, because the call otherwise loses it unseen.
+   */
+  function reportRenamedOption(options: unknown, old: string, current: string, call: string): void {
+    if (typeof options !== "object" || options === null) return;
+    try {
+      if (!(old in options)) return;
+    } catch {
+      // A Proxy that refuses `in`: its reads are reported where they fail.
+      return;
+    }
+    diagnostics.report({
+      kind: "configuration_error",
+      code: "setting_renamed",
+      reason: `${call} was given ${old}, which is now called ${current}; ${old} is not read.`,
+      detail: { setting: old }
+    });
+  }
+
+  function reportEntity(setting: string, reason: string): void {
+    diagnostics.report({
+      kind: "configuration_error",
+      code: "entity_invalid",
+      reason,
+      detail: { setting }
+    });
+  }
+
+  /** `fail`'s metadata, reporting options it cannot use. */
+  function failMetadata(options: unknown): Record<string, unknown> | undefined {
+    if (options === undefined) return undefined;
+    if (typeof options !== "object" || options === null || Array.isArray(options)) {
+      reportInvalidOptions(
+        "fail",
+        "fail was given options that are not an object; pass metadata as { metadata }."
+      );
+      return undefined;
+    }
+    if (Object.keys(options).some((key) => key !== "metadata")) {
+      reportInvalidOptions(
+        "fail",
+        "fail was given options other than metadata, which are not read; pass metadata as { metadata }."
+      );
+    }
+    return (options as { metadata?: Record<string, unknown> }).metadata;
+  }
+
+  /**
+   * The entity `startJourney` records under: the host's, copied, or the unknown
+   * entity, reported, when the host's cannot be recorded. The steps are kept
+   * either way; an event with an unusable entity would be refused whole.
+   */
+  function startedEntity(options: unknown): Entity {
+    // Unreadable options throw to the caller's boundary, which reports them.
+    const entity: unknown = (options as { entity?: unknown }).entity;
+    if (isUsableEntity(entity)) return copyEntity(entity);
+    reportEntity(
+      "entity",
+      "startJourney was given an entity whose type and id are not both non-empty strings, so its steps are recorded under the unknown entity."
+    );
+    return UNKNOWN_ENTITY;
+  }
+
+  /**
+   * The context `continueJourney` joins.
+   *
+   * The journey id is the context's, else `journeyId`, else a new random one.
+   * The entity is the context's, else `entity`, else the unknown entity. At the
+   * default propagation level the journey id crosses the boundary and the
+   * entity does not, so the consumer supplies the entity it already has from
+   * the message body.
+   *
+   * Anything that cannot be used is reported and treated as absent: a context
+   * whose id is not a non-empty string, which used to be recorded as it was
+   * and cost the whole journey at the server; an entity whose type or id is
+   * not; options that are not an object, reported once. Each option is read
+   * inside the boundary, and apart, so a getter that throws costs that option.
+   */
+  function continuedContext(options: unknown): JourneyContext {
+    if (typeof options !== "object" || options === null) {
+      reportInvalidOptions(
+        "continueJourney",
+        "continueJourney was given options that are not an object, so it started a new journey under the unknown entity."
+      );
+      return { journeyId: `jrn_${randomUUID()}`, entity: UNKNOWN_ENTITY };
+    }
+    const given = options as Record<keyof ContinueJourneyOptions, unknown>;
+    const read = (key: keyof ContinueJourneyOptions): unknown =>
+      safely(diagnostics, "capture_error", () => given[key]);
+    reportRenamedOption(options, "entityFallback", "entity", "continueJourney");
+
+    let journeyId: string | undefined;
+    let entity: Entity | undefined;
+
+    const context = read("context");
+    if (context !== undefined) {
+      const propagated = safely(diagnostics, "capture_error", () => {
+        if (typeof context !== "object" || context === null) return {};
+        const { journeyId: id, entity: carried } = context as Record<string, unknown>;
+        return { id, carried };
+      });
+      if (propagated !== undefined) {
+        if (isIdentifier(propagated.id)) {
+          journeyId = propagated.id;
+        } else {
+          diagnostics.report({
+            kind: "configuration_error",
+            code: "journey_id_invalid",
+            reason:
+              "continueJourney was given a context without a journey id, so it was not used. Pass what an extract helper returned, or a journey's context().",
+            detail: { setting: "context" }
+          });
+        }
+        if (isUsableEntity(propagated.carried)) {
+          entity = copyEntity(propagated.carried);
+        } else if (journeyId !== undefined && propagated.carried !== undefined) {
+          reportEntity(
+            "context",
+            "continueJourney was given a context whose entity type and id are not both non-empty strings, so its entity was not used."
+          );
+        }
+      }
+    }
+
+    if (journeyId === undefined) {
+      const held = read("journeyId");
+      if (isIdentifier(held)) {
+        journeyId = held;
+      } else if (held !== undefined) {
+        diagnostics.report({
+          kind: "configuration_error",
+          code: "journey_id_invalid",
+          reason:
+            "continueJourney was given a journeyId that is not a non-empty string, so it was not used.",
+          detail: { setting: "journeyId" }
+        });
+      }
+    }
+
+    if (entity === undefined) {
+      const fallback = read("entity");
+      if (isUsableEntity(fallback)) {
+        entity = copyEntity(fallback);
+      } else if (fallback !== undefined) {
+        reportEntity(
+          "entity",
+          "continueJourney was given an entity whose type and id are not both non-empty strings, so its steps are recorded under the unknown entity."
+        );
+      } else {
+        reportEntity(
+          "entity",
+          "continueJourney had no entity, from the context or the options, so its steps are recorded under the unknown entity. Pass the entity you have as entity."
+        );
+      }
+    }
+
+    return {
+      journeyId: journeyId ?? `jrn_${randomUUID()}`,
+      entity: entity ?? UNKNOWN_ENTITY
+    };
   }
 
   /**
@@ -1537,13 +1703,19 @@ export function createRecorder(config: RecorderConfig): Recorder {
     const seen = new Set<string>();
     const targets: Target[] = [];
     for (const one of journeys) {
-      const target = safely(diagnostics, "capture_error", (): Target => {
+      const target = safely(diagnostics, "capture_error", (): Target | undefined => {
         const candidate: unknown =
           typeof (one as Partial<Journey> | null)?.context === "function"
             ? (one as Journey).context()
             : one;
         if (!isContext(candidate)) {
-          throw new TypeError("across() was given something that is not a journey.");
+          diagnostics.report({
+            kind: "capture_error",
+            code: "not_a_journey",
+            reason: "across() was given something that is not a journey, so it was left out.",
+            detail: {}
+          });
+          return undefined;
         }
         // Typed as a journey or a context, but a host can pass anything.
         const handle: unknown = one;
@@ -1561,14 +1733,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
 
   return {
     startJourney(options) {
-      const context = safely(diagnostics, "capture_error", () => ({
-        journeyId: `jrn_${randomUUID()}`,
-        entity: options.entity
-      }));
-
-      const journey = makeJourney(
-        context ?? { journeyId: `jrn_${randomUUID()}`, entity: { type: "unknown", id: "unknown" } }
-      );
+      const entity =
+        safely(diagnostics, "capture_error", () => startedEntity(options)) ?? UNKNOWN_ENTITY;
+      const journey = makeJourney({ journeyId: `jrn_${randomUUID()}`, entity });
       // Each option is read inside the boundary, and apart, so a getter that
       // throws, or options that are not an object, cost that option and not
       // the journey the host is about to use.
@@ -1579,13 +1746,30 @@ export function createRecorder(config: RecorderConfig): Recorder {
         if (label !== undefined) journey.label(label);
       });
       safely(diagnostics, "capture_error", () => {
-        const { aliases, displayable } = options;
+        reportRenamedOption(options, "displayable", "displayableAliases", "startJourney");
+        const { aliases, displayableAliases } = options;
         if (aliases === undefined) return;
-        journey.identify(aliases, displayable === undefined ? undefined : { displayable });
+        journey.identify(
+          aliases,
+          displayableAliases === undefined ? undefined : { displayableAliases }
+        );
       });
       return journey;
     },
-    continueJourney: (context) => makeJourney(context),
+    continueJourney(options) {
+      const context = safely(diagnostics, "capture_error", () => continuedContext(options)) ?? {
+        journeyId: `jrn_${randomUUID()}`,
+        entity: UNKNOWN_ENTITY
+      };
+      const journey = makeJourney(context);
+      const given: unknown = options;
+      if (typeof given !== "object" || given === null) return journey;
+      safely(diagnostics, "capture_error", () => {
+        const { label } = options;
+        if (label !== undefined) journey.label(label);
+      });
+      return journey;
+    },
     journeyIdFor(entity) {
       const derived = safely(diagnostics, "capture_error", () => {
         const secret = resolved.journeyIdSecret;
@@ -1595,7 +1779,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
         }
         const problem = entityProblem(entity);
         if (problem !== undefined) {
-          diagnostics.report({ kind: "configuration_error", reason: problem });
+          diagnostics.report({
+            kind: "configuration_error",
+            code: "entity_invalid",
+            reason: problem,
+            detail: {}
+          });
           return undefined;
         }
         return deriveJourneyId(secret, resolved.environment, entity);
@@ -1609,25 +1798,6 @@ export function createRecorder(config: RecorderConfig): Recorder {
         journeys: () => targets.map(({ context }) => context)
       };
     },
-    // At the default propagation level the journey ID crosses the boundary and
-    // the entity does not, so the consumer supplies the entity it already has
-    // from the message body.
-    //
-    // Read inside the boundary, as startJourney's options are: missing options
-    // or a getter that throws used to throw into the consumer. Either way the
-    // consumer gets a journey; unreadable options give it a new one.
-    consume(options) {
-      const context = safely(diagnostics, "capture_error", () => {
-        const propagated = options.context;
-        return {
-          journeyId: propagated?.journeyId ?? `jrn_${randomUUID()}`,
-          entity: propagated?.entity ?? options.entityFallback ?? { type: "unknown", id: "unknown" }
-        };
-      });
-      return makeJourney(
-        context ?? { journeyId: `jrn_${randomUUID()}`, entity: { type: "unknown", id: "unknown" } }
-      );
-    },
     // These six were the only public entry points not going through `safely`,
     // which contradicted safely.ts's own claim that every one does. The
     // consequence was not theoretical: a plain-JavaScript relay calling
@@ -1640,21 +1810,34 @@ export function createRecorder(config: RecorderConfig): Recorder {
     // headers rather than no request, and no context rather than no consumer.
     injectHttpHeaders: (headers, context) =>
       safely(diagnostics, "capture_error", () =>
-        injectHttpHeaders(headers, context, resolved.propagate)
+        hasContext(context, "injectHttpHeaders")
+          ? injectHttpHeaders(headers, context, resolved.propagation)
+          : headers
       ) ?? headers,
     extractHttpContext: (headers) =>
       safely(diagnostics, "capture_error", () => extractHttpContext(headers)),
-    toQueueAttributes: (context) =>
-      safely(diagnostics, "capture_error", () => toQueueAttributes(context, resolved.propagate)) ??
-      {},
-    fromQueueAttributes: (attributes) =>
-      safely(diagnostics, "capture_error", () => fromQueueAttributes(attributes)),
-    wrapPayload: (payload, context) =>
+    injectSqsAttributes: (attributes, context) =>
+      safely(diagnostics, "capture_error", () => {
+        if (hasContext(context, "injectSqsAttributes")) {
+          return injectSqsAttributes(attributes, context, resolved.propagation);
+        }
+        // A context passed as the only argument would otherwise go out as the
+        // message's attributes.
+        return (isPropagated(attributes) ? {} : attributes) as typeof attributes &
+          SqsMessageAttributes;
+      }) ?? (attributes as typeof attributes & SqsMessageAttributes),
+    extractSqsContext: (attributes) =>
+      safely(diagnostics, "capture_error", () => extractSqsContext(attributes)),
+    // Without a context there is no envelope to fill, so the payload goes out
+    // in one with no journey, which extractPayload reads as no context.
+    injectPayload: (payload, context) =>
       safely(diagnostics, "capture_error", () =>
-        wrapPayload(payload, context, resolved.propagate)
-      ) ?? { _flight: {}, data: payload },
-    unwrapPayload: (body) =>
-      safely(diagnostics, "capture_error", () => unwrapPayload(body)) ?? { data: body },
+        hasContext(context, "injectPayload")
+          ? injectPayload(payload, context, resolved.propagation)
+          : undefined
+      ) ?? ({ _flight: {}, data: payload } as unknown as ContextEnvelope<typeof payload>),
+    extractPayload: (body) =>
+      safely(diagnostics, "capture_error", () => extractPayload(body)) ?? { data: body },
     async flush() {
       await safelyAsync(diagnostics, "transport_error", drainAll);
     },
@@ -1675,6 +1858,6 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // Read after the race, so the counters describe what actually landed.
       return diagnostics.counters();
     },
-    diagnostics: () => diagnostics.counters()
+    counters: () => diagnostics.counters()
   };
 }

@@ -309,7 +309,7 @@ describe("the unredacted secret-name warning", () => {
       (journey) => {
         journey.record({ operation: "received", name: "a", metadata });
       },
-      { maxPayloadBytes: 10_000 }
+      { maxEventBytes: 10_000 }
     );
     expect(result.counters.payloadsOmitted).toBe(1);
     expect(events[0]?.["metadata"]).toBeUndefined();

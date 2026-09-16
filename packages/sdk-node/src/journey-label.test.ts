@@ -25,7 +25,7 @@ interface Captured {
 async function capture(
   record: (recorder: Recorder) => Promise<void> | void,
   refuse: (index: number) => boolean = () => false,
-  settings: { maxPayloadBytes?: number } = {}
+  settings: { maxEventBytes?: number } = {}
 ): Promise<Captured> {
   const events: Record<string, unknown>[] = [];
   let seen = 0;
@@ -145,7 +145,7 @@ describe("journey.label", () => {
       const journey = recorder.startJourney({
         entity: { type: "job_posting", id: "4567" },
         aliases: { postingId: "4567" },
-        displayable: ["postingId"],
+        displayableAliases: ["postingId"],
         label: "Mirantis"
       });
       journey.record({ operation: "received", name: "sweep" });
@@ -233,7 +233,7 @@ describe("journey.label", () => {
         record(journey);
       },
       () => false,
-      { maxPayloadBytes: bytes + 100 }
+      { maxEventBytes: bytes + 100 }
     );
 
     expect(events).toHaveLength(1);
@@ -243,9 +243,9 @@ describe("journey.label", () => {
     expect(counters.payloadsOmitted).toBe(1);
     expect(counters.payloadsTruncated).toBe(0);
     expect(counters.sent).toBe(1);
-    expect(diagnostics.find((d) => d.kind === "payload_omitted")?.detail).toEqual({
-      field: "input",
-      reason: "payload_too_large"
+    expect(diagnostics.find((d) => d.kind === "payload_omitted")).toMatchObject({
+      code: "too_large",
+      detail: { field: "input" }
     });
   });
 

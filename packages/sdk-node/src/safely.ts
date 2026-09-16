@@ -1,4 +1,4 @@
-import type { Diagnostics, FailureKind } from "./diagnostics.js";
+import type { BoundaryKind, Diagnostics } from "./diagnostics.js";
 
 /**
  * The single failure boundary. Every public entry point goes through it.
@@ -12,7 +12,7 @@ import type { Diagnostics, FailureKind } from "./diagnostics.js";
  */
 export function safely<T>(
   diagnostics: Diagnostics,
-  kind: FailureKind,
+  kind: BoundaryKind,
   operation: () => T
 ): T | undefined {
   try {
@@ -32,7 +32,7 @@ export function safely<T>(
  */
 export async function safelyAsync<T>(
   diagnostics: Diagnostics,
-  kind: FailureKind,
+  kind: BoundaryKind,
   operation: () => Promise<T>
 ): Promise<T | undefined> {
   try {
@@ -43,10 +43,33 @@ export async function safelyAsync<T>(
   }
 }
 
-function report(diagnostics: Diagnostics, kind: FailureKind, error: unknown): void {
-  diagnostics.report({
-    kind,
-    reason: error instanceof Error ? error.message : String(error),
-    detail: error
-  });
+/** The reason for a thrown value that cannot be turned into text. */
+export const UNDESCRIBABLE = "A value was thrown that cannot be described.";
+
+/**
+ * A thrown value as text, or `UNDESCRIBABLE`. Never throws: `String()` of a
+ * null-prototype object throws, and so do `instanceof` and `String()` of a
+ * revoked Proxy, and the boundary must not throw a second time into the host.
+ */
+export function describeThrown(error: unknown): string {
+  try {
+    const text: unknown = error instanceof Error ? error.message : String(error);
+    return typeof text === "string" ? text : String(text);
+  } catch {
+    return UNDESCRIBABLE;
+  }
+}
+
+function report(diagnostics: Diagnostics, kind: BoundaryKind, error: unknown): void {
+  try {
+    diagnostics.report({
+      kind,
+      code: "unexpected_error",
+      reason: describeThrown(error),
+      detail: { error }
+    });
+  } catch {
+    // Reporting is itself guarded; this is the last line, and it stays silent
+    // rather than become the failure it was reporting.
+  }
 }

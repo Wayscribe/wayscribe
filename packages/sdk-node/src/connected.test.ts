@@ -65,7 +65,10 @@ describe("delivered_first", () => {
 
     const first = seen.filter((d) => d.kind === "delivered_first");
     expect(first).toHaveLength(1);
-    expect(first[0]).toMatchObject({ endpoint: server.endpoint, accepted: 2 });
+    expect(first[0]).toMatchObject({
+      code: "first_delivery",
+      detail: { endpoint: server.endpoint, accepted: 2 }
+    });
     expect(first[0]?.reason).toContain(server.endpoint);
   });
 
@@ -99,7 +102,7 @@ describe("delivered_first", () => {
     await server.close();
 
     const [first] = seen.filter((d) => d.kind === "delivered_first");
-    expect(first).toMatchObject({ endpoint: server.endpoint });
+    expect(first).toMatchObject({ detail: { endpoint: server.endpoint } });
     const everything = [...lines, JSON.stringify(seen)].join("\n");
     expect(everything).not.toContain(secret);
     expect(everything).not.toContain("ingest/");
@@ -181,9 +184,9 @@ describe("the console", () => {
     vi.restoreAllMocks();
     await server.close();
 
-    expect(healthy.diagnostics().rejected).toBeGreaterThan(0);
-    expect(healthy.diagnostics().dropped).toBeGreaterThan(0);
-    expect(healthy.diagnostics().sent).toBeGreaterThan(0);
+    expect(healthy.counters().rejected).toBeGreaterThan(0);
+    expect(healthy.counters().dropped).toBeGreaterThan(0);
+    expect(healthy.counters().sent).toBeGreaterThan(0);
     expect(calls.every((count) => count === 0)).toBe(true);
   });
 
@@ -344,7 +347,9 @@ describe("the console", () => {
     await recorder.shutdown({ timeoutMs: 1_000 });
     vi.restoreAllMocks();
 
-    expect(lines).toContain("[flight-recorder] dropped: queue_full");
+    expect(lines).toContain(
+      "[flight-recorder] dropped: The queue was full, so its oldest event was dropped."
+    );
     // Three: two shed as the queue of one filled, and the event still queued
     // when shutdown gave up on the unreachable endpoint.
     expect(lines).toContain("[flight-recorder] dropped: 3 repeats suppressed since the last line");

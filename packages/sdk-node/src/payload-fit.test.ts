@@ -8,7 +8,7 @@ import { createRecorder, type Journey, type RecorderConfig } from "./index.js";
  * The SDK sends only events the server's limits accept.
  *
  * It used to measure each payload on its own and scale its string limit with
- * `maxPayloadBytes`, while the server measures the whole envelope and never
+ * `maxEventBytes`, while the server measures the whole envelope and never
  * scaled anything. A 70,000 character string was then refused
  * `max_string_length_exceeded`, and the whole event was lost. Now a long string
  * is cut, a payload that still does not fit is omitted, and the event is sent.
@@ -91,6 +91,7 @@ describe("fitting an event to the server's limits", () => {
     expect(diagnostics.filter((d) => d.kind === "payload_truncated")).toEqual([
       {
         kind: "payload_truncated",
+        code: "strings_cut",
         reason: expect.stringContaining("input") as string,
         detail: { field: "input", strings: 1, charactersRemoved: 4_500 }
       }
@@ -129,9 +130,9 @@ describe("fitting an event to the server's limits", () => {
     expect((event["output"] as { normalized: string }).normalized).toHaveLength(50_000);
     expect(event["metadata"]).toEqual({ tenant: "acme" });
     expect(counters.payloadsOmitted).toBe(1);
-    expect(diagnostics.find((d) => d.kind === "payload_omitted")?.detail).toEqual({
-      field: "input",
-      reason: "payload_too_large"
+    expect(diagnostics.find((d) => d.kind === "payload_omitted")).toMatchObject({
+      code: "too_large",
+      detail: { field: "input" }
     });
   });
 
@@ -145,7 +146,7 @@ describe("fitting an event to the server's limits", () => {
           output: "y".repeat(700)
         });
       },
-      { maxPayloadBytes: 1_200 }
+      { maxEventBytes: 1_200 }
     );
     expect(events[0]?.["input"]).toBe("x".repeat(600));
     expect(events[0]?.["output"]).toBe("[PAYLOAD_TOO_LARGE]");
@@ -162,7 +163,7 @@ describe("fitting an event to the server's limits", () => {
           metadata: { big: "m".repeat(700) }
         });
       },
-      { maxPayloadBytes: 1_000 }
+      { maxEventBytes: 1_000 }
     );
     const event = events[0] ?? {};
     expect(event["input"]).toBe("[PAYLOAD_TOO_LARGE]");
@@ -179,9 +180,9 @@ describe("fitting an event to the server's limits", () => {
       journey.record({ operation: "received", name: "deep", input: nested });
     });
     expect(events[0]?.["input"]).toBe("[PAYLOAD_TOO_LARGE]");
-    expect(diagnostics.find((d) => d.kind === "payload_omitted")?.detail).toEqual({
-      field: "input",
-      reason: "max_depth_exceeded"
+    expect(diagnostics.find((d) => d.kind === "payload_omitted")).toMatchObject({
+      code: "too_deep",
+      detail: { field: "input" }
     });
   });
 
@@ -207,14 +208,14 @@ describe("fitting an event to the server's limits", () => {
     expect(counters.payloadsTruncated).toBe(0);
   });
 
-  it("does not scale the string limit with maxPayloadBytes any more", async () => {
-    // The old behaviour: raising maxPayloadBytes to 5 MB let a 70 KB string
+  it("does not scale the string limit with maxEventBytes any more", async () => {
+    // The old behaviour: raising maxEventBytes to 5 MB let a 70 KB string
     // through, and the server refused the event.
     const { events } = await capture(
       (journey) => {
         journey.record({ operation: "received", name: "r", input: "e".repeat(70_000) });
       },
-      { maxPayloadBytes: 5_000_000 }
+      { maxEventBytes: 5_000_000 }
     );
     expect(events[0]?.["input"]).toBe(`${"e".repeat(65_500)}${MARKER_4500}`);
   });

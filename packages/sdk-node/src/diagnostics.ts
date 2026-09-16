@@ -1,52 +1,46 @@
 import { maskSecretsInText } from "@flight-recorder/payload-security/redaction";
+import type { Operation } from "./operations.js";
 
 /**
+ * Every diagnostic kind. Closed, so a `switch` narrows; new kinds may still
+ * arrive in a minor release, so a `switch` over them needs a `default` branch.
+ *
  * `rejected` is distinct from `transport_error` on purpose. A transport error
  * means a request did not land, or the server could not store an event for
  * now, and what was not stored is retried: until the connection recovers, or
  * for an event refused for now, until 30 seconds or 10 sends have passed, when
- * it is given up and a `dropped` follows. A rejection means the
- * server received the event, understood it, and refused it — retrying changes
- * nothing, and the event is gone. Collapsing the two would tell an operator to
- * wait for a recovery that is never coming.
- */
-export type FailureKind =
-  | "dropped"
-  | "rejected"
-  | "transport_error"
-  | "capture_error"
-  | "breaker_open"
-  | "payload_omitted"
-  | "payload_truncated"
-  | "key_dropped"
-  | "configuration_error"
-  // A warning rather than a failure: the event is sent unchanged. Here so it
-  // shares the one diagnostic shape, `{ kind, reason, detail }` (ADR-055).
-  | "unredacted_secret_name";
-
-/**
+ * it is given up and a `dropped` follows. A rejection means the server
+ * received the event, understood it, and refused it; retrying changes nothing,
+ * and the event is gone. Collapsing the two would tell an operator to wait for
+ * a recovery that is never coming.
+ *
  * `delivered_first` is the one diagnostic that is good news. It exists because
  * silence was the only sign of health, and silence is also what a recorder
  * pointed at the wrong port produces.
  */
-export type DiagnosticKind = FailureKind | "delivered_first" | "insecure_endpoint";
+export type DiagnosticKind = Diagnostic["kind"];
 
-export interface FailureDiagnostic {
-  kind: FailureKind;
-  reason: string;
-  detail?: unknown;
-}
+/**
+ * Every diagnostic code, across kinds. Match on these, never on `reason`.
+ * New codes may be added in any minor release.
+ */
+export type DiagnosticCode = Diagnostic["code"];
 
-/** Reported once per recorder, after the first batch the server stored anything from. */
+/**
+ * Reported once per recorder, after the first batch the server stored
+ * anything from. Counts toward no counter.
+ */
 export interface DeliveredFirstDiagnostic {
   kind: "delivered_first";
+  code: "first_delivery";
+  /** A sentence for a person. Its wording may change in any release. */
   reason: string;
-  endpoint: string;
-  /** How many events of that first batch the server stored. */
-  accepted: number;
-  // Declared so code written against the single-shape Diagnostic, which reads
-  // `d.detail` without narrowing, still compiles.
-  detail?: undefined;
+  detail: {
+    /** The endpoint's scheme, host and port only: a path or query can carry a credential. */
+    endpoint: string;
+    /** How many events of that first batch the server stored. */
+    accepted: number;
+  };
 }
 
 /**
@@ -54,63 +48,322 @@ export interface DeliveredFirstDiagnostic {
  * another machine: the API key and every payload would cross the network
  * unencrypted. A warning and never a refusal to start (ADR-007), and it names
  * only the scheme and host, because an endpoint URL can carry credentials.
+ * Counts toward no counter.
  */
 export interface InsecureEndpointDiagnostic {
   kind: "insecure_endpoint";
+  code: "unencrypted_endpoint";
+  /** A sentence for a person. Its wording may change in any release. */
   reason: string;
-  scheme: "http:";
-  host: string;
-  // As on DeliveredFirstDiagnostic: `d.detail` still compiles unnarrowed.
-  detail?: undefined;
+  detail: { scheme: "http:"; host: string };
 }
 
-export type Diagnostic = FailureDiagnostic | DeliveredFirstDiagnostic | InsecureEndpointDiagnostic;
+/**
+ * The server received an event and refused it. Permanent: the event is not
+ * sent again. `event_refused` is one event's verdict, with the server's error
+ * in `serverError`; `request_refused` is a whole request answered with a 4xx,
+ * reported once per event in it. Counted in `rejected`.
+ */
+export interface RejectedDiagnostic {
+  kind: "rejected";
+  code: "event_refused" | "request_refused";
+  /**
+   * A sentence for a person, which for `event_refused` quotes the server's
+   * message. Its wording may change in any release.
+   */
+  reason: string;
+  detail: {
+    /** For `event_refused`: the server's error for this event, as sent. Never printed. */
+    serverError?: unknown;
+    /** For `request_refused`: how many events the refused request held. */
+    events?: number;
+    /** For `request_refused`: the response status. */
+    httpStatus?: number;
+  };
+}
 
+/**
+ * A send did not store everything, and what was not stored is retried.
+ * `request_failed`: the request itself failed. `refused_for_now`: the server
+ * refused events with a verdict of 500 or above. `unexpected_error`: the SDK's
+ * own send path failed, with the thrown value in `error`. Counted in
+ * `transportErrors`.
+ */
+export interface TransportErrorDiagnostic {
+  kind: "transport_error";
+  code: "request_failed" | "refused_for_now" | "unexpected_error";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: {
+    /** Events going back to the queue. */
+    unsent?: number;
+    /** Events this send gave up on; each is also reported as `dropped`. */
+    abandoned?: number;
+    /** For `unexpected_error`: the value thrown. */
+    error?: unknown;
+  };
+}
+
+/**
+ * A payload was replaced with `[PAYLOAD_TOO_LARGE]` or `[UNCAPTURABLE]`, or,
+ * for `metadata`, left off; the event is still sent. The code says why:
+ * `too_large` (the event's byte budget), `too_deep`, `too_wide`,
+ * `unserialisable` (reading it threw, as a getter or a `toJSON` can), or
+ * `projection_failed` (a `captureInput` or `captureOutput` threw or returned a
+ * promise). What was thrown, if anything, is in `error`; it can quote the
+ * payload, so it is never printed. Counted in `payloadsOmitted`.
+ */
+export interface PayloadOmittedDiagnostic {
+  kind: "payload_omitted";
+  code: "too_large" | "too_deep" | "too_wide" | "unserialisable" | "projection_failed";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: { field: "input" | "output" | "metadata"; error?: unknown };
+}
+
+/**
+ * Strings in a payload were cut to the server's limit (`strings_cut`), or a
+ * journey label was cut to 200 code points (`label_cut`, reported once, when
+ * the label is set). The event is still sent. Counted in `payloadsTruncated`.
+ */
+export interface PayloadTruncatedDiagnostic {
+  kind: "payload_truncated";
+  code: "strings_cut" | "label_cut";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: {
+    field: "input" | "output" | "metadata" | "journeyLabel";
+    /** How many strings were cut. */
+    strings: number;
+    /** UTF-16 code units removed. */
+    charactersRemoved: number;
+  };
+}
+
+/**
+ * Entries the server would refuse were left off an event, or a label was not
+ * set (`label_invalid`, reported once, when `label` is called). The event is
+ * still sent. `keys` says how many entries this one report covers. Counted in
+ * `keysDropped`, once per report.
+ */
+export interface KeyDroppedDiagnostic {
+  kind: "key_dropped";
+  code:
+    | "aliases_not_object"
+    | "alias_invalid"
+    | "displayable_alias_invalid"
+    | "metadata_key_too_long"
+    | "label_invalid";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: {
+    field: "aliases" | "displayableAliases" | "metadata" | "journeyLabel";
+    keys: number;
+  };
+}
+
+/**
+ * An event was not delivered. `queue_full`: the oldest queued event was shed.
+ * `after_shutdown`: recorded after `shutdown()`, with its `name` and
+ * `operation`. `shutdown`: still undelivered when shutdown finished, though
+ * the server may have stored it. `retry_budget`: the server was still refusing
+ * it for now after 30 seconds or 10 sends. `no_verdict`: the server's reply
+ * gave no verdict for it; it may have been stored, so it is not sent again.
+ * Counted in `dropped`.
+ */
+export interface DroppedDiagnostic {
+  kind: "dropped";
+  code: "queue_full" | "after_shutdown" | "shutdown" | "retry_budget" | "no_verdict";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: {
+    /** For `after_shutdown`: the event's name. */
+    name?: string;
+    /** For `after_shutdown`: the event's operation. */
+    operation?: Operation;
+  };
+}
+
+/**
+ * A call could not record what it was asked to, and the host's call was
+ * unaffected. `unexpected_error`: something threw, with the thrown value in
+ * `error` (a value that cannot be described has a fixed reason).
+ * `not_a_journey`: something given to `across` is neither a journey nor a
+ * context. `invalid_options`: the options of the call named in `call` are not
+ * an object, or hold keys it does not read (never quoted). `context_missing`:
+ * an inject helper, named in `call`, was given no journey context. Counted in
+ * `captureErrors`.
+ */
+export interface CaptureErrorDiagnostic {
+  kind: "capture_error";
+  code: "unexpected_error" | "not_a_journey" | "invalid_options" | "context_missing";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: {
+    error?: unknown;
+    /** For `invalid_options` and `context_missing`: the method that was called. */
+    call?: string;
+  };
+}
+
+/**
+ * A setting or an argument could not be used, or a call needed a setting the
+ * recorder does not have; the call returned something safe. `setting` names
+ * what could not be used, never its value.
+ *
+ * - `setting_unusable`, `required_setting_unusable`: a recorder setting.
+ * - `setting_renamed`: a setting or option given under the name it had
+ *   before the first release, which is not read; the reason names the new one.
+ * - `journey_id_secret_missing`, `journey_id_secret_unusable`: from
+ *   `journeyIdFor`, or from creating the recorder with a secret it cannot use.
+ * - `entity_invalid`: an entity that is missing, or whose type or id is not a
+ *   non-empty string, given to `journeyIdFor`, `startJourney` or
+ *   `continueJourney` (`setting` is `entity`, or `context` for a context's).
+ *   `startJourney` and `continueJourney` record under the entity
+ *   `{ type: "unknown", id: "unknown" }` instead.
+ * - `journey_id_invalid`: a `continueJourney` context, or `journeyId`, without
+ *   a non-empty string id; it is not used.
+ *
+ * Counted in `configurationErrors`.
+ */
+export interface ConfigurationErrorDiagnostic {
+  kind: "configuration_error";
+  code:
+    | "setting_unusable"
+    | "required_setting_unusable"
+    | "setting_renamed"
+    | "journey_id_secret_missing"
+    | "journey_id_secret_unusable"
+    | "entity_invalid"
+    | "journey_id_invalid";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: { setting?: string };
+}
+
+/**
+ * Sends pause for `cooldownMs` after `failures` sends failed in a row.
+ * Counted in `breakerOpened`.
+ */
+export interface BreakerOpenedDiagnostic {
+  kind: "breaker_opened";
+  code: "consecutive_failures";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: { failures: number; cooldownMs: number };
+}
+
+/**
+ * A value was sent in plain text under a name that looks like a secret,
+ * because no redaction rule covers the name (ADR-055). A warning: the event is
+ * sent unchanged. `name` is as written, cut to 128 characters; the value is
+ * never included. Counted in `unredactedSecretNames`.
+ */
+export interface UnredactedSecretNameDiagnostic {
+  kind: "unredacted_secret_name";
+  code: "secret_like_name";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: {
+    field: "input" | "output" | "metadata";
+    name: string;
+    /** Where the name was, with every array index written `[*]`. */
+    path: string;
+  };
+}
+
+/**
+ * What `onDiagnostic` receives: `{ kind, code, reason, detail }`. Match on
+ * `kind` and `code`; `reason` is prose whose wording may change in any
+ * release. New kinds and codes may be added in any minor release, so handle
+ * the ones you do not know in a `default` branch.
+ */
+export type Diagnostic =
+  | DeliveredFirstDiagnostic
+  | InsecureEndpointDiagnostic
+  | RejectedDiagnostic
+  | TransportErrorDiagnostic
+  | PayloadOmittedDiagnostic
+  | PayloadTruncatedDiagnostic
+  | KeyDroppedDiagnostic
+  | DroppedDiagnostic
+  | CaptureErrorDiagnostic
+  | ConfigurationErrorDiagnostic
+  | BreakerOpenedDiagnostic
+  | UnredactedSecretNameDiagnostic;
+
+/**
+ * What the recorder has counted since it was created. Every counter except
+ * `recorded` and `sent` counts reports of one diagnostic kind, one per
+ * report.
+ *
+ * Once `shutdown()` has returned, `sent + rejected + dropped === recorded`.
+ *
+ * @experimental Fields may be added in any minor release.
+ */
 export interface Counters {
-  dropped: number;
-  /** Received by the server and refused. Permanent; these events do not exist. */
+  /** Events the recorder built and queued, and events refused because it had shut down. */
+  recorded: number;
+  /** Events the server accepted and stored. */
+  sent: number;
+  /** `rejected` reports: events the server received and refused. Permanent. */
   rejected: number;
+  /** `dropped` reports: events not delivered. */
+  dropped: number;
+  /** `transport_error` reports. */
   transportErrors: number;
+  /** `capture_error` reports. */
   captureErrors: number;
+  /** `breaker_opened` reports. */
   breakerOpened: number;
   /**
-   * Payloads replaced by a marker because they exceeded the size guard. The
-   * event itself is still sent, so this is not part of `dropped`: counting it
-   * there counted one event twice, once as dropped and once as sent.
+   * `payload_omitted` reports: payloads replaced by a marker. The event is
+   * still sent, so these are not part of `dropped`.
    */
   payloadsOmitted: number;
   /**
-   * Payloads sent with at least one string cut to the server's 65,536 code
-   * units, and a marker saying how much went. Like `payloadsOmitted`, not part
-   * of `dropped`: the event is sent. A payload cut and then omitted anyway is
-   * counted as omitted only. A journey label cut to 200 code points is counted
-   * here too, once when it is set.
+   * `payload_truncated` reports: payloads sent with at least one string cut,
+   * and journey labels cut, each counted once, when set. A payload cut and
+   * then omitted is counted as omitted only.
    */
   payloadsTruncated: number;
   /**
-   * Keys left off an event because the server would refuse the event over
-   * them: a metadata key or alias type over 128 characters, an alias value
-   * that is not a string of at most 512, a displayable alias type over 128, a
-   * journey label that is empty or not a string. Counted per key; the event is
-   * still sent.
+   * `key_dropped` reports: one per event field that lost entries, and one per
+   * refused label. `detail.keys` says how many entries each report covers.
    */
   keysDropped: number;
-  /**
-   * Calls that needed a setting the recorder does not have, such as
-   * `journeyIdFor` without a usable `journeyIdSecret`, and settings that could
-   * not be used. The call still returned something safe; this is how a test
-   * notices it did not return what was meant.
-   */
+  /** `configuration_error` reports. */
   configurationErrors: number;
   /**
-   * Distinct key names, folded as redaction folds them, this recorder sent in
-   * plain text although they look like secrets (ADR-055). At most 100. The
-   * events were sent unchanged, so this is not part of `dropped`.
+   * `unredacted_secret_name` reports: distinct key names, folded as redaction
+   * folds them, sent in plain text although they look like secrets
+   * (ADR-055). At most 100.
    */
   unredactedSecretNames: number;
-  /** Accepted and stored. Not "handed to fetch" — actually stored. */
-  sent: number;
 }
+
+/**
+ * The counter each kind increments. The naming rule: `<noun>_<participle>`
+ * counts in `<nouns><Participle>`, `<noun>_error` in `<noun>Errors`, and a
+ * bare participle in itself.
+ */
+const COUNTER_OF: Record<DiagnosticKind, keyof Counters | undefined> = {
+  delivered_first: undefined,
+  insecure_endpoint: undefined,
+  rejected: "rejected",
+  transport_error: "transportErrors",
+  payload_omitted: "payloadsOmitted",
+  payload_truncated: "payloadsTruncated",
+  key_dropped: "keysDropped",
+  dropped: "dropped",
+  capture_error: "captureErrors",
+  configuration_error: "configurationErrors",
+  breaker_opened: "breakerOpened",
+  unredacted_secret_name: "unredactedSecretNames"
+};
+
+/** The kinds the failure boundary reports a thrown value as. */
+export type BoundaryKind = "capture_error" | "transport_error";
 
 export interface Diagnostics {
   /**
@@ -120,6 +373,8 @@ export interface Diagnostics {
    */
   report(diagnostic: Diagnostic, logLine?: string, options?: ReportOptions): void;
   recordSent(count: number): void;
+  /** One event built and queued, or refused after shutdown. */
+  countRecorded(): void;
   counters(): Counters;
   /** Prints any repeats still suppressed. A no-op unless logging is on. */
   flushLog(): void;
@@ -162,6 +417,8 @@ export function createDiagnostics(
   options: DiagnosticsOptions = {}
 ): Diagnostics {
   const counters: Counters = {
+    recorded: 0,
+    sent: 0,
     dropped: 0,
     rejected: 0,
     transportErrors: 0,
@@ -171,8 +428,7 @@ export function createDiagnostics(
     payloadsTruncated: 0,
     keysDropped: 0,
     configurationErrors: 0,
-    unredactedSecretNames: 0,
-    sent: 0
+    unredactedSecretNames: 0
   };
   const log = options.log === true;
   const lastPrinted = new Map<DiagnosticKind, number>();
@@ -202,16 +458,8 @@ export function createDiagnostics(
 
   return {
     report(diagnostic, logLine, options) {
-      if (diagnostic.kind === "dropped") counters.dropped += 1;
-      if (diagnostic.kind === "rejected") counters.rejected += 1;
-      if (diagnostic.kind === "transport_error") counters.transportErrors += 1;
-      if (diagnostic.kind === "capture_error") counters.captureErrors += 1;
-      if (diagnostic.kind === "breaker_open") counters.breakerOpened += 1;
-      if (diagnostic.kind === "payload_omitted") counters.payloadsOmitted += 1;
-      if (diagnostic.kind === "payload_truncated") counters.payloadsTruncated += 1;
-      if (diagnostic.kind === "configuration_error") counters.configurationErrors += 1;
-      if (diagnostic.kind === "key_dropped") counters.keysDropped += keysIn(diagnostic.detail);
-      if (diagnostic.kind === "unredacted_secret_name") counters.unredactedSecretNames += 1;
+      const counter = COUNTER_OF[diagnostic.kind];
+      if (counter !== undefined) counters[counter] += 1;
 
       if (log) {
         try {
@@ -231,6 +479,9 @@ export function createDiagnostics(
     },
     recordSent(count) {
       counters.sent += count;
+    },
+    countRecorded() {
+      counters.recorded += 1;
     },
     counters: () => ({ ...counters }),
     flushLog() {
@@ -256,11 +507,6 @@ export function printDiagnostic(diagnostic: Diagnostic, note: string): void {
   } catch {
     // As in report(): formatting must not become a failure of its own.
   }
-}
-
-function keysIn(detail: unknown): number {
-  const keys = (detail as { keys?: unknown } | undefined)?.keys;
-  return typeof keys === "number" && Number.isInteger(keys) && keys > 0 ? keys : 1;
 }
 
 function plural(repeats: number): string {

@@ -100,6 +100,7 @@ export function createSecretNameWarnings(options: {
     );
     const diagnostic: Diagnostic = {
       kind: "unredacted_secret_name",
+      code: "secret_like_name",
       reason:
         `A field named "${shownName}" (at ${shownPath}) looks like a secret and was sent unredacted. ` +
         advice(shownName),

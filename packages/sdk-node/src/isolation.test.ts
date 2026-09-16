@@ -40,7 +40,7 @@ describe("failure isolation (ADR-007)", () => {
     expect(() => {
       for (let i = 0; i < 50; i += 1) journey.record({ operation: "received", name: "n" });
     }).not.toThrow();
-    expect(recorder.diagnostics().dropped).toBeGreaterThan(0);
+    expect(recorder.counters().dropped).toBeGreaterThan(0);
   });
 
   it("does not throw when the diagnostics callback throws", () => {
@@ -66,7 +66,7 @@ describe("failure isolation (ADR-007)", () => {
   });
 
   it("does not throw when the payload exceeds the size guard", () => {
-    const recorder = createRecorder({ ...base, maxPayloadBytes: 64 });
+    const recorder = createRecorder({ ...base, maxEventBytes: 64 });
     const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
     expect(() => {
       journey.record({ operation: "transformed", name: "n", input: { blob: "x".repeat(5_000) } });

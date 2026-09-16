@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   extractHttpContext,
-  fromQueueAttributes,
+  extractPayload,
+  extractSqsContext,
   injectHttpHeaders,
-  toQueueAttributes,
-  unwrapPayload,
-  wrapPayload
+  injectPayload,
+  injectSqsAttributes
 } from "./propagation.js";
 
 const context = {
@@ -41,6 +41,22 @@ describe("HTTP propagation", () => {
     expect(original).toEqual({ "content-type": "application/json" });
   });
 
+  it("replaces a journey's headers already present, whatever their case", () => {
+    // Forwarding an inbound request's headers must not pair an old entity id
+    // with the new journey.
+    const stale = {
+      "X-Flight-Journey-Id": "jrn_old",
+      "x-flight-entity-type": "order",
+      "X-FLIGHT-ENTITY-ID": "old-id",
+      accept: "application/json"
+    };
+    expect(injectHttpHeaders(stale, context, "journey-and-type")).toEqual({
+      accept: "application/json",
+      "x-flight-journey-id": context.journeyId,
+      "x-flight-entity-type": "customer"
+    });
+  });
+
   it("preserves existing headers", () => {
     const headers = injectHttpHeaders({ authorization: "Bearer x" }, context, "journey-only");
     expect(headers["authorization"]).toBe("Bearer x");
@@ -62,6 +78,25 @@ describe("HTTP propagation", () => {
     expect(extractHttpContext({ "x-flight-journey-id": journeyId })).toBeUndefined();
   });
 
+  it("reads a fetch Headers object, whatever the case of the names", () => {
+    const headers = new Headers({
+      "X-Flight-Journey-Id": context.journeyId,
+      "X-Flight-Entity-Type": "customer",
+      "X-Flight-Entity-Id": context.entity.id
+    });
+    expect(extractHttpContext(headers)).toEqual(context);
+  });
+
+  it("reads Node's incoming headers, ignoring values that are not strings", () => {
+    const incoming: Record<string, string | string[] | number | undefined> = {
+      "content-length": 12,
+      "x-flight-journey-id": [context.journeyId, "jrn_second"],
+      "x-flight-entity-type": undefined
+    };
+    expect(extractHttpContext(incoming)).toEqual({ journeyId: context.journeyId });
+    expect(extractHttpContext({ "x-flight-journey-id": 7 })).toBeUndefined();
+  });
+
   it("extracts a journey without an entity when only the id was sent", () => {
     const headers = injectHttpHeaders({}, context, "journey-only");
     expect(extractHttpContext(headers)?.journeyId).toBe(context.journeyId);
@@ -69,53 +104,76 @@ describe("HTTP propagation", () => {
   });
 });
 
-describe("queue propagation", () => {
-  it("round-trips through SQS-shaped attributes", () => {
-    expect(fromQueueAttributes(toQueueAttributes(context, "full"))).toEqual(context);
+describe("SQS propagation", () => {
+  it("round-trips through SQS message attributes", () => {
+    expect(extractSqsContext(injectSqsAttributes({}, context, "full"))).toEqual(context);
   });
 
   it("emits the SQS attribute shape", () => {
-    expect(toQueueAttributes(context, "journey-only")["flightJourneyId"]).toEqual({
+    expect(injectSqsAttributes({}, context, "journey-only")["flightJourneyId"]).toEqual({
       DataType: "String",
       StringValue: context.journeyId
     });
+  });
+
+  it("replaces a journey's attributes already present", () => {
+    const stale = {
+      flightJourneyId: { DataType: "String", StringValue: "jrn_old" },
+      flightEntityType: { DataType: "String", StringValue: "order" },
+      flightEntityId: { DataType: "String", StringValue: "old-id" },
+      tenant: { DataType: "String", StringValue: "acme" }
+    };
+    expect(injectSqsAttributes(stale, context, "journey-only")).toEqual({
+      tenant: { DataType: "String", StringValue: "acme" },
+      flightJourneyId: { DataType: "String", StringValue: context.journeyId }
+    });
+  });
+
+  it("adds to the caller's attributes without changing them", () => {
+    const original = { tenant: { DataType: "String", StringValue: "acme" } };
+    const injected = injectSqsAttributes(original, context, "journey-only");
+    expect(injected).toEqual({
+      tenant: { DataType: "String", StringValue: "acme" },
+      flightJourneyId: { DataType: "String", StringValue: context.journeyId }
+    });
+    expect(original).toEqual({ tenant: { DataType: "String", StringValue: "acme" } });
   });
 
   it("accepts a plain name-to-value map", () => {
     // ElasticMQ and other brokers differ; a consumer should not have to
     // normalise before calling us.
     const plain = { flightJourneyId: context.journeyId, flightEntityType: "customer" };
-    expect(fromQueueAttributes(plain)?.journeyId).toBe(context.journeyId);
+    expect(extractSqsContext(plain)?.journeyId).toBe(context.journeyId);
   });
 
   it("returns undefined for absent attributes", () => {
-    expect(fromQueueAttributes({})).toBeUndefined();
-    expect(fromQueueAttributes(undefined)).toBeUndefined();
+    expect(extractSqsContext({})).toBeUndefined();
+    expect(extractSqsContext(undefined)).toBeUndefined();
   });
 
   it("rejects a malformed journey id", () => {
-    expect(fromQueueAttributes({ flightJourneyId: "nope" })).toBeUndefined();
+    expect(extractSqsContext({ flightJourneyId: "nope" })).toBeUndefined();
   });
 });
 
 describe("payload envelope", () => {
   it("round-trips and leaves the caller's payload untouched", () => {
     const payload = { customerId: 18492 };
-    const wrapped = wrapPayload(payload, context, "full");
+    const wrapped = injectPayload(payload, context, "full");
     expect(payload).toEqual({ customerId: 18492 });
 
-    const { context: extracted, data } = unwrapPayload(wrapped);
+    const { context: extracted, data } = extractPayload(wrapped);
     expect(extracted).toEqual(context);
     expect(data).toEqual(payload);
   });
 
   it("returns the body as data when there is no envelope", () => {
     const body = { plain: true };
-    expect(unwrapPayload(body)).toEqual({ data: body });
+    expect(extractPayload(body)).toEqual({ data: body });
   });
 
   it("ignores a malformed envelope but keeps the data", () => {
-    const { context: extracted, data } = unwrapPayload({ _flight: { journeyId: "bad" }, data: 1 });
+    const { context: extracted, data } = extractPayload({ _flight: { journeyId: "bad" }, data: 1 });
     expect(extracted).toBeUndefined();
     expect(data).toBe(1);
   });
