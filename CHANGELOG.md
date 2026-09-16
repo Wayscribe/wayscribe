@@ -169,10 +169,12 @@ changes far less often.
 - **A journey can carry a public label** (ADR-054). Events gain an optional
   `journeyLabel`, 1 to 200 code points; an empty string refuses that event as
   `invalid_event`, and an event without the field leaves the label alone. The
-  journey keeps the label of the event with the latest `timestamp`, ties broken
-  by the larger event id, whatever order events arrive in, and it now also
-  keeps its last step, the `name` of that latest event, under the same rule.
-  Timestamps are compared at millisecond precision. The label is not redacted.
+  journey keeps the label of the event with the latest `timestamp`, whatever
+  order events arrive in, and it now also keeps its last step, the `name` of
+  that latest event, under the same rule. Timestamps are compared at
+  millisecond precision; a tie is broken as the timeline breaks it, by the
+  order the server received the events and then by event id, so the last step
+  is the timeline's last row. The label is not redacted.
   The regenerated JSON Schema carries the field, and three wire cases,
   `wire/journey-label`, `wire/journey-label-empty` and
   `wire/journey-label-latest-wins`, specify it.

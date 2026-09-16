@@ -8,9 +8,11 @@ const TRIGGER = "entity_aliases_clear_masked_display_value";
 const ADDED = [
   ["journeys", "label"],
   ["journeys", "label_at"],
+  ["journeys", "label_received_at"],
   ["journeys", "label_event_id"],
   ["journeys", "last_step"],
   ["journeys", "last_step_at"],
+  ["journeys", "last_step_received_at"],
   ["journeys", "last_step_event_id"],
   ["entity_aliases", "display_value"]
 ];
@@ -20,14 +22,19 @@ const ADDED = [
  * journey, and a plain-text copy of displayable alias values to search.
  *
  * `journeys.label` is a public display label an event may carry. Events arrive
- * out of order, so the stored label is the one from the event with the latest
- * `(timestamp, event id)`; `label_at` and `label_event_id` hold that pair so an
- * older event arriving later cannot replace a newer label, and the event id
- * breaks a tie between equal timestamps.
+ * out of order, so the stored label is the one from the event that comes last
+ * in the journey's timeline order, `(timestamp, received at, event id)`;
+ * `label_at`, `label_received_at` and `label_event_id` hold that event's three
+ * so an older event arriving later cannot replace a newer label. Timestamps
+ * are stored to the millisecond and the Node SDK stamps whole milliseconds,
+ * so a quick journey's events tie on it; the time the server received each
+ * event breaks that tie as the timeline does, and the event id breaks a tie
+ * on both.
  *
- * `journeys.last_step` is the step name of the event with the latest
- * `(timestamp, event id)`, under the same rule, so `last_step_at` and
- * `last_step_event_id` hold that pair and the last step never moves backwards.
+ * `journeys.last_step` is the step name of the event that comes last in the
+ * same order, so `last_step_at`, `last_step_received_at` and
+ * `last_step_event_id` hold that event's three, the last step never moves
+ * backwards, and it is the step the timeline shows last.
  *
  * `entity_aliases.display_value` is a plain-text copy of the alias value that
  * exists only while the alias is displayable (ADR-053): ingestion stores it
@@ -108,9 +115,11 @@ export async function up(knex) {
         `alter table journeys
            add column if not exists label text null,
            add column if not exists label_at timestamptz null,
+           add column if not exists label_received_at timestamptz null,
            add column if not exists label_event_id text null,
            add column if not exists last_step text null,
            add column if not exists last_step_at timestamptz null,
+           add column if not exists last_step_received_at timestamptz null,
            add column if not exists last_step_event_id text null`
       );
       await trx.raw("alter table entity_aliases add column if not exists display_value text null");
@@ -170,9 +179,11 @@ export async function down(knex) {
     await trx.raw(
       `alter table journeys
          drop column if exists last_step_event_id,
+         drop column if exists last_step_received_at,
          drop column if exists last_step_at,
          drop column if exists last_step,
          drop column if exists label_event_id,
+         drop column if exists label_received_at,
          drop column if exists label_at,
          drop column if exists label`
     );

@@ -38,7 +38,9 @@ payload and reaches data nobody declared searchable.
 - On the wire it is one new optional event field, `journeyLabel`. An event
   without it leaves the stored label unchanged.
 - **Conflicts:** the label carried by the event with the latest `timestamp`
-  (operation start, ADR-031) wins; ties are broken by the larger event id. A
+  (operation start, ADR-031) wins; ties are broken by the order the server
+  received the events, then by the larger event id, as the timeline orders
+  them. A
   label is declared public, so an out-of-order or replayed event can at worst
   show a stale label, never expose anything.
 - An empty string is refused per event (`invalid_event`), so a label cannot be
@@ -53,9 +55,11 @@ payload and reaches data nobody declared searchable.
 
 ### 2. Storage
 
-- `journeys.label text null`, `journeys.label_at timestamptz null` and
+- `journeys.label text null`, `journeys.label_at timestamptz null`,
+  `journeys.label_received_at timestamptz null` and
   `journeys.label_event_id text null` (for the conflict rule).
-- `journeys.last_step text null` and `journeys.last_step_at timestamptz null`:
+- `journeys.last_step text null`, `journeys.last_step_at timestamptz null`
+  and the matching received-at and event id:
   the step name of the event with the latest `timestamp`, same tie rule, so an
   out-of-order event does not move it backwards.
 - `entity_aliases.display_value text null`: a plain-text copy of the alias value,

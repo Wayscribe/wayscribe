@@ -142,7 +142,11 @@ after it carries the label, including events recorded through
 `recorder.across`. The server keeps the label of the event that started last,
 so repeating it on every event costs nothing, and an event that is lost cannot
 take the label with it. A later `label` call replaces the label from the next
-event on. The label belongs to the object: a second handle for the same
+event on. Events started in the same millisecond keep the order the server
+received them in, and the recorder sends a journey's events in the order they
+were recorded unless it sends several batches at once (`maxConcurrentSends`),
+in which case a label set within the same millisecond may lose to the one
+before it. The label belongs to the object: a second handle for the same
 journey, from `continueJourney` or `consume`, carries none until you set one,
 and a group made from a journey's context rather than the journey itself
 carries none either. In `recorder.across`, a journey handle made by a

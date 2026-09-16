@@ -7,6 +7,7 @@ import {
 import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { FastifyInstance } from "fastify";
+import { randomUUID } from "node:crypto";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -172,6 +173,92 @@ describe("ingestion stores labels, last steps and plain-text copies", () => {
       last_step_at: new Date("2026-09-16T10:00:03.000Z"),
       last_step_event_id: "evt_label_3"
     });
+  });
+
+  describe("events that share a millisecond", () => {
+    // The Node SDK stamps whole milliseconds and names events with random
+    // UUIDs, so a quick journey's events tie on the timestamp, and a tie
+    // broken by event id alone kept a random one: an earlier label after
+    // label() was called again, or any of the steps as the last one. Ties
+    // follow the order the server received the events, as the timeline does.
+    const TIMESTAMP = "2026-09-16T10:00:00.000Z";
+
+    /** What the SDK sends for label "old", three steps, and label "new" after the first. */
+    const quickJourney = (journeyId: string): Record<string, unknown>[] => [
+      envelope({
+        id: randomUUID(),
+        journeyId,
+        timestamp: TIMESTAMP,
+        name: "first",
+        journeyLabel: "old"
+      }),
+      envelope({
+        id: randomUUID(),
+        journeyId,
+        timestamp: TIMESTAMP,
+        name: "second",
+        journeyLabel: "new"
+      }),
+      envelope({
+        id: randomUUID(),
+        journeyId,
+        timestamp: TIMESTAMP,
+        name: "third",
+        journeyLabel: "new"
+      })
+    ];
+
+    const listed = async (): Promise<
+      Map<string, { label: string | null; lastStep: string | null }>
+    > => {
+      const rows = new Map<string, { label: string | null; lastStep: string | null }>();
+      let cursor: string | undefined;
+      do {
+        const response = await app.inject({
+          method: "GET",
+          url: `/v1/journeys?since=2026-09-16T00:00:00Z&limit=100${cursor === undefined ? "" : `&cursor=${encodeURIComponent(cursor)}`}`,
+          headers: { authorization: `Bearer ${apiKey}` }
+        });
+        expect(response.statusCode, response.body).toBe(200);
+        const page = response.json().data;
+        for (const item of page.items) rows.set(item.journeyId, item);
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor !== undefined);
+      return rows;
+    };
+
+    const timelineLastStep = async (journeyId: string): Promise<string | undefined> => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/v1/journeys/${journeyId}/events?limit=100`,
+        headers: { authorization: `Bearer ${apiKey}` }
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      const body: { data: { items: { name: string }[] } } = response.json();
+      return body.data.items.at(-1)?.name;
+    };
+
+    it.each(["in one batch", "one request at a time"])(
+      "end with the later label and the last step received, %s",
+      async (how) => {
+        const journeys = Array.from(
+          { length: 20 },
+          (_, i) => `jrn_tie_${how === "in one batch" ? "batch" : "single"}_${String(i)}`
+        );
+        for (const journeyId of journeys) {
+          const events = quickJourney(journeyId);
+          if (how === "in one batch") await batch(events);
+          else for (const event of events) await batch([event]);
+        }
+        const rows = await listed();
+        for (const journeyId of journeys) {
+          expect(rows.get(journeyId), journeyId).toEqual(
+            expect.objectContaining({ label: "new", lastStep: "third" })
+          );
+          expect(await timelineLastStep(journeyId), journeyId).toBe("third");
+        }
+      }
+    );
   });
 
   it("does not let a duplicate move anything", async () => {

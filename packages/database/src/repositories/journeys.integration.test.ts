@@ -222,9 +222,10 @@ describe("journey summary", () => {
       eventId: string,
       at: string,
       stepName: string,
-      label: string | null
+      label: string | null,
+      connection: Knex = db
     ): Promise<void> => {
-      await applyJourneyEvent(db, projectId, {
+      await applyJourneyEvent(connection, projectId, {
         ...base,
         journeyId,
         environmentId,
@@ -253,13 +254,41 @@ describe("journey summary", () => {
       expect((await shown("jrn_label_newer")).label).toBe("Newer");
     });
 
-    it("breaks a tie on the timestamp by the larger event id, in either arrival order", async () => {
+    it("breaks a tie on the timestamp by the order events were received, whatever their ids", async () => {
+      // Each apply is its own transaction, so each is received later than the
+      // one before, as the timeline orders them (received_at is the
+      // transaction's start).
       const at = "2026-08-06T10:00:00Z";
       await apply("jrn_label_tie_1", "evt_b", at, "b", "From b");
       await apply("jrn_label_tie_1", "evt_a", at, "a", "From a");
       await apply("jrn_label_tie_2", "evt_a", at, "a", "From a");
       await apply("jrn_label_tie_2", "evt_b", at, "b", "From b");
-      for (const journeyId of ["jrn_label_tie_1", "jrn_label_tie_2"]) {
+      expect(await shown("jrn_label_tie_1")).toMatchObject({
+        label: "From a",
+        labelEventId: "evt_a",
+        lastStep: "a",
+        lastStepEventId: "evt_a"
+      });
+      expect(await shown("jrn_label_tie_2")).toMatchObject({
+        label: "From b",
+        labelEventId: "evt_b",
+        lastStep: "b",
+        lastStepEventId: "evt_b"
+      });
+    });
+
+    it("breaks a tie on the timestamp and the arrival by the larger event id", async () => {
+      // Events stored in one transaction were received at the same instant.
+      const at = "2026-08-06T10:00:00Z";
+      await db.transaction(async (trx) => {
+        await apply("jrn_label_tie_3", "evt_b", at, "b", "From b", trx);
+        await apply("jrn_label_tie_3", "evt_a", at, "a", "From a", trx);
+      });
+      await db.transaction(async (trx) => {
+        await apply("jrn_label_tie_4", "evt_a", at, "a", "From a", trx);
+        await apply("jrn_label_tie_4", "evt_b", at, "b", "From b", trx);
+      });
+      for (const journeyId of ["jrn_label_tie_3", "jrn_label_tie_4"]) {
         expect(await shown(journeyId), journeyId).toMatchObject({
           label: "From b",
           labelEventId: "evt_b",
@@ -267,6 +296,12 @@ describe("journey summary", () => {
           lastStepEventId: "evt_b"
         });
       }
+    });
+
+    it("never lets a later timestamp lose to a later arrival", async () => {
+      await apply("jrn_label_tie_5", "evt_z", "2026-08-06T10:00:00.002Z", "newest", "Newest");
+      await apply("jrn_label_tie_5", "evt_a", "2026-08-06T10:00:00.001Z", "older", "Older");
+      expect(await shown("jrn_label_tie_5")).toMatchObject({ label: "Newest", lastStep: "newest" });
     });
 
     it("compares event ids byte by byte, whatever the database collation says", async () => {
@@ -288,8 +323,11 @@ describe("journey summary", () => {
           `select 'evt_B'::text collate "en-x-icu" > 'evt_a'::text collate "en-x-icu" as upper_first`
         );
         expect((ordered as { rows: { upper_first: boolean }[] }).rows[0]?.upper_first).toBe(true);
-        await apply("jrn_label_bytes", "evt_a", at, "lower", "Lower");
-        await apply("jrn_label_bytes", "evt_B", at, "upper", "Upper");
+        // In one transaction, so the ids are what breaks the tie.
+        await db.transaction(async (trx) => {
+          await apply("jrn_label_bytes", "evt_a", at, "lower", "Lower", trx);
+          await apply("jrn_label_bytes", "evt_B", at, "upper", "Upper", trx);
+        });
         expect(await shown("jrn_label_bytes")).toMatchObject({ label: "Lower", lastStep: "lower" });
       } finally {
         await setCollation(plain);
@@ -329,11 +367,11 @@ describe("journey summary", () => {
       for (const [eventId, at, step] of steps) {
         await apply("jrn_step_order", eventId, at, step, null);
         const now = await shown("jrn_step_order");
-        // Only ever forward: the pair it holds is never smaller than before.
-        expect(
-          `${now.lastStepAt?.toISOString() ?? ""}|${now.lastStepEventId ?? ""}` >= latest
-        ).toBe(true);
-        latest = `${now.lastStepAt?.toISOString() ?? ""}|${now.lastStepEventId ?? ""}`;
+        // Only ever forward: the timestamp it holds is never smaller than
+        // before. evt_4 ties with evt_3 and was received later.
+        const held = now.lastStepAt?.toISOString() ?? "";
+        expect(held >= latest).toBe(true);
+        latest = held;
       }
       expect(await shown("jrn_step_order")).toMatchObject({
         lastStep: "four",
@@ -355,9 +393,18 @@ describe("journey summary", () => {
         operation: "received",
         hasError: false
       });
+      // When each transaction started, which is when its event was received.
+      const receivedAt = new Map<string, string>();
       await Promise.all(
         events.map((event) =>
           db.transaction(async (trx) => {
+            const started: unknown = await trx.raw(
+              "select to_char(now() at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') as at"
+            );
+            receivedAt.set(
+              event.eventId,
+              (started as { rows: { at: string }[] }).rows[0]?.at ?? ""
+            );
             const facts = {
               ...base,
               journeyId: "jrn_label_race",
@@ -374,10 +421,11 @@ describe("journey summary", () => {
           })
         )
       );
+      // The timeline's order: timestamp, then arrival, then id.
+      const key = (event: (typeof events)[number]): string =>
+        `${event.at}|${receivedAt.get(event.eventId) ?? ""}|${event.eventId}`;
       const newest = (list: typeof events): (typeof events)[number] | undefined =>
-        [...list]
-          .sort((a, b) => (a.at === b.at ? (a.eventId < b.eventId ? -1 : 1) : a.at < b.at ? -1 : 1))
-          .at(-1);
+        [...list].sort((a, b) => (key(a) < key(b) ? -1 : 1)).at(-1);
       const labelled = newest(events.filter((event) => event.label !== null));
       const last = newest(events);
       expect(await shown("jrn_label_race")).toMatchObject({

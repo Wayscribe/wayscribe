@@ -483,9 +483,11 @@ describe("schema constraints", () => {
     const ADDED: [table: string, column: string, type: string][] = [
       ["journeys", "label", "text"],
       ["journeys", "label_at", "timestamp with time zone"],
+      ["journeys", "label_received_at", "timestamp with time zone"],
       ["journeys", "label_event_id", "text"],
       ["journeys", "last_step", "text"],
       ["journeys", "last_step_at", "timestamp with time zone"],
+      ["journeys", "last_step_received_at", "timestamp with time zone"],
       ["journeys", "last_step_event_id", "text"],
       ["entity_aliases", "display_value", "text"]
     ];
@@ -637,17 +639,21 @@ describe("schema constraints", () => {
           .first(
             "label",
             "label_at",
+            "label_received_at",
             "label_event_id",
             "last_step",
             "last_step_at",
+            "last_step_received_at",
             "last_step_event_id"
           )
       ).toEqual({
         label: null,
         label_at: null,
+        label_received_at: null,
         label_event_id: null,
         last_step: null,
         last_step_at: null,
+        last_step_received_at: null,
         last_step_event_id: null
       });
       expect(

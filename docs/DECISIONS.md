@@ -2280,11 +2280,16 @@ displayable (ADR-053), and a label, which did not exist yet.
   refuses the event; an event without the field leaves the label alone. The label is not
   redacted.
 - **Latest operation start wins.** The journey keeps the label of the event with the
-  latest `timestamp` (the operation's start, ADR-031), ties broken by the larger event id
-  compared byte by byte, whatever order events arrive in. The journey's last step (the
-  `name` of that latest event) follows the same rule. Timestamps are compared at millisecond
-  precision, the precision they are stored at, so two events less than a millisecond apart
-  tie and are ordered by event id. A label is public by declaration, so an old event that
+  latest `timestamp` (the operation's start, ADR-031), whatever order events arrive in. The
+  journey's last step (the `name` of that latest event) follows the same rule. Timestamps are
+  compared at millisecond precision, the precision they are stored at, and the Node SDK
+  stamps whole milliseconds, so a quick journey's events often tie. A tie is broken as the
+  timeline breaks it: by the order the server received the events, then by the larger event
+  id compared byte by byte. Breaking it by event id alone was the first design, and since
+  the SDK makes ids at random it kept a random step as the last one, and an earlier label
+  after `label()` was called again. With arrival order, events sent one after another keep
+  their order; events sent concurrently in different requests are received in no
+  guaranteed order. A label is public by declaration, so an old event that
   arrives late can at worst leave a stale label, never expose anything.
 - **Plain-text copies of displayable values.** `entity_aliases.display_value` holds the
   alias value in plain text while, and only while, the alias is displayable. The upsert that

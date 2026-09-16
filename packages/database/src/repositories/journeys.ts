@@ -9,7 +9,7 @@ export interface JourneyEventFacts {
   eventTimestamp: Date;
   operation: string;
   hasError: boolean;
-  /** The event's own id, which breaks a tie between equal timestamps. */
+  /** The event's own id, which breaks a tie between equal timestamps and arrivals. */
   eventId: string;
   /** The event's `name`, the step the timeline labels its row with. */
   stepName: string;
@@ -149,23 +149,35 @@ export async function applyJourneyEvent(
 }
 
 /**
- * Whether this event's `(timestamp, id)` is past the pair that set the label,
- * and it carries one. Reads the row being updated; see updateJourneySummary.
+ * Whether this event comes after the one that set the label in the timeline's
+ * order, `(timestamp, received at, id)`, and carries a label. Reads the row
+ * being updated; see updateJourneySummary.
+ *
+ * `now()` is when this event was received: the start of the transaction that
+ * also inserts its row, whose `received_at` defaults to the same `now()`. A
+ * null received-at (never written by this code) compares as the earliest.
  */
-const TAKES_LABEL = `(e.event_label is not null and (label_at is null or (e.event_at, e.event_id collate "C") > (label_at, label_event_id collate "C")))`;
+const TAKES_LABEL = `(e.event_label is not null and (label_at is null or (e.event_at, now(), e.event_id collate "C") > (label_at, coalesce(label_received_at, '-infinity'), label_event_id collate "C")))`;
 
-/** The same comparison against the pair that set the last step. */
-const TAKES_STEP = `(last_step_at is null or (e.event_at, e.event_id collate "C") > (last_step_at, last_step_event_id collate "C"))`;
+/** The same comparison against the event that set the last step. */
+const TAKES_STEP = `(last_step_at is null or (e.event_at, now(), e.event_id collate "C") > (last_step_at, coalesce(last_step_received_at, '-infinity'), last_step_event_id collate "C"))`;
 
 /**
  * Advance the summary for one newly stored event. Never called for duplicates,
  * so event_count cannot drift.
  *
- * The label and the last step follow the event with the greatest
- * `(timestamp, event id)`, not the one that arrived last, for the same reason
- * status does: events arrive late and out of order. Each is stored with the
- * pair that set it, and an event replaces it only when its own pair is
- * greater; a null pair (nothing set yet) is smaller than any. An event without
+ * The label and the last step follow the event that comes last in the
+ * journey's timeline order, `(timestamp, received at, event id)`
+ * (event-reads.ts), not simply the one that arrived last, for the same reason
+ * status does: events arrive late and out of order. Timestamps tie often: they
+ * are stored to the millisecond, and the Node SDK stamps whole milliseconds,
+ * so a quick journey's steps and a label set twice share one. Breaking that
+ * tie by event id alone, which the SDK makes random, kept a random step and a
+ * random label; the time the server received each event breaks it the way the
+ * timeline does, so the last step is the timeline's last row. Events sent
+ * concurrently in different requests are received in no guaranteed order.
+ * Each value is stored with the three that set it, and an event replaces it
+ * only when its own three are greater; nothing set yet is smaller than any. An event without
  * a label leaves the label as it is. Every event has a step name (`name` is
  * required by the protocol), so every event is a candidate for the last step.
  *
@@ -216,9 +228,11 @@ export async function updateJourneySummary(
       end,
       label = case when ${TAKES_LABEL} then e.event_label else label end,
       label_at = case when ${TAKES_LABEL} then e.event_at else label_at end,
+      label_received_at = case when ${TAKES_LABEL} then now() else label_received_at end,
       label_event_id = case when ${TAKES_LABEL} then e.event_id else label_event_id end,
       last_step = case when ${TAKES_STEP} then e.event_step else last_step end,
       last_step_at = case when ${TAKES_STEP} then e.event_at else last_step_at end,
+      last_step_received_at = case when ${TAKES_STEP} then now() else last_step_received_at end,
       last_step_event_id = case when ${TAKES_STEP} then e.event_id else last_step_event_id end,
       updated_at = now()
     from (

@@ -100,17 +100,21 @@ maximum in this schema. An empty string is refused as `invalid_event` with the
 detail path `event.journeyLabel`, rather than read as clearing the label: a
 host that wants no label sends none, and an event without the field leaves the
 journey's label as it was. When events carry different labels, the label of the
-event with the latest `timestamp` wins, whatever order the events arrive in; a
-tie is broken by the larger event `id`, compared byte by byte. Timestamps are
-compared at millisecond precision, the precision they are stored at, so two
-events less than a millisecond apart tie. An older event
+event with the latest `timestamp` wins, whatever order the events arrive in.
+Timestamps are compared at millisecond precision, the precision they are
+stored at, so two events less than a millisecond apart tie. A tie is broken by
+the order the server received the events, the order the journey's timeline
+shows them in, and a tie on both by the larger event `id`, compared byte by
+byte. Events a client sends one after another, in one batch or in successive
+requests, are received in that order; events sent concurrently in different
+requests are received in no guaranteed order. An older event
 that arrives later therefore never replaces a newer label, and a replayed event
 can at worst leave a stale one. The label is shown and searchable in full and is
 not redacted, so it must not hold personal data.
 
 The journey also keeps its last step: the `name` of the event with the latest
 `timestamp`, under the same tie rule, so an event that arrives late never moves
-it backwards. `name` is required, so every event is a candidate.
+it backwards, and it is the step the journey's timeline shows last. `name` is required, so every event is a candidate.
 
 ## 4. Required field semantics
 

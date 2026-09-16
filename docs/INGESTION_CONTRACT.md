@@ -330,17 +330,21 @@ what a dry run previews.
   200 code points. An empty string refuses that event alone as `invalid_event`,
   with `details[0].path` equal to `event.journeyLabel`; a label is never cleared
   by sending one. The label is not redacted, because the host wrote it to be
-  shown. **Conflicts:** the journey keeps the label of the event with the
-  latest `timestamp`; a tie is broken by the larger event `id`, compared byte
-  by byte, and an event without a label leaves the stored one unchanged. So
-  the order events arrive in does not matter, and a duplicate changes nothing.
-  Timestamps are compared at millisecond precision, as they are stored, so
-  events less than a millisecond apart tie and are ordered by event `id`. A
-  read returns it as `label`, null until an event carries one.
-- **The last step** of a journey is the `name` of its event with the latest
-  `timestamp`, compared at millisecond precision with ties broken by the
-  larger event `id`, as for the label. An event
-  that arrives late never moves it backwards. A read returns it as `lastStep`.
+  shown. **Conflicts:** the journey keeps the label of the event that comes
+  last in its timeline's order: the latest `timestamp`, compared at
+  millisecond precision as it is stored; on a tie, the event the server
+  received later; on a tie on both, the larger event `id`, compared byte by
+  byte. An event without a label leaves the stored one unchanged, so an older
+  event arriving late changes nothing, and neither does a duplicate. Events
+  sent one after another, in one batch or in successive requests, are
+  received in that order; events sent concurrently in different requests are
+  received in no guaranteed order. In a dry run every event of the batch is
+  received at the same instant, so a tie on the timestamp goes to the event
+  `id`. A read returns the label as `label`, null until an event carries one.
+- **The last step** of a journey is the `name` of the event that comes last in
+  the same order, so it is the step the journey's timeline shows last, and an
+  event that arrives late never moves it backwards. A read returns it as
+  `lastStep`.
 - **Unknown fields are accepted and dropped.** There is no column to store them
   in, and an unvalidated, unredacted field is not something to write to one. The
   rule is "accepted, not refused", which is what makes an additive optional
