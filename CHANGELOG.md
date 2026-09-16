@@ -26,6 +26,14 @@ changes far less often.
   mean the body could not be read, and the message says which). The HTTP
   statuses and the error body are unchanged, and the status is still what a
   client should branch on.
+- **Both ingestion routes refuse a query parameter they do not know**, with
+  `400 invalid_query` naming the key. `POST /v1/events` accepts none and
+  `POST /v1/events/batch` accepts only `dryRun`. `?dryrun=true` was previously
+  ignored and the batch stored, so a client believed it had validated events it
+  had in fact written, which is exactly what refusing `dryRun` on the
+  single-event route exists to prevent. Reading the name loosely would have
+  rescued `dryrun` and not `dryRum`, and nothing legitimate adds a query
+  parameter to ingestion. A client that appends one has to stop.
 - **Three protocol error codes are gone.** `missing_required_field`,
   `invalid_timestamp` and `invalid_operation` were in the public list in
   `packages/protocol` and in `EVENT_PROTOCOL.md` section 12, and no code path
