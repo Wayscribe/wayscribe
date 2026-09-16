@@ -9,6 +9,12 @@ export interface JourneyEventFacts {
   eventTimestamp: Date;
   operation: string;
   hasError: boolean;
+  /** The event's own id, which breaks a tie between equal timestamps. */
+  eventId: string;
+  /** The event's `name`, the step the timeline labels its row with. */
+  stepName: string;
+  /** The event's `journeyLabel`, or null when it carries none. */
+  label: string | null;
 }
 
 export interface JourneySummary {
@@ -143,23 +149,50 @@ export async function applyJourneyEvent(
 }
 
 /**
+ * Whether this event's `(timestamp, id)` is past the pair that set the label,
+ * and it carries one. Reads the row being updated; see updateJourneySummary.
+ */
+const TAKES_LABEL = `(e.event_label is not null and (label_at is null or (e.event_at, e.event_id collate "C") > (label_at, label_event_id collate "C")))`;
+
+/** The same comparison against the pair that set the last step. */
+const TAKES_STEP = `(last_step_at is null or (e.event_at, e.event_id collate "C") > (last_step_at, last_step_event_id collate "C"))`;
+
+/**
  * Advance the summary for one newly stored event. Never called for duplicates,
  * so event_count cannot drift.
+ *
+ * The label and the last step follow the event with the greatest
+ * `(timestamp, event id)`, not the one that arrived last, for the same reason
+ * status does: events arrive late and out of order. Each is stored with the
+ * pair that set it, and an event replaces it only when its own pair is
+ * greater; a null pair (nothing set yet) is smaller than any. An event without
+ * a label leaves the label as it is. Every event has a step name (`name` is
+ * required by the protocol), so every event is a candidate for the last step.
+ *
+ * Event ids are compared with the "C" collation, byte by byte. The column's
+ * collation is the database's default, which differs between installs, and a
+ * tie must be broken the same way everywhere.
+ *
+ * The whole rule is part of this one update, so it costs no extra statement
+ * on the hot path. The row lock the update takes serialises concurrent events
+ * for one journey, and each re-evaluates its comparison against the row the
+ * previous one left, so the outcome does not depend on commit order. That
+ * holds only because the comparisons read the target row's own columns: a
+ * subquery reading `journeys` would keep the version from the statement's
+ * snapshot when the update waits for the lock, and compare against a stale
+ * pair. The `from` row carries only the parameters, named once.
  */
 export async function updateJourneySummary(
   db: Knex,
   projectId: string,
   facts: JourneyEventFacts
 ): Promise<void> {
-  const status = deriveStatus(facts);
-  const at = facts.eventTimestamp;
-
   await db.raw(
     `
     update journeys set
       event_count = event_count + 1,
-      started_at = least(started_at, ?),
-      last_event_at = greatest(last_event_at, ?),
+      started_at = least(started_at, e.event_at),
+      last_event_at = greatest(last_event_at, e.event_at),
       -- A failure always registers, whatever its timestamp says.
       --
       -- The watermark rule below is right for ordinary status changes and
@@ -173,18 +206,36 @@ export async function updateJourneySummary(
       -- is stamped when its callback starts and enqueued when it finishes, so a
       -- slow failing step is always stamped earlier than it arrives.
       status = case
-        when ?::text = 'failed' then 'failed'
-        when ?::timestamptz >= last_event_at and ?::text is not null then ?::text
+        when e.event_status = 'failed' then 'failed'
+        when e.event_at >= last_event_at and e.event_status is not null then e.event_status
         else status
       end,
       completed_at = case
-        when ?::timestamptz >= last_event_at and ?::text = 'completed' then ?::timestamptz
+        when e.event_at >= last_event_at and e.event_status = 'completed' then e.event_at
         else completed_at
       end,
+      label = case when ${TAKES_LABEL} then e.event_label else label end,
+      label_at = case when ${TAKES_LABEL} then e.event_at else label_at end,
+      label_event_id = case when ${TAKES_LABEL} then e.event_id else label_event_id end,
+      last_step = case when ${TAKES_STEP} then e.event_step else last_step end,
+      last_step_at = case when ${TAKES_STEP} then e.event_at else last_step_at end,
+      last_step_event_id = case when ${TAKES_STEP} then e.event_id else last_step_event_id end,
       updated_at = now()
+    from (
+      select ?::timestamptz as event_at, ?::text as event_status, ?::text as event_id,
+             ?::text as event_step, ?::text as event_label
+    ) e
     where project_id = ? and id = ?
     `,
-    [at, at, status, at, status, status, at, status, at, projectId, facts.journeyId]
+    [
+      facts.eventTimestamp,
+      deriveStatus(facts),
+      facts.eventId,
+      facts.stepName,
+      facts.label,
+      projectId,
+      facts.journeyId
+    ]
   );
 }
 

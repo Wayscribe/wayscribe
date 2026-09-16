@@ -342,7 +342,8 @@ async function reencryptRow(
  *
  * The stale row is one statement of the alias, so before it goes its display
  * flag is folded into the row that stays: displayable only if both were
- * (ADR-053).
+ * (ADR-053). The survivor's plain-text copy is kept only while its flag stays
+ * true. The copy is not ciphertext, so a rewrite leaves it alone.
  */
 async function reencryptAlias(
   trx: Knex.Transaction,
@@ -369,7 +370,9 @@ async function reencryptAlias(
           .from({ s: "entity_aliases" })
           .where({ "s.id": row["id"], "s.displayable": false });
       })
-      .update({ displayable: false });
+      // The copy goes in the same statement as the flag: a masked row never
+      // holds one (ADR-053). A survivor that stays displayable keeps its own.
+      .update({ displayable: false, display_value: null });
     const deleted = await trx("entity_aliases").where(unchanged).del();
     return deleted > 0 ? "duplicate_removed" : "changed";
   };

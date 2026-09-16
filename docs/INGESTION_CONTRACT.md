@@ -318,12 +318,21 @@ what a dry run previews.
   states it lists it, and becomes masked for good when any later event states
   it without listing it (ADR-053). A listed type that the event's `aliases`
   does not name is ignored, not refused. A read returns each alias as
-  `{ type, displayValue, displayable }`.
+  `{ type, displayValue, displayable }`. While an alias is displayable the
+  server also keeps its value in plain text, as the event spelled it, so it can
+  be matched by partial text; the statement that masks the alias removes that
+  copy at the same moment, and a masked alias never has one.
 - **`journeyLabel`**, optional, is public display text for the journey: 1 to
   200 code points. An empty string refuses that event alone as `invalid_event`,
   with `details[0].path` equal to `event.journeyLabel`; a label is never cleared
   by sending one. The label is not redacted, because the host wrote it to be
-  shown.
+  shown. **Conflicts:** the journey keeps the label of the event with the
+  latest `timestamp`; a tie is broken by the larger event `id`, compared byte
+  by byte, and an event without a label leaves the stored one unchanged. So the
+  order events arrive in does not matter, and a duplicate changes nothing.
+- **The last step** of a journey is the `name` of its event with the latest
+  `timestamp`, ties broken by the larger event `id` as for the label. An event
+  that arrives late never moves it backwards.
 - **Unknown fields are accepted and dropped.** There is no column to store them
   in, and an unvalidated, unredacted field is not something to write to one. The
   rule is "accepted, not refused", which is what makes an additive optional

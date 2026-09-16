@@ -101,10 +101,10 @@ Constraints:
 | `event_count` | integer | Derived summary |
 | `label` | text | Nullable. Public display label from the event with the latest `(timestamp, event id)` that carried one (migration `018_journey_browse.js`) |
 | `label_at` | timestamptz | Nullable. Timestamp of the event that set `label`, compared first when a later-arriving event carries a label |
-| `label_event_id` | text | Nullable. Id of the event that set `label`; breaks a tie between equal timestamps |
+| `label_event_id` | text | Nullable. Id of the event that set `label`; breaks a tie between equal timestamps, compared with the "C" collation (byte order) whatever the database default |
 | `last_step` | text | Nullable. Step name of the event with the latest `(timestamp, event id)`, so an out-of-order event does not move it backwards (migration `018_journey_browse.js`) |
 | `last_step_at` | timestamptz | Nullable. Timestamp of the event that set `last_step` |
-| `last_step_event_id` | text | Nullable. Id of the event that set `last_step`; breaks a tie between equal timestamps |
+| `last_step_event_id` | text | Nullable. Id of the event that set `last_step`; breaks a tie between equal timestamps, in byte order like `label_event_id` |
 | `created_at` | timestamptz | Required |
 | `updated_at` | timestamptz | Required |
 
@@ -129,7 +129,7 @@ The label and last-step columns were added by migration `018_journey_browse.js` 
 | `alias_value_hash` | text | Normalized search hash |
 | `encrypted_display_value` | text | Optional, in the envelope format (§5) |
 | `displayable` | boolean | Not null, default false. True only while every event that stated the alias listed it in `displayableAliases`; ingestion lowers it and never raises it (ADR-053, migration `017_alias_displayable.js`) |
-| `display_value` | text | Nullable. Plain-text copy of the alias value, present only while `displayable` is true; cleared in the same statement that lowers the flag (ADR-053, migration `018_journey_browse.js`) |
+| `display_value` | text | Nullable. Plain-text copy of the alias value, present only while `displayable` is true; cleared in the same statement that lowers the flag, and by key rotation's duplicate folding when the folded flag is false (ADR-053, migration `018_journey_browse.js`). Holds the same spelling as `encrypted_display_value` |
 | `created_at` | timestamptz | Required |
 
 Constraints and indexes:
@@ -137,6 +137,8 @@ Constraints and indexes:
 - unique `(project_id, journey_id, alias_type, alias_value_hash)`
 - index `(project_id, alias_type, alias_value_hash)`
 - index `(project_id, alias_value_hash)`
+
+`display_value` has no backfill either. A displayable alias stored before migration `018_journey_browse.js` gets its copy the next time an event states it displayable; that statement also replaces the row's ciphertext, so the two keep the same spelling. Until then it reads null.
 
 An alias value may intentionally map to more than one journey over time. Do not globally force uniqueness unless the domain requires it.
 

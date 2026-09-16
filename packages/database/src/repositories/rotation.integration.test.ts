@@ -451,6 +451,54 @@ describe("key rotation commands", () => {
       }
     );
 
+    it.each([
+      [true, false],
+      [false, true],
+      [true, true]
+    ])(
+      "keeps the survivor's plain-text copy only while the folded flag stays true (stale %s, current %s)",
+      async (staleFlag, currentFlag) => {
+        await journeyUnder(keyringB, "jrn_1", "E-1");
+        await aliasUnder(keyringA, "jrn_1", "salesforceAccountId", "SF-1");
+        await aliasUnder(keyringB, "jrn_1", "salesforceAccountId", "SF-1");
+        const copyOf = (flag: boolean): string | null => (flag ? "SF-1" : null);
+        await db("entity_aliases")
+          .where({ alias_value_hash: token(keyringA, "SF-1") })
+          .update({ displayable: staleFlag, display_value: copyOf(staleFlag) });
+        await db("entity_aliases")
+          .where({ alias_value_hash: token(keyringB, "SF-1") })
+          .update({ displayable: currentFlag, display_value: copyOf(currentFlag) });
+
+        await db.raw(
+          "alter table entity_aliases add constraint entity_aliases_copy_probe check (displayable or display_value is null)"
+        );
+        try {
+          const result = await reencryptValues(db, rotated);
+          expect(table(result, "entity_aliases")).toMatchObject({ duplicatesRemoved: 1 });
+        } finally {
+          await db.raw("alter table entity_aliases drop constraint entity_aliases_copy_probe");
+        }
+        const rows: unknown = await db("entity_aliases").select("displayable", "display_value");
+        expect(rows).toEqual([
+          {
+            displayable: staleFlag && currentFlag,
+            display_value: copyOf(staleFlag && currentFlag)
+          }
+        ]);
+      }
+    );
+
+    it("leaves a plain-text copy alone when it rewrites the ciphertext beside it", async () => {
+      // The copy is not ciphertext, so a rotation has nothing to do to it.
+      await journeyUnder(keyringB, "jrn_1", "E-1");
+      await aliasUnder(keyringA, "jrn_1", "postingId", "POST-1");
+      await db("entity_aliases").update({ displayable: true, display_value: "POST-1" });
+      const result = await reencryptValues(db, rotated);
+      expect(table(result, "entity_aliases")).toMatchObject({ rewritten: 1 });
+      const rows: unknown = await db("entity_aliases").select("displayable", "display_value");
+      expect(rows).toEqual([{ displayable: true, display_value: "POST-1" }]);
+    });
+
     /** A promise and the function that settles it, for ordering two connections. */
     const signal = (): { promise: Promise<void>; fire: () => void } => {
       let fire: () => void = () => undefined;
@@ -484,6 +532,7 @@ describe("key rotation commands", () => {
             aliasType: "salesforceAccountId",
             aliasValueHash: token(keyringB, "SF-1"),
             encryptedDisplayValue: ingested,
+            value: "SF-1",
             displayable: false,
             supersedesValueHash: token(keyringA, "SF-1")
           }

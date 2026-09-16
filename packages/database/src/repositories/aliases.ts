@@ -6,6 +6,12 @@ export interface AliasRow {
   aliasValueHash: string;
   encryptedDisplayValue: string | null;
   /**
+   * The alias value as this event stated it. Stored in plain text, as
+   * `display_value`, only when this statement is displayable, and kept only
+   * while the stored flag stays true; never for a masked alias.
+   */
+  value: string;
+  /**
    * Whether this event marked the alias as displayable. The stored flag is the
    * conjunction of every statement (ADR-053).
    */
@@ -29,7 +35,21 @@ export interface AliasRow {
  * (ADR-053). A repeat can lower it and never raises it, so the order events
  * arrive in does not matter, and a repeat that leaves it where it is writes
  * nothing: the conflict update runs only for a row that is displayable and a
- * statement that is not.
+ * statement that is not, or for the pre-copy row described below.
+ *
+ * The plain-text copy, `display_value`, exists only while the flag is true.
+ * An insert stores it with a displayable statement and never with a masked
+ * one. The conflict update that lowers the flag clears it in the same
+ * statement, so no reader, and no concurrent writer waiting on the row lock,
+ * ever sees a masked row with a copy.
+ *
+ * A repeat keeps the spelling the row already holds, ciphertext and copy
+ * alike: tokens are taken over the normalized value, so " A-1 " repeats
+ * "A-1", and the first spelling stays. The one exception is a displayable row
+ * written before copies existed (migration 018 has no backfill). A
+ * displayable repeat fills its copy and replaces its ciphertext with the
+ * repeat's in the same statement, so the two agree on the spelling. That is
+ * one write per such row, once; after it the repeat writes nothing again.
  *
  * During a key rotation the same value produces a new token, so the unique
  * constraint no longer recognises a repeat. A row stored under the previous
@@ -57,13 +77,22 @@ export async function upsertAliases(
         alias_type: alias.aliasType,
         alias_value_hash: alias.aliasValueHash,
         encrypted_display_value: alias.encryptedDisplayValue,
-        displayable: alias.displayable
+        displayable: alias.displayable,
+        display_value: alias.displayable ? alias.value : null
       }))
     )
     .onConflict(["project_id", "journey_id", "alias_type", "alias_value_hash"])
-    .merge({ displayable: false })
+    // The where clause admits a displayable row only, so the stored flag
+    // becomes the statement's, and the copy the statement's (null when masked).
+    .merge({
+      displayable: db.raw("excluded.displayable"),
+      display_value: db.raw("case when excluded.displayable then excluded.display_value end"),
+      encrypted_display_value: db.raw(
+        "case when excluded.displayable then excluded.encrypted_display_value else entity_aliases.encrypted_display_value end"
+      )
+    })
     .where("entity_aliases.displayable", true)
-    .andWhereRaw("not excluded.displayable");
+    .andWhereRaw("(not excluded.displayable or entity_aliases.display_value is null)");
 }
 
 /** PostgreSQL's unique_violation. */
@@ -132,7 +161,14 @@ async function moveToCurrentToken(
         })
         .update({
           alias_value_hash: alias.aliasValueHash,
-          encrypted_display_value: alias.encryptedDisplayValue
+          encrypted_display_value: alias.encryptedDisplayValue,
+          // The ciphertext now holds this statement's spelling, so a copy
+          // follows it. A masking statement leaves the row displayable here
+          // with no copy, and the insert that follows, in the same
+          // transaction, lowers the flag.
+          display_value: savepoint.raw("case when displayable then ?::text end", [
+            alias.displayable ? alias.value : null
+          ])
         });
     });
   } catch (error) {

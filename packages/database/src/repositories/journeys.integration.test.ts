@@ -30,7 +30,10 @@ describe("journey summary", () => {
   const base = {
     entityType: "customer",
     primaryEntityIdHash: "hash",
-    encryptedPrimaryEntityId: "cipher"
+    encryptedPrimaryEntityId: "cipher",
+    eventId: "evt_base",
+    stepName: "step",
+    label: null
   };
 
   it("creates a journey on first event", async () => {
@@ -186,6 +189,203 @@ describe("journey summary", () => {
       });
 
       expect((await findJourney(db, projectId, "jrn_ordinary"))?.status).toBe("active");
+    });
+  });
+
+  describe("the label and the last step", () => {
+    interface Shown {
+      label: string | null;
+      labelAt: Date | null;
+      labelEventId: string | null;
+      lastStep: string | null;
+      lastStepAt: Date | null;
+      lastStepEventId: string | null;
+    }
+
+    const shown = async (journeyId: string): Promise<Shown> => {
+      const row: unknown = await db("journeys")
+        .where({ project_id: projectId, id: journeyId })
+        .first(
+          "label",
+          "label_at as labelAt",
+          "label_event_id as labelEventId",
+          "last_step as lastStep",
+          "last_step_at as lastStepAt",
+          "last_step_event_id as lastStepEventId"
+        );
+      if (row === undefined) throw new Error(`no journey ${journeyId}`);
+      return row as Shown;
+    };
+
+    const apply = async (
+      journeyId: string,
+      eventId: string,
+      at: string,
+      stepName: string,
+      label: string | null
+    ): Promise<void> => {
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId,
+        environmentId,
+        eventId,
+        stepName,
+        label,
+        eventTimestamp: new Date(at),
+        operation: "transformed",
+        hasError: false
+      });
+    };
+
+    it("keeps the newer label when an older event carrying one arrives last", async () => {
+      await apply("jrn_label_order", "evt_2", "2026-08-06T10:00:02Z", "second", "Newer");
+      await apply("jrn_label_order", "evt_1", "2026-08-06T10:00:01Z", "first", "Older");
+      expect(await shown("jrn_label_order")).toMatchObject({
+        label: "Newer",
+        labelAt: new Date("2026-08-06T10:00:02Z"),
+        labelEventId: "evt_2"
+      });
+    });
+
+    it("takes a newer label that arrives after an older one", async () => {
+      await apply("jrn_label_newer", "evt_1", "2026-08-06T10:00:01Z", "first", "Older");
+      await apply("jrn_label_newer", "evt_2", "2026-08-06T10:00:02Z", "second", "Newer");
+      expect((await shown("jrn_label_newer")).label).toBe("Newer");
+    });
+
+    it("breaks a tie on the timestamp by the larger event id, in either arrival order", async () => {
+      const at = "2026-08-06T10:00:00Z";
+      await apply("jrn_label_tie_1", "evt_b", at, "b", "From b");
+      await apply("jrn_label_tie_1", "evt_a", at, "a", "From a");
+      await apply("jrn_label_tie_2", "evt_a", at, "a", "From a");
+      await apply("jrn_label_tie_2", "evt_b", at, "b", "From b");
+      for (const journeyId of ["jrn_label_tie_1", "jrn_label_tie_2"]) {
+        expect(await shown(journeyId), journeyId).toMatchObject({
+          label: "From b",
+          labelEventId: "evt_b",
+          lastStep: "b",
+          lastStepEventId: "evt_b"
+        });
+      }
+    });
+
+    it("compares event ids byte by byte, whatever the database collation says", async () => {
+      // "B" (0x42) sorts before "a" (0x61) in bytes and after it in most
+      // linguistic collations. The rule has to mean the same on every install.
+      // The stored ids are given a linguistic collation for this test, so a
+      // comparison that followed the column's collation would pick "evt_B".
+      const at = "2026-08-06T10:00:00Z";
+      const linguistic = `text collate "en-x-icu"`;
+      const plain = `text collate "default"`;
+      const setCollation = async (type: string): Promise<void> => {
+        await db.raw(
+          `alter table journeys alter column label_event_id type ${type}, alter column last_step_event_id type ${type}`
+        );
+      };
+      await setCollation(linguistic);
+      try {
+        const ordered: unknown = await db.raw(
+          `select 'evt_B'::text collate "en-x-icu" > 'evt_a'::text collate "en-x-icu" as upper_first`
+        );
+        expect((ordered as { rows: { upper_first: boolean }[] }).rows[0]?.upper_first).toBe(true);
+        await apply("jrn_label_bytes", "evt_a", at, "lower", "Lower");
+        await apply("jrn_label_bytes", "evt_B", at, "upper", "Upper");
+        expect(await shown("jrn_label_bytes")).toMatchObject({ label: "Lower", lastStep: "lower" });
+      } finally {
+        await setCollation(plain);
+      }
+    });
+
+    it("leaves the label alone for an event without one, however new", async () => {
+      await apply("jrn_label_keep", "evt_1", "2026-08-06T10:00:01Z", "first", "Kept");
+      await apply("jrn_label_keep", "evt_2", "2026-08-06T10:00:09Z", "second", null);
+      expect(await shown("jrn_label_keep")).toMatchObject({
+        label: "Kept",
+        labelEventId: "evt_1",
+        lastStep: "second"
+      });
+    });
+
+    it("stores no label for a journey whose events never carry one", async () => {
+      await apply("jrn_label_none", "evt_1", "2026-08-06T10:00:01Z", "first", null);
+      expect(await shown("jrn_label_none")).toMatchObject({
+        label: null,
+        labelAt: null,
+        labelEventId: null,
+        lastStep: "first",
+        lastStepAt: new Date("2026-08-06T10:00:01Z"),
+        lastStepEventId: "evt_1"
+      });
+    });
+
+    it("never moves the last step backwards, whatever order events arrive in", async () => {
+      const steps = [
+        ["evt_3", "2026-08-06T10:00:03Z", "three"],
+        ["evt_1", "2026-08-06T10:00:01Z", "one"],
+        ["evt_4", "2026-08-06T10:00:03Z", "four"],
+        ["evt_2", "2026-08-06T10:00:02Z", "two"]
+      ] as const;
+      let latest = "";
+      for (const [eventId, at, step] of steps) {
+        await apply("jrn_step_order", eventId, at, step, null);
+        const now = await shown("jrn_step_order");
+        // Only ever forward: the pair it holds is never smaller than before.
+        expect(
+          `${now.lastStepAt?.toISOString() ?? ""}|${now.lastStepEventId ?? ""}` >= latest
+        ).toBe(true);
+        latest = `${now.lastStepAt?.toISOString() ?? ""}|${now.lastStepEventId ?? ""}`;
+      }
+      expect(await shown("jrn_step_order")).toMatchObject({
+        lastStep: "four",
+        lastStepEventId: "evt_4"
+      });
+    });
+
+    it("settles on the newest label and step under concurrent events", async () => {
+      const events = Array.from({ length: 24 }, (_, i) => ({
+        eventId: `evt_${String(i).padStart(2, "0")}`,
+        at: new Date(Date.UTC(2026, 7, 6, 10, 0, i % 5)).toISOString(),
+        label: i % 3 === 0 ? null : `Label ${String(i)}`
+      }));
+      await ensureJourney(db, projectId, {
+        ...base,
+        journeyId: "jrn_label_race",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:00Z"),
+        operation: "received",
+        hasError: false
+      });
+      await Promise.all(
+        events.map((event) =>
+          db.transaction(async (trx) => {
+            const facts = {
+              ...base,
+              journeyId: "jrn_label_race",
+              environmentId,
+              eventId: event.eventId,
+              stepName: `step ${event.eventId}`,
+              label: event.label,
+              eventTimestamp: new Date(event.at),
+              operation: "transformed",
+              hasError: false
+            };
+            await ensureJourney(trx, projectId, facts);
+            await updateJourneySummary(trx, projectId, facts);
+          })
+        )
+      );
+      const newest = (list: typeof events): (typeof events)[number] | undefined =>
+        [...list]
+          .sort((a, b) => (a.at === b.at ? (a.eventId < b.eventId ? -1 : 1) : a.at < b.at ? -1 : 1))
+          .at(-1);
+      const labelled = newest(events.filter((event) => event.label !== null));
+      const last = newest(events);
+      expect(await shown("jrn_label_race")).toMatchObject({
+        label: labelled?.label,
+        labelEventId: labelled?.eventId,
+        lastStep: `step ${last?.eventId ?? ""}`,
+        lastStepEventId: last?.eventId
+      });
     });
   });
 

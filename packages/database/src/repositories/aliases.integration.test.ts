@@ -69,6 +69,7 @@ describe("upsertAliases", () => {
       aliasType: "sf",
       aliasValueHash: "new-hash",
       encryptedDisplayValue: "new-cipher",
+      value: "new-value",
       displayable: false,
       supersedesValueHash: null
     };
@@ -85,6 +86,7 @@ describe("upsertAliases", () => {
       aliasType: "postingId",
       aliasValueHash: "posting-hash",
       encryptedDisplayValue: "posting-cipher",
+      value: "POST-1",
       supersedesValueHash: null
     };
     const flag = async (): Promise<boolean | undefined> => {
@@ -160,6 +162,201 @@ describe("upsertAliases", () => {
     });
   });
 
+  describe("the plain-text copy", () => {
+    const alias = {
+      journeyId: "jrn_1",
+      aliasType: "postingId",
+      aliasValueHash: "posting-hash",
+      encryptedDisplayValue: "posting-cipher",
+      value: "POST-1",
+      supersedesValueHash: null
+    };
+
+    interface Copy {
+      displayable: boolean;
+      display_value: string | null;
+      encrypted_display_value: string | null;
+    }
+
+    const copy = async (): Promise<Copy | undefined> => {
+      const row: unknown = await db("entity_aliases")
+        .where({ project_id: projectId, alias_type: "postingId" })
+        .first("displayable", "display_value", "encrypted_display_value");
+      return row as Copy | undefined;
+    };
+
+    /**
+     * Refuses any row that is masked and still holds a plain value. Checked as
+     * each row is written, so a change that lowered the flag in one statement
+     * and cleared the copy in the next fails here rather than passing.
+     */
+    const withInvariant = async (work: () => Promise<void>): Promise<void> => {
+      await db.raw(
+        "alter table entity_aliases add constraint entity_aliases_copy_probe check (displayable or display_value is null)"
+      );
+      try {
+        await work();
+      } finally {
+        await db.raw("alter table entity_aliases drop constraint entity_aliases_copy_probe");
+      }
+    };
+
+    it("is stored with a displayable alias", async () => {
+      await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
+      expect(await copy()).toMatchObject({ displayable: true, display_value: "POST-1" });
+    });
+
+    it("is never stored for a masked alias", async () => {
+      await upsertAliases(db, projectId, [{ ...alias, displayable: false }]);
+      expect(await copy()).toMatchObject({ displayable: false, display_value: null });
+      // A later displayable statement cannot unmask it, so it gets no copy either.
+      await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
+      expect(await copy()).toMatchObject({ displayable: false, display_value: null });
+    });
+
+    it("is cleared in the same statement that lowers the flag", async () => {
+      await withInvariant(async () => {
+        await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
+        await upsertAliases(db, projectId, [{ ...alias, displayable: false }]);
+      });
+      expect(await copy()).toMatchObject({ displayable: false, display_value: null });
+    });
+
+    it("keeps the spelling the ciphertext holds when a repeat spells the value differently", async () => {
+      // Tokens are taken over the normalized value, so " POST-1 " is the same
+      // row. The repeat is ignored, ciphertext and copy alike.
+      await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
+      await upsertAliases(db, projectId, [
+        {
+          ...alias,
+          value: " POST-1 ",
+          encryptedDisplayValue: "spaced-cipher",
+          displayable: true
+        }
+      ]);
+      expect(await copy()).toEqual({
+        displayable: true,
+        display_value: "POST-1",
+        encrypted_display_value: "posting-cipher"
+      });
+    });
+
+    it("is filled for a displayable row stored before copies existed, when it is stated again", async () => {
+      // Migration 018 has no backfill. The restatement brings its own
+      // ciphertext with the copy, so the two hold the same spelling.
+      await seed("postingId", "posting-hash", "old-cipher");
+      await db("entity_aliases").where({ alias_type: "postingId" }).update({ displayable: true });
+      await upsertAliases(db, projectId, [
+        { ...alias, value: " POST-1 ", encryptedDisplayValue: "spaced-cipher", displayable: true }
+      ]);
+      expect(await copy()).toEqual({
+        displayable: true,
+        display_value: " POST-1 ",
+        encrypted_display_value: "spaced-cipher"
+      });
+    });
+
+    it("is not filled for such a row by a statement that masks it", async () => {
+      await seed("postingId", "posting-hash", "old-cipher");
+      await db("entity_aliases").where({ alias_type: "postingId" }).update({ displayable: true });
+      await upsertAliases(db, projectId, [{ ...alias, displayable: false }]);
+      expect(await copy()).toEqual({
+        displayable: false,
+        display_value: null,
+        encrypted_display_value: "old-cipher"
+      });
+    });
+
+    it("follows the ciphertext when a row moves to the current token", async () => {
+      await seed("postingId", "old-hash", "old-cipher");
+      await db("entity_aliases")
+        .where({ alias_value_hash: "old-hash" })
+        .update({ displayable: true, display_value: "old spelling" });
+      await upsertAliases(db, projectId, [
+        { ...alias, displayable: true, supersedesValueHash: "old-hash" }
+      ]);
+      expect(await copy()).toEqual({
+        displayable: true,
+        display_value: "POST-1",
+        encrypted_display_value: "posting-cipher"
+      });
+    });
+
+    it("is cleared when a masking statement moves a displayable row", async () => {
+      await seed("postingId", "old-hash", "old-cipher");
+      await db("entity_aliases")
+        .where({ alias_value_hash: "old-hash" })
+        .update({ displayable: true, display_value: "POST-1" });
+      await withInvariant(async () => {
+        await upsertAliases(db, projectId, [
+          { ...alias, displayable: false, supersedesValueHash: "old-hash" }
+        ]);
+      });
+      expect(await copy()).toEqual({
+        displayable: false,
+        display_value: null,
+        encrypted_display_value: "posting-cipher"
+      });
+    });
+
+    it("is never gained by a masked row that moves", async () => {
+      await seed("postingId", "old-hash", "old-cipher");
+      await upsertAliases(db, projectId, [
+        { ...alias, displayable: true, supersedesValueHash: "old-hash" }
+      ]);
+      expect(await copy()).toMatchObject({ displayable: false, display_value: null });
+    });
+
+    it("stays present exactly while the alias is displayable under concurrent statements", async () => {
+      // Many rounds of concurrent statements of the same aliases, displayable
+      // and not, each in its own transaction as ingestion runs them. The row
+      // lock the conflict update takes is what keeps flag and copy together.
+      const types = ["a", "b", "c", "d"];
+      await withInvariant(async () => {
+        for (let round = 0; round < 25; round += 1) {
+          await db("entity_aliases").delete();
+          await Promise.all(
+            Array.from({ length: 12 }, (_, i) =>
+              db.transaction(async (trx) => {
+                await upsertAliases(
+                  trx,
+                  projectId,
+                  types.map((aliasType, t) => ({
+                    journeyId: "jrn_1",
+                    aliasType,
+                    aliasValueHash: `hash-${aliasType}`,
+                    encryptedDisplayValue: `cipher-${aliasType}`,
+                    value: `value-${aliasType}`,
+                    // Type "a" is always displayable, the rest mixed per statement.
+                    displayable: t === 0 || (i + round + t) % (t + 2) !== 0,
+                    supersedesValueHash: null
+                  }))
+                );
+              })
+            )
+          );
+          const selected: unknown = await db("entity_aliases")
+            .orderBy("alias_type")
+            .select("alias_type", "displayable", "display_value");
+          const rows = selected as {
+            alias_type: string;
+            displayable: boolean;
+            display_value: string | null;
+          }[];
+          expect(rows.map((row) => row.alias_type)).toEqual(types);
+          for (const row of rows) {
+            expect(row.display_value, `round ${String(round)}`).toBe(
+              row.displayable ? `value-${row.alias_type}` : null
+            );
+          }
+          // Every statement of "a" was displayable; any other type had at least
+          // one that was not in every round.
+          expect(rows.map((row) => row.displayable)).toEqual([true, false, false, false]);
+        }
+      });
+    });
+  });
+
   it("moves a row written under the previous key's token instead of adding a second", async () => {
     // During a rotation the same alias value produces a different token, so a
     // plain insert-or-ignore would store it twice and the journey would show it
@@ -171,6 +368,7 @@ describe("upsertAliases", () => {
         aliasType: "sf",
         aliasValueHash: "new-hash",
         encryptedDisplayValue: "new-cipher",
+        value: "new-value",
         displayable: false,
         supersedesValueHash: "old-hash"
       }
@@ -190,6 +388,7 @@ describe("upsertAliases", () => {
         aliasType: "sf",
         aliasValueHash: "new-hash",
         encryptedDisplayValue: "new-cipher",
+        value: "new-value",
         displayable: false,
         supersedesValueHash: "old-hash"
       }
@@ -217,6 +416,7 @@ describe("upsertAliases", () => {
           aliasType: "sf",
           aliasValueHash: "new-hash",
           encryptedDisplayValue: "newer-cipher",
+          value: "newer-value",
           displayable: false,
           supersedesValueHash: "old-hash"
         }
@@ -273,6 +473,7 @@ describe("upsertAliases", () => {
             aliasType: "sf",
             aliasValueHash: "new-hash",
             encryptedDisplayValue: "shared-cipher",
+            value: "shared-value",
             displayable: false,
             supersedesValueHash: "old-hash"
           }
@@ -323,6 +524,7 @@ describe("upsertAliases", () => {
           aliasType: "sf",
           aliasValueHash: "new-hash",
           encryptedDisplayValue: "second-cipher",
+          value: "second-value",
           displayable: false,
           supersedesValueHash: "old-hash"
         }
