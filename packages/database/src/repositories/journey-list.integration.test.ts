@@ -148,6 +148,9 @@ describe("listRecentJourneys", () => {
       eventCount: 1,
       startedAt: new Date("2026-09-15T11:00:00Z"),
       lastEventAt: new Date("2026-09-15T11:00:00Z"),
+      label: null,
+      lastStep: null,
+      displayableAliases: [],
       environment: "development"
     });
   });
@@ -296,5 +299,402 @@ describe("listRecentJourneys", () => {
         );
       }
     );
+  });
+
+  describe("browse filters", () => {
+    // In environments of their own and before SINCE, so these rows never reach
+    // the tests above, which list from SINCE with no upper bound.
+    const WINDOW = {
+      since: new Date("2026-09-12T00:00:00.000Z"),
+      until: new Date("2026-09-13T12:00:00.000Z")
+    };
+    const browse = { ...WINDOW, environment: "browse" };
+    let browseId: string;
+    let hiddenId: string;
+    let otherProject: ReadScope;
+
+    interface Alias {
+      type: string;
+      value: string;
+      displayable: boolean;
+    }
+
+    const row = async (
+      id: string,
+      environmentId: string,
+      lastEventAt: string,
+      fields: {
+        label?: string | undefined;
+        lastStep?: string;
+        entityType?: string;
+        entityCiphertext?: string;
+        entityHash?: string;
+        aliases?: readonly Alias[];
+        owner?: string;
+      } = {}
+    ): Promise<void> => {
+      const owner = fields.owner ?? project.projectId;
+      await db("journeys").insert({
+        id,
+        project_id: owner,
+        environment_id: environmentId,
+        entity_type: fields.entityType ?? "job_posting",
+        primary_entity_id_hash: fields.entityHash ?? `hash-${id}`,
+        encrypted_primary_entity_id: fields.entityCiphertext ?? null,
+        status: "active",
+        started_at: lastEventAt,
+        last_event_at: lastEventAt,
+        event_count: 1,
+        label: fields.label ?? null,
+        label_at: fields.label === undefined ? null : lastEventAt,
+        label_event_id: fields.label === undefined ? null : `${id}_evt`,
+        last_step: fields.lastStep ?? null,
+        last_step_at: fields.lastStep === undefined ? null : lastEventAt,
+        last_step_event_id: fields.lastStep === undefined ? null : `${id}_evt`
+      });
+      for (const alias of fields.aliases ?? []) {
+        await db("entity_aliases").insert({
+          project_id: owner,
+          journey_id: id,
+          alias_type: alias.type,
+          // A masked alias is stored as a token and ciphertext only. Here both
+          // hold the plain value on purpose, so a match through either column
+          // would show up as a hit.
+          alias_value_hash: alias.value,
+          encrypted_display_value: alias.value,
+          displayable: alias.displayable,
+          display_value: alias.displayable ? alias.value : null
+        });
+      }
+    };
+
+    const found = async (
+      filters: Partial<RecentJourneyFilters>,
+      scope: ReadScope = project
+    ): Promise<string[]> => ids(scope, { ...browse, ...filters }, 100);
+
+    beforeAll(async () => {
+      browseId = await insertReturningId(db, "environments", {
+        project_id: project.projectId,
+        name: "browse"
+      });
+      hiddenId = await insertReturningId(db, "environments", {
+        project_id: project.projectId,
+        name: "browse-hidden"
+      });
+      const otherProjectId = await insertReturningId(db, "projects", {
+        name: "Browse other",
+        slug: "browse-other"
+      });
+      const otherEnvironmentId = await insertReturningId(db, "environments", {
+        project_id: otherProjectId,
+        name: "browse"
+      });
+      otherProject = { projectId: otherProjectId };
+
+      await row("jrn_b_label", browseId, "2026-09-13T11:00:00Z", {
+        label: "Mirantis · Senior SWE, AI Infra",
+        lastStep: "identify"
+      });
+      await row("jrn_b_alias", browseId, "2026-09-13T10:00:00Z", {
+        aliases: [
+          { type: "postingId", value: "greenhouse:4567", displayable: true },
+          { type: "recruiterEmail", value: "someone@example.com", displayable: false }
+        ]
+      });
+      // The same text as an entity id, its token, and a masked alias value.
+      await row("jrn_b_masked", browseId, "2026-09-13T09:00:00Z", {
+        entityCiphertext: "quokka-7",
+        entityHash: "quokka-7",
+        aliases: [{ type: "accountId", value: "quokka-7", displayable: false }]
+      });
+      // An id and an entity type are not searched either.
+      await row("jrn_b_wombat", browseId, "2026-09-13T08:30:00Z", { entityType: "wombat" });
+      await row("jrn_b_percent", browseId, "2026-09-13T08:00:00Z", { label: "100% done" });
+      await row("jrn_b_percent_decoy", browseId, "2026-09-13T07:59:00Z", { label: "1000 done" });
+      await row("jrn_b_underscore", browseId, "2026-09-13T07:00:00Z", { label: "run a_b" });
+      await row("jrn_b_underscore_decoy", browseId, "2026-09-13T06:59:00Z", { label: "run aXb" });
+      await row("jrn_b_backslash", browseId, "2026-09-13T06:00:00Z", { label: "back\\slash" });
+      await row("jrn_b_backslash_decoy", browseId, "2026-09-13T05:59:00Z", {
+        label: "backslash"
+      });
+      await row("jrn_b_accent", browseId, "2026-09-13T05:00:00Z", { label: "Café Été" });
+      await row("jrn_b_order", browseId, "2026-09-13T04:00:00Z", {
+        entityType: "order",
+        label: "Order for Mirantis",
+        aliases: [
+          { type: "zeta", value: "Mirantis zeta", displayable: true },
+          { type: "alpha", value: "second", displayable: true },
+          { type: "alpha", value: "first", displayable: true },
+          { type: "beta", value: "hidden", displayable: false }
+        ]
+      });
+      // Outside the window on either side.
+      await row("jrn_b_before", browseId, "2026-09-11T23:59:59.999Z", { label: "Mirantis early" });
+      await row("jrn_b_at_until", browseId, "2026-09-13T12:00:00.000Z", {
+        label: "Mirantis at until"
+      });
+      await row("jrn_b_just_before_until", browseId, "2026-09-13T11:59:59.999Z", {
+        label: "Mirantis just before until"
+      });
+      // Another environment of the same project, and another project.
+      await row("jrn_b_hidden", hiddenId, "2026-09-13T11:30:00Z", { label: "Mirantis hidden" });
+      await row("jrn_b_other", otherEnvironmentId, "2026-09-13T11:30:00Z", {
+        label: "Mirantis other project",
+        owner: otherProjectId
+      });
+    });
+
+    it("returns the label, the last step and the displayable values on each row", async () => {
+      const page = await listRecentJourneys(db, project, { ...browse, text: "Mirantis" }, 100);
+      const byId = new Map(page.items.map((item) => [item.journeyId, item]));
+      expect(byId.get("jrn_b_label")).toMatchObject({
+        label: "Mirantis · Senior SWE, AI Infra",
+        lastStep: "identify",
+        displayableAliases: []
+      });
+      // In alias type order, then by value; the masked alias is left out.
+      expect(byId.get("jrn_b_order")).toMatchObject({
+        label: "Order for Mirantis",
+        lastStep: null,
+        displayableAliases: [
+          { type: "alpha", value: "first" },
+          { type: "alpha", value: "second" },
+          { type: "zeta", value: "Mirantis zeta" }
+        ]
+      });
+    });
+
+    it("leaves a masked alias out of the row", async () => {
+      const page = await listRecentJourneys(db, project, { ...browse, text: "greenhouse" }, 100);
+      expect(page.items.map((item) => [item.journeyId, item.displayableAliases])).toEqual([
+        ["jrn_b_alias", [{ type: "postingId", value: "greenhouse:4567" }]]
+      ]);
+    });
+
+    it("finds by label and by displayable value", async () => {
+      expect(await found({ text: "senior swe" })).toEqual(["jrn_b_label"]);
+      expect(await found({ text: "house:45" })).toEqual(["jrn_b_alias"]);
+      // One row per journey, however many of its values match.
+      expect(await found({ text: "Mirantis" })).toEqual([
+        "jrn_b_just_before_until",
+        "jrn_b_label",
+        "jrn_b_order"
+      ]);
+    });
+
+    it("never matches a masked alias value, an entity id, its token or an entity type", async () => {
+      expect(await found({ text: "quokka" })).toEqual([]);
+      expect(await found({ text: "example.com" })).toEqual([]);
+      expect(await found({ text: "hidden" })).toEqual([]);
+      expect(await found({ text: "wombat" })).toEqual([]);
+      expect(await found({ text: "jrn_b" })).toEqual([]);
+      // The control: the same rows are in the window.
+      expect(await found({})).toEqual(expect.arrayContaining(["jrn_b_masked", "jrn_b_wombat"]));
+    });
+
+    it.each([
+      ["100%", ["jrn_b_percent"]],
+      ["a_b", ["jrn_b_underscore"]],
+      ["k\\s", ["jrn_b_backslash"]],
+      ["\\", ["jrn_b_backslash"]],
+      ["%%", []],
+      ["__", []]
+    ])("treats %j literally", async (text, expected) => {
+      // A two-character minimum is the route's rule, not this function's.
+      expect(await found({ text })).toEqual(expected);
+    });
+
+    it("ignores ASCII case", async () => {
+      expect(await found({ text: "MIRANTIS · SENIOR" })).toEqual(["jrn_b_label"]);
+      expect(await found({ text: "GREENHOUSE" })).toEqual(["jrn_b_alias"]);
+    });
+
+    it("ignores the case of an accented letter under the database's collation", async () => {
+      // ILIKE lowers both sides with the database's LC_CTYPE. The test image,
+      // postgres:17-alpine, is initialised with en_US.utf8, which lowers É to
+      // é; a database created with LC_CTYPE C would lower ASCII only.
+      const ctype: { rows: { ctype: string }[] } = await db.raw(
+        "select datctype as ctype from pg_database where datname = current_database()"
+      );
+      expect(ctype.rows[0]?.ctype).toBe("en_US.utf8");
+      expect(await found({ text: "CAFÉ" })).toEqual(["jrn_b_accent"]);
+      expect(await found({ text: "été" })).toEqual(["jrn_b_accent"]);
+      // Accents are not folded away: e does not match é.
+      expect(await found({ text: "cafe" })).toEqual([]);
+    });
+
+    it("bounds the window with until, exclusive, and since, inclusive", async () => {
+      expect(await found({ text: "Mirantis" })).not.toContain("jrn_b_at_until");
+      expect(await found({ text: "Mirantis" })).toContain("jrn_b_just_before_until");
+      expect(await found({ text: "Mirantis early" })).toEqual([]);
+      expect(
+        await found({ text: "Mirantis early", since: new Date("2026-09-11T23:59:59.999Z") })
+      ).toEqual(["jrn_b_before"]);
+      // Without until the list runs to the newest journey.
+      expect(await found({ text: "Mirantis at", until: undefined })).toEqual(["jrn_b_at_until"]);
+    });
+
+    it("filters by entity type exactly", async () => {
+      expect(await found({ entityType: "order" })).toEqual(["jrn_b_order"]);
+      expect(await found({ entityType: "ORDER" })).toEqual([]);
+      expect(await found({ entityType: "ord" })).toEqual([]);
+      expect(await found({ entityType: "job_posting", text: "Mirantis" })).toEqual([
+        "jrn_b_just_before_until",
+        "jrn_b_label"
+      ]);
+    });
+
+    it("keeps to the caller's scope", async () => {
+      const hidden = { projectId: project.projectId, environmentId: hiddenId };
+      // Environment scope, with no environment filter.
+      expect(
+        await ids(hidden, { since: WINDOW.since, until: WINDOW.until, text: "Mirantis" }, 100)
+      ).toEqual(["jrn_b_hidden"]);
+      const browseScope = { projectId: project.projectId, environmentId: browseId };
+      expect(
+        await ids(browseScope, { since: WINDOW.since, until: WINDOW.until, text: "hidden" }, 100)
+      ).toEqual([]);
+      // Another project's journeys are never found, and it never finds P's.
+      expect(
+        await ids(project, { since: WINDOW.since, until: WINDOW.until, text: "other project" }, 100)
+      ).toEqual([]);
+      expect(
+        await ids(otherProject, { since: WINDOW.since, until: WINDOW.until, text: "Mirantis" }, 100)
+      ).toEqual(["jrn_b_other"]);
+    });
+
+    it("probes aliases per journey in the window rather than hashing the whole table", async () => {
+      // An EXISTS under OR can be planned as a hashed subplan, which reads
+      // every alias of every project before the window. The plan must not
+      // contain one, whatever text is asked for.
+      const statements: { sql: string; bindings: readonly unknown[] }[] = [];
+      const capture = (query: { sql: string; bindings: readonly unknown[] }): void => {
+        statements.push(query);
+      };
+      db.on("query", capture);
+      try {
+        await listRecentJourneys(db, project, { ...browse, text: "nothing matches this" }, 25);
+      } finally {
+        db.removeListener("query", capture);
+      }
+      const statement = statements[0];
+      expect(statement).toBeDefined();
+      const connection = (await db.client.acquireConnection()) as {
+        query: (sql: string, values: readonly unknown[]) => Promise<{ rows: unknown[] }>;
+      };
+      try {
+        const plan = await connection.query(
+          `explain (format json) ${statement?.sql ?? ""}`,
+          statement?.bindings ?? []
+        );
+        const text = JSON.stringify(plan.rows);
+        expect(text).toContain("entity_aliases");
+        expect(text).not.toMatch(/hashed/i);
+      } finally {
+        await db.client.releaseConnection(connection);
+      }
+    });
+
+    describe("paging with filters", () => {
+      const PAGING = {
+        since: new Date("2026-09-11T00:00:00.000Z"),
+        until: new Date("2026-09-11T03:00:00.000Z"),
+        environment: "browse-paging"
+      };
+      /** Every row this block inserts, with what the filter below should keep. */
+      const expected: string[] = [];
+
+      beforeAll(async () => {
+        const pagingId = await insertReturningId(db, "environments", {
+          project_id: project.projectId,
+          name: "browse-paging"
+        });
+        // Thirty journeys over three shared timestamps, so page boundaries
+        // fall inside ties; a mix of label hits, alias hits and misses, two
+        // entity types, and a few past until.
+        const stamps = [
+          "2026-09-11T01:00:00.000Z",
+          "2026-09-11T02:00:00.000Z",
+          "2026-09-11T03:00:00.000Z"
+        ];
+        const rows: { id: string; at: string; keep: boolean }[] = [];
+        for (let index = 0; index < 30; index += 1) {
+          const id = `jrn_p_${String(index).padStart(2, "0")}`;
+          const at = stamps[index % 3] ?? "";
+          const entityType = index % 4 === 0 ? "order" : "job_posting";
+          const kind = index % 5;
+          const label =
+            kind === 0 ? `Needle ${String(index)}` : kind === 1 ? "haystack" : undefined;
+          const aliases: Alias[] =
+            kind === 2
+              ? [{ type: "postingId", value: `x-NEEDLE-${String(index)}`, displayable: true }]
+              : kind === 3
+                ? [{ type: "postingId", value: `needle-${String(index)}`, displayable: false }]
+                : [];
+          await row(id, pagingId, at, { entityType, label, aliases });
+          const matches = kind === 0 || kind === 2;
+          rows.push({
+            id,
+            at,
+            keep: matches && entityType === "job_posting" && at < PAGING.until.toISOString()
+          });
+        }
+        rows.sort((a, b) => (a.at === b.at ? b.id.localeCompare(a.id) : b.at.localeCompare(a.at)));
+        expected.push(...rows.filter((one) => one.keep).map((one) => one.id));
+      });
+
+      const walk = async (
+        filters: Partial<RecentJourneyFilters>,
+        limit: number,
+        start?: string
+      ): Promise<string[]> => {
+        const seen: string[] = [];
+        let cursor = start;
+        for (let pages = 0; pages < 100; pages += 1) {
+          const page = await listRecentJourneys(
+            db,
+            project,
+            { ...PAGING, ...filters },
+            limit,
+            cursor
+          );
+          seen.push(...page.items.map((item) => item.journeyId));
+          if (page.nextCursor === null) return seen;
+          cursor = page.nextCursor;
+        }
+        throw new Error("paging did not end");
+      };
+
+      it.each([1, 2, 3, 7])(
+        "returns every matching row exactly once at page size %i",
+        async (limit) => {
+          expect(expected.length).toBeGreaterThan(3);
+          expect(await walk({ text: "needle", entityType: "job_posting" }, limit)).toEqual(
+            expected
+          );
+        }
+      );
+
+      it("continues from a cursor's position under whatever filters come with it", async () => {
+        // The cursor holds a position only. One taken from the unfiltered list
+        // continues the filtered list after that position: no row at or above
+        // it, and every matching row below it.
+        const first = await listRecentJourneys(db, project, PAGING, 4);
+        const last = first.items.at(-1);
+        expect(first.nextCursor).not.toBeNull();
+        expect(last).toBeDefined();
+        const rest = await walk(
+          { text: "needle", entityType: "job_posting" },
+          2,
+          first.nextCursor ?? undefined
+        );
+        const unfiltered = await walk({}, 100);
+        const position = unfiltered.indexOf(last?.journeyId ?? "");
+        const below = new Set(unfiltered.slice(position + 1));
+        expect(rest).toEqual(expected.filter((id) => below.has(id)));
+        expect(rest.length).toBeLessThan(expected.length);
+      });
+    });
   });
 });

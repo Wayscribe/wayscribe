@@ -47,6 +47,9 @@ export interface PresentedJourneySummary {
   eventCount: number;
   startedAt: string;
   lastEventAt: string;
+  label: string | null;
+  lastStep: string | null;
+  displayableAliases: { type: string; value: string }[];
 }
 
 /**
@@ -69,7 +72,15 @@ export function presentJourneySummary(
     status: hit.status,
     eventCount: hit.eventCount,
     startedAt: hit.startedAt.toISOString(),
-    lastEventAt: hit.lastEventAt.toISOString()
+    lastEventAt: hit.lastEventAt.toISOString(),
+    label: hit.label,
+    lastStep: hit.lastStep,
+    // Already plain text: the repository reads only the copy a displayable
+    // alias keeps, so nothing here can unmask a value.
+    displayableAliases: hit.displayableAliases.map((alias) => ({
+      type: alias.type,
+      value: alias.value
+    }))
   };
 }
 
@@ -110,6 +121,8 @@ export function presentJourneyDetail(
       id: presentEntityId(keyring, detail.encryptedPrimaryEntityId, onUnknownKey)
     },
     status: detail.status,
+    label: detail.label,
+    lastStep: detail.lastStep,
     aliases: presentAliases(keyring, detail.aliases, onUnknownKey),
     services: detail.services,
     eventCount: detail.eventCount,

@@ -15,6 +15,10 @@ export interface JourneyDetail {
   entityType: string;
   encryptedPrimaryEntityId: string | null;
   status: string;
+  /** Public display text, or null when no event has set one. */
+  label: string | null;
+  /** The step name of the latest event, or null for a journey not written since migration 018. */
+  lastStep: string | null;
   eventCount: number;
   startedAt: Date;
   completedAt: Date | null;
@@ -49,6 +53,8 @@ export async function findJourneyDetail(
     "entity_type as entityType",
     "encrypted_primary_entity_id as encryptedPrimaryEntityId",
     "status",
+    "label",
+    "last_step as lastStep",
     "event_count as eventCount",
     "started_at as startedAt",
     "completed_at as completedAt",

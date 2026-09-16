@@ -1,7 +1,7 @@
 {
-  "id": "wire/journey-label",
-  "title": "An event may carry a journey label of up to 200 characters, counted as code points, and the journey reads it back",
-  "source": "docs/EVENT_PROTOCOL.md section 3; docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1",
+  "id": "wire/journey-label-latest-wins",
+  "title": "The label and the last step follow the latest timestamp, not the order events arrive in",
+  "source": "docs/EVENT_PROTOCOL.md section 3; docs/INGESTION_CONTRACT.md section 7",
   "layer": "wire",
   "languages": ["*"],
   "send": {
@@ -9,24 +9,7 @@
       {
         "protocolVersion": "0.1",
         "event": {
-          "id": "evt_{{run}}_short",
-          "journeyId": "jrn_{{run}}",
-          "environment": "conformance",
-          "service": "job-sweep",
-          "entity": {
-            "type": "job_posting",
-            "id": "greenhouse:4567"
-          },
-          "operation": "received",
-          "name": "sweep-board",
-          "timestamp": "2026-09-16T08:00:00.000Z",
-          "journeyLabel": "Mirantis · Senior SWE, AI Infra"
-        }
-      },
-      {
-        "protocolVersion": "0.1",
-        "event": {
-          "id": "evt_{{run}}_longest",
+          "id": "evt_{{run}}_newer",
           "journeyId": "jrn_{{run}}",
           "environment": "conformance",
           "service": "job-sweep",
@@ -37,12 +20,24 @@
           "operation": "identified",
           "name": "identify",
           "timestamp": "2026-09-16T08:01:00.000Z",
-          "journeyLabel": {
-            "$string": {
-              "char": "𝄞",
-              "count": 200
-            }
-          }
+          "journeyLabel": "Newer label"
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_older",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "job-sweep",
+          "entity": {
+            "type": "job_posting",
+            "id": "greenhouse:4567"
+          },
+          "operation": "received",
+          "name": "sweep-board",
+          "timestamp": "2026-09-16T08:00:00.000Z",
+          "journeyLabel": "Older label"
         }
       }
     ]
@@ -58,12 +53,7 @@
         "duplicate": false,
         "stored": {
           "journey": {
-            "label": {
-              "$string": {
-                "char": "𝄞",
-                "count": 200
-              }
-            },
+            "label": "Newer label",
             "lastStep": "identify"
           }
         }

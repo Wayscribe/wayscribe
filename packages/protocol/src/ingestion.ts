@@ -119,6 +119,18 @@ export const storedJourneySchema = z.object({
       .describe("Decrypted for display. Null when the key that encrypted it is no longer held.")
   }),
   status: z.enum(["active", "completed", "failed"]),
+  label: z
+    .string()
+    .nullable()
+    .describe(
+      "The journeyLabel of the event with the latest timestamp that carried one, ties broken by event id. Null until an event carries one."
+    ),
+  lastStep: z
+    .string()
+    .nullable()
+    .describe(
+      "The name of the event with the latest timestamp, ties broken by event id. Null for a journey no event has reached since the server was upgraded to store it."
+    ),
   aliases: z.array(
     z.object({
       type: z.string(),

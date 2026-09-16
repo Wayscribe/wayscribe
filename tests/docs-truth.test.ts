@@ -13,7 +13,10 @@ import {
   PROTOCOL_ERROR_CODES,
   TRANSPORT_REFUSALS
 } from "../packages/protocol/src/index.js";
-import { parseRecentJourneysQuery } from "../apps/api/src/routes/recent-query.js";
+import {
+  RECENT_JOURNEYS_PARAMETERS,
+  parseRecentJourneysQuery
+} from "../apps/api/src/routes/recent-query.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -226,20 +229,25 @@ describe("the documentation's checkable claims", () => {
     };
     /** First-column names of the parameter table. */
     const documented = (): string[] =>
-      [...section().matchAll(/^\| `([a-z]+)` \|/gm)].map((m) => m[1] ?? "");
+      [...section().matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((m) => m[1] ?? "");
 
     it("documents exactly the query parameters the route reads", () => {
+      // The parser refuses every other key, so its list is the route's.
+      expect(documented()).toEqual([...RECENT_JOURNEYS_PARAMETERS]);
       expect(documented()).toEqual([
         "since",
+        "until",
         "status",
         "environment",
         "service",
+        "entityType",
+        "q",
         "limit",
         "cursor"
       ]);
     });
 
-    it.each(["since", "status", "environment", "service"])(
+    it.each(["since", "until", "status", "environment", "service", "entityType", "q"])(
       "documents %s, which the parser validates",
       (name) => {
         // A repeated parameter is refused by name only if the parser reads it.

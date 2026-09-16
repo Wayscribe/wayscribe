@@ -3,6 +3,7 @@ import {
   type JourneyStatus,
   type RecentJourneyFilters
 } from "@flight-recorder/database";
+import { MAX_ENTITY_TYPE_LENGTH } from "@flight-recorder/protocol";
 
 export type ParsedRecentQuery =
   { ok: true; filters: RecentJourneyFilters } | { ok: false; message: string };
@@ -14,8 +15,35 @@ export type ParsedRecentQuery =
  */
 const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 
-const INSTANT_MESSAGE =
-  "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z.";
+const instantMessage = (name: string): string =>
+  `${name} must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z.`;
+
+/**
+ * The bounds of `q`, in code points, as every text cap in the protocol counts.
+ *
+ * One character would match nearly every row and still make the database test
+ * every label and displayable value in the window. The upper bound is the
+ * longest label, so a whole label can always be pasted back in.
+ */
+const MIN_TEXT_LENGTH = 2;
+const MAX_TEXT_LENGTH = 200;
+
+/**
+ * Every key this list reads. Anything else is refused: a misspelt filter
+ * (`entity_type`) that was silently ignored would return an unfiltered list
+ * that looks filtered.
+ */
+export const RECENT_JOURNEYS_PARAMETERS = [
+  "since",
+  "until",
+  "status",
+  "environment",
+  "service",
+  "entityType",
+  "q",
+  "limit",
+  "cursor"
+] as const;
 
 /**
  * Required, with no default. A default computed here ("the last 24 hours")
@@ -46,19 +74,30 @@ const SINCE_CLOCK_TOLERANCE_MS = 60_000;
 export function parseRecentJourneysQuery(query: unknown, now: Date): ParsedRecentQuery {
   const params = (query ?? {}) as Record<string, unknown>;
 
-  const since = single(params, "since");
+  for (const key of Object.keys(params)) {
+    if (!(RECENT_JOURNEYS_PARAMETERS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        message: `${key} is not a parameter of this list. Known parameters: ${RECENT_JOURNEYS_PARAMETERS.join(", ")}.`
+      };
+    }
+  }
+
+  const since = instant(params, "since");
   if (!since.ok) return since;
   if (since.value === undefined) return { ok: false, message: REQUIRED_MESSAGE };
-  const match = ISO_INSTANT.exec(since.value);
-  if (match === null || !isCalendarDate(match[1], match[2], match[3])) {
-    return { ok: false, message: INSTANT_MESSAGE };
-  }
-  const sinceDate = new Date(since.value);
-  if (Number.isNaN(sinceDate.getTime())) return { ok: false, message: INSTANT_MESSAGE };
   // A future bound can only return nothing, which reads as "nothing failed".
   // Saying so is more useful than an empty page.
-  if (sinceDate.getTime() > now.getTime() + SINCE_CLOCK_TOLERANCE_MS) {
+  if (since.value.getTime() > now.getTime() + SINCE_CLOCK_TOLERANCE_MS) {
     return { ok: false, message: "since must not be in the future." };
+  }
+
+  // No clock check: a range that ends after now still lists everything up to
+  // now, so a future until cannot hide anything the way a future since does.
+  const until = instant(params, "until");
+  if (!until.ok) return until;
+  if (until.value !== undefined && until.value.getTime() <= since.value.getTime()) {
+    return { ok: false, message: "until must be after since." };
   }
 
   const status = single(params, "status");
@@ -72,15 +111,67 @@ export function parseRecentJourneysQuery(query: unknown, now: Date): ParsedRecen
   const service = single(params, "service");
   if (!service.ok) return service;
 
+  const entityType = single(params, "entityType");
+  if (!entityType.ok) return entityType;
+  // Longer than any type ingestion accepts, so it could only match nothing.
+  if (entityType.value !== undefined && codePoints(entityType.value) > MAX_ENTITY_TYPE_LENGTH) {
+    return {
+      ok: false,
+      message: `entityType must be at most ${String(MAX_ENTITY_TYPE_LENGTH)} characters.`
+    };
+  }
+
+  const rawText = single(params, "q");
+  if (!rawText.ok) return rawText;
+  // Trimmed as search trims its q. White space alone is an empty box, which a
+  // plain GET form sends when nothing was typed.
+  const trimmed = rawText.value?.trim();
+  const text = trimmed === "" ? undefined : trimmed;
+  if (text !== undefined) {
+    const length = codePoints(text);
+    if (length < MIN_TEXT_LENGTH || length > MAX_TEXT_LENGTH) {
+      return {
+        ok: false,
+        message: `q must be ${String(MIN_TEXT_LENGTH)} to ${String(MAX_TEXT_LENGTH)} characters.`
+      };
+    }
+  }
+
   return {
     ok: true,
     filters: {
-      since: sinceDate,
+      since: since.value,
+      until: until.value,
       status: status.value,
       environment: environment.value,
-      service: service.value
+      service: service.value,
+      entityType: entityType.value,
+      text
     }
   };
+}
+
+/** One optional instant parameter, validated as `since` always was. */
+function instant(
+  params: Record<string, unknown>,
+  name: string
+): { ok: true; value: Date | undefined } | { ok: false; message: string } {
+  const raw = single(params, name);
+  if (!raw.ok) return raw;
+  if (raw.value === undefined) return { ok: true, value: undefined };
+  const match = ISO_INSTANT.exec(raw.value);
+  if (match === null || !isCalendarDate(match[1], match[2], match[3])) {
+    return { ok: false, message: instantMessage(name) };
+  }
+  const parsed = new Date(raw.value);
+  if (Number.isNaN(parsed.getTime())) return { ok: false, message: instantMessage(name) };
+  return { ok: true, value: parsed };
+}
+
+function codePoints(value: string): number {
+  let count = 0;
+  for (const _ of value) count += 1;
+  return count;
 }
 
 /**

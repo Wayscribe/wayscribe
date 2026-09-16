@@ -147,6 +147,9 @@ describe("GET /v1/journeys", () => {
         eventCount: 1,
         startedAt: expect.any(String),
         lastEventAt: expect.any(String),
+        label: null,
+        lastStep: "step",
+        displayableAliases: [],
         environment: "development"
       }
     ]);

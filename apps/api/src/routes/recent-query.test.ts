@@ -118,6 +118,131 @@ describe("parseRecentJourneysQuery", () => {
     expect(parse(query)).toEqual({ ok: false, message });
   });
 
+  describe("until", () => {
+    it("passes a later instant through, and may be in the future", () => {
+      // A range ending after now means "up to now"; unlike a future since it
+      // cannot empty the list, so clock skew does not apply to it.
+      expect(
+        parse({ since: "2026-09-14T12:00:00Z", until: "2026-09-16T00:00:00+02:00" })
+      ).toMatchObject({ ok: true, filters: { until: new Date("2026-09-15T22:00:00Z") } });
+    });
+
+    it("treats an empty until as omitted", () => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", until: "" })).toMatchObject({
+        ok: true,
+        filters: { until: undefined }
+      });
+    });
+
+    it.each([
+      [
+        "yesterday",
+        "until must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+      ],
+      [
+        "2026-09-15",
+        "until must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+      ],
+      [
+        "2026-09-15T00:00:00",
+        "until must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+      ],
+      [
+        "2026-02-30T00:00:00Z",
+        "until must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+      ],
+      [`2026-09-15T00:00:00Z${String.fromCharCode(0)}`, "until must not contain a null byte."],
+      [["2026-09-15T00:00:00Z", "2026-09-15T01:00:00Z"], "until must be given once."],
+      // Equal is not after: the window would be empty by construction.
+      ["2026-09-14T12:00:00Z", "until must be after since."],
+      ["2026-09-14T14:00:00+02:00", "until must be after since."],
+      ["2026-09-14T11:59:59.999Z", "until must be after since."]
+    ])("rejects until %j", (until, message) => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", until })).toEqual({ ok: false, message });
+    });
+
+    it("accepts until one millisecond after since", () => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", until: "2026-09-14T12:00:00.001Z" }).ok).toBe(
+        true
+      );
+    });
+  });
+
+  describe("entityType", () => {
+    it("passes an exact type through", () => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", entityType: "job_posting" })).toMatchObject({
+        ok: true,
+        filters: { entityType: "job_posting" }
+      });
+    });
+
+    it("accepts the protocol's longest type, counted in code points", () => {
+      const longest = "\u{1D11E}".repeat(128);
+      expect(parse({ since: "2026-09-14T12:00:00Z", entityType: longest }).ok).toBe(true);
+    });
+
+    it.each([
+      ["a".repeat(129), "entityType must be at most 128 characters."],
+      ["\u{1D11E}".repeat(129), "entityType must be at most 128 characters."],
+      [`job${String.fromCharCode(0)}`, "entityType must not contain a null byte."],
+      [["customer", "order"], "entityType must be given once."]
+    ])("rejects entityType %j", (entityType, message) => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", entityType })).toEqual({ ok: false, message });
+    });
+  });
+
+  describe("q", () => {
+    it("passes the text through with surrounding white space removed", () => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", q: "  Mirantis AI  " })).toMatchObject({
+        ok: true,
+        filters: { text: "Mirantis AI" }
+      });
+    });
+
+    it.each(["", "   "])("treats %j as omitted", (q) => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", q })).toMatchObject({
+        ok: true,
+        filters: { text: undefined }
+      });
+    });
+
+    it.each([
+      ["ab", true],
+      // Two code points, four UTF-16 units: the bounds count characters.
+      ["\u{1D11E}\u{1D11E}", true],
+      ["x".repeat(200), true],
+      ["\u{1D11E}".repeat(200), true]
+    ])("accepts %j", (q, ok) => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", q }).ok).toBe(ok);
+    });
+
+    it.each([
+      ["a", "q must be 2 to 200 characters."],
+      ["\u{1D11E}", "q must be 2 to 200 characters."],
+      [" a ", "q must be 2 to 200 characters."],
+      ["x".repeat(201), "q must be 2 to 200 characters."],
+      ["\u{1D11E}".repeat(201), "q must be 2 to 200 characters."],
+      [`ab${String.fromCharCode(0)}`, "q must not contain a null byte."],
+      [["ab", "cd"], "q must be given once."]
+    ])("rejects q %j", (q, message) => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", q })).toEqual({ ok: false, message });
+    });
+  });
+
+  it.each(["entity_type", "until_", "search", "window"])(
+    "rejects the unknown key %s rather than ignoring a filter",
+    (key) => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", [key]: "x" })).toEqual({
+        ok: false,
+        message: `${key} is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, limit, cursor.`
+      });
+    }
+  );
+
+  it("accepts limit and cursor, which are parsed elsewhere", () => {
+    expect(parse({ since: "2026-09-14T12:00:00Z", limit: "5", cursor: "abc" }).ok).toBe(true);
+  });
+
   it("accepts since equal to now, and an offset other than Z", () => {
     expect(parse({ since: "2026-09-15T12:00:00.000Z" }).ok).toBe(true);
     expect(parse({ since: "2026-09-15T08:00:00-04:00" }).ok).toBe(true);

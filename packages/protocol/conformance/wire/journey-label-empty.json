@@ -1,6 +1,6 @@
 {
   "id": "wire/journey-label-empty",
-  "title": "An empty journey label refuses that event alone, and the detail names the field",
+  "title": "An empty journey label refuses that event alone, the detail names the field, and the journey stays unlabelled",
   "source": "docs/EVENT_PROTOCOL.md section 3; docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1",
   "layer": "wire",
   "languages": ["*"],
@@ -57,7 +57,13 @@
       },
       {
         "status": "accepted",
-        "duplicate": false
+        "duplicate": false,
+        "stored": {
+          "journey": {
+            "label": null,
+            "lastStep": "sweep-board"
+          }
+        }
       }
     ]
   }

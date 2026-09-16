@@ -23,8 +23,11 @@ export const JOURNEY_OPERATIONS = [
 export const journeyOperationSchema = z.enum(JOURNEY_OPERATIONS);
 export type JourneyOperation = z.infer<typeof journeyOperationSchema>;
 
+/** The longest entity type accepted. The list's `entityType` filter refuses a longer one. */
+export const MAX_ENTITY_TYPE_LENGTH = 128;
+
 export const entitySchema = z.object({
-  type: z.string().min(1).max(128),
+  type: z.string().min(1).max(MAX_ENTITY_TYPE_LENGTH),
   id: z.string().min(1).max(512)
 });
 

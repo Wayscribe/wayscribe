@@ -38,6 +38,20 @@
         "failed"
       ]
     },
+    "label": {
+      "description": "The journeyLabel of the event with the latest timestamp that carried one, ties broken by event id. Null until an event carries one.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "lastStep": {
+      "description": "The name of the event with the latest timestamp, ties broken by event id. Null for a journey no event has reached since the server was upgraded to store it.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "aliases": {
       "type": "array",
       "items": {
@@ -94,6 +108,8 @@
     "environment",
     "entity",
     "status",
+    "label",
+    "lastStep",
     "aliases",
     "services",
     "eventCount",

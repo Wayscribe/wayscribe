@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
 import { orderJourneysAfter, toJourneyPage } from "./journey-keyset.js";
-import { JOURNEY_SUMMARY_COLUMNS } from "./journey-summary.js";
+import { journeySummaryColumns } from "./journey-summary.js";
 import type { ReadScope } from "./read-scope.js";
 import { searchJourneys, type SearchHit, type SearchPage } from "./search.js";
 
@@ -62,7 +62,7 @@ async function referenceSearch(
             });
         });
     })
-    .select(...JOURNEY_SUMMARY_COLUMNS)
+    .select(...journeySummaryColumns(db))
     .from({ j: "journeys" })
     .join("matches", "matches.id", "j.id")
     .where("j.project_id", scope.projectId);
