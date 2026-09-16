@@ -38,6 +38,60 @@ describe("serializeError", () => {
   });
 });
 
+describe("serializeError with a database error", () => {
+  it("redacts the fields PostgreSQL fills with row contents, and keeps the rest", () => {
+    // The shape node-postgres gives a check violation: `detail` prints the
+    // whole failing row, and `where` and `internalQuery` can quote values too.
+    const cause = Object.assign(new Error("new row violates check constraint"), {
+      code: "23514",
+      detail: "Failing row contains (1, cause-secret-value).",
+      where: "PL/pgSQL function f() line 3 at SQL statement 'cause-secret-value'"
+    });
+    const error = Object.assign(
+      new Error(
+        'insert into "entity_aliases" ("display_value") values ($1) - new row for relation "entity_aliases" violates check constraint "c"',
+        { cause }
+      ),
+      {
+        name: "error",
+        severity: "ERROR",
+        code: "23514",
+        detail: "Failing row contains (1, row-secret-value).",
+        hint: "Check the value.",
+        where: "SQL statement \"insert ... 'row-secret-value'\"",
+        internalQuery: "select 'row-secret-value'",
+        schema: "public",
+        table: "entity_aliases",
+        column: undefined,
+        constraint: "c",
+        routine: "ExecConstraints"
+      }
+    );
+
+    const logged = serializeError(error);
+
+    expect(JSON.stringify(logged)).not.toContain("secret-value");
+    expect(logged).toMatchObject({
+      code: "23514",
+      severity: "ERROR",
+      detail: "[REDACTED]",
+      where: "[REDACTED]",
+      internalQuery: "[REDACTED]",
+      schema: "public",
+      table: "entity_aliases",
+      constraint: "c",
+      routine: "ExecConstraints"
+    });
+    expect(logged["cause"]).toMatchObject({ code: "23514", detail: "[REDACTED]" });
+  });
+
+  it("leaves an absent field absent", () => {
+    const logged = serializeError(Object.assign(new Error("boom"), { code: "XX000" }));
+    expect(logged).not.toHaveProperty("detail");
+    expect(logged).not.toHaveProperty("where");
+  });
+});
+
 describe("serializeRequest", () => {
   it("keeps Fastify's default fields, with the URL made safe and no headers", () => {
     expect(

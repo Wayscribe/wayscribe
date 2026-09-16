@@ -468,6 +468,11 @@ changes far less often.
 
 ### Security
 
+- **A database error's row contents are no longer logged.** The API logged
+  every property of an error, and PostgreSQL's `detail` prints the row a
+  constraint refused, so a failed write could put a stored value, such as an
+  alias being masked, into the log. `detail`, `where` and `internalQuery` are
+  now logged as `[REDACTED]`; the SQLSTATE, constraint, table and column stay.
 - **Two kinds of value are now stored in plain text** (ADR-054): journey
   labels, and copies of the values of aliases marked displayable, so the
   journey list can match them by partial text. Masked aliases and entity ids

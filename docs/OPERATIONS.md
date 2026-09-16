@@ -1619,10 +1619,14 @@ A request too malformed for Node to parse never becomes a request line. At
 Node attaches the raw bytes it received to that error as `rawPacket`, headers
 and query string included; no error the API logs ever carries that property.
 
-One caveat remains: an error's own properties are logged, and a database error
-can describe the row it refused, as PostgreSQL's `detail` does for a unique
-violation. Those lines are at `warn` or `error`, for failures, and name columns
-the API writes, not request headers.
+An error's own properties are logged, except the ones a database error fills
+with row contents. PostgreSQL's `detail` prints the row a constraint refused
+("Failing row contains (...)") or the key a unique violation found, and
+`where` and `internalQuery` can quote a statement with its values, so all
+three are logged as `[REDACTED]`. The SQLSTATE `code`, `constraint`, `table`,
+`column` and `routine` stay, which is enough to tell which rule failed. The
+message is kept: for these failures it holds the statement with `$1`
+placeholders, not the values bound to them.
 
 Before this, the request line carried the full URL, so logs kept from an earlier
 version hold searched identifiers and Recent filters in the clear. Treat them as
