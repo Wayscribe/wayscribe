@@ -15,6 +15,13 @@ changes far less often.
 
 ### Changed
 
+- **`GET /v1/journeys` says what `since` should be when it is missing or
+  malformed.** The refusal was `since is required.`; it now names the format
+  and gives an example instant, and `API_SPEC.md` says at the top of the route
+  that `since` is required and has no default. A server-side default was
+  considered and not adopted: it would be recomputed on every page and move the
+  window under the cursor. Only the message text changed; the status and code
+  are the same.
 - **Timeline rows lead with the step's name.** A row read as its operation and
   service, so a long journey of one operation read "transformed, transformed,
   transformed". The name now comes first, with the operation as a small badge

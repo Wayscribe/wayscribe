@@ -202,8 +202,14 @@ A missing or empty `q`, or `q` given more than once, is `400` `invalid_query`. A
 ## 6. List recent journeys
 
 ```http
-GET /v1/journeys?since=<instant>&status=failed&environment=<name>&service=<name>&limit=25&cursor=<cursor>
+GET /v1/journeys?since=<instant, required>&status=failed&environment=<name>&service=<name>&limit=25&cursor=<cursor>
 ```
+
+**`since` is required, and has no default.** The list is always a window: it
+holds journeys whose last activity is at or after `since`, an ISO 8601 instant
+with a time zone, such as `2026-08-06T18:00:00Z`. For the last 24 hours, send
+the instant 24 hours before now, computed once and kept for every page.
+Without it the answer is `400 invalid_query` with a message saying so.
 
 For an investigation that starts without an identifier: what failed, recently,
 where. Journeys are ordered by last activity, newest first (`lastEventAt`, then
@@ -223,13 +229,15 @@ another environment returns an empty page, not an error. The admin token reads
 every environment of the named project.
 
 `400 invalid_query` when `since` is missing, is not a full instant with a time
-zone, names an impossible date, or is more than 60 seconds ahead of the API's
+zone (the message gives an example of one), names an impossible date, or is more than 60 seconds ahead of the API's
 clock (a minute of skew between the caller and the API is tolerated); when
 `status` is not one of the three values; or when any parameter is given more
 than once. A malformed cursor is `400 invalid_cursor`.
 
 Keep `since` fixed while paging: a cursor continues the list it came from, and
-recomputing "24 hours ago" for each page moves the window under it. A journey
+recomputing "24 hours ago" for each page moves the window under it. That is also
+why the server does not default it: a default would be recomputed on every
+request. A journey
 that receives an event between two page requests moves to the top of the list,
 above the cursor, and does not appear on later pages. Search pages behave the
 same way.

@@ -217,8 +217,14 @@ describe("GET /v1/journeys", () => {
   });
 
   it.each([
-    ["", "since is required."],
-    ["since=yesterday", "since must be an ISO-8601 instant with a time zone."],
+    [
+      "",
+      "since is required: the earliest last activity to list, as an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
+    [
+      "since=yesterday",
+      "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
     [
       `since=${encodeURIComponent(new Date(Date.now() + HOUR).toISOString())}`,
       "since must not be in the future."
