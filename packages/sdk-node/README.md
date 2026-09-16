@@ -15,13 +15,54 @@ leaves your infrastructure.
 
 ## Install (not yet on npm)
 
-**The package is not published yet.** Until it is, install it from a clone of
-this repository, as [`examples/instrument-a-service`](../../examples/instrument-a-service/README.md)
-does. Once it is published, this will be:
+**The package is not published yet.** Until it is, pack it from a clone of this
+repository and commit the tarball to your application:
+
+```bash
+# In the clone. `pack` builds first, so the tarball holds the compiled package.
+pnpm install
+pnpm --filter @flight-recorder/node pack --pack-destination /path/to/your-app/vendor/
+```
+
+```json
+{
+  "dependencies": {
+    "@flight-recorder/node": "file:vendor/flight-recorder-node-0.1.0.tgz"
+  }
+}
+```
+
+```bash
+# In your application.
+npm install
+git add vendor/flight-recorder-node-0.1.0.tgz package.json package-lock.json
+```
+
+**Why a tarball rather than a path into the clone.** `npm install
+/path/to/flight-recorder/packages/sdk-node` links your application to a
+directory that has to stay built: its `dist` is not in git, so the day somebody
+runs `git clean`, switches branch, or deploys to a machine without that clone,
+the import fails. That matters most for a job with no build step of its own,
+such as a script run by cron or launchd, where nothing rebuilds the SDK before
+it runs. A tarball is a built copy that travels with your application and
+installs the same way on every machine.
+
+**After pulling a change that adds or updates the tarball, run `npm ci`** (or
+`npm install`) before the next run. The lockfile's integrity hash for the
+package changed, and until the install runs, `node_modules` still holds the
+old copy, or holds none on a fresh deploy. The first service instrumented
+this way had a deploy that skipped the install, and it hung.
+
+To take a newer SDK, pack again, replace the tarball, run `npm install`, and
+commit both. Once the package is published, all of this becomes:
 
 ```bash
 npm install @flight-recorder/node
 ```
+
+[`examples/instrument-a-service`](../../examples/instrument-a-service/README.md)
+installs from the clone's directory instead, because it lives inside the
+clone.
 
 ## Record a journey
 
