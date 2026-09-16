@@ -297,7 +297,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
 
   return (
     <>
-      <p className="muted" aria-live="polite">
+      <p className="muted wrap" aria-live="polite">
         {status} · {count} · {services.join(", ")}
       </p>
       <FilterBar

@@ -20,7 +20,7 @@ export function EventDetail({
   return (
     <section>
       <h2>{event.name}</h2>
-      <p className="muted">
+      <p className="muted wrap">
         {event.operation} · {event.service}
         {event.durationMs === null ? "" : ` · ${String(event.durationMs)} ms`}
       </p>
