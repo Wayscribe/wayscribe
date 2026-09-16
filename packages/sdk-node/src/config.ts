@@ -1,6 +1,7 @@
 import { DEFAULT_SECRET_PATHS } from "@flight-recorder/payload-security/redaction";
 import type { Diagnostic } from "./diagnostics.js";
 import type { PropagationLevel } from "./propagation.js";
+import { readKnownSafeNames } from "./secret-names.js";
 
 export interface RecorderConfig {
   endpoint: string;
@@ -36,6 +37,13 @@ export interface RecorderConfig {
    * and returns random ids (ADR-052).
    */
   journeyIdSecret?: string;
+  /**
+   * Key names that look like secrets and are not, such as a `sessionId` that
+   * is an analytics id. The `unredacted_secret_name` warning skips them. Plain
+   * names only, compared with case, `-` and `_` ignored. Redaction is
+   * unaffected: a name on `redact` or the built-in list is still redacted.
+   */
+  knownSafeNames?: readonly string[];
 }
 
 export interface ResolvedConfig {
@@ -55,6 +63,8 @@ export interface ResolvedConfig {
   logDiagnostics: boolean;
   maxConcurrentSends: number;
   journeyIdSecret: string | undefined;
+  /** Folded. */
+  knownSafeNames: readonly string[];
   /**
    * Settings that could not be read or used, each replaced by its default or
    * clamped, for the recorder to report as `configuration_error` once it can.
@@ -194,6 +204,10 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     problem("logDiagnostics", "logDiagnostics is not true or false; logging stays off.");
   }
   const secret = readOnce("journeyIdSecret", "journeyIdFor returns random journey ids");
+  const knownSafe = readKnownSafeNames(
+    readOnce("knownSafeNames", "no name is exempt from the warning")
+  );
+  if (knownSafe.problem !== undefined) problem("knownSafeNames", knownSafe.problem);
 
   return {
     endpoint,
@@ -201,7 +215,8 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     serviceName: text("serviceName"),
     environment: text("environment"),
     captureMode: oneOf("captureMode", CAPTURE_MODES, "redacted-payload"),
-    redact: [...paths, ...DEFAULT_SECRET_PATHS],
+    // Frozen, so redaction parses these rules once rather than per payload.
+    redact: Object.freeze([...paths, ...DEFAULT_SECRET_PATHS]),
     batchSize: clampBatchSize(readOnce("batchSize", "using 50"), problem),
     flushIntervalMs: positive("flushIntervalMs", 1_000, MAX_TIMER_MS),
     requestTimeoutMs: positive("requestTimeoutMs", 1_500, MAX_TIMER_MS),
@@ -219,6 +234,7 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     ),
     // Checked, and reported, by journeyIdSecretProblem, which accepts anything.
     journeyIdSecret: secret as string | undefined,
+    knownSafeNames: knownSafe.names,
     problems
   };
 }

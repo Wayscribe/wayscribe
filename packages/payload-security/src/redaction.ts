@@ -24,7 +24,9 @@ export {
   truncationMarker,
   type TruncationStats
 } from "./truncate.js";
-export { CIRCULAR, REDACTED, redact } from "./redact.js";
+export { CIRCULAR, REDACTED, redact, type UnredactedObserver } from "./redact.js";
 export { maskSecretsInText } from "./mask-text.js";
 export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
+export { looksLikeSecretName } from "./secret-name.js";
+export { normaliseName } from "./normalise-name.js";
 export { toStorable, toStorableText } from "./storable.js";

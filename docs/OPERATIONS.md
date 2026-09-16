@@ -1410,6 +1410,7 @@ beneath it:
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
 | Projects and keys | | no project, no unrevoked API key, or the published demo key (`fr_demo00000`) is unrevoked |
 | Journey environments | an event was written by another environment's API key than its journey's own, which ingestion now refuses (ADR-038, amendment) and earlier builds did not | |
+| Secret-looking names | | a recently stored payload holds a plain value under a key name that looks like a secret, or the sample did not finish within 5 seconds or could not run |
 | API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
 | API reachable (`--api-url`) | `GET /ready` does not answer 200; its `reason` is printed | |
 | Statement timeout | the value is invalid | it is 0 |
@@ -1460,6 +1461,74 @@ environment's. Read the journey, then delete it with
 events would leave their aliases behind. The query and the check scan
 `journey_events`; on a large installation run it off-peak, and if doctor's check
 is cancelled by the statement timeout, run the query directly.
+
+### Secret-looking names stored in plain text
+
+Redaction matches names, so a credential under a name no rule covers is stored
+in the clear (`SECURITY.md` section 4, ADR-055). The Node SDK warns about these
+as it records; `Secret-looking names` finds them for every sender, from what
+was stored:
+
+```text
+WARN  Secret-looking names    2 key names that look like secrets hold plain values in the 2,000 most recent events sampled: authToken (in 12), sessionCredential (in 3).
+                              Fix: If a name holds a secret, add "**.<name>" to the SDK's redact option, or to the environment's redaction_paths for another sender; values already stored stay until deleted (docs/OPERATIONS.md §8). If it does not, the warning can be ignored; it never fails doctor.
+```
+
+It prints key names and counts, never a value, at most ten names, each cut to
+64 characters with credential shapes masked and control characters replaced.
+It is a warning at most, so a false positive never changes the exit code, and a
+sample that cannot finish within 5 seconds, or cannot run at all (a missing
+grant, say), is a warning with the reason rather than a failure. For a name
+that is not a secret, the SDK's `knownSafeNames` silences the SDK's line;
+doctor has no such list.
+
+**What it reads.** The cap of 2,000 events is shared evenly between
+environments, in every project. Each environment gives the 5 latest events of
+each of its 100 most recently active journeys, newest first, up to its share,
+so one busy environment cannot fill the sample; with more than 2,000
+environments, those after the first 2,000 in project order get none. From each
+event's `input_payload`, `output_payload` and `custom_metadata` it reads every
+object at any depth and keeps the keys whose value could be a credential by
+the SDK's value rule (a number, or a string that is not empty, not
+`[REDACTED]`, not a setting word such as `none`, and at least 8 characters
+under a name ending in `auth`), and whose folded name ends in the last three
+characters of a term. Only those names and their counts leave the database;
+doctor applies the full name rule to them. `error`, `runtime_metadata`,
+`deployment_metadata`, `payload_diff` and replay runs are not read.
+
+**What it costs.** The journeys come from `journeys_recent_idx` and the events
+from `journey_events_timeline_idx` as an index-only scan, then each sampled
+event is read once by primary key, so the cost depends on the sample and not
+on the size of the table. It runs in a read-only transaction with
+`statement_timeout` at 5 seconds. Measured with `EXPLAIN (ANALYZE, BUFFERS)` on
+PostgreSQL 17 with 600,000 events (626 MB of `journey_events`, about 5 KB of
+payload each) in four environments: 1,600 events sampled (four shares of 400),
+7,698 shared buffers, about 155 ms warm and 168 ms on the first run, most of it
+reading keys with `jsonb_each`.
+
+**Looking wider.** A name used once, long ago, is outside the sample. To look
+over a period, run this off-peak, with the window you want; it prints names and
+counts only:
+
+```sql
+set statement_timeout = '60s';
+select k.key as name, count(distinct (e.project_id, e.id)) as events
+  from journey_events e
+  cross join lateral (values (e.input_payload), (e.output_payload), (e.custom_metadata)) d(doc)
+  cross join lateral jsonb_path_query(d.doc, 'strict $.**') o(value)
+  cross join lateral jsonb_each(o.value) k(key, value)
+ where e.received_at > now() - interval '7 days'
+   and d.doc is not null
+   and jsonb_typeof(o.value) = 'object'
+   and jsonb_typeof(k.value) in ('string', 'number')
+   and k.value not in ('""'::jsonb, '"[REDACTED]"'::jsonb)
+   and k.key ~* '(token|secret|passw(or)?d|credentials?|auth(orization)?|cookies?|signature|api_?key|private_?key|connection_?string|database_?url|dsn)$'
+ group by k.key
+ order by events desc;
+```
+
+That pattern is a coarse version of the rule in `SDK_SPEC.md` section 13, and
+it scans every event in the window, since no index covers `received_at`.
 
 ## 13. Monitoring
 

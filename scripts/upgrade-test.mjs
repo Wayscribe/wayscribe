@@ -519,6 +519,7 @@ const DOCTOR_REQUIRED = [
   "Keys readable",
   "Projects and keys",
   "Journey environments",
+  "Secret-looking names",
   "API key",
   "API reachable",
   "Statement timeout"

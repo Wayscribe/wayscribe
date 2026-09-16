@@ -6,6 +6,10 @@ import {
   maskHeaderLines,
   namedValueKey
 } from "./http-headers.js";
+import { normaliseName } from "./normalise-name.js";
+import { looksLikeSecretFoldedValue } from "./secret-name.js";
+
+export { normaliseName };
 
 export const REDACTED = "[REDACTED]";
 export const CIRCULAR = "[CIRCULAR]";
@@ -40,9 +44,55 @@ type Segment = { kind: "literal"; value: string } | { kind: "any" } | { kind: "a
  *
  * Matched values are replaced rather than deleted: SECURITY.md section 4
  * requires preserving evidence that a value existed.
+ *
+ * `onUnredacted`, when given, is called for each name the walk kept, as an
+ * object key or in one of the header shapes above, whose value could be a
+ * credential by `looksLikeSecretValue`. It receives the name as written and
+ * the path to it, with every array index written `[*]`, and never the value. It is how a
+ * name no rule covers is warned about without a second walk (ADR-055); it
+ * changes nothing about what is returned. An observer that throws ends the
+ * walk, so a caller that must not fail guards it.
  */
-export function redact(value: unknown, paths: readonly string[]): unknown {
-  if (paths.length === 0) return value;
+export function redact(
+  value: unknown,
+  paths: readonly string[],
+  onUnredacted?: UnredactedObserver
+): unknown {
+  if (paths.length === 0 && onUnredacted === undefined) return value;
+
+  const { anyDepth, scoped } = compiled(paths);
+
+  let observed: Observed | undefined;
+  if (onUnredacted !== undefined) {
+    const made: Observed = {
+      report: onUnredacted,
+      path: [],
+      onHeaderLine: (name, lineValue) => {
+        reportIfSecret(made, name, lineValue);
+      }
+    };
+    observed = made;
+  }
+  return walk(value, scoped, anyDepth, new Set(), observed);
+}
+
+interface CompiledRules {
+  anyDepth: ReadonlySet<string>;
+  scoped: Segment[][];
+}
+
+const compiledFrozen = new WeakMap<readonly string[], CompiledRules>();
+
+/**
+ * The rules parsed. A frozen list, which is what the SDK passes to every
+ * capture, is parsed once: parsing nineteen rules on every payload was a
+ * measurable part of capture. A list that is not frozen can change between
+ * calls, so it is parsed each time.
+ */
+function compiled(paths: readonly string[]): CompiledRules {
+  const frozen = Object.isFrozen(paths);
+  const cached = frozen ? compiledFrozen.get(paths) : undefined;
+  if (cached !== undefined) return cached;
 
   const anyDepth = new Set<string>();
   const scoped: Segment[][] = [];
@@ -54,8 +104,42 @@ export function redact(value: unknown, paths: readonly string[]): unknown {
     }
     scoped.push(parsePath(path));
   }
+  const rules = { anyDepth, scoped };
+  if (frozen) compiledFrozen.set(paths, rules);
+  return rules;
+}
 
-  return walk(value, scoped, anyDepth, new Set());
+/** Told the name and generalised path of a kept value filed under a secret-looking name. */
+export type UnredactedObserver = (name: string, path: string) => void;
+
+/**
+ * The observer, and the key path to the value being walked.
+ *
+ * The path is a stack pushed on the way down and popped on the way up, and
+ * joined only when something is reported, so an ordinary payload costs one
+ * push and pop per key and no string building.
+ */
+interface Observed {
+  report: UnredactedObserver;
+  path: string[];
+  /** For a header block's kept lines; made once per call, not per string. */
+  onHeaderLine: (name: string, value: string) => void;
+}
+
+const ANY_INDEX = "[*]";
+
+function joinPath(path: readonly string[]): string {
+  let joined = "";
+  for (const segment of path) {
+    joined += segment === ANY_INDEX || joined === "" ? segment : `.${segment}`;
+  }
+  return joined;
+}
+
+function reportIfSecret(observed: Observed, name: string, value: unknown): void {
+  if (looksLikeSecretFoldedValue(normaliseName(name), value)) {
+    observed.report(name, joinPath(observed.path));
+  }
 }
 
 /** Marks a rule that applies at every level rather than at one path. */
@@ -65,24 +149,6 @@ const ANY_DEPTH_PREFIX = "**.";
 function anyDepthName(path: string): string | undefined {
   const name = path.slice(ANY_DEPTH_PREFIX.length);
   return name === "" || /[.*[\]]/.test(name) ? undefined : normaliseName(name);
-}
-
-/**
- * A key name reduced to what identifies it, ignoring how it was written.
- *
- * `apiKey`, `api_key`, `api-key` and `APIKey` are one name in four
- * conventions, and a payload usually contains whichever one its author
- * preferred. Matching the literal spelling meant the built-in list caught
- * `api_key` and `access_token` while storing `apiKey` and `accessToken` in the
- * clear — most of what a JavaScript payload actually holds.
- *
- * Only case and separators are removed. `secret` still does not match
- * `secretary`, because the point is one name spelled differently, not one name
- * resembling another.
- */
-export function normaliseName(name: string): string {
-  const lower = name.toLowerCase();
-  return lower.includes("_") || lower.includes("-") ? lower.replace(/[-_]/g, "") : lower;
 }
 
 function parsePath(path: string): Segment[] {
@@ -112,15 +178,20 @@ function walk(
   value: unknown,
   paths: Segment[][],
   anyDepth: ReadonlySet<string>,
-  seen: Set<object>
+  seen: Set<object>,
+  observed?: Observed
 ): unknown {
   if (typeof value === "string") {
     // A serialised header block, such as a ClientRequest's `_header`, files a
     // header under a line rather than a key. Only its secret-named lines are
     // masked, never the string by shape (ADR-046).
-    return anyDepth.size === 0
-      ? value
-      : maskHeaderLines(value, (name) => anyDepth.has(normaliseName(name)), REDACTED);
+    if (anyDepth.size === 0) return value;
+    return maskHeaderLines(
+      value,
+      (name) => anyDepth.has(normaliseName(name)),
+      REDACTED,
+      observed?.onHeaderLine
+    );
   }
   if (value === null || typeof value !== "object") return value;
 
@@ -134,7 +205,7 @@ function walk(
   if (serialized !== undefined) {
     seen.add(value);
     try {
-      return walk(serialized.value, paths, anyDepth, seen);
+      return walk(serialized.value, paths, anyDepth, seen, observed);
     } finally {
       seen.delete(value);
     }
@@ -149,7 +220,7 @@ function walk(
   if (exotic !== undefined) {
     seen.add(value);
     try {
-      return walk(exotic.value, paths, anyDepth, seen);
+      return walk(exotic.value, paths, anyDepth, seen, observed);
     } finally {
       seen.delete(value);
     }
@@ -177,15 +248,26 @@ function walk(
         isSecretName(name) && !isKnownHeaderName(child);
       const interleaved = anyDepth.size > 0 && isInterleavedHeaders(value);
       return value.map((item, index) => {
+        // A header filed by position and kept: its name and value, for the
+        // secret-name warning. Read here, once, with the shape tests redaction
+        // already makes. An interleaved list holds only strings, so the pair
+        // and object shapes never apply to it.
+        let headerName: unknown;
+        let headerValue: unknown;
         if (anyDepth.size > 0) {
-          if (interleaved && index % 2 === 1 && replaces(value[index - 1] as string, item)) {
-            return REDACTED;
-          }
-          if (isNamedPair(item) && replaces(item[0], item[1])) return [item[0], REDACTED];
-          const nameKey = namedValueKey(item);
-          if (nameKey !== undefined) {
+          if (interleaved) {
+            if (index % 2 === 1) {
+              if (replaces(value[index - 1] as string, item)) return REDACTED;
+              headerName = value[index - 1];
+              headerValue = item;
+            }
+          } else if (isNamedPair(item)) {
+            if (replaces(item[0], item[1])) return [item[0], REDACTED];
+            [headerName, headerValue] = item;
+          } else {
+            const nameKey = namedValueKey(item);
             const entry = item as Record<string, unknown>;
-            if (replaces(entry[nameKey] as string, entry["value"])) {
+            if (nameKey !== undefined && replaces(entry[nameKey] as string, entry["value"])) {
               // Rebuilt rather than mutated, and every key written with
               // `defineKey`: a `__proto__` key beside the pair reaches this
               // branch now that an extra key no longer exempts the object, and
@@ -196,9 +278,22 @@ function walk(
               }
               return replaced;
             }
+            if (nameKey !== undefined) {
+              headerName = entry[nameKey];
+              headerValue = entry["value"];
+            }
           }
         }
-        return walk(item, remaining, anyDepth, seen);
+        if (observed === undefined) return walk(item, remaining, anyDepth, seen);
+        observed.path.push(ANY_INDEX);
+        // A name a rule covers is left alone, including one kept because its
+        // value is itself a header name.
+        if (typeof headerName === "string" && !isSecretName(headerName)) {
+          reportIfSecret(observed, headerName, headerValue);
+        }
+        const walked = walk(item, remaining, anyDepth, seen, observed);
+        observed.path.pop();
+        return walked;
       });
     }
 
@@ -207,20 +302,32 @@ function walk(
       // `anyDepth` is checked at every level and never narrowed on the way
       // down, which is the whole of its guarantee: a key on this list is
       // replaced wherever it is filed.
-      if (anyDepth.has(normaliseName(key))) {
+      const name = normaliseName(key);
+      if (anyDepth.has(name)) {
         defineKey(result, key, REDACTED);
         continue;
       }
 
       const matching = paths.filter((path) => matches(path[0], key)).map((path) => path.slice(1));
+      if (matching.some((path) => path.length === 0)) {
+        defineKey(result, key, REDACTED);
+        continue;
+      }
 
-      defineKey(
-        result,
-        key,
-        matching.some((path) => path.length === 0)
-          ? REDACTED
-          : walkOrRedact(child, matching, anyDepth, seen)
-      );
+      if (observed === undefined) {
+        defineKey(result, key, walk(child, matching, anyDepth, seen));
+        continue;
+      }
+      // Kept, so a warning is due if the name reads as a secret. The type test
+      // comes first because it is cheaper than the name test. No `finally`
+      // around the push: the stack belongs to this one call of `redact`, and
+      // a throw abandons it along with the call.
+      observed.path.push(key);
+      if (looksLikeSecretFoldedValue(name, child)) {
+        observed.report(key, joinPath(observed.path));
+      }
+      defineKey(result, key, walk(child, matching, anyDepth, seen, observed));
+      observed.path.pop();
     }
     return result;
   } finally {
@@ -244,15 +351,6 @@ function selfSerialized(value: object): { value: unknown } | undefined {
   } catch {
     return undefined;
   }
-}
-
-function walkOrRedact(
-  value: unknown,
-  paths: Segment[][],
-  anyDepth: ReadonlySet<string>,
-  seen: Set<object>
-): unknown {
-  return paths.some((path) => path.length === 0) ? REDACTED : walk(value, paths, anyDepth, seen);
 }
 
 /**

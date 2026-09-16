@@ -150,7 +150,9 @@ export function isInterleavedHeaders(value: readonly unknown[]): value is string
 export function maskHeaderLines(
   text: string,
   isSecretName: (name: string) => boolean,
-  redacted: string
+  redacted: string,
+  /** Told the name and value of each header line kept, for the secret-name warning. */
+  onKept?: (name: string, value: string) => void
 ): string {
   // Text ending in the truncation marker counts as a block too: a client that
   // cut a block to its first line, and lost the only line break with it, must
@@ -168,7 +170,7 @@ export function maskHeaderLines(
     // may be empty only in text that opens with a CRLF, which is not a block.
     if (lineEnd === lineStart && lineStart > 0) break;
 
-    const valueStart = secretValueStart(text, lineStart, lineEnd, isSecretName);
+    const valueStart = secretValueStart(text, lineStart, lineEnd, isSecretName, onKept);
     if (valueStart !== undefined && text.slice(valueStart, lineEnd) !== redacted) {
       output += text.slice(copied, valueStart) + redacted;
       copied = lineEnd;
@@ -191,15 +193,21 @@ function secretValueStart(
   text: string,
   start: number,
   end: number,
-  isSecretName: (name: string) => boolean
+  isSecretName: (name: string) => boolean,
+  onKept?: (name: string, value: string) => void
 ): number | undefined {
   let index = start;
   while (index < end && isTokenCharacter(text.charCodeAt(index))) index += 1;
   if (index === start || text[index] !== ":") return undefined;
-  if (!isSecretName(text.slice(start, index))) return undefined;
+  const name = text.slice(start, index);
+  const secret = isSecretName(name);
 
   index += 1;
   while (index < end && (text[index] === " " || text[index] === "\t")) index += 1;
+  if (!secret) {
+    onKept?.(name, text.slice(index, end));
+    return undefined;
+  }
   return index === end ? undefined : index;
 }
 

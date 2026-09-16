@@ -123,7 +123,29 @@ export const conformanceCaseSchema = z
         request: z.object({ status: z.number().int(), code: z.string() }).strict().optional(),
         results: z.array(expectedResultSchema.strict()).optional(),
         /** An sdk case: the event the SDK is expected to put on the wire. */
-        wire: z.record(z.string(), z.unknown()).optional()
+        wire: z.record(z.string(), z.unknown()).optional(),
+        /**
+         * An sdk case: the diagnostics the SDK is expected to report, in order,
+         * among those of the kinds listed. Nothing on the wire shows a warning,
+         * so a case about one has to say so here. `detail` is compared as
+         * `wire` is.
+         */
+        diagnostics: z
+          .array(
+            z
+              .object({
+                kind: z.string().min(1),
+                detail: z.record(z.string(), z.unknown()).optional()
+              })
+              .strict()
+          )
+          .optional(),
+        /**
+         * An sdk case: text that must appear in no reported diagnostic, in its
+         * reason or anywhere in its detail, whatever its kind. A subset match
+         * cannot say that a value is absent.
+         */
+        absentFromDiagnostics: z.array(z.string().min(1)).optional()
       })
       .strict()
       .refine(

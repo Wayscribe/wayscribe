@@ -146,7 +146,7 @@ them.
   is authoritative: an SDK may capture less than the server would store, never
   more.
 
-### The eleven built-in secret names
+### The built-in secret names
 
 These apply in every mode that stores a payload at all, including full capture,
 and cannot be disabled. They are listed here because an implementer in another
@@ -165,10 +165,20 @@ refresh_token
 client_secret
 api_key
 secret
+stripe-signature
+x-hub-signature
+x-hub-signature-256
+x-slack-signature
+x-hubspot-signature
+x-hubspot-signature-v3
+x-twilio-signature
+x-shopify-hmac-sha256
 ```
 
 The list is deliberately narrow: each name means a secret in essentially every
-payload it appears in. A name that is only sometimes a secret belongs in an
+payload it appears in. The last eight are webhook signature headers: a signature
+stored beside its body is a request the receiver accepts, and GitHub's carries no
+timestamp, so the pair stays valid for as long as the signing secret (ADR-055). A name that is only sometimes a secret belongs in an
 operator's own configuration, where over-redaction is their call to make.
 
 ### The repairs
@@ -292,7 +302,7 @@ may differ; it should be able to say why.
 
 - **SDK-40.** An SDK MUST be silent by default. Debug output is opt-in. The
   exceptions are the warnings SDK-56 and SDK-60 allow, each at most once per
-  process.
+  process, and the one SDK-61 allows, at most once per process and name.
 - **SDK-41.** A printed diagnostic MUST NOT contain a payload, an API key, a
   message from the server, or the endpoint's path or query. A path or a query
   can carry a credential.
@@ -353,7 +363,8 @@ names carry the product's:
 | service | the name of the service doing the recording |
 | environment | which environment this process is |
 
-One more is optional: the **journey id secret**, used only by SDK-55.
+Two more are optional: the **journey id secret**, used only by SDK-55, and the
+**known-safe names**, used only by SDK-62.
 
 - **SDK-50.** An SDK SHOULD NOT read ambient environment variables of its own.
   The application decides where its configuration comes from.
@@ -510,6 +521,76 @@ A label is the journey's name on the Journeys page, where partial text finds it
 | --- | --- | --- |
 | SDK-60 | ADR-007; ADR-052; packages/sdk-node/src/config.ts | section 14 |
 
+### Secret-looking names no rule covers
+
+Redaction matches names, so a credential filed under a name neither the
+built-in list nor the operator's rules cover is sent in the clear. An SDK
+warns about it and never redacts on a guess, because a diff must not change on
+one (ADR-055).
+
+A name **looks like a secret** by this rule. An implementation reproduces it
+exactly, so that every SDK and `doctor` agree:
+
+1. Fold it as SDK-19 does: lower case, `-` and `_` removed.
+2. Drop trailing ASCII digits and, if any were dropped, one `v` before them.
+3. Its end matches one of these terms, and the name is either the term alone
+   or the term after any other characters:
+   `token` (except after `page`, `next`, `continuation`, `pagination`, `sync`,
+   `client`, `clientrequest`, `idempotency`, `resume`, `cancel`, `cursor`,
+   `start`, `stop`, `bos`, `eos`, `pad`, `unk`, `sep`, `cls` or `mask`),
+   `secret`, `password`, `passwd`, `passphrase`, `passcode`, `credential`,
+   `credentials`, `authorization`, `auth`, `bearer`, `cookie`, `cookies`,
+   `signature` (except after `email`), `jwt`, `otp`, `cvv`, `cvc`, `apikey`,
+   `accesskey`, `secretkey`, `privatekey`, `signingkey`, `encryptionkey`,
+   `masterkey`, `sessionkey`, `authkey`, `hmackey`, `sharedkey`,
+   `subscriptionkey`, `sessionid`, `sessid`, `secretstring`, `secretvalue`,
+   `codeverifier`, `clientassertion`, `authcode`, `authorizationcode`,
+   `otpcode`, `mfacode`, `recoverycode`, `connectionstring`, `databaseurl`,
+   `dsn`, `passwordconfirmation`.
+4. Or its end is `pin`, alone or after `card`, `atm`, `user`, `account`,
+   `security`, `login`, `new`, `old` or `current`; or `pwd` after `db`,
+   `user`, `admin`, `root` or `database`, never alone; or the name is exactly
+   `hmac`.
+
+Personal data such as `ssn` or `cardNumber` is not on the list: the rule is
+about credentials, and whether personal data is captured is the capture mode's
+question.
+
+A value under such a name **could be a credential** when it is a number, or a
+string that is not empty, not `[REDACTED]`, and not, once trimmed and in lower
+case, one of `true`, `false`, `none`, `basic`, `bearer`, `oauth`, `required`,
+`optional`; and, when the term matched is `auth`, at least 8 characters long.
+The minimum applies to `auth` alone because PINs, card codes and one-time codes
+are real secrets of 3 to 6 characters.
+
+The table is `packages/payload-security/src/secret-name.ts`, and its test
+holds the names from real APIs it was checked against.
+
+- **SDK-61.** When redaction keeps a name that looks like a secret with a value
+  that could be a credential, an SDK SHOULD report it: under an object key, and
+  in each positional header shape of SDK-18 (a pair, a name-value object, an
+  interleaved list, a header block line). The report names the payload field,
+  the name, and its path with every array index written `[*]`, and MUST NOT
+  include the value. An SDK SHOULD report only for a payload the event it sends
+  still carries, SHOULD report each folded name once per recorder, SHOULD print
+  one warning per process and name even when debug output is off, saying how to
+  cover the name with a redaction rule, or that no rule can name it, or how to
+  mark it known-safe, and MUST send the event unchanged. The report handed to
+  the host's own diagnostic callback MAY carry the name as written, bounded and
+  unmasked, as other diagnostics do; the printed line is masked (SDK-41). It
+  SHOULD find these during the redaction walk rather than in a second one, and
+  SHOULD bound how many names it remembers and how much of each it keeps.
+- **SDK-62.** An SDK that implements SDK-61 SHOULD accept a list of key names,
+  compared as SDK-19 compares names, that it does not warn about, including
+  names no redaction rule can express. The list MUST NOT change what is
+  redacted, and an entry that is not a non-empty string MUST be ignored and
+  reported as SDK-60 reports a setting.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-61 | ADR-055; ADR-007 | sdk/unredacted-secret-name |
+| SDK-62 | ADR-055 | section 14 |
+
 ## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive
@@ -549,3 +630,4 @@ either.
 | SDK-58 | Set a label that is not a string, including one whose conversion to text throws, and assert nothing throws, it is reported, and the event is sent without it. |
 | SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
 | SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. |
+| SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a string is reported; assert a payload the event budget omits reports nothing; record many distinct very long names and assert the memory kept is bounded. |

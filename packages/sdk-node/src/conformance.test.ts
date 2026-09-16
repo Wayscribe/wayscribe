@@ -21,6 +21,17 @@ import { captureCase, type CapturedCase } from "./conformance-harness.js";
  */
 const sdkDirectory = fileURLToPath(new URL("../../protocol/conformance/sdk", import.meta.url));
 
+/** A diagnostic's detail as text, whatever it holds. */
+function printed(detail: unknown): string {
+  try {
+    return JSON.stringify(detail, (_key, value: unknown) =>
+      typeof value === "bigint" ? value.toString() : value
+    );
+  } catch {
+    return String(detail);
+  }
+}
+
 /** This harness's language, for `languages` on a case that needs a host value. */
 const LANGUAGE = "node";
 
@@ -72,6 +83,45 @@ describe("sdk conformance cases", () => {
         compareExpectation(first, expand(one.expect.wire, { run: "fixture" }), "wire")
       ).toEqual([]);
     });
+
+    it.runIf(applicable && one.expect.absentFromDiagnostics !== undefined)(
+      "puts none of the listed text in any diagnostic",
+      () => {
+        const reported = captured.get(id)?.diagnostics ?? [];
+        expect(reported.length, "the case reported nothing, so it checks nothing").toBeGreaterThan(
+          0
+        );
+        const text = reported
+          .map((entry) => `${entry.reason}\n${printed(entry.detail)}`)
+          .join("\n");
+        for (const absent of one.expect.absentFromDiagnostics ?? []) {
+          expect(text, `a diagnostic contains ${absent}`).not.toContain(absent);
+        }
+      }
+    );
+
+    it.runIf(applicable && one.expect.diagnostics !== undefined)(
+      "reports the expected diagnostics",
+      () => {
+        const result = captured.get(id);
+        const expected = one.expect.diagnostics ?? [];
+        // Only the kinds the case names are compared, so a diagnostic of
+        // another kind an implementation adds does not fail the case.
+        const kinds = new Set(expected.map((entry) => entry.kind));
+        const reported = (result?.diagnostics ?? []).filter((entry) => kinds.has(entry.kind));
+        expect(reported.map((entry) => entry.kind)).toEqual(expected.map((entry) => entry.kind));
+        expected.forEach((entry, index) => {
+          if (entry.detail === undefined) return;
+          expect(
+            compareExpectation(
+              reported[index]?.detail,
+              entry.detail,
+              `diagnostics[${String(index)}]`
+            )
+          ).toEqual([]);
+        });
+      }
+    );
   });
 
   it("splits more events than the batch ceiling across more than one request", () => {

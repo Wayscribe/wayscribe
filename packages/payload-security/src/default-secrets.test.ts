@@ -63,6 +63,30 @@ describe("the built-in list reaches real payloads", () => {
     }
   });
 
+  it("replaces webhook signature headers in every header shape (ADR-055)", () => {
+    // A signature with its body is a request the receiver accepts: GitHub's has
+    // no timestamp, so a stored pair is replayable for as long as the secret
+    // lives. Stored together they are a credential for that request.
+    const headers = {
+      "stripe-signature": "t=1,v1=sig-stripe",
+      "x-hub-signature": "sha1=sig-github-1",
+      "x-hub-signature-256": "sha256=sig-github-256",
+      "x-slack-signature": "v0=sig-slack",
+      "x-hubspot-signature": "sig-hubspot-1",
+      "x-hubspot-signature-v3": "sig-hubspot-3",
+      "x-twilio-signature": "sig-twilio",
+      "x-shopify-hmac-sha256": "sig-shopify"
+    };
+    const raw = ["host", "hooks.example.com", ...Object.entries(headers).flat()];
+    const stored = store({
+      webhook: { headers },
+      rawHeaders: raw,
+      _header: `POST /hooks HTTP/1.1\r\nHost: x\r\nStripe-Signature: t=1,v1=sig-stripe-line\r\n\r\n`
+    });
+    expect(stored).not.toMatch(/sig-/);
+    expect(stored).toContain("hooks.example.com");
+  });
+
   it("leaves ordinary business data alone", () => {
     // The control. A list that redacted everything would pass every test above
     // and make the tool useless.

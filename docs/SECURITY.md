@@ -222,6 +222,65 @@ party` in text that happens to use CRLF line endings. Scope a rule with a dotted
 path in your own `redact` list if a name on the built-in list appears in such a
 place.
 
+### Names no rule covers
+
+Because a rule matches a name, a credential under a name that neither the
+built-in list nor an operator's rules name is stored in plain text. Renaming
+`authToken` to `sessionCredential` is enough. Nothing redacts such a value on a
+guess: a heuristic that replaced values would change what the timeline and its
+diffs show, which is the evidence this product exists to keep (ADR-055).
+Instead it is reported, in two places:
+
+- **The Node SDK**, as it records. When redaction keeps a name that looks like
+  a secret, under an object key or in one of the header shapes above, with a
+  value that could be a credential, the SDK reports `unredacted_secret_name`
+  with the field, the name and its path (array indices as `[*]`), never the
+  value. It reports only for payloads the event still carries once it fits the
+  server's budget, prints one line per process and name even with debug output
+  off, and sends the event unchanged (SDK-61). The printed line is masked;
+  `onDiagnostic` receives the name as written, cut to 128 characters, as it
+  receives other diagnostics.
+- **`doctor`**, for every sender, from what was stored. It samples the latest
+  events of every environment's most recently active journeys and lists the
+  secret-looking key names that hold plain values, with how many sampled events
+  hold each, and no value (`OPERATIONS.md` §12).
+
+A name looks like a secret when its end, with case, `-`, `_` and a version
+suffix ignored, is one of a fixed list of terms such as `token`, `secret`,
+`password`, `credential`, `auth`, `cookie`, `signature`, `apikey`,
+`privatekey`, `connectionstring` or `dsn`; the full rule is in `SDK_SPEC.md`
+section 13. Names that only start with a term (`tokenCount`), pagination,
+cancel and tokenizer tokens (`nextPageToken`, `cancelToken`, `eos_token`),
+objects, booleans, empty strings, setting words such as `none` or `basic`, and
+strings under 8 characters under a name ending in `auth` are not reported.
+Personal data such as `ssn` is not a term: whether it is captured is the
+capture mode's question.
+
+Webhook signature headers (`stripe-signature`, `x-hub-signature`,
+`x-hub-signature-256`, `x-slack-signature`, `x-hubspot-signature`,
+`x-hubspot-signature-v3`, `x-twilio-signature`, `x-shopify-hmac-sha256`) are on
+the built-in list rather than warned about. A signature is not the signing
+secret, but stored beside its body it is a request the receiver accepts, and
+GitHub's has no timestamp, so the pair stays valid for as long as the secret
+does.
+
+What to do about a name reported:
+
+- **It holds a secret.** Add `**.<name>` to the SDK's `redact` option, or to the
+  environment's `redaction_paths` column for another sender, which the server
+  applies in every mode but effective full capture. New values are replaced
+  from then on. Values already stored stay until retention removes them or they
+  are deleted (`OPERATIONS.md` §8). A name containing `.`, `*`, `[` or `]`
+  cannot be named by any rule: rename the field, or leave it out of what is
+  recorded.
+- **It does not.** Add the name, as written, to the SDK's `knownSafeNames`,
+  which silences the SDK's warning and changes nothing about redaction. `doctor`
+  has no such list: its check is a warning and never changes its exit code.
+
+The warning narrows the gap and does not close it. A credential under a name
+the rule does not know, such as `plaintext`, is still stored and still
+unreported, and doctor reads a sample rather than every event.
+
 ### Credentials inside error text
 
 Path redaction matches the name a value is filed under, so it cannot reach a

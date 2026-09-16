@@ -290,7 +290,7 @@ what a dry run previews.
   installation has also set `ALLOW_FULL_PAYLOAD_CAPTURE` (ADR-018). An
   environment set to `full-payload` on an installation that has not allowed it
   degrades to `redacted-payload` rather than refusing the event.
-- **Redaction** applies the eleven built-in secret names in every mode that
+- **Redaction** applies the built-in secret names (`SDK_SPEC.md` section 5) in every mode that
   stores a payload at all, at any depth and inside arrays, matching names with
   case and `-` and `_` ignored (ADR-035, ADR-039). It reaches `error`,
   `runtime`, `deployment` and `metadata` as well as the payloads. A matched
@@ -445,7 +445,15 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   after it carry the label. A call with `"journeys": n` is made on a group of n
   journeys, the case's own first, and expects n results; `identify` and `label`
   have no group form. An `sdk` case's `expect` may carry `wire`, the event the SDK
-  is expected to send, beside `results`.
+  is expected to send, beside `results`. It may also carry `diagnostics`, a list
+  of `{ "kind": "…", "detail": { … } }` the SDK is expected to report: of the
+  diagnostics your SDK reported whose kind the list names, the kinds must equal
+  the list's in order, and each `detail` given is compared as `wire` is. Other
+  kinds are not compared. And it may carry `absentFromDiagnostics`, a list of
+  strings that must appear in no diagnostic of any kind, neither in its reason
+  nor anywhere in its detail; a case that uses it must make the SDK report
+  something, or it checks nothing. The dry run never sees diagnostics, so a
+  harness that replays the bytes ignores both fields.
 - **`languages`** is `["*"]` or a list. A harness skips what it cannot express
   **and reports the skip**; a skip nobody sees is a case that quietly stopped
   running.
