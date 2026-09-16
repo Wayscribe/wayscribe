@@ -6,6 +6,7 @@ import {
   appliesTo,
   compareExpectation,
   expand,
+  expectedCaseIds,
   loadConformanceCases
 } from "@flight-recorder/protocol/conformance";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
@@ -38,7 +39,8 @@ describe("sdk conformance cases through the dry run", () => {
   let apiKey: string;
   let projectId: string;
 
-  const cases = loadConformanceCases(sdkDirectory).filter((one) => appliesTo(one, LANGUAGE));
+  const all = loadConformanceCases(sdkDirectory);
+  const cases = all.filter((one) => appliesTo(one, LANGUAGE));
   const captured = new Map<string, CapturedCase>();
 
   beforeAll(async () => {
@@ -104,8 +106,14 @@ describe("sdk conformance cases through the dry run", () => {
     return results;
   }
 
-  it("has cases to run", () => {
-    expect(cases.length).toBeGreaterThanOrEqual(19);
+  it("runs exactly the cases the manifest lists, minus the ones it must skip", () => {
+    // Every case on disk is accounted for: either it ran here, or it named a
+    // language this harness is not and the skip is listed. A count guard let a
+    // case file be deleted without failing anything.
+    expect(all.map((one) => one.id)).toEqual(expectedCaseIds(sdkDirectory, "sdk"));
+    const skipped = all.filter((one) => !appliesTo(one, LANGUAGE)).map((one) => one.id);
+    expect(skipped).toEqual([]);
+    expect(cases.length).toBe(all.length);
   });
 
   describe.each(cases.map((one) => [one.id, one] as const))("%s", (id, one) => {

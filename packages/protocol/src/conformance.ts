@@ -154,6 +154,30 @@ export function loadConformanceCases(directory: string): ConformanceCase[] {
   return cases;
 }
 
+/**
+ * The ids every suite must run, read from the committed manifest.
+ *
+ * Each suite is generated from whatever is on disk, so a deleted case file is a
+ * smaller run rather than a failure. A count guard does not fix that: it has to
+ * be kept in step by hand, and one with slack in it (">= 31" against 37 files)
+ * let six cases vanish while the suite stayed green. Comparing the loaded ids
+ * with this list fails by name instead, and a case file is the contract, so its
+ * removal is a contract change (ADR-049).
+ *
+ * Regenerate with `pnpm --filter @flight-recorder/protocol run conformance:manifest`.
+ */
+export function expectedCaseIds(directory: string, layer: "wire" | "sdk"): string[] {
+  const manifest = JSON.parse(readFileSync(`${directory}/../manifest.json`, "utf8")) as Record<
+    string,
+    string[]
+  >;
+  const ids = manifest[layer];
+  if (ids === undefined || ids.length === 0) {
+    throw new Error(`conformance/manifest.json lists no ${layer} cases.`);
+  }
+  return [...ids].sort();
+}
+
 /** Whether a harness for this language can run the case. */
 export function appliesTo(one: ConformanceCase, language: string): boolean {
   return one.languages.includes("*") || one.languages.includes(language);

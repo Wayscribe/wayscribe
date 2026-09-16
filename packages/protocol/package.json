@@ -22,7 +22,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "schemas": "pnpm run build && node scripts/write-schemas.mjs"
+    "schemas": "pnpm run build && node scripts/write-schemas.mjs",
+    "conformance:manifest": "node scripts/write-manifest.mjs"
   },
   "dependencies": {
     "zod": "^4.6.4"

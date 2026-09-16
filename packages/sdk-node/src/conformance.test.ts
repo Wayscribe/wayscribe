@@ -3,6 +3,7 @@ import {
   appliesTo,
   compareExpectation,
   expand,
+  expectedCaseIds,
   loadConformanceCases
 } from "@flight-recorder/protocol/conformance";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -33,8 +34,10 @@ describe("sdk conformance cases", () => {
     }
   });
 
-  it("has a case for every group the design lists", () => {
-    expect(cases.length).toBeGreaterThanOrEqual(19);
+  it("runs exactly the cases the manifest lists", () => {
+    // Compared by id rather than by count: a count guard with slack in it lets
+    // a case file be deleted without failing anything.
+    expect(cases.map((one) => one.id)).toEqual(expectedCaseIds(sdkDirectory, "sdk"));
     expect(cases.every((one) => one.layer === "sdk")).toBe(true);
   });
 

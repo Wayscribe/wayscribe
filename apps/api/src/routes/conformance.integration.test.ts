@@ -4,6 +4,7 @@ import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import {
   compareExpectation,
   expand,
+  expectedCaseIds,
   loadConformanceCases,
   type ConformanceCase
 } from "@flight-recorder/protocol/conformance";
@@ -295,11 +296,13 @@ describe("wire conformance cases", () => {
     return stored;
   }
 
-  it("has every group the design lists", () => {
-    // A guard against a case file being deleted or never written: the suite
-    // below is generated from whatever is on disk, so an empty directory would
-    // pass with no tests at all.
-    expect(cases.length).toBeGreaterThanOrEqual(31);
+  it("runs exactly the cases the manifest lists", () => {
+    // The suite below is generated from whatever is on disk, so a deleted case
+    // file is a smaller run rather than a failure. This once read
+    // `toBeGreaterThanOrEqual(31)` against 37 files, and deleting
+    // wire/proto-key.json left it green. Compared by id rather than by count,
+    // so a missing case fails by name.
+    expect(cases.map((one) => one.id)).toEqual(expectedCaseIds(wireDirectory, "wire"));
   });
 
   describe.each(cases.map((one) => [one.id, one] as const))("%s", (_id, one) => {
