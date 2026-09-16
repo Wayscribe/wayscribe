@@ -95,8 +95,10 @@ payload and reaches data nobody declared searchable.
 - Each row gains `label` (or null), `displayableAliases` (type and value pairs,
   only displayable ones) and `lastStep` (or null).
 - Scope rules are unchanged: an API key reads its own environment only.
-- Unknown query keys stay refused, repeated keys stay refused, and every new
-  parameter is validated like the existing ones (NUL bytes, lengths).
+- Unknown query keys are refused (the route used to ignore them; this change
+  makes it refuse them, which is a documented behaviour change), repeated keys
+  stay refused, and every new parameter is validated like the existing ones
+  (NUL bytes, lengths).
 
 ### 4. The Journeys page
 
