@@ -2369,13 +2369,13 @@ ADR-044 exists to prevent.
 ## ADR-055: A secret-looking name no rule covers is warned about, never redacted on a guess
 
 **Status:** Accepted. Builds on ADR-035 (any-depth secret names), ADR-039 (name
-spellings) and ADR-007 (host safety). Adds an SDK diagnostic, an SDK option, a doctor check
-and a conformance field; changes nothing on the wire or in ingestion.
+spellings) and ADR-007 (host safety). Adds an SDK diagnostic, an SDK option, a doctor
+check, a conformance field and eight built-in secret names; changes nothing on the wire.
 
 ### Context
 
-Redaction matches a secret by the name it is filed under: the eleven built-in names and the
-names an operator configures. A credential under any other name is stored in plain text, and
+Redaction matches a secret by the name it is filed under: the built-in names and the names
+an operator configures. A credential under any other name is stored in plain text, and
 nothing said so. Renaming `authToken` to `sessionCredential` was enough.
 
 ### Decision
@@ -2384,43 +2384,79 @@ nothing said so. Renaming `authToken` to `sessionCredential` was enough.
   never redacted automatically. Replacing values on a guess would change what the timeline
   and its diffs show, and a diff that hides a real change is the failure this product exists
   to prevent.
-- **One rule, by the end of the name.** `looksLikeSecretName` in `payload-security` folds a
-  name as redaction does, drops a version suffix, and matches its end against a fixed table
-  of terms, with exceptions (`nextPageToken`) and qualified short terms (`pin`, `pwd`). Bare
-  `key`, `session` and `code` are not terms. The rule is written out in `SDK_SPEC.md`
-  section 13, and checked against 62 secret and 70 ordinary names from Stripe, Salesforce,
-  HubSpot, GitHub, AWS, OAuth and Slack.
-- **Scalars only, and only what redaction kept.** A value is reported when it is a
-  non-empty string or a number. An object under such a name is a container whose keys are
-  examined in turn, and a boolean such as `hasPassword` is never a credential. A redacted
-  value is never reported, so a name a rule covers never is.
+- **One name rule, by the end of the name.** `looksLikeSecretName` in `payload-security`
+  folds a name as redaction does, drops a version suffix, and matches its end against a
+  fixed table of terms, with exceptions (pagination, idempotency, cancel and tokenizer
+  tokens such as `nextPageToken`, `ClientRequestToken`, `bos_token`), qualified short terms
+  (`pin`, `pwd`) and one term that counts only alone (`hmac`). Connection strings, database
+  URLs and DSNs count, because they carry a password. Bare `key`, `session` and `code` are
+  not terms. Personal data such as `ssn` or `cardNumber` is not either: this warns about
+  credentials, and whether personal data is captured is the capture mode's question. The rule
+  is written out in `SDK_SPEC.md` section 13 and checked against 70 secret and 87 ordinary
+  names from Stripe, Salesforce, HubSpot, GitHub, AWS, Azure, OAuth, Slack and tokenizer
+  configurations.
+- **A value rule beside it.** A value is reported when it is a number, or a non-empty
+  string that is not the marker and not one of the setting words `true`, `false`, `none`,
+  `basic`, `bearer`, `oauth`, `required`, `optional`. Under a name ending in `auth` a string
+  must also be at least 8 characters, because `auth: "jwt"` is a setting. That minimum is
+  not applied to every term: PINs, card codes and one-time codes are real secrets of 3 to 6
+  characters. An object under such a name is a container whose keys are examined in turn,
+  and a boolean such as `hasPassword` is never a credential. A redacted value is never
+  reported, so a name a rule covers never is.
 - **In the SDK, found by the redaction walk.** `redact` takes an optional observer, so the
-  warning costs no second traversal. The Node SDK reports `unredacted_secret_name` with the
-  field, the key and its path (array indices as `[*]`), never the value; once per recorder
-  and folded name; printed once per process and name whatever `logDiagnostics` says, a third
-  exception to SDK-40; counted in `unredactedSecretNames`; at most 100 names remembered. The
-  event is sent unchanged (SDK-61). On a 5.6 KB webhook recorded as input and output
-  (`packages/sdk-node/bench/secret-names.mjs`, median of three interleaved runs against a
-  build of the previous commit), `record()` went from 184.6 to 187.5 microseconds per event,
-  and from 183.8 to 189.4 with two names reported, where runs of one build differ by up to
-  5%. The first version, which compared every key with every term, cost about 45% more;
-  looking terms up by a name's last three characters removed that.
+  warning costs no second traversal. It covers object keys and the header shapes redaction
+  already reads: name-value pairs, `{name, value}` objects, interleaved lists and the lines
+  of a header block. The Node SDK collects what the walk found and reports
+  `unredacted_secret_name` only for payloads the event actually carries after its budget is
+  fitted, with the field, the name and its path (array indices as `[*]`), never the value;
+  once per recorder and name; printed once per process and name whatever `logDiagnostics`
+  says, a third exception to SDK-40; counted in `unredactedSecretNames`. At most 100 names
+  are remembered, and a name longer than 256 characters is remembered by its SHA-256, so
+  attacker-chosen key names cannot hold the host's memory: an earlier version kept 100
+  names of 200 KB, about 20 MB, alive. `onDiagnostic` receives the name as written, cut to
+  128 characters and not masked, as it receives other diagnostics; the printed line is
+  masked. A name containing `.`, `*`, `[` or `]` cannot be named by any redaction rule, so
+  the advice for it is to rename the field or leave it out.
 - **`knownSafeNames`.** A false positive that cannot be quieted prints at every deploy, and
-  the only other way out would be redacting a value that is not secret. The SDK takes plain
-  key names it does not warn about. They do not affect redaction (SDK-62).
+  the only other way out would be redacting a value that is not secret. The SDK takes key
+  names it does not warn about, any non-empty string, including ones no rule can name. They
+  do not affect redaction (SDK-62). `sessionId` keeps warning, because a server session id
+  is a credential; an analytics session id is what this option is for.
+- **Webhook signature headers are redacted by default.** `stripe-signature`,
+  `x-hub-signature`, `x-hub-signature-256`, `x-slack-signature`, `x-hubspot-signature`,
+  `x-hubspot-signature-v3`, `x-twilio-signature` and `x-shopify-hmac-sha256` join the
+  built-in list. A signature is not the signing secret, but stored beside the body it signs
+  it is a request the receiver accepts, and GitHub's carries no timestamp, so the pair stays
+  valid for as long as the secret does. Warning instead would have fired on every recorded
+  webhook from these providers, and a default everybody silences is no default. The cost is
+  that a signature mismatch can no longer be debugged by reading the stored header; the
+  generic `signature` term still warns for names the list does not cover.
 - **On the server, in `doctor`.** A sender that is not the Node SDK never sees the warning,
-  so `doctor` samples what was stored: the 20 latest events of each environment's 100 most
-  recently active journeys, at most 2,000, through index scans, in a read-only transaction
-  cancelled after 5 seconds. Only key names and counts leave the database; the heuristic runs
-  on them in doctor. It warns and never fails, and a cancelled sample is a warning too. On
-  600,000 events (626 MB) it took about 150 ms and 7,698 shared buffers warm.
+  so `doctor` samples what was stored: the cap of 2,000 events is shared evenly between
+  environments, and each environment gives the 5 latest events of its 100 most recently
+  active journeys, in a stable order, so one busy environment cannot fill the sample. It
+  reads through index scans, in a read-only transaction cancelled after 5 seconds, and
+  applies the value rule in SQL. Only key names and counts leave the database; the name rule
+  runs on them in doctor, and printed names are masked like the SDK's line. It warns and
+  never fails: a cancelled sample, or one that cannot run at all, is a warning with the
+  reason. On 600,000 events (626 MB) in four environments it read 1,600 events in about
+  155 ms warm, 168 ms cold, touching 7,698 shared buffers.
+- **Cost.** Measured with `packages/sdk-node/bench/secret-names.mjs` on a 5.6 KB webhook
+  recorded as input and output, five runs alternating with a build of main, medians:
+  `record()` went from 180.1 to 187.3 microseconds per event (+4%) with no secret-looking
+  names, and from 182.1 to 191.4 (+5%) with two reported. `redact` alone costs about 3.5
+  microseconds more per payload with the observer. Part of the added walk cost is paid for
+  by parsing a frozen rule list once instead of on every payload. The first version cost
+  about 45% more, and an intermediate one about 8%; looking terms up by a name's last
+  characters, reading positional headers once, and caching the rules brought it here.
 - **The API does not report it.** A response field would be a wire change every SDK has to
   handle, for a warning a sender cannot act on at runtime. A log line per new name would put
   payload-derived names into the API's log on the ingestion hot path, need a set bounded
-  against hostile senders, and repeat per replica. Ingestion is unchanged. Revisit if a pilot
-  team runs another sender and does not run doctor.
-- **Conformance.** A case may carry `expect.diagnostics`; `sdk/unredacted-secret-name`
-  checks the report and the unchanged event.
+  against hostile senders, and repeat per replica. Ingestion is unchanged apart from the
+  longer built-in list. Revisit if a pilot team runs another sender and does not run doctor.
+- **Conformance.** A case may carry `expect.diagnostics` and `expect.absentFromDiagnostics`;
+  `sdk/unredacted-secret-name` checks the reports, that no recorded value appears in any
+  diagnostic, and the unchanged event.
 
 ### Alternatives rejected
 
@@ -2429,20 +2465,28 @@ nothing said so. Renaming `authToken` to `sessionCredential` was enough.
 - **Matching a term anywhere in the name.** It catches more and warns on `tokenCount`,
   `max_tokens` and `secretName` in ordinary payloads, which teaches people to ignore the
   warning.
+- **Warning on webhook signatures instead of redacting them.** Every Stripe, GitHub and
+  Slack user would see it on the first event and silence it.
 - **A second walk over each payload for the warning.** Simpler to write, and it doubles
   the part of capture that costs the most.
-- **Running the heuristic in SQL.** Two copies of one rule drift. The query filters by the
+- **Running the name rule in SQL.** Two copies of one rule drift. The query filters by the
   terms' last three characters, a superset, and doctor applies the rule.
+- **A per-journey sample, or the latest events of the whole table.** Filling the cap from
+  the first environment scanned left every other project unread, and no index serves the
+  latest events of the whole table.
 
 ### Consequences
 
 - A name that looks like a secret and is not prints one line per process until it is added
   to `knownSafeNames`, and doctor warns about it with no way to quiet it there; doctor's
   warning never changes its exit code.
-- A credential under a name the rule does not know (`plaintext`, `connectionString`) is
-  still stored in the clear and still unreported. The warning narrows the gap; the operator's
-  own `redact` rules remain the control.
+- A credential under a name the rule does not know (`plaintext`) is still stored in the
+  clear and still unreported. The warning narrows the gap; the operator's own `redact` rules
+  remain the control.
 - Doctor reads only a recent sample. A name used once, long ago, is not found; the query in
-  `OPERATIONS.md` §12 can be run over a wider window by hand.
+  `OPERATIONS.md` §12 can be run over a wider window by hand. With more than 2,000
+  environments, some get no share.
 - Values already stored stay until they are deleted or expire. The warning prevents new
   ones.
+- Webhook signature headers recorded after the upgrade are stored as `[REDACTED]`; ones
+  recorded before stay as they were.

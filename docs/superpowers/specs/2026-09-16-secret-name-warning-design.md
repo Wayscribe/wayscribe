@@ -223,3 +223,25 @@ SDK-40 naming the new exception; `INGESTION_CONTRACT.md` section 9
 (`expect.diagnostics`); `SECURITY.md` section 4; `OPERATIONS.md` §12; the SDK
 README; `NODE_SDK_SPEC.md` where it lists options and kinds; CHANGELOG; the
 README's ADR count.
+
+## 8. After review
+
+A review of the first implementation changed these, recorded in ADR-055, which
+is the current statement of the design where it and the sections above differ:
+
+- The doctor sample shares its cap evenly between environments (5 events per
+  journey, 100 journeys per environment) instead of filling it from the first
+  environment scanned; any failure of the sample is a warning.
+- The SDK remembers a long name by digest and hands out bounded copies, and
+  reports only for payloads the event still carries after its budget is fitted.
+- Terms were added (`hmac` alone, `connectionstring`, `databaseurl`, `dsn`,
+  `passwordconfirmation`, `subscriptionkey`, `recoverycode`), tokenizer, cursor
+  and cancel tokens were excepted, and a value rule skips setting words and
+  short strings under `auth`. The tables hold 70 secret and 87 ordinary names.
+- Positional header shapes are checked too.
+- `knownSafeNames` accepts any non-empty name, and names no rule can express get
+  advice that works.
+- Webhook signature headers joined the built-in redaction list.
+- The measured cost is about 4% on the clean payload after parsing frozen rule
+  lists once and keying the term table by two characters.
+

@@ -536,34 +536,55 @@ exactly, so that every SDK and `doctor` agree:
 3. Its end matches one of these terms, and the name is either the term alone
    or the term after any other characters:
    `token` (except after `page`, `next`, `continuation`, `pagination`, `sync`,
-   `client` or `idempotency`), `secret`, `password`, `passwd`, `passphrase`,
-   `passcode`, `credential`, `credentials`, `authorization`, `auth`, `bearer`,
-   `cookie`, `cookies`, `signature` (except after `email`), `jwt`, `otp`,
-   `cvv`, `cvc`, `apikey`, `accesskey`, `secretkey`, `privatekey`,
-   `signingkey`, `encryptionkey`, `masterkey`, `sessionkey`, `authkey`,
-   `hmackey`, `sharedkey`, `sessionid`, `sessid`, `secretstring`,
-   `secretvalue`, `codeverifier`, `clientassertion`, `authcode`,
-   `authorizationcode`, `otpcode`, `mfacode`.
+   `client`, `clientrequest`, `idempotency`, `resume`, `cancel`, `cursor`,
+   `start`, `stop`, `bos`, `eos`, `pad`, `unk`, `sep`, `cls` or `mask`),
+   `secret`, `password`, `passwd`, `passphrase`, `passcode`, `credential`,
+   `credentials`, `authorization`, `auth`, `bearer`, `cookie`, `cookies`,
+   `signature` (except after `email`), `jwt`, `otp`, `cvv`, `cvc`, `apikey`,
+   `accesskey`, `secretkey`, `privatekey`, `signingkey`, `encryptionkey`,
+   `masterkey`, `sessionkey`, `authkey`, `hmackey`, `sharedkey`,
+   `subscriptionkey`, `sessionid`, `sessid`, `secretstring`, `secretvalue`,
+   `codeverifier`, `clientassertion`, `authcode`, `authorizationcode`,
+   `otpcode`, `mfacode`, `recoverycode`, `connectionstring`, `databaseurl`,
+   `dsn`, `passwordconfirmation`.
 4. Or its end is `pin`, alone or after `card`, `atm`, `user`, `account`,
    `security`, `login`, `new`, `old` or `current`; or `pwd` after `db`,
-   `user`, `admin`, `root` or `database`, never alone.
+   `user`, `admin`, `root` or `database`, never alone; or the name is exactly
+   `hmac`.
+
+Personal data such as `ssn` or `cardNumber` is not on the list: the rule is
+about credentials, and whether personal data is captured is the capture mode's
+question.
+
+A value under such a name **could be a credential** when it is a number, or a
+string that is not empty, not `[REDACTED]`, and not, once trimmed and in lower
+case, one of `true`, `false`, `none`, `basic`, `bearer`, `oauth`, `required`,
+`optional`; and, when the term matched is `auth`, at least 8 characters long.
+The minimum applies to `auth` alone because PINs, card codes and one-time codes
+are real secrets of 3 to 6 characters.
 
 The table is `packages/payload-security/src/secret-name.ts`, and its test
 holds the names from real APIs it was checked against.
 
-- **SDK-61.** When an object key is kept by redaction, its name looks like a
-  secret, and its value is a non-empty string or a number other than the
-  redaction marker, an SDK SHOULD report it, naming the payload field, the key
-  and its path with every array index written `[*]`, and MUST NOT include the
-  value. It SHOULD report each folded name once per recorder, SHOULD print one
-  warning per process and name even when debug output is off, saying how to
-  cover the name with a redaction rule or mark it known-safe, and MUST send the
-  event unchanged. It SHOULD find these during the redaction walk rather than
-  in a second one, and SHOULD stop remembering names after a bound.
-- **SDK-62.** An SDK that implements SDK-61 SHOULD accept a list of plain key
-  names, compared as SDK-19 compares names, that it does not warn about. The
-  list MUST NOT change what is redacted, and an entry that is not a plain name
-  MUST be ignored and reported as SDK-60 reports a setting.
+- **SDK-61.** When redaction keeps a name that looks like a secret with a value
+  that could be a credential, an SDK SHOULD report it: under an object key, and
+  in each positional header shape of SDK-18 (a pair, a name-value object, an
+  interleaved list, a header block line). The report names the payload field,
+  the name, and its path with every array index written `[*]`, and MUST NOT
+  include the value. An SDK SHOULD report only for a payload the event it sends
+  still carries, SHOULD report each folded name once per recorder, SHOULD print
+  one warning per process and name even when debug output is off, saying how to
+  cover the name with a redaction rule, or that no rule can name it, or how to
+  mark it known-safe, and MUST send the event unchanged. The report handed to
+  the host's own diagnostic callback MAY carry the name as written, bounded and
+  unmasked, as other diagnostics do; the printed line is masked (SDK-41). It
+  SHOULD find these during the redaction walk rather than in a second one, and
+  SHOULD bound how many names it remembers and how much of each it keeps.
+- **SDK-62.** An SDK that implements SDK-61 SHOULD accept a list of key names,
+  compared as SDK-19 compares names, that it does not warn about, including
+  names no redaction rule can express. The list MUST NOT change what is
+  redacted, and an entry that is not a non-empty string MUST be ignored and
+  reported as SDK-60 reports a setting.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
@@ -609,4 +630,4 @@ either.
 | SDK-58 | Set a label that is not a string, including one whose conversion to text throws, and assert nothing throws, it is reported, and the event is sent without it. |
 | SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
 | SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. |
-| SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a plain name is reported. |
+| SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a string is reported; assert a payload the event budget omits reports nothing; record many distinct very long names and assert the memory kept is bounded. |

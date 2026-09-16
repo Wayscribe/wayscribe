@@ -456,7 +456,7 @@ change any counter.
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
 | `configuration_error` | a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`, or a configured setting could not be used; the call returned something safe | `configurationErrors` |
 | `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
-| `unredacted_secret_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; `detail` is `{ field, name, path }`, never the value; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `unredactedSecretNames`, per name |
+| `unredacted_secret_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; `detail` is `{ field, name, path }`, never the value, with the name as written, cut to 128 characters; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `unredactedSecretNames`, per name |
 
 ### An endpoint that is not encrypted
 
@@ -623,15 +623,27 @@ It tells you instead, once per name per process, whether or not
 ```
 
 The line and the diagnostic name the field and where it was, with array
-indices written `[*]`; they never include the value. The event is sent as it
-was.
+indices written `[*]`; they never include the value. Names are checked as
+object keys and in the header shapes listed above: `[name, value]` pairs,
+`{ name, value }` objects, `rawHeaders` lists and the lines of a header block.
+The warning is given only for a payload the event still carries once it fits
+the server's budget, and the event is sent as it was. The printed line is
+masked; `onDiagnostic` receives the name as written, cut to 128 characters and
+not masked, as it receives every other diagnostic.
 
 A name looks like a secret when it ends in a word such as `token`, `secret`,
-`password`, `credential`, `auth`, `cookie`, `signature`, `apiKey` or
-`privateKey`, with case, `-` and `_` ignored. Names that only start with one
-(`tokenCount`, `secretName`), pagination tokens (`nextPageToken`), and values
-that are objects, booleans or empty are left alone. The full rule is in
+`password`, `credential`, `auth`, `cookie`, `signature`, `apiKey`,
+`privateKey`, `connectionString` or `dsn`, with case, `-` and `_` ignored. Left
+alone are names that only start with one (`tokenCount`, `secretName`),
+pagination, cancel and tokenizer tokens (`nextPageToken`, `cancelToken`,
+`eos_token`), values that are objects, booleans, empty, or setting words such
+as `none` or `basic`, and strings under 8 characters under a name ending in
+`auth` (`auth: "jwt"`). The full rule is in
 [`SDK_SPEC.md`](../../docs/SDK_SPEC.md) section 13.
+
+Webhook signature headers from Stripe, GitHub, Slack, HubSpot, Twilio and
+Shopify are not warned about: they are on the built-in list and redacted,
+because a stored signature and body are a request the receiver will accept.
 
 **If it is a secret**, add a rule and the value is replaced from then on:
 
@@ -643,9 +655,12 @@ createRecorder({
 ```
 
 Values already stored stay until they are deleted or expire;
-`docs/OPERATIONS.md` section 8 says how to delete them.
+`docs/OPERATIONS.md` section 8 says how to delete them. A name containing `.`,
+`*`, `[` or `]` cannot be written as a rule, and the warning says so: rename the
+field, or leave it out of what you record.
 
-**If it is not**, say so, and the warning stops:
+**If it is not**, say so, and the warning stops. A `sessionId` is warned about,
+because a server's session id is a login; an analytics session id is not:
 
 ```typescript
 createRecorder({
@@ -654,10 +669,10 @@ createRecorder({
 });
 ```
 
-`knownSafeNames` takes plain key names, compared like redaction names, and
-changes nothing about redaction: a name on both lists is still redacted. An
-entry that is not a plain name, such as `a.b`, is ignored and reported as a
-`configuration_error`.
+`knownSafeNames` takes key names as written, including ones no rule can name,
+compared like redaction names, and changes nothing about redaction: a name on
+both lists is still redacted. An entry that is not a non-empty string is
+ignored and reported as a `configuration_error`.
 
 The server has the same check for senders that are not this SDK: `doctor`
 samples recent stored payloads and lists the names it finds

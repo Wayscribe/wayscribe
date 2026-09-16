@@ -15,6 +15,13 @@ changes far less often.
 
 ### Changed
 
+- **Webhook signature headers are redacted by default** (ADR-055).
+  `stripe-signature`, `x-hub-signature`, `x-hub-signature-256`,
+  `x-slack-signature`, `x-hubspot-signature`, `x-hubspot-signature-v3`,
+  `x-twilio-signature` and `x-shopify-hmac-sha256` join the built-in secret
+  names, in the SDK and on the server, in every capture mode. A stored
+  signature with its body is a request the receiver accepts, and GitHub's has
+  no timestamp. Events recorded before the upgrade keep the header as stored.
 - **The SDK no longer converts numeric strings in its options (SDK-60).**
   `maxBufferedEvents: "5000"`, as read from `process.env`, used to take
   effect, because JavaScript's comparisons and timers converted it. It now
@@ -174,27 +181,31 @@ changes far less often.
 - **A warning for secret-looking field names no redaction rule covers**
   (ADR-055, SDK-61, SDK-62). Redaction matches names, so a credential renamed
   from `authToken` to `sessionCredential` was stored in plain text without a
-  word. The Node SDK now reports `unredacted_secret_name` when it sends a
-  non-empty string or number under a name that looks like a secret, naming the
-  field, the key and its path, never the value; it prints one line per process
-  and name even with `logDiagnostics` off, counts the names in the new
+  word. The Node SDK now reports `unredacted_secret_name` when an event it
+  sends carries a number or a plausible string under a name that looks like a
+  secret, as an object key or in a header pair, list or block, naming the
+  field, the name and its path, never the value; it prints one line per
+  process and name even with `logDiagnostics` off, counts the names in the new
   `unredactedSecretNames` counter, and sends the event unchanged. Nothing is
   redacted on a guess. The new `knownSafeNames` option silences a false
-  positive without changing redaction. The rule, `looksLikeSecretName` in
-  `payload-security`, matches the end of the folded name against a fixed list
-  of terms and is written out in `SDK_SPEC.md` section 13; it is found by the
-  redaction walk, so capture costs about 2% more on a 5.6 KB payload.
+  positive without changing redaction. The rule, `looksLikeSecretName` and
+  `looksLikeSecretValue` in `payload-security`, matches the end of the folded
+  name against a fixed list of terms, skips setting words and short `auth`
+  settings, and is written out in `SDK_SPEC.md` section 13. It is found by the
+  redaction walk; capture on a 5.6 KB webhook costs about 4% more (5% when
+  names are reported), measured against main.
 - **`doctor` checks stored payloads for secret-looking names.** A new
-  `Secret-looking names` check samples the latest 20 events of each
-  environment's 100 most recently active journeys, at most 2,000, and warns
-  with the key names that hold plain values and how many sampled events hold
-  each, never a value. It runs through index scans in a read-only transaction
-  cancelled after 5 seconds, is a warning at most, and covers senders that are
+  `Secret-looking names` check shares a 2,000-event sample evenly between
+  environments, taking the 5 latest events of each environment's 100 most
+  recently active journeys, and warns with the key names that hold plain
+  values and how many sampled events hold each, never a value. It runs through
+  index scans in a read-only transaction cancelled after 5 seconds, is a
+  warning at most, including when it cannot run, and covers senders that are
   not the Node SDK. The API itself does not report these names.
 - **Conformance cases can expect diagnostics.** `expect.diagnostics` lists the
-  diagnostics an SDK must report, compared by kind and order
-  (`INGESTION_CONTRACT.md` section 9), and `sdk/unredacted-secret-name` uses
-  it.
+  diagnostics an SDK must report, compared by kind and order, and
+  `expect.absentFromDiagnostics` lists text no diagnostic may contain
+  (`INGESTION_CONTRACT.md` section 9); `sdk/unredacted-secret-name` uses both.
 - **A journey can carry a public label** (ADR-054). Events gain an optional
   `journeyLabel`, 1 to 200 code points; an empty string refuses that event as
   `invalid_event`, and an event without the field leaves the label alone. The

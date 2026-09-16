@@ -1410,7 +1410,7 @@ beneath it:
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
 | Projects and keys | | no project, no unrevoked API key, or the published demo key (`fr_demo00000`) is unrevoked |
 | Journey environments | an event was written by another environment's API key than its journey's own, which ingestion now refuses (ADR-038, amendment) and earlier builds did not | |
-| Secret-looking names | | a recently stored payload holds a plain value under a key name that looks like a secret, or the sample did not finish within 5 seconds |
+| Secret-looking names | | a recently stored payload holds a plain value under a key name that looks like a secret, or the sample did not finish within 5 seconds or could not run |
 | API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
 | API reachable (`--api-url`) | `GET /ready` does not answer 200; its `reason` is printed | |
 | Statement timeout | the value is invalid | it is 0 |
@@ -1475,28 +1475,35 @@ WARN  Secret-looking names    2 key names that look like secrets hold plain valu
 ```
 
 It prints key names and counts, never a value, at most ten names, each cut to
-64 characters with control characters replaced. It is a warning at most, so a
-false positive never changes the exit code. For a name that is not a secret,
-the SDK's `knownSafeNames` silences the SDK's line; doctor has no such list.
+64 characters with credential shapes masked and control characters replaced.
+It is a warning at most, so a false positive never changes the exit code, and a
+sample that cannot finish within 5 seconds, or cannot run at all (a missing
+grant, say), is a warning with the reason rather than a failure. For a name
+that is not a secret, the SDK's `knownSafeNames` silences the SDK's line;
+doctor has no such list.
 
-**What it reads.** For each environment, its 100 most recently active journeys;
-for each of those, its 20 latest events; at most 2,000 events in all. From each
+**What it reads.** The cap of 2,000 events is shared evenly between
+environments, in every project. Each environment gives the 5 latest events of
+each of its 100 most recently active journeys, newest first, up to its share,
+so one busy environment cannot fill the sample; with more than 2,000
+environments, those after the first 2,000 in project order get none. From each
 event's `input_payload`, `output_payload` and `custom_metadata` it reads every
-object at any depth and keeps the keys whose value is a non-empty string or a
-number and not `[REDACTED]`, and whose folded name ends in the last three
+object at any depth and keeps the keys whose value could be a credential by
+the SDK's value rule (a number, or a string that is not empty, not
+`[REDACTED]`, not a setting word such as `none`, and at least 8 characters
+under a name ending in `auth`), and whose folded name ends in the last three
 characters of a term. Only those names and their counts leave the database;
-doctor applies the full rule to them. `error`, `runtime_metadata`,
+doctor applies the full name rule to them. `error`, `runtime_metadata`,
 `deployment_metadata`, `payload_diff` and replay runs are not read.
 
 **What it costs.** The journeys come from `journeys_recent_idx` and the events
-from `journey_events_timeline_idx` as index-only scans, then each sampled event
-is read once by primary key, so the cost depends on the sample and not on the
-size of the table. It runs in a read-only transaction with
-`statement_timeout` at 5 seconds; a sample that does not finish, for example
-behind a lock, is reported as a warning. Measured with `EXPLAIN (ANALYZE,
-BUFFERS)` on PostgreSQL 17 with 600,000 events (626 MB of `journey_events`,
-about 5 KB of payload each) in four environments: 1,600 events sampled, 7,698
-shared buffers, about 150 ms warm and 370 ms on the first run, most of it
+from `journey_events_timeline_idx` as an index-only scan, then each sampled
+event is read once by primary key, so the cost depends on the sample and not
+on the size of the table. It runs in a read-only transaction with
+`statement_timeout` at 5 seconds. Measured with `EXPLAIN (ANALYZE, BUFFERS)` on
+PostgreSQL 17 with 600,000 events (626 MB of `journey_events`, about 5 KB of
+payload each) in four environments: 1,600 events sampled (four shares of 400),
+7,698 shared buffers, about 155 ms warm and 168 ms on the first run, most of it
 reading keys with `jsonb_each`.
 
 **Looking wider.** A name used once, long ago, is outside the sample. To look
@@ -1515,7 +1522,7 @@ select k.key as name, count(distinct (e.project_id, e.id)) as events
    and jsonb_typeof(o.value) = 'object'
    and jsonb_typeof(k.value) in ('string', 'number')
    and k.value not in ('""'::jsonb, '"[REDACTED]"'::jsonb)
-   and k.key ~* '(token|secret|passw(or)?d|credentials?|auth(orization)?|cookies?|signature|apikey|api_key|privatekey|private_key)$'
+   and k.key ~* '(token|secret|passw(or)?d|credentials?|auth(orization)?|cookies?|signature|api_?key|private_?key|connection_?string|database_?url|dsn)$'
  group by k.key
  order by events desc;
 ```
