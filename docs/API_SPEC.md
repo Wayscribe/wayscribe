@@ -205,7 +205,8 @@ since the server began storing it. `displayableAliases` lists only the aliases
 a reader may see in full (ADR-053), as `{ type, value }`, ordered by alias type
 and then by value; a masked alias is never listed. A displayable alias written
 before the server kept plain-text copies is listed once an event states it
-again.
+again. A displayable value containing a NUL is never listed or matched by `q`,
+because the server keeps no plain-text copy of it; the journey read shows it.
 
 A missing or empty `q`, or `q` given more than once, is `400` `invalid_query`. A
 `cursor` given more than once is `400` `invalid_cursor`, on every list endpoint.

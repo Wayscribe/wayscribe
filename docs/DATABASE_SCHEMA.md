@@ -130,7 +130,7 @@ The label and last-step columns were added by migration `018_journey_browse.js` 
 | `alias_value_hash` | text | Normalized search hash |
 | `encrypted_display_value` | text | Optional, in the envelope format (§5) |
 | `displayable` | boolean | Not null, default false. True only while every event that stated the alias listed it in `displayableAliases`; ingestion lowers it and never raises it (ADR-053, migration `017_alias_displayable.js`) |
-| `display_value` | text | Nullable. Plain-text copy of the alias value, present only while `displayable` is true; cleared in the same statement that lowers the flag, and by key rotation's duplicate folding when the folded flag is false, and by the trigger below for any other writer (ADR-053, migration `018_journey_browse.js`). Holds the same spelling as `encrypted_display_value` |
+| `display_value` | text | Nullable. Plain-text copy of the alias value, present only while `displayable` is true; cleared in the same statement that lowers the flag, and by key rotation's duplicate folding when the folded flag is false, and by the trigger below for any other writer (ADR-053, migration `018_journey_browse.js`). Holds the same spelling as `encrypted_display_value`. Null for a displayable value containing a NUL, which a text column cannot hold |
 | `created_at` | timestamptz | Required |
 
 Constraints and indexes:

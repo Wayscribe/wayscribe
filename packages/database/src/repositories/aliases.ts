@@ -9,8 +9,12 @@ export interface AliasRow {
    * The alias value as this event stated it. Stored in plain text, as
    * `display_value`, only when this statement is displayable, and kept only
    * while the stored flag stays true; never for a masked alias.
+   *
+   * Null when the value cannot be held by a text column (a NUL): the alias is
+   * stored as it was before copies existed, encrypted only, and the journey
+   * list neither shows nor matches it.
    */
-  value: string;
+  value: string | null;
   /**
    * Whether this event marked the alias as displayable. The stored flag is the
    * conjunction of every statement (ADR-053).
@@ -92,7 +96,11 @@ export async function upsertAliases(
       )
     })
     .where("entity_aliases.displayable", true)
-    .andWhereRaw("(not excluded.displayable or entity_aliases.display_value is null)");
+    // A repeat with no copy to give (a NUL in the value) leaves a row without
+    // one alone, rather than rewriting it on every statement.
+    .andWhereRaw(
+      "(not excluded.displayable or (entity_aliases.display_value is null and excluded.display_value is not null))"
+    );
 }
 
 /** PostgreSQL's unique_violation. */

@@ -361,6 +361,8 @@ that records them (ADR-054):
   does not know about, and without the trigger the statement would fail and
   its database error, which prints the row, would log the value it was
   masking. With it, masking succeeds and the copy goes in the same statement.
+  A value containing a NUL gets no copy, since a text column cannot hold one;
+  it stays encrypted only, as every alias was before copies existed.
 
 Masked aliases and entity identifiers stay encrypted and tokenised exactly as
 before.

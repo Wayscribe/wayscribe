@@ -1,0 +1,50 @@
+{
+  "id": "wire/displayable-alias-nul",
+  "title": "A displayable alias value holding a NUL is stored and read in full",
+  "source": "ADR-054; docs/INGESTION_CONTRACT.md",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "job-sweep",
+          "entity": {
+            "type": "job_posting",
+            "id": "greenhouse:4567"
+          },
+          "operation": "identified",
+          "name": "identify",
+          "timestamp": "2026-09-16T08:00:00.000Z",
+          "aliases": {
+            "company": "Acme\u0000Corp"
+          },
+          "displayableAliases": ["company"]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "journey": {
+            "aliases": [
+              {
+                "type": "company",
+                "displayValue": "Acme\u0000Corp",
+                "displayable": true
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

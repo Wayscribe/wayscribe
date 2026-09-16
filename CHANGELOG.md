@@ -174,8 +174,10 @@ changes far less often.
   with a plain value whatever writes the row, and a trigger,
   `entity_aliases_clear_masked_display_value`, clears the copy of any row
   written masked before the check runs, so the previous build, which masks
-  without knowing the copy exists, keeps working during a rollout. Deletion,
-  erasure and retention remove all of it with the journey.
+  without knowing the copy exists, keeps working during a rollout. A value
+  containing a NUL gets no copy and is still accepted (case
+  `wire/displayable-alias-nul`). Deletion, erasure and retention remove all of
+  it with the journey.
 - **`GET /v1/journeys` filters by time range, entity type and text.** `until`
   ends the window (an instant after `since`, exclusive), `entityType` matches
   one entity type exactly, and `q` (2 to 200 characters) matches, ignoring

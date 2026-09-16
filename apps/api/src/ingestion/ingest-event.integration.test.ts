@@ -232,6 +232,83 @@ describe("ingestion stores labels, last steps and plain-text copies", () => {
     ]);
   });
 
+  it("accepts a displayable value holding a NUL, stores no copy of it, and keeps the rest", async () => {
+    // A text column cannot hold a NUL. The value is stored encrypted, as it
+    // was before copies existed, and the journey page shows it; the list and
+    // its text filter, which read only the copy, do not.
+    const value = `Acme${String.fromCharCode(0)}Corp`;
+    await batch([
+      envelope({
+        id: "evt_nul_1",
+        journeyId: "jrn_nul",
+        aliases: { company: value, board: "greenhouse:acme" },
+        displayableAliases: ["company", "board"]
+      })
+    ]);
+    expect(await aliasColumns("jrn_nul")).toEqual([
+      { alias_type: "board", displayable: true, display_value: "greenhouse:acme" },
+      { alias_type: "company", displayable: true, display_value: null }
+    ]);
+    const read = await app.inject({
+      method: "GET",
+      url: "/v1/journeys/jrn_nul",
+      headers: { authorization: `Bearer ${apiKey}` }
+    });
+    expect(read.statusCode, read.body).toBe(200);
+    expect((read.json() as { data: { aliases: unknown[] } }).data.aliases).toContainEqual({
+      type: "company",
+      displayValue: value,
+      displayable: true
+    });
+
+    // Stating it again still stores no copy, and masking it works.
+    await batch([
+      envelope({
+        id: "evt_nul_2",
+        journeyId: "jrn_nul",
+        aliases: { company: value },
+        displayableAliases: ["company"]
+      })
+    ]);
+    expect(await aliasColumns("jrn_nul")).toContainEqual({
+      alias_type: "company",
+      displayable: true,
+      display_value: null
+    });
+    await batch([envelope({ id: "evt_nul_3", journeyId: "jrn_nul", aliases: { company: value } })]);
+    expect(await aliasColumns("jrn_nul")).toContainEqual({
+      alias_type: "company",
+      displayable: false,
+      display_value: null
+    });
+  });
+
+  it("stores a displayable value holding a lone surrogate as the journey page reads it", async () => {
+    // PostgreSQL text takes UTF-8, and a lone surrogate has no UTF-8 form, so
+    // the driver writes U+FFFD in its place, as the ciphertext's encoding
+    // does. The copy and the value the journey page decrypts agree.
+    const value = `Acme${String.fromCharCode(0xd800)}Corp`;
+    await batch([
+      envelope({
+        id: "evt_surrogate",
+        journeyId: "jrn_surrogate",
+        aliases: { company: value },
+        displayableAliases: ["company"]
+      })
+    ]);
+    const read = await app.inject({
+      method: "GET",
+      url: "/v1/journeys/jrn_surrogate",
+      headers: { authorization: `Bearer ${apiKey}` }
+    });
+    const shown = (read.json() as { data: { aliases: { displayValue: string }[] } }).data.aliases[0]
+      ?.displayValue;
+    expect(shown).toBe(`Acme${String.fromCharCode(0xfffd)}Corp`);
+    expect(await aliasColumns("jrn_surrogate")).toEqual([
+      { alias_type: "company", displayable: true, display_value: shown }
+    ]);
+  });
+
   it("keeps flag and copy together across rounds of concurrent events on one journey", async () => {
     // Each POST is its own transaction, so these race for real. Migration
     // 018's constraint refuses any row written masked with a copy, so even a

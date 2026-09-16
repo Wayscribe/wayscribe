@@ -148,6 +148,15 @@ describe("upsertAliases", () => {
       expect(await version()).toBe(lowered);
     });
 
+    it("does not write a displayable row without a copy for a repeat that has none to give", async () => {
+      // A value a text column cannot hold (a NUL) has no copy, and every
+      // repeat of it would otherwise rewrite the row as if filling one.
+      await upsertAliases(db, projectId, [{ ...alias, value: null, displayable: true }]);
+      const before = await version();
+      await upsertAliases(db, projectId, [{ ...alias, value: null, displayable: true }]);
+      expect(await version()).toBe(before);
+    });
+
     it("keeps the flag on a row moved to the current token, then applies the new statement", async () => {
       await seed("postingId", "old-hash", "old-cipher");
       await db("entity_aliases")

@@ -202,8 +202,11 @@ export async function ingestEvent(
           aliasType,
           aliasValueHash: tokens.current,
           encryptedDisplayValue: encryptValue(keyring, value),
-          // Kept in plain text only while the alias is displayable; see upsertAliases.
-          value,
+          // Kept in plain text only while the alias is displayable; see
+          // upsertAliases. A text column cannot hold a NUL, and the value is
+          // valid on the wire, so such a value gets no copy rather than
+          // costing the event.
+          value: value.includes("\u0000") ? null : value,
           displayable: displayable.has(aliasType),
           // During a rotation, a repeat of an alias stored under the previous
           // key's token moves that row rather than adding a second one.

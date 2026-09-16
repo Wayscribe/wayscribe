@@ -321,7 +321,11 @@ what a dry run previews.
   `{ type, displayValue, displayable }`. While an alias is displayable the
   server also keeps its value in plain text, as the event spelled it, so it can
   be matched by partial text; the statement that masks the alias removes that
-  copy at the same moment, and a masked alias never has one.
+  copy at the same moment, and a masked alias never has one. A displayable
+  value containing a NUL is accepted, as any alias value is, but gets no copy,
+  since a text column cannot hold a NUL: it is read in full, and is neither
+  listed in `displayableAliases` nor matched by `q` (case
+  `wire/displayable-alias-nul`).
 - **`journeyLabel`**, optional, is public display text for the journey: 1 to
   200 code points. An empty string refuses that event alone as `invalid_event`,
   with `details[0].path` equal to `event.journeyLabel`; a label is never cleared

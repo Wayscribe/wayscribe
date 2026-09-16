@@ -2296,6 +2296,9 @@ displayable (ADR-053), and a label, which did not exist yet.
   masked. It exists for the previous build, which keeps ingesting during a rollout and lowers
   the flag without knowing the copy exists: without the trigger its masking statement would
   violate the check, fail the event, and put the row, value included, into the error log.
+  A value containing a NUL gets no copy, because a text column cannot hold one and the event
+  must not fail over it; it is read in full on the journey page and is never listed or
+  matched by text.
 - **Partial matching over those values only.** `GET /v1/journeys` takes `q`, 2 to 200
   characters, and keeps a journey whose label or displayable alias value contains it,
   ignoring case (`ILIKE`, with `%`, `_` and `\` escaped). It is always bounded by the
