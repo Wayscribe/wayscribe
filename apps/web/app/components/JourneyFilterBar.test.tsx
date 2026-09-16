@@ -129,6 +129,7 @@ describe("JourneyFilterBar", () => {
 
   it("limits the text boxes to what the API accepts", () => {
     renderBar({});
+    expect(screen.getByLabelText("Contains").getAttribute("minLength")).toBe("2");
     expect(screen.getByLabelText("Contains").getAttribute("maxLength")).toBe("200");
     expect(screen.getByLabelText("Entity type").getAttribute("maxLength")).toBe("128");
   });

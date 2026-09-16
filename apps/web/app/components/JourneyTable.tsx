@@ -23,8 +23,8 @@ export function JourneyTable({
       <caption className="journeys-summary">{describeJourneyFilters(filters)}</caption>
       <thead>
         <tr>
-          <th scope="col" className="col-activity">
-            Last activity
+          <th scope="col" className="col-activity" title="Last activity">
+            <HeaderLabel full="Last activity" short="When" />
           </th>
           <th scope="col" className="col-status">
             Status
@@ -43,8 +43,8 @@ export function JourneyTable({
           <th scope="col" className="col-step">
             Last step
           </th>
-          <th scope="col" className="col-events">
-            Events
+          <th scope="col" className="col-events" title="Events">
+            <HeaderLabel full="Events" short="#" />
           </th>
         </tr>
       </thead>
@@ -54,5 +54,22 @@ export function JourneyTable({
         ))}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * A header with a shorter visible label for a phone, where its column is too
+ * narrow for the full one. The full label stays in the accessibility tree
+ * (visually hidden on a phone), and the short one is hidden from it, so a
+ * screen reader hears "Last activity" at every width.
+ */
+function HeaderLabel({ full, short }: { full: string; short: string }): ReactElement {
+  return (
+    <>
+      <span className="header-full">{full}</span>
+      <span className="header-short" aria-hidden="true">
+        {short}
+      </span>
+    </>
   );
 }

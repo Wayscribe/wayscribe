@@ -58,34 +58,45 @@ type SearchParams = Record<string, string | string[] | undefined>;
 
 export function readJourneyFilters(params: SearchParams, now: Date): JourneyFilters {
   const notes: string[] = [];
+  const read = (key: string): string | undefined => single(params, key, notes);
 
-  const rawStatus = single(params["status"]);
-  const status: JourneyStatusFilter =
-    rawStatus !== undefined && isStatus(rawStatus) ? rawStatus : "";
+  const rawStatus = read("status");
+  let status: JourneyStatusFilter = "";
+  if (rawStatus !== undefined && isStatus(rawStatus)) {
+    status = rawStatus;
+  } else if (rawStatus !== undefined && rawStatus !== "") {
+    notes.push(
+      `Status "${echo(rawStatus)}" is not failed, active or completed, so every status is shown.`
+    );
+  }
 
-  const rawWindow = single(params["window"]);
-  const requested: JourneyWindow =
-    rawWindow === "custom" || (rawWindow !== undefined && isPreset(rawWindow))
-      ? rawWindow
-      : DEFAULT_PRESET;
+  const rawWindow = read("window");
+  let requested: JourneyWindow = DEFAULT_PRESET;
+  if (rawWindow === "custom" || (rawWindow !== undefined && isPreset(rawWindow))) {
+    requested = rawWindow;
+  } else if (rawWindow !== undefined && rawWindow !== "") {
+    notes.push(
+      `Time "${echo(rawWindow)}" is not one of the choices, so this shows the ${JOURNEY_PRESETS[DEFAULT_PRESET].label}.`
+    );
+  }
 
-  let cursor = single(params["cursor"]) ?? "";
-  const rawSince = single(params["since"]);
-  const rawUntil = single(params["until"]);
+  let cursor = read("cursor") ?? "";
+  const rawSince = read("since");
+  const rawUntil = read("until");
 
-  const q = text(params["q"], "contains", notes, (value) => {
+  const q = text(read("q"), "contains", notes, (value) => {
     const length = codePoints(value);
     return length < MIN_TEXT_LENGTH || length > MAX_TEXT_LENGTH
       ? `Contains needs ${String(MIN_TEXT_LENGTH)} to ${String(MAX_TEXT_LENGTH)} characters, so it was left out.`
       : null;
   });
-  const entityType = text(params["entityType"], "entity type", notes, (value) =>
+  const entityType = text(read("entityType"), "entity type", notes, (value) =>
     codePoints(value) > MAX_ENTITY_TYPE_LENGTH
       ? `An entity type is at most ${String(MAX_ENTITY_TYPE_LENGTH)} characters, so that filter was left out.`
       : null
   );
-  const environment = text(params["environment"], "environment", notes, () => null);
-  const service = text(params["service"], "service", notes, () => null);
+  const environment = text(read("environment"), "environment", notes, () => null);
+  const service = text(read("service"), "service", notes, () => null);
 
   let window: JourneyWindow = requested;
   let since: string;
@@ -118,7 +129,7 @@ export function readJourneyFilters(params: SearchParams, now: Date): JourneyFilt
     // otherwise list years of journeys under "in the last hour". Anything that
     // is not an instant this function could have written is recomputed too.
     since =
-      cursor !== "" && rawSince !== undefined && isOwnInstant(rawSince, now)
+      cursor !== "" && notes.length === 0 && rawSince !== undefined && isOwnInstant(rawSince, now)
         ? rawSince
         : presetSince(requested, now);
   }
@@ -254,13 +265,38 @@ export function describeJourneyFilters(filters: JourneyFilters): string {
  * status, including the empty "any", is kept as it came.
  */
 export function recentRedirectHref(params: SearchParams): string {
+  const query = new URLSearchParams(toQueryString(params));
+  if (!query.has("status")) query.set("status", "failed");
+  return `/journeys?${query.toString()}`;
+}
+
+/**
+ * A page's search parameters written back as a query string, every value of
+ * a repeated key kept in order, so a link that goes somewhere and comes back
+ * (the project picker, a redirect) returns to the same page, notes and all.
+ */
+export function toQueryString(params: SearchParams): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined) continue;
     for (const item of typeof value === "string" ? [value] : value) query.append(key, item);
   }
-  if (!query.has("status")) query.set("status", "failed");
-  return `/journeys?${query.toString()}`;
+  return query.toString();
+}
+
+/**
+ * What the page says when the API refuses its query. With a cursor, the link
+ * is a stale or edited next-page link, and the newest page is the way back.
+ * Without one, the filters themselves were refused, which this module is meant
+ * to prevent, so the reader is asked to change them in the form shown above.
+ */
+export function refusedListMessage(filters: JourneyFilters): {
+  text: string;
+  offerNewest: boolean;
+} {
+  return filters.cursor === ""
+    ? { text: "The API refused these filters. Change them and show again.", offerNewest: false }
+    : { text: "This page link is no longer valid.", offerNewest: true };
 }
 
 function filterQuery(filters: JourneyFilters): URLSearchParams {
@@ -339,12 +375,12 @@ function rangeInstant(value: string): string | null {
  * `check` returns the note for a value outside the API's bounds.
  */
 function text(
-  raw: string | string[] | undefined,
+  raw: string | undefined,
   name: string,
   notes: string[],
   check: (value: string) => string | null
 ): string {
-  const value = single(raw)?.trim() ?? "";
+  const value = raw?.trim() ?? "";
   if (value === "") return "";
   // PostgreSQL refuses a NUL in a comparison, so the API refuses it too.
   if (value.includes(String.fromCharCode(0))) {
@@ -365,8 +401,23 @@ function codePoints(value: string): number {
   return count;
 }
 
-function single(value: string | string[] | undefined): string | undefined {
-  return typeof value === "string" ? value : undefined;
+/**
+ * One value of `key`. A key given more than once is left out with a note:
+ * guessing which value was meant could show a wider list than either.
+ */
+function single(params: SearchParams, key: string, notes: string[]): string | undefined {
+  const value = params[key];
+  if (value === undefined || typeof value === "string") return value;
+  notes.push(`${key} was given more than once, so it was left out.`);
+  return undefined;
+}
+
+/** How much of an unrecognised value a note repeats. */
+const ECHO_LENGTH = 32;
+
+function echo(value: string): string {
+  const characters = Array.from(value);
+  return characters.length <= ECHO_LENGTH ? value : `${characters.slice(0, ECHO_LENGTH).join("")}…`;
 }
 
 function isStatus(value: string): value is (typeof JOURNEY_STATUSES)[number] {

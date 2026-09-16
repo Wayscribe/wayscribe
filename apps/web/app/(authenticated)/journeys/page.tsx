@@ -16,7 +16,9 @@ import {
   journeysApiQuery,
   nextPageHref,
   readJourneyFilters,
+  refusedListMessage,
   statusHref,
+  toQueryString,
   type JourneyFilters
 } from "../../../src/lib/journey-filters";
 import { JourneyFilterBar } from "../../components/JourneyFilterBar";
@@ -39,25 +41,43 @@ export default async function JourneysPage({
   const params = await searchParams;
   const filters = readJourneyFilters(params, new Date());
 
-  let environments: string[];
+  let environments: string[] = [];
   let page: JourneyListPage;
   try {
-    const projectId = await requireProjectId(`/journeys?${toQuery(params)}`);
-    const [projects, listed] = await Promise.all([
+    // Every value of a repeated key is kept, so the page the picker returns
+    // to reads the same parameters and shows the same notes.
+    const projectId = await requireProjectId(`/journeys?${toQueryString(params)}`);
+    // Settled separately, so a refused list still has the environments for
+    // the form that lets the reader change what was refused.
+    const [projects, listed] = await Promise.allSettled([
       listProjects(),
       listJourneys(journeysApiQuery(filters), projectId)
     ]);
-    environments = projects.find((project) => project.id === projectId)?.environments ?? [];
-    page = listed;
+    if (projects.status === "fulfilled") {
+      environments = projects.value.find((project) => project.id === projectId)?.environments ?? [];
+    }
+    if (listed.status === "rejected") throw listed.reason;
+    if (projects.status === "rejected") throw projects.reason;
+    page = listed.value;
   } catch (error) {
     if (error instanceof InvalidPageLinkError) {
-      // A stale or edited link: a cursor or query the API refused. The API is
-      // fine, so say what is wrong and offer the same filters from the top.
+      // The API is fine and refused this query: a stale or edited next-page
+      // link, or filters this page should not have sent. Say which, and give
+      // the reader a way on.
+      const refused = refusedListMessage(filters);
       return (
         <Shell filters={filters}>
+          {refused.offerNewest ? null : (
+            <JourneyFilterBar filters={filters} environments={environments} />
+          )}
           <p className="error">
-            This page link is no longer valid.{" "}
-            <Link href={firstPageHref(filters)}>Back to the newest</Link>
+            {refused.text}
+            {refused.offerNewest ? (
+              <>
+                {" "}
+                <Link href={firstPageHref(filters)}>Back to the newest</Link>
+              </>
+            ) : null}
           </p>
         </Shell>
       );
@@ -86,11 +106,15 @@ export default async function JourneysPage({
       <JourneyFilterBar filters={filters} environments={environments} />
 
       {filters.notes.length === 0 ? null : (
-        <ul className="notice filter-notes" role="status">
-          {filters.notes.map((note) => (
-            <li key={note}>{note}</li>
-          ))}
-        </ul>
+        // The role sits on a wrapper: on the list itself it would replace the
+        // list role, and a screen reader would stop announcing it as a list.
+        <div role="status">
+          <ul className="notice filter-notes">
+            {filters.notes.map((note, index) => (
+              <li key={`${String(index)}-${note}`}>{note}</li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {page.items.length === 0 ? (
@@ -158,12 +182,4 @@ function Shell({
       {children}
     </main>
   );
-}
-
-function toQuery(params: SearchParams): string {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (typeof value === "string") query.append(key, value);
-  }
-  return query.toString();
 }

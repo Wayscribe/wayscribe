@@ -106,7 +106,9 @@ test("lists a labelled journey and the fallback rows, newest first", async ({ pa
       name: `Journeys in the last 24 hours, all environments, from ${SERVICE}`
     })
   ).toBeVisible();
-  await expect(page.getByRole("columnheader")).toHaveText([
+  // By accessible name: each header also holds a short label for phones,
+  // hidden from assistive technology.
+  const names = [
     "Last activity",
     "Status",
     "Environment",
@@ -114,7 +116,11 @@ test("lists a labelled journey and the fallback rows, newest first", async ({ pa
     "Shown as",
     "Last step",
     "Events"
-  ]);
+  ];
+  await expect(page.getByRole("columnheader")).toHaveCount(names.length);
+  for (const [index, name] of names.entries()) {
+    await expect(page.getByRole("columnheader").nth(index)).toHaveAccessibleName(name);
+  }
 
   await expect(rows(page)).toHaveCount(3);
   // Newest first: aliased (5 min), plain (7 min), labelled (10 min).
@@ -324,6 +330,16 @@ test.describe("a page link the API refuses", () => {
       await expect(rows(page)).toHaveCount(3);
     });
   }
+});
+
+test("says so when a filter is repeated, and lists without it", async ({ page }) => {
+  await signIn(page, LABELLED.journeyId);
+  await page.goto(`/journeys?status=failed&status=active&service=${SERVICE}`);
+  await expect(page.locator(".filter-notes")).toHaveText(
+    "status was given more than once, so it was left out."
+  );
+  await expect(page.getByRole("status")).toContainText("status was given more than once");
+  await expect(rows(page)).toHaveCount(3);
 });
 
 test("names the filters when nothing matches", async ({ page }) => {

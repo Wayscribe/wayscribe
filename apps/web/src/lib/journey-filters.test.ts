@@ -8,8 +8,10 @@ import {
   nextPageHref,
   readJourneyFilters,
   recentRedirectHref,
+  refusedListMessage,
   statusHref,
-  toDateTimeLocal
+  toDateTimeLocal,
+  toQueryString
 } from "./journey-filters";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
@@ -35,12 +37,57 @@ describe("readJourneyFilters", () => {
     });
   });
 
-  it("keeps a known status and falls back to any for anything else", () => {
+  it("keeps a known status, and reads an empty one as any without a note", () => {
     expect(readJourneyFilters({ status: "failed" }, NOW).status).toBe("failed");
     expect(readJourneyFilters({ status: "completed" }, NOW).status).toBe("completed");
-    expect(readJourneyFilters({ status: "" }, NOW).status).toBe("");
-    expect(readJourneyFilters({ status: "any" }, NOW).status).toBe("");
-    expect(readJourneyFilters({ status: ["active", "failed"] }, NOW).status).toBe("");
+    const any = readJourneyFilters({ status: "" }, NOW);
+    expect(any.status).toBe("");
+    expect(any.notes).toEqual([]);
+  });
+
+  it("says so when an unknown status widens the list to any, and starts from the top", () => {
+    const filters = readJourneyFilters({ status: "any", cursor: "c" }, NOW);
+    expect(filters.status).toBe("");
+    expect(filters.cursor).toBe("");
+    expect(filters.notes).toEqual([
+      'Status "any" is not failed, active or completed, so every status is shown.'
+    ]);
+  });
+
+  it("cuts a long unknown status in its note", () => {
+    const filters = readJourneyFilters({ status: "x".repeat(100) }, NOW);
+    expect(filters.notes).toEqual([
+      `Status "${"x".repeat(32)}…" is not failed, active or completed, so every status is shown.`
+    ]);
+  });
+
+  it("says so when an unknown time widens or narrows the list", () => {
+    const filters = readJourneyFilters({ window: "90d", cursor: "c" }, NOW);
+    expect(filters.window).toBe("24h");
+    expect(filters.cursor).toBe("");
+    expect(filters.notes).toEqual([
+      'Time "90d" is not one of the choices, so this shows the last 24 hours.'
+    ]);
+  });
+
+  it.each([
+    "status",
+    "window",
+    "q",
+    "entityType",
+    "environment",
+    "service",
+    "since",
+    "until",
+    "cursor"
+  ])("leaves out %s given more than once, says so, and starts from the top", (key) => {
+    const filters = readJourneyFilters(
+      { window: "24h", since: "2026-09-14T11:00:00.000Z", cursor: "c", [key]: ["ab", "cd"] },
+      NOW
+    );
+    expect(filters.notes).toContain(`${key} was given more than once, so it was left out.`);
+    expect(filters.cursor).toBe("");
+    expect(filters.since).toBe("2026-09-14T12:00:00.000Z");
   });
 
   it.each([
@@ -48,7 +95,6 @@ describe("readJourneyFilters", () => {
     ["24h", "2026-09-14T12:00:00.000Z"],
     ["7d", "2026-09-08T12:00:00.000Z"],
     ["30d", "2026-08-16T12:00:00.000Z"],
-    ["90d", "2026-09-14T12:00:00.000Z"],
     ["", "2026-09-14T12:00:00.000Z"]
   ])("computes since from window %j, with no upper bound", (window, since) => {
     const filters = readJourneyFilters({ window }, NOW);
@@ -250,7 +296,6 @@ describe("readJourneyFilters", () => {
       [{ since: "2026-09-10T24:00" }, "the start is not a date and time"],
       [{ since: "2026-09-10T08:00+02:00" }, "the start is not a date and time"],
       [{ since: "+010000-01-01T00:00" }, "the start is not a date and time"],
-      [{ since: ["2026-09-10T08:00", "2026-09-11T08:00"] }, "choose a start"],
       [{ since: "2026-09-15T12:01" }, "the start is in the future"],
       [{ since: "2026-09-10T08:00", until: "soon" }, "the end is not a date and time"],
       [{ since: "2026-09-10T08:00", until: "2026-09-10T08:00" }, "the end must be after the start"],
@@ -571,6 +616,30 @@ describe("describeJourneyFilters", () => {
     expect(describeJourneyFilters(readJourneyFilters({ window: "30d" }, NOW))).toBe(
       "Journeys in the last 30 days, all environments"
     );
+  });
+});
+
+describe("toQueryString", () => {
+  it("keeps every value of a repeated key, in order", () => {
+    expect(toQueryString({ status: ["failed", "active"], q: "a b", skip: undefined })).toBe(
+      "status=failed&status=active&q=a+b"
+    );
+  });
+});
+
+describe("refusedListMessage", () => {
+  it("calls a refused next-page link stale and offers the newest", () => {
+    expect(refusedListMessage(readJourneyFilters({ cursor: "c" }, NOW))).toEqual({
+      text: "This page link is no longer valid.",
+      offerNewest: true
+    });
+  });
+
+  it("says the filters were refused when there was no cursor", () => {
+    expect(refusedListMessage(readJourneyFilters({ service: "x" }, NOW))).toEqual({
+      text: "The API refused these filters. Change them and show again.",
+      offerNewest: false
+    });
   });
 });
 

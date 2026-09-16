@@ -24,10 +24,18 @@ const renderTable = (params: Record<string, string>): HTMLElement => {
   return screen.getByRole("table");
 };
 
+/** What a screen reader hears for each header: the short narrow-screen label is hidden from it. */
 const headers = (table: HTMLElement): string[] =>
   within(table)
     .getAllByRole("columnheader")
-    .map((header) => header.textContent);
+    .map((header) =>
+      Array.from(header.childNodes)
+        .filter(
+          (node) => !(node instanceof HTMLElement && node.getAttribute("aria-hidden") === "true")
+        )
+        .map((node) => node.textContent)
+        .join("")
+    );
 
 describe("JourneyTable", () => {
   it("is named by its caption, which states the filters", () => {
@@ -71,6 +79,21 @@ describe("JourneyTable", () => {
     expect(headers(table)).not.toContain("Environment");
     expect(within(table).queryByText("production")).toBeNull();
     expect(within(table).getAllByRole("cell")).toHaveLength(6);
+  });
+
+  it("gives two long headers a short visible label for narrow screens, hidden from screen readers", () => {
+    const table = renderTable({});
+    const activity = within(table).getByRole("columnheader", { name: "Last activity" });
+    const events = within(table).getByRole("columnheader", { name: "Events" });
+    for (const [header, short] of [
+      [activity, "When"],
+      [events, "#"]
+    ] as const) {
+      const hidden = header.querySelector(".header-short");
+      expect(hidden?.textContent).toBe(short);
+      expect(hidden?.getAttribute("aria-hidden")).toBe("true");
+      expect(header.getAttribute("title")).toBe(header === activity ? "Last activity" : "Events");
+    }
   });
 
   it("uses column headers with a scope", () => {

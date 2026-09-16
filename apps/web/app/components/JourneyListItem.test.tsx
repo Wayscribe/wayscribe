@@ -52,9 +52,8 @@ describe("JourneyListItem", () => {
     expect(screen.getByRole("link", { name: "customer: —" })).toBeTruthy();
   });
 
-  it("names the environment only when given one", () => {
-    renderRow({ item: { ...item, status: "completed" }, environment: "production" });
+  it("does not mark a status that is not a failure", () => {
+    renderRow({ item: { ...item, status: "completed" } });
     expect(screen.getByText("completed").className).toBe("status");
-    expect(screen.getByText("production")).toBeTruthy();
   });
 });

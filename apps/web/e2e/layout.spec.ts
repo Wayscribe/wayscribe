@@ -150,12 +150,29 @@ test.describe("the Journeys table", () => {
       await expect(environment).toHaveCount(1);
       if (width === 400) {
         await expect(environment).toBeHidden();
+        // Phones see the short labels; assistive technology keeps the full ones.
+        for (const [column, short, full] of [
+          ["col-activity", "When", "Last activity"],
+          ["col-events", "#", "Events"]
+        ] as const) {
+          const header = page.locator(`thead th.${column}`);
+          await expect(header.locator(".header-short")).toBeVisible();
+          await expect(header.locator(".header-short")).toHaveText(short);
+          await expect(header).toHaveAccessibleName(full);
+        }
       } else {
         await expect(environment).toBeVisible();
         await expect(page.locator("tbody td.col-environment").first()).toHaveText("development");
       }
 
       expect(await horizontalOverflow(page)).toBe(0);
+      const cutHeaders = await page.locator("thead th").evaluateAll((headers) =>
+        headers
+          .filter((header) => header.getClientRects().length > 0)
+          .filter((header) => header.scrollWidth > header.clientWidth)
+          .map((header) => header.textContent)
+      );
+      expect(cutHeaders).toEqual([]);
 
       // The table keeps to the page, and each long value is cut rather than wrapped.
       const tableBox = await page.locator("table").boundingBox();

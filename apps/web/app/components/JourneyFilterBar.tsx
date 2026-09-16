@@ -55,6 +55,7 @@ export function JourneyFilterBar({
           name="q"
           type="search"
           defaultValue={filters.q}
+          minLength={2}
           maxLength={200}
           placeholder="Part of a label or displayable alias"
         />

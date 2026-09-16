@@ -144,13 +144,6 @@ button {
 .status.failed {
   color: var(--failed);
 }
-.environment {
-  font-size: 0.75rem;
-  padding: 0 0.4rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--muted);
-}
 
 /* The two ways in, above every signed-in page. */
 .site-nav {
@@ -300,6 +293,9 @@ button {
   width: 4.5rem;
   text-align: right;
 }
+.journey-table .header-short {
+  display: none;
+}
 .journey-table .shown-label {
   font-weight: 600;
 }
@@ -320,6 +316,19 @@ button {
   }
   .journey-table .col-activity .day {
     display: block;
+  }
+  /* Visually hidden, as .visually-hidden, so a screen reader still reads it. */
+  .journey-table .header-full {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .journey-table .header-short {
+    display: inline;
   }
   .journey-table .col-status {
     width: 5.75rem;
