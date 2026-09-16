@@ -81,6 +81,13 @@ These carry codes this API owns. They used to carry Fastify's own
 wire change. **The status is the stable part**: a client that meets a code it
 does not recognize should branch on the status.
 
+**Unknown query parameters are refused.** `POST /v1/events` accepts none, and
+`POST /v1/events/batch` accepts only `dryRun`; anything else is `400
+invalid_query` naming the key. This is not pedantry: `?dryrun=true` was
+previously ignored and the batch stored, so a client believed it had validated
+events it had in fact written. Matching the name loosely would have rescued
+`dryrun` and not `dryRum`, and nothing legitimate adds a query parameter here.
+
 A body containing a `__proto__` key, or a `constructor.prototype`, is ordinary
 JSON here and is accepted. Recording what the payload actually was is the
 product's whole promise, and those keys are safe to parse: they become ordinary

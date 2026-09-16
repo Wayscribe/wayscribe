@@ -70,15 +70,18 @@ export function registerEventRoutes(
   const apiKeys = databaseApiKeys(app.db, keyring, logVerifierReplaceFailure(app.log));
 
   app.post("/v1/events", async (request, reply) => {
-    // Refused rather than ignored. Ignoring it would mean a client that guessed
-    // the wrong route stored real events while believing it had validated them.
-    if ((request.query as { dryRun?: unknown }).dryRun !== undefined) {
+    // This route takes no query parameters at all, and `dryRun` is named in the
+    // message because sending it here is the mistake worth explaining.
+    const query = checkQuery(request.query, []);
+    if (!query.ok) {
       return reply
         .code(400)
         .send(
           errorBody(
             "invalid_query",
-            "dryRun is only available on POST /v1/events/batch. This route always stores.",
+            query.key.toLowerCase() === "dryrun"
+              ? "dryRun is only available on POST /v1/events/batch. This route always stores."
+              : query.message,
             request.id
           )
         );
@@ -133,6 +136,11 @@ export function registerEventRoutes(
   });
 
   app.post("/v1/events/batch", async (request, reply) => {
+    const query = checkQuery(request.query, ["dryRun"]);
+    if (!query.ok) {
+      return reply.code(400).send(errorBody("invalid_query", query.message, request.id));
+    }
+
     const dryRun = parseDryRun(request.query);
     if (!dryRun.ok) {
       return reply.code(400).send(errorBody("invalid_query", dryRun.message, request.id));
@@ -360,6 +368,38 @@ async function previewStored(
       journey: presentJourneyDetail(context.keyring, journey)
     }
   };
+}
+
+/**
+ * Refuse any query key these routes do not know.
+ *
+ * `?dryrun=true` was ignored and the batch was stored: the parameter is read by
+ * its exact name, so a misspelling meant a client believed it had validated a
+ * batch it had in fact written. That is precisely the failure the single-event
+ * route refuses `dryRun` to avoid, arriving by a different door.
+ *
+ * Refused rather than matched case-insensitively, which would have fixed
+ * `dryrun` and not `dryRum`. Nothing legitimate adds a query parameter to
+ * ingestion, so an unknown key is always a mistake worth reporting, and the
+ * message names the key so the mistake is obvious.
+ */
+function checkQuery(
+  query: unknown,
+  known: readonly string[]
+): { ok: true } | { ok: false; key: string; message: string } {
+  for (const key of Object.keys(query ?? {})) {
+    if (known.includes(key)) continue;
+    const suggestion = known.find((name) => name.toLowerCase() === key.toLowerCase().trim());
+    return {
+      ok: false,
+      key,
+      message:
+        suggestion === undefined
+          ? `${key} is not a query parameter this route accepts.`
+          : `${key} is not a query parameter this route accepts. Did you mean ${suggestion}?`
+    };
+  }
+  return { ok: true };
 }
 
 /**

@@ -170,11 +170,59 @@ describe("dry-run validation", () => {
       ["repeated", "?dryRun=true&dryRun=false"],
       ["written as 1", "?dryRun=1"],
       ["empty", "?dryRun="],
-      ["capitalized", "?dryRun=True"]
+      ["capitalized value", "?dryRun=True"]
     ])("%s is a 400 invalid_query", async (_name, query) => {
       const response = await batch([], query);
       expect(response.statusCode, response.body).toBe(400);
       expect(response.json().error.code).toBe("invalid_query");
+    });
+
+    /**
+     * A misspelled parameter used to be ignored, and the batch stored.
+     *
+     * That is the exact failure the single-event route refuses the parameter to
+     * avoid: a client believing it had validated a batch it had in fact
+     * written. Reading it case-insensitively would have fixed `dryrun` and not
+     * `dryRum`, so the route refuses any query key it does not know instead.
+     * Nothing legitimate adds a query parameter to ingestion.
+     */
+    it.each([
+      ["lower case", "?dryrun=true"],
+      ["upper case", "?DRYRUN=true"],
+      ["a typo", "?dryRum=true"],
+      ["a trailing space", "?dryRun%20=true"],
+      ["an unrelated parameter", "?dryRun=true&utm_source=docs"]
+    ])("%s is a 400 invalid_query, and stores nothing", async (_name, query) => {
+      const before = await rowCounts(db);
+      const response = await batch(
+        [envelope({ id: `evt_typo_${String(query.length)}`, journeyId: "jrn_typo" })],
+        query
+      );
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error.code).toBe("invalid_query");
+      expect(await rowCounts(db)).toEqual(before);
+    });
+
+    it("refuses an unknown query key on the single-event route too", async () => {
+      const before = await rowCounts(db);
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events?dryrun=true",
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: envelope({ id: "evt_typo_single", journeyId: "jrn_typo" }) as object
+      });
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error.code).toBe("invalid_query");
+      expect(await rowCounts(db)).toEqual(before);
+    });
+
+    it("still accepts a request with no query at all", async () => {
+      // The control: refusing unknown keys must not refuse the ordinary send.
+      const response = await batch(
+        [envelope({ id: "evt_no_query", journeyId: "jrn_no_query" })],
+        ""
+      );
+      expect(response.statusCode, response.body).toBe(202);
     });
 
     it("dryRun=false is an ordinary send", async () => {
