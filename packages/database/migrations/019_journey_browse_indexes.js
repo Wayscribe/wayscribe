@@ -64,14 +64,20 @@
  *
  * The setting has to be on the connection that runs the build, and a
  * concurrent build cannot share a transaction with `SET LOCAL`, so each index
- * is built on one pinned connection and the setting is reset before the
- * connection returns to the pool. That is also why `migrate` must reach
- * PostgreSQL directly rather than through a PgBouncer in transaction pooling
- * mode, which could run the SET and the build on different server
- * connections (docs/OPERATIONS.md section 10).
+ * is built on a connection of its own: a `pg.Client` opened from the same
+ * connection settings as knex's pool, named APPLICATION_NAME, and closed when
+ * the build ends, whether it succeeded or not. The setting ends with the
+ * session, so nothing has to be reset and no pooled connection ever carries
+ * it. `migrate` must still reach PostgreSQL directly rather than through a
+ * PgBouncer in transaction pooling mode, which could run the SET and the build
+ * on different server connections (docs/OPERATIONS.md section 10).
  */
-/* global console */
+import pg from "pg";
+
 export const config = { transaction: false };
+
+/** How the build's own session shows in `pg_stat_activity`. */
+export const APPLICATION_NAME = "flight-recorder migration 019";
 
 /** How long each statement may wait for a lock or for older transactions to end. */
 export const LOCK_TIMEOUT = "10min";
@@ -135,14 +141,14 @@ export async function buildIndexes(knex, lockTimeout) {
 }
 
 /**
- * Run `work` on one connection with `lock_timeout` set, and reset it before
- * the connection goes back to the pool. Index names are the constants above,
- * never input, which is why they are written into the SQL; the timeout is
- * checked against PostgreSQL's duration syntax before it is.
+ * Run `work` on a connection of its own with `lock_timeout` set, and close
+ * the connection afterwards. Index names are the constants above, never
+ * input, which is why they are written into the SQL; the timeout is checked
+ * against PostgreSQL's duration syntax before it is.
  *
- * If `work` fails, its error is the one thrown. A reset that fails as well is
- * logged beside it, and the connection is marked for knex's pool to destroy
- * rather than hand out again with the setting still on it.
+ * If `work` fails, its error is the one thrown. Closing the connection cannot
+ * replace it: a close that fails leaves a connection that is already broken,
+ * and the server ends that session, and its setting, when the socket goes.
  *
  * @param {import("knex").Knex} knex
  * @param {string} lockTimeout
@@ -153,31 +159,39 @@ async function onOneConnection(knex, lockTimeout, work) {
   if (!/^\d+(ms|s|min)$/.test(lockTimeout)) {
     throw new Error(`Not a lock timeout: ${JSON.stringify(lockTimeout)}`);
   }
-  const connection = await knex.client.acquireConnection();
+  const client = new pg.Client(await clientConfig(knex));
   try {
+    await client.connect();
     /** @type {(sql: string, bindings?: unknown[]) => Promise<{ rows: unknown[] }>} */
-    const query = (sql, bindings = []) => connection.query(sql, bindings);
+    const query = (sql, bindings = []) => client.query(sql, bindings);
     await query(`set lock_timeout = '${lockTimeout}'`);
-    /** @type {{ error: unknown } | undefined} */
-    let failed;
-    try {
-      await work(query);
-    } catch (error) {
-      failed = { error };
-    }
-    try {
-      await query("reset lock_timeout");
-    } catch (resetError) {
-      connection.__knex__disposed = resetError;
-      if (failed === undefined) throw resetError;
-      console.error(
-        `Could not reset lock_timeout after the failure below; the connection is discarded: ${
-          resetError instanceof Error ? resetError.message : String(resetError)
-        }`
-      );
-    }
-    if (failed !== undefined) throw failed.error;
+    await work(query);
   } finally {
-    await knex.client.releaseConnection(connection);
+    await client.end().catch(() => undefined);
   }
+}
+
+/**
+ * The settings knex's pool connects with, as `pg.Client` takes them: the
+ * connection string or object from the knex configuration, resolved first if
+ * it is a function, with this migration's application name added.
+ *
+ * @param {import("knex").Knex} knex
+ * @returns {Promise<import("pg").ClientConfig>}
+ */
+async function clientConfig(knex) {
+  /** @type {unknown} */
+  let connection = knex.client.config.connection;
+  if (typeof connection === "function") connection = await connection();
+  if (typeof connection === "string") {
+    return { connectionString: connection, application_name: APPLICATION_NAME };
+  }
+  if (connection !== null && typeof connection === "object") {
+    // knex parses a connection string into an object and makes its password
+    // non-enumerable, so that logging the configuration does not print it. A
+    // spread would drop it, so it is copied by name.
+    const settings = /** @type {import("pg").ClientConfig} */ (connection);
+    return { ...settings, password: settings.password, application_name: APPLICATION_NAME };
+  }
+  throw new Error("Migration 019 needs the database connection settings knex was configured with.");
 }

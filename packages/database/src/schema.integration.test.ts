@@ -1123,9 +1123,11 @@ describe("schema constraints", () => {
         pathToFileURL(join(migrationsDirectory, MIGRATION)).href
       )) as {
         LOCK_TIMEOUT: string;
+        APPLICATION_NAME: string;
         buildIndexes: (knex: Knex, lockTimeout: string) => Promise<void>;
       };
       expect(migration.LOCK_TIMEOUT).toBe("10min");
+      expect(await ownSessions(migration.APPLICATION_NAME)).toBe(0);
 
       await db.migrate.down({ name: MIGRATION });
       const release = signal();
@@ -1138,17 +1140,22 @@ describe("schema constraints", () => {
       await opened.promise;
       try {
         const started = Date.now();
-        await expect(migration.buildIndexes(db, "2s")).rejects.toThrow(/lock timeout/);
+        const building = migration.buildIndexes(db, "2s");
+        // The build waits on a session of its own, named so it can be found.
+        await waitForBuildToWait(migration.APPLICATION_NAME);
+        await expect(building).rejects.toThrow(/lock timeout/);
         expect(Date.now() - started).toBeGreaterThanOrEqual(1_900);
         expect(Date.now() - started).toBeLessThan(10_000);
       } finally {
         release.resolve();
         await holder;
       }
+      // That session is closed after a failure, so nothing holds the setting.
+      expect(await ownSessions(migration.APPLICATION_NAME)).toBe(0);
 
-      // The pinned connection went back to the pool without the setting.
-      // Every idle connection is checked, not whichever the pool hands out
-      // next, so the assertion does not rest on the pool's choice.
+      // The pool's connections never carried the setting. Every idle
+      // connection is checked, not whichever the pool hands out next, so the
+      // assertion does not rest on the pool's choice.
       const pool = (db.client as { pool: { numFree: () => number } }).pool;
       const client = db.client as {
         acquireConnection: () => Promise<{
@@ -1173,16 +1180,32 @@ describe("schema constraints", () => {
 
       await db.migrate.up({ name: MIGRATION });
       expect(await indexes()).toEqual(VALID);
+      // And after a success.
+      expect(await ownSessions(migration.APPLICATION_NAME)).toBe(0);
     }, 30_000);
 
-    /** Until a concurrent build on journeys is waiting for older transactions. */
-    async function waitForBuildToWait(): Promise<void> {
+    /** How many sessions with this application name are connected. */
+    async function ownSessions(applicationName: string): Promise<number> {
+      const result: unknown = await db.raw(
+        "select count(*)::int as n from pg_stat_activity where application_name = ?",
+        [applicationName]
+      );
+      return (result as { rows: { n: number }[] }).rows[0]?.n ?? -1;
+    }
+
+    /**
+     * Until a concurrent build on journeys is waiting for a lock or for older
+     * transactions, on a session with this application name when one is given.
+     */
+    async function waitForBuildToWait(applicationName?: string): Promise<void> {
       const deadline = Date.now() + 10_000;
       while (Date.now() < deadline) {
         const result: unknown = await db.raw(
           `select 1 from pg_stat_activity
             where query ilike 'create index concurrently%journeys_project_recent_idx%'
-              and wait_event_type = 'Lock'`
+              and wait_event_type = 'Lock'
+              and (?::text is null or application_name = ?)`,
+          [applicationName ?? null, applicationName ?? null]
         );
         if ((result as { rows: unknown[] }).rows.length > 0) return;
         await new Promise((resolve) => setTimeout(resolve, 50));
