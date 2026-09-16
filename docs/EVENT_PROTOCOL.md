@@ -373,7 +373,7 @@ Breaking changes require a new `protocolVersion`.
 
 ## 12. Validation error format
 
-[`INGESTION_CONTRACT.md` section 4](INGESTION_CONTRACT.md) is normative: it lists every refusal with its HTTP status and whether a client should send the event again, and that table is checked row by row against the code. The codes are:
+[`INGESTION_CONTRACT.md` section 4](INGESTION_CONTRACT.md) is normative and lists **every** refusal, with its HTTP status and whether a client should send the event again; that table is checked row by row against the code. Do not read the list below as the full set, which is what it used to look like: these are the six codes this document defines, the ones about the protocol itself, and ingestion sends seven more about limits, storage and the request.
 
 - `unsupported_protocol_version`
 - `invalid_event`

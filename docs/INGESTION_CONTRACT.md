@@ -146,7 +146,7 @@ Two details a client author needs:
 | `max_keys_exceeded` | 400 | no | more than 1,000 keys or elements in one object or array |
 | `max_string_length_exceeded` | 400 | no | a string beyond 65,536 UTF-16 code units |
 | `unstorable_payload` | 400 | no | text PostgreSQL refuses: a NUL byte or an unpaired surrogate |
-| `invalid_query` | 400 | no | `dryRun` was not `true` or `false`, was given twice, or was given to the single-event route |
+| `invalid_query` | 400 | no | a query parameter this route does not accept, or a `dryRun` that was not `true` or `false` or was given twice |
 | `unauthorized_environment` | 403 | no | the key is not authorized for `event.environment` |
 | `event_id_conflict` | 409 | no | the id is stored in this project with different content |
 | `journey_environment_mismatch` | 409 | no | the journey id belongs to another environment of this project |
@@ -261,12 +261,20 @@ what a dry run previews.
   installation has also set `ALLOW_FULL_PAYLOAD_CAPTURE` (ADR-018). An
   environment set to `full-payload` on an installation that has not allowed it
   degrades to `redacted-payload` rather than refusing the event.
-- **Redaction** applies the operator's configured paths and the eleven built-in
-  secret names, in every mode that stores a payload at all, at any depth and
-  inside arrays, matching names with case and `-` and `_` ignored (ADR-035,
-  ADR-039). It reaches `error`, `runtime`, `deployment` and `metadata` as well
-  as the payloads. A matched value is **replaced** with `[REDACTED]`, not
-  deleted: evidence that a value existed is part of the record.
+- **Redaction** applies the eleven built-in secret names in every mode that
+  stores a payload at all, at any depth and inside arrays, matching names with
+  case and `-` and `_` ignored (ADR-035, ADR-039). It reaches `error`,
+  `runtime`, `deployment` and `metadata` as well as the payloads. A matched
+  value is **replaced** with `[REDACTED]`, not deleted: evidence that a value
+  existed is part of the record.
+
+  The operator's own configured paths are applied **beside** the built-in names
+  in every mode **except** effective full capture, where the built-in list alone
+  is applied. Full capture means "store the payload", so the paths an operator
+  added on top of it would be the operator asking for two opposite things; the
+  built-in list is the part that cannot be turned off. An environment set to
+  `full-payload` on an installation that has not allowed it is not in effect
+  and gets both lists, like any other mode.
 - **`error.message` is masked by shape** and `error.stack` is dropped unless
   full capture is in effect (ADR-046).
 - **The payload diff** is computed after capture, and only when both `input` and
@@ -330,10 +338,18 @@ processing:
   batch limit; ingestion has none, and inventing one only here would be a
   control in the wrong place. A dry run costs what a real send costs plus the
   rollback, and it holds its row locks for the length of the batch rather than
-  the length of one event. A conformance run should therefore use its own
-  environment and its own journey ids rather than journeys a live service is
-  writing to. **An SDK must not use this in normal operation.** It is for
-  conformance suites, for a setup check, and for a mapping under development.
+  the length of one event.
+
+  That last part has a consequence worth stating plainly, because it falls on
+  somebody else: **a real ingestion contending for a row a dry run is holding
+  waits, and is cancelled by `DATABASE_STATEMENT_TIMEOUT_MS` if it waits too
+  long.** It is then answered `503 query_timeout`, which a client reads as
+  transient and retries, so nothing is lost; but a long dry-run batch touching
+  a busy journey can make a live service slower and noisier. A conformance run
+  should therefore use its own environment and its own journey ids rather than
+  journeys a live service is writing to. **An SDK must not use this in normal
+  operation.** It is for conformance suites, for a setup check, and for a
+  mapping under development.
 
 ---
 
@@ -432,6 +448,9 @@ database.
   the request body it sent, compare it with `expect.wire`, then send those exact
   bytes to `?dryRun=true` and compare `expect.results[].stored`. Your SDK never
   calls the dry run itself.
-- The loader, the expander and the matcher are about a hundred lines. This
-  repository's copy is `packages/protocol/src/conformance.ts`; an implementation
-  in another language reimplements them from this section.
+- The loader, the expander and the matcher have to be reimplemented in your
+  language. This repository's copy is `packages/protocol/src/conformance.ts`,
+  which is around five hundred lines including its comments and its tagged host
+  values; the parts a `wire` harness needs are the loader, `{{run}}`
+  substitution, the four builders and the comparison, and they are the smaller
+  half. Everything they have to do is specified above.

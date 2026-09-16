@@ -2041,5 +2041,11 @@ operation; it is for conformance suites, for a setup check, and for a mapping un
 - **The preview returns only what the caller sent**, after this installation's own capture,
   redaction and masking, to the key that sent it. It does disclose the shape of the environment's
   redaction policy, which the caller can already infer by sending an event and reading it back.
-- **The transaction holds its locks longer.** A batch of a hundred events holds every row it
-  touched until the rollback, where a real send releases each after its own event.
+- **The transaction holds its locks longer, and the cost falls on somebody else.** A batch of a
+  hundred events holds every row it touched until the rollback, where a real send releases each
+  after its own event. A real ingestion contending for one of those rows waits, and is cancelled
+  by `DATABASE_STATEMENT_TIMEOUT_MS` if it waits too long; it is answered `503 query_timeout`,
+  which a client treats as transient and retries, so nothing is lost. But a dry run is a request
+  anybody holding an ingest key can make, and this is the one way it can affect a live service
+  rather than only its own transaction. The contract says so, and says to use a separate
+  environment and separate journey ids for a conformance run.

@@ -101,7 +101,11 @@ describe("the documentation's checkable claims", () => {
     // is "every file except these two", not "these files".
     const records = new Set(["docs/DECISIONS.md", "docs/WHAT_RUNNING_IT_FOUND.md"]);
 
-    for (const file of markdownFiles().filter((f) => !records.has(f))) {
+    const files = markdownFiles().filter((f) => !records.has(f));
+    // Without this the whole check passes on a walk that found nothing, which
+    // is how a directory rename turns a guard into a decoration.
+    expect(files.length, "the markdown walk found no files").toBeGreaterThan(10);
+    for (const file of files) {
       expect(read(file), `${file} claims payloads are encrypted at rest`).not.toMatch(
         /payload[s]?[^.\n]*\bencrypted at rest\b/i
       );
@@ -153,7 +157,9 @@ describe("the documentation's checkable claims", () => {
     // root script: it checks the pnpm installation, prints its own report, and
     // exits 0 on a database it never looked at. `pnpm run doctor` always means
     // the script. Every markdown file, for the reason the checks above give.
-    for (const file of markdownFiles()) {
+    const files = markdownFiles();
+    expect(files.length, "the markdown walk found no files").toBeGreaterThan(10);
+    for (const file of files) {
       expect(read(file), `${file} says \`pnpm doctor\`; write \`pnpm run doctor\``).not.toMatch(
         /\bpnpm doctor\b/
       );
@@ -426,12 +432,32 @@ describe("docs/SDK_SPEC.md", () => {
 
   it("states every MUST and SHOULD as a numbered requirement", () => {
     // A rule in the prose with no identifier cannot be cited, checked, or
-    // argued with. Each bullet carrying one of these words has to be one.
-    const bullets = [...spec().matchAll(/^- \*\*(SDK-\d+)\.\*\* (.+(?:\n {2}.+)*)/gm)];
-    const numbered = new Set(bullets.map((match) => match[1]));
-    expect(numbered.size).toBe(requirements().length);
-    const keywords = bullets.filter((match) => /\b(MUST|SHOULD|MAY)\b/.test(match[2] ?? ""));
-    expect(keywords.length).toBe(bullets.length);
+    // argued with.
+    //
+    // This once looked only at bullets that already began with an identifier,
+    // and asked whether each of those carried a keyword. An un-numbered MUST
+    // was invisible to it, which is the whole thing it was meant to catch. The
+    // check runs the other way now: every bullet in the document is examined,
+    // and one carrying a keyword has to be numbered.
+    const bullets = [...spec().matchAll(/^- (.+(?:\n {2}.+)*)/gm)].map((match) => match[1] ?? "");
+    expect(bullets.length, "no bullets found; the walk is broken").toBeGreaterThan(40);
+
+    const unnumbered = bullets
+      .filter((text) => /\b(MUST|SHOULD|MAY)\b/.test(text))
+      .filter((text) => !/^\*\*SDK-\d+\.\*\*/.test(text))
+      .map((text) => text.split("\n")[0]);
+    expect(unnumbered, "a requirement in the prose carries no identifier").toEqual([]);
+
+    // And the other direction: every identifier in the prose is one the tables
+    // list, so a bullet cannot be numbered without appearing in a source table.
+    const numbered = bullets
+      .map((text) => /^\*\*(SDK-\d+)\.\*\*/.exec(text)?.[1])
+      .filter((id): id is string => id !== undefined);
+    expect(numbered.sort()).toEqual(
+      requirements()
+        .map((one) => one.id)
+        .sort()
+    );
   });
 
   it("gives every requirement a source", () => {

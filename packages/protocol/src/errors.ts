@@ -139,7 +139,7 @@ export const INGESTION_REFUSALS: readonly Refusal[] = [
     transient: false,
     scope: "request",
     meaning:
-      "`dryRun` was not `true` or `false`, was given twice, or was given to the single-event route"
+      "a query parameter this route does not accept, or a `dryRun` that was not `true` or `false` or was given twice"
   },
   {
     code: "unauthorized_environment",

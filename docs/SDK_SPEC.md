@@ -131,8 +131,11 @@ them.
   `api-key`, `API_KEY` and `APIKey` are one name.
 - **SDK-20.** A matched value MUST be replaced rather than deleted. Evidence that
   a value existed is part of the record.
-- **SDK-21.** Operator paths MUST be **appended** to the built-in list, never
-  substituted for it. Adding one path must not silently disable the rest.
+- **SDK-21.** Operator paths MUST be applied **beside** the built-in list, never
+  substituted for it. Adding one path must not silently disable the rest. The
+  one exception is effective full capture, where the built-in list alone
+  applies, because full capture is a request to store the payload and the
+  built-in names are the part that cannot be turned off.
 - **SDK-22.** `error.message` MUST be masked by shape and bounded to the
   protocol's 4,096 characters; a stack to 16,384. An SDK SHOULD NOT send a stack
   at all.
