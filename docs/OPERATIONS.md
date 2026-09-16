@@ -237,49 +237,6 @@ deploy, writes rows without these columns, and they read null in the same way,
 which the constraint allows. The upgrade test checks that journeys the previous
 build recorded list with `label` and `lastStep` null.
 
-**A database that ran an earlier development build of this release** (the
-`journeys-browse` branch before the constraint was added to 018) has 018
-recorded as applied without the constraint, and `migrate` will not add it.
-Check with:
-
-```sql
-select 1 from pg_constraint
- where conrelid = 'entity_aliases'::regclass
-   and conname = 'entity_aliases_display_value_only_when_displayable';
-```
-
-If that returns no row, roll 018 back and forward. Each `rollback` reverts the
-whole latest batch, so first see which migrations share a batch with 018:
-
-```sql
-select batch, name from knex_migrations where batch >= (
-  select batch from knex_migrations where name = '018_journey_browse.js'
-) order by id;
-```
-
-If 018's batch holds only 018 (and 019, or a later batch holds 019), run
-`rollback` until it prints `018_journey_browse.js` among the migrations it
-rolled back, then `migrate`. Rolling 018 back drops the labels, last steps and
-plain-text copies stored so far; they return as new events arrive. If the batch
-also holds 017 or an earlier migration, a rollback would revert those too and
-lose what they store (017's displayable flags), so add the constraint by hand
-instead, as 018 does:
-
-```sql
-alter table entity_aliases
-  add constraint entity_aliases_display_value_only_when_displayable
-  check (displayable or display_value is null) not valid;
-alter table entity_aliases
-  validate constraint entity_aliases_display_value_only_when_displayable;
-```
-
-Run them as two statements, not in one transaction, so the validation does not
-scan the table under the first statement's exclusive lock, and set
-`lock_timeout` first, as 018 does, if ingestion is running. The validation
-fails if any masked alias already holds a plain value; clear those with
-`update entity_aliases set display_value = null where not displayable and display_value is not null`
-and validate again.
-
 ### Migration 015 rewrites every replay run's headers
 
 Replays used to store the headers they sent, including the destination's

@@ -907,9 +907,7 @@ audit, all merged the same day. The pattern behind them is written up in
   case writes to `journeys` stall for about ten seconds; run `migrate` again if
   it gives up. There is no backfill: journeys recorded before the upgrade show
   no label or last step until new events arrive, and older displayable aliases
-  are not matched by text until an event states them again. A database that
-  ran an earlier development build of 018 lacks the constraint;
-  docs/OPERATIONS.md section 4 says how to check and add it.
+  are not matched by text until an event states them again.
 - **Migration 019 builds two indexes concurrently.** It does not block
   ingestion, but it waits for transactions that started before it, and gives
   up with `canceling statement due to lock timeout` after 10 minutes if one (a
