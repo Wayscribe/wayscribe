@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseRecentJourneysQuery } from "./recent-query.js";
+import { parseJourneyListQuery } from "./journey-list-query.js";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
-const parse = (query: Record<string, unknown>): ReturnType<typeof parseRecentJourneysQuery> =>
-  parseRecentJourneysQuery(query, NOW);
+const parse = (query: Record<string, unknown>): ReturnType<typeof parseJourneyListQuery> =>
+  parseJourneyListQuery(query, NOW);
 
-describe("parseRecentJourneysQuery", () => {
+describe("parseJourneyListQuery", () => {
   it("needs only since", () => {
     expect(parse({ since: "2026-09-14T12:00:00Z" })).toEqual({
       ok: true,

@@ -8,7 +8,7 @@ import type { SearchHit } from "./search.js";
 export const JOURNEY_STATUSES = ["active", "completed", "failed"] as const;
 export type JourneyStatus = (typeof JOURNEY_STATUSES)[number];
 
-export interface RecentJourneyFilters {
+export interface JourneyListFilters {
   /** Journeys whose last activity is at or after this instant. */
   since: Date;
   /** Journeys whose last activity is before this instant. Omitted means no upper bound. */
@@ -30,15 +30,15 @@ export interface RecentJourneyFilters {
 }
 
 /** A search hit plus where it ran, since this list spans environments. */
-export interface RecentJourney extends SearchHit {
+export interface ListedJourney extends SearchHit {
   environment: string;
 }
 
-export type RecentJourneyPage = JourneyPage<RecentJourney>;
+export type JourneyListPage = JourneyPage<ListedJourney>;
 
 /**
- * Recent journeys, newest activity first, for an investigation that starts
- * from "what failed" rather than from an identifier.
+ * Journeys in a window, newest activity first, for an investigation that
+ * starts from "what happened" or "what failed" rather than from an identifier.
  *
  * `since` is required rather than defaulted so every query is bounded by
  * `last_event_at`, which `journeys_recent_idx` (environment first),
@@ -55,13 +55,13 @@ export type RecentJourneyPage = JourneyPage<RecentJourney>;
  * instead of it: an environment-scoped caller asking for another environment
  * gets an empty page, which is how search treats scope too.
  */
-export async function listRecentJourneys(
+export async function listJourneys(
   db: Knex,
   scope: ReadScope,
-  filters: RecentJourneyFilters,
+  filters: JourneyListFilters,
   limit: number,
   cursor?: string
-): Promise<RecentJourneyPage> {
+): Promise<JourneyListPage> {
   const query = db
     .select(...journeySummaryColumns(db), "env.name as environment")
     .from({ j: "journeys" })
@@ -130,7 +130,7 @@ export async function listRecentJourneys(
     });
 
   const rows: unknown = await orderJourneysAfter(query, "j", limit, cursor);
-  return toJourneyPage(rows as RecentJourney[], limit);
+  return toJourneyPage(rows as ListedJourney[], limit);
 }
 
 /**

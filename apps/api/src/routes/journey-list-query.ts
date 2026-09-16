@@ -1,12 +1,12 @@
 import {
   JOURNEY_STATUSES,
   type JourneyStatus,
-  type RecentJourneyFilters
+  type JourneyListFilters
 } from "@flight-recorder/database";
 import { MAX_ENTITY_TYPE_LENGTH } from "@flight-recorder/protocol";
 
-export type ParsedRecentQuery =
-  { ok: true; filters: RecentJourneyFilters } | { ok: false; message: string };
+export type ParsedJourneyListQuery =
+  { ok: true; filters: JourneyListFilters } | { ok: false; message: string };
 
 /**
  * A full instant: date, time, and a zone. `Date.parse` would also take
@@ -33,7 +33,7 @@ const MAX_TEXT_LENGTH = 200;
  * (`entity_type`) that was silently ignored would return an unfiltered list
  * that looks filtered.
  */
-export const RECENT_JOURNEYS_PARAMETERS = [
+export const JOURNEY_LIST_PARAMETERS = [
   "since",
   "until",
   "status",
@@ -59,7 +59,7 @@ const REQUIRED_MESSAGE =
  *
  * The web app computes `since` from its own clock ("24 hours ago") and the API
  * checks it against another. A few seconds of skew between two containers is
- * normal and must not turn the Recent page into an error; a minute covers it
+ * normal and must not turn the Journeys page into an error; a minute covers it
  * while still refusing a bound that is plainly in the future.
  */
 const SINCE_CLOCK_TOLERANCE_MS = 60_000;
@@ -71,14 +71,14 @@ const SINCE_CLOCK_TOLERANCE_MS = 60_000;
  * sends for an unselected filter. `limit` and `cursor` are not handled here;
  * they parse the way every other list endpoint parses them.
  */
-export function parseRecentJourneysQuery(query: unknown, now: Date): ParsedRecentQuery {
+export function parseJourneyListQuery(query: unknown, now: Date): ParsedJourneyListQuery {
   const params = (query ?? {}) as Record<string, unknown>;
 
   for (const key of Object.keys(params)) {
-    if (!(RECENT_JOURNEYS_PARAMETERS as readonly string[]).includes(key)) {
+    if (!(JOURNEY_LIST_PARAMETERS as readonly string[]).includes(key)) {
       return {
         ok: false,
-        message: `${echoedKey(key)} is not a parameter of this list. Known parameters: ${RECENT_JOURNEYS_PARAMETERS.join(", ")}.`
+        message: `${echoedKey(key)} is not a parameter of this list. Known parameters: ${JOURNEY_LIST_PARAMETERS.join(", ")}.`
       };
     }
   }

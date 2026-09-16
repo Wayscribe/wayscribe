@@ -65,7 +65,7 @@ describe("GET /v1/projects", () => {
     expect(body.data.items.map((p: { slug: string }) => p.slug)).toEqual(["alpha", "zebra"]);
   });
 
-  it("names each project's environments, sorted, for the Recent page's filter", async () => {
+  it("names each project's environments, sorted, for the Journeys page's filter", async () => {
     const response = await app.inject({
       method: "GET",
       url: "/v1/projects",

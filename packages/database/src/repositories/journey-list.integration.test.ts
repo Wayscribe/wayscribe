@@ -4,10 +4,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
 import { InvalidCursorError, encodeCursor } from "./cursors.js";
-import { listRecentJourneys, type RecentJourneyFilters } from "./journey-list.js";
+import { listJourneys, type JourneyListFilters } from "./journey-list.js";
 import type { ReadScope } from "./read-scope.js";
 
-describe("listRecentJourneys", () => {
+describe("listJourneys", () => {
   let container: StartedPostgreSqlContainer;
   let db: Knex;
   /** The admin's view: every environment of the project. */
@@ -120,10 +120,10 @@ describe("listRecentJourneys", () => {
 
   const ids = async (
     scope: ReadScope,
-    filters: Partial<RecentJourneyFilters> = {},
+    filters: Partial<JourneyListFilters> = {},
     limit = 25
   ): Promise<string[]> => {
-    const page = await listRecentJourneys(db, scope, { since: SINCE, ...filters }, limit);
+    const page = await listJourneys(db, scope, { since: SINCE, ...filters }, limit);
     return page.items.map((item) => item.journeyId);
   };
 
@@ -139,7 +139,7 @@ describe("listRecentJourneys", () => {
   });
 
   it("returns the journey summary with its environment name", async () => {
-    const page = await listRecentJourneys(db, project, { since: SINCE, service: "billing" }, 1);
+    const page = await listJourneys(db, project, { since: SINCE, service: "billing" }, 1);
     expect(page.items[0]).toEqual({
       journeyId: "jrn_dev_completed",
       entityType: "customer",
@@ -268,7 +268,7 @@ describe("listRecentJourneys", () => {
       let cursor: string | undefined;
       let pages = 0;
       do {
-        const page = await listRecentJourneys(db, project, staging, 2, cursor);
+        const page = await listJourneys(db, project, staging, 2, cursor);
         seen.push(...page.items.map((item) => item.journeyId));
         cursor = page.nextCursor ?? undefined;
         pages += 1;
@@ -279,13 +279,13 @@ describe("listRecentJourneys", () => {
     });
 
     it("returns no cursor when the last page is exactly full", async () => {
-      const page = await listRecentJourneys(db, project, staging, 5);
+      const page = await listJourneys(db, project, staging, 5);
       expect(page.items).toHaveLength(5);
       expect(page.nextCursor).toBeNull();
     });
 
     it("rejects a malformed cursor rather than silently restarting", async () => {
-      await expect(listRecentJourneys(db, project, staging, 2, "not-a-cursor")).rejects.toThrow(
+      await expect(listJourneys(db, project, staging, 2, "not-a-cursor")).rejects.toThrow(
         InvalidCursorError
       );
     });
@@ -294,7 +294,7 @@ describe("listRecentJourneys", () => {
       "rejects a well-formed cursor whose timestamp is %j",
       async (lastEventAt) => {
         const cursor = encodeCursor({ lastEventAt, id: "jrn_tie_c" });
-        await expect(listRecentJourneys(db, project, staging, 2, cursor)).rejects.toThrow(
+        await expect(listJourneys(db, project, staging, 2, cursor)).rejects.toThrow(
           InvalidCursorError
         );
       }
@@ -369,7 +369,7 @@ describe("listRecentJourneys", () => {
     };
 
     const found = async (
-      filters: Partial<RecentJourneyFilters>,
+      filters: Partial<JourneyListFilters>,
       scope: ReadScope = project
     ): Promise<string[]> => ids(scope, { ...browse, ...filters }, 100);
 
@@ -454,7 +454,7 @@ describe("listRecentJourneys", () => {
     });
 
     it("returns the label, the last step and the displayable values on each row", async () => {
-      const page = await listRecentJourneys(db, project, { ...browse, text: "Mirantis" }, 100);
+      const page = await listJourneys(db, project, { ...browse, text: "Mirantis" }, 100);
       const byId = new Map(page.items.map((item) => [item.journeyId, item]));
       expect(byId.get("jrn_b_label")).toMatchObject({
         label: "Mirantis · Senior SWE, AI Infra",
@@ -474,7 +474,7 @@ describe("listRecentJourneys", () => {
     });
 
     it("leaves a masked alias out of the row", async () => {
-      const page = await listRecentJourneys(db, project, { ...browse, text: "greenhouse" }, 100);
+      const page = await listJourneys(db, project, { ...browse, text: "greenhouse" }, 100);
       expect(page.items.map((item) => [item.journeyId, item.displayableAliases])).toEqual([
         ["jrn_b_alias", [{ type: "postingId", value: "greenhouse:4567" }]]
       ]);
@@ -584,7 +584,7 @@ describe("listRecentJourneys", () => {
       };
       db.on("query", capture);
       try {
-        await listRecentJourneys(db, project, { ...browse, text: "nothing matches this" }, 25);
+        await listJourneys(db, project, { ...browse, text: "nothing matches this" }, 25);
       } finally {
         db.removeListener("query", capture);
       }
@@ -655,20 +655,14 @@ describe("listRecentJourneys", () => {
       });
 
       const walk = async (
-        filters: Partial<RecentJourneyFilters>,
+        filters: Partial<JourneyListFilters>,
         limit: number,
         start?: string
       ): Promise<string[]> => {
         const seen: string[] = [];
         let cursor = start;
         for (let pages = 0; pages < 100; pages += 1) {
-          const page = await listRecentJourneys(
-            db,
-            project,
-            { ...PAGING, ...filters },
-            limit,
-            cursor
-          );
+          const page = await listJourneys(db, project, { ...PAGING, ...filters }, limit, cursor);
           seen.push(...page.items.map((item) => item.journeyId));
           if (page.nextCursor === null) return seen;
           cursor = page.nextCursor;
@@ -690,7 +684,7 @@ describe("listRecentJourneys", () => {
         // The cursor holds a position only. One taken from the unfiltered list
         // continues the filtered list after that position: no row at or above
         // it, and every matching row below it.
-        const first = await listRecentJourneys(db, project, PAGING, 4);
+        const first = await listJourneys(db, project, PAGING, 4);
         const last = first.items.at(-1);
         expect(first.nextCursor).not.toBeNull();
         expect(last).toBeDefined();

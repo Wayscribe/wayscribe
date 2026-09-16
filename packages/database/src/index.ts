@@ -104,11 +104,11 @@ export { searchJourneys, type SearchHit, type SearchPage } from "./repositories/
 export type { DisplayableAlias } from "./repositories/journey-summary.js";
 export {
   JOURNEY_STATUSES,
-  listRecentJourneys,
+  listJourneys,
   type JourneyStatus,
-  type RecentJourney,
-  type RecentJourneyFilters,
-  type RecentJourneyPage
+  type ListedJourney,
+  type JourneyListFilters,
+  type JourneyListPage
 } from "./repositories/journey-list.js";
 export { type ReadScope } from "./repositories/read-scope.js";
 export {

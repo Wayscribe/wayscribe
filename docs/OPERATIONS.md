@@ -1619,6 +1619,11 @@ A request too malformed for Node to parse never becomes a request line. At
 Node attaches the raw bytes it received to that error as `rawPacket`, headers
 and query string included; no error the API logs ever carries that property.
 
+Before this, the request line carried the full URL, so logs kept from an earlier
+version hold searched identifiers and the filters of the Recent page (now the
+Journeys page) in the clear. Treat them as
+personal data, and let them age out or delete them.
+
 An error's own properties are logged, except the ones a database error fills
 with row contents. PostgreSQL's `detail` prints the row a constraint refused
 ("Failing row contains (...)") or the key a unique violation found, and
@@ -1626,11 +1631,8 @@ with row contents. PostgreSQL's `detail` prints the row a constraint refused
 three are logged as `[REDACTED]`. The SQLSTATE `code`, `constraint`, `table`,
 `column` and `routine` stay, which is enough to tell which rule failed. The
 message is kept: for these failures it holds the statement with `$1`
-placeholders, not the values bound to them.
-
-Before this, the request line carried the full URL, so logs kept from an earlier
-version hold searched identifiers and Recent filters in the clear. Treat them as
-personal data, and let them age out or delete them.
+placeholders, not the values bound to them. Logs from an earlier version can
+hold `detail` in the clear; treat their failure lines as personal data too.
 
 ## 14. When something is wrong
 

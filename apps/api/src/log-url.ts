@@ -11,8 +11,9 @@ const PARAMETER_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
  * A request URL fit for the log: the path, and each query parameter's name
  * with its value replaced.
  *
- * A search's `q` is usually a customer identifier and the Recent page's filters
- * name services and environments, so values never reach the log. Names stay,
+ * A search's `q` is usually a customer identifier, and the Journeys page's
+ * filters name services and environments and carry text a reader half
+ * remembers, so values never reach the log. Names stay,
  * because "a search with a cursor" is what an operator reading the log needs.
  * The path stays whole: it carries route parameters such as a journey id,
  * which the API's own warnings already log.

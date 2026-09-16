@@ -42,7 +42,7 @@ web interface stores the selection in its session.
 `GET /v1/projects` lists them. It takes the admin token alone, because it
 answers the question a caller has before it can name a project. Each item
 carries the project's environment names, sorted, which is what the web
-interface offers as the environment filter on recent journeys:
+interface offers as the environment filter on the Journeys page:
 
 ```json
 {
@@ -211,7 +211,7 @@ because the server keeps no plain-text copy of it; the journey read shows it.
 A missing or empty `q`, or `q` given more than once, is `400` `invalid_query`. A
 `cursor` given more than once is `400` `invalid_cursor`, on every list endpoint.
 
-## 6. List recent journeys
+## 6. List journeys
 
 ```http
 GET /v1/journeys?since=<instant, required>&until=<instant>&status=failed&environment=<name>&service=<name>&entityType=<type>&q=<text>&limit=25&cursor=<cursor>
@@ -520,7 +520,7 @@ API port is 404.
 
 ## 15. Pagination
 
-Use cursor pagination for events, search results and recent journeys.
+Use cursor pagination for events, search results and the journey list.
 
 Do not expose database offsets as a compatibility contract.
 

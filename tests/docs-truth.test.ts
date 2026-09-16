@@ -14,9 +14,9 @@ import {
   TRANSPORT_REFUSALS
 } from "../packages/protocol/src/index.js";
 import {
-  RECENT_JOURNEYS_PARAMETERS,
-  parseRecentJourneysQuery
-} from "../apps/api/src/routes/recent-query.js";
+  JOURNEY_LIST_PARAMETERS,
+  parseJourneyListQuery
+} from "../apps/api/src/routes/journey-list-query.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -221,10 +221,8 @@ describe("the documentation's checkable claims", () => {
 
   describe("GET /v1/journeys in API_SPEC.md", () => {
     const section = (): string => {
-      const match = /## 6\. List recent journeys\n([\s\S]*?)\n## 7\./.exec(
-        read("docs/API_SPEC.md")
-      );
-      expect(match, "API_SPEC.md has no section 6 for recent journeys").not.toBeNull();
+      const match = /## 6\. List journeys\n([\s\S]*?)\n## 7\./.exec(read("docs/API_SPEC.md"));
+      expect(match, "API_SPEC.md has no section 6 for the journey list").not.toBeNull();
       return match?.[1] ?? "";
     };
     /** First-column names of the parameter table. */
@@ -233,7 +231,7 @@ describe("the documentation's checkable claims", () => {
 
     it("documents exactly the query parameters the route reads", () => {
       // The parser refuses every other key, so its list is the route's.
-      expect(documented()).toEqual([...RECENT_JOURNEYS_PARAMETERS]);
+      expect(documented()).toEqual([...JOURNEY_LIST_PARAMETERS]);
       expect(documented()).toEqual([
         "since",
         "until",
@@ -255,7 +253,7 @@ describe("the documentation's checkable claims", () => {
           since: "2026-01-01T00:00:00Z",
           [name]: ["a", "b"]
         };
-        expect(parseRecentJourneysQuery(query, new Date("2026-09-15T00:00:00Z"))).toEqual({
+        expect(parseJourneyListQuery(query, new Date("2026-09-15T00:00:00Z"))).toEqual({
           ok: false,
           message: `${name} must be given once.`
         });
