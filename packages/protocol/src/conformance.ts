@@ -139,7 +139,13 @@ export const conformanceCaseSchema = z
               })
               .strict()
           )
-          .optional()
+          .optional(),
+        /**
+         * An sdk case: text that must appear in no reported diagnostic, in its
+         * reason or anywhere in its detail, whatever its kind. A subset match
+         * cannot say that a value is absent.
+         */
+        absentFromDiagnostics: z.array(z.string().min(1)).optional()
       })
       .strict()
       .refine(

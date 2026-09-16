@@ -28,8 +28,8 @@ export interface CapturedCase {
   events: Record<string, unknown>[];
   /** How many requests it took, which is what the batch-size case is about. */
   requests: number;
-  /** Every diagnostic the recorder reported, in order, as `{ kind, detail }`. */
-  diagnostics: { kind: string; detail?: unknown }[];
+  /** Every diagnostic the recorder reported, in order, as `{ kind, reason, detail }`. */
+  diagnostics: { kind: string; reason: string; detail?: unknown }[];
 }
 
 /**
@@ -77,8 +77,8 @@ export async function captureCase(one: ConformanceCase, run: string): Promise<Ca
     apiKey: "fr_test_conformance",
     serviceName: "customer-integration",
     environment: "conformance",
-    onDiagnostic: ({ kind, detail }) => {
-      diagnostics.push({ kind, detail });
+    onDiagnostic: ({ kind, reason, detail }) => {
+      diagnostics.push({ kind, reason, detail });
     },
     ...settings
   });

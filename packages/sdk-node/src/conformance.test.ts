@@ -21,6 +21,17 @@ import { captureCase, type CapturedCase } from "./conformance-harness.js";
  */
 const sdkDirectory = fileURLToPath(new URL("../../protocol/conformance/sdk", import.meta.url));
 
+/** A diagnostic's detail as text, whatever it holds. */
+function printed(detail: unknown): string {
+  try {
+    return JSON.stringify(detail, (_key, value: unknown) =>
+      typeof value === "bigint" ? value.toString() : value
+    );
+  } catch {
+    return String(detail);
+  }
+}
+
 /** This harness's language, for `languages` on a case that needs a host value. */
 const LANGUAGE = "node";
 
@@ -72,6 +83,22 @@ describe("sdk conformance cases", () => {
         compareExpectation(first, expand(one.expect.wire, { run: "fixture" }), "wire")
       ).toEqual([]);
     });
+
+    it.runIf(applicable && one.expect.absentFromDiagnostics !== undefined)(
+      "puts none of the listed text in any diagnostic",
+      () => {
+        const reported = captured.get(id)?.diagnostics ?? [];
+        expect(reported.length, "the case reported nothing, so it checks nothing").toBeGreaterThan(
+          0
+        );
+        const text = reported
+          .map((entry) => `${entry.reason}\n${printed(entry.detail)}`)
+          .join("\n");
+        for (const absent of one.expect.absentFromDiagnostics ?? []) {
+          expect(text, `a diagnostic contains ${absent}`).not.toContain(absent);
+        }
+      }
+    );
 
     it.runIf(applicable && one.expect.diagnostics !== undefined)(
       "reports the expected diagnostics",

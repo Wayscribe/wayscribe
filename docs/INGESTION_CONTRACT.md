@@ -449,8 +449,11 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   of `{ "kind": "…", "detail": { … } }` the SDK is expected to report: of the
   diagnostics your SDK reported whose kind the list names, the kinds must equal
   the list's in order, and each `detail` given is compared as `wire` is. Other
-  kinds are not compared. The dry run never sees diagnostics, so a harness that
-  replays the bytes ignores the field.
+  kinds are not compared. And it may carry `absentFromDiagnostics`, a list of
+  strings that must appear in no diagnostic of any kind, neither in its reason
+  nor anywhere in its detail; a case that uses it must make the SDK report
+  something, or it checks nothing. The dry run never sees diagnostics, so a
+  harness that replays the bytes ignores both fields.
 - **`languages`** is `["*"]` or a list. A harness skips what it cannot express
   **and reports the skip**; a skip nobody sees is a case that quietly stopped
   running.
