@@ -144,8 +144,8 @@ status and the retry column.
 - **500 or above is transient.** That event alone is sent again, for up to 30
   seconds from its first refusal or 10 sends, whichever comes first.
 - A refusal carrying **no status** is treated as permanent.
-- An event the response gives **no verdict for** — because the body was not
-  JSON, had no `results`, or had fewer results than events — is **not** sent
+- An event the response gives **no verdict for**, because the body was not
+  JSON, had no `results`, or had fewer results than events, is **not** sent
   again. The request succeeded, so the server may have stored it.
 
 Resending is safe: an event already stored with the same content is answered as
@@ -153,8 +153,8 @@ a duplicate rather than stored twice.
 
 **A code you do not recognize is handled by its status.** Codes are added over
 time and that is a compatible change. Three codes were once listed here and
-never sent by anything — `missing_required_field`, `invalid_timestamp`,
-`invalid_operation` — and were removed rather than reserved (ADR-049). Another
+never sent by anything (`missing_required_field`, `invalid_timestamp` and
+`invalid_operation`) and were removed rather than reserved (ADR-049). Another
 implementation of this protocol reports those conditions as `invalid_event`,
 with the failing field in `details`.
 
