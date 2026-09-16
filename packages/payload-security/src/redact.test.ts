@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
 import { REDACTED, redact } from "./redact.js";
+
+/** The built-in list, which is what a payload arriving over HTTP is held to. */
+const builtInPaths = (value: unknown): unknown => redact(value, DEFAULT_SECRET_PATHS);
 
 describe("redact", () => {
   it("redacts a literal path", () => {
@@ -332,6 +336,19 @@ describe("a payload with a __proto__ key", () => {
     expect(round).toBe('{"__proto__":{"injected":1},"keep":2}');
   });
 
+  it("keeps it beside a name-and-value header pair whose name is not a secret", () => {
+    // Walked ordinarily, because nothing on it names a secret. The pair branch
+    // that does replace a value is covered in header-shapes.test.ts, where the
+    // same key goes through the rebuild rather than around it.
+    const payload = JSON.parse(
+      '{"headers":[{"name":"accept","value":"application/json","__proto__":"kept"}]}'
+    ) as Record<string, unknown>;
+    const stored = JSON.stringify(redact(payload, ["**.authorization"]));
+    expect(stored).toBe(
+      '{"headers":[{"name":"accept","value":"application/json","__proto__":"kept"}]}'
+    );
+  });
+
   it("still redacts underneath it", () => {
     // The control: preserving the key must not create a place secrets hide.
     // Both halves matter — the first fails today because the field is gone.
@@ -414,5 +431,73 @@ describe("shared references are not cycles", () => {
     const list: unknown[] = [];
     list.push(list);
     expect(JSON.stringify(redact({ list }, ["secret"]))).toContain("[CIRCULAR]");
+  });
+});
+
+/**
+ * Every shape this walk recognises, each carrying a `__proto__` key, swept in
+ * one test.
+ *
+ * `docs/INGESTION_CONTRACT.md` and `apps/api/src/app.ts` both tell a reader that
+ * no rebuild here assigns an incoming key onward, which is why the server can
+ * accept a body containing one at all. That was a claim about code rather than
+ * a property anybody checked, and it was wrong: the branch replacing a
+ * `{name, value}` header's value assigned key by key, and was unreachable for
+ * this key only because a third key exempted the object from that branch. The
+ * moment that exemption was removed, as a redaction hole, the assignment became
+ * reachable.
+ *
+ * A sweep rather than one more case, because the next shape added to this walk
+ * should have to pass without anybody remembering to write its test.
+ */
+describe("no shape this walk accepts can reach the prototype", () => {
+  const PROTO = '"__proto__":"polluted-by-';
+
+  /** Each entry is a whole payload, parsed from text so the key is an own key. */
+  const shapes: Record<string, string> = {
+    "an object key": `{"a":{${PROTO}object"},"authorization":"Bearer cfx-fake-S1"}`,
+    "a name and value object whose value is replaced": `{"h":[{"name":"authorization","value":"Bearer cfx-fake-S2",${PROTO}named"}]}`,
+    "a key and value object whose value is replaced": `{"h":[{"key":"cookie","value":"sid=cfx-fake-S3",${PROTO}keyed"}]}`,
+    "a name and value object left alone": `{"h":[{"name":"accept","value":"application/json",${PROTO}untouched"}]}`,
+    "an object inside an array": `{"rows":[{"password":"cfx-fake-S4",${PROTO}inArray"}]}`,
+    "an object beside an interleaved header list": `{"rawHeaders":["Host","h","authorization","Bearer cfx-fake-S5"],"meta":{${PROTO}besideRaw"}}`,
+    "an object with no rule matching it at all": `{"plain":{${PROTO}noRule"}}`
+  };
+
+  it.each(Object.keys(shapes))("%s", (name) => {
+    const payload = JSON.parse(shapes[name] ?? "{}") as Record<string, unknown>;
+    const result = builtInPaths(payload);
+
+    // Nothing landed on Object.prototype, under any of the names above.
+    for (const key of Object.keys(shapes)) {
+      const marker = `polluted-by-${key}`;
+      expect(JSON.stringify({}), `${marker} reached the prototype`).toBe("{}");
+    }
+    expect(Object.getPrototypeOf(result as object)).toBe(Object.prototype);
+
+    // And the key is still in the output, which is the other half: a walk that
+    // dropped it would pass the assertion above for the wrong reason.
+    expect(JSON.stringify(result), `${name} lost the key`).toContain("__proto__");
+  });
+
+  it("replaces a whole value filed under a secret name, key and all", () => {
+    // The one shape where the key is meant to disappear: the value is replaced
+    // wholesale, so there is nothing left to carry a key. Kept separate from
+    // the sweep above rather than weakening its second assertion.
+    const payload = JSON.parse(`{"authorization":{${PROTO}underSecret"}}`) as Record<
+      string,
+      unknown
+    >;
+    expect(builtInPaths(payload)).toEqual({ authorization: REDACTED });
+    expect(JSON.stringify({})).toBe("{}");
+  });
+
+  it("still redacts the secrets in every one of those shapes", () => {
+    // The control. Each case above would pass against a walk that returned its
+    // input untouched.
+    const stored = Object.values(shapes)
+      .map((text) => JSON.stringify(builtInPaths(JSON.parse(text) as Record<string, unknown>)))
+      .join("");
+    expect(stored).not.toMatch(/cfx-fake-S[0-9]/);
   });
 });

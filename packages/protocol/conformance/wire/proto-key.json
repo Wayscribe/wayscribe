@@ -1,0 +1,75 @@
+{
+  "id": "wire/proto-key",
+  "title": "A __proto__ key survives in input, in metadata and in aliases",
+  "source": "docs/WHAT_RUNNING_IT_FOUND.md; packages/protocol/src/proto-key.ts",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "__proto__": "alias-under-proto",
+            "salesforceAccountId": "0018Z00002ABC"
+          },
+          "metadata": {
+            "__proto__": "metadata-under-proto",
+            "attempt": "1"
+          },
+          "input": {
+            "__proto__": "input-under-proto",
+            "phone": "+1 919 555 1234"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "__proto__": "input-under-proto",
+              "phone": "+1 919 555 1234"
+            },
+            "customMetadata": {
+              "__proto__": "metadata-under-proto",
+              "attempt": "1"
+            }
+          },
+          "journey": {
+            "aliases": [
+              {
+                "type": "__proto__",
+                "displayValue": {
+                  "$matches": "^a.*o$"
+                }
+              },
+              {
+                "type": "salesforceAccountId",
+                "displayValue": {
+                  "$matches": "^0.*C$"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

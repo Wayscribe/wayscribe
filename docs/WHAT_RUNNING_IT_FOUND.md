@@ -136,6 +136,48 @@ purpose.
 
 ---
 
+## The one that was fixed in the middle and broken at both ends
+
+The `__proto__` key in the table above was fixed where the walk lost it: the
+redaction walk and the SDK's serializer both write it with `Object.defineProperty`
+now, and a unit test reads it back. That was written up as closed.
+
+Writing a conformance case for it, which meant sending the key over HTTP for the
+first time rather than calling the functions, found it was closed only in the
+middle.
+
+At the far end, the parser still lost it. Zod's `z.record` builds its result by
+assigning parsed keys onto a fresh object, so `aliases` and `metadata` came back
+without theirs, while `input` and `output` kept theirs because they are
+`z.unknown()` and are handed back untouched. That is why it stayed invisible: a
+reader looking at a captured payload saw the key, and the alias it was filed
+under had quietly gone. Worse, `z.record` does not validate that key's value
+either, so `{"__proto__": {"nested": true}}` in `aliases` parsed successfully as
+a field the rest of ingestion treats as a string. Restoring the key blindly would
+have carried an object into encryption and the search token.
+
+At the near end, the request never arrived. Fastify parses bodies with
+`secure-json-parse`, whose defaults throw on `__proto__` and on
+`constructor.prototype` anywhere in the document, so the whole request came back
+`400`: *Body is not valid JSON but content-type is set to 'application/json'*,
+about a body that is valid JSON. The SDK treats a 4xx as permanent and does not
+resend, so every event in that batch was lost, for a key the recorder had gone
+out of its way to preserve one process earlier.
+
+Three things are worth taking from it:
+
+- **A fix inside a function is not a fix on the wire.** The three earlier fixes
+  were correct and were tested at the level they were written at. Nothing had
+  ever sent the key through the actual door.
+- **A parser that drops a key does not necessarily check it.** The data loss was
+  the visible half; the validation hole underneath it was not visible at all,
+  and only appeared when the value was deliberately made wrong.
+- **A framework default can refuse what the product exists to record.** The
+  guard is against a pattern this code deliberately does not have, and it was
+  turning a customer's payload into a lost batch.
+
+---
+
 ## The honest remainder
 
 Fixing things is easy to write up. Nothing from this account is open now. The

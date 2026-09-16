@@ -1,0 +1,62 @@
+{
+  "id": "sdk/date-in-payload",
+  "title": "A Date becomes an ISO string, and two Dates that differ show as a change",
+  "source": "packages/sdk-node/README.md value table; ADR-034; the M3 defect in docs/WHAT_RUNNING_IT_FOUND.md",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "transform",
+      "name": "renew-subscription",
+      "args": {
+        "input": {
+          "renewsAt": {
+            "$date": "2026-01-02T03:04:05.678Z"
+          },
+          "plan": "pro"
+        },
+        "output": {
+          "renewsAt": {
+            "$date": "2027-01-02T03:04:05.678Z"
+          },
+          "plan": "pro"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "transformed",
+      "name": "renew-subscription",
+      "input": {
+        "renewsAt": "2026-01-02T03:04:05.678Z",
+        "plan": "pro"
+      },
+      "output": {
+        "renewsAt": "2027-01-02T03:04:05.678Z",
+        "plan": "pro"
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "payloadDiff": {
+              "truncated": false,
+              "changes": [
+                {
+                  "path": "renewsAt",
+                  "kind": "changed",
+                  "before": "2026-01-02T03:04:05.678Z",
+                  "after": "2027-01-02T03:04:05.678Z"
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

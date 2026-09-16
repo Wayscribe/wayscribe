@@ -1,0 +1,51 @@
+{
+  "id": "sdk/error-masked-and-bounded",
+  "title": "An error message is masked, cut to 4,096 characters, and carries no stack",
+  "source": "ADR-046; docs/SDK_SPEC.md section 5",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "fail",
+      "name": "deliver-to-target",
+      "args": {
+        "error": {
+          "$error": {
+            "name": "ConnectionError",
+            "message": {
+              "$concat": [
+                "connect failed for postgres://app:cfx-fake-sdk-pw@db.internal:5432/app ",
+                {
+                  "$string": {
+                    "char": "x",
+                    "count": 5000
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "failed",
+      "error": {
+        "type": "ConnectionError",
+        "message": {
+          "$matches": "^connect failed for .*REDACTED.*\\[TRUNCATED\\]$"
+        },
+        "stack": {
+          "$absent": true
+        }
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

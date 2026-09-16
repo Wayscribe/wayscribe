@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "event-result.schema.json",
+  "title": "Per-event verdict",
+  "description": "What happened to one event of a batch.",
+  "type": "object",
+  "properties": {
+    "eventId": {
+      "description": "Null when the event was refused before its id was read.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "rejected"
+      ]
+    },
+    "duplicate": {
+      "type": "boolean"
+    },
+    "stored": {
+      "description": "A dry run only, and only for an accepted result that is not a duplicate: what would have been stored.",
+      "type": "object",
+      "properties": {
+        "event": {
+          "$ref": "stored-event.schema.json"
+        },
+        "journey": {
+          "$ref": "stored-journey.schema.json"
+        }
+      },
+      "required": [
+        "event",
+        "journey"
+      ]
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "httpStatus": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991,
+          "description": "Below 500 is permanent and the event must not be sent again; 500 or above is transient."
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "message"
+            ]
+          }
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "httpStatus"
+      ]
+    }
+  },
+  "required": [
+    "eventId",
+    "status"
+  ]
+}

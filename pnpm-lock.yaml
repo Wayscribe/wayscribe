@@ -85,9 +85,15 @@ importers:
         specifier: ^8.10.2
         version: 8.10.2
     devDependencies:
+      '@flight-recorder/node':
+        specifier: workspace:*
+        version: link:../../packages/sdk-node
       '@testcontainers/postgresql':
         specifier: ^11.14.0
         version: 11.14.0(supports-color@7.2.0)
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       tsx:
         specifier: ^4.23.13
         version: 4.23.13
@@ -177,6 +183,10 @@ importers:
       zod:
         specifier: ^4.6.4
         version: 4.6.4
+    devDependencies:
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
 
   packages/sdk-node:
     devDependencies:

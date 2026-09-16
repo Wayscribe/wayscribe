@@ -1,0 +1,55 @@
+{
+  "id": "wire/error-stack-kept-under-full-capture",
+  "title": "A stack is kept, and masked, under full capture",
+  "source": "ADR-046; ADR-018",
+  "layer": "wire",
+  "languages": ["*"],
+  "setup": {
+    "environment": {
+      "captureMode": "full-payload",
+      "allowFullPayload": true
+    }
+  },
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "failed",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "error": {
+            "type": "HttpError",
+            "message": "Unprocessable Entity",
+            "stack": "HttpError: Unprocessable Entity\n    at deliver (/srv/app/deliver.js:42:11)"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "error": {
+              "type": "HttpError",
+              "message": "Unprocessable Entity",
+              "stack": "HttpError: Unprocessable Entity\n    at deliver (/srv/app/deliver.js:42:11)"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

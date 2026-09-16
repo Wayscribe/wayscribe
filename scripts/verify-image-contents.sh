@@ -41,13 +41,35 @@ report "no test files (found $COUNT)" "$([ "$COUNT" -eq 0 ] && echo 0 || echo 1)
 COUNT=$(count_in_image 'find /app -path /app/node_modules -prune -o -type d -name src -print | wc -l')
 report "no source directories (found $COUNT)" "$([ "$COUNT" -eq 0 ] && echo 0 || echo 1)"
 
-for DIR in /app/apps/demo /app/apps/web; do
+# The conformance fixtures are the reason this check gained a third directory.
+# They are not named like test files, so the pattern above does not reach them,
+# and they carry credential-shaped values on purpose: a redaction case cannot
+# prove a secret was replaced without holding something shaped like one.
+for DIR in /app/apps/demo /app/apps/web /app/packages/protocol/conformance /app/packages/sdk-node; do
   # `cmd; report $?` would abort here under `set -e` on the first failure, so a
   # broken image would report one problem and hide the rest. The `&&`/`||` form
   # keeps the non-zero status out of `set -e`'s hands.
   docker run --rm --entrypoint sh "$IMAGE" -c "test ! -e $DIR" && RC=0 || RC=1
   report "$DIR absent" "$RC"
 done
+
+# Absent as a directory is not the same as absent as content. The fixtures'
+# fake credentials all carry one marker, so searching for it catches a copy that
+# landed somewhere else, which is the failure a directory check cannot see.
+#
+# `find` and `xargs` rather than `grep -r --exclude-dir`: the image is Alpine,
+# whose busybox grep has no such option. The first version of this check used
+# it, printed a usage message to stderr that `2>/dev/null` swallowed, counted
+# zero and passed — against an image that held eleven of these files. It was
+# caught by running it against an image built without the prune, which is what
+# ADR-043 asks for and the reason that step is not optional.
+#
+# The marker is assembled from two halves so that this script is not itself a
+# match, and .gitleaks.toml is excluded because the allowlist has to name the
+# marker in order to allow it. Neither is a fixture and neither holds a value.
+MARKER='cfx''-fake'
+COUNT=$(count_in_image "find /app -path /app/node_modules -prune -o -type f ! -name .gitleaks.toml -print0 | xargs -0 -r grep -l '$MARKER' 2>/dev/null | wc -l")
+report "no conformance fixture values (found $COUNT files)" "$([ "$COUNT" -eq 0 ] && echo 0 || echo 1)"
 
 # The prune has to stop short of the things the documentation tells an operator
 # to run. OPERATIONS.md and deploy/helm/README.md both invoke the database CLI
@@ -57,15 +79,50 @@ for FILE in /app/apps/api/dist/server.js /app/packages/database/dist/cli.js; do
   report "$FILE present" "$RC"
 done
 
-# Present is not the same as loadable: pruning a directory the CLI imports at
-# runtime leaves the file in place and breaks it on first use. Invoking it with
-# no arguments makes it resolve its imports and reach its own usage message.
-OUTPUT=$(docker run --rm --entrypoint node "$IMAGE" packages/database/dist/cli.js 2>&1 || true)
-case "$OUTPUT" in
-  *DATABASE_URL* | *Usage* | *usage*) RC=0 ;;
-  *) RC=1; echo "        unexpected CLI output: $OUTPUT" ;;
-esac
-report "database CLI runs" "$RC"
+# Present is not the same as loadable: pruning a directory an entry point
+# imports leaves the file in place and breaks it on first use.
+#
+# The check that used to live here ran the CLI with no arguments and accepted
+# any output mentioning DATABASE_URL. The CLI exits on that guard at the top of
+# the file, and every subcommand is behind a dynamic import, so nothing past the
+# guard was ever resolved: deleting payload-diff/dist and payload-security/dist
+# left this green while the server could not start. It proved the file existed,
+# which the check above already did.
+#
+# So both entry points are made to resolve their whole graph, and the failure
+# looked for is `ERR_MODULE_NOT_FOUND` specifically. In ESM the module graph is
+# evaluated before the entry module's body runs, so a missing workspace `dist`
+# surfaces ahead of any configuration guard, and the two are told apart by what
+# is printed rather than by an exit code they share.
+loads() {
+  NAME="$1"
+  OUTPUT=$(docker run --rm --entrypoint sh "$IMAGE" -c "$2" 2>&1 || true)
+  case "$OUTPUT" in
+    *ERR_MODULE_NOT_FOUND* | *"Cannot find module"* | *"Cannot find package"*)
+      report "$NAME resolves its imports" 1
+      echo "        $(echo "$OUTPUT" | grep -m1 'Cannot find')"
+      return
+      ;;
+  esac
+  case "$OUTPUT" in
+    *$3*) report "$NAME resolves its imports" 0 ;;
+    *)
+      report "$NAME resolves its imports" 1
+      echo "        unexpected output: $(echo "$OUTPUT" | head -3)"
+      ;;
+  esac
+}
+
+# The server statically imports config, database, protocol, payload-security and
+# payload-diff, so reaching its own configuration error means all five resolved.
+loads "the API server" "node apps/api/dist/server.js" "DATABASE_URL"
+
+# A subcommand, because that is what forces the CLI's dynamic imports. A
+# database that is not there makes it fail at the connection, which is after the
+# import it exists to check.
+loads "the database CLI" \
+  "DATABASE_URL=postgresql://u:p@127.0.0.1:1/x node packages/database/dist/cli.js project:list" \
+  "ECONNREFUSED"
 
 if [ "$FAILED" -ne 0 ]; then
   echo "Image contains files it should not, or is missing files it must have."

@@ -1,0 +1,35 @@
+{
+  "id": "sdk/undefined-key",
+  "title": "A key holding undefined is omitted, as JSON.stringify does",
+  "source": "packages/sdk-node/README.md value table",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "present": "yes",
+          "missing": {
+            "$undefined": true
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "present": "yes"
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

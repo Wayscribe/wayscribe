@@ -15,7 +15,7 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. 1207 unit tests, 405 integration
+the step against a development destination. 1390 unit tests, 541 integration
 tests against a real PostgreSQL, 7 acceptance tests against a running stack.
 
 Nothing is published. There is no npm package and no image in any registry, so
@@ -45,6 +45,23 @@ Presenting the work, and closing what the last review opened.
   literal run on 2026-09-15 found a web container listening on the wrong port.
   Every onboarding defect on the record was found by a person running the README
   literally. That is a job, not a habit.
+- **A contract somebody else can build against.** JSON Schema generated from the
+  Zod schemas and checked for drift, `docs/INGESTION_CONTRACT.md` for the routes,
+  limits, refusals and idempotency, `docs/SDK_SPEC.md` for what a recorder in any
+  language must do, a dry run that validates a batch without storing it, and
+  conformance fixtures under `packages/protocol/conformance/` that any
+  implementation can run through the dry run (ADR-049). The fixtures are what
+  prove the protocol is genuinely language-neutral rather than TypeScript-shaped.
+  The propagation specification and its test vectors are not part of this: every
+  requirement in them is a header name, a queue attribute name or an environment
+  variable name, and all of those carry the product name the rename will change.
+- **OpenTelemetry log ingest.** After the rename, `POST /v1/logs` accepting OTLP
+  over HTTP, so a team already exporting logs can map them onto journey events
+  without adding a recorder. gRPC is out of scope: it is a second transport and a
+  second dependency for a path that is already optional. The Node SDK stays the
+  recommended path for Node, because the input and output pairing the diff needs
+  is something a recorder knows and a log line does not. It waits for the rename
+  because the attribute names it would read carry the product prefix.
 
 ### Known open, and honest about it
 
@@ -86,9 +103,10 @@ all of it is cheap to add once there is a reason.
 
 ## Later
 
-- Fastify, Express, and fetch/Axios adapters
-- a Go or Python SDK — which would also prove the protocol is genuinely
-  language-neutral rather than TypeScript-shaped
+- Fastify, Express, and fetch/Axios adapters for the stacks pilot teams actually
+  run, as separate packages over the SDK's public API (ADR-049)
+- a second native SDK when a pilot team needs one, built against
+  `docs/SDK_SPEC.md` and checked with the conformance fixtures
 - S3-compatible payload storage, backup and restore tooling
 - an audit-log interface, retention and legal-hold controls
 - high-availability deployment

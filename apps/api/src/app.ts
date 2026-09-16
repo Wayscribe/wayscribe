@@ -1,4 +1,5 @@
 import { isStatementTimeout } from "@flight-recorder/database";
+import { MAX_BATCH_EVENTS } from "@flight-recorder/protocol";
 import type { Keyring } from "@flight-recorder/payload-security";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import type { Knex } from "knex";
@@ -27,7 +28,16 @@ export interface BuildAppOptions {
   keyring: Keyring;
   adminToken: string;
   logLevel?: string;
-  /** Per-request body cap. Defaults to the batch ceiling plus headroom. */
+  /**
+   * Per-request body cap. Defaults to the batch ceiling plus headroom.
+   *
+   * A batch is at most `MAX_BATCH_EVENTS` events and an event's payload at most
+   * `MAX_EVENT_PAYLOAD_BYTES`, so the largest legitimate request is roughly the
+   * product of the two. Fastify's 1 MiB default is far below that, which turns
+   * a valid batch into a 413, and the SDK requeues a rejected batch to the
+   * front of its queue, so an oversize batch head-of-line-blocks the recorder
+   * until the queue trims. Sized from the contract rather than guessed.
+   */
   bodyLimit?: number;
   maxEventPayloadBytes?: number;
   allowFullPayloadCapture?: boolean;
@@ -46,16 +56,6 @@ export interface BuildAppOptions {
 }
 
 /**
- * A batch is at most 100 events and an event's payload at most
- * `MAX_EVENT_PAYLOAD_BYTES`, so the largest legitimate request is roughly the
- * product of the two. Fastify's 1 MiB default is far below that, which turns a
- * valid batch into a 413 — and the SDK requeues a rejected batch to the front
- * of its queue, so an oversize batch head-of-line-blocks the recorder until the
- * queue trims. Sized from configuration rather than guessed.
- */
-const MAX_BATCH_EVENTS = 100;
-
-/**
  * Longest path parameter the router accepts, measured in the encoded path.
  *
  * Journey and event ids are up to 128 characters (packages/protocol), and a
@@ -65,6 +65,31 @@ const MAX_BATCH_EVENTS = 100;
  */
 const MAX_PARAM_LENGTH = 128 * 9;
 const BODY_LIMIT_HEADROOM = 64 * 1024;
+
+/**
+ * The refusals that happen before a route runs, in codes this API owns.
+ *
+ * Fastify raises these from its content-type parser, and the error handler used
+ * to publish its codes verbatim. That is the framework's vocabulary in a
+ * document another implementation is meant to satisfy: it says that swapping
+ * the web framework is a wire change, and it tells the author of a client in
+ * another language to branch on a string that means nothing outside Node.
+ *
+ * The HTTP statuses are unchanged and are still the stable part, which is what
+ * the ingestion contract tells a client to branch on. An empty body and a body
+ * that is not JSON share one code: both mean the body could not be read, both
+ * are a 400, and the message from Fastify already says which happened.
+ *
+ * Only these four are mapped, because only these four can actually be produced
+ * by the ingestion routes; `apps/api/src/app.test.ts` sends each of them on both
+ * routes and fails on any `FST_ERR` code that reaches a client.
+ */
+const TRANSPORT_CODES: Readonly<Record<string, string>> = {
+  FST_ERR_CTP_BODY_TOO_LARGE: "payload_too_large",
+  FST_ERR_CTP_INVALID_MEDIA_TYPE: "unsupported_media_type",
+  FST_ERR_CTP_INVALID_JSON_BODY: "malformed_json",
+  FST_ERR_CTP_EMPTY_JSON_BODY: "malformed_json"
+};
 
 /**
  * Log redaction paths.
@@ -99,6 +124,30 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       ...(options.logStream === undefined ? {} : { stream: options.logStream })
     },
     bodyLimit: options.bodyLimit ?? MAX_BATCH_EVENTS * maxEventPayloadBytes + BODY_LIMIT_HEADROOM,
+    // A recorded payload is evidence, and a key is part of it.
+    //
+    // Fastify parses with `secure-json-parse`, which by default throws on
+    // `__proto__` and on `constructor.prototype` anywhere in the document. The
+    // request came back 400 `FST_ERR_CTP_INVALID_JSON_BODY` — "Body is not
+    // valid JSON" — about a body that is valid JSON, and the SDK treats a 4xx
+    // as permanent, so a whole batch was discarded and never retried. The Node
+    // SDK preserves a `__proto__` key on purpose
+    // (`packages/payload-security/src/storable.ts`), so the recorder captured
+    // the key faithfully and the server then refused every event sent with it.
+    //
+    // Safe to allow because the danger was never the parsing. `JSON.parse`
+    // makes both names ordinary own data properties and leaves the object's
+    // prototype alone; poisoning takes code that afterwards writes an
+    // attacker-named key with `target[key] = value`. Every walk here that
+    // rebuilds an object now uses `defineKey`, which was a claim before it was
+    // a fact: the branch replacing a header pair's value still assigned, and
+    // was unreachable for this key only because a third key exempted the object
+    // from that branch, which was itself the redaction hole fixed beside it.
+    // Zod's object schemas drop unknown keys, and `parseEnvelope` restores the
+    // one key `z.record` loses. `apps/api/src/app.test.ts` asserts that
+    // `Object.prototype` is untouched after both bodies are ingested.
+    onProtoPoisoning: "ignore",
+    onConstructorPoisoning: "ignore",
     routerOptions: { maxParamLength: MAX_PARAM_LENGTH },
     // A malformed percent-encoding (400) or a path parameter over
     // MAX_PARAM_LENGTH (414) is refused by the router before any route or hook
@@ -193,7 +242,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
           status >= 500
             ? "internal_error"
             : fastifyError.statusCode !== undefined && fastifyError.code !== undefined
-              ? fastifyError.code
+              ? (TRANSPORT_CODES[fastifyError.code] ?? fastifyError.code)
               : "bad_request",
         // A 500's message can carry internals; anything else is the client's
         // own mistake described back to them.

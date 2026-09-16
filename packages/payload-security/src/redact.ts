@@ -186,9 +186,13 @@ function walk(
           if (nameKey !== undefined) {
             const entry = item as Record<string, unknown>;
             if (replaces(entry[nameKey] as string, entry["value"])) {
+              // Rebuilt rather than mutated, and every key written with
+              // `defineKey`: a `__proto__` key beside the pair reaches this
+              // branch now that an extra key no longer exempts the object, and
+              // an assignment would spend it on the prototype.
               const replaced: Record<string, unknown> = {};
               for (const key of Object.keys(entry)) {
-                replaced[key] = key === "value" ? REDACTED : entry[key];
+                defineKey(replaced, key, key === "value" ? REDACTED : entry[key]);
               }
               return replaced;
             }

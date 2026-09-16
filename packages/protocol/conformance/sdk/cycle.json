@@ -1,0 +1,42 @@
+{
+  "id": "sdk/cycle",
+  "title": "A cycle becomes [CIRCULAR] where the loop closes, and the rest is kept",
+  "source": "packages/sdk-node/README.md value table; ADR-034",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "id": "ord_77",
+          "parent": {
+            "id": "ord_1",
+            "child": {
+              "$cycle": "#/input"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "id": "ord_77",
+        "parent": {
+          "id": "ord_1",
+          "child": "[CIRCULAR]"
+        }
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

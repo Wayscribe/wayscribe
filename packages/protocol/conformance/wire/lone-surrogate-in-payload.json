@@ -1,0 +1,41 @@
+{
+  "id": "wire/lone-surrogate-in-payload",
+  "title": "An unpaired surrogate is unstorable_payload",
+  "source": "docs/INGESTION_CONTRACT.md; ADR-036",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "input": {
+            "emoji": "sliced\ud800"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "rejected",
+        "error": {
+          "code": "unstorable_payload",
+          "httpStatus": 400
+        }
+      }
+    ]
+  }
+}

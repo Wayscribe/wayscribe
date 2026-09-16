@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stored-event.schema.json",
+  "title": "Stored event",
+  "description": "One event as a read returns it, which is what a dry run previews. This is not the wire event: capture, redaction and masking have been applied, and unknown fields are gone.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "journeyId": {
+      "type": "string"
+    },
+    "parentEventId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "protocolVersion": {
+      "type": "string"
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "received",
+        "identified",
+        "transformed",
+        "validated",
+        "persisted",
+        "published",
+        "consumed",
+        "delivered",
+        "failed",
+        "retried",
+        "completed"
+      ]
+    },
+    "name": {
+      "type": "string"
+    },
+    "service": {
+      "type": "string"
+    },
+    "eventTimestamp": {
+      "type": "string",
+      "description": "Normalized to UTC and stored to millisecond precision."
+    },
+    "receivedAt": {
+      "description": "When the server received it. Omitted from a dry run's preview, which received nothing.",
+      "type": "string"
+    },
+    "durationMs": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "traceId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "spanId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "messageId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "correlationId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hasInput": {
+      "type": "boolean"
+    },
+    "hasOutput": {
+      "type": "boolean"
+    },
+    "hasError": {
+      "type": "boolean"
+    },
+    "inputPayload": {
+      "description": "After this environment's capture policy and redaction."
+    },
+    "outputPayload": {},
+    "payloadDiff": {
+      "description": "Computed after capture, only when both payloads are present."
+    },
+    "error": {
+      "description": "Masked by shape. The stack is dropped unless full capture is in effect."
+    },
+    "runtimeMetadata": {},
+    "deploymentMetadata": {},
+    "customMetadata": {}
+  },
+  "required": [
+    "id",
+    "journeyId",
+    "parentEventId",
+    "protocolVersion",
+    "operation",
+    "name",
+    "service",
+    "eventTimestamp",
+    "durationMs",
+    "traceId",
+    "spanId",
+    "messageId",
+    "correlationId",
+    "hasInput",
+    "hasOutput",
+    "hasError",
+    "inputPayload",
+    "outputPayload",
+    "payloadDiff",
+    "error",
+    "runtimeMetadata",
+    "deploymentMetadata",
+    "customMetadata"
+  ]
+}

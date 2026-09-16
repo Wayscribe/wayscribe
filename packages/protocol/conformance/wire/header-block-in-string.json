@@ -1,0 +1,47 @@
+{
+  "id": "wire/header-block-in-string",
+  "title": "A CRLF header block is redacted line by line, and an LF-only block is not",
+  "source": "docs/SECURITY.md section 4; the documented gap",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "input": {
+            "crlf": "Host: api.example.test\r\nAuthorization: Bearer cfx-fake-CRLF\r\nAccept: */*",
+            "lf": "Host: api.example.test\nAuthorization: Bearer cfx-fake-LF\nAccept: */*"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "crlf": "Host: api.example.test\r\nAuthorization: [REDACTED]\r\nAccept: */*",
+              "lf": "Host: api.example.test\nAuthorization: Bearer cfx-fake-LF\nAccept: */*"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

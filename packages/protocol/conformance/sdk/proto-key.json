@@ -1,0 +1,54 @@
+{
+  "id": "sdk/proto-key",
+  "title": "A __proto__ key survives from the recorder to the stored row",
+  "source": "docs/WHAT_RUNNING_IT_FOUND.md; packages/payload-security/src/redact.ts",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "__proto__": "kept",
+          "id": "ord_77"
+        },
+        "metadata": {
+          "__proto__": "kept-too",
+          "tenant": "acme"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "__proto__": "kept",
+        "id": "ord_77"
+      },
+      "metadata": {
+        "__proto__": "kept-too",
+        "tenant": "acme"
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "__proto__": "kept",
+              "id": "ord_77"
+            },
+            "customMetadata": {
+              "__proto__": "kept-too",
+              "tenant": "acme"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

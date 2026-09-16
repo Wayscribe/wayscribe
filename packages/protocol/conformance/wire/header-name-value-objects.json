@@ -1,0 +1,113 @@
+{
+  "id": "wire/header-name-value-objects",
+  "title": "A name and value element has its value redacted, however many other fields it carries",
+  "source": "docs/SECURITY.md section 4; docs/WHAT_RUNNING_IT_FOUND.md",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "input": {
+            "named": [
+              {
+                "name": "Authorization",
+                "value": "Bearer cfx-fake-NAMED"
+              },
+              {
+                "name": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "keyed": [
+              {
+                "key": "cookie",
+                "value": "session=cfx-fake-KEYED"
+              }
+            ],
+            "extra": [
+              {
+                "name": "authorization",
+                "value": "Bearer cfx-fake-THIRD",
+                "comment": "a third key"
+              }
+            ],
+            "notHeaders": [
+              {
+                "name": "colour",
+                "value": "red",
+                "index": 0
+              },
+              {
+                "name": "authorization",
+                "value": "Content-Type",
+                "index": 1
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "named": [
+                {
+                  "name": "Authorization",
+                  "value": "[REDACTED]"
+                },
+                {
+                  "name": "Accept",
+                  "value": "application/json"
+                }
+              ],
+              "keyed": [
+                {
+                  "key": "cookie",
+                  "value": "[REDACTED]"
+                }
+              ],
+              "extra": [
+                {
+                  "name": "authorization",
+                  "value": "[REDACTED]",
+                  "comment": "a third key"
+                }
+              ],
+              "notHeaders": [
+                {
+                  "name": "colour",
+                  "value": "red",
+                  "index": 0
+                },
+                {
+                  "name": "authorization",
+                  "value": "Content-Type",
+                  "index": 1
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

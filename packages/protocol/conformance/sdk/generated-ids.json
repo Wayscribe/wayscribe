@@ -1,0 +1,32 @@
+{
+  "id": "sdk/generated-ids",
+  "title": "Event and journey ids are a prefix and a UUID the client generated",
+  "source": "core invariant 3; ADR-038; docs/SDK_SPEC.md section 3",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order"
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "id": {
+        "$matches": "^evt_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "journeyId": {
+        "$matches": "^jrn_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

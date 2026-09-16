@@ -1,0 +1,53 @@
+{
+  "id": "wire/header-pairs",
+  "title": "A list of name and value pairs is redacted; a list of header names is not",
+  "source": "docs/SECURITY.md section 4; packages/payload-security/src/http-headers.ts",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "input": {
+            "headers": [
+              ["Authorization", "Bearer cfx-fake-PAIR"],
+              ["Accept", "application/json"]
+            ],
+            "allowedHeaders": ["Authorization", "Content-Type"]
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "headers": [
+                ["Authorization", "[REDACTED]"],
+                ["Accept", "application/json"]
+              ],
+              "allowedHeaders": ["Authorization", "Content-Type"]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

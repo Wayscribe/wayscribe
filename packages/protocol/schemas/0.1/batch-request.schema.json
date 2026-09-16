@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "batch-request.schema.json",
+  "title": "Batch ingestion request",
+  "description": "The body of a batch ingestion request. Each element is an envelope, and each is refused or accepted on its own, so an element that fails does not refuse the request.",
+  "type": "object",
+  "properties": {
+    "events": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {},
+      "description": "The events to ingest, at most 100. Each element is one envelope. Per-element validation is per event: an element that fails is refused on its own, and the rest of the batch is stored."
+    }
+  },
+  "required": [
+    "events"
+  ]
+}

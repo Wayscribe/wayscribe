@@ -1,0 +1,362 @@
+{
+  "id": "wire/reference-journey",
+  "title": "The reference journey, in one batch, with the transform's diff",
+  "source": "docs/DEMO_SCENARIO.md sections 6 and 7",
+  "layer": "wire",
+  "languages": ["*"],
+  "setup": {
+    "environment": {
+      "captureMode": "redacted-payload"
+    }
+  },
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_01",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC"
+          }
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_02",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "transformed",
+          "name": "transform-salesforce-account",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC"
+          },
+          "input": {
+            "Id": "0018Z00002ABC",
+            "Name": "Jorge Polanco",
+            "Phone": "+1 919 555 1234",
+            "Status__c": "Active"
+          },
+          "output": {
+            "externalId": "0018Z00002ABC",
+            "name": "Jorge Polanco",
+            "phone": null,
+            "status": "active"
+          }
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_03",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-api",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "persisted",
+          "name": "persist-customer",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC"
+          }
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_04",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-api",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "identified",
+          "name": "identify",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC",
+            "internalCustomerId": "cus_88213"
+          }
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_05",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-api",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "published",
+          "name": "publish-customer-created",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC"
+          }
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_06",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "sync-worker",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "consumed",
+          "name": "consume-customer-created",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC"
+          }
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_07",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "sync-worker",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "delivered",
+          "name": "deliver-to-target",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC"
+          },
+          "error": {
+            "type": "HttpError",
+            "code": "422",
+            "message": "Unprocessable Entity"
+          }
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_08",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "sync-worker",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "retried",
+          "name": "deliver-to-target",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC"
+          },
+          "metadata": {
+            "attempt": "2"
+          }
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_09",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "sync-worker",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "retried",
+          "name": "deliver-to-target",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC"
+          },
+          "metadata": {
+            "attempt": "3"
+          }
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_10",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "sync-worker",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "failed",
+          "name": "deliver-to-target",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC"
+          },
+          "error": {
+            "type": "HttpError",
+            "code": "422",
+            "message": "Unprocessable Entity"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "operation": "transformed",
+            "inputPayload": {
+              "Id": "0018Z00002ABC",
+              "Name": "Jorge Polanco",
+              "Phone": "+1 919 555 1234",
+              "Status__c": "Active"
+            },
+            "outputPayload": {
+              "externalId": "0018Z00002ABC",
+              "name": "Jorge Polanco",
+              "phone": null,
+              "status": "active"
+            },
+            "payloadDiff": {
+              "truncated": false,
+              "changes": [
+                {
+                  "path": "Id",
+                  "kind": "removed",
+                  "before": "0018Z00002ABC"
+                },
+                {
+                  "path": "Name",
+                  "kind": "removed",
+                  "before": "Jorge Polanco"
+                },
+                {
+                  "path": "Phone",
+                  "kind": "removed",
+                  "before": "+1 919 555 1234"
+                },
+                {
+                  "path": "Status__c",
+                  "kind": "removed",
+                  "before": "Active"
+                },
+                {
+                  "path": "externalId",
+                  "kind": "added",
+                  "after": "0018Z00002ABC"
+                },
+                {
+                  "path": "name",
+                  "kind": "added",
+                  "after": "Jorge Polanco"
+                },
+                {
+                  "path": "phone",
+                  "kind": "added",
+                  "after": null
+                },
+                {
+                  "path": "status",
+                  "kind": "added",
+                  "after": "active"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "journey": {
+            "status": "failed",
+            "eventCount": 10,
+            "services": ["customer-api", "customer-integration", "sync-worker"],
+            "aliases": [
+              {
+                "type": "internalCustomerId",
+                "displayValue": {
+                  "$matches": "^c.*3$"
+                }
+              },
+              {
+                "type": "salesforceAccountId",
+                "displayValue": {
+                  "$matches": "^0.*C$"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

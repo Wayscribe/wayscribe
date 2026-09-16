@@ -337,11 +337,14 @@ describe("headers filed as name and value objects", () => {
     });
   });
 
-  it("leaves objects with other names, other keys or extra keys unchanged", () => {
+  it("leaves objects with other names, or no value, or a name that is not a string", () => {
+    // This once also listed `{ name: "authorization", value: "kept", comment }`
+    // as deliberately untouched, on the grounds that three keys is not a header
+    // pair. That was the hole: HAR's own header object allows a `comment`, so
+    // the shape most likely to carry a real credential was the one exempted.
     const rows = [
       { name: "color", value: "red" },
       { label: "authorization", value: "kept" },
-      { name: "authorization", value: "kept", comment: "three keys" },
       { name: "authorization", data: "kept" },
       { name: 7, value: "kept" }
     ];
@@ -382,5 +385,86 @@ describe("values that are themselves header names", () => {
     expect(builtIn([{ name: "cookie", value: RAW_COOKIE }])).toEqual([
       { name: "cookie", value: REDACTED }
     ]);
+  });
+});
+
+/**
+ * A third key used to defeat this rule entirely.
+ *
+ * `namedValueKey` required exactly two keys, so
+ * `{"name":"authorization","value":"Bearer …","other":1}` was an ordinary
+ * object: no key on it is called a secret name, so nothing matched and the
+ * credential was stored in the clear. HAR's own header object allows a
+ * `comment` beside `name` and `value`, and a client that adds `line` or an
+ * index does the same thing, so this was not a hypothetical shape.
+ *
+ * The narrowness it bought was never the point. What keeps this from
+ * reinterpreting arbitrary objects is that the name has to be a string, that it
+ * has to normalise to a name somebody called a secret, and that a value which
+ * is itself a known header name is left alone. Those still hold; the key count
+ * did no work beyond hiding credentials.
+ */
+describe("a name and value object carrying other fields", () => {
+  it("redacts the value and leaves the other fields", () => {
+    const result = builtIn({
+      har: [
+        { name: "Authorization", value: BEARER, comment: "from the HAR" },
+        { name: "Accept", value: "application/json", comment: "kept" }
+      ]
+    });
+    expect(JSON.stringify(result)).not.toContain("TUPLE01");
+    expect(result).toEqual({
+      har: [
+        { name: "Authorization", value: REDACTED, comment: "from the HAR" },
+        { name: "Accept", value: "application/json", comment: "kept" }
+      ]
+    });
+  });
+
+  it("does the same for a key and value object", () => {
+    const result = builtIn({ rows: [{ key: "Cookie", value: RAW_COOKIE, index: 3 }] });
+    expect(JSON.stringify(result)).not.toContain("RAW03");
+    expect(result).toEqual({ rows: [{ key: "Cookie", value: REDACTED, index: 3 }] });
+  });
+
+  it("uses a configured any-depth name as well", () => {
+    expect(redact({ fields: [{ name: "ssn", value: "111-22-3333", id: 7 }] }, ["**.ssn"])).toEqual({
+      fields: [{ name: "ssn", value: REDACTED, id: 7 }]
+    });
+  });
+
+  it("keeps a value that is itself a header name, however many keys there are", () => {
+    // The false positive this rule has always protected against: a list of
+    // header *names* is configuration, and replacing one puts a change into a
+    // diff that nobody made.
+    const rows = [{ name: "authorization", value: "Content-Type", position: 1 }];
+    expect(builtIn({ rows })).toEqual({ rows });
+  });
+
+  it("leaves an object whose name is not a secret, or is not a string, or has no value", () => {
+    const rows = [
+      { name: "color", value: "red", index: 0 },
+      { label: "authorization", value: "kept", index: 1 },
+      { name: "authorization", data: "kept", index: 2 },
+      { name: 7, value: "kept", index: 3 }
+    ];
+    expect(builtIn({ rows })).toEqual({ rows });
+  });
+
+  it("cannot put a __proto__ key on the prototype while replacing the value", () => {
+    // The rebuild in that branch assigned key by key, and this shape is the one
+    // way an incoming `__proto__` could reach it. Written with JSON.parse
+    // because a literal `__proto__:` sets the prototype and creates no key.
+    const payload = JSON.parse(
+      '{"headers":[{"name":"authorization","value":"Bearer cfx-fake-THIRD","__proto__":"kept"}]}'
+    ) as Record<string, unknown>;
+    const result = builtIn(payload) as { headers: Record<string, unknown>[] };
+    const entry = result.headers[0] ?? {};
+
+    expect(JSON.stringify(result)).not.toContain("cfx-fake-THIRD");
+    expect(entry["value"]).toBe(REDACTED);
+    expect(Object.hasOwn(entry, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(entry)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>)["kept"]).toBeUndefined();
   });
 });

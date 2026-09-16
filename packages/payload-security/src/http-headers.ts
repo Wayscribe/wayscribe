@@ -28,19 +28,30 @@ export function isNamedPair(value: unknown): value is [string, unknown] {
 }
 
 /**
- * The key holding the name, when the value is a plain object with exactly the
- * keys `name` and `value` (HAR) or `key` and `value` (Playwright), and the name
- * is a string. Any other key, or a third one, and it is an ordinary object.
+ * The key holding the name, when the value is a plain object carrying a string
+ * `name` (HAR) or `key` (Playwright) beside a `value`.
+ *
+ * This once required **exactly** those two keys, and a third key defeated the
+ * rule completely: `{"name":"authorization","value":"Bearer …","other":1}` was
+ * an ordinary object, no key on it is called a secret name, and the credential
+ * was stored in the clear. HAR's own header object allows a `comment` beside
+ * `name` and `value`, and a client that adds a `line` or an index does the same,
+ * so the shape most likely to carry a real credential was the one exempted.
+ *
+ * The narrowness the key count bought was never what kept this from
+ * reinterpreting arbitrary objects. That work is done by three things which
+ * still hold: the name has to be a string, it has to normalise to a name
+ * somebody called a secret, and a value that is itself a known header name is
+ * left alone. Only the value is replaced; every other field is untouched.
  */
 export function namedValueKey(value: unknown): "name" | "key" | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const prototype = Object.getPrototypeOf(value) as unknown;
   if (prototype !== Object.prototype && prototype !== null) return undefined;
-  const keys = Object.keys(value);
-  if (keys.length !== 2 || !keys.includes("value")) return undefined;
+  if (!Object.hasOwn(value, "value")) return undefined;
   const record = value as Record<string, unknown>;
-  if (keys.includes("name") && typeof record["name"] === "string") return "name";
-  if (keys.includes("key") && typeof record["key"] === "string") return "key";
+  if (typeof record["name"] === "string") return "name";
+  if (typeof record["key"] === "string") return "key";
   return undefined;
 }
 

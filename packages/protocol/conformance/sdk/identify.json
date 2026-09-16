@@ -1,0 +1,44 @@
+{
+  "id": "sdk/identify",
+  "title": "identify emits its own event carrying the aliases",
+  "source": "ADR-023",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "identify",
+      "args": {
+        "aliases": {
+          "internalCustomerId": "cus_88213"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "identified",
+      "name": "identify",
+      "aliases": {
+        "internalCustomerId": "cus_88213"
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "journey": {
+            "aliases": [
+              {
+                "type": "internalCustomerId",
+                "displayValue": {
+                  "$matches": "^cus_.*13$"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,4 +1,10 @@
-import { maskDisplayValue, type JourneyAlias, type SearchHit } from "@flight-recorder/database";
+import {
+  maskDisplayValue,
+  type EventDetail,
+  type JourneyAlias,
+  type JourneyDetail,
+  type SearchHit
+} from "@flight-recorder/database";
 import { decryptValue, UnknownKeyError, type Keyring } from "@flight-recorder/payload-security";
 
 export interface PresentedAlias {
@@ -74,4 +80,44 @@ export function presentAliases(
     const value = presentEntityId(keyring, alias.encryptedDisplayValue, onUnknownKey);
     return { type: alias.aliasType, displayValue: value === null ? null : maskDisplayValue(value) };
   });
+}
+
+/**
+ * One journey as `GET /v1/journeys/:journeyId` returns it.
+ *
+ * Here rather than in the route because a dry run previews the same shape, read
+ * through the same repository function inside its transaction. Two presenters
+ * would let the preview and the read disagree, which is exactly what makes a
+ * validation endpoint worse than useless: it would answer confidently about a
+ * server that behaves differently.
+ */
+export function presentJourneyDetail(
+  keyring: Keyring,
+  detail: JourneyDetail,
+  onUnknownKey?: (keyId: string) => void
+): Record<string, unknown> {
+  return {
+    journeyId: detail.journeyId,
+    environment: detail.environment,
+    entity: {
+      type: detail.entityType,
+      id: presentEntityId(keyring, detail.encryptedPrimaryEntityId, onUnknownKey)
+    },
+    status: detail.status,
+    aliases: presentAliases(keyring, detail.aliases, onUnknownKey),
+    services: detail.services,
+    eventCount: detail.eventCount,
+    startedAt: detail.startedAt.toISOString(),
+    completedAt: detail.completedAt?.toISOString() ?? null,
+    lastEventAt: detail.lastEventAt.toISOString()
+  };
+}
+
+/** One event as `GET /v1/events/:eventId` returns it, for the same reason. */
+export function presentEvent(detail: EventDetail): Record<string, unknown> {
+  return {
+    ...detail,
+    eventTimestamp: detail.eventTimestamp.toISOString(),
+    receivedAt: detail.receivedAt.toISOString()
+  };
 }

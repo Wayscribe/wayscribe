@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "batch-response.schema.json",
+  "title": "Batch ingestion response",
+  "description": "One verdict per sent event, in the order they were sent and matched by position. The response is 202 whether or not every event was accepted, because the transport succeeded, so a client has to read this body.",
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "dryRun": {
+          "description": "Present and true when nothing was stored, because `dryRun=true` was given.",
+          "type": "boolean"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "event-result.schema.json"
+          }
+        }
+      },
+      "required": [
+        "results"
+      ]
+    }
+  },
+  "required": [
+    "data"
+  ]
+}

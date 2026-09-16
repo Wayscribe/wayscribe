@@ -11,13 +11,24 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./fixtures/*.json": "./fixtures/*.json"
+    "./conformance": {
+      "development": "./src/conformance.ts",
+      "types": "./dist/conformance.d.ts",
+      "default": "./dist/conformance.js"
+    },
+    "./fixtures/*.json": "./fixtures/*.json",
+    "./schemas/*": "./schemas/*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "schemas": "pnpm run build && node scripts/write-schemas.mjs",
+    "conformance:manifest": "node scripts/write-manifest.mjs"
   },
   "dependencies": {
     "zod": "^4.6.4"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0"
   }
 }

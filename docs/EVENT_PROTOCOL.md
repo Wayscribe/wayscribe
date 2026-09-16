@@ -373,16 +373,17 @@ Breaking changes require a new `protocolVersion`.
 
 ## 12. Validation error format
 
-Protocol errors should use stable codes, for example:
+[`INGESTION_CONTRACT.md` section 4](INGESTION_CONTRACT.md) is normative and lists **every** refusal, with its HTTP status and whether a client should send the event again; that table is checked row by row against the code. Do not read the list below as the full set, which is what it used to look like: these are the six codes this document defines, the ones about the protocol itself, and ingestion sends seven more about limits, storage and the request.
 
 - `unsupported_protocol_version`
 - `invalid_event`
-- `missing_required_field`
 - `payload_too_large`
 - `unauthorized_environment`
-- `invalid_timestamp`
-- `invalid_operation`
 - `event_id_conflict`
 - `journey_environment_mismatch`: the journey id belongs to another environment; a journey cannot span environments
+
+This list once also carried `missing_required_field`, `invalid_timestamp` and `invalid_operation`. No code path ever sent them: a missing field, an unparseable timestamp and an operation outside the eleven are all `invalid_event`, with the failing field in `details`. They were removed rather than reserved (ADR-049). Another implementation of this protocol reports those conditions as `invalid_event` too.
+
+A client treats a code it does not recognize by its HTTP status, so a code added later is a compatible change.
 
 The full API error shape is documented in `API_SPEC.md`.

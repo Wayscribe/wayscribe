@@ -21,7 +21,9 @@
     "undici": "^8.10.2"
   },
   "devDependencies": {
+    "@flight-recorder/node": "workspace:*",
     "@testcontainers/postgresql": "^11.14.0",
+    "ajv": "^8.20.0",
     "tsx": "^4.23.13"
   }
 }

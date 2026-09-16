@@ -64,7 +64,7 @@ Use TypeScript for the API, web interface, protocol package, SDK, demo services,
 
 - Shared Zod schemas and types are practical.
 - Python support is deferred to a later SDK.
-- Language-neutral protocol design is still required.
+- Language-neutral protocol design is still required. Satisfied by ADR-049.
 
 ---
 
@@ -190,7 +190,9 @@ Events must carry a journey ID or an explicit alias relationship.
 
 ## ADR-010: OpenTelemetry is optional interoperability
 
-**Status:** Accepted
+**Status:** Accepted. ADR-049 amends its wording on OTLP ingestion and not its principle: accepting
+OpenTelemetry log records becomes a planned optional path, and no deployment requires
+OpenTelemetry.
 
 ### Context
 
@@ -1869,3 +1871,181 @@ is of the event as received, which is not stored.
   per guess rather than one hash, and needs a credential that can already write events.
 - One HMAC per ingested event, and a second only when an id already exists. The cost is the same
   order as the SHA-256 it replaces.
+
+---
+
+## ADR-049: The contract is the deliverable, and a second SDK waits for a team that needs one
+
+**Status:** Accepted. Amends the wording of ADR-010 on OTLP ingestion, not its principle.
+
+### Context
+
+ADR-003 chose TypeScript across V0 and left "language-neutral protocol design is still required"
+as a consequence nobody has since had to satisfy. `AGENTS.md` bans a native SDK in another
+language without an architecture decision. ADR-010 keeps OpenTelemetry optional and says V0 will
+not implement an OTLP receiver.
+
+Today the contract exists only as TypeScript. `packages/protocol` holds the Zod schemas,
+`apps/api` holds the ingestion rules in code, and `docs/NODE_SDK_SPEC.md` describes one SDK in
+the language it is written in. Somebody writing a recorder in another language, or a mapping from
+OpenTelemetry log records, has nothing to build against and no way to check the result. The
+product now needs teams that are not this repository to be able to send events, and the cheapest
+thing that makes that true is not a second SDK.
+
+### Decision
+
+Publish the contract as artefacts an author outside TypeScript can use: JSON Schema generated
+from the Zod schemas, an HTTP ingestion contract in `docs/INGESTION_CONTRACT.md`, a
+language-neutral SDK specification in `docs/SDK_SPEC.md` with MUST and SHOULD requirements, a
+dry-run validation endpoint, and conformance fixtures under `packages/protocol/conformance/` that
+any implementation can run through it.
+
+Zod stays the source of truth. The JSON Schema is generated and checked for drift, never
+hand-edited.
+
+OpenTelemetry log records over OTLP HTTP become a planned optional ingestion path rather than
+something V0 refuses. That amends ADR-010 in wording and not in principle: no deployment of this
+product requires OpenTelemetry, and the Node SDK stays the recommended path for Node.
+
+Framework adapters are separate packages over the SDK's public API. A second native SDK is built
+when a pilot team needs one, against `docs/SDK_SPEC.md`, and it is not considered done until it
+passes the conformance fixtures through the dry run.
+
+### Also decided here, because the contract cannot be published while it is ambiguous
+
+`AGENTS.md` said unknown protocol fields "must be preserved where safe". Ingestion accepts them,
+drops them, and does not include them in the content hash, because there is no column to store
+them in and an unvalidated, unredacted field is not something to write to one. The rule means
+"accepted, not refused", which is what makes an additive optional field a compatible change. The
+`AGENTS.md` line is reworded to say so. Storing them would be a schema change and its own
+decision.
+
+Three codes in `PROTOCOL_ERROR_CODES` are removed rather than reserved:
+`missing_required_field`, `invalid_timestamp` and `invalid_operation`. No code path has ever
+emitted them; every one of those conditions is reported as `invalid_event` with the failing field
+in `details`. A published registry that lists codes no implementation sends would tell the author
+of a second SDK to branch on something that never arrives. Removing them is free while nothing is
+published. The contract instead tells a client to treat any code it does not know by its status,
+so adding a code later stays a compatible change.
+
+### Consequences
+
+- Contract artefacts become things that can rot, so each carries a test that fails when it
+  drifts: schema drift against the committed files, Zod against Ajv over every fixture, the
+  documented limits against the constants, the documented refusals against the code registry, and
+  fixtures that run against the real API.
+- A conformance fixture change is a contract change and is reviewed as one.
+- The dry run is a new refusal path that leaves no row behind, which is a small new disclosure
+  surface. Its own decision is ADR-050.
+- Wire identifiers are not frozen by this decision. The propagation specification and its test
+  vectors, and the OTLP attribute mapping, wait for the rename, because every requirement in them
+  is a name the rename changes.
+
+### Rejected
+
+- **A native SDK per language.** The cost of the Node SDK's Phases 3 and 4 each time, plus
+  maintenance forever, for a language nobody has asked for yet.
+- **Becoming a pure OpenTelemetry backend.** The input and output pairing the payload diff
+  depends on becomes a convention nobody enforces, and it is a pivot before any user asked for
+  one.
+
+---
+
+## ADR-050: A dry run is a real ingestion that is rolled back
+
+**Status:** Accepted. Follows ADR-049, which makes the contract the deliverable.
+
+### Context
+
+ADR-049 publishes conformance fixtures so that an implementation that is not this
+repository can check itself against the real server. Running them means sending events, and
+sending events means storing them: a conformance suite that sends refusals on purpose would
+leave a trail of journeys in whatever database it ran against, and a mapping under development
+would pollute the environment it was being developed against.
+
+A validation endpoint that answered from a second implementation of the rules would be worse
+than none. It would answer confidently about a server that behaves differently, and the first
+divergence would be invisible.
+
+### Decision
+
+`POST /v1/events/batch?dryRun=true` runs the whole batch inside one transaction, each event
+through the same `ingestEvent` inside a savepoint, and rolls the transaction back before
+replying. It answers `200`, not `202`, because nothing was accepted for processing, and its
+body is a batch response with `data.dryRun: true`.
+
+An accepted, non-duplicate result carries `stored`: the event as `GET /v1/events/:eventId`
+returns it, without `receivedAt`, and the journey as `GET /v1/journeys/:journeyId` returns it,
+both read inside the transaction through the same repository functions and the same presenters
+the read routes use. That is what lets a fixture state an expected stored event against a shape
+the API already publishes rather than against a private representation.
+
+The flag is a query parameter rather than a body field, so a conformance case's body is the
+same bytes whether it is sent for real or validated. It is strictly `true` or `false`, given
+once; anything else is `400 invalid_query`. `POST /v1/events` refuses the parameter entirely,
+rather than ignoring it, because a client that guessed the wrong route would otherwise store
+real events while believing it had validated them.
+
+### Why a rolled-back real ingestion, and not the alternatives
+
+- **A separate validation path** would have to reimplement PostgreSQL's rules. Only the insert
+  discovers `unstorable_payload`: a NUL byte and an unpaired surrogate are refused by the
+  database, not by any check in front of it. It would also have to guess at what `jsonb`
+  normalizes, since key order and duplicate keys are settled by the database.
+- **Per-event isolation without a shared outer transaction** would answer ordering wrong. The
+  same event id twice in one batch is an accept and a duplicate, and a journey created by the
+  first event is what the second event is checked against.
+- This is the property ADR-045 chose for the deletion dry runs, for the same reason: they read
+  through the same selection the deletion uses.
+
+### Bookkeeping
+
+A dry run updates the key's `last_used_at`, under the same once-a-minute throttle, and a key
+whose verifier is under the previous key is still migrated onto the current one. Both answer
+"is this key in use", and a key used only by a conformance job in CI is in use: leaving it
+stale would invite an operator to revoke the key CI depends on, and skipping the migration
+would leave that key failing once a rotation's grace period ended. Those two writes are about
+the key rather than about the events. "Nothing is stored" here means no event, journey, alias,
+summary or audit row.
+
+Dry-run events are not counted in the ingested-events counter, because an operator alerting on
+rejected events must not be paged by a conformance suite that sends refusals on purpose. No new
+metric is added: a counter's name would carry the product name this work must not freeze, and a
+count of validations is not something to alert on. HTTP request metrics count the request as
+usual.
+
+One line is logged per dry-run request at info level, with the request id, the API key's row id
+and the counts of events, accepted and rejected. No values and no ids from the events.
+
+### Cost, and rate of use
+
+No separate rate limit and no separate body or batch limit. Ingestion has none today, and
+inventing one only for the dry run would be a control in the wrong place. A dry run costs what a
+real send costs plus the rollback, and it holds its row locks for the length of the batch rather
+than the length of one event, so a conformance run should use its own environment and its own
+journey ids rather than journeys a live service is writing to. An SDK must not use it in normal
+operation; it is for conformance suites, for a setup check, and for a mapping under development.
+
+### Security consequences
+
+- **It is a probe that leaves no row.** Testing whether an event id or a journey id exists means
+  sending an event today, and a wrong guess stores a journey somebody can see. A dry run answers
+  `event_id_conflict` or `journey_environment_mismatch` without writing anything. It needs an
+  ingest key for the project, it cannot read any value back beyond what the caller sent, and
+  journey ids are random so they cannot be guessed (ADR-038). The info log line is the
+  compensating trace.
+- **The online confirmation oracle of ADR-048 is unchanged in kind.** Somebody holding an ingest
+  key and database read access can already confirm a guess at a masked value by resending a
+  rebuilt event. The dry run makes that quieter, not cheaper, and it is one request per guess
+  either way.
+- **The preview returns only what the caller sent**, after this installation's own capture,
+  redaction and masking, to the key that sent it. It does disclose the shape of the environment's
+  redaction policy, which the caller can already infer by sending an event and reading it back.
+- **The transaction holds its locks longer, and the cost falls on somebody else.** A batch of a
+  hundred events holds every row it touched until the rollback, where a real send releases each
+  after its own event. A real ingestion contending for one of those rows waits, and is cancelled
+  by `DATABASE_STATEMENT_TIMEOUT_MS` if it waits too long; it is answered `503 query_timeout`,
+  which a client treats as transient and retries, so nothing is lost. But a dry run is a request
+  anybody holding an ingest key can make, and this is the one way it can affect a live service
+  rather than only its own transaction. The contract says so, and says to use a separate
+  environment and separate journey ids for a conformance run.

@@ -301,7 +301,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 48 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 50 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -472,9 +472,11 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Local development](docs/LOCAL_DEVELOPMENT.md) | Setup, commands, keys, troubleshooting |
 | [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention, deleting data, `doctor`, metrics |
 | [Node SDK](packages/sdk-node/README.md) | The SDK's full surface |
+| [SDK specification](docs/SDK_SPEC.md) | What a recorder in any language must do, as numbered requirements with a source for each |
 | [Demo scenario](docs/DEMO_SCENARIO.md) | The reference journey, end to end |
 | [Architecture](docs/ARCHITECTURE.md) | Components, flows, boundaries, scaling path |
 | [Event protocol](docs/EVENT_PROTOCOL.md) | The journey event contract |
+| [Ingestion contract](docs/INGESTION_CONTRACT.md) | Normative for the two ingestion routes: limits, refusals, idempotency, the dry run, and the conformance case format |
 | [API specification](docs/API_SPEC.md) | HTTP API contracts |
 | [Database schema](docs/DATABASE_SCHEMA.md) | Tables, indexes, constraints, retention |
 | [Replay specification](docs/REPLAY_SPEC.md) | Replay rules and safeguards |

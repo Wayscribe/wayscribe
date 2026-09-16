@@ -1,4 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { buildJsonSchemas } from "@flight-recorder/protocol";
+import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
 import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
@@ -402,6 +404,290 @@ describe("event ingestion", () => {
 
       const body = JSON.stringify(response.json());
       expect(body).not.toMatch(/"22P05"|"22021"/);
+    });
+  });
+
+  describe("a __proto__ key the sender wrote, end to end", () => {
+    /**
+     * Sent as raw bytes, and every expectation read back out of PostgreSQL.
+     *
+     * An object literal with `__proto__:` sets the prototype and never creates
+     * an own key, so a test written that way would send nothing at all and
+     * pass against the defect. This is the shape a webhook body actually has.
+     */
+    const rawEnvelope = String.raw`{"protocolVersion":"0.1","event":{"id":"evt_proto","journeyId":"jrn_proto","environment":"development","service":"customer-integration","entity":{"type":"customer","id":"0018Z00002ABC"},"operation":"transformed","name":"transform-salesforce-account","timestamp":"2026-08-06T18:31:04.120Z","aliases":{"__proto__":"alias-under-proto","salesforceAccountId":"0018Z00002ABC"},"metadata":{"__proto__":"metadata-under-proto","attempt":"1"},"input":{"__proto__":"input-under-proto","phone":"+1 919 555 1234"}}}`;
+
+    /** The stored row, with the three jsonb columns these tests read. */
+    interface StoredRow {
+      custom_metadata: Record<string, unknown>;
+      input_payload: Record<string, unknown>;
+    }
+
+    const row = async (): Promise<StoredRow> => {
+      const found: unknown = await db("journey_events")
+        .where({ project_id: projectId, id: "evt_proto" })
+        .first();
+      expect(found, "the event was not stored").toBeDefined();
+      return found as StoredRow;
+    };
+
+    beforeAll(async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        payload: rawEnvelope
+      });
+      expect(response.statusCode, response.body).toBe(202);
+    });
+
+    it("stores it in custom_metadata, beside the ordinary key", async () => {
+      // jsonb is where the key had to survive, and the driver parses it back
+      // with JSON.parse, which makes it an own key again.
+      const stored = await row();
+      expect(Object.hasOwn(stored.custom_metadata, "__proto__")).toBe(true);
+      expect(JSON.stringify(stored.custom_metadata)).toContain(
+        '"__proto__":"metadata-under-proto"'
+      );
+      // The neighbour, so a fix that kept the key and lost everything else fails.
+      expect(stored.custom_metadata.attempt).toBe("1");
+    });
+
+    it("stores it in the input payload, beside the ordinary key", async () => {
+      const stored = await row();
+      expect(JSON.stringify(stored.input_payload)).toContain('"__proto__":"input-under-proto"');
+      expect(stored.input_payload.phone).toBe("+1 919 555 1234");
+    });
+
+    it("stores it as an alias type, beside the ordinary alias", async () => {
+      const aliases: { alias_type: string }[] = await db("entity_aliases")
+        .where({ project_id: projectId, journey_id: "jrn_proto" })
+        .select("alias_type");
+      expect(aliases.map((alias) => alias.alias_type).sort()).toEqual([
+        "__proto__",
+        "salesforceAccountId"
+      ]);
+    });
+
+    it("is still there when the API reads the event back", async () => {
+      // Stored is not enough if the read path or Fastify's serializer spends
+      // the key on a prototype on the way out. Asserted on the reply's bytes.
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/events/evt_proto",
+        headers: { authorization: `Bearer ${apiKey}` }
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.body).toContain('"__proto__":"metadata-under-proto"');
+      expect(response.body).toContain('"__proto__":"input-under-proto"');
+      expect(response.json().data.customMetadata.attempt).toBe("1");
+    });
+
+    it("refuses an alias __proto__ whose value is not a string", async () => {
+      // z.record does not validate this key's value at all, so restoring it
+      // unchecked would put a value the schema refuses into a field that
+      // encryption and the search token both expect to be a string.
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        payload: String.raw`{"protocolVersion":"0.1","event":{"id":"evt_proto_bad","journeyId":"jrn_proto_bad","environment":"development","service":"customer-integration","entity":{"type":"customer","id":"1"},"operation":"received","name":"n","timestamp":"2026-08-06T18:31:04.120Z","aliases":{"__proto__":{"nested":true}}}}`
+      });
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error.code).toBe("invalid_event");
+
+      const stored = await db("journey_events")
+        .where({ project_id: projectId, id: "evt_proto_bad" })
+        .first();
+      expect(stored).toBeUndefined();
+    });
+  });
+
+  describe("a content type the framework parses but this API cannot use", () => {
+    /**
+     * `text/plain` is not a 415.
+     *
+     * The framework has a parser for it, so the body arrives as a string, and a
+     * string is not an envelope: both routes answer `400 invalid_event`. The
+     * ingestion contract section 2 says so, under the refusals that do not look
+     * like the rest, and this is what keeps that sentence true. The 415 is for
+     * a content type with no parser at all.
+     *
+     * Here rather than in `app.test.ts` because it needs a key that resolves:
+     * with a stub database the request gets past the parser and then fails the
+     * lookup, which proves nothing about the parser.
+     */
+    it.each(["/v1/events", "/v1/events/batch"])("%s answers 400 invalid_event", async (url) => {
+      const response = await app.inject({
+        method: "POST",
+        url,
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "text/plain" },
+        payload: JSON.stringify(event({ id: "evt_plain", journeyId: "jrn_plain" }))
+      });
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error.code).toBe("invalid_event");
+    });
+
+    it("is a 415 when nothing can parse the type at all", async () => {
+      // The control, so the case above is about the parser rather than about
+      // any unusual content type being refused.
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/vnd.api+json"
+        },
+        payload: "{}"
+      });
+      expect(response.statusCode).toBe(415);
+      expect(response.json().error.code).toBe("unsupported_media_type");
+    });
+  });
+
+  describe("what the routes send, against the generated JSON Schema", () => {
+    /**
+     * The published schemas for the response shapes describe what the API
+     * already sends, and nothing checked that until now. A hand-written schema
+     * for a response is a second source of truth that drifts; this is the check
+     * that stops it.
+     *
+     * Ajv reads the generated files exactly as a client in another language
+     * would, `$ref` resolution by sibling basename included.
+     */
+    const ajv = new Ajv2020({ strict: true, allErrors: true, validateFormats: false });
+    const schemas = buildJsonSchemas();
+    for (const name of ["event", "stored-event", "stored-journey", "event-result"]) {
+      ajv.addSchema(schemas[name] ?? {});
+    }
+    const batchResponse = ajv.compile(schemas["batch-response"] ?? {});
+    const errorBody = ajv.compile(schemas["error-body"] ?? {});
+    const eventAccepted = ajv.compile(schemas["event-accepted"] ?? {});
+
+    const against = (validate: ValidateFunction, body: unknown, what: string): void => {
+      expect(validate(body), `${what}: ${ajv.errorsText(validate.errors)}`).toBe(true);
+    };
+
+    const batch = (events: unknown[]) =>
+      app.inject({
+        method: "POST",
+        url: "/v1/events/batch",
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: { events } as object
+      });
+
+    it("validates the 202 of an accepted single event", async () => {
+      const response = await send(event({ id: "evt_schema_single", journeyId: "jrn_schema" }));
+      expect(response.statusCode, response.body).toBe(202);
+      against(eventAccepted, response.json(), "single-event 202");
+    });
+
+    it("validates a batch carrying an accept, a duplicate and a rejection at once", async () => {
+      const response = await batch([
+        event({ id: "evt_schema_batch", journeyId: "jrn_schema" }),
+        // The same event again, which is a duplicate in the same request.
+        event({ id: "evt_schema_batch", journeyId: "jrn_schema" }),
+        { protocolVersion: "0.1", event: { id: "evt_schema_bad" } }
+      ]);
+      expect(response.statusCode, response.body).toBe(202);
+      const results = response.json().data.results;
+      // The three shapes the schema has to cover, so a pass is not vacuous.
+      expect(results[0].status).toBe("accepted");
+      expect(results[1].duplicate).toBe(true);
+      expect(results[2].error.code).toBe("invalid_event");
+      expect(results[2].error.details.length).toBeGreaterThan(0);
+      against(batchResponse, response.json(), "batch 202");
+    });
+
+    it.each([
+      ["a body with no events array", { notEvents: [] }, "invalid_event"],
+      [
+        "a batch over the ceiling",
+        { events: Array.from({ length: 101 }, () => event()) },
+        "payload_too_large"
+      ]
+    ])("validates the error body of %s", async (_what, payload, code) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events/batch",
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: payload as object
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe(code);
+      against(errorBody, response.json(), "whole-request refusal");
+    });
+
+    it("validates the error body of a refused credential", async () => {
+      const response = await send(event({ id: "evt_schema_401" }), "fr_not_a_key");
+      expect(response.statusCode).toBe(401);
+      against(errorBody, response.json(), "401");
+    });
+
+    it("validates the error body of a conflict", async () => {
+      const response = await send(
+        event({ id: "evt_schema_single", journeyId: "jrn_schema", name: "changed" })
+      );
+      expect(response.statusCode).toBe(409);
+      against(errorBody, response.json(), "409");
+    });
+
+    it("refuses a response the schema does not describe", () => {
+      // The control. Every assertion above would pass against a validator that
+      // approves anything, which is exactly what a schema with a typo becomes.
+      expect(batchResponse({ data: { results: [{ status: "maybe" }] } })).toBe(false);
+      expect(errorBody({ error: { code: "x" } })).toBe(false);
+    });
+
+    describe("the batch request corpus the protocol package pins", () => {
+      // packages/protocol/src/ingestion.test.ts asserts that the Zod schema and
+      // the generated one agree about each of these. This is the third party to
+      // that agreement: what the route actually answers.
+      it.each([
+        ["zero events", [], 202],
+        ["one event", [event({ id: "evt_corpus_1", journeyId: "jrn_corpus" })], 202],
+        ["one hundred and one events", Array.from({ length: 101 }, () => event()), 400]
+      ])("%s", async (_name, events, status) => {
+        const response = await batch(events);
+        expect(response.statusCode, response.body).toBe(status);
+      });
+
+      it("one hundred events", async () => {
+        const response = await batch(
+          Array.from({ length: 100 }, (_unused, index) =>
+            event({ id: `evt_corpus_100_${String(index)}`, journeyId: "jrn_corpus_100" })
+          )
+        );
+        expect(response.statusCode, response.body).toBe(202);
+        expect(response.json().data.results.length).toBe(100);
+      });
+
+      it("an unknown extra field beside events is ignored", async () => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/events/batch",
+          headers: { authorization: `Bearer ${apiKey}` },
+          payload: {
+            events: [event({ id: "evt_corpus_extra", journeyId: "jrn_corpus" })],
+            tenantRegion: "eu-west-1"
+          } as object
+        });
+        expect(response.statusCode, response.body).toBe(202);
+      });
+
+      it.each([
+        ["events is not an array", { events: "one" }],
+        ["a null body", null]
+      ])("%s is a whole-request refusal", async (_name, payload) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/events/batch",
+          headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+          payload: payload === null ? "null" : payload
+        });
+        expect(response.statusCode, response.body).toBe(400);
+        expect(response.json().error.code).toBe("invalid_event");
+      });
     });
   });
 });

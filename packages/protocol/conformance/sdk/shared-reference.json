@@ -1,0 +1,43 @@
+{
+  "id": "sdk/shared-reference",
+  "title": "The same object in two places is expanded twice",
+  "source": "packages/sdk-node/README.md value table; ADR-034",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "shipTo": {
+            "city": "Durham"
+          },
+          "billTo": {
+            "$ref": "#/input/shipTo"
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "received",
+      "input": {
+        "shipTo": {
+          "city": "Durham"
+        },
+        "billTo": {
+          "city": "Durham"
+        }
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

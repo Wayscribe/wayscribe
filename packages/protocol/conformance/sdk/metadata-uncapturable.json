@@ -1,0 +1,42 @@
+{
+  "id": "sdk/metadata-uncapturable",
+  "title": "Metadata the recorder cannot read is omitted, and the event is still sent",
+  "source": "ADR-034",
+  "layer": "sdk",
+  "languages": ["node"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "metadata": {
+          "tenant": "acme",
+          "broken": {
+            "$throwingGetter": "no reading this"
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "received",
+      "name": "receive-order",
+      "metadata": {
+        "$absent": true
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "customMetadata": null
+          }
+        }
+      }
+    ]
+  }
+}

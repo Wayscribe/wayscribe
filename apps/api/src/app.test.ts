@@ -30,24 +30,100 @@ describe("error envelope", () => {
     // Without setErrorHandler this comes back in Fastify's own shape and a
     // client reading error.code finds nothing.
     const body = response.json<{ error: { code: string; requestId: string } }>();
-    expect(body.error.code).toBe("FST_ERR_CTP_BODY_TOO_LARGE");
+    expect(body.error.code).toBe("payload_too_large");
     expect(body.error.requestId).toBeTypeOf("string");
     await app.close();
   });
+});
 
-  it("wraps malformed JSON in the same shape", async () => {
-    const app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+/**
+ * The refusals that happen before a route runs, in codes this API owns.
+ *
+ * They used to carry Fastify's own: `FST_ERR_CTP_BODY_TOO_LARGE`,
+ * `FST_ERR_CTP_INVALID_MEDIA_TYPE`, `FST_ERR_CTP_INVALID_JSON_BODY` and
+ * `FST_ERR_CTP_EMPTY_JSON_BODY`. Publishing the framework's vocabulary in a
+ * contract another implementation is meant to satisfy says that swapping the
+ * web framework is a wire change, and tells the author of a second client to
+ * branch on a string that means nothing outside Node. The statuses are
+ * unchanged, and they are still what a client should branch on.
+ */
+describe("transport refusals, on both ingestion routes", () => {
+  const routes = ["/v1/events", "/v1/events/batch"];
+
+  const refuse = async (
+    url: string,
+    headers: Record<string, string>,
+    payload: string,
+    bodyLimit?: number
+  ): Promise<{ statusCode: number; code: string; message: string }> => {
+    const app = buildApp({
+      db,
+      keyring,
+      adminToken: ADMIN_TOKEN,
+      logLevel: "silent",
+      ...(bodyLimit === undefined ? {} : { bodyLimit })
+    });
     const response = await app.inject({
       method: "POST",
-      url: "/v1/events",
-      headers: { authorization: "Bearer irrelevant", "content-type": "application/json" },
-      payload: "{not json"
+      url,
+      headers: { authorization: "Bearer irrelevant", ...headers },
+      payload
     });
-
-    expect(response.statusCode).toBe(400);
-    const body = response.json<{ error: { code: string } }>();
-    expect(body.error.code).toBeTypeOf("string");
     await app.close();
+    const body = response.json<{ error: { code: string; message: string } }>();
+    return { statusCode: response.statusCode, code: body.error.code, message: body.error.message };
+  };
+
+  it.each(routes)("%s answers 413 payload_too_large for an oversize body", async (url) => {
+    const result = await refuse(
+      url,
+      { "content-type": "application/json" },
+      JSON.stringify({ padding: "x".repeat(4096) }),
+      128
+    );
+    expect(result.statusCode).toBe(413);
+    expect(result.code).toBe("payload_too_large");
+    expect(result.message).not.toContain("FST_ERR");
+  });
+
+  it.each(routes)(
+    "%s answers 415 unsupported_media_type for a type with no parser",
+    async (url) => {
+      const result = await refuse(url, { "content-type": "application/vnd.api+json" }, "{}");
+      expect(result.statusCode).toBe(415);
+      expect(result.code).toBe("unsupported_media_type");
+    }
+  );
+
+  it.each(routes)("%s answers 400 malformed_json for a body that is not JSON", async (url) => {
+    const result = await refuse(url, { "content-type": "application/json" }, "{not json");
+    expect(result.statusCode).toBe(400);
+    expect(result.code).toBe("malformed_json");
+  });
+
+  it.each(routes)("%s answers 400 malformed_json for an empty body", async (url) => {
+    // Fastify tells these two apart and this API does not: both mean the body
+    // could not be read as JSON, both are a 400, and the message says which.
+    const result = await refuse(url, { "content-type": "application/json" }, "");
+    expect(result.statusCode).toBe(400);
+    expect(result.code).toBe("malformed_json");
+  });
+
+  it("publishes no FST_ERR code from any of them", async () => {
+    // The control. Each assertion above names one code; this one fails if a
+    // fifth refusal appears that nobody mapped.
+    for (const url of routes) {
+      for (const [headers, payload, limit] of [
+        [{ "content-type": "application/json" }, JSON.stringify({ p: "x".repeat(4096) }), 128],
+        [{ "content-type": "application/vnd.api+json" }, "{}", undefined],
+        [{ "content-type": "application/json" }, "{not json", undefined],
+        [{ "content-type": "application/json" }, "", undefined],
+        [{}, "hello", undefined]
+      ] as [Record<string, string>, string, number | undefined][]) {
+        const result = await refuse(url, headers, payload, limit);
+        expect(result.code, `${url} with ${JSON.stringify(headers)}`).not.toMatch(/^FST_ERR/);
+      }
+    }
   });
 });
 
@@ -439,5 +515,78 @@ describe("a request too malformed for HTTP", () => {
     expect(written).not.toContain(VALUE);
     expect(written).not.toContain("rawPacket");
     await app.close();
+  });
+});
+
+describe("keys the JSON parser used to refuse the whole request for", () => {
+  /**
+   * Fastify parses bodies with `secure-json-parse`, whose defaults throw on
+   * `__proto__` and on `constructor.prototype` anywhere in the document. The
+   * request came back 400 `FST_ERR_CTP_INVALID_JSON_BODY` — "Body is not valid
+   * JSON" — about a body that is valid JSON.
+   *
+   * That collided with this product's own promise twice over. The Node SDK
+   * goes out of its way to keep a `__proto__` key
+   * (`packages/payload-security/src/storable.ts` writes it with `defineKey`),
+   * so a customer payload carrying one was serialized faithfully and then
+   * refused at the door, as a whole batch, with a 4xx the SDK treats as
+   * permanent: every event in it lost, for a key the recorder had deliberately
+   * preserved. And a tool whose promise is showing what the payload actually
+   * was cannot refuse the payload for containing a key.
+   *
+   * Turned off because the protection is against a pattern this code does not
+   * have. `JSON.parse` makes both keys ordinary own data properties and leaves
+   * the prototype alone; poisoning needs something that then writes an
+   * attacker-named key with `target[key] = value`, and every walk that rebuilds
+   * an object here uses `defineKey` or `Object.defineProperty` instead. One
+   * rebuild did still assign when this was written;
+   * `packages/payload-security/src/redact.test.ts` now sweeps every shape the
+   * server accepts rather than leaving that a claim.
+   */
+  const bodyWith = async (raw: string): Promise<{ statusCode: number; body: string }> => {
+    const app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/events",
+      headers: { authorization: "Bearer irrelevant", "content-type": "application/json" },
+      payload: raw
+    });
+    await app.close();
+    return { statusCode: response.statusCode, body: response.body };
+  };
+
+  /**
+   * Asserted as "the parser did not refuse it" rather than as one status.
+   * These requests carry no usable key and `db` here is a stub, so what they
+   * fail with afterwards is this file's fixture and not the contract. The end
+   * of the path is in `routes/events.integration.test.ts`, which sends the same
+   * keys against PostgreSQL and reads them back out of the row.
+   */
+  const parsed = (response: { statusCode: number; body: string }): void => {
+    expect(response.statusCode, response.body).not.toBe(400);
+    expect(response.body).not.toContain("not valid JSON");
+  };
+
+  it("reaches the route with a __proto__ key", async () => {
+    parsed(await bodyWith(String.raw`{"protocolVersion":"0.1","event":{"__proto__":1}}`));
+  });
+
+  it("reaches the route with a constructor.prototype key", async () => {
+    parsed(
+      await bodyWith(
+        String.raw`{"protocolVersion":"0.1","event":{"constructor":{"prototype":{"x":1}}}}`
+      )
+    );
+  });
+
+  it("does not let either key reach Object.prototype", async () => {
+    // The control. Parsing is safe on its own; what was unsafe was assigning
+    // the parsed keys onward, and nothing here does.
+    await bodyWith(String.raw`{"protocolVersion":"0.1","event":{"__proto__":{"injected":true}}}`);
+    await bodyWith(
+      String.raw`{"protocolVersion":"0.1","event":{"constructor":{"prototype":{"injected2":true}}}}`
+    );
+    expect(({} as Record<string, unknown>)["injected"]).toBeUndefined();
+    expect(({} as Record<string, unknown>)["injected2"]).toBeUndefined();
   });
 });

@@ -1,0 +1,16 @@
+{
+  "id": "wire/events-not-an-array",
+  "title": "A body whose events is not an array is refused as a whole request",
+  "source": "apps/api/src/routes/events.ts; docs/INGESTION_CONTRACT.md",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": "one"
+  },
+  "expect": {
+    "request": {
+      "status": 400,
+      "code": "invalid_event"
+    }
+  }
+}

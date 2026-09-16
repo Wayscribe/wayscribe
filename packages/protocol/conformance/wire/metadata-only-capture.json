@@ -1,0 +1,76 @@
+{
+  "id": "wire/metadata-only-capture",
+  "title": "Payloads are absent under metadata-only; metadata and aliases are still stored",
+  "source": "ADR-018; docs/SECURITY.md section 3",
+  "layer": "wire",
+  "languages": ["*"],
+  "setup": {
+    "environment": {
+      "captureMode": "metadata-only"
+    }
+  },
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "aliases": {
+            "salesforceAccountId": "0018Z00002ABC"
+          },
+          "metadata": {
+            "tenant": "acme",
+            "authorization": "Bearer cfx-fake-META"
+          },
+          "input": {
+            "phone": "+1 919 555 1234"
+          },
+          "output": {
+            "phone": null
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": null,
+            "outputPayload": null,
+            "payloadDiff": null,
+            "hasInput": false,
+            "hasOutput": false,
+            "customMetadata": {
+              "tenant": "acme",
+              "authorization": "[REDACTED]"
+            }
+          },
+          "journey": {
+            "aliases": [
+              {
+                "type": "salesforceAccountId",
+                "displayValue": {
+                  "$matches": "^0.*C$"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

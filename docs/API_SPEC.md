@@ -117,11 +117,10 @@ runs: an id that must be a uuid and is not (`404` in a path, `400
 invalid_request` in a body), a null byte in a path id (`404`), in a query
 parameter (`400 invalid_query`), in a cursor (`400 invalid_cursor`), or in a
 replay or destination field or an erasure value (`400 invalid_request`), and a
-missing body or a field of the wrong type (`400`). Ingestion is the exception:
-an event whose text PostgreSQL cannot store, a null byte or an unpaired
-surrogate, is refused only when the insert fails, as `400 unstorable_payload`,
-and nothing of it is stored (section 3). A `durationMs` above 2147483647 is
-`400 invalid_event`.
+missing body or a field of the wrong type (`400`). Ingestion is the exception, and its
+refusals are listed in [`INGESTION_CONTRACT.md`](INGESTION_CONTRACT.md) section
+4 rather than here: text PostgreSQL cannot store is discovered by the insert
+rather than by a check in front of it, so it is answered per event.
 
 A request that matches no route gets `404` with code `not_found`, in this shape.
 Its message names the method and path, never the query string or matrix
@@ -135,78 +134,9 @@ path parameter is longer than any id the API accepts. Neither quotes the URL.
 POST /v1/events
 ```
 
-Request:
-
-```json
-{
-  "protocolVersion": "0.1",
-  "event": {
-    "id": "evt_01",
-    "journeyId": "jrn_01",
-    "environment": "development",
-    "service": "customer-integration",
-    "entity": {
-      "type": "customer",
-      "id": "18492"
-    },
-    "operation": "received",
-    "name": "receive-salesforce-webhook",
-    "timestamp": "2026-08-06T18:31:02.000Z",
-    "aliases": {
-      "salesforceAccountId": "0018Z00002ABC"
-    }
-  }
-}
-```
-
-Accepted response:
-
-```json
-{
-  "data": {
-    "eventId": "evt_01",
-    "journeyId": "jrn_01",
-    "status": "accepted",
-    "duplicate": false
-  }
-}
-```
-
-Idempotent duplicate response:
-
-```json
-{
-  "data": {
-    "eventId": "evt_01",
-    "journeyId": "jrn_01",
-    "status": "accepted",
-    "duplicate": true
-  }
-}
-```
-
-Recommended status:
-
-```text
-202 Accepted
-```
-
-Validation errors use `400`. Authentication errors use `401` or `403`. An event
-whose text PostgreSQL cannot store, a NUL byte or an unpaired surrogate, is `400`
-`unstorable_payload`, as it is in a batch.
-
-Conflicts use `409`:
-
-| Code | When |
-| --- | --- |
-| `event_id_conflict` | the event id is already stored with different content |
-| `journey_environment_mismatch` | the journey id belongs to another environment of the project. A journey cannot span environments (ADR-038); nothing is stored for the event, and the message does not name the other environment |
-
-Because the environment that records a journey id first owns it, a caller that
-chooses journey ids must make them unpredictable: a key for another environment
-can record a guessable id first, and every event the owner later sends for it is
-refused with this code. A journey id propagated from a service in one environment
-to a service in another is refused the same way (`EVENT_PROTOCOL.md` §4).
+One envelope, `{ "protocolVersion": "0.1", "event": { … } }`, under an API key.
+An accepted event answers `202` with
+`{ "data": { "eventId", "journeyId", "status", "duplicate" } }`.
 
 ## 4. Ingest a batch
 
@@ -214,60 +144,18 @@ to a service in another is refused the same way (`EVENT_PROTOCOL.md` §4).
 POST /v1/events/batch
 ```
 
-Request:
+`{ "events": [ … ] }`, at most a hundred envelopes, under an API key. The
+response is `202` with one result per sent event, in order and matched by
+position, whether or not every event was accepted. Add `?dryRun=true` to
+validate the batch and roll it back without storing anything.
 
-```json
-{
-  "events": [
-    {
-      "protocolVersion": "0.1",
-      "event": {}
-    }
-  ]
-}
-```
-
-Response:
-
-```json
-{
-  "data": {
-    "results": [
-      {
-        "eventId": "evt_01",
-        "status": "accepted",
-        "duplicate": false
-      },
-      {
-        "eventId": null,
-        "status": "rejected",
-        "error": {
-          "code": "payload_too_large",
-          "message": "The event exceeded a configured limit.",
-          "httpStatus": 400
-        }
-      }
-    ]
-  }
-}
-```
-
-A partially invalid batch must not reject all valid events.
-
-A rejected result's `eventId` is always `null`, including when the event it
-refused had a readable id: an event that failed validation may have no id worth
-repeating. Results are in the order the events were sent, so match a result to
-its event by position. A result for a validation failure may also carry
-`error.details`, as the single-event route does.
-
-Each rejected result carries `error.httpStatus`, the status the same refusal
-would have from the single-event route. A 4xx is permanent: the event was
-understood and refused, and sending it again gets the same answer. A 5xx is
-transient: `query_timeout` (503, a statement ran past the timeout) and
-`storage_error` (500, the database failed to store it) say nothing about the
-event, so a client should send that event again later. Resending is safe,
-because an event id already stored with the same content is accepted as a
-duplicate.
+**[`INGESTION_CONTRACT.md`](INGESTION_CONTRACT.md) is normative for both
+routes** and is where a client author should start: the limits and their
+configuration names, every refusal code with its status and whether to retry it,
+idempotency and the content hash, what the server does to an accepted event, the
+dry run, and the conformance case format. It is the one file that owns
+ingestion, so that the two documents cannot answer the same question differently
+(ADR-049).
 
 ## 5. Search
 

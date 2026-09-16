@@ -157,9 +157,15 @@ a name in exactly these shapes, in the SDK and on the server alike:
 - **a name-value pair**: an array element that is itself a two-element array
   whose first item is a string, such as the `[["Authorization", "Bearer …"]]`
   header list fetch and undici accept. The second item is replaced.
-- **a name-value object**: an array element that is a plain object with exactly
-  the keys `name` and `value`, as in a HAR file, or `key` and `value`, as in
-  Playwright's `headersArray`, with a string name. `value` is replaced.
+- **a name-value object**: an array element that is a plain object carrying a
+  string `name`, as in a HAR file, or a string `key`, as in Playwright's
+  `headersArray`, beside a `value`. Only `value` is replaced; every other field
+  on the object is left as it is, however many there are. This once required
+  **exactly** those two keys, which meant a third key defeated the rule
+  completely: HAR's own header object allows a `comment`, and a client that adds
+  a `line` or an index does the same, so an entry carrying one was read as an
+  ordinary object, nothing on it was named a secret, and the credential was
+  stored in the clear.
 - **an interleaved header list**: a flat array of strings of even length whose
   every even-indexed item is a valid HTTP header name token or an HTTP/2
   pseudo-header (`:` followed by a token, such as `:path` or `:status`), and at

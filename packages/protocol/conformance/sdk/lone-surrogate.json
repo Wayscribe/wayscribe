@@ -1,0 +1,41 @@
+{
+  "id": "sdk/lone-surrogate",
+  "title": "Half an emoji left by slice() is repaired to U+FFFD before sending",
+  "source": "ADR-036; the wire case lone-surrogate-in-payload",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "emoji": {
+            "$utf16": [115, 108, 105, 99, 101, 100, 55296]
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "emoji": "sliced�"
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "emoji": "sliced�"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

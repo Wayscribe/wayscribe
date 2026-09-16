@@ -1,0 +1,50 @@
+{
+  "id": "sdk/raw-headers-http2",
+  "title": "The same, with HTTP/2 pseudo-headers in the list",
+  "source": "docs/SECURITY.md section 4",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "delivered",
+        "name": "deliver-to-target",
+        "input": {
+          "rawHeaders": [
+            ":method",
+            "POST",
+            ":authority",
+            "api.example.test",
+            "authorization",
+            "Bearer cfx-fake-sdk-RAW2",
+            "cookie",
+            "session=cfx-fake-sdk-RAW2C"
+          ]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "rawHeaders": [
+          ":method",
+          "POST",
+          ":authority",
+          "api.example.test",
+          "authorization",
+          "[REDACTED]",
+          "cookie",
+          "[REDACTED]"
+        ]
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

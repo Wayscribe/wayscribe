@@ -1,0 +1,51 @@
+{
+  "id": "wire/error-message-masked",
+  "title": "A connection string in error.message is masked, and type and code are untouched",
+  "source": "ADR-046",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "failed",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "error": {
+            "type": "ConnectionError",
+            "code": "ECONNREFUSED",
+            "message": "connect failed for postgres://app:cfx-fake-hunter2@db.internal:5432/app"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "error": {
+              "type": "ConnectionError",
+              "code": "ECONNREFUSED",
+              "message": {
+                "$matches": "^connect failed for .*REDACTED.*5432/app$"
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

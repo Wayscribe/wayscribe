@@ -52,6 +52,18 @@ export const deploymentSchema = z.object({
  */
 const isoTimestampSchema = z.iso.datetime({ offset: true });
 
+/**
+ * The key and value schemas of `aliases` and `metadata`, named rather than
+ * inlined.
+ *
+ * `parseEnvelope` has to validate one key itself, `__proto__`, which `z.record`
+ * neither validates nor keeps (see `proto-key.ts`), and a second copy of these
+ * rules written there would be the drift that hides the next defect.
+ */
+export const recordKeySchema = z.string().max(128);
+export const aliasValueSchema = z.string().max(512);
+export const metadataValueSchema = z.unknown();
+
 export const journeyEventSchema = z.object({
   id: z.string().min(1).max(128),
   journeyId: z.string().min(1).max(128),
@@ -65,7 +77,7 @@ export const journeyEventSchema = z.object({
   name: z.string().min(1).max(256),
   timestamp: isoTimestampSchema,
 
-  aliases: z.record(z.string().max(128), z.string().max(512)).optional(),
+  aliases: z.record(recordKeySchema, aliasValueSchema).optional(),
 
   // Stored in an int4 column. A larger value passed validation and failed the
   // insert, which a batch reported as a transient 500 the SDK resent.
@@ -83,7 +95,7 @@ export const journeyEventSchema = z.object({
   error: errorSchema.optional(),
   runtime: runtimeSchema.optional(),
   deployment: deploymentSchema.optional(),
-  metadata: z.record(z.string().max(128), z.unknown()).optional()
+  metadata: z.record(recordKeySchema, metadataValueSchema).optional()
 });
 
 export type JourneyEvent = z.infer<typeof journeyEventSchema>;

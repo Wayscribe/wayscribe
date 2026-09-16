@@ -1,0 +1,44 @@
+{
+  "id": "sdk/oversize-payload",
+  "title": "A payload over maxPayloadBytes becomes a marker, and the event is still sent",
+  "source": "ADR-034; packages/sdk-node/README.md value table",
+  "layer": "sdk",
+  "languages": ["*"],
+  "recorder": {
+    "maxPayloadBytes": 1024
+  },
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "padding": {
+            "$string": {
+              "char": "x",
+              "count": 4096
+            }
+          }
+        },
+        "metadata": {
+          "tenant": "acme"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": "[PAYLOAD_TOO_LARGE]",
+      "metadata": {
+        "tenant": "acme"
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

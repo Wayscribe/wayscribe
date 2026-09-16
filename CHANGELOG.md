@@ -15,6 +15,36 @@ changes far less often.
 
 ### Changed
 
+- **The refusals that happen before a route runs carry codes this API owns.**
+  A body over the limit was `413 FST_ERR_CTP_BODY_TOO_LARGE`, a content type
+  with no parser `415 FST_ERR_CTP_INVALID_MEDIA_TYPE`, and a body that is not
+  JSON or is empty `400 FST_ERR_CTP_INVALID_JSON_BODY` or
+  `FST_ERR_CTP_EMPTY_JSON_BODY`. Those are Fastify's vocabulary, and publishing
+  them in a contract another implementation is meant to satisfy says that
+  swapping the web framework is a wire change. They are now `payload_too_large`,
+  `unsupported_media_type` and `malformed_json` (which covers both 400s: both
+  mean the body could not be read, and the message says which). The HTTP
+  statuses and the error body are unchanged, and the status is still what a
+  client should branch on.
+- **Both ingestion routes refuse a query parameter they do not know**, with
+  `400 invalid_query` naming the key. `POST /v1/events` accepts none and
+  `POST /v1/events/batch` accepts only `dryRun`. `?dryrun=true` was previously
+  ignored and the batch stored, so a client believed it had validated events it
+  had in fact written, which is exactly what refusing `dryRun` on the
+  single-event route exists to prevent. Reading the name loosely would have
+  rescued `dryrun` and not `dryRum`, and nothing legitimate adds a query
+  parameter to ingestion. A client that appends one has to stop.
+- **Three protocol error codes are gone.** `missing_required_field`,
+  `invalid_timestamp` and `invalid_operation` were in the public list in
+  `packages/protocol` and in `EVENT_PROTOCOL.md` section 12, and no code path
+  ever sent one: a missing field, an unparseable timestamp and an operation
+  outside the eleven all come back as `invalid_event` with the failing field in
+  `details`. They are removed rather than reserved (ADR-049), because a registry
+  that lists codes nothing sends tells the author of a client to branch on
+  something that never arrives. Nothing observable on the wire changes. Code
+  that imported `PROTOCOL_ERROR_CODES.missingRequiredField`,
+  `.invalidTimestamp` or `.invalidOperation` no longer compiles; a client should
+  treat any code it does not recognize by its HTTP status instead.
 - **Bring your own database.** `DATABASE_URL` is required and points at the
   PostgreSQL your team already runs — the one somebody backs up, monitors, and
   can restore. The bundled database moves to
@@ -76,6 +106,52 @@ changes far less often.
 
 ### Added
 
+- **Dry-run validation.** `POST /v1/events/batch?dryRun=true` runs the whole
+  batch and rolls it back, answering `200` with `data.dryRun: true` and the same
+  per-event results a real send would have given. An accepted, non-duplicate
+  result also carries `stored`: the event as `GET /v1/events/:eventId` returns
+  it, without `receivedAt`, and the journey as `GET /v1/journeys/:journeyId`
+  returns it, both read inside the transaction through the same presenters the
+  read routes use. Nothing is written: no event, journey, alias, summary or
+  audit row. The key's `last_used_at` still moves and a verifier under the
+  previous key is still migrated, because a key a conformance job uses is a key
+  in use. Dry-run events are not counted in the ingested-events metric. The
+  parameter is strictly `true` or `false` and may be given once; anything else
+  is `400 invalid_query`, and `POST /v1/events` refuses it outright rather than
+  ignoring it, so a client that guessed the wrong route cannot store events
+  while believing it validated them (ADR-050).
+- **[`docs/SDK_SPEC.md`](docs/SDK_SPEC.md)**, what a recorder in any language
+  must do: fifty numbered requirements in RFC 2119 wording, each with a source
+  naming the decision or the document section it comes from, and each with
+  either the conformance case that checks it or a place in section 13, which
+  lists what no fixture can express and what a test for each has to do.
+  `docs/NODE_SDK_SPEC.md` keeps its path and becomes the Node appendix, and is
+  reconciled with what is actually built: the default batch size is 50 and not
+  20, the queue policy is drop-oldest only, and `maxConcurrentSends`,
+  `logDiagnostics`, `onDiagnostic` and `propagate` exist. It says nothing about
+  header, queue attribute or environment variable names, which the rename will
+  change; section 10 states only the propagation rules that survive it.
+- **Conformance fixtures**, under
+  [`packages/protocol/conformance/`](packages/protocol/conformance): thirty-seven
+  `wire` cases and twenty-two `sdk` cases that any implementation can run
+  through the dry run. A fixture change is a contract change (ADR-049).
+- **[`docs/INGESTION_CONTRACT.md`](docs/INGESTION_CONTRACT.md)**, normative for
+  the two ingestion routes and written for somebody building a client that is
+  not this repository's Node SDK: the routes and authentication, the refusals
+  that happen before a route runs, the limits with their configuration names and
+  defaults, every per-event refusal with its status and whether to retry it,
+  the two 409s, idempotency and the keyed content hash with its rotation
+  consequence, what the server does to an accepted event, the dry run, and the
+  conformance case format. Its limit table is asserted against the constants and
+  its refusal tables against a registry in `packages/protocol/src/errors.ts`, so
+  neither can drift. `API_SPEC.md` sections 3 and 4 are now a summary and a
+  link, so one file owns ingestion (ADR-049).
+- **Generated JSON Schema for the wire shapes**, under
+  `packages/protocol/schemas/0.1/`, exported from the package as `./schemas/*`.
+  Nine files in draft 2020-12, generated from the Zod schemas and checked byte
+  for byte by a unit test, covering the event, the envelope, the batch request
+  and response, one per-event verdict, the single-event 202, the error body, and
+  the stored event and journey a dry run previews (ADR-049).
 - **The SDK says when it is connected, when asked.** `logDiagnostics: true`
   writes each diagnostic to `console.error` as one `[flight-recorder]` line, at
   most one per kind per minute with a count of suppressed repeats, and a new
@@ -441,6 +517,42 @@ changes far less often.
 
 ### Fixed
 
+- **A header entry carrying a third field no longer hides a credential.**
+  Redaction read `{"name": "authorization", "value": "Bearer …"}` as a header
+  and replaced the value, but only when the object had *exactly* those two
+  keys. A third key made it an ordinary object: nothing on it is named a secret,
+  so `{"headers": [{"name": "authorization", "value": "Bearer …", "other": 1}]}`
+  was stored in the clear, in the SDK and at ingestion alike. HAR's own header
+  object allows a `comment` beside `name` and `value`, so this was a shape real
+  clients produce. The rule now applies to any plain object with a string `name`
+  or `key` beside a `value`; only the value is replaced and every other field is
+  kept. The protections that actually prevented false positives are unchanged:
+  the name must be a string, it must normalise to a name somebody called a
+  secret, and a value that is itself a known header name is still left alone, so
+  a list of header names is not rewritten. **Rows written before this are not
+  changed by it.** An installation that captured payloads in this shape should
+  treat those rows as holding the credential, rotate what they hold, and use
+  `delete:journey` or `delete:range` (ADR-045) to remove them; redaction is
+  applied on the way in and never rewrites history.
+- **A payload carrying a `__proto__` key is ingested instead of refused.** The
+  whole request came back `400` "Body is not valid JSON but content-type is set
+  to 'application/json'" about a body that is valid JSON, because Fastify parses
+  with `secure-json-parse`, whose defaults throw on `__proto__` and on
+  `constructor.prototype` anywhere in the document. The SDK preserves a
+  `__proto__` key on purpose, and treats a 4xx as permanent, so a customer
+  payload holding one cost the whole batch and was never resent. Both checks are
+  now off: the danger was never the parsing, which leaves the object's prototype
+  alone, but assigning a parsed key onward, and every walk here writes with
+  `Object.defineProperty` instead. `Object.prototype` is asserted untouched
+  after both bodies are ingested.
+- **`__proto__` survives parsing in `aliases` and in `metadata`.** Zod's
+  `z.record` assigns parsed keys onto a fresh object, so those two fields lost
+  theirs while `input` and `output` kept theirs, which is why a reader saw the
+  key in a payload and not in the alias it was filed under. The key is now
+  restored after parsing. `z.record` also does not validate that key's value:
+  an `aliases` entry of `{"__proto__": {"nested": true}}` used to parse
+  successfully, and is now refused as `invalid_event` like any other alias value
+  that is not a string.
 - **Two demo stacks with different `-p` names no longer share an image.** The
   demo services were tagged `flight-recorder-demo:local` whatever the project
   name, so a second checkout's build replaced the first's image. The tag now

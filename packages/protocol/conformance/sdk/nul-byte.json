@@ -1,0 +1,41 @@
+{
+  "id": "sdk/nul-byte",
+  "title": "A NUL byte is removed before sending, so the server never answers unstorable_payload",
+  "source": "ADR-036; docs/WHAT_RUNNING_IT_FOUND.md; the wire case of the same name",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-order",
+        "input": {
+          "name": {
+            "$utf16": [68, 97, 110, 97, 0]
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "name": "Dana"
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "name": "Dana"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
