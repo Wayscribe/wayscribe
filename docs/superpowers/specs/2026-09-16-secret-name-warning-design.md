@@ -35,7 +35,7 @@ client-safe `redaction` entry point so the SDK bundle can use it.
      `jwt`, `otp`, `cvv`, `cvc`, and the compound terms below);
    - a term with **exceptions** does not match when the name ends in one of
      the listed words followed by the term: `token` is not a secret after
-     `page`, `nextpage`, `next`, `continuation`, `pagination`, `sync`,
+     `page`, `next`, `continuation`, `pagination`, `sync`,
      `client` or `idempotency` (pagination and idempotency tokens), and
      `signature` is not after `email` (an email signature);
    - a **short term** matches only on its own or after a listed qualifier,
@@ -58,10 +58,12 @@ client-safe `redaction` entry point so the SDK bundle can use it.
    personal data such as `ssn` or `cardNumber`, which is a separate question
    from credentials.
 
-The table is fixed and small (about 45 terms), and each check is an
-`endsWith`, so the cost is linear in the name's length with a constant factor.
-There are no regular expressions over the name besides the version suffix,
-which is anchored. The result depends on the name alone.
+The table is fixed and small (41 terms). Terms are looked up by the name's
+last three characters, the length of the shortest term, and each candidate is
+an `endsWith`, so the cost is linear in the name's length with a small
+constant. The version suffix is found by a backward scan, not a regular
+expression, which would be quadratic on a long run of digits. The result
+depends on the name alone.
 
 ### Only a scalar is reported
 
@@ -82,7 +84,7 @@ clear.
 
 ### The table
 
-`secret-name.test.ts` holds at least 40 true and 40 false positives, drawn
+`secret-name.test.ts` holds 62 true and 70 false positives, drawn
 from Stripe, Salesforce, HubSpot, GitHub, AWS, OAuth and Slack payloads and
 headers, and a test that every built-in name is reported by the heuristic and
 never by the walk.
@@ -113,7 +115,7 @@ what it did.
 - **Once per distinct folded name**: reported once per recorder, printed once
   per process whatever `logDiagnostics` says (like SDK-56 and SDK-60), and with
   `logDiagnostics` on, printed through the ordinary line exempt from the rate
-  limit the first time, so a second name the same minute is not hidden. Both
+  limit, so a second name the same minute is not hidden. Both
   sets stop growing at 100 names, so a payload keyed by generated names cannot
   grow the host's memory.
 - **Counter** `unredactedSecretNames`: the distinct names this recorder
@@ -207,8 +209,9 @@ Revisit if a pilot team runs a non-Node sender and does not run doctor.
 ## 6. Conformance
 
 The case format gains an optional `expect.diagnostics`, a list of
-`{ "kind": "…", "detail": { … } }` an SDK must report, compared as a subset in
-order of first occurrence by kind. `sdk/unredacted-secret-name` records a
+`{ "kind": "…", "detail": { … } }` an SDK must report: of the diagnostics
+reported whose kind the list names, the kinds must equal the list's in order,
+and each `detail` is compared as `wire` is. `sdk/unredacted-secret-name` records a
 payload with `sessionCredential` and a nested `authToken`, expects both
 diagnostics, and expects the wire to carry both values unchanged beside a
 redacted `password`. The API's dry-run harness ignores the field.

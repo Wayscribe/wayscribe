@@ -71,6 +71,12 @@ export const recorder = createRecorder({
   logDiagnostics: false,
   onDiagnostic: undefined,
 
+  // Key names that look like secrets and are not. They silence the
+  // `unredacted_secret_name` warning, which is printed once per process and
+  // name even with logDiagnostics off, and never affect redaction (SDK-61,
+  // SDK-62, ADR-055).
+  knownSafeNames: [],
+
   // Three levels; the default is the middle one. SDK_SPEC.md section 10.
   propagate: "journey-and-type"
 });

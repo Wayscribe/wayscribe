@@ -360,12 +360,13 @@ no library. This one is built so that cannot happen:
   and `dropped` add up to the events recorded. A payload too large to capture
   is counted in `payloadsOmitted` instead, and one sent with a string cut in
   `payloadsTruncated`, because its event is still sent.
-- Nothing is written to your console unless you set `logDiagnostics`, with two
-  exceptions, each printed once per process: a `journeyIdSecret` that cannot
-  be used, and a required setting (`endpoint`, `apiKey`, `serviceName`,
+- Nothing is written to your console unless you set `logDiagnostics`, with
+  three exceptions, each printed once per process: a `journeyIdSecret` that
+  cannot be used; a required setting (`endpoint`, `apiKey`, `serviceName`,
   `environment`) that is missing or not a string, since nothing recorded
-  reaches the server until it is fixed. The line names the setting, never its
-  value. Pass `onDiagnostic` if you want to hear about failures in your own
+  reaches the server until it is fixed; and, once per name, a field whose name
+  looks like a secret that was sent in plain text. A line names the setting or
+  the field, never its value. Pass `onDiagnostic` if you want to hear about failures in your own
   logger.
 - A bad configuration value never stops your application starting. It is
   reported as a `configuration_error` and replaced by its default, or clamped
@@ -380,7 +381,8 @@ const recorder = createRecorder({
 
 const counters = await recorder.shutdown();
 // { dropped, rejected, transportErrors, captureErrors, breakerOpened,
-//   payloadsOmitted, payloadsTruncated, keysDropped, configurationErrors, sent }
+//   payloadsOmitted, payloadsTruncated, keysDropped, configurationErrors,
+//   unredactedSecretNames, sent }
 ```
 
 ## Is it sending?
@@ -454,6 +456,7 @@ change any counter.
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
 | `configuration_error` | a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`, or a configured setting could not be used; the call returned something safe | `configurationErrors` |
 | `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
+| `unredacted_secret_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; `detail` is `{ field, name, path }`, never the value; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `unredactedSecretNames`, per name |
 
 ### An endpoint that is not encrypted
 
@@ -606,6 +609,59 @@ and arrays of three or more elements.
 
 Matched values are replaced with `[REDACTED]` rather than deleted, so the
 timeline still shows that the field existed.
+
+### Names no rule covers
+
+Redaction goes by name, so a credential under a name neither list covers is
+sent in plain text: rename `authToken` to `sessionCredential` and it is. The SDK
+never redacts on a guess, because a guess would change what your diffs show.
+It tells you instead, once per name per process, whether or not
+`logDiagnostics` is on:
+
+```text
+[flight-recorder] unredacted_secret_name: A field named "sessionCredential" (at input.session.sessionCredential) looks like a secret and was sent unredacted. If it holds a secret, add "**.sessionCredential" to the redact option; if it does not, add "sessionCredential" to knownSafeNames. (printed once per process and name, whether or not logDiagnostics is on, because the value is stored in plain text)
+```
+
+The line and the diagnostic name the field and where it was, with array
+indices written `[*]`; they never include the value. The event is sent as it
+was.
+
+A name looks like a secret when it ends in a word such as `token`, `secret`,
+`password`, `credential`, `auth`, `cookie`, `signature`, `apiKey` or
+`privateKey`, with case, `-` and `_` ignored. Names that only start with one
+(`tokenCount`, `secretName`), pagination tokens (`nextPageToken`), and values
+that are objects, booleans or empty are left alone. The full rule is in
+[`SDK_SPEC.md`](../../docs/SDK_SPEC.md) section 13.
+
+**If it is a secret**, add a rule and the value is replaced from then on:
+
+```typescript
+createRecorder({
+  // ...
+  redact: ["**.sessionCredential"]
+});
+```
+
+Values already stored stay until they are deleted or expire;
+`docs/OPERATIONS.md` section 8 says how to delete them.
+
+**If it is not**, say so, and the warning stops:
+
+```typescript
+createRecorder({
+  // ...
+  knownSafeNames: ["sessionId"] // an analytics id, not a login session
+});
+```
+
+`knownSafeNames` takes plain key names, compared like redaction names, and
+changes nothing about redaction: a name on both lists is still redacted. An
+entry that is not a plain name, such as `a.b`, is ignored and reported as a
+`configuration_error`.
+
+The server has the same check for senders that are not this SDK: `doctor`
+samples recent stored payloads and lists the names it finds
+(`docs/OPERATIONS.md` section 12).
 
 ### Error messages
 
@@ -883,6 +939,7 @@ fleet against one instance. It is clamped to 1-16.
 | `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending) |
 | `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends) |
 | `journeyIdSecret` | — | at least 32 bytes; see [The same record, the same journey](#the-same-record-the-same-journey) |
+| `knownSafeNames` | `[]` | key names that look like secrets and are not; see [Names no rule covers](#names-no-rule-covers) |
 
 The SDK reads no environment variables. A library that changes behaviour based on
 ambient state is a library that behaves differently in your tests.

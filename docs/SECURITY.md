@@ -222,6 +222,46 @@ party` in text that happens to use CRLF line endings. Scope a rule with a dotted
 path in your own `redact` list if a name on the built-in list appears in such a
 place.
 
+### Names no rule covers
+
+Because a rule matches a name, a credential under a name that neither the
+built-in list nor an operator's rules name is stored in plain text. Renaming
+`authToken` to `sessionCredential` is enough. Nothing redacts such a value on a
+guess: a heuristic that replaced values would change what the timeline and its
+diffs show, which is the evidence this product exists to keep (ADR-055).
+Instead it is reported, in two places:
+
+- **The Node SDK**, as it records. When redaction keeps an object key whose
+  name looks like a secret, and the value is a non-empty string or a number,
+  the SDK reports `unredacted_secret_name` with the field, the key and its path
+  (array indices as `[*]`), never the value. It prints one line per process and
+  name even with debug output off, and sends the event unchanged (SDK-61).
+- **`doctor`**, for every sender, from what was stored. It samples the latest
+  events of the most recently active journeys and lists the secret-looking key
+  names that hold plain values, with how many sampled events hold each, and no
+  value (`OPERATIONS.md` §12).
+
+A name looks like a secret when its end, with case, `-`, `_` and a version
+suffix ignored, is one of a fixed list of terms such as `token`, `secret`,
+`password`, `credential`, `auth`, `cookie`, `signature`, `apikey` or
+`privatekey`; the full rule is in `SDK_SPEC.md` section 13. Names that only
+start with a term (`tokenCount`), pagination tokens (`nextPageToken`), objects,
+booleans and empty strings are not reported.
+
+What to do about a name reported:
+
+- **It holds a secret.** Add `**.<name>` to the SDK's `redact` option, or to the
+  environment's `redaction_paths` column for another sender, which the server
+  applies in every mode but effective full capture. New values are replaced from then on. Values already stored stay until
+  retention removes them or they are deleted (`OPERATIONS.md` §8).
+- **It does not.** Add the name to the SDK's `knownSafeNames`, which silences
+  the SDK's warning and changes nothing about redaction. `doctor` has no such
+  list: its check is a warning and never changes its exit code.
+
+The warning narrows the gap and does not close it. A credential under a name
+the rule does not know, such as `plaintext` or `connectionString`, is still
+stored and still unreported, and doctor reads a sample rather than every event.
+
 ### Credentials inside error text
 
 Path redaction matches the name a value is filed under, so it cannot reach a

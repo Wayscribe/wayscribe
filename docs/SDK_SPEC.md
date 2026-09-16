@@ -292,7 +292,7 @@ may differ; it should be able to say why.
 
 - **SDK-40.** An SDK MUST be silent by default. Debug output is opt-in. The
   exceptions are the warnings SDK-56 and SDK-60 allow, each at most once per
-  process.
+  process, and the one SDK-61 allows, at most once per process and name.
 - **SDK-41.** A printed diagnostic MUST NOT contain a payload, an API key, a
   message from the server, or the endpoint's path or query. A path or a query
   can carry a credential.
@@ -353,7 +353,8 @@ names carry the product's:
 | service | the name of the service doing the recording |
 | environment | which environment this process is |
 
-One more is optional: the **journey id secret**, used only by SDK-55.
+Two more are optional: the **journey id secret**, used only by SDK-55, and the
+**known-safe names**, used only by SDK-62.
 
 - **SDK-50.** An SDK SHOULD NOT read ambient environment variables of its own.
   The application decides where its configuration comes from.
@@ -510,6 +511,55 @@ A label is the journey's name on the Journeys page, where partial text finds it
 | --- | --- | --- |
 | SDK-60 | ADR-007; ADR-052; packages/sdk-node/src/config.ts | section 14 |
 
+### Secret-looking names no rule covers
+
+Redaction matches names, so a credential filed under a name neither the
+built-in list nor the operator's rules cover is sent in the clear. An SDK
+warns about it and never redacts on a guess, because a diff must not change on
+one (ADR-055).
+
+A name **looks like a secret** by this rule. An implementation reproduces it
+exactly, so that every SDK and `doctor` agree:
+
+1. Fold it as SDK-19 does: lower case, `-` and `_` removed.
+2. Drop trailing ASCII digits and, if any were dropped, one `v` before them.
+3. Its end matches one of these terms, and the name is either the term alone
+   or the term after any other characters:
+   `token` (except after `page`, `next`, `continuation`, `pagination`, `sync`,
+   `client` or `idempotency`), `secret`, `password`, `passwd`, `passphrase`,
+   `passcode`, `credential`, `credentials`, `authorization`, `auth`, `bearer`,
+   `cookie`, `cookies`, `signature` (except after `email`), `jwt`, `otp`,
+   `cvv`, `cvc`, `apikey`, `accesskey`, `secretkey`, `privatekey`,
+   `signingkey`, `encryptionkey`, `masterkey`, `sessionkey`, `authkey`,
+   `hmackey`, `sharedkey`, `sessionid`, `sessid`, `secretstring`,
+   `secretvalue`, `codeverifier`, `clientassertion`, `authcode`,
+   `authorizationcode`, `otpcode`, `mfacode`.
+4. Or its end is `pin`, alone or after `card`, `atm`, `user`, `account`,
+   `security`, `login`, `new`, `old` or `current`; or `pwd` after `db`,
+   `user`, `admin`, `root` or `database`, never alone.
+
+The table is `packages/payload-security/src/secret-name.ts`, and its test
+holds the names from real APIs it was checked against.
+
+- **SDK-61.** When an object key is kept by redaction, its name looks like a
+  secret, and its value is a non-empty string or a number other than the
+  redaction marker, an SDK SHOULD report it, naming the payload field, the key
+  and its path with every array index written `[*]`, and MUST NOT include the
+  value. It SHOULD report each folded name once per recorder, SHOULD print one
+  warning per process and name even when debug output is off, saying how to
+  cover the name with a redaction rule or mark it known-safe, and MUST send the
+  event unchanged. It SHOULD find these during the redaction walk rather than
+  in a second one, and SHOULD stop remembering names after a bound.
+- **SDK-62.** An SDK that implements SDK-61 SHOULD accept a list of plain key
+  names, compared as SDK-19 compares names, that it does not warn about. The
+  list MUST NOT change what is redacted, and an entry that is not a plain name
+  MUST be ignored and reported as SDK-60 reports a setting.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-61 | ADR-055; ADR-007 | sdk/unredacted-secret-name |
+| SDK-62 | ADR-055 | section 14 |
+
 ## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive
@@ -549,3 +599,4 @@ either.
 | SDK-58 | Set a label that is not a string, including one whose conversion to text throws, and assert nothing throws, it is reported, and the event is sent without it. |
 | SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
 | SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. |
+| SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a plain name is reported. |

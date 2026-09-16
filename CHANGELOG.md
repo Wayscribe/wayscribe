@@ -171,6 +171,30 @@ changes far less often.
 
 ### Added
 
+- **A warning for secret-looking field names no redaction rule covers**
+  (ADR-055, SDK-61, SDK-62). Redaction matches names, so a credential renamed
+  from `authToken` to `sessionCredential` was stored in plain text without a
+  word. The Node SDK now reports `unredacted_secret_name` when it sends a
+  non-empty string or number under a name that looks like a secret, naming the
+  field, the key and its path, never the value; it prints one line per process
+  and name even with `logDiagnostics` off, counts the names in the new
+  `unredactedSecretNames` counter, and sends the event unchanged. Nothing is
+  redacted on a guess. The new `knownSafeNames` option silences a false
+  positive without changing redaction. The rule, `looksLikeSecretName` in
+  `payload-security`, matches the end of the folded name against a fixed list
+  of terms and is written out in `SDK_SPEC.md` section 13; it is found by the
+  redaction walk, so capture costs about 2% more on a 5.6 KB payload.
+- **`doctor` checks stored payloads for secret-looking names.** A new
+  `Secret-looking names` check samples the latest 20 events of each
+  environment's 100 most recently active journeys, at most 2,000, and warns
+  with the key names that hold plain values and how many sampled events hold
+  each, never a value. It runs through index scans in a read-only transaction
+  cancelled after 5 seconds, is a warning at most, and covers senders that are
+  not the Node SDK. The API itself does not report these names.
+- **Conformance cases can expect diagnostics.** `expect.diagnostics` lists the
+  diagnostics an SDK must report, compared by kind and order
+  (`INGESTION_CONTRACT.md` section 9), and `sdk/unredacted-secret-name` uses
+  it.
 - **A journey can carry a public label** (ADR-054). Events gain an optional
   `journeyLabel`, 1 to 200 code points; an empty string refuses that event as
   `invalid_event`, and an event without the field leaves the label alone. The
