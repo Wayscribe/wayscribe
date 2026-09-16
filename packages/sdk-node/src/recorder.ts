@@ -32,7 +32,7 @@ import {
 import { acceptLabel } from "./label.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
-import { createSecretNameWarnings, type PayloadField } from "./secret-names.js";
+import { createSecretNameWarnings, type FoundName, type PayloadField } from "./secret-names.js";
 import {
   deriveJourneyId,
   entityProblem,
@@ -250,6 +250,8 @@ const PAYLOAD_FIELDS: readonly PayloadField[] = ["input", "output", "metadata"];
 interface Captured {
   value: unknown;
   truncated?: TruncationStats;
+  /** Secret-looking names the walk kept, reported only if this payload is sent. */
+  secretNames?: FoundName[];
 }
 
 /**
@@ -807,15 +809,22 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // mask hid, and every string that leaves this process is one PostgreSQL
       // will accept and the server's string limit allows.
       //
-      // The redaction walk also reports what it kept under a name that reads
-      // as a secret, so the warning costs no second walk (ADR-055).
+      // The redaction walk also collects what it kept under a name that reads
+      // as a secret, so the warning costs no second walk (ADR-055). Anything
+      // left from a capture that failed part way is dropped first.
+      secretNames.take(field);
       const stats: TruncationStats = { strings: 0, charactersRemoved: 0 };
       const stored = truncateStrings(
         toStorable(redact(value, resolved.redact, secretNames.observerFor(field))),
         MAX_STRING_LENGTH,
         stats
       );
-      return stats.strings === 0 ? { value: stored } : { value: stored, truncated: stats };
+      const found = secretNames.take(field);
+      return {
+        value: stored,
+        ...(stats.strings === 0 ? {} : { truncated: stats }),
+        ...(found === undefined ? {} : { secretNames: found })
+      };
     } catch {
       return { value: UNCAPTURABLE };
     }
@@ -981,6 +990,22 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   /**
+   * The secret-name warning for each payload that reached the event. One the
+   * budget omitted sent nothing under those names, and must not spend the
+   * name's one warning (SDK-61).
+   */
+  function reportSecretNames(
+    event: Record<string, unknown>,
+    captured: Record<PayloadField, Captured | undefined>
+  ): void {
+    for (const field of PAYLOAD_FIELDS) {
+      const one = captured[field];
+      if (one?.secretNames === undefined || event[field] !== one.value) continue;
+      secretNames.report(field, one.secretNames);
+    }
+  }
+
+  /**
    * An error record with credential-shaped text masked (ADR-046).
    *
    * Here rather than in `toErrorRecord`, because every error record reaches
@@ -1082,6 +1107,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
 
     fitToBudget(envelope);
     reportTruncations(event, captured);
+    reportSecretNames(event, captured);
     queue.push(envelope);
 
     // Capped, because N events recorded in one turn of the event loop used to

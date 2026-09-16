@@ -1,5 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Counters, Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Journey, type RecorderConfig } from "./index.js";
@@ -230,11 +232,11 @@ describe("the unredacted secret-name warning", () => {
       (journey) => {
         journey.record({ operation: "received", name: "a", input: { authToken: "a" } });
       },
-      { knownSafeNames: ["authToken", "a.b", "", 7] as unknown as string[] }
+      { knownSafeNames: ["authToken", "", 7] as unknown as string[] }
     );
     const problems = result.diagnostics.filter((one) => one.kind === "configuration_error");
     expect(problems.map((one) => one.reason)).toEqual([
-      "knownSafeNames holds entries that are not plain key names; they are ignored."
+      "knownSafeNames holds entries that are not key names; they are ignored."
     ]);
     expect(warnings(result.diagnostics)).toEqual([]);
 
@@ -242,6 +244,130 @@ describe("the unredacted secret-name warning", () => {
       knownSafeNames: "authToken" as unknown as string[]
     });
     expect(notAList.diagnostics.map((one) => one.kind)).toEqual(["configuration_error"]);
+  });
+
+  it("gives advice that works for a name no redaction rule can name", async () => {
+    const result = await run((journey) => {
+      journey.record({
+        operation: "received",
+        name: "a",
+        input: { "session.token": VALUE, "keys[0]Token": VALUE }
+      });
+    });
+    const [dotted, bracketed] = warnings(result.diagnostics);
+    expect(dotted?.reason).toBe(
+      'A field named "session.token" (at input.session.token) looks like a secret and was sent unredacted. ' +
+        'No redaction rule can name a key containing ".", "*", "[" or "]": if it holds a secret, rename it or leave it out of what you record; ' +
+        'if it does not, add "session.token" to knownSafeNames.'
+    );
+    expect(bracketed?.reason).toContain("No redaction rule can name a key");
+    expect(result.printed.join("\n")).not.toContain('"**.session.token"');
+  });
+
+  it("accepts a name no rule can name in knownSafeNames", async () => {
+    const result = await run(
+      (journey) => {
+        journey.record({ operation: "received", name: "a", input: { "session.token": VALUE } });
+      },
+      { knownSafeNames: ["session.token"] }
+    );
+    expect(warnings(result.diagnostics)).toEqual([]);
+  });
+
+  it("reports only for a payload that is sent, and keeps the warning for one that is", async () => {
+    const chunk = "x".repeat(60_000);
+    const quarter = { a: chunk, b: chunk, c: chunk, d: chunk };
+    const result = await run((journey) => {
+      // Two payloads that each fit and together do not: the larger, which holds
+      // the only authToken, is omitted, so nothing under that name was sent.
+      journey.record({
+        operation: "received",
+        name: "a",
+        input: { authToken: VALUE, ...quarter },
+        output: quarter
+      });
+      journey.record({
+        operation: "received",
+        name: "b",
+        input: { later: { authToken: VALUE } }
+      });
+    });
+    expect(events[0]?.["input"]).toBe("[PAYLOAD_TOO_LARGE]");
+    expect(warnings(result.diagnostics).map((one) => one.detail)).toEqual([
+      { field: "input", name: "authToken", path: "input.later.authToken" }
+    ]);
+    expect(result.printed).toHaveLength(1);
+  });
+
+  it("does not report for metadata dropped by the budget", async () => {
+    // Metadata that fits a payload's budget and not the event's, once the
+    // envelope around it is counted, so the event is sent without it.
+    // With a 10,000 byte budget, 9,800 bytes of metadata pass the payload's
+    // own check and not the event's.
+    const metadata = { authToken: VALUE, d: "x".repeat(9_800) };
+    const result = await run(
+      (journey) => {
+        journey.record({ operation: "received", name: "a", metadata });
+      },
+      { maxPayloadBytes: 10_000 }
+    );
+    expect(result.counters.payloadsOmitted).toBe(1);
+    expect(events[0]?.["metadata"]).toBeUndefined();
+    expect(warnings(result.diagnostics)).toEqual([]);
+  });
+
+  it("keeps no more than a bounded copy of a very long name alive", async () => {
+    setFlagsFromString("--expose-gc");
+    const collect = runInNewContext("gc") as () => void;
+    const kept: Diagnostic[] = [];
+    const printed: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      printed.push(String(line));
+    });
+    const recorders: unknown[] = [];
+
+    /**
+     * Heap still in use after recording 150 events whose single key is a
+     * distinct 200 KB name, with the recorder and every diagnostic handed out
+     * still reachable. V8 itself keeps some long property names for a while,
+     * so the same run with names that do not look secret is the baseline.
+     */
+    const retainedBy = async (suffix: string, seed: string): Promise<number> => {
+      collect();
+      const before = process.memoryUsage().heapUsed;
+      const recorder = createRecorder({
+        endpoint,
+        apiKey: "fr_test",
+        serviceName: "svc",
+        environment: "development",
+        onDiagnostic: (diagnostic) => kept.push(diagnostic)
+      });
+      recorders.push(recorder);
+      const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
+      for (let index = 0; index < 150; index += 1) {
+        // Names that differ only at the start, as an attacker would send them.
+        const name = `${seed}${String(index)}${"k".repeat(200_000)}${suffix}`;
+        journey.record({ operation: "received", name: "a", input: { [name]: "v" } });
+      }
+      await recorder.shutdown({ timeoutMs: 5_000 });
+      events.length = 0;
+      collect();
+      return process.memoryUsage().heapUsed - before;
+    };
+
+    try {
+      const baseline = await retainedBy("Count", "a");
+      const warned = await retainedBy("Token", "b");
+      expect(warnings(kept)).toHaveLength(100);
+      expect(printed.filter((line) => line.includes("unredacted_secret_name"))).toHaveLength(100);
+      expect(recorders).toHaveLength(2);
+      // Unbounded, the remembered names put the warned run 10 MB above the
+      // baseline; bounded, it measured 10 MB below it (V8 keeps names it saw
+      // first longer).
+      expect(warned - baseline).toBeLessThan(2 * 1024 * 1024);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("stops remembering names after 100, and keeps sending", async () => {
