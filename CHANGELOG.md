@@ -603,6 +603,17 @@ changes far less often.
 
 ### Fixed
 
+- **Four SDK entry points no longer throw into the host over what they are
+  given.** `recorder.consume()` with no options, or options whose getters
+  throw; a wrapper given `null` options, a throwing getter, or metadata that
+  throws when copied; `startJourney` with no options; and `createRecorder` with
+  no configuration, a getter that throws, or an endpoint that is not a string
+  all threw. Each now degrades: a new journey, a first attempt with no options,
+  or the setting's default, and a `capture_error` or `configuration_error` says
+  so. `createRecorder` also replaces a timer, queue bound or byte budget that is
+  not a whole number in range, and an unknown `captureMode` or `propagate`,
+  with the default: a `maxBufferedEvents` of `NaN` left the queue unbounded,
+  and a `flushIntervalMs` of `NaN` fired every millisecond.
 - **The event detail no longer blames the capture policy for every empty
   step.** An event with no input and no output said the environment stored
   metadata only, which was false for every identify, finish and fail event and

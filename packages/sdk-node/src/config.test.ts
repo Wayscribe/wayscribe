@@ -73,3 +73,45 @@ describe("maxConcurrentSends", () => {
     }
   });
 });
+
+describe("settings that cannot be used", () => {
+  it.each([
+    ["flushIntervalMs", Number.NaN, 1_000],
+    ["flushIntervalMs", 2 ** 31, 1_000],
+    ["requestTimeoutMs", -1, 1_500],
+    ["maxBufferedEvents", Number.NaN, 1_000],
+    ["maxBufferedEvents", "500", 1_000],
+    ["maxPayloadBytes", Number.POSITIVE_INFINITY, 262_144],
+    ["maxPayloadBytes", 0.5, 262_144]
+  ] as const)("replaces %s of %s with the default and lists it", (key, value, fallback) => {
+    // NaN as a queue bound compares false with every size, so the queue never
+    // dropped anything; NaN or 2^31 as a timer fires after one millisecond.
+    const resolved = resolveConfig({ ...base, [key]: value });
+    expect(resolved[key]).toBe(fallback);
+    expect(resolved.problems).toHaveLength(1);
+    expect(resolved.problems[0]).toContain(key);
+  });
+
+  it("replaces an unknown capture mode or propagation level with the default", () => {
+    const resolved = resolveConfig({
+      ...base,
+      captureMode: "everything",
+      propagate: "all"
+    } as never);
+    expect(resolved.captureMode).toBe("redacted-payload");
+    expect(resolved.propagate).toBe("journey-and-type");
+    expect(resolved.problems).toHaveLength(2);
+  });
+
+  it("keeps the built-in secret names when redact is not a list of strings", () => {
+    const resolved = resolveConfig({ ...base, redact: ["token", 7, null] } as never);
+    expect(resolved.redact).toContain("token");
+    expect(resolved.redact.length).toBeGreaterThan(1);
+    expect(resolved.problems).toHaveLength(1);
+    expect(resolveConfig({ ...base, redact: 7 } as never).problems).toHaveLength(1);
+  });
+
+  it("lists nothing for a sound configuration", () => {
+    expect(resolveConfig({ ...base, flushIntervalMs: 250, redact: ["a.b"] }).problems).toEqual([]);
+  });
+});

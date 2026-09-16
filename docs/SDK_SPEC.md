@@ -488,7 +488,7 @@ A label is the journey's name on the Journeys page, where partial text finds it
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-58 | EVENT_PROTOCOL section 3; packages/protocol/src/limits.ts; docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1 | sdk/journey-label-cut |
+| SDK-58 | EVENT_PROTOCOL section 3; packages/protocol/src/limits.ts; docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1 | sdk/journey-label, sdk/journey-label-cut, sdk/journey-label-empty |
 | SDK-59 | docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1 | section 14 |
 
 ## 14. Conformance, and what the fixtures cannot check
@@ -524,8 +524,8 @@ either.
 | SDK-43, SDK-44, SDK-45, SDK-46 | Assert the default level, that aliases never propagate, that the entity id propagates only at the highest level, and that `traceparent` is never written. |
 | SDK-48, SDK-49 | Assert trace correlation works with the tracing library present and that the SDK works without it. |
 | SDK-50 | Assert the recorder reads no ambient environment variable of its own. |
+| SDK-52 | Record a payload with a secret-named field holding a string over the limit and assert it arrives masked and is not counted as truncated; cut a payload and then force its omission and assert it is counted once, as omitted. |
 | SDK-55 | Reproduce every vector in `packages/protocol/fixtures/journey-id-derivation.json`, and assert the result is accepted by your own propagation extraction. |
 | SDK-56 | Derive without a secret, with a short one, for each entity the fixture's `refused` list names, and for an entity that is not a pair of strings; assert nothing throws, each is reported, the ids differ call to call, a short secret is reported at creation, and a missing or short secret prints one warning per process with debug output off. |
 | SDK-58 | Set a label that is not a string, including one whose conversion to text throws, and assert nothing throws, it is reported, and the event is sent without it. |
 | SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
-| SDK-52 | Record a payload with a secret-named field holding a string over the limit and assert it arrives masked and is not counted as truncated; cut a payload and then force its omission and assert it is counted once, as omitted. |

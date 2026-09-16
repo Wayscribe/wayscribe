@@ -7,13 +7,10 @@ import {
   payloadLimits,
   redact,
   toStorable,
-  toStorableText,
   truncateStrings,
   type TruncationStats
 } from "@flight-recorder/payload-security/redaction";
-// The subpath, not the package root: the root brings Zod, and the bundle
-// would carry it into every host.
-import { MAX_JOURNEY_LABEL_LENGTH } from "@flight-recorder/protocol/limits";
+import { fitsCodePoints } from "./code-points.js";
 import { resolveConfig, type RecorderConfig } from "./config.js";
 import {
   createDiagnostics,
@@ -32,6 +29,7 @@ import {
   wrapPayload,
   type PropagatedContext
 } from "./propagation.js";
+import { acceptLabel } from "./label.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
 import {
@@ -265,13 +263,6 @@ export const MAX_ERROR_STACK_LENGTH = 16_384;
 const TRUNCATED = "[TRUNCATED]";
 
 /**
- * What ends a cut journey label. One code point, so a cut label keeps 199 of
- * the host's own. The payload marker, `[TRUNCATED: <n> characters removed]`,
- * would take a sixth of the label and say something no reader of a name needs.
- */
-const LABEL_ELLIPSIS = "\u2026";
-
-/**
  * The protocol's caps on keys and short fields (`packages/protocol` event
  * schema), which count Unicode code points. The server refuses the whole event
  * over any one of them, so the SDK applies them before sending.
@@ -281,17 +272,6 @@ const MAX_KEY_LENGTH = 128;
 const MAX_ALIAS_VALUE_LENGTH = 512;
 const MAX_ERROR_FIELD_LENGTH = 256;
 const KEY_TOO_LONG = "[KEY_TOO_LONG]";
-
-/** Whether `text` is at most `max` code points. Code units bound them from above. */
-function fitsCodePoints(text: string, max: number): boolean {
-  if (text.length <= max) return true;
-  let count = 0;
-  for (const _codePoint of text) {
-    count += 1;
-    if (count > max) return false;
-  }
-  return true;
-}
 
 /**
  * `text` masked and cut to `limit` characters, ending in `[TRUNCATED]` when it
@@ -333,21 +313,6 @@ function fit(text: string, limit: number): string {
   return text.slice(0, limit - TRUNCATED.length).toWellFormed() + TRUNCATED;
 }
 
-/**
- * The first `max` code points of `text`, which is longer than that. Sliced
- * where a code point ends, so a surrogate pair is never split.
- */
-function firstCodePoints(text: string, max: number): string {
-  let units = 0;
-  let count = 0;
-  for (const codePoint of text) {
-    if (count === max) break;
-    units += codePoint.length;
-    count += 1;
-  }
-  return text.slice(0, units);
-}
-
 /** Sets an own property, so a `__proto__` key stays a key. */
 function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
   Object.defineProperty(target, key, {
@@ -356,6 +321,15 @@ function defineOwn(target: Record<string, unknown>, key: string, value: unknown)
     enumerable: true,
     configurable: true
   });
+}
+
+/** A wrapper's options as read once, at the call. */
+interface WrapSettings<T> {
+  operation: Operation;
+  metadata?: Record<string, unknown> | undefined;
+  captureInput?: WrapOptions<T>["captureInput"];
+  captureOutput?: WrapOptions<T>["captureOutput"];
+  isFailure?: WrapOptions<T>["isFailure"];
 }
 
 /**
@@ -634,6 +608,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
   safely(diagnostics, "capture_error", () => {
     warnIfInsecure(resolved.endpoint, diagnostics);
   });
+  // Settings resolveConfig had to replace. Reported rather than thrown, so the
+  // host starts either way (SDK-6); the reason names the setting, never its value.
+  for (const problem of resolved.problems) {
+    diagnostics.report({ kind: "configuration_error", reason: problem });
+  }
   // A secret that was configured and cannot be used is reported now, once, so
   // it surfaces at startup rather than at the first derived id. A missing one
   // is not: most recorders never derive an id.
@@ -976,44 +955,6 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   /**
-   * `text` as the server will accept it for `journeyLabel`, or undefined.
-   *
-   * Made storable first, as every payload string is: a NUL removed and a lone
-   * surrogate replaced, so neither costs the event. What is left over the limit
-   * is cut, with the protocol's own constant, so the SDK and the API cannot
-   * disagree about the number. Anything that is not a string is refused unread:
-   * converting it would run the host's own `toString`. Neither report quotes
-   * the label, which is the host's text.
-   *
-   * Reported when the label is set, once, rather than on every event that
-   * carries it.
-   */
-  function acceptLabel(text: unknown): string | undefined {
-    const storable = typeof text === "string" ? toStorableText(text) : "";
-    if (storable === "") {
-      diagnostics.report({
-        kind: "key_dropped",
-        reason:
-          "A journey label that is not a non-empty string was not set; later events carry the label set before it, if any.",
-        detail: { field: "journeyLabel", keys: 1 }
-      });
-      return undefined;
-    }
-    if (fitsCodePoints(storable, MAX_JOURNEY_LABEL_LENGTH)) return storable;
-    const kept = firstCodePoints(storable, MAX_JOURNEY_LABEL_LENGTH - 1);
-    diagnostics.report({
-      kind: "payload_truncated",
-      reason: `A journey label was cut to ${String(MAX_JOURNEY_LABEL_LENGTH)} characters, ending in an ellipsis.`,
-      detail: {
-        field: "journeyLabel",
-        strings: 1,
-        charactersRemoved: storable.length - kept.length
-      }
-    });
-    return kept + LABEL_ELLIPSIS;
-  }
-
-  /**
    * An error record with credential-shaped text masked (ADR-046).
    *
    * Here rather than in `toErrorRecord`, because every error record reaches
@@ -1294,21 +1235,33 @@ export function createRecorder(config: RecorderConfig): Recorder {
     name: string,
     input: unknown,
     fn: () => T | Promise<T>,
-    options: WrapOptions<T> = {}
+    options: WrapOptions<T> | undefined
   ): T | Promise<T> {
     const startedAt = Date.now();
-    const attempt = options.attempt ?? 1;
-    // ADR-022: a retry records as `retried` rather than the natural verb.
-    const operation = attempt > 1 ? "retried" : naturalOperation;
-    const metadata =
-      options.metadata === undefined && attempt === 1
-        ? undefined
-        : { ...options.metadata, attempt };
+    // Read once, inside the boundary: options that are null, or a getter or a
+    // metadata spread that throws, used to throw into the host before its
+    // callback ran. Options that cannot be read are reported and the step is
+    // recorded as a first attempt with no options.
+    const settings: WrapSettings<T> = safely(diagnostics, "capture_error", () => {
+      const given: WrapOptions<T> = options ?? {};
+      const attempt = given.attempt ?? 1;
+      const metadata =
+        given.metadata === undefined && attempt === 1 ? undefined : { ...given.metadata, attempt };
+      return {
+        // ADR-022: a retry records as `retried` rather than the natural verb.
+        operation: attempt > 1 ? ("retried" as const) : naturalOperation,
+        metadata,
+        captureInput: given.captureInput,
+        captureOutput: given.captureOutput,
+        isFailure: given.isFailure
+      };
+    }) ?? { operation: naturalOperation };
+    const { operation, metadata, captureInput, captureOutput, isFailure } = settings;
 
     // Projected and captured now, before the callback can change what it was
     // given. Capturing copies: a projection usually returns parts of the input
     // rather than a copy of them, and the callback may change those parts.
-    const projection = options.captureInput;
+    const projection = captureInput;
     const capturedInputs =
       projection === undefined
         ? undefined
@@ -1348,12 +1301,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
 
     const recordSuccess = (result: T): void => {
       safely(diagnostics, "capture_error", () => {
-        const failed = options.isFailure === undefined ? false : options.isFailure(result);
+        const failed = isFailure === undefined ? false : isFailure(result);
         recordAll((context) => ({
           output:
-            options.captureOutput === undefined
+            captureOutput === undefined
               ? result
-              : project(options.captureOutput, result, context, "output"),
+              : project(captureOutput, result, context, "output"),
           ...(failed
             ? { error: { message: `${name} reported a failed result.`, code: "result_failed" } }
             : {})
@@ -1496,7 +1449,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         safely(diagnostics, "capture_error", () => {
           // A refused label leaves the earlier one: the server never clears a
           // label either, so an empty string cannot remove one by accident.
-          label = acceptLabel(text) ?? label;
+          label = acceptLabel(text, diagnostics) ?? label;
         });
       },
       identify(aliases, options) {
@@ -1604,12 +1557,22 @@ export function createRecorder(config: RecorderConfig): Recorder {
     // At the default propagation level the journey ID crosses the boundary and
     // the entity does not, so the consumer supplies the entity it already has
     // from the message body.
-    consume: (options) =>
-      makeJourney({
-        journeyId: options.context?.journeyId ?? `jrn_${randomUUID()}`,
-        entity: options.context?.entity ??
-          options.entityFallback ?? { type: "unknown", id: "unknown" }
-      }),
+    //
+    // Read inside the boundary, as startJourney's options are: missing options
+    // or a getter that throws used to throw into the consumer. Either way the
+    // consumer gets a journey; unreadable options give it a new one.
+    consume(options) {
+      const context = safely(diagnostics, "capture_error", () => {
+        const propagated = options.context;
+        return {
+          journeyId: propagated?.journeyId ?? `jrn_${randomUUID()}`,
+          entity: propagated?.entity ?? options.entityFallback ?? { type: "unknown", id: "unknown" }
+        };
+      });
+      return makeJourney(
+        context ?? { journeyId: `jrn_${randomUUID()}`, entity: { type: "unknown", id: "unknown" } }
+      );
+    },
     // These six were the only public entry points not going through `safely`,
     // which contradicted safely.ts's own claim that every one does. The
     // consequence was not theoretical: a plain-JavaScript relay calling

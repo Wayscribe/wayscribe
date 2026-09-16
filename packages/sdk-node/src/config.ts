@@ -55,31 +55,113 @@ export interface ResolvedConfig {
   logDiagnostics: boolean;
   maxConcurrentSends: number;
   journeyIdSecret: string | undefined;
+  /**
+   * Settings that could not be read or used, each replaced by its default, for
+   * the recorder to report as `configuration_error` once it can.
+   */
+  problems: string[];
 }
+
+const CAPTURE_MODES = ["metadata-only", "redacted-payload", "full-payload"] as const;
+const PROPAGATION_LEVELS = ["journey-only", "journey-and-type", "full"] as const;
+
+/** The longest delay Node's timers accept; past it they fire after 1 ms. */
+const MAX_TIMER_MS = 2_147_483_647;
 
 /**
  * Defaults come from NODE_SDK_SPEC section 3. Configured redaction paths are
  * appended to the built-in secret list rather than replacing it: an operator
  * adding one path must not silently disable the rest.
+ *
+ * Never throws, whatever it is given (SDK-6). Configuration usually comes from
+ * the deploy environment, where a missing variable is `undefined` however the
+ * code is typed, and a recorder that throws over it takes the application's
+ * startup with it. A setting that cannot be read, or has the wrong type, is
+ * replaced by its default and listed in `problems`. A missing endpoint cannot
+ * be defaulted: it becomes empty, every send fails, and that is reported.
  */
 export function resolveConfig(config: RecorderConfig): ResolvedConfig {
+  const problems: string[] = [];
+  const read = (key: keyof RecorderConfig): unknown => {
+    try {
+      return (config as Partial<RecorderConfig>)[key];
+    } catch {
+      problems.push(`${key} could not be read.`);
+      return undefined;
+    }
+  };
+  const text = (key: "endpoint" | "apiKey" | "serviceName" | "environment"): string => {
+    const value = read(key);
+    if (typeof value === "string") return value;
+    problems.push(`${key} is not a string, so the server will refuse what is sent.`);
+    return "";
+  };
+  const oneOf = <T extends string>(
+    key: keyof RecorderConfig,
+    allowed: readonly T[],
+    fallback: T
+  ): T => {
+    const value = read(key);
+    if (value === undefined) return fallback;
+    if ((allowed as readonly unknown[]).includes(value)) return value as T;
+    problems.push(`${key} is not one of ${allowed.join(", ")}; using ${fallback}.`);
+    return fallback;
+  };
+  // A timer given NaN, a negative number or more than MAX_TIMER_MS fires after
+  // 1 ms, and a queue bound or byte budget of NaN compares false with
+  // everything, so the queue would grow without limit.
+  const positive = (
+    key: keyof RecorderConfig,
+    fallback: number,
+    max = Number.MAX_SAFE_INTEGER
+  ): number => {
+    const value = read(key);
+    if (value === undefined) return fallback;
+    if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max) {
+      return value;
+    }
+    problems.push(
+      `${key} is not a whole number from 1 to ${String(max)}; using ${String(fallback)}.`
+    );
+    return fallback;
+  };
+
+  const endpoint = text("endpoint").replace(/\/$/, "");
+  const redact = read("redact");
+  const paths = Array.isArray(redact)
+    ? (redact as unknown[]).filter((path): path is string => typeof path === "string")
+    : [];
+  if (redact !== undefined && (!Array.isArray(redact) || paths.length !== redact.length)) {
+    problems.push("redact is not a list of paths; the entries that are not strings are ignored.");
+  }
+  const onDiagnostic = read("onDiagnostic");
+  if (onDiagnostic !== undefined && typeof onDiagnostic !== "function") {
+    problems.push("onDiagnostic is not a function, so it is not called.");
+  }
+  const secret = read("journeyIdSecret");
+
   return {
-    endpoint: config.endpoint.replace(/\/$/, ""),
-    apiKey: config.apiKey,
-    serviceName: config.serviceName,
-    environment: config.environment,
-    captureMode: config.captureMode ?? "redacted-payload",
-    redact: [...(config.redact ?? []), ...DEFAULT_SECRET_PATHS],
-    batchSize: clampBatchSize(config.batchSize),
-    flushIntervalMs: config.flushIntervalMs ?? 1_000,
-    requestTimeoutMs: config.requestTimeoutMs ?? 1_500,
-    maxBufferedEvents: config.maxBufferedEvents ?? 1_000,
-    maxPayloadBytes: config.maxPayloadBytes ?? 262_144,
-    propagate: config.propagate ?? "journey-and-type",
-    onDiagnostic: config.onDiagnostic,
-    logDiagnostics: config.logDiagnostics === true,
-    maxConcurrentSends: clampConcurrentSends(config.maxConcurrentSends),
-    journeyIdSecret: config.journeyIdSecret
+    endpoint,
+    apiKey: text("apiKey"),
+    serviceName: text("serviceName"),
+    environment: text("environment"),
+    captureMode: oneOf("captureMode", CAPTURE_MODES, "redacted-payload"),
+    redact: [...paths, ...DEFAULT_SECRET_PATHS],
+    batchSize: clampBatchSize(read("batchSize")),
+    flushIntervalMs: positive("flushIntervalMs", 1_000, MAX_TIMER_MS),
+    requestTimeoutMs: positive("requestTimeoutMs", 1_500, MAX_TIMER_MS),
+    maxBufferedEvents: positive("maxBufferedEvents", 1_000),
+    maxPayloadBytes: positive("maxPayloadBytes", 262_144),
+    propagate: oneOf("propagate", PROPAGATION_LEVELS, "journey-and-type"),
+    onDiagnostic:
+      typeof onDiagnostic === "function"
+        ? (onDiagnostic as (diagnostic: Diagnostic) => void)
+        : undefined,
+    logDiagnostics: read("logDiagnostics") === true,
+    maxConcurrentSends: clampConcurrentSends(read("maxConcurrentSends")),
+    // Checked, and reported, by journeyIdSecretProblem, which accepts anything.
+    journeyIdSecret: secret as string | undefined,
+    problems
   };
 }
 
@@ -96,9 +178,8 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
  */
 export const MAX_BATCH_SIZE = 100;
 
-function clampBatchSize(configured: number | undefined): number {
-  if (configured === undefined) return 50;
-  if (!Number.isInteger(configured) || configured < 1) return 50;
+function clampBatchSize(configured: unknown): number {
+  if (typeof configured !== "number" || !Number.isInteger(configured) || configured < 1) return 50;
   return Math.min(configured, MAX_BATCH_SIZE);
 }
 
@@ -120,8 +201,8 @@ export const DEFAULT_MAX_CONCURRENT_SENDS = 4;
 /** Past this, one process alone can exhaust a typical API instance's pool. */
 export const MAX_CONCURRENT_SENDS_LIMIT = 16;
 
-function clampConcurrentSends(configured: number | undefined): number {
-  if (configured === undefined || !Number.isInteger(configured)) {
+function clampConcurrentSends(configured: unknown): number {
+  if (typeof configured !== "number" || !Number.isInteger(configured)) {
     return DEFAULT_MAX_CONCURRENT_SENDS;
   }
   return Math.min(Math.max(configured, 1), MAX_CONCURRENT_SENDS_LIMIT);

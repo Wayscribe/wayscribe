@@ -1,10 +1,11 @@
-import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { describe, expect, it } from "vitest";
+import { bundleOptions } from "../scripts/bundle-options.mjs";
 
 /**
  * The published bundle inlines the workspace code it imports and nothing from a
- * registry package, with the options `scripts/bundle.mjs` uses.
+ * registry package. Built with `scripts/bundle-options.mjs`, the options
+ * `scripts/bundle.mjs` builds the published bundle with.
  *
  * The SDK takes constants from `@flight-recorder/protocol`, whose root imports
  * Zod at module level. Importing from that root rather than a Zod-free subpath
@@ -14,13 +15,7 @@ import { describe, expect, it } from "vitest";
 describe("the bundle", () => {
   it("inlines only workspace sources and imports only Node built-ins", async () => {
     const result = await build({
-      entryPoints: [fileURLToPath(new URL("./index.ts", import.meta.url))],
-      bundle: true,
-      platform: "node",
-      target: "node20",
-      format: "esm",
-      conditions: ["development"],
-      external: ["node:*"],
+      ...bundleOptions(),
       write: false,
       metafile: true,
       logLevel: "silent"

@@ -24,7 +24,8 @@ interface Captured {
  */
 async function capture(
   record: (recorder: Recorder) => Promise<void> | void,
-  refuse: (index: number) => boolean = () => false
+  refuse: (index: number) => boolean = () => false,
+  settings: { maxPayloadBytes?: number } = {}
 ): Promise<Captured> {
   const events: Record<string, unknown>[] = [];
   let seen = 0;
@@ -61,7 +62,8 @@ async function capture(
       apiKey: "fr_test",
       serviceName: "sweep",
       environment: "development",
-      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic)
+      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+      ...settings
     });
     await record(recorder);
     const counters = await recorder.shutdown({ timeoutMs: 5_000 });
@@ -190,8 +192,10 @@ describe("journey.label", () => {
       strings: 1,
       charactersRemoved: 4
     });
-    // The label is the host's text; the reason does not quote it.
+    // The label is the host's text; the reason does not quote it. The count is
+    // in code units, as the detail's is, and the reason says so.
     expect(reported[0]?.reason).not.toContain("tail");
+    expect(reported[0]?.reason).toContain("4 UTF-16 code units");
     expect(counters.sent).toBe(2);
   });
 
@@ -203,6 +207,46 @@ describe("journey.label", () => {
     });
     expect(events[0]?.["journeyLabel"]).toBe(`${"𝄞".repeat(199)}…`);
     expect(valid(events[0] ?? {})).toBe(true);
+  });
+
+  it("is kept whole when it tips the event over the budget, and the input goes instead", async () => {
+    // Measure the event without a label, then allow a little less than a
+    // 200-character astral label adds (800 bytes). The event fitted before the
+    // label; with it, the size check has to omit something, and the label is
+    // not something it omits.
+    const record = (journey: Journey): void => {
+      journey.record({ operation: "received", name: "r", input: { note: "n".repeat(2_000) } });
+    };
+    const unlabelled = await capture((recorder) => {
+      record(posting(recorder));
+    });
+    const bytes = Buffer.byteLength(
+      JSON.stringify({ protocolVersion: "0.1", event: unlabelled.events[0] }),
+      "utf8"
+    );
+
+    const longest = "𝄞".repeat(MAX_JOURNEY_LABEL_LENGTH);
+    const { events, diagnostics, counters } = await capture(
+      (recorder) => {
+        const journey = posting(recorder);
+        journey.label(longest);
+        record(journey);
+      },
+      () => false,
+      { maxPayloadBytes: bytes + 100 }
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.["journeyLabel"]).toBe(longest);
+    expect(events[0]?.["input"]).toBe("[PAYLOAD_TOO_LARGE]");
+    expect(valid(events[0] ?? {})).toBe(true);
+    expect(counters.payloadsOmitted).toBe(1);
+    expect(counters.payloadsTruncated).toBe(0);
+    expect(counters.sent).toBe(1);
+    expect(diagnostics.find((d) => d.kind === "payload_omitted")?.detail).toEqual({
+      field: "input",
+      reason: "payload_too_large"
+    });
   });
 
   it.each([

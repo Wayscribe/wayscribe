@@ -145,7 +145,8 @@ take the label with it. A later `label` call replaces the label from the next
 event on. The label belongs to the object: a second handle for the same
 journey, from `continueJourney` or `consume`, carries none until you set one,
 and a group made from a journey's context rather than the journey itself
-carries none either.
+carries none either. In `recorder.across`, a journey handle made by a
+different recorder carries no label.
 
 **A label is stored, shown and searched in plain text, and is never
 redacted.** It is text you wrote to be read. Do not put personal data in it:
@@ -156,7 +157,9 @@ It never throws. A label over 200 characters (Unicode code points, as the
 server counts them) is cut to its first 199 and `…`, never inside a character,
 and reported once as `payload_truncated`. A label that is empty, or is not a
 string, is not set, and is reported as `key_dropped`; the journey keeps any
-label it already had, and its events are sent as usual.
+label it already had, and its events are sent as usual. Both are counted
+(`payloadsTruncated`, `keysDropped`) once, when `label()` is called, not once
+per event that carries the label.
 
 ## Wrappers
 

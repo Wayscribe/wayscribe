@@ -2,6 +2,7 @@ import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { bundleOptions } from "./bundle-options.mjs";
 
 /**
  * Build `dist/` — for the container images and for npm alike.
@@ -46,19 +47,8 @@ execFileSync(
 );
 
 await build({
-  entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
-  outfile: fileURLToPath(new URL("../dist/index.js", import.meta.url)),
-  bundle: true,
-  platform: "node",
-  target: "node20",
-  format: "esm",
-  // Resolved through the source condition so the workspace package is inlined
-  // rather than left as an import of a package that will not exist.
-  conditions: ["development"],
-  // `createRequire` is used to reach OpenTelemetry when it is present. Bundling
-  // must not try to follow that: the whole point is that it may be absent.
-  external: ["node:*"],
-  legalComments: "none"
+  ...bundleOptions(),
+  outfile: fileURLToPath(new URL("../dist/index.js", import.meta.url))
 });
 
 console.log("bundled dist/index.js with no runtime dependencies");

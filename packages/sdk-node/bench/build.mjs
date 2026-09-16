@@ -2,7 +2,8 @@ import { build } from "esbuild";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
+import { bundleOptions } from "../scripts/bundle-options.mjs";
 
 /**
  * Bundles the SDK from source, as `scripts/bundle.mjs` does, into a temporary
@@ -17,17 +18,7 @@ export async function buildRecorder() {
   const directory = mkdtempSync(join(tmpdir(), "flight-recorder-bench-"));
   const outfile = join(directory, "recorder.mjs");
 
-  await build({
-    entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
-    outfile,
-    bundle: true,
-    platform: "node",
-    target: "node20",
-    format: "esm",
-    conditions: ["development"],
-    external: ["node:*"],
-    logLevel: "error"
-  });
+  await build({ ...bundleOptions(), outfile, logLevel: "error" });
 
   return {
     module: pathToFileURL(outfile).href,

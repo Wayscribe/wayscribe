@@ -475,9 +475,10 @@ describe("docs/SDK_SPEC.md", () => {
     );
     for (const one of requirements()) {
       if (one.checkedBy === "section 14") continue;
-      expect(cases, `${one.id} names a case that does not exist: ${one.checkedBy}`).toContain(
-        one.checkedBy
-      );
+      // A requirement may name several cases, separated by commas.
+      for (const id of one.checkedBy.split(/,\s*/)) {
+        expect(cases, `${one.id} names a case that does not exist: ${id}`).toContain(id);
+      }
     }
   });
 
