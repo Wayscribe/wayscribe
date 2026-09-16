@@ -212,7 +212,13 @@ worst case writes to `journeys` stall for about ten seconds before the
 migration either finishes or gives up. A rollback (`down`) takes the same two
 locks in the same order, so it can stall writes to `journeys` for as long.
 Ingestion also locks `journeys` before `entity_aliases`, so a deadlock with
-ingestion is not expected in either direction.
+ingestion is not expected in either direction. Rolling back 018 on its own
+(knex's `migrate:down --name 018_journey_browse.js`) drops `display_value`,
+and PostgreSQL drops 019's `entity_aliases_displayable_idx` with it, while 019
+stays recorded as applied; roll back the whole batch (`db:rollback`), or 019
+and then 018. Do not roll back 017 alone while 018 is applied either: its
+column is dropped, and 018's trigger then fails every alias write because it
+reads `displayable`.
 
 **Migration 019** (`019_journey_browse_indexes.js`) builds
 `journeys_project_recent_idx` and `entity_aliases_displayable_idx` with
@@ -224,7 +230,9 @@ running `migrate` again drops the invalid index the attempt left and builds it
 afresh. Run it against PostgreSQL directly, not through a transaction-pooling
 PgBouncer. On Helm, allow for the wait with `helm upgrade --timeout 30m`; the
 migrate Job now prints `migration failed ... see the error above` rather than
-`database not ready` for a failure that is not a connection failure. *Indexes*
+`database not ready` for a failure that is not a connection failure, retries
+such a failure once rather than 30 times, and stops after
+`migrations.activeDeadlineSeconds` (30 minutes by default). *Indexes*
 in section 10 has the query that shows which transaction the build is waiting
 on, and what to do if the migrate process was killed partway.
 
@@ -998,14 +1006,17 @@ An `idle in transaction` row there is a session someone left open; ending it
 (`select pg_terminate_backend(<pid>)`) lets the build finish. A `pg_dump` is
 best left to finish.
 
-On Helm, the migrate Job retries `migrate` up to 30 times. It prints
-`database not ready` only when the error reads as a connection failure, and
-`migration failed ... see the error above` for anything else, such as this
-lock timeout, so read the error printed above that line. Each attempt at 019
-can wait 10 minutes, and Helm waits for the Job only as long as `--timeout`
-(5 minutes by default), so on an installation where a backup may be running,
-upgrade with `helm upgrade --timeout 30m` or expect Helm to report a timeout
-while the Job carries on. Before this release the Job printed `database not
+On Helm, the migrate Job retries `migrate` up to 30 times while the error
+reads as a connection failure, printing `database not ready`. Any other
+failure, such as this lock timeout, prints `migration failed ... see the error
+above` and is retried once only, so read the error printed above that line.
+The Job as a whole is stopped after `migrations.activeDeadlineSeconds`, 30
+minutes by default, so the worst case is bounded; a build it stops leaves an
+invalid index that the next `migrate` rebuilds. Each attempt at 019 can wait
+10 minutes, and Helm waits for the Job only as long as `--timeout` (5 minutes
+by default), so on an installation where a backup may be running, upgrade
+with `helm upgrade --timeout 30m`, matching the deadline, or expect Helm to
+report a timeout while the Job carries on. Before this release the Job printed `database not
 ready` for every failure, whatever the cause.
 
 If one of those builds stops partway, what to do depends on how it stopped:

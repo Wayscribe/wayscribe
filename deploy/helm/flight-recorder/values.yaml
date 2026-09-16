@@ -126,6 +126,12 @@ networkPolicy:
 # runs migrations through its own process.
 migrations:
   enabled: true
+  # How long the migrate Job may run, retries included, before Kubernetes
+  # stops it. Migration 019 can wait up to 10 minutes per attempt behind a
+  # long transaction such as a backup, and a failed migration is retried
+  # once, so 30 minutes covers both. Match `helm upgrade --timeout` to it.
+  # Set to null to remove the bound.
+  activeDeadlineSeconds: 1800
 
 # An in-cluster PostgreSQL, for trying this without standing a database up
 # first. Off by default, deliberately: ADR-037 makes the operator's own database
