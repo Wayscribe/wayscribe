@@ -14,6 +14,11 @@ export interface Term {
   except?: readonly string[];
   qualifiers?: readonly string[];
   alone?: boolean;
+  /**
+   * A string under this term shorter than this is a setting, not a
+   * credential: `auth: "jwt"`, `twoFactorAuth: "sms"`.
+   */
+  minValueLength?: number;
 }
 
 /**
@@ -22,13 +27,37 @@ export interface Term {
  *
  * Deliberately absent: bare `key` (`monkey`, `publicKey`, `partitionKey`),
  * bare `session` (a Stripe Checkout session id), bare `code`, plurals such as
- * `tokens` (usage counts), and personal data, which is a different question.
+ * `tokens` (usage counts), and personal data such as `ssn` or `cardNumber`:
+ * this warns about credentials, and whether personal data is captured is the
+ * capture mode's question, not a naming one.
  */
 export const SECRET_NAME_TERMS: readonly Term[] = [
   {
     term: "token",
-    // Pagination, sync and idempotency tokens are cursors, not credentials.
-    except: ["page", "next", "continuation", "pagination", "sync", "client", "idempotency"]
+    // Pagination, sync and idempotency tokens are cursors, tokenizer tokens
+    // are vocabulary, and a cancel token is a handle: none is a credential.
+    except: [
+      "page",
+      "next",
+      "continuation",
+      "pagination",
+      "sync",
+      "client",
+      "clientrequest",
+      "idempotency",
+      "resume",
+      "cancel",
+      "cursor",
+      "start",
+      "stop",
+      "bos",
+      "eos",
+      "pad",
+      "unk",
+      "sep",
+      "cls",
+      "mask"
+    ]
   },
   { term: "secret" },
   { term: "password" },
@@ -40,7 +69,7 @@ export const SECRET_NAME_TERMS: readonly Term[] = [
   { term: "credential" },
   { term: "credentials" },
   { term: "authorization" },
-  { term: "auth" },
+  { term: "auth", minValueLength: 8 },
   { term: "bearer" },
   { term: "cookie" },
   { term: "cookies" },
@@ -74,8 +103,37 @@ export const SECRET_NAME_TERMS: readonly Term[] = [
   { term: "authcode" },
   { term: "authorizationcode" },
   { term: "otpcode" },
-  { term: "mfacode" }
+  { term: "mfacode" },
+  { term: "recoverycode" },
+  // Only on its own: `hmacAlgorithm` and `hmacHeader` are settings.
+  { term: "hmac", qualifiers: [], alone: true },
+  // Connection strings and DSNs carry a password inside them.
+  { term: "connectionstring" },
+  { term: "databaseurl" },
+  { term: "dsn" },
+  { term: "passwordconfirmation" },
+  { term: "subscriptionkey" }
 ];
+
+/**
+ * String values that are settings whatever name they are under
+ * (`clientSecret: "none"`, `auth: "basic"`), compared trimmed and in lower case.
+ */
+export const NOT_SECRET_VALUES: readonly string[] = [
+  "true",
+  "false",
+  "none",
+  "basic",
+  "bearer",
+  "oauth",
+  "required",
+  "optional"
+];
+const NOT_SECRET_VALUE_SET = new Set(NOT_SECRET_VALUES);
+const LONGEST_NOT_SECRET_VALUE = Math.max(...NOT_SECRET_VALUES.map((word) => word.length));
+
+/** The redaction marker. Written here rather than imported, which would be a cycle. */
+const REDACTED_MARKER = "[REDACTED]";
 
 /**
  * Whether a key name reads like one that holds a credential.
@@ -97,12 +155,43 @@ export function looksLikeSecretName(name: string): boolean {
   return looksLikeSecretFoldedName(normaliseName(name));
 }
 
-/** {@link looksLikeSecretName} for a name already passed through `normaliseName`. */
+/**
+ * Whether a value under this name could be a credential: the name looks like
+ * a secret, and the value is a number, or a non-empty string that is not the
+ * redaction marker, not one of `NOT_SECRET_VALUES`, and not shorter than its
+ * term allows. An object is a container whose own keys are examined, and a
+ * boolean is never a credential.
+ */
+export function looksLikeSecretValue(name: string, value: unknown): boolean {
+  return looksLikeSecretFoldedValue(normaliseName(name), value);
+}
+
+/** `looksLikeSecretValue` for a name already passed through `normaliseName`. */
+export function looksLikeSecretFoldedValue(folded: string, value: unknown): boolean {
+  if (typeof value === "number" || typeof value === "bigint") {
+    return secretTerm(folded) !== undefined;
+  }
+  if (typeof value !== "string" || value === "" || value === REDACTED_MARKER) return false;
+  const term = secretTerm(folded);
+  if (term === undefined) return false;
+  if (term.minValueLength !== undefined && value.length < term.minValueLength) return false;
+  // Only a short string can be one of the words, allowing for padding.
+  return (
+    value.length > LONGEST_NOT_SECRET_VALUE + 8 ||
+    !NOT_SECRET_VALUE_SET.has(value.trim().toLowerCase())
+  );
+}
+
+/** `looksLikeSecretName` for a name already passed through `normaliseName`. */
 export function looksLikeSecretFoldedName(folded: string): boolean {
+  return secretTerm(folded) !== undefined;
+}
+
+function secretTerm(folded: string): Term | undefined {
   const name = withoutVersion(folded);
-  if (name.length < 3) return false;
+  if (name.length < 3) return undefined;
   const candidates = TERMS_BY_TAIL.get(tailOf(name));
-  return candidates !== undefined && candidates.some((entry) => matchesTerm(name, entry));
+  return candidates?.find((entry) => matchesTerm(name, entry));
 }
 
 /**

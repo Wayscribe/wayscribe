@@ -290,7 +290,7 @@ what a dry run previews.
   installation has also set `ALLOW_FULL_PAYLOAD_CAPTURE` (ADR-018). An
   environment set to `full-payload` on an installation that has not allowed it
   degrades to `redacted-payload` rather than refusing the event.
-- **Redaction** applies the eleven built-in secret names in every mode that
+- **Redaction** applies the built-in secret names (`SDK_SPEC.md` section 5) in every mode that
   stores a payload at all, at any depth and inside arrays, matching names with
   case and `-` and `_` ignored (ADR-035, ADR-039). It reaches `error`,
   `runtime`, `deployment` and `metadata` as well as the payloads. A matched

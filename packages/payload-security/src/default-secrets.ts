@@ -10,8 +10,8 @@
  * a bare name with its `*.name` form, which together reached the top level and
  * one below it and no further — so `config.headers.authorization`, the shape
  * every axios error carries, was stored in the clear, along with anything
- * inside an array. Twenty-two rules covered two levels; eleven cover all of
- * them.
+ * inside an array. Twenty-two rules covered two levels; eleven covered all of
+ * them. Eight webhook signature headers joined them with ADR-055.
  *
  * Breadth is a separate question from reach, and this list is deliberately
  * narrow: each name means a secret in essentially every payload it appears in.
@@ -29,5 +29,17 @@ export const DEFAULT_SECRET_PATHS: readonly string[] = [
   "**.refresh_token",
   "**.client_secret",
   "**.api_key",
-  "**.secret"
+  "**.secret",
+  // Webhook signature headers (ADR-055). A signature is not the signing
+  // secret, but with the body stored beside it it is a request the receiver
+  // accepts, and GitHub's carries no timestamp, so the pair stays valid for as
+  // long as the secret does.
+  "**.stripe-signature",
+  "**.x-hub-signature",
+  "**.x-hub-signature-256",
+  "**.x-slack-signature",
+  "**.x-hubspot-signature",
+  "**.x-hubspot-signature-v3",
+  "**.x-twilio-signature",
+  "**.x-shopify-hmac-sha256"
 ];

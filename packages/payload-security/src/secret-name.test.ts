@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
-import { looksLikeSecretName, SECRET_NAME_TERMS } from "./secret-name.js";
+import {
+  looksLikeSecretName,
+  looksLikeSecretValue,
+  NOT_SECRET_VALUES,
+  SECRET_NAME_TERMS
+} from "./secret-name.js";
 
 /**
  * Names as real APIs write them, each with where it comes from.
@@ -72,7 +77,15 @@ const SECRET: readonly (readonly [name: string, source: string])[] = [
   ["encryption_key", "application settings"],
   ["hmac_key", "webhook verification settings"],
   ["credentials", "a connection string holder"],
-  ["password2", "a registration form"]
+  ["password2", "a registration form"],
+  ["hmac", "Shopify OAuth callback parameter"],
+  ["connectionString", "Azure Storage settings"],
+  ["DATABASE_URL", "Heroku config vars"],
+  ["sentry_dsn", "Sentry settings"],
+  ["dsn", "Sentry client options"],
+  ["password_confirmation", "Rails registration form"],
+  ["Ocp-Apim-Subscription-Key", "Azure API Management header"],
+  ["recovery_code", "GitHub two-factor recovery"]
 ];
 
 const NOT_SECRET: readonly (readonly [name: string, source: string])[] = [
@@ -145,7 +158,24 @@ const NOT_SECRET: readonly (readonly [name: string, source: string])[] = [
   ["email_signature", "mail settings"],
   ["signatureMethod", "OAuth 1.0"],
   ["code", "OAuth callback, also every error"],
-  ["zip", "address"]
+  ["zip", "address"],
+  ["bos_token", "Hugging Face tokenizer config"],
+  ["eos_token", "Hugging Face tokenizer config"],
+  ["pad_token", "Hugging Face tokenizer config"],
+  ["unk_token", "Hugging Face tokenizer config"],
+  ["stop_token", "LLM generation settings"],
+  ["sep_token", "Hugging Face tokenizer config"],
+  ["cls_token", "Hugging Face tokenizer config"],
+  ["mask_token", "Hugging Face tokenizer config"],
+  ["resumeToken", "MongoDB change streams"],
+  ["cancelToken", "axios request config"],
+  ["cursorToken", "pagination"],
+  ["startToken", "pagination"],
+  ["ClientRequestToken", "AWS idempotency"],
+  ["hmac_algorithm", "webhook settings"],
+  ["ssn", "personal data, not a credential; out of scope by decision"],
+  ["cardNumber", "personal data, not a credential; out of scope by decision"],
+  ["dsnName", "ODBC settings"]
 ];
 
 describe("looksLikeSecretName", () => {
@@ -170,13 +200,16 @@ describe("looksLikeSecretName", () => {
       expect(term.length, term).toBeGreaterThanOrEqual(3);
       expect(term, term).toBe(term.toLowerCase());
       expect(looksLikeSecretName(term), term).toBe(alone ?? true);
+      // An empty qualifier list means the term matches only on its own.
       const qualified = `${qualifiers?.[0] ?? "vendor"}${term}`;
-      expect(looksLikeSecretName(qualified), qualified).toBe(true);
+      expect(looksLikeSecretName(qualified), qualified).toBe(qualifiers?.length !== 0);
     }
   });
 
   it("accepts every built-in secret name, so the walk is what keeps them quiet", () => {
-    for (const path of DEFAULT_SECRET_PATHS) {
+    // Shopify's header ends in its algorithm, not in a term; it is redacted by
+    // name all the same, so the heuristic need not recognise it.
+    for (const path of DEFAULT_SECRET_PATHS.filter((one) => one !== "**.x-shopify-hmac-sha256")) {
       expect(looksLikeSecretName(path.slice("**.".length)), path).toBe(true);
     }
   });
@@ -217,5 +250,58 @@ describe("looksLikeSecretName", () => {
     expect(looksLikeSecretName(`${"1".repeat(100_000)}x`)).toBe(false);
     expect(looksLikeSecretName(`token${"1".repeat(100_000)}`)).toBe(true);
     expect(performance.now() - started).toBeLessThan(1_000);
+  });
+});
+
+describe("looksLikeSecretValue", () => {
+  it("accepts a plausible value under a secret-looking name", () => {
+    expect(looksLikeSecretValue("authToken", "abc")).toBe(true);
+    expect(looksLikeSecretValue("cardPin", 1234)).toBe(true);
+    expect(looksLikeSecretValue("pin", "1234")).toBe(true);
+    expect(looksLikeSecretValue("cvc", "123")).toBe(true);
+    expect(looksLikeSecretValue("otp", "123456")).toBe(true);
+    expect(looksLikeSecretValue("secret", 10n)).toBe(true);
+    expect(looksLikeSecretValue("basicAuth", "user:pass")).toBe(true);
+  });
+
+  it("rejects a name that does not look secret, whatever the value", () => {
+    expect(looksLikeSecretValue("tokenCount", "a-long-string-value")).toBe(false);
+  });
+
+  it("rejects values that cannot be credentials", () => {
+    for (const value of ["", "[REDACTED]", true, false, null, undefined, {}, []]) {
+      expect(looksLikeSecretValue("authToken", value), JSON.stringify(value)).toBe(false);
+    }
+  });
+
+  it("rejects the enum-like words settings use, in any case", () => {
+    for (const word of NOT_SECRET_VALUES) {
+      expect(looksLikeSecretValue("clientSecret", word), word).toBe(false);
+      expect(looksLikeSecretValue("clientSecret", ` ${word.toUpperCase()} `), word).toBe(false);
+    }
+    expect(NOT_SECRET_VALUES).toEqual([
+      "true",
+      "false",
+      "none",
+      "basic",
+      "bearer",
+      "oauth",
+      "required",
+      "optional"
+    ]);
+  });
+
+  it("rejects a short string under a name ending in auth, and only there", () => {
+    // `auth: "jwt"` and `twoFactorAuth: "sms"` are settings; a credential under
+    // such a name is longer than seven characters.
+    expect(looksLikeSecretValue("auth", "jwt")).toBe(false);
+    expect(looksLikeSecretValue("twoFactorAuth", "sms-app")).toBe(false);
+    expect(looksLikeSecretValue("auth", "user:pw1")).toBe(true);
+    expect(looksLikeSecretValue("auth", 12)).toBe(true);
+    expect(looksLikeSecretValue("authorization", "short")).toBe(true);
+    const withMinimum = SECRET_NAME_TERMS.filter((one) => one.minValueLength !== undefined);
+    expect(withMinimum.map(({ term, minValueLength }) => [term, minValueLength])).toEqual([
+      ["auth", 8]
+    ]);
   });
 });

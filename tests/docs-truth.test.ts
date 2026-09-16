@@ -504,7 +504,7 @@ describe("docs/SDK_SPEC.md", () => {
   it("copies the built-in secret names exactly", () => {
     // An implementer in another language cannot import the file, so the list
     // lives in the document; this is what stops the two from drifting.
-    const block = /### The eleven built-in secret names[\s\S]*?```text\n([\s\S]*?)```/.exec(spec());
+    const block = /### The built-in secret names[\s\S]*?```text\n([\s\S]*?)```/.exec(spec());
     expect(block, "the document no longer lists the built-in secret names").not.toBeNull();
     const listed = (block?.[1] ?? "")
       .trim()

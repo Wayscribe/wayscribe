@@ -112,4 +112,51 @@ describe("redact reports kept secret-looking names", () => {
   it("reports even when no rule is configured at all", () => {
     expect(reported({ authToken: "a" }, [])).toEqual(["authToken @ authToken"]);
   });
+
+  it("applies the value rule: enum-like words and short auth settings are quiet", () => {
+    expect(
+      reported({
+        auth: "jwt",
+        twoFactorAuth: "sms",
+        clientSecret: "NONE",
+        tokenMode: "x",
+        basicAuth: "user:password"
+      })
+    ).toEqual(["basicAuth @ basicAuth"]);
+  });
+
+  it("reports secret-looking names in header-shaped arrays the rules do not cover", () => {
+    const found = reported({
+      pairs: [
+        ["X-Session-Token", "pair-value"],
+        ["authorization", "Bearer covered-value"],
+        ["content-type", "application/json"]
+      ],
+      har: [
+        { name: "X-Api-Token", value: "har-value" },
+        { key: "cookie", value: "covered" }
+      ],
+      raw: ["host", "example.com", "x-refresh-token", "raw-value", "accept", "*/*"]
+    });
+    expect(found).toEqual([
+      "X-Session-Token @ pairs[*]",
+      "X-Api-Token @ har[*]",
+      "x-refresh-token @ raw[*]"
+    ]);
+    expect(found.join("")).not.toContain("value");
+  });
+
+  it("reports a secret-looking line in a header block, and not a covered one", () => {
+    const block =
+      "GET / HTTP/1.1\r\nHost: x\r\nX-Session-Token: block-value\r\nAuthorization: Bearer abcdefgh\r\n\r\nbody";
+    expect(reported({ request: { _header: block } })).toEqual([
+      "X-Session-Token @ request._header"
+    ]);
+  });
+
+  it("does not report a header-shaped value that is empty or a known word", () => {
+    expect(
+      reported({ pairs: [["X-Session-Token", ""]], har: [{ name: "x-auth", value: "basic" }] })
+    ).toEqual([]);
+  });
 });

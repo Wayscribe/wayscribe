@@ -146,7 +146,7 @@ them.
   is authoritative: an SDK may capture less than the server would store, never
   more.
 
-### The eleven built-in secret names
+### The built-in secret names
 
 These apply in every mode that stores a payload at all, including full capture,
 and cannot be disabled. They are listed here because an implementer in another
@@ -165,10 +165,20 @@ refresh_token
 client_secret
 api_key
 secret
+stripe-signature
+x-hub-signature
+x-hub-signature-256
+x-slack-signature
+x-hubspot-signature
+x-hubspot-signature-v3
+x-twilio-signature
+x-shopify-hmac-sha256
 ```
 
 The list is deliberately narrow: each name means a secret in essentially every
-payload it appears in. A name that is only sometimes a secret belongs in an
+payload it appears in. The last eight are webhook signature headers: a signature
+stored beside its body is a request the receiver accepts, and GitHub's carries no
+timestamp, so the pair stays valid for as long as the signing secret (ADR-055). A name that is only sometimes a secret belongs in an
 operator's own configuration, where over-redaction is their call to make.
 
 ### The repairs

@@ -7,7 +7,7 @@ import {
   namedValueKey
 } from "./http-headers.js";
 import { normaliseName } from "./normalise-name.js";
-import { looksLikeSecretFoldedName } from "./secret-name.js";
+import { looksLikeSecretFoldedValue } from "./secret-name.js";
 
 export { normaliseName };
 
@@ -45,10 +45,10 @@ type Segment = { kind: "literal"; value: string } | { kind: "any" } | { kind: "a
  * Matched values are replaced rather than deleted: SECURITY.md section 4
  * requires preserving evidence that a value existed.
  *
- * `onUnredacted`, when given, is called for each object key the walk kept
- * whose name looks like a secret (`looksLikeSecretName`) and whose value
- * is a non-empty string or a number. It receives the key as written and its
- * path, with every array index written `[*]`, and never the value. It is how a
+ * `onUnredacted`, when given, is called for each name the walk kept, as an
+ * object key or in one of the header shapes above, whose value could be a
+ * credential by `looksLikeSecretValue`. It receives the name as written and
+ * the path to it, with every array index written `[*]`, and never the value. It is how a
  * name no rule covers is warned about without a second walk (ADR-055); it
  * changes nothing about what is returned. An observer that throws ends the
  * walk, so a caller that must not fail guards it.
@@ -71,7 +71,17 @@ export function redact(
     scoped.push(parsePath(path));
   }
 
-  const observed = onUnredacted === undefined ? undefined : { report: onUnredacted, path: [] };
+  let observed: Observed | undefined;
+  if (onUnredacted !== undefined) {
+    const made: Observed = {
+      report: onUnredacted,
+      path: [],
+      onHeaderLine: (name, lineValue) => {
+        reportIfSecret(made, name, lineValue);
+      }
+    };
+    observed = made;
+  }
   return walk(value, scoped, anyDepth, new Set(), observed);
 }
 
@@ -88,6 +98,8 @@ export type UnredactedObserver = (name: string, path: string) => void;
 interface Observed {
   report: UnredactedObserver;
   path: string[];
+  /** For a header block's kept lines; made once per call, not per string. */
+  onHeaderLine: (name: string, value: string) => void;
 }
 
 const ANY_INDEX = "[*]";
@@ -100,14 +112,44 @@ function joinPath(path: readonly string[]): string {
   return joined;
 }
 
+function reportIfSecret(observed: Observed, name: string, value: unknown): void {
+  if (looksLikeSecretFoldedValue(normaliseName(name), value)) {
+    observed.report(name, joinPath(observed.path));
+  }
+}
+
 /**
- * A value worth warning about: something a credential could be. An object
- * under a secret-looking name is a container whose own keys are examined in
- * turn, and a boolean (`hasPassword`) never holds a credential.
+ * The warning for a header filed by position that no rule replaced: an
+ * interleaved list's value, a `[name, value]` pair, or a `{name|key, value}`
+ * object. The path is the list's, with the element as `[*]`. A name a rule
+ * covers is left alone, including one kept because its value is itself a
+ * header name.
  */
-function isReportable(value: unknown): boolean {
-  if (typeof value === "string") return value !== "" && value !== REDACTED;
-  return typeof value === "number" || typeof value === "bigint";
+function reportHeaderShaped(
+  list: readonly unknown[],
+  index: number,
+  interleaved: boolean,
+  isSecretName: (name: string) => boolean,
+  observed: Observed
+): void {
+  const item = list[index];
+  let name: unknown;
+  let child: unknown;
+  if (interleaved) {
+    if (index % 2 === 0) return;
+    name = list[index - 1];
+    child = item;
+  } else if (isNamedPair(item)) {
+    [name, child] = item;
+  } else {
+    const nameKey = namedValueKey(item);
+    if (nameKey === undefined) return;
+    const entry = item as Record<string, unknown>;
+    name = entry[nameKey];
+    child = entry["value"];
+  }
+  if (typeof name !== "string" || isSecretName(name)) return;
+  reportIfSecret(observed, name, child);
 }
 
 /** Marks a rule that applies at every level rather than at one path. */
@@ -153,9 +195,13 @@ function walk(
     // A serialised header block, such as a ClientRequest's `_header`, files a
     // header under a line rather than a key. Only its secret-named lines are
     // masked, never the string by shape (ADR-046).
-    return anyDepth.size === 0
-      ? value
-      : maskHeaderLines(value, (name) => anyDepth.has(normaliseName(name)), REDACTED);
+    if (anyDepth.size === 0) return value;
+    return maskHeaderLines(
+      value,
+      (name) => anyDepth.has(normaliseName(name)),
+      REDACTED,
+      observed?.onHeaderLine
+    );
   }
   if (value === null || typeof value !== "object") return value;
 
@@ -235,6 +281,9 @@ function walk(
         }
         if (observed === undefined) return walk(item, remaining, anyDepth, seen);
         observed.path.push(ANY_INDEX);
+        if (anyDepth.size > 0) {
+          reportHeaderShaped(value, index, interleaved, isSecretName, observed);
+        }
         const walked = walk(item, remaining, anyDepth, seen, observed);
         observed.path.pop();
         return walked;
@@ -267,7 +316,7 @@ function walk(
       // around the push: the stack belongs to this one call of `redact`, and
       // a throw abandons it along with the call.
       observed.path.push(key);
-      if (isReportable(child) && looksLikeSecretFoldedName(name)) {
+      if (looksLikeSecretFoldedValue(name, child)) {
         observed.report(key, joinPath(observed.path));
       }
       defineKey(result, key, walk(child, matching, anyDepth, seen, observed));
