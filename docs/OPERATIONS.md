@@ -919,12 +919,53 @@ and its text filter use `journeys_project_recent_idx` and
 Migrations 013, 014, 016, and 019 build their indexes with
 `CREATE INDEX CONCURRENTLY`, so on a large installation they take longer than
 the other migrations but do not block ingestion while they run (014 took 3
-seconds over 3 million events). A concurrent build waits for
-transactions that started before it, in any table of the database, to end: a
-long retention batch, an admin deletion, a `pg_dump`. 019 gives up after
-waiting 30 seconds for any one of those or for its lock, and reports a lock
-timeout rather than holding the migrate step open; run `migrate` again once
-they finish.
+seconds over 3 million events).
+
+Run `migrate` against PostgreSQL directly, not through a PgBouncer in
+transaction pooling mode. 019 sets `lock_timeout` on its connection and then
+builds on it, and behind transaction pooling the setting and the build can
+land on different server connections.
+
+A concurrent build does not block ingestion, but it waits for transactions
+that started before it, in any table of the database, to end: a long
+retention batch, an admin deletion, a nightly `pg_dump`. While it waits, the
+migrate step simply takes longer. 019 waits up to 10 minutes for any one of
+them, or for its own lock, and then gives up. `migrate` prints:
+
+```text
+migration file "019_journey_browse_indexes.js" failed
+migration failed with error: canceling statement due to lock timeout
+```
+
+followed by the stack, and exits 1. Nothing is blocked meanwhile, and nothing
+is lost: run `migrate` again once the transaction ends, and it drops the index
+the interrupted build left invalid and builds it afresh. To see what the build
+is waiting for, list the transactions older than it:
+
+```sql
+select pid, usename, application_name, state, xact_start,
+       now() - xact_start as running_for, left(query, 80) as query
+  from pg_stat_activity
+ where datname = current_database()
+   and xact_start < (select xact_start from pg_stat_activity
+                      where query ilike 'create index concurrently%'
+                      order by xact_start limit 1)
+ order by xact_start;
+```
+
+An `idle in transaction` row there is a session someone left open; ending it
+(`select pg_terminate_backend(<pid>)`) lets the build finish. A `pg_dump` is
+best left to finish.
+
+On Helm, the migrate Job retries `migrate` up to 30 times. It prints
+`database not ready` only when the error reads as a connection failure, and
+`migration failed ... see the error above` for anything else, such as this
+lock timeout, so read the error printed above that line. Each attempt at 019
+can wait 10 minutes, and Helm waits for the Job only as long as `--timeout`
+(5 minutes by default), so on an installation where a backup may be running,
+upgrade with `helm upgrade --timeout 30m` or expect Helm to report a timeout
+while the Job carries on. Before this release the Job printed `database not
+ready` for every failure, whatever the cause.
 
 If one of those builds stops partway, what to do depends on how it stopped:
 
@@ -1018,7 +1059,12 @@ What the plans show:
   fetch (363,699 buffers for the admin case, all cached, against 548,398
   before, a quarter of them read from disk), and the whole plan is cheap enough that
   PostgreSQL no longer JIT-compiles it. The cost still grows with the journeys
-  in the window, about 3 ms per thousand here.
+  in the window, about 3 ms per thousand here. These figures were taken right
+  after `VACUUM (ANALYZE)`, when every page is marked all-visible. On a live
+  system the most recently written pages are not, and an index-only scan
+  still reads the table for those, so the gain on text matching nothing will
+  be smaller for the newest journeys, which are the ones a 24-hour window
+  holds, until autovacuum reaches them.
 - **JIT compilation was about 170 ms of the old plans.** Their estimated cost
   passed `jit_above_cost`, and compiling took 171 to 176 ms of the 786 to 848
   ms they executed in; with `jit = off` on the database, the three slowest

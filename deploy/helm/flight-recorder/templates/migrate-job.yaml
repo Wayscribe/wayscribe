@@ -60,18 +60,31 @@ spec:
           # A probe answers a different question than the operation does, and
           # relying on backoffLimit instead left two Error pods beside a healthy
           # install — which reads as a broken deployment to anyone glancing at it.
+          #
+          # Every failure is retried, but only one that reads as a connection
+          # failure is reported as the database not being ready. Anything else,
+          # such as migration 019 giving up on a lock timeout behind a backup,
+          # is reported as a failed migration, with its error printed above.
+          # The output is captured to a file and matched afterwards, so the
+          # match never races the command.
           command:
             - sh
             - -c
             - |
               for attempt in $(seq 1 30); do
-                if node packages/database/dist/cli.js migrate; then
+                if node packages/database/dist/cli.js migrate > /tmp/migrate.log 2>&1; then
+                  cat /tmp/migrate.log
                   exit 0
                 fi
-                echo "database not ready (attempt $attempt); retrying in 2s"
+                cat /tmp/migrate.log
+                if grep -qiE 'ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EHOSTUNREACH|getaddrinfo|starting up|Timeout acquiring a connection|Connection terminated' /tmp/migrate.log; then
+                  echo "database not ready (attempt $attempt); retrying in 2s"
+                else
+                  echo "migration failed (attempt $attempt), see the error above; retrying in 2s"
+                fi
                 sleep 2
               done
-              echo "database never became reachable"
+              echo "migrate did not succeed in 30 attempts; the last error is above"
               exit 1
           env:
             {{- include "flight-recorder.databaseEnv" . | nindent 12 }}

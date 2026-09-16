@@ -108,15 +108,13 @@ export async function listRecentJourneys(
         // no display_value (migration 018's check), and entity ids and alias
         // values are otherwise stored as ciphertext and tokens.
         //
-        // The alias side is an index-only scan of
-        // entity_aliases_displayable_idx (migration 019).
-        //
         // An aggregate rather than EXISTS on purpose. PostgreSQL may run an
         // EXISTS under OR as a hashed subplan: one sequential scan of every
         // alias in the table, every project and every date, before the
-        // window is read. An aggregate subquery is always probed per journey
-        // through the (project_id, journey_id, ...) unique index, so the cost
-        // stays bounded by the window and the query stops after one page.
+        // window is read. An aggregate subquery is always probed per journey,
+        // through entity_aliases_displayable_idx (migration 019, an
+        // index-only scan once the pages are all-visible), so the cost stays
+        // bounded by the window and the query stops after one page.
         void builder.whereRaw(
           `(j.label ilike ? escape '\\'
             or coalesce(

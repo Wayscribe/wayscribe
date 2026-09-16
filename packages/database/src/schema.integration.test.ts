@@ -1,8 +1,10 @@
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "./insert.js";
-import { createKnexConfig } from "./knex-config.js";
+import { createKnexConfig, migrationsDirectory } from "./knex-config.js";
 import { ALIAS_DISPLAY_VALUE_CONSTRAINT } from "./repositories/aliases.js";
 
 describe("schema constraints", () => {
@@ -919,11 +921,21 @@ describe("schema constraints", () => {
       await cleanUp();
     }, 30_000);
 
-    it("gives up after its lock timeout rather than waiting indefinitely, and a rerun succeeds", async () => {
+    it("waits up to ten minutes, gives up after its lock timeout, and a rerun succeeds", async () => {
       // Another holder of SHARE UPDATE EXCLUSIVE (an index build, a VACUUM, an
       // ALTER) keeps a concurrent build from starting. The build does not
-      // block ingestion while it waits, but a migrate step that never ends
-      // is its own outage, so it fails after LOCK_TIMEOUT (30 seconds).
+      // block ingestion while it waits, so the timeout is long: it only has to
+      // keep a migrate step from waiting for ever. The give-up path is the
+      // same code with a two-second timeout, so this test does not take ten
+      // minutes.
+      const migration = (await import(
+        pathToFileURL(join(migrationsDirectory, MIGRATION)).href
+      )) as {
+        LOCK_TIMEOUT: string;
+        buildIndexes: (knex: Knex, lockTimeout: string) => Promise<void>;
+      };
+      expect(migration.LOCK_TIMEOUT).toBe("10min");
+
       await db.migrate.down({ name: MIGRATION });
       const release = signal();
       const opened = signal();
@@ -935,20 +947,42 @@ describe("schema constraints", () => {
       await opened.promise;
       try {
         const started = Date.now();
-        await expect(db.migrate.up({ name: MIGRATION })).rejects.toThrow(/lock timeout/);
-        expect(Date.now() - started).toBeGreaterThanOrEqual(29_000);
-        expect(Date.now() - started).toBeLessThan(45_000);
+        await expect(migration.buildIndexes(db, "2s")).rejects.toThrow(/lock timeout/);
+        expect(Date.now() - started).toBeGreaterThanOrEqual(1_900);
+        expect(Date.now() - started).toBeLessThan(10_000);
       } finally {
         release.resolve();
         await holder;
       }
+
       // The pinned connection went back to the pool without the setting.
-      const settings: unknown = await db.raw("select current_setting('lock_timeout') as value");
-      expect((settings as { rows: unknown[] }).rows).toEqual([{ value: "0" }]);
+      // Every idle connection is checked, not whichever the pool hands out
+      // next, so the assertion does not rest on the pool's choice.
+      const pool = (db.client as { pool: { numFree: () => number } }).pool;
+      const client = db.client as {
+        acquireConnection: () => Promise<{
+          query: (sql: string) => Promise<{ rows: { value: string }[] }>;
+        }>;
+        releaseConnection: (connection: unknown) => Promise<void>;
+      };
+      const connections = await Promise.all(
+        Array.from({ length: pool.numFree() }, () => client.acquireConnection())
+      );
+      try {
+        expect(connections.length).toBeGreaterThan(0);
+        for (const connection of connections) {
+          const settings = await connection.query(
+            "select current_setting('lock_timeout') as value"
+          );
+          expect(settings.rows).toEqual([{ value: "0" }]);
+        }
+      } finally {
+        for (const connection of connections) await client.releaseConnection(connection);
+      }
 
       await db.migrate.up({ name: MIGRATION });
       expect(await indexes()).toEqual(VALID);
-    }, 90_000);
+    }, 30_000);
 
     /** Until a concurrent build on journeys is waiting for older transactions. */
     async function waitForBuildToWait(): Promise<void> {

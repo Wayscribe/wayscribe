@@ -154,6 +154,11 @@ changes far less often.
   it are ordinary characters. It filters inside the `since`/`until` window, so
   its cost follows the window, not the table. See `docs/API_SPEC.md` section 6
   for what "ignoring case" means on a given database.
+- **The Helm migrate Job says when a migration failed.** It printed
+  `database not ready` after every failed attempt, including a migration that
+  failed on a reachable database. It now says so only for a connection
+  failure, and `migration failed ... see the error above` otherwise, with
+  `migrate`'s output printed in both cases.
 - **The journey list is indexed for every environment and for text.**
   Migration `019_journey_browse_indexes.js` adds `journeys (project_id,
   last_event_at, id)` and a partial covering index on `entity_aliases
@@ -863,10 +868,13 @@ audit, all merged the same day. The pattern behind them is written up in
 
 - **Migration 019 builds two indexes concurrently.** It does not block
   ingestion, but it waits for transactions that started before it, and gives
-  up after 30 seconds with a lock timeout if one (a long retention batch, an
-  admin deletion, a `pg_dump`) is still running. Run `migrate` again once it
-  ends; the rerun drops what the interrupted build left and builds it afresh
-  (docs/OPERATIONS.md section 10).
+  up with `canceling statement due to lock timeout` after 10 minutes if one (a
+  long retention batch, an admin deletion, a `pg_dump`) is still running. Run
+  `migrate` again once it ends; the rerun drops what the interrupted build left
+  and builds it afresh. Run it against PostgreSQL directly, not through a
+  transaction-pooling PgBouncer. On Helm, allow for the wait with
+  `helm upgrade --timeout`. docs/OPERATIONS.md section 10 has a query that
+  shows what the build is waiting for.
 - **Migration 017 adds a column to `entity_aliases`.** It is a catalogue change
   on PostgreSQL 11 and later and finishes at once, but it gives up after five
   seconds if a long transaction holds the table, rather than stalling ingestion

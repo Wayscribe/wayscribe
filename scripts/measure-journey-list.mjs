@@ -209,6 +209,10 @@ async function run() {
     await db.migrate.latest();
     const keyring = createKeyring(await measurementKey(db));
     app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    // Before recording, so a mistyped name costs seconds rather than the
+    // whole recording, and by throwing, so the schema is still dropped.
+    const drops = args["drop-index"];
+    const definitions = await indexDefinitions(db, drops);
     const setup = args.reuse ? await existingSetup(db, keyring) : await record(db, keyring);
     const { sql, bindings } = vacuumStatement(["analyze"], SCHEMA, TABLES);
     await db.raw(sql, bindings);
@@ -216,8 +220,6 @@ async function run() {
 
     // Every index first, then one stage per --drop-index, each without the
     // indexes dropped so far, all on the same rows.
-    const drops = args["drop-index"];
-    const definitions = await indexDefinitions(db, drops);
     const setStage = async (stage) => {
       for (const [i, index] of drops.entries()) {
         await (i < stage
@@ -522,7 +524,9 @@ async function measure(db, app, setup) {
       }
       const query = { ...entry.query, cursor: first.nextCursor };
       const second = await timeCase(db, app, entry, query);
-      results.push({ ...second, name: `7. ${entry.name}, page 2`, entry, query });
+      // "1. no filter, ..." becomes "7. no filter, ..., page 2".
+      const name = `7. ${entry.name.replace(/^\S+ /, "")}, page 2`;
+      results.push({ ...second, name, entry, query });
     }
   }
   return results;
@@ -708,7 +712,9 @@ async function indexDefinitions(db, names) {
         where c.relname = ? and n.nspname = ? and c.relkind = 'i'`,
       [name, SCHEMA]
     );
-    if (found.rows.length === 0) fail(`--drop-index: there is no index ${name} in ${SCHEMA}.`);
+    if (found.rows.length === 0) {
+      throw new Error(`--drop-index: there is no index ${name} in ${SCHEMA}.`);
+    }
     // Schema-qualified by PostgreSQL, and built only when missing. Not
     // concurrently: nothing else writes this schema.
     definitions.set(
