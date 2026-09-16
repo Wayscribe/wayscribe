@@ -137,6 +137,7 @@ Constraints and indexes:
 - unique `(project_id, journey_id, alias_type, alias_value_hash)`
 - index `(project_id, alias_type, alias_value_hash)`
 - index `(project_id, alias_value_hash)`
+- check `entity_aliases_display_value_only_when_displayable`: `displayable or display_value is null`, so a masked alias can never hold a plain value, whatever writes the row (migration `018_journey_browse.js`). Added `not valid` with the columns and validated in a separate transaction, which takes only a SHARE UPDATE EXCLUSIVE lock and so does not block ingestion
 
 `display_value` has no backfill either. A displayable alias stored before migration `018_journey_browse.js` gets its copy the next time an event states it displayable; that statement also replaces the row's ciphertext, so the two keep the same spelling. Until then it reads null.
 

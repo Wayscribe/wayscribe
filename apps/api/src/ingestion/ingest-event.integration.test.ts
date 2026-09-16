@@ -228,53 +228,50 @@ describe("ingestion stores labels, last steps and plain-text copies", () => {
   });
 
   it("keeps flag and copy together across rounds of concurrent events on one journey", async () => {
-    // Each POST is its own transaction, so these race for real. Invariant
-    // probe: PostgreSQL refuses any row written masked with a copy, so even a
+    // Each POST is its own transaction, so these race for real. Migration
+    // 018's constraint refuses any row written masked with a copy, so even a
     // moment of disagreement inside a statement fails the event, and the
     // assertion that every event was accepted catches it.
-    await db.raw(
-      "alter table entity_aliases add constraint entity_aliases_copy_probe check (displayable or display_value is null)"
+    const found: unknown = await db.raw(
+      "select convalidated from pg_constraint where conrelid = 'entity_aliases'::regclass and conname = 'entity_aliases_display_value_only_when_displayable'"
     );
-    try {
-      const rounds = 20;
-      const perRound = 10;
-      for (let round = 0; round < rounds; round += 1) {
-        const journeyId = `jrn_race_${String(round)}`;
-        const responses = await Promise.all(
-          Array.from({ length: perRound }, (_, i) =>
-            app.inject({
-              method: "POST",
-              url: "/v1/events",
-              headers: { authorization: `Bearer ${apiKey}` },
-              payload: envelope({
-                id: `evt_race_${String(round)}_${String(i)}`,
-                journeyId,
-                timestamp: new Date(Date.UTC(2026, 8, 16, 10, 0, i)).toISOString(),
-                name: `step ${String(i)}`,
-                journeyLabel: i % 2 === 0 ? `Label ${String(i)}` : undefined,
-                aliases: { always: "shown", mixed: "sometimes", never: "hidden" },
-                // "mixed" is masked by exactly one event, a different one each round.
-                displayableAliases: i === round % perRound ? ["always"] : ["always", "mixed"]
-              })
+    expect((found as { rows: unknown[] }).rows).toEqual([{ convalidated: true }]);
+    const rounds = 20;
+    const perRound = 10;
+    for (let round = 0; round < rounds; round += 1) {
+      const journeyId = `jrn_race_${String(round)}`;
+      const responses = await Promise.all(
+        Array.from({ length: perRound }, (_, i) =>
+          app.inject({
+            method: "POST",
+            url: "/v1/events",
+            headers: { authorization: `Bearer ${apiKey}` },
+            payload: envelope({
+              id: `evt_race_${String(round)}_${String(i)}`,
+              journeyId,
+              timestamp: new Date(Date.UTC(2026, 8, 16, 10, 0, i)).toISOString(),
+              name: `step ${String(i)}`,
+              journeyLabel: i % 2 === 0 ? `Label ${String(i)}` : undefined,
+              aliases: { always: "shown", mixed: "sometimes", never: "hidden" },
+              // "mixed" is masked by exactly one event, a different one each round.
+              displayableAliases: i === round % perRound ? ["always"] : ["always", "mixed"]
             })
-          )
-        );
-        for (const response of responses) expect(response.statusCode, response.body).toBe(202);
+          })
+        )
+      );
+      for (const response of responses) expect(response.statusCode, response.body).toBe(202);
 
-        expect(await aliasColumns(journeyId), journeyId).toEqual([
-          { alias_type: "always", displayable: true, display_value: "shown" },
-          { alias_type: "mixed", displayable: false, display_value: null },
-          { alias_type: "never", displayable: false, display_value: null }
-        ]);
-        expect(await journeyColumns(journeyId), journeyId).toMatchObject({
-          label: "Label 8",
-          label_event_id: `evt_race_${String(round)}_8`,
-          last_step: "step 9",
-          last_step_event_id: `evt_race_${String(round)}_9`
-        });
-      }
-    } finally {
-      await db.raw("alter table entity_aliases drop constraint entity_aliases_copy_probe");
+      expect(await aliasColumns(journeyId), journeyId).toEqual([
+        { alias_type: "always", displayable: true, display_value: "shown" },
+        { alias_type: "mixed", displayable: false, display_value: null },
+        { alias_type: "never", displayable: false, display_value: null }
+      ]);
+      expect(await journeyColumns(journeyId), journeyId).toMatchObject({
+        label: "Label 8",
+        label_event_id: `evt_race_${String(round)}_8`,
+        last_step: "step 9",
+        last_step_event_id: `evt_race_${String(round)}_9`
+      });
     }
 
     const leaked: unknown = await db("entity_aliases")

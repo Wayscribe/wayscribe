@@ -186,19 +186,18 @@ describe("upsertAliases", () => {
     };
 
     /**
-     * Refuses any row that is masked and still holds a plain value. Checked as
-     * each row is written, so a change that lowered the flag in one statement
-     * and cleared the copy in the next fails here rather than passing.
+     * Migration 018's constraint refuses any row that is masked and still holds
+     * a plain value, checked as each row is written. So a change that lowered
+     * the flag in one statement and cleared the copy in the next would fail
+     * these tests rather than pass them. Asserted present, so the proof cannot
+     * lapse silently if the constraint is ever dropped.
      */
     const withInvariant = async (work: () => Promise<void>): Promise<void> => {
-      await db.raw(
-        "alter table entity_aliases add constraint entity_aliases_copy_probe check (displayable or display_value is null)"
+      const found: unknown = await db.raw(
+        "select convalidated from pg_constraint where conrelid = 'entity_aliases'::regclass and conname = 'entity_aliases_display_value_only_when_displayable'"
       );
-      try {
-        await work();
-      } finally {
-        await db.raw("alter table entity_aliases drop constraint entity_aliases_copy_probe");
-      }
+      expect((found as { rows: unknown[] }).rows).toEqual([{ convalidated: true }]);
+      await work();
     };
 
     it("is stored with a displayable alias", async () => {

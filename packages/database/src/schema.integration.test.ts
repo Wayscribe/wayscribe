@@ -507,6 +507,44 @@ describe("schema constraints", () => {
       return (result as { rows: unknown[] }).rows;
     };
 
+    const CONSTRAINT = "entity_aliases_display_value_only_when_displayable";
+
+    const constraint = async (): Promise<{ definition: string; validated: boolean }[]> => {
+      const result: unknown = await db.raw(
+        `select pg_get_constraintdef(oid) as definition, convalidated as validated
+           from pg_constraint
+          where conrelid = 'entity_aliases'::regclass and conname = ?`,
+        [CONSTRAINT]
+      );
+      return (result as { rows: { definition: string; validated: boolean }[] }).rows;
+    };
+
+    const aliasRow = (journeyId: string, hash: string): Record<string, unknown> => ({
+      project_id: projectId,
+      journey_id: journeyId,
+      alias_type: "company",
+      alias_value_hash: hash
+    });
+
+    const withJourney = async (journeyId: string, work: () => Promise<void>): Promise<void> => {
+      await db("journeys").insert({
+        id: journeyId,
+        project_id: projectId,
+        environment_id: environmentId,
+        entity_type: "customer",
+        primary_entity_id_hash: `hash-${journeyId}`,
+        status: "active",
+        started_at: db.fn.now(),
+        last_event_at: db.fn.now(),
+        event_count: 1
+      });
+      try {
+        await work();
+      } finally {
+        await db("journeys").where({ id: journeyId }).delete();
+      }
+    };
+
     it("adds nullable columns with no default, and removes them on the way down", async () => {
       expect(await columns()).toEqual(
         ADDED.map(([table, column, type]) => ({
@@ -552,7 +590,9 @@ describe("schema constraints", () => {
       });
       const before = await fileNodes();
       await db.migrate.up({ name: MIGRATION });
+      // Validating the constraint reads the table but does not rewrite it.
       expect(await fileNodes()).toEqual(before);
+      expect((await constraint()).map((found) => found.validated)).toEqual([true]);
       expect(
         await db("journeys")
           .where({ project_id: projectId, id: journeyId })
@@ -577,6 +617,84 @@ describe("schema constraints", () => {
       ).toEqual([null]);
       await db("journeys").where({ id: journeyId }).delete();
     });
+
+    it("refuses a masked alias that holds a plain value, validated, and removes the rule on the way down", async () => {
+      expect(await constraint()).toEqual([
+        { definition: "CHECK ((displayable OR (display_value IS NULL)))", validated: true }
+      ]);
+      await withJourney("jrn_018_check", async () => {
+        await expect(
+          db("entity_aliases").insert({
+            ...aliasRow("jrn_018_check", "masked-with-copy"),
+            displayable: false,
+            display_value: "leaked"
+          })
+        ).rejects.toMatchObject({ code: "23514", constraint: CONSTRAINT });
+        // The rows the rule allows.
+        await db("entity_aliases").insert([
+          { ...aliasRow("jrn_018_check", "shown"), displayable: true, display_value: "shown" },
+          { ...aliasRow("jrn_018_check", "shown-no-copy"), displayable: true },
+          { ...aliasRow("jrn_018_check", "masked"), displayable: false }
+        ]);
+        // Lowering the flag alone, without clearing the copy, is refused too.
+        await expect(
+          db("entity_aliases").where({ alias_value_hash: "shown" }).update({ displayable: false })
+        ).rejects.toMatchObject({ code: "23514" });
+
+        await db("entity_aliases").where({ journey_id: "jrn_018_check" }).delete();
+        await db.migrate.down({ name: MIGRATION });
+        expect(await constraint()).toEqual([]);
+        await db.migrate.up({ name: MIGRATION });
+        expect((await constraint()).map((found) => found.validated)).toEqual([true]);
+      });
+    });
+
+    it("validates without blocking writes when a run stopped after adding the rule", async () => {
+      // The state a run leaves when its validation gave up: every column and
+      // the constraint present, not yet validated. The rerun takes no
+      // exclusive lock, and VALIDATE's SHARE UPDATE EXCLUSIVE does not wait for
+      // an open write.
+      await db.migrate.down({ name: MIGRATION });
+      await db.migrate.up({ name: MIGRATION });
+      await db.raw(`alter table entity_aliases drop constraint ${CONSTRAINT}`);
+      await db.raw(
+        `alter table entity_aliases add constraint ${CONSTRAINT} check (displayable or display_value is null) not valid`
+      );
+      await db("knex_migrations").where({ name: MIGRATION }).delete();
+      expect((await constraint()).map((found) => found.validated)).toEqual([false]);
+
+      await withJourney("jrn_018_writer", async () => {
+        let release: () => void = () => undefined;
+        const released = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let writing: () => void = () => undefined;
+        const written = new Promise<void>((resolve) => {
+          writing = resolve;
+        });
+        const writer = db.transaction(async (trx) => {
+          await trx("entity_aliases").insert({
+            ...aliasRow("jrn_018_writer", "open-write"),
+            displayable: true,
+            display_value: "open"
+          });
+          await trx("journeys").where({ id: "jrn_018_writer" }).update({ label: "open" });
+          writing();
+          await released;
+        });
+        await written;
+        try {
+          const started = Date.now();
+          await db.migrate.up({ name: MIGRATION });
+          expect(Date.now() - started).toBeLessThan(4_000);
+        } finally {
+          release();
+          await writer;
+        }
+        expect((await constraint()).map((found) => found.validated)).toEqual([true]);
+        await db("entity_aliases").where({ journey_id: "jrn_018_writer" }).delete();
+      });
+    }, 30_000);
 
     for (const busy of ["journeys", "entity_aliases"]) {
       it(`gives up rather than queueing ingestion behind it when ${busy} is busy, and a rerun succeeds`, async () => {
@@ -609,8 +727,10 @@ describe("schema constraints", () => {
           await reader;
         }
         expect(await columns()).toEqual([]);
+        expect(await constraint()).toEqual([]);
         await db.migrate.up({ name: MIGRATION });
         expect(await columns()).toHaveLength(ADDED.length);
+        expect((await constraint()).map((found) => found.validated)).toEqual([true]);
       }, 30_000);
     }
   });

@@ -469,15 +469,10 @@ describe("key rotation commands", () => {
           .where({ alias_value_hash: token(keyringB, "SF-1") })
           .update({ displayable: currentFlag, display_value: copyOf(currentFlag) });
 
-        await db.raw(
-          "alter table entity_aliases add constraint entity_aliases_copy_probe check (displayable or display_value is null)"
-        );
-        try {
-          const result = await reencryptValues(db, rotated);
-          expect(table(result, "entity_aliases")).toMatchObject({ duplicatesRemoved: 1 });
-        } finally {
-          await db.raw("alter table entity_aliases drop constraint entity_aliases_copy_probe");
-        }
+        // Migration 018's constraint refuses the fold if it lowers the flag
+        // and leaves the copy, so a passing run cannot have done that.
+        const result = await reencryptValues(db, rotated);
+        expect(table(result, "entity_aliases")).toMatchObject({ duplicatesRemoved: 1 });
         const rows: unknown = await db("entity_aliases").select("displayable", "display_value");
         expect(rows).toEqual([
           {
