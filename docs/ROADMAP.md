@@ -15,8 +15,9 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. 1390 unit tests, 541 integration
-tests against a real PostgreSQL, 7 acceptance tests against a running stack.
+the step against a development destination. 1930 unit tests, 713 integration
+tests against a real PostgreSQL, 29 browser tests and 7 acceptance tests against
+a running stack.
 
 Nothing is published. There is no npm package and no image in any registry, so
 every install today is `git clone` and `docker compose up`. That is deliberate
@@ -62,6 +63,32 @@ Presenting the work, and closing what the last review opened.
   recommended path for Node, because the input and output pairing the diff needs
   is something a recorder knows and a log line does not. It waits for the rename
   because the attribute names it would read carry the product prefix.
+
+- **Per-record timing and context, before the first release.** Flight
+  Recorder already stores when each step started and how long it took, so most
+  of this is presentation. All of it answers a question about one record;
+  aggregate latency and throughput across records stays with Prometheus,
+  Grafana or an OpenTelemetry backend. Each item is exercised by the Leadline
+  dogfood project (a local lead-sync system with queues, retries and rate
+  limits) before it counts as done.
+  - **Gaps on the timeline:** the idle time between consecutive steps, with
+    queue waits (a `published` step followed by a `consumed` one) called out,
+    and a note when the two steps ran on different hosts whose clocks may
+    differ.
+  - **Journey duration and stuck journeys:** total time from first to last
+    event on the journey page and the Journeys table, and a filter for active
+    journeys with no event for longer than a chosen threshold.
+  - **Retry detail:** for each step, the attempts, the delay between them, and
+    which attempt succeeded.
+  - **A small standard metadata vocabulary:** agreed names for queue name,
+    queue wait, delivery count, target host, HTTP status and rate-limit retry
+    time, shown as labelled fields rather than anonymous metadata, and set by
+    the SDK where it can (for example the queue wait when it extracts context
+    from a job). Needs a decision on names, and belongs in the contract.
+  - **The deployment on each event:** the existing `deployment` field shown on
+    the timeline, so a field that changed after a deploy is easy to spot.
+  - **Duration filters** on the Journeys page: journeys that took longer than
+    a given time, and journeys with a step longer than a given time.
 
 ### Known open, and honest about it
 
