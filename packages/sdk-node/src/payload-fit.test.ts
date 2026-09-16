@@ -231,6 +231,38 @@ describe("fitting an event to the server's limits", () => {
     expect(counters.payloadsTruncated).toBe(0);
   });
 
+  it("masks a header line named by a configured path before cutting the block", async () => {
+    const { events, counters } = await capture(
+      (journey) => {
+        journey.record({
+          operation: "received",
+          name: "r",
+          input: { raw: `x-internal-token: ${"v".repeat(70_000)}\r\nhost: example.com\r\n\r\n` }
+        });
+      },
+      { redact: ["**.x-internal-token"] }
+    );
+    expect(events[0]?.["input"]).toEqual({
+      raw: "x-internal-token: [REDACTED]\r\nhost: example.com\r\n\r\n"
+    });
+    expect(counters.payloadsTruncated).toBe(0);
+  });
+
+  it("keeps a line break before the marker when it cuts a header block it cannot mask", async () => {
+    // The environment may name this header; only the server knows. Keeping a
+    // line break lets the server's masking still read the first line.
+    const { events } = await capture((journey) => {
+      journey.record({
+        operation: "received",
+        name: "r",
+        input: { raw: `x-internal-token: ${"v".repeat(70_000)}\r\nhost: example.com\r\n\r\n` }
+      });
+    });
+    const raw = (events[0]?.["input"] as { raw: string }).raw;
+    expect(raw).toHaveLength(65_536);
+    expect(raw.endsWith("\r\n[TRUNCATED: 4543 characters removed]")).toBe(true);
+  });
+
   it("keeps the exact accounting: sent + rejected + dropped equals recorded", async () => {
     const { counters } = await capture((journey) => {
       for (let index = 0; index < 5; index += 1) {

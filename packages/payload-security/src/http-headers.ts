@@ -1,3 +1,5 @@
+import { TRUNCATION_MARKER_PATTERN } from "./truncation-marker.js";
+
 /**
  * Recognising headers that an HTTP client files somewhere other than an object
  * key.
@@ -150,7 +152,10 @@ export function maskHeaderLines(
   isSecretName: (name: string) => boolean,
   redacted: string
 ): string {
-  if (!text.includes(CRLF)) return text;
+  // Text ending in the truncation marker counts as a block too: a client that
+  // cut a block to its first line, and lost the only line break with it, must
+  // not have that line escape masking.
+  if (!text.includes(CRLF) && !TRUNCATION_MARKER_PATTERN.test(text)) return text;
 
   let output = "";
   let copied = 0;

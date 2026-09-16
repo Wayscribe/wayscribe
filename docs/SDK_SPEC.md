@@ -371,7 +371,9 @@ They are numbered after the rest so that no identifier above moved.
   to the whole envelope before sending it, so that a limit never refuses an
   event it sent. A string over the length limit MUST be cut to its start and
   `[TRUNCATED: <n> characters removed]`, where `<n>` counts the code units
-  removed and the result is exactly the limit long. A payload that still does
+  removed and the result is exactly the limit long. When the string held a
+  CRLF, the marker MUST follow a CRLF, so that the server still masks a secret
+  header line the SDK could not recognise. A payload that still does
   not fit, or is nested or wide past the limits, MUST be replaced with
   `[PAYLOAD_TOO_LARGE]`, the larger of `input` and `output` first, and
   `metadata` left off last. The event MUST still be sent.

@@ -7,7 +7,8 @@ import {
   compareExpectation,
   expand,
   expectedCaseIds,
-  loadConformanceCases
+  loadConformanceCases,
+  type ConformanceCase
 } from "@flight-recorder/protocol/conformance";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { FastifyInstance } from "fastify";
@@ -42,6 +43,34 @@ describe("sdk conformance cases through the dry run", () => {
   const all = loadConformanceCases(sdkDirectory);
   const cases = all.filter((one) => appliesTo(one, LANGUAGE));
   const captured = new Map<string, CapturedCase>();
+  /** Keys for the cases that set up an environment of their own. */
+  const caseKeys = new Map<string, string>();
+
+  type Settings = NonNullable<NonNullable<ConformanceCase["setup"]>["environment"]>;
+
+  async function keyFor(project: string, settings: Settings | undefined): Promise<string> {
+    const environmentId = await insertReturningId(db, "environments", {
+      project_id: project,
+      name: ENVIRONMENT,
+      ...(settings === undefined
+        ? {}
+        : {
+            capture_mode: settings.captureMode,
+            redaction_paths: JSON.stringify(settings.redactionPaths ?? []),
+            capture_allowlist: JSON.stringify(settings.captureAllowlist ?? [])
+          })
+    });
+    const generated = issueApiKey(keyring);
+    await db("api_keys").insert({
+      project_id: project,
+      environment_id: environmentId,
+      name: "sdk",
+      key_prefix: generated.keyPrefix,
+      key_hash: generated.verifier,
+      key_hash_key_id: generated.keyHashKeyId
+    });
+    return generated.apiKey;
+  }
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:17-alpine").start();
@@ -49,20 +78,20 @@ describe("sdk conformance cases through the dry run", () => {
     await db.migrate.latest();
 
     projectId = await insertReturningId(db, "projects", { name: "sdk", slug: "sdk" });
-    const environmentId = await insertReturningId(db, "environments", {
-      project_id: projectId,
-      name: ENVIRONMENT
-    });
-    const generated = issueApiKey(keyring);
-    apiKey = generated.apiKey;
-    await db("api_keys").insert({
-      project_id: projectId,
-      environment_id: environmentId,
-      name: "sdk",
-      key_prefix: generated.keyPrefix,
-      key_hash: generated.verifier,
-      key_hash_key_id: generated.keyHashKeyId
-    });
+    apiKey = await keyFor(projectId, undefined);
+
+    // A case that names server settings gets an environment of its own, in a
+    // project of its own, since every case records into the same environment
+    // name. The recorder never sees these settings: they are the server's.
+    for (const one of cases) {
+      const settings = one.setup?.environment;
+      if (settings === undefined) continue;
+      const own = await insertReturningId(db, "projects", {
+        name: `sdk ${one.id}`,
+        slug: `sdk-${String(caseKeys.size)}`
+      });
+      caseKeys.set(one.id, await keyFor(own, settings));
+    }
 
     app = buildApp({
       db,
@@ -87,13 +116,16 @@ describe("sdk conformance cases through the dry run", () => {
    * a whole request, because the recorder's own batching is the SDK unit test's
    * subject; here the question is only what the server would store.
    */
-  async function dryRun(events: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  async function dryRun(
+    events: Record<string, unknown>[],
+    key: string = apiKey
+  ): Promise<Record<string, unknown>[]> {
     const results: Record<string, unknown>[] = [];
     for (let start = 0; start < events.length; start += 100) {
       const response = await app.inject({
         method: "POST",
         url: "/v1/events/batch?dryRun=true",
-        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
         payload: JSON.stringify({
           events: events
             .slice(start, start + 100)
@@ -123,7 +155,7 @@ describe("sdk conformance cases through the dry run", () => {
       if (capture === undefined) return;
 
       const expected = one.expect.results ?? [];
-      const results = await dryRun(capture.events);
+      const results = await dryRun(capture.events, caseKeys.get(id));
       expect(results.length, "one result per recorded event").toBe(expected.length);
 
       const problems: string[] = [];

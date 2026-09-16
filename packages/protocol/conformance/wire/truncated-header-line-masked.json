@@ -1,0 +1,66 @@
+{
+  "id": "wire/truncated-header-line-masked",
+  "title": "A secret header line cut to one line, ending in the truncation marker, is still masked",
+  "source": "ADR-051; docs/SECURITY.md section 4",
+  "layer": "wire",
+  "languages": ["*"],
+  "setup": {
+    "environment": {
+      "captureMode": "redacted-payload",
+      "redactionPaths": ["**.x-internal-token"]
+    }
+  },
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-request",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "input": {
+            "raw": {
+              "$concat": [
+                "x-internal-token: ",
+                {
+                  "$string": {
+                    "char": "v",
+                    "count": 500
+                  }
+                },
+                "[TRUNCATED: 69500 characters removed]"
+              ]
+            },
+            "note": {
+              "$concat": ["x-request-id: abc", "[TRUNCATED: 10 characters removed]"]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "raw": "x-internal-token: [REDACTED]",
+              "note": "x-request-id: abc[TRUNCATED: 10 characters removed]"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

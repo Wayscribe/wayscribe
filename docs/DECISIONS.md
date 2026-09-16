@@ -2108,6 +2108,13 @@ string that has already been masked.
   server's limit no longer lets a long string through; it could never be stored anyway.
 - Capture costs one more serialization per event, of the envelope. The payload check already
   serialized each payload.
+- A review found that a cut could defeat the server's header masking, which read only text
+  containing a CRLF. A block whose first header is secret only by the environment's redaction
+  paths, with a value over the limit, lost its only line break, and about 65,500 characters of
+  the value were stored unmasked where the event used to be refused. Two changes close it: the
+  SDK puts the marker after a CRLF when the string held one, and the server reads text ending
+  in the marker as a header block. `sdk/truncated-header-block` and
+  `wire/truncated-header-line-masked` hold both halves.
 - A client in another language gets the same guarantee only by doing the same thing, which
   `SDK_SPEC.md` now requires.
 

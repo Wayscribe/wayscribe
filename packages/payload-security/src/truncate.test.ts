@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
+import { redact } from "./redact.js";
 import {
   MAX_STRING_LENGTH,
   truncateStrings,
@@ -90,5 +92,54 @@ describe("truncateStrings", () => {
     const key = "k".repeat(300);
     const result = truncateStrings({ [key]: "v" }, 200) as Record<string, unknown>;
     expect(Object.keys(result)).toEqual([key]);
+  });
+});
+
+/**
+ * A cut must not hide a header block from the server's masking.
+ *
+ * The server masks secret-named lines only in text that looks like a header
+ * block, which meant text containing a line break. A block whose first header
+ * is secret only by the environment's own redaction paths, which the SDK does
+ * not know, with a value over the limit, lost its only line break to the cut,
+ * and about 65,500 characters of the value were stored unmasked.
+ */
+describe("truncation and header masking", () => {
+  const environmentPaths = ["**.x-internal-token", ...DEFAULT_SECRET_PATHS];
+  const block = `x-internal-token: ${"v".repeat(70_000)}\r\nhost: example.com\r\n\r\n`;
+
+  it("keeps a line break before the marker when the text was a header block", () => {
+    const cut = truncateText(block, MAX_STRING_LENGTH);
+    expect(cut).toHaveLength(MAX_STRING_LENGTH);
+    expect(cut.endsWith("\r\n[TRUNCATED: 4543 characters removed]")).toBe(true);
+    expect(cut.startsWith(`x-internal-token: ${"v".repeat(65_480)}\r\n`)).toBe(true);
+  });
+
+  it("adds no line break to text that had none", () => {
+    expect(truncateText("x".repeat(300), 200).includes("\r\n")).toBe(false);
+  });
+
+  it("leaves the server able to mask the cut block, end to end", () => {
+    // The SDK redacts with its own paths (the defaults), then cuts; the server
+    // redacts again with the environment's.
+    const sent = truncateStrings(redact({ raw: block }, DEFAULT_SECRET_PATHS), MAX_STRING_LENGTH);
+    const stored = redact(sent, environmentPaths) as { raw: string };
+    expect(stored.raw).toBe("x-internal-token: [REDACTED]\r\n[TRUNCATED: 4543 characters removed]");
+    expect(stored.raw).not.toContain("vvvv");
+  });
+
+  it("masks a cut line even when a client sent it without the line break", () => {
+    // Another client, or a Node SDK from before this rule, may cut a block to
+    // one line. Text ending in the marker is read as a header block too.
+    const oneLine = `x-internal-token: ${"v".repeat(500)}[TRUNCATED: 69500 characters removed]`;
+    const stored = redact({ raw: oneLine }, environmentPaths) as { raw: string };
+    expect(stored.raw).toBe("x-internal-token: [REDACTED]");
+  });
+
+  it("leaves a cut line alone when its name is not secret", () => {
+    const oneLine = `x-request-id: ${"v".repeat(50)}[TRUNCATED: 10 characters removed]`;
+    expect((redact({ raw: oneLine }, environmentPaths) as { raw: string }).raw).toBe(oneLine);
+    const prose = `a note${"v".repeat(50)}[TRUNCATED: 10 characters removed]`;
+    expect((redact({ raw: prose }, environmentPaths) as { raw: string }).raw).toBe(prose);
   });
 });

@@ -388,6 +388,13 @@ changes far less often.
 
 ### Security
 
+- **A truncated header block can no longer hide a secret header from the
+  server's masking.** The server masked secret-named lines only in text holding
+  a CRLF, so a block whose first header was secret only by the environment's
+  redaction paths, with a value over 65,536 characters, lost its only line break
+  to the SDK's cut and was stored with most of the value unmasked. The SDK now
+  puts the truncation marker after a CRLF when the string held one, and the
+  server reads text ending in the marker as a header block.
 - **The SDK is published with npm trusted publishing and provenance.** The
   `publish-sdk` job used a long-lived `NPM_TOKEN` and attached no provenance. It
   now exchanges a GitLab OIDC token for a short-lived publish token and signs a

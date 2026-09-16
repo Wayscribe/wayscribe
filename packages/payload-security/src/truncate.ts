@@ -1,4 +1,7 @@
 import { defineKey } from "./redact.js";
+import { TRUNCATION_MARKER_PATTERN, truncationMarker } from "./truncation-marker.js";
+
+export { TRUNCATION_MARKER_PATTERN, truncationMarker };
 
 /**
  * The longest string ingestion accepts, in UTF-16 code units.
@@ -7,21 +10,6 @@ import { defineKey } from "./redact.js";
  * terms of this one so the two cannot part.
  */
 export const MAX_STRING_LENGTH = 65_536;
-
-/**
- * What replaces the end of a cut string.
- *
- * "Characters" are UTF-16 code units, the unit the limit counts. The marker
- * belongs to the family the SDK already writes (`[REDACTED]`,
- * `[PAYLOAD_TOO_LARGE]`) and says how much is missing, which is what a reader
- * of a cut payload asks next. It names no product.
- */
-export function truncationMarker(removed: number): string {
-  return `[TRUNCATED: ${String(removed)} characters removed]`;
-}
-
-/** Matches a string {@link truncateText} cut, and captures how much it removed. */
-export const TRUNCATION_MARKER_PATTERN = /\[TRUNCATED: (\d+) characters removed\]$/;
 
 /**
  * `text` if it fits, or its start and a marker, exactly `max` code units long.
@@ -33,12 +21,20 @@ export const TRUNCATION_MARKER_PATTERN = /\[TRUNCATED: (\d+) characters removed\
  *
  * A surrogate pair split by the cut is repaired to U+FFFD, one code unit, so the
  * length does not move and the result is always storable.
+ *
+ * Text containing a CRLF is a header block to the masker, which masks a
+ * secret-named line only in such text. So in that case the marker goes on a
+ * line of its own: a cut that removed every line break would otherwise turn
+ * `x-internal-token: <long value>\r\n...` into one line the server's masking
+ * no longer reads, and a name secret only by the environment's own redaction
+ * paths, which the SDK cannot know, would be stored with its value.
  */
 export function truncateText(text: string, max: number): string {
   if (text.length <= max) return text;
+  const separator = text.includes(CRLF) ? CRLF : "";
   let removed = text.length - max;
   for (;;) {
-    const marker = truncationMarker(removed);
+    const marker = separator + truncationMarker(removed);
     const kept = max - marker.length;
     // A limit shorter than the marker itself: nothing of the text fits.
     if (kept < 0) return marker.slice(0, max);
@@ -47,6 +43,8 @@ export function truncateText(text: string, max: number): string {
     removed = settled;
   }
 }
+
+const CRLF = "\r\n";
 
 export interface TruncationStats {
   /** Strings that were cut. */

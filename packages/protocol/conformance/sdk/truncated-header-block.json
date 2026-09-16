@@ -1,0 +1,67 @@
+{
+  "id": "sdk/truncated-header-block",
+  "title": "A header block cut to the limit keeps a line break, so the environment's own redaction still masks its first line",
+  "source": "ADR-051; docs/SECURITY.md section 4",
+  "layer": "sdk",
+  "languages": ["*"],
+  "setup": {
+    "environment": {
+      "captureMode": "redacted-payload",
+      "redactionPaths": ["**.x-internal-token"]
+    }
+  },
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "receive-request",
+        "input": {
+          "raw": {
+            "$concat": [
+              "x-internal-token: ",
+              {
+                "$string": {
+                  "char": "v",
+                  "count": 70000
+                }
+              },
+              "\r\nhost: example.com\r\n\r\n"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "input": {
+        "raw": {
+          "$concat": [
+            "x-internal-token: ",
+            {
+              "$string": {
+                "char": "v",
+                "count": 65480
+              }
+            },
+            "\r\n[TRUNCATED: 4543 characters removed]"
+          ]
+        }
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "inputPayload": {
+              "raw": "x-internal-token: [REDACTED]\r\n[TRUNCATED: 4543 characters removed]"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

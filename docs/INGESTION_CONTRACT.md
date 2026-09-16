@@ -148,7 +148,8 @@ Two details a client author needs:
   `eventLimits(MAX_EVENT_PAYLOAD_BYTES)` from `packages/payload-security`, on
   every envelope before it is queued. It cuts a string over the limit to its
   start and `[TRUNCATED: <n> characters removed]`, exactly 65,536 code units in
-  all, with `<n>` in code units; replaces a payload that still does not fit, or
+  all, with `<n>` in code units, and with a CRLF before the marker when the
+  string held one, so the server still reads it as a header block; replaces a payload that still does not fit, or
   is nested too deep or too wide, with `[PAYLOAD_TOO_LARGE]`, the larger of
   `input` and `output` first; and leaves off `metadata` last (ADR-051). A
   payload sits two levels below the envelope's root, so it has 30 levels of
@@ -417,7 +418,10 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
 - **`languages`** is `["*"]` or a list. A harness skips what it cannot express
   **and reports the skip**; a skip nobody sees is a case that quietly stopped
   running.
-- **`setup.environment`** names the capture mode the case needs.
+- **`setup.environment`** names the capture mode and redaction the case needs.
+  In an `sdk` case it is the server's setting only: the recorder never sees it,
+  and the harness applies it to the environment the captured bytes are sent
+  to.
   **`setup.existing`** holds envelopes ingested **for real** before the case
   runs, which is how a duplicate or conflict case gets its prior row;
   **`setup.otherEnvironment`** is ingested with a second environment's key,

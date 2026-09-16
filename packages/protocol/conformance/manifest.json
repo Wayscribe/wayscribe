@@ -37,6 +37,7 @@
     "wire/secret-name-spellings",
     "wire/secrets-at-depth",
     "wire/timestamp-offset",
+    "wire/truncated-header-line-masked",
     "wire/unauthorized-environment",
     "wire/unknown-fields",
     "wire/unsupported-protocol-version"
@@ -69,6 +70,7 @@
     "sdk/secrets-at-depth",
     "sdk/shared-reference",
     "sdk/too-deep-payload",
+    "sdk/truncated-header-block",
     "sdk/truncated-then-omitted",
     "sdk/uncapturable-payload",
     "sdk/undefined-key"
