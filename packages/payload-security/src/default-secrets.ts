@@ -18,7 +18,7 @@
  * A name that is sometimes a secret belongs in an operator's own `redact`
  * configuration, where over-redaction is their call to make.
  */
-export const DEFAULT_SECRET_PATHS: readonly string[] = [
+export const DEFAULT_SECRET_PATHS: readonly string[] = Object.freeze([
   "**.authorization",
   "**.proxy-authorization",
   "**.cookie",
@@ -42,4 +42,4 @@ export const DEFAULT_SECRET_PATHS: readonly string[] = [
   "**.x-hubspot-signature-v3",
   "**.x-twilio-signature",
   "**.x-shopify-hmac-sha256"
-];
+]);

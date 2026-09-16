@@ -109,6 +109,21 @@ describe("redact reports kept secret-looking names", () => {
     expect(reported({ tokenCount: 3, nextPageToken: "n", author: "a", pinned: "yes" })).toEqual([]);
   });
 
+  it("compiles a frozen rule list once, and an unfrozen one on every call", () => {
+    // The SDK passes one frozen list to every capture, so its rules are parsed
+    // once. A list that can change is parsed each time, so a change applies.
+    const rules = ["customer.authToken"];
+    expect(reported({ customer: { authToken: "a" } }, rules)).toEqual([]);
+    rules[0] = "vendor.authToken";
+    expect(reported({ customer: { authToken: "a" } }, rules)).toEqual([
+      "authToken @ customer.authToken"
+    ]);
+    const frozen = Object.freeze(["**.authToken"]);
+    expect(reported({ authToken: "a" }, frozen)).toEqual([]);
+    expect(reported({ authToken: "a" }, frozen)).toEqual([]);
+    expect(Object.isFrozen(DEFAULT_SECRET_PATHS)).toBe(true);
+  });
+
   it("reports even when no rule is configured at all", () => {
     expect(reported({ authToken: "a" }, [])).toEqual(["authToken @ authToken"]);
   });

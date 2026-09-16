@@ -60,16 +60,7 @@ export function redact(
 ): unknown {
   if (paths.length === 0 && onUnredacted === undefined) return value;
 
-  const anyDepth = new Set<string>();
-  const scoped: Segment[][] = [];
-  for (const path of paths) {
-    if (path.startsWith(ANY_DEPTH_PREFIX)) {
-      const name = anyDepthName(path);
-      if (name !== undefined) anyDepth.add(name);
-      continue;
-    }
-    scoped.push(parsePath(path));
-  }
+  const { anyDepth, scoped } = compiled(paths);
 
   let observed: Observed | undefined;
   if (onUnredacted !== undefined) {
@@ -83,6 +74,39 @@ export function redact(
     observed = made;
   }
   return walk(value, scoped, anyDepth, new Set(), observed);
+}
+
+interface CompiledRules {
+  anyDepth: ReadonlySet<string>;
+  scoped: Segment[][];
+}
+
+const compiledFrozen = new WeakMap<readonly string[], CompiledRules>();
+
+/**
+ * The rules parsed. A frozen list, which is what the SDK passes to every
+ * capture, is parsed once: parsing nineteen rules on every payload was a
+ * measurable part of capture. A list that is not frozen can change between
+ * calls, so it is parsed each time.
+ */
+function compiled(paths: readonly string[]): CompiledRules {
+  const frozen = Object.isFrozen(paths);
+  const cached = frozen ? compiledFrozen.get(paths) : undefined;
+  if (cached !== undefined) return cached;
+
+  const anyDepth = new Set<string>();
+  const scoped: Segment[][] = [];
+  for (const path of paths) {
+    if (path.startsWith(ANY_DEPTH_PREFIX)) {
+      const name = anyDepthName(path);
+      if (name !== undefined) anyDepth.add(name);
+      continue;
+    }
+    scoped.push(parsePath(path));
+  }
+  const rules = { anyDepth, scoped };
+  if (frozen) compiledFrozen.set(paths, rules);
+  return rules;
 }
 
 /** Told the name and generalised path of a kept value filed under a secret-looking name. */
@@ -116,40 +140,6 @@ function reportIfSecret(observed: Observed, name: string, value: unknown): void 
   if (looksLikeSecretFoldedValue(normaliseName(name), value)) {
     observed.report(name, joinPath(observed.path));
   }
-}
-
-/**
- * The warning for a header filed by position that no rule replaced: an
- * interleaved list's value, a `[name, value]` pair, or a `{name|key, value}`
- * object. The path is the list's, with the element as `[*]`. A name a rule
- * covers is left alone, including one kept because its value is itself a
- * header name.
- */
-function reportHeaderShaped(
-  list: readonly unknown[],
-  index: number,
-  interleaved: boolean,
-  isSecretName: (name: string) => boolean,
-  observed: Observed
-): void {
-  const item = list[index];
-  let name: unknown;
-  let child: unknown;
-  if (interleaved) {
-    if (index % 2 === 0) return;
-    name = list[index - 1];
-    child = item;
-  } else if (isNamedPair(item)) {
-    [name, child] = item;
-  } else {
-    const nameKey = namedValueKey(item);
-    if (nameKey === undefined) return;
-    const entry = item as Record<string, unknown>;
-    name = entry[nameKey];
-    child = entry["value"];
-  }
-  if (typeof name !== "string" || isSecretName(name)) return;
-  reportIfSecret(observed, name, child);
 }
 
 /** Marks a rule that applies at every level rather than at one path. */
@@ -258,15 +248,26 @@ function walk(
         isSecretName(name) && !isKnownHeaderName(child);
       const interleaved = anyDepth.size > 0 && isInterleavedHeaders(value);
       return value.map((item, index) => {
+        // A header filed by position and kept: its name and value, for the
+        // secret-name warning. Read here, once, with the shape tests redaction
+        // already makes. An interleaved list holds only strings, so the pair
+        // and object shapes never apply to it.
+        let headerName: unknown;
+        let headerValue: unknown;
         if (anyDepth.size > 0) {
-          if (interleaved && index % 2 === 1 && replaces(value[index - 1] as string, item)) {
-            return REDACTED;
-          }
-          if (isNamedPair(item) && replaces(item[0], item[1])) return [item[0], REDACTED];
-          const nameKey = namedValueKey(item);
-          if (nameKey !== undefined) {
+          if (interleaved) {
+            if (index % 2 === 1) {
+              if (replaces(value[index - 1] as string, item)) return REDACTED;
+              headerName = value[index - 1];
+              headerValue = item;
+            }
+          } else if (isNamedPair(item)) {
+            if (replaces(item[0], item[1])) return [item[0], REDACTED];
+            [headerName, headerValue] = item;
+          } else {
+            const nameKey = namedValueKey(item);
             const entry = item as Record<string, unknown>;
-            if (replaces(entry[nameKey] as string, entry["value"])) {
+            if (nameKey !== undefined && replaces(entry[nameKey] as string, entry["value"])) {
               // Rebuilt rather than mutated, and every key written with
               // `defineKey`: a `__proto__` key beside the pair reaches this
               // branch now that an extra key no longer exempts the object, and
@@ -277,12 +278,18 @@ function walk(
               }
               return replaced;
             }
+            if (nameKey !== undefined) {
+              headerName = entry[nameKey];
+              headerValue = entry["value"];
+            }
           }
         }
         if (observed === undefined) return walk(item, remaining, anyDepth, seen);
         observed.path.push(ANY_INDEX);
-        if (anyDepth.size > 0) {
-          reportHeaderShaped(value, index, interleaved, isSecretName, observed);
+        // A name a rule covers is left alone, including one kept because its
+        // value is itself a header name.
+        if (typeof headerName === "string" && !isSecretName(headerName)) {
+          reportIfSecret(observed, headerName, headerValue);
         }
         const walked = walk(item, remaining, anyDepth, seen, observed);
         observed.path.pop();

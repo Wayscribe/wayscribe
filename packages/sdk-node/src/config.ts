@@ -215,7 +215,8 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     serviceName: text("serviceName"),
     environment: text("environment"),
     captureMode: oneOf("captureMode", CAPTURE_MODES, "redacted-payload"),
-    redact: [...paths, ...DEFAULT_SECRET_PATHS],
+    // Frozen, so redaction parses these rules once rather than per payload.
+    redact: Object.freeze([...paths, ...DEFAULT_SECRET_PATHS]),
     batchSize: clampBatchSize(readOnce("batchSize", "using 50"), problem),
     flushIntervalMs: positive("flushIntervalMs", 1_000, MAX_TIMER_MS),
     requestTimeoutMs: positive("requestTimeoutMs", 1_500, MAX_TIMER_MS),

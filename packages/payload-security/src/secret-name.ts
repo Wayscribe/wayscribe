@@ -145,7 +145,7 @@ const REDACTED_MARKER = "[REDACTED]";
  * matching the end is what keeps this precise.
  *
  * Deterministic, and linear in the name's length: one fold, one backward scan
- * for the version suffix, one map lookup on the last three characters, and at
+ * for the version suffix, one map lookup on the last two characters, and at
  * most a few `endsWith` checks against short terms.
  *
  * This is a warning heuristic only. It never decides what is redacted
@@ -195,15 +195,15 @@ function secretTerm(folded: string): Term | undefined {
 }
 
 /**
- * The terms by their last three characters, three being the length of the
- * shortest term.
+ * The terms by their last two characters.
  *
  * The walk asks about every key holding a string or a number, which in an
  * ordinary payload is most of them, and almost none is a secret. Comparing
  * each with every term cost about half again the time capture takes; one map
  * lookup rules nearly all of them out and leaves at most a few terms to
- * compare. The three characters are packed into one number rather than
- * sliced, so the lookup allocates nothing.
+ * compare. The two characters are packed into one small integer rather than
+ * sliced, so the lookup allocates nothing; three would not fit a small
+ * integer, and a boxed key costs an allocation per lookup.
  */
 const TERMS_BY_TAIL = new Map<number, Term[]>();
 for (const entry of SECRET_NAME_TERMS) {
@@ -211,14 +211,10 @@ for (const entry of SECRET_NAME_TERMS) {
   TERMS_BY_TAIL.set(tail, [...(TERMS_BY_TAIL.get(tail) ?? []), entry]);
 }
 
-/** The last three UTF-16 code units of a name of at least three, as one number. */
+/** The last two UTF-16 code units of a name of at least two, as one small integer. */
 function tailOf(name: string): number {
   const end = name.length;
-  return (
-    name.charCodeAt(end - 3) * 0x1_0000_0000 +
-    name.charCodeAt(end - 2) * 0x1_0000 +
-    name.charCodeAt(end - 1)
-  );
+  return ((name.charCodeAt(end - 2) & 0x3fff) << 16) | name.charCodeAt(end - 1);
 }
 
 function matchesTerm(name: string, { term, except, qualifiers, alone }: Term): boolean {
