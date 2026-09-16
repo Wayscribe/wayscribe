@@ -60,6 +60,7 @@
     "sdk/metadata-uncapturable",
     "sdk/nan-and-infinity",
     "sdk/nul-byte",
+    "sdk/overlong-keys",
     "sdk/oversize-payload",
     "sdk/projected-output",
     "sdk/projection-throws",

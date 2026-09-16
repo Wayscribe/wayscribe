@@ -244,6 +244,28 @@ export const MAX_ERROR_STACK_LENGTH = 16_384;
 const TRUNCATED = "[TRUNCATED]";
 
 /**
+ * The protocol's caps on keys and short fields (`packages/protocol` event
+ * schema), which count Unicode code points. The server refuses the whole event
+ * over any one of them, so the SDK applies them before sending.
+ * `capped-fields.test.ts` checks the result against that schema.
+ */
+const MAX_KEY_LENGTH = 128;
+const MAX_ALIAS_VALUE_LENGTH = 512;
+const MAX_ERROR_FIELD_LENGTH = 256;
+const KEY_TOO_LONG = "[KEY_TOO_LONG]";
+
+/** Whether `text` is at most `max` code points. Code units bound them from above. */
+function fitsCodePoints(text: string, max: number): boolean {
+  if (text.length <= max) return true;
+  let count = 0;
+  for (const _codePoint of text) {
+    count += 1;
+    if (count > max) return false;
+  }
+  return true;
+}
+
+/**
  * `text` masked and cut to `limit` characters, ending in `[TRUNCATED]` when it
  * was cut.
  *
@@ -283,18 +305,14 @@ function fit(text: string, limit: number): string {
   return text.slice(0, limit - TRUNCATED.length).toWellFormed() + TRUNCATED;
 }
 
-/**
- * `displayableAliases` for the event, copied at the call, with anything that is
- * not a string left out. A value that is not a list is dropped whole: a wrong
- * list can only mask, and a refused event would lose the aliases too.
- */
-function displayableFor(list: unknown): { displayableAliases?: string[] } {
-  if (!Array.isArray(list)) return {};
-  return {
-    displayableAliases: (list as unknown[]).filter(
-      (type): type is string => typeof type === "string"
-    )
-  };
+/** Sets an own property, so a `__proto__` key stays a key. */
+function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true
+  });
 }
 
 function isContext(value: unknown): value is JourneyContext {
@@ -802,6 +820,89 @@ export function createRecorder(config: RecorderConfig): Recorder {
     return event["metadata"] === undefined ? undefined : "metadata";
   }
 
+  function reportDropped(field: string, keys: number, what: string): void {
+    diagnostics.report({
+      kind: "key_dropped",
+      reason: `${String(keys)} ${keys === 1 ? "entry" : "entries"} left off the event's ${field}: ${what}.`,
+      detail: { field, keys }
+    });
+  }
+
+  /**
+   * The aliases the server will accept, copied at the call. An alias whose type
+   * is over the key cap, or whose value is not a string within the value cap,
+   * is left off and reported; no marker is added, because a marker would be
+   * stored as an alias and found by search. The keys are not quoted back: they
+   * can be data.
+   */
+  function aliasesFor(aliases: unknown): { aliases?: Record<string, string> } {
+    if (aliases === undefined) return {};
+    if (typeof aliases !== "object" || aliases === null || Array.isArray(aliases)) {
+      reportDropped("aliases", 1, "aliases that are not an object of alias types to values");
+      return {};
+    }
+    const kept: Record<string, string> = {};
+    let dropped = 0;
+    for (const [type, value] of Object.entries(aliases)) {
+      if (
+        fitsCodePoints(type, MAX_KEY_LENGTH) &&
+        typeof value === "string" &&
+        fitsCodePoints(value, MAX_ALIAS_VALUE_LENGTH)
+      ) {
+        defineOwn(kept, type, value);
+      } else {
+        dropped += 1;
+      }
+    }
+    if (dropped > 0) {
+      reportDropped(
+        "aliases",
+        dropped,
+        "an alias type over 128 characters, or a value that is not a string of at most 512"
+      );
+    }
+    return { aliases: kept };
+  }
+
+  /** `displayableAliases`, copied at the call, without entries the server would refuse. */
+  function displayableFor(list: unknown): { displayableAliases?: string[] } {
+    if (!Array.isArray(list)) return {};
+    const kept = (list as unknown[]).filter(
+      (type): type is string => typeof type === "string" && fitsCodePoints(type, MAX_KEY_LENGTH)
+    );
+    const dropped = list.length - kept.length;
+    if (dropped > 0) {
+      reportDropped(
+        "displayableAliases",
+        dropped,
+        "an entry that is not an alias type of at most 128 characters"
+      );
+    }
+    return { displayableAliases: kept };
+  }
+
+  /**
+   * Captured metadata without top-level keys over the cap, which is the only
+   * level the server checks, and with `"[KEY_TOO_LONG]": n` saying how many
+   * went. Captured metadata is already a copy, so it is changed in place.
+   */
+  function withinKeyCap(metadata: unknown): unknown {
+    if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+      return metadata;
+    }
+    const record = metadata as Record<string, unknown>;
+    let dropped = 0;
+    for (const key of Object.keys(record)) {
+      if (fitsCodePoints(key, MAX_KEY_LENGTH)) continue;
+      Reflect.deleteProperty(record, key);
+      dropped += 1;
+    }
+    if (dropped === 0) return metadata;
+    defineOwn(record, KEY_TOO_LONG, dropped);
+    reportDropped("metadata", dropped, "a key over 128 characters");
+    return record;
+  }
+
   /** One `payload_truncated` per payload that reached the event with a string cut. */
   function reportTruncations(
     event: Record<string, unknown>,
@@ -836,8 +937,17 @@ export function createRecorder(config: RecorderConfig): Recorder {
   function maskedError(error: NonNullable<RecordInput["error"]>): RecordInput["error"] {
     const { message } = error;
     const stack = (error as { stack?: unknown }).stack;
+    const { type, code } = error;
     return {
       ...error,
+      // A class name or an error code is not free text worth masking, but the
+      // protocol caps both, and a long one would cost the event.
+      ...(typeof type === "string" && !fitsCodePoints(type, MAX_ERROR_FIELD_LENGTH)
+        ? { type: fit(type, MAX_ERROR_FIELD_LENGTH) }
+        : {}),
+      ...(typeof code === "string" && !fitsCodePoints(code, MAX_ERROR_FIELD_LENGTH)
+        ? { code: fit(code, MAX_ERROR_FIELD_LENGTH) }
+        : {}),
       ...(typeof message === "string"
         ? { message: boundedMaskedText(message, MAX_ERROR_MESSAGE_LENGTH) }
         : {}),
@@ -900,9 +1010,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
       ...(captured.input === undefined ? {} : { input: captured.input.value }),
       ...(captured.output === undefined ? {} : { output: captured.output.value }),
       ...(input.error === undefined ? {} : { error: maskedError(input.error) }),
-      ...(input.aliases === undefined ? {} : { aliases: input.aliases }),
+      ...aliasesFor(input.aliases),
       ...displayableFor(input.displayableAliases),
-      ...(captured.metadata === undefined ? {} : { metadata: captured.metadata.value })
+      ...(captured.metadata === undefined
+        ? {}
+        : { metadata: withinKeyCap(captured.metadata.value) })
     };
     const envelope = { protocolVersion: "0.1", event };
 

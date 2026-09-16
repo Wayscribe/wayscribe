@@ -377,14 +377,19 @@ They are numbered after the rest so that no identifier above moved.
   header line the SDK could not recognise. A payload that still does
   not fit, or is nested or wide past the limits, MUST be replaced with
   `[PAYLOAD_TOO_LARGE]`, the larger of `input` and `output` first, and
-  `metadata` left off last. The event MUST still be sent.
+  `metadata` left off last. The same holds for the schema's caps on keys and
+  short fields: a top-level metadata key or an alias type over 128 code
+  points, or an alias value that is not a string of at most 512, MUST be left
+  off and reported, with `"[KEY_TOO_LONG]": <n>` added to metadata for the
+  keys dropped from it (never a marker among aliases, which would be stored
+  and searchable). The event MUST still be sent.
 - **SDK-52.** Truncation MUST run after redaction, and a truncated payload MUST
   be reported and counted separately from an omitted one. A payload cut and
   then omitted is an omission.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-51 | ADR-051 | sdk/long-string-truncated |
+| SDK-51 | ADR-051; packages/protocol/src/event.ts | sdk/long-string-truncated |
 | SDK-52 | ADR-051 | section 14 |
 
 ### Projections

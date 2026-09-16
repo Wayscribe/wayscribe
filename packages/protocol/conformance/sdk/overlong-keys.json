@@ -1,0 +1,69 @@
+{
+  "id": "sdk/overlong-keys",
+  "title": "A metadata key or alias the server would refuse is left off, and the event is stored",
+  "source": "packages/protocol/src/event.ts; docs/SDK_SPEC.md SDK-51",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "record",
+      "args": {
+        "operation": "identified",
+        "name": "identify",
+        "aliases": {
+          "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk": "value-under-a-long-type",
+          "postingId": "greenhouse:4567",
+          "tooLong": {
+            "$string": {
+              "char": "v",
+              "count": 513
+            }
+          }
+        },
+        "displayableAliases": [
+          "postingId",
+          "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+        ],
+        "metadata": {
+          "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk": 1,
+          "tenant": "acme"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "aliases": {
+        "postingId": "greenhouse:4567"
+      },
+      "displayableAliases": ["postingId"],
+      "metadata": {
+        "tenant": "acme",
+        "[KEY_TOO_LONG]": 1
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "customMetadata": {
+              "tenant": "acme",
+              "[KEY_TOO_LONG]": 1
+            }
+          },
+          "journey": {
+            "aliases": [
+              {
+                "type": "postingId",
+                "displayValue": "greenhouse:4567",
+                "displayable": true
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

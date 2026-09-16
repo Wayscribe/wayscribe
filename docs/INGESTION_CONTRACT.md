@@ -151,7 +151,10 @@ Two details a client author needs:
   all, with `<n>` in code units, and with a CRLF before the marker when the
   string held one, so the server still reads it as a header block; replaces a payload that still does not fit, or
   is nested too deep or too wide, with `[PAYLOAD_TOO_LARGE]`, the larger of
-  `input` and `output` first; and leaves off `metadata` last (ADR-051). A
+  `input` and `output` first; and leaves off `metadata` last (ADR-051). It
+  also leaves off a metadata key or alias type over 128 code points and an
+  alias value that is not a string of at most 512, which the schema would
+  refuse, adding `"[KEY_TOO_LONG]": <n>` to metadata when it drops keys there. A
   payload sits two levels below the envelope's root, so it has 30 levels of
   its own. The server treats both markers as ordinary strings.
 - The units differ, deliberately. The schema's own string maxima count Unicode

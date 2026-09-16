@@ -588,6 +588,14 @@ changes far less often.
 
 ### Fixed
 
+- **A metadata key or alias the server would refuse no longer costs the
+  event.** A top-level metadata key over 128 characters was sent and the whole
+  event refused as `invalid_event`, as was an alias type over 128, an alias
+  value over 512 or not a string, a displayable alias type over 128, and an
+  error `type` or `code` over 256. The SDK now leaves such keys off (with
+  `"[KEY_TOO_LONG]": <n>` in metadata, and no marker among aliases) and reports
+  a new `key_dropped` diagnostic counted in `keysDropped`, and cuts the error
+  fields. The event is sent.
 - **`journeyIdFor` refuses an entity it cannot encode faithfully, and a missing
   secret is no longer silent.** An entity id holding an unpaired surrogate was
   encoded with U+FFFD in its place, so `"a\uD800"` and `"a�"` derived one

@@ -323,7 +323,7 @@ const recorder = createRecorder({
 
 const counters = await recorder.shutdown();
 // { dropped, rejected, transportErrors, captureErrors, breakerOpened,
-//   payloadsOmitted, payloadsTruncated, configurationErrors, sent }
+//   payloadsOmitted, payloadsTruncated, keysDropped, configurationErrors, sent }
 ```
 
 ## Is it sending?
@@ -392,6 +392,7 @@ change any counter.
 | `transport_error` | a request failed, or the server could not store an event for now; see below | `transportErrors` |
 | `payload_omitted` | a payload could not fit the server's limits and was replaced by `[PAYLOAD_TOO_LARGE]`; `detail` names the `field` and the `reason`; the event is still sent | `payloadsOmitted` |
 | `payload_truncated` | strings in a payload were longer than the server accepts and were cut; `detail` is `{ field, strings, charactersRemoved }`; the event is still sent | `payloadsTruncated` |
+| `key_dropped` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; `detail` is `{ field, keys }`; the event is still sent | `keysDropped`, per key |
 | `dropped` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it (`no_verdict`) | `dropped` |
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
 | `configuration_error` | a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`, or a configured setting could not be used; the call returned something safe | `configurationErrors` |
@@ -660,6 +661,14 @@ runs:
 3. If the whole event is still over `maxPayloadBytes`, the larger of `input` and
    `output` is replaced with `[PAYLOAD_TOO_LARGE]`, then the other, then
    `metadata` is left off.
+
+4. A top-level `metadata` key over 128 characters is left off, and
+   `"[KEY_TOO_LONG]": <n>` says how many went. An alias whose type is over 128
+   characters, or whose value is not a string of at most 512, is left off with
+   no marker, since a marker would be stored as an alias. Both are reported as
+   `key_dropped`. Characters here are code points, as the server counts them.
+5. An error's `type` or `code` over 256 characters is cut, ending in
+   `[TRUNCATED]`.
 
 The event is always sent. `maxPayloadBytes` is the budget of the whole event,
 not of one payload, and should be the server's `MAX_EVENT_PAYLOAD_BYTES`:

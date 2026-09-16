@@ -18,6 +18,7 @@ export type FailureKind =
   | "breaker_open"
   | "payload_omitted"
   | "payload_truncated"
+  | "key_dropped"
   | "configuration_error";
 
 /**
@@ -83,6 +84,13 @@ export interface Counters {
    */
   payloadsTruncated: number;
   /**
+   * Keys left off an event because the server would refuse the event over
+   * them: a metadata key or alias type over 128 characters, an alias value
+   * that is not a string of at most 512, a displayable alias type over 128.
+   * Counted per key; the event is still sent.
+   */
+  keysDropped: number;
+  /**
    * Calls that needed a setting the recorder does not have, such as
    * `journeyIdFor` without a usable `journeyIdSecret`, and settings that could
    * not be used. The call still returned something safe; this is how a test
@@ -140,6 +148,7 @@ export function createDiagnostics(
     breakerOpened: 0,
     payloadsOmitted: 0,
     payloadsTruncated: 0,
+    keysDropped: 0,
     configurationErrors: 0,
     sent: 0
   };
@@ -178,6 +187,7 @@ export function createDiagnostics(
       if (diagnostic.kind === "payload_omitted") counters.payloadsOmitted += 1;
       if (diagnostic.kind === "payload_truncated") counters.payloadsTruncated += 1;
       if (diagnostic.kind === "configuration_error") counters.configurationErrors += 1;
+      if (diagnostic.kind === "key_dropped") counters.keysDropped += keysIn(diagnostic.detail);
 
       if (log) {
         try {
@@ -222,6 +232,11 @@ export function printDiagnostic(diagnostic: Diagnostic, note: string): void {
   } catch {
     // As in report(): formatting must not become a failure of its own.
   }
+}
+
+function keysIn(detail: unknown): number {
+  const keys = (detail as { keys?: unknown } | undefined)?.keys;
+  return typeof keys === "number" && Number.isInteger(keys) && keys > 0 ? keys : 1;
 }
 
 function plural(repeats: number): string {
