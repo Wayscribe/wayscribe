@@ -144,6 +144,111 @@ describe("Zod and Ajv agree", () => {
     );
     if (!zod.ok) expect(zod.code).toBe(one.code);
   });
+
+  /**
+   * Every capped string in the generated event schema, checked one character over
+   * its maximum.
+   *
+   * The fixtures in `v0.1-boundaries.json` name these individually, which is the
+   * form another language runs and a reader can read. This is the other half: it
+   * walks the schema, so a field that gains a `maxLength` tomorrow is covered
+   * without anybody remembering to add a case, and a generator that dropped every
+   * `maxLength` fails here for each field rather than for whichever one somebody
+   * happened to write a fixture for.
+   */
+  describe("every capped string in the generated schema", () => {
+    interface Capped {
+      path: string[];
+      max: number;
+    }
+
+    /** `maxLength` under `properties`, and under `propertyNames` for a record's keys. */
+    function cappedStrings(node: unknown, path: string[] = [], found: Capped[] = []): Capped[] {
+      if (typeof node !== "object" || node === null) return found;
+      const schema = node as Record<string, unknown>;
+
+      if (typeof schema["maxLength"] === "number" && path.length > 0) {
+        found.push({ path, max: schema["maxLength"] });
+      }
+      for (const key of ["properties", "propertyNames", "additionalProperties"] as const) {
+        const child = schema[key];
+        if (typeof child !== "object" || child === null) continue;
+        if (key === "properties") {
+          for (const [name, value] of Object.entries(child))
+            cappedStrings(value, [...path, name], found);
+        } else {
+          cappedStrings(child, [...path, `<${key}>`], found);
+        }
+      }
+      return found;
+    }
+
+    const capped = cappedStrings(built["event"]);
+
+    it("finds the fields it is meant to walk", () => {
+      // The control: a walk that found nothing would make every case below vacuous.
+      const names = capped.map((one) => one.path.join("."));
+      expect(names).toContain("id");
+      expect(names).toContain("entity.id");
+      expect(names).toContain("error.message");
+      expect(names).toContain("aliases.<propertyNames>");
+      expect(capped.length).toBeGreaterThan(15);
+    });
+
+    it.each(capped.map((one) => [one.path.join("."), one] as const))(
+      "%s, one character over its maximum, is refused by both validators",
+      (_name, one) => {
+        const envelope = overlong(one);
+        expect(parseEnvelope(envelope).ok, "Zod accepted it").toBe(false);
+        expect(validate(envelope), "Ajv accepted it").toBe(false);
+      }
+    );
+
+    it.each(capped.map((one) => [one.path.join("."), one] as const))(
+      "%s, at its maximum, is accepted by both validators",
+      (_name, one) => {
+        const envelope = overlong(one, 0);
+        expect(parseEnvelope(envelope).ok, "Zod refused it").toBe(true);
+        expect(validate(envelope), "Ajv refused it").toBe(true);
+      }
+    );
+
+    /** A valid envelope with one field set to `max + over` characters. */
+    function overlong(one: Capped, over = 1): unknown {
+      const event: Record<string, unknown> = {
+        id: "evt_derived",
+        journeyId: "jrn_derived",
+        environment: "development",
+        service: "customer-integration",
+        entity: { type: "customer", id: "18492" },
+        operation: "received",
+        name: "receive-salesforce-webhook",
+        timestamp: "2026-08-06T18:31:02.000Z"
+      };
+      const value = "x".repeat(one.max + over);
+      const [head, ...rest] = one.path;
+      if (head === undefined) throw new Error("a capped field with no path");
+
+      if (rest.length === 0) {
+        event[head] = value;
+      } else if (rest[0] === "<propertyNames>") {
+        // A record's key. `error.message` is required beside anything under it.
+        event[head] = { [value]: head === "aliases" ? "ord_77" : 1 };
+      } else if (rest[0] === "<additionalProperties>") {
+        event[head] = { orderId: value };
+      } else {
+        const nested: Record<string, unknown> =
+          head === "entity"
+            ? { type: "customer", id: "18492" }
+            : head === "error"
+              ? { message: "failed" }
+              : {};
+        nested[rest[0] ?? ""] = value;
+        event[head] = nested;
+      }
+      return { protocolVersion: "0.1", event };
+    }
+  });
 });
 
 function patternsIn(value: unknown, found: string[] = []): string[] {
