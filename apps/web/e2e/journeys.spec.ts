@@ -145,8 +145,39 @@ test("lists a labelled journey and the fallback rows, newest first", async ({ pa
   await expect(rows(page).first().getByRole("cell")).toHaveCount(6);
 
   await page.getByRole("link", { name: LABEL }).click();
-  await expect(page).toHaveURL(`/journeys/${LABELLED.journeyId}`);
-  await expect(page.locator("h1")).toHaveText(`customer: ${LABELLED.entityId}`);
+  await expect(page).toHaveURL(
+    `/journeys/${LABELLED.journeyId}?from=journeys&list=${encodeURIComponent(
+      `service=${SERVICE}&environment=development`
+    )}`
+  );
+  // Named by its label, with the entity beneath.
+  await expect(page.locator("h1")).toHaveText(LABEL);
+  await expect(page.locator(".journey-entity")).toHaveText(`customer: ${LABELLED.entityId}`);
+
+  // Back to the same list, filters and all.
+  await page.getByRole("link", { name: "← Journeys" }).click();
+  await expect(page).toHaveURL(`/journeys?service=${SERVICE}&environment=development`);
+  await expect(rows(page)).toHaveCount(3);
+  await expect(page.getByLabel("Environment", { exact: true })).toHaveValue("development");
+});
+
+test("a journey opened any other way leads back to Search, and a crafted way back stays on the list", async ({
+  page
+}) => {
+  await signIn(page, LABELLED.journeyId);
+  // Without a label, the entity is the heading, as before.
+  await page.goto(`/journeys/${PLAIN.journeyId}`);
+  await expect(page.locator("h1")).toHaveText(`customer: ${PLAIN.entityId}`);
+  await expect(page.getByRole("link", { name: "← Search" })).toHaveAttribute("href", "/");
+
+  await page.goto(
+    `/journeys/${LABELLED.journeyId}?from=journeys&list=${encodeURIComponent("//evil.test&next=https://evil.test&service=x")}`
+  );
+  await expect(page.locator("h1")).toHaveText(LABEL);
+  await expect(page.getByRole("link", { name: "← Journeys" })).toHaveAttribute(
+    "href",
+    "/journeys?service=x"
+  );
 });
 
 test("narrows the list by partial text in labels and displayable aliases", async ({ page }) => {

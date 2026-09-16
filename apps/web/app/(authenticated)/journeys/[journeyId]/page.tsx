@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AliasList } from "../../../components/AliasList";
+import { JourneyHeading } from "../../../components/JourneyHeading";
 import { JourneyTimeline } from "../../../components/JourneyTimeline";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
 import { requireProjectId } from "../../../../src/lib/current-project";
+import { backFromJourney, toQueryString } from "../../../../src/lib/journey-filters";
 import { isRecent } from "../../../../src/lib/timeline";
 
 export default async function JourneyPage({
@@ -11,16 +13,22 @@ export default async function JourneyPage({
   searchParams
 }: {
   params: Promise<{ journeyId: string }>;
-  searchParams: Promise<{ event?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { journeyId } = await params;
-  const { event: selectedId } = await searchParams;
+  const query = await searchParams;
+  const selectedId = typeof query["event"] === "string" ? query["event"] : undefined;
+  // Back to the Journeys list a row link came from, else to Search.
+  const back = backFromJourney(query);
 
   try {
     // Inside the try: this call reaches the API, and when it threw from
     // outside there was nothing to catch it and no error boundary anywhere in
     // the app, so a booting API rendered a blank HTTP 500.
-    const projectId = await requireProjectId(`/journeys/${journeyId}`);
+    const search = toQueryString(query);
+    const projectId = await requireProjectId(
+      `/journeys/${journeyId}${search === "" ? "" : `?${search}`}`
+    );
     const journey = await getJourney(journeyId, projectId);
     if (journey === null) notFound();
 
@@ -34,11 +42,9 @@ export default async function JourneyPage({
     return (
       <main>
         <p className="muted">
-          <Link href="/">← Search</Link>
+          <Link href={back.href}>← {back.label}</Link>
         </p>
-        <h1 className="mono">
-          {journey.entity.type}: {journey.entity.id ?? "—"}
-        </h1>
+        <JourneyHeading journey={journey} />
         <p className="muted">All times UTC.</p>
 
         <AliasList aliases={journey.aliases} />

@@ -299,6 +299,56 @@ export function toQueryString(params: SearchParams): string {
   return query.toString();
 }
 
+/** The query keys the Journeys page reads, and the only ones a way back keeps. */
+const LIST_KEYS = new Set([
+  "q",
+  "status",
+  "window",
+  "entityType",
+  "environment",
+  "service",
+  "since",
+  "until",
+  "cursor"
+]);
+
+/** What `from` says on a journey link made by the Journeys page. */
+const FROM_JOURNEYS = "journeys";
+
+/**
+ * A row's link to its journey. It says the reader came from the Journeys page
+ * and carries that page's query string, so the journey page can lead back to
+ * the same list, filters, window and page.
+ */
+export function journeyHref(journeyId: string, listQuery: string): string {
+  const query = new URLSearchParams({ from: FROM_JOURNEYS });
+  if (listQuery !== "") query.set("list", listQuery);
+  return `/journeys/${encodeURIComponent(journeyId)}?${query.toString()}`;
+}
+
+/**
+ * Where the journey page's back link goes: the list a row link came from, or
+ * Search, which is where every other way in starts.
+ *
+ * Both parameters arrive in the URL and anyone can edit them, so the result
+ * is built rather than followed. `list` is only ever read as a query string:
+ * it is parsed, kept to the Journeys page's own keys, and serialised again
+ * after `/journeys?`, so no value of it can change the path or the origin,
+ * and a key another page would act on (a `next`, say) is dropped.
+ */
+export function backFromJourney(params: SearchParams): { href: string; label: string } {
+  if (params["from"] !== FROM_JOURNEYS) return { href: "/", label: "Search" };
+  const raw = params["list"];
+  const kept = new URLSearchParams();
+  if (typeof raw === "string") {
+    for (const [key, value] of new URLSearchParams(raw)) {
+      if (LIST_KEYS.has(key)) kept.append(key, value);
+    }
+  }
+  const query = kept.toString();
+  return { href: query === "" ? "/journeys" : `/journeys?${query}`, label: "Journeys" };
+}
+
 /**
  * What the page says when the API refuses its query. With a cursor, the link
  * is a stale or edited next-page link, and the newest page is the way back.

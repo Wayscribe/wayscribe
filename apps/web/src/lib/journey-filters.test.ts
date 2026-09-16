@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   activeFilterList,
+  backFromJourney,
+  journeyHref,
   describeJourneyFilters,
   emptyListMessage,
   firstPageHref,
@@ -705,6 +707,67 @@ describe("recentRedirectHref", () => {
   it("keeps repeated keys and unknown ones as they came", () => {
     expect(recentRedirectHref({ status: ["failed", "active"], extra: "x y" })).toBe(
       "/journeys?status=failed&status=active&extra=x+y"
+    );
+  });
+});
+
+describe("journeyHref and backFromJourney", () => {
+  it("links a row to its journey, carrying the list it came from", () => {
+    const href = journeyHref("jrn_1 / x", "q=acme&status=failed&cursor=abc");
+    expect(href.split("?")[0]).toBe("/journeys/jrn_1%20%2F%20x");
+    expect(queryOf(href)).toEqual({
+      from: "journeys",
+      list: "q=acme&status=failed&cursor=abc"
+    });
+    expect(backFromJourney({ from: "journeys", list: queryOf(href)["list"] })).toEqual({
+      href: "/journeys?q=acme&status=failed&cursor=abc",
+      label: "Journeys"
+    });
+  });
+
+  it("links back to an unfiltered list when the list had no query", () => {
+    expect(journeyHref("jrn_1", "")).toBe("/journeys/jrn_1?from=journeys");
+    expect(backFromJourney({ from: "journeys" })).toEqual({ href: "/journeys", label: "Journeys" });
+    expect(backFromJourney({ from: "journeys", list: "" })).toEqual({
+      href: "/journeys",
+      label: "Journeys"
+    });
+  });
+
+  it("links back to Search when the reader did not come from the list", () => {
+    for (const params of [
+      {},
+      { from: "search" },
+      { from: ["journeys", "journeys"] },
+      { list: "q=a" }
+    ]) {
+      expect(backFromJourney(params), JSON.stringify(params)).toEqual({
+        href: "/",
+        label: "Search"
+      });
+    }
+  });
+
+  it("keeps only the list's own keys, and can only ever lead to the list", () => {
+    for (const list of [
+      "//evil.test",
+      "/..//evil.test",
+      "https://evil.test/?q=a",
+      "q=a#//evil.test",
+      "q=a&next=https://evil.test",
+      "\\evil.test",
+      "q=%2F%2Fevil.test",
+      ["q=a", "q=b"]
+    ]) {
+      const back = backFromJourney({ from: "journeys", list });
+      expect(back.label, JSON.stringify(list)).toBe("Journeys");
+      expect(back.href.startsWith("/journeys"), JSON.stringify(list)).toBe(true);
+      expect(new URL(back.href, "https://app.invalid").origin).toBe("https://app.invalid");
+      expect(new URL(back.href, "https://app.invalid").pathname).toBe("/journeys");
+      expect(back.href).not.toContain("next=");
+    }
+    expect(backFromJourney({ from: "journeys", list: "q=%2F%2Fevil.test" }).href).toBe(
+      "/journeys?q=%2F%2Fevil.test"
     );
   });
 });

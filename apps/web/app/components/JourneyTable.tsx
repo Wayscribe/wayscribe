@@ -12,10 +12,13 @@ import { JourneyRow } from "./JourneyRow";
  */
 export function JourneyTable({
   filters,
-  items
+  items,
+  listQuery = ""
 }: {
   filters: JourneyFilters;
   items: readonly JourneyListRow[];
+  /** This page's query string, for the rows' way back. */
+  listQuery?: string;
 }): ReactElement {
   const showEnvironment = filters.environment === "";
   return (
@@ -50,7 +53,12 @@ export function JourneyTable({
       </thead>
       <tbody>
         {items.map((item) => (
-          <JourneyRow key={item.journeyId} item={item} showEnvironment={showEnvironment} />
+          <JourneyRow
+            key={item.journeyId}
+            item={item}
+            showEnvironment={showEnvironment}
+            listQuery={listQuery}
+          />
         ))}
       </tbody>
     </table>

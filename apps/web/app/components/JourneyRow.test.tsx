@@ -20,11 +20,11 @@ const item: JourneyListRow = {
   ]
 };
 
-const renderRow = (row: JourneyListRow, showEnvironment = false): HTMLElement => {
+const renderRow = (row: JourneyListRow, showEnvironment = false, listQuery = ""): HTMLElement => {
   render(
     <table>
       <tbody>
-        <JourneyRow item={row} showEnvironment={showEnvironment} />
+        <JourneyRow item={row} showEnvironment={showEnvironment} listQuery={listQuery} />
       </tbody>
     </table>
   );
@@ -144,9 +144,16 @@ describe("JourneyRow", () => {
   it("links what it is shown as to the journey, with the full text as a title", () => {
     const row = renderRow({ ...item, journeyId: "jrn/1 a" });
     const link = within(row).getByRole("link", { name: item.label ?? "" });
-    expect(link.getAttribute("href")).toBe("/journeys/jrn%2F1%20a");
+    expect(link.getAttribute("href")).toBe("/journeys/jrn%2F1%20a?from=journeys");
     expect(link.getAttribute("title")).toBe(item.label);
     expect(link.className).toContain("shown-label");
+  });
+
+  it("carries the list's query, so the journey page can lead back to it", () => {
+    const row = renderRow(item, false, "q=acme&cursor=abc");
+    expect(within(row).getByRole("link").getAttribute("href")).toBe(
+      "/journeys/jrn_1?from=journeys&list=q%3Dacme%26cursor%3Dabc"
+    );
   });
 
   it("marks alias and entity fallbacks so they read differently from a label", () => {

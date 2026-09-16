@@ -132,7 +132,7 @@ export default async function JourneysPage({
           </div>
         </>
       ) : (
-        <JourneyTable filters={filters} items={page.items} />
+        <JourneyTable filters={filters} items={page.items} listQuery={toQueryString(params)} />
       )}
 
       {page.nextCursor === null && filters.cursor === "" ? null : (

@@ -65,6 +65,15 @@ h3 {
 .muted {
   color: var(--muted);
 }
+/* A journey page named by its label: the label may be long and unbroken, and
+   the entity beneath it sits close, as a subtitle. */
+.journey-label {
+  overflow-wrap: anywhere;
+}
+.journey-entity {
+  margin: 0 0 0.25rem;
+  overflow-wrap: anywhere;
+}
 .mono {
   font-family: var(--mono);
 }

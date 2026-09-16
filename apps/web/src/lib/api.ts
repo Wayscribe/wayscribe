@@ -20,6 +20,8 @@ export interface JourneyDetail {
   environment: string;
   entity: { type: string; id: string | null };
   status: string;
+  /** Public display text the instrumenting code set, or null. An older API omits it. */
+  label?: string | null;
   /**
    * `displayValue` is masked unless `displayable` is true. An API that
    * predates the flag omits it, and its values are masked.

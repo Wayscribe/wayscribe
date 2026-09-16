@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactElement } from "react";
 import type { JourneyListRow } from "../../src/lib/api";
+import { journeyHref } from "../../src/lib/journey-filters";
 import { fullTimestamp } from "../../src/lib/time";
 
 /**
@@ -45,11 +46,14 @@ export function shownAs(item: JourneyListRow): ShownAs {
  */
 export function JourneyRow({
   item,
-  showEnvironment = false
+  showEnvironment = false,
+  listQuery = ""
 }: {
   item: JourneyListRow;
   /** Whether the table has an Environment column: only when it spans environments. */
   showEnvironment?: boolean;
+  /** The Journeys page's query string, carried so the journey page can lead back. */
+  listQuery?: string;
 }): ReactElement {
   const shown = shownAs(item);
   const shownClass =
@@ -79,7 +83,7 @@ export function JourneyRow({
       </td>
       <td className="col-shown">
         <Link
-          href={`/journeys/${encodeURIComponent(item.journeyId)}`}
+          href={journeyHref(item.journeyId, listQuery)}
           className={shownClass}
           title={shown.text}
         >
