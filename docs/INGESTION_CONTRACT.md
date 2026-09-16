@@ -440,7 +440,9 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   "publish" | "deliver" | "identify" | "label" | "fail" | "finish", "name":
   "…", "args": { } }`, with an optional `repeat`, and a `recorder` object for
   the settings the case needs. A wrapper call's `args` are `input`, `output`
-  (what the callback returns) and `options`, the wrapper's options. A `label`
+  (what the callback returns) and `options`, the wrapper's options. A `fail`
+  call's `args` are `error` and `options`, and an `identify` call's are
+  `aliases` and `options`, each the call's own options. A `label`
   call's `args` is `text`, the label to set; it records nothing, and the calls
   after it carry the label. A call with `"journeys": n` is made on a group of n
   journeys, the case's own first, and expects n results; `identify` and `label`

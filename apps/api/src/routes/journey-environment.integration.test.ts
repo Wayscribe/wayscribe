@@ -23,7 +23,7 @@ interface SdkJourney {
 }
 interface SdkRecorder {
   startJourney(options: { entity: { type: string; id: string } }): SdkJourney;
-  continueJourney(context: { journeyId: string; entity: { type: string; id: string } }): SdkJourney;
+  continueJourney(options: { journeyId: string; entity: { type: string; id: string } }): SdkJourney;
   shutdown(options?: { timeoutMs?: number }): Promise<{ rejected: number; sent: number }>;
 }
 

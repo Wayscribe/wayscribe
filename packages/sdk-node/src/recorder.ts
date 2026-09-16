@@ -16,7 +16,6 @@ import { firstRequiredSettingWarning, resolveConfig, type RecorderConfig } from 
 import {
   createDiagnostics,
   printDiagnostic,
-  type Counters,
   type Diagnostic,
   type Diagnostics,
   type KeyDroppedDiagnostic,
@@ -29,8 +28,7 @@ import {
   injectHttpHeaders,
   toQueueAttributes,
   unwrapPayload,
-  wrapPayload,
-  type PropagatedContext
+  wrapPayload
 } from "./propagation.js";
 import { acceptLabel } from "./label.js";
 import { BoundedQueue } from "./queue.js";
@@ -45,204 +43,35 @@ import {
 import { createTraceReader } from "./trace.js";
 import { AbandonedError, Transport, UnsentError, type SendOutcome } from "./transport.js";
 
-export interface JourneyContext {
-  journeyId: string;
-  entity: { type: string; id: string };
-}
+import type {
+  ContinueJourneyOptions,
+  Entity,
+  ErrorInput,
+  Journey,
+  JourneyContext,
+  JourneyOperations,
+  RecordInput,
+  Recorder,
+  WrapOptions
+} from "./types.js";
 
-export interface RecordInput {
-  /**
-   * One of the eleven operations the server accepts.
-   *
-   * A union rather than `string`: anything else is refused at ingestion, and a
-   * refused event leaves a timeline that is not empty but wrong.
-   */
-  operation: Operation;
-  name: string;
-  input?: unknown;
-  output?: unknown;
-  error?: { message: string; type?: string; code?: string };
-  aliases?: Record<string, string>;
-  /**
-   * Alias types from `aliases` that a reader may see in full. Every other alias
-   * is masked when read, and an alias is shown in full only while every event
-   * that stated it listed it here (ADR-053).
-   */
-  displayableAliases?: readonly string[];
-  metadata?: Record<string, unknown>;
-  durationMs?: number;
-  /**
-   * When the operation began, in epoch milliseconds. Defaults to now.
-   *
-   * The wrappers set this to the moment the callback started, because the
-   * timeline orders by timestamp and a step must not sort after the work it
-   * caused.
-   */
-  startedAt?: number;
-}
-
-/**
- * Options for the four wrappers. `T` is what the callback returns, resolved if
- * it returns a promise, and is inferred from the callback.
- */
-export interface WrapOptions<T = unknown> {
-  /** Marks a result that did not throw but represents a failure, e.g. HTTP 422. */
-  isFailure?: (result: T) => boolean;
-  /** 1 for a first attempt. Anything higher records `retried` (ADR-022). */
-  attempt?: number;
-  metadata?: Record<string, unknown>;
-  /**
-   * What to record as the input, given the input. Runs when the wrapper is
-   * called, before the callback, and what it returns is copied there and then,
-   * so the record is the input as it went in even when the projection returns
-   * objects the callback goes on to change. The callback still runs with
-   * whatever it closes over; this changes only what is recorded.
-   *
-   * Synchronous. A projection that throws or returns a promise records
-   * `[UNCAPTURABLE]` and a `payload_omitted` diagnostic, and never reaches your
-   * code.
-   */
-  captureInput?: (input: unknown, journey: JourneyContext) => unknown;
-  /**
-   * What to record as the output, given the callback's value. The wrapper
-   * still returns the value itself: a callback returning a `Buffer` can record
-   * `{ bytes: buffer.length }` and hand the caller the `Buffer`. Not called
-   * when the callback throws. Same failure rule as `captureInput`.
-   */
-  captureOutput?: (result: T, journey: JourneyContext) => unknown;
-}
-
-/**
- * What a journey and a group of journeys both do. On a group, each call
- * records one event per journey, with its own id and the same timing, and a
- * wrapper runs its callback once.
- */
-export interface JourneyOperations {
-  record(input: RecordInput): void;
-  /**
-   * Each wrapper returns whatever shape its callback returns.
-   *
-   * A callback returning a value returns a value; one returning a promise
-   * returns a promise. Instrumenting a synchronous call therefore does not
-   * change the control flow around it — which it used to, silently, turning a
-   * handled error into an unhandled rejection.
-   */
-  transform<T>(
-    name: string,
-    input: unknown,
-    fn: () => Promise<T>,
-    options?: WrapOptions<T>
-  ): Promise<T>;
-  transform<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions<T>): T;
-  persist<T>(
-    name: string,
-    input: unknown,
-    fn: () => Promise<T>,
-    options?: WrapOptions<T>
-  ): Promise<T>;
-  persist<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions<T>): T;
-  publish<T>(
-    name: string,
-    message: unknown,
-    fn: () => Promise<T>,
-    options?: WrapOptions<T>
-  ): Promise<T>;
-  publish<T>(name: string, message: unknown, fn: () => T, options?: WrapOptions<T>): T;
-  deliver<T>(
-    name: string,
-    payload: unknown,
-    fn: () => Promise<T>,
-    options?: WrapOptions<T>
-  ): Promise<T>;
-  deliver<T>(name: string, payload: unknown, fn: () => T, options?: WrapOptions<T>): T;
-  fail(name: string, error: unknown, metadata?: Record<string, unknown>): void;
-  finish(options?: { status?: "completed" | "failed" }): void;
-}
-
-export interface IdentifyOptions {
-  /**
-   * Alias types that may be shown in full to a reader. The default is none:
-   * every alias is masked. List a type every time you state it, because an
-   * alias is shown only while every statement of it says so (ADR-053).
-   */
-  displayable?: readonly string[];
-}
-
-export interface Journey extends JourneyOperations {
-  context(): JourneyContext;
-  identify(aliases: Record<string, string>, options?: IdentifyOptions): void;
-  /**
-   * Names the journey for the Journeys page, where partial text finds it.
-   * Records nothing itself: every later event of this journey object carries
-   * the label, including events recorded through `across`. The server keeps the
-   * label of the event that started last, so repeating it costs nothing, and a
-   * lost event cannot take the label with it.
-   *
-   * Stored and shown in plain text, and never redacted: do not put personal
-   * data in it. Over 200 code points it is cut to 199 and `…`, and reported as
-   * `payload_truncated`. Anything that is not a non-empty string is left unset,
-   * keeping any earlier label, and reported as `key_dropped`. Never throws.
-   */
-  label(text: string): void;
-}
-
-/**
- * Several journeys that one operation touched, such as a digest written once
- * for many records. There is no `identify`: an alias identifies one record.
- * There is no `label` either, for the same reason; an event a group records
- * carries the label of the journey it is recorded on.
- */
-export interface JourneyGroup extends JourneyOperations {
-  /** The journeys this group records on, each once, in the order given. */
-  journeys(): JourneyContext[];
-}
-
-export interface Recorder {
-  startJourney(options: {
-    entity: { type: string; id: string };
-    aliases?: Record<string, string>;
-    /** Passed to the `identify` that `aliases` makes. */
-    displayable?: readonly string[];
-    /** Set before anything is recorded, as `journey.label` would set it. */
-    label?: string;
-  }): Journey;
-  continueJourney(context: JourneyContext): Journey;
-  /**
-   * The journey id for an entity, the same on every run and every machine,
-   * derived under `journeyIdSecret` so that it cannot be guessed from the
-   * entity (ADR-052). The environment is part of the derivation.
-   *
-   * Never throws. Without a usable secret it reports a `configuration_error`
-   * and returns a fresh random id, so recording goes on and nothing guessable
-   * is ever produced.
-   */
-  journeyIdFor(entity: { type: string; id: string }): string;
-  /**
-   * The journeys one operation touched, to record it on each of them in one
-   * call. A journey named twice, by handle or by context, is recorded once.
-   */
-  across(journeys: Iterable<Journey | JourneyContext>): JourneyGroup;
-  consume(options: {
-    context?: PropagatedContext | undefined;
-    entityFallback?: { type: string; id: string };
-  }): Journey;
-  injectHttpHeaders(
-    headers: Record<string, string>,
-    context: PropagatedContext
-  ): Record<string, string>;
-  extractHttpContext(
-    headers: Record<string, string | string[] | undefined> | undefined
-  ): PropagatedContext | undefined;
-  toQueueAttributes(
-    context: PropagatedContext
-  ): Record<string, { DataType: string; StringValue: string }>;
-  fromQueueAttributes(attributes: unknown): PropagatedContext | undefined;
-  wrapPayload(payload: unknown, context: PropagatedContext): { _flight: unknown; data: unknown };
-  unwrapPayload(body: unknown): { context?: PropagatedContext; data: unknown };
-  flush(): Promise<void>;
-  shutdown(options?: { timeoutMs?: number }): Promise<Counters>;
-  counters(): Counters;
-}
+export type {
+  ContinueJourneyOptions,
+  Entity,
+  ErrorInput,
+  FailOptions,
+  FinishOptions,
+  IdentifyOptions,
+  Journey,
+  JourneyContext,
+  JourneyGroup,
+  JourneyOperations,
+  RecordInput,
+  Recorder,
+  ShutdownOptions,
+  StartJourneyOptions,
+  WrapOptions
+} from "./types.js";
 
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
 const UNCAPTURABLE = "[UNCAPTURABLE]";
@@ -345,9 +174,9 @@ function defineOwn(target: Record<string, unknown>, key: string, value: unknown)
 interface WrapSettings<T> {
   operation: Operation;
   metadata?: Record<string, unknown> | undefined;
-  captureInput?: WrapOptions<T>["captureInput"];
-  captureOutput?: WrapOptions<T>["captureOutput"];
-  isFailure?: WrapOptions<T>["isFailure"];
+  captureInput?: WrapOptions<T>["captureInput"] | undefined;
+  captureOutput?: WrapOptions<T>["captureOutput"] | undefined;
+  isFailure?: WrapOptions<T>["isFailure"] | undefined;
 }
 
 /**
@@ -361,6 +190,9 @@ interface Target {
 
 const NO_LABEL = (): undefined => undefined;
 
+/** The entity of a journey the host gave none for. */
+const UNKNOWN_ENTITY: Entity = { type: "unknown", id: "unknown" };
+
 function isContext(value: unknown): value is JourneyContext {
   if (typeof value !== "object" || value === null) return false;
   const { journeyId, entity } = value as Partial<JourneyContext>;
@@ -373,7 +205,7 @@ function isContext(value: unknown): value is JourneyContext {
 }
 
 /** Duck-typed rather than `instanceof Promise`: a thenable from any library counts. */
-function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
+function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -1067,18 +899,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
    *
    * Here rather than in `toErrorRecord`, because every error record reaches
    * the queue through this point and not every one comes from there:
-   * `record()` takes one straight from the application. The protocol's `stack`
-   * is masked too when a JavaScript caller passes one the type does not admit.
+   * `record()` takes one straight from the application, `stack` included.
    * The server masks again before storing, which changes nothing: masking is
    * idempotent.
    *
    * Both fields are bounded to what the protocol accepts, so a megabyte of
    * message costs the host no more than four kilobytes of one.
    */
-  function maskedError(error: NonNullable<RecordInput["error"]>): RecordInput["error"] {
-    const { message } = error;
-    const stack = (error as { stack?: unknown }).stack;
-    const { type, code } = error;
+  function maskedError(error: ErrorInput): ErrorInput {
+    // Read as unknown: a JavaScript caller can pass anything.
+    const { message, stack, type, code } = error as Record<keyof ErrorInput, unknown>;
     return {
       ...error,
       // A class name or an error code is not free text worth masking, but the
@@ -1306,7 +1136,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
   }
 
-  function toErrorRecord(error: unknown): { message: string; type?: string; code?: string } {
+  function toErrorRecord(error: unknown): ErrorInput {
     if (error instanceof Error) {
       const code = (error as { code?: unknown }).code;
       return {
@@ -1348,7 +1178,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     naturalOperation: Operation,
     name: string,
     input: unknown,
-    fn: () => T | Promise<T>,
+    fn: () => T | PromiseLike<T>,
     options: WrapOptions<T> | undefined
   ): T | Promise<T> {
     const startedAt = Date.now();
@@ -1431,7 +1261,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       });
     };
 
-    let produced: T | Promise<T>;
+    let produced: T | PromiseLike<T>;
     try {
       produced = fn();
     } catch (error) {
@@ -1446,7 +1276,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
       return produced;
     }
 
-    return produced.then(
+    // Through Promise.resolve, so a thenable from another library comes back
+    // as the native promise the types promise. A native promise is returned by
+    // Promise.resolve as it is, so nothing changes for one.
+    return Promise.resolve(produced).then(
       (result) => {
         recordSuccess(result);
         return result;
@@ -1514,20 +1347,26 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   function operationsOn(targets: readonly Target[]): JourneyOperations {
+    // One untyped implementation behind the four overloaded wrappers: the
+    // overloads describe what `wrap` does with each shape of callback.
+    const wrapper =
+      (operation: Operation) =>
+      (name: string, input: unknown, fn: () => unknown, options?: WrapOptions): unknown =>
+        wrap(targets, operation, name, input, fn, options);
     return {
       record(input) {
         safely(diagnostics, "capture_error", () => {
           recordOn(targets, input);
         });
       },
-      transform: (name, input, fn, options) =>
-        wrap(targets, "transformed", name, input, fn, options),
-      persist: (name, input, fn, options) => wrap(targets, "persisted", name, input, fn, options),
-      publish: (name, message, fn, options) =>
-        wrap(targets, "published", name, message, fn, options),
-      deliver: (name, payload, fn, options) =>
-        wrap(targets, "delivered", name, payload, fn, options),
-      fail(name, error, metadata) {
+      transform: wrapper("transformed") as JourneyOperations["transform"],
+      persist: wrapper("persisted") as JourneyOperations["persist"],
+      publish: wrapper("published") as JourneyOperations["publish"],
+      deliver: wrapper("delivered") as JourneyOperations["deliver"],
+      fail(name, error, options) {
+        // The options apart from the event: options that cannot be read cost
+        // their metadata, not the failure being recorded.
+        const metadata = safely(diagnostics, "capture_error", () => options?.metadata);
         safely(diagnostics, "capture_error", () => {
           recordOn(targets, {
             operation: "failed",
@@ -1579,15 +1418,53 @@ export function createRecorder(config: RecorderConfig): Recorder {
             // event itself, and ingestion reads them from there. Nested, they
             // are accepted and then ignored, costing every alias-based search.
             aliases,
-            ...(options?.displayable === undefined
+            ...(options?.displayableAliases === undefined
               ? {}
-              : { displayableAliases: options.displayable })
+              : { displayableAliases: options.displayableAliases })
           });
         });
       }
     };
     labelOf.set(journey, target.label);
     return journey;
+  }
+
+  /**
+   * The context `continueJourney` joins.
+   *
+   * At the default propagation level the journey id crosses the boundary and
+   * the entity does not, so the consumer supplies the entity it already has
+   * from the message body.
+   *
+   * Each option is read inside the boundary, and apart, as startJourney's are:
+   * missing options or a getter that throws used to throw into the consumer.
+   * Whatever cannot be read, the consumer still gets a journey; one it cannot
+   * place is a new one.
+   */
+  function continuedContext(options: ContinueJourneyOptions): JourneyContext {
+    const read = <K extends keyof ContinueJourneyOptions>(
+      key: K
+    ): ContinueJourneyOptions[K] | undefined =>
+      safely(diagnostics, "capture_error", () => options[key]);
+    const context = read("context");
+    const propagated = safely(diagnostics, "capture_error", () =>
+      context === undefined ? undefined : { journeyId: context.journeyId, entity: context.entity }
+    );
+    const entity: Entity = propagated?.entity ?? read("entity") ?? UNKNOWN_ENTITY;
+    if (propagated !== undefined) return { journeyId: propagated.journeyId, entity };
+
+    const journeyId: unknown = read("journeyId");
+    if (typeof journeyId === "string" && journeyId !== "") return { journeyId, entity };
+    if (journeyId !== undefined) {
+      diagnostics.report({
+        kind: "configuration_error",
+        code: "journey_id_invalid",
+        reason:
+          "continueJourney was given a journeyId that is not a non-empty string, so it started a new journey.",
+        detail: {}
+      });
+    }
+    return { journeyId: `jrn_${randomUUID()}`, entity };
   }
 
   /**
@@ -1648,13 +1525,23 @@ export function createRecorder(config: RecorderConfig): Recorder {
         if (label !== undefined) journey.label(label);
       });
       safely(diagnostics, "capture_error", () => {
-        const { aliases, displayable } = options;
+        const { aliases, displayableAliases } = options;
         if (aliases === undefined) return;
-        journey.identify(aliases, displayable === undefined ? undefined : { displayable });
+        journey.identify(
+          aliases,
+          displayableAliases === undefined ? undefined : { displayableAliases }
+        );
       });
       return journey;
     },
-    continueJourney: (context) => makeJourney(context),
+    continueJourney(options) {
+      const journey = makeJourney(continuedContext(options));
+      safely(diagnostics, "capture_error", () => {
+        const { label } = options;
+        if (label !== undefined) journey.label(label);
+      });
+      return journey;
+    },
     journeyIdFor(entity) {
       const derived = safely(diagnostics, "capture_error", () => {
         const secret = resolved.journeyIdSecret;
@@ -1682,25 +1569,6 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ...operationsOn(targets),
         journeys: () => targets.map(({ context }) => context)
       };
-    },
-    // At the default propagation level the journey ID crosses the boundary and
-    // the entity does not, so the consumer supplies the entity it already has
-    // from the message body.
-    //
-    // Read inside the boundary, as startJourney's options are: missing options
-    // or a getter that throws used to throw into the consumer. Either way the
-    // consumer gets a journey; unreadable options give it a new one.
-    consume(options) {
-      const context = safely(diagnostics, "capture_error", () => {
-        const propagated = options.context;
-        return {
-          journeyId: propagated?.journeyId ?? `jrn_${randomUUID()}`,
-          entity: propagated?.entity ?? options.entityFallback ?? { type: "unknown", id: "unknown" }
-        };
-      });
-      return makeJourney(
-        context ?? { journeyId: `jrn_${randomUUID()}`, entity: { type: "unknown", id: "unknown" } }
-      );
     },
     // These six were the only public entry points not going through `safely`,
     // which contradicted safely.ts's own claim that every one does. The

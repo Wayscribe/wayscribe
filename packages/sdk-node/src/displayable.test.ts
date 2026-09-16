@@ -56,7 +56,7 @@ const aliases = { postingId: "greenhouse:4567", recruiterEmail: "someone@example
 describe("displayable aliases", () => {
   it("identify sends the types it was told may be shown", async () => {
     const events = await sent((recorder) => {
-      recorder.startJourney({ entity }).identify(aliases, { displayable: ["postingId"] });
+      recorder.startJourney({ entity }).identify(aliases, { displayableAliases: ["postingId"] });
     });
     expect(events[0]).toMatchObject({
       operation: "identified",
@@ -74,7 +74,7 @@ describe("displayable aliases", () => {
 
   it("startJourney passes the list to the identify it makes", async () => {
     const events = await sent((recorder) => {
-      recorder.startJourney({ entity, aliases, displayable: ["postingId"] });
+      recorder.startJourney({ entity, aliases, displayableAliases: ["postingId"] });
     });
     expect(events[0]).toMatchObject({ aliases, displayableAliases: ["postingId"] });
   });
@@ -94,7 +94,7 @@ describe("displayable aliases", () => {
   it("copies the list, so a later change to the caller's array is not recorded", async () => {
     const events = await sent((recorder) => {
       const displayable = ["postingId"];
-      recorder.startJourney({ entity }).identify(aliases, { displayable });
+      recorder.startJourney({ entity }).identify(aliases, { displayableAliases: displayable });
       displayable.push("recruiterEmail");
     });
     expect(events[0]?.["displayableAliases"]).toEqual(["postingId"]);
@@ -103,8 +103,8 @@ describe("displayable aliases", () => {
   it("drops what cannot be a list of alias types rather than losing the event", async () => {
     const events = await sent((recorder) => {
       const journey = recorder.startJourney({ entity });
-      journey.identify(aliases, { displayable: "postingId" as unknown as string[] });
-      journey.identify(aliases, { displayable: ["postingId", 7 as unknown as string] });
+      journey.identify(aliases, { displayableAliases: "postingId" as unknown as string[] });
+      journey.identify(aliases, { displayableAliases: ["postingId", 7 as unknown as string] });
     });
     expect(events).toHaveLength(2);
     expect(events[0]).not.toHaveProperty("displayableAliases");

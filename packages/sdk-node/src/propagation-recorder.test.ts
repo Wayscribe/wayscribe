@@ -28,9 +28,9 @@ describe("recorder propagation", () => {
 
     // A separate recorder instance, as a different process would have.
     const consumer = createRecorder(base);
-    const continued = consumer.consume({
+    const continued = consumer.continueJourney({
       context: consumer.fromQueueAttributes(attributes),
-      entityFallback: { type: "customer", id: "42" }
+      entity: { type: "customer", id: "42" }
     });
 
     expect(continued.context().journeyId).toBe(journey.context().journeyId);
@@ -44,9 +44,9 @@ describe("recorder propagation", () => {
     const headers = producer.injectHttpHeaders({}, journey.context());
 
     const consumer = createRecorder(base);
-    const continued = consumer.consume({
+    const continued = consumer.continueJourney({
       context: consumer.extractHttpContext(headers),
-      entityFallback: { type: "customer", id: "42" }
+      entity: { type: "customer", id: "42" }
     });
 
     expect(continued.context().journeyId).toBe(journey.context().journeyId);
@@ -55,9 +55,9 @@ describe("recorder propagation", () => {
 
   it("starts a new journey when the inbound context is malformed", () => {
     const consumer = createRecorder(base);
-    const continued = consumer.consume({
+    const continued = consumer.continueJourney({
       context: consumer.fromQueueAttributes({ flightJourneyId: "forged" }),
-      entityFallback: { type: "customer", id: "42" }
+      entity: { type: "customer", id: "42" }
     });
     expect(continued.context().journeyId).toMatch(/^jrn_/);
     expect(continued.context().entity.id).toBe("42");

@@ -3,47 +3,114 @@ import type { Diagnostic } from "./diagnostics.js";
 import type { PropagationLevel } from "./propagation.js";
 import { readKnownSafeNames } from "./secret-names.js";
 
+/**
+ * What the recorder captures of a payload. `metadata-only` captures none;
+ * `redacted-payload` captures it with secret names redacted; `full-payload`
+ * asks for it whole, which the server stores only where its environment allows
+ * it, and the built-in secret names are still redacted.
+ */
+export type CaptureMode = "metadata-only" | "redacted-payload" | "full-payload";
+
+/**
+ * The recorder's settings. The four without a default are required. A value
+ * that cannot be used never stops the recorder starting: it is reported as a
+ * `configuration_error` and replaced by its default, or clamped into range.
+ * Nothing is converted: `"5000"` read from `process.env` is not a number.
+ */
 export interface RecorderConfig {
+  /** Where the API is, such as `https://flight-recorder.internal`. */
   endpoint: string;
+  /** An API key for one project and one environment. */
   apiKey: string;
+  /** The name of the service doing the recording. */
   serviceName: string;
+  /** Which environment this process is. Must match the API key's environment. */
   environment: string;
-  captureMode?: "metadata-only" | "redacted-payload" | "full-payload";
-  redact?: readonly string[];
-  batchSize?: number;
-  flushIntervalMs?: number;
-  requestTimeoutMs?: number;
-  maxBufferedEvents?: number;
-  maxPayloadBytes?: number;
-  /** Default 'journey-and-type'. The entity ID propagates only at 'full' (SECURITY section 10). */
-  propagate?: PropagationLevel;
-  onDiagnostic?: (diagnostic: Diagnostic) => void;
+  /** @defaultValue "redacted-payload" */
+  captureMode?: CaptureMode | undefined;
+  /**
+   * Redaction rules, applied beside the built-in secret names, never instead
+   * of them.
+   *
+   * @defaultValue []
+   */
+  redact?: readonly string[] | undefined;
+  /**
+   * Events per request. At most 100, the server's limit.
+   *
+   * @defaultValue 50
+   */
+  batchSize?: number | undefined;
+  /** @defaultValue 1000 */
+  flushIntervalMs?: number | undefined;
+  /** @defaultValue 1500 */
+  requestTimeoutMs?: number | undefined;
+  /**
+   * Events held in memory. Past it, the oldest are dropped and counted.
+   *
+   * @defaultValue 1000
+   */
+  maxBufferedEvents?: number | undefined;
+  /**
+   * The byte budget of one whole event, which should be the server's
+   * `MAX_EVENT_PAYLOAD_BYTES`. Payloads that do not fit are replaced, the
+   * largest first.
+   *
+   * @defaultValue 262144
+   */
+  maxPayloadBytes?: number | undefined;
+  /**
+   * What crosses a process boundary. The entity id propagates only at `full`
+   * (SECURITY section 10); aliases never do.
+   *
+   * @defaultValue "journey-and-type"
+   * @experimental The propagation names and grammar wait on the propagation
+   * specification.
+   */
+  propagate?: PropagationLevel | undefined;
+  /**
+   * Called with every diagnostic. A callback that throws is ignored.
+   *
+   * @defaultValue none
+   */
+  onDiagnostic?: ((diagnostic: Diagnostic) => void) | undefined;
   /**
    * Write each diagnostic to `console.error` as one `[flight-recorder]` line, at
-   * most one per kind per minute. Default false. Meant for setting up: turn it
-   * on until `delivered_first` appears, then off.
+   * most one per kind per minute. Meant for setting up: turn it on until
+   * `delivered_first` appears, then off.
+   *
+   * @defaultValue false
    */
-  logDiagnostics?: boolean;
+  logDiagnostics?: boolean | undefined;
   /**
-   * Batches in flight at once from this process. Default 4, clamped to 1-16.
-   * Across every process sending to one installation, the total should stay
-   * under API instances times database pool size; see the README.
+   * Batches in flight at once from this process, clamped to 1 to 16. Across
+   * every process sending to one installation, the total should stay under API
+   * instances times database pool size; see the README.
+   *
+   * @defaultValue 4
+   * @experimental Adaptive concurrency is the long-term fix, and would make
+   * this option obsolete.
    */
-  maxConcurrentSends?: number;
+  maxConcurrentSends?: number | undefined;
   /**
    * The key `journeyIdFor` derives journey ids under: a string of at least 32
    * bytes, kept like any other credential. Rotating it starts new journeys for
    * every entity. Without it, `journeyIdFor` reports a `configuration_error`
    * and returns random ids (ADR-052).
+   *
+   * @defaultValue none
+   * @experimental As `journeyIdFor`.
    */
-  journeyIdSecret?: string;
+  journeyIdSecret?: string | undefined;
   /**
    * Key names that look like secrets and are not, such as a `sessionId` that
    * is an analytics id. The `unredacted_secret_name` warning skips them. Plain
    * names only, compared with case, `-` and `_` ignored. Redaction is
    * unaffected: a name on `redact` or the built-in list is still redacted.
+   *
+   * @defaultValue []
    */
-  knownSafeNames?: readonly string[];
+  knownSafeNames?: readonly string[] | undefined;
 }
 
 export interface ResolvedConfig {
@@ -51,7 +118,7 @@ export interface ResolvedConfig {
   apiKey: string;
   serviceName: string;
   environment: string;
-  captureMode: "metadata-only" | "redacted-payload" | "full-payload";
+  captureMode: CaptureMode;
   redact: readonly string[];
   batchSize: number;
   flushIntervalMs: number;

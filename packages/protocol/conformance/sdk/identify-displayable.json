@@ -13,7 +13,7 @@
           "email": "someone@example.com"
         },
         "options": {
-          "displayable": ["internalCustomerId"]
+          "displayableAliases": ["internalCustomerId"]
         }
       }
     }

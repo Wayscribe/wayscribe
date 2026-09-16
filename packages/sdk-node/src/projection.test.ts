@@ -137,7 +137,7 @@ describe("captureInput", () => {
           order.lines.length = 0;
           return order.id;
         },
-        { captureInput: (input) => ({ lineCount: (input as typeof order).lines.length }) }
+        { captureInput: (input) => ({ lineCount: input.lines.length }) }
       );
     });
     expect(events[0]?.["input"]).toEqual({ lineCount: 3 });
@@ -156,7 +156,7 @@ describe("captureInput", () => {
           order.items.push("b", "c");
           return Promise.resolve(order.items.length);
         },
-        { captureInput: (input) => ({ items: (input as typeof order).items }) }
+        { captureInput: (input) => ({ items: input.items }) }
       );
     });
     expect(events[0]?.["input"]).toEqual({ items: ["a"] });

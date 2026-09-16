@@ -4,14 +4,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetRequiredSettingWarnings } from "./config.js";
 import type { Counters, Diagnostic } from "./diagnostics.js";
 import { forgetSecretWarning } from "./journey-id.js";
-import { createRecorder, type Recorder, type RecorderConfig, type WrapOptions } from "./index.js";
+import {
+  createRecorder,
+  type ContinueJourneyOptions,
+  type Recorder,
+  type RecorderConfig,
+  type WrapOptions
+} from "./index.js";
 
 /**
  * Every public entry point, given what a plain-JavaScript host can pass:
  * nothing, null, an object whose getters throw, a Proxy that throws on every
  * read. None of it may reach the host (ADR-007, SDK-1, SDK-6).
  *
- * `consume(undefined)`, a throwing getter on `consume`'s options, `null`
+ * `continueJourney(undefined)`, a throwing getter on its options, `null`
  * wrapper options and an unreadable recorder configuration all used to throw.
  */
 
@@ -93,9 +99,7 @@ const config = (endpoint: string, diagnostics: Diagnostic[]): RecorderConfig => 
   onDiagnostic: (diagnostic) => diagnostics.push(diagnostic)
 });
 
-type ConsumeOptions = Parameters<Recorder["consume"]>[0];
-
-describe("consume", () => {
+describe("continueJourney", () => {
   it.each([
     ["undefined", (): unknown => undefined],
     ["null", (): unknown => null],
@@ -109,7 +113,7 @@ describe("consume", () => {
     const { events, counters } = await withStub((endpoint, diagnostics) => {
       const recorder = createRecorder(config(endpoint, diagnostics));
       expect(() => {
-        const journey = recorder.consume(options() as ConsumeOptions);
+        const journey = recorder.continueJourney(options() as ContinueJourneyOptions);
         journey.record({ operation: "consumed", name: "consume" });
       }).not.toThrow();
       return recorder;
@@ -123,7 +127,7 @@ describe("consume", () => {
     const { events } = await withStub((endpoint, diagnostics) => {
       const recorder = createRecorder(config(endpoint, diagnostics));
       recorder
-        .consume({ context: { journeyId: "jrn_given" }, entityFallback: { type: "t", id: "1" } })
+        .continueJourney({ context: { journeyId: "jrn_given" }, entity: { type: "t", id: "1" } })
         .record({ operation: "consumed", name: "consume" });
       return recorder;
     });
@@ -133,19 +137,9 @@ describe("consume", () => {
 });
 
 describe("the other entry points given nothing usable", () => {
-  it("continueJourney, across and journeyIdFor do not throw", async () => {
+  it("across and journeyIdFor do not throw", async () => {
     const { counters } = await withStub((endpoint, diagnostics) => {
       const recorder = createRecorder(config(endpoint, diagnostics));
-      expect(() => {
-        const lost = recorder.continueJourney(
-          undefined as unknown as { journeyId: string; entity: { type: string; id: string } }
-        );
-        lost.record({ operation: "received", name: "r" });
-        lost.label("a label");
-        lost.identify({ a: "b" });
-        lost.transform("t", 1, () => 2);
-        recorder.continueJourney(hostile() as never).record({ operation: "received", name: "r" });
-      }).not.toThrow();
 
       const throwingIterable = {
         [Symbol.iterator]: (): Iterator<never> => {
@@ -167,7 +161,8 @@ describe("the other entry points given nothing usable", () => {
       }
       return recorder;
     });
-    // A journey with no usable context records nothing; what it lost is counted.
+    // Nothing usable was given, so nothing is recorded, and what was refused is
+    // counted.
     expect(counters.captureErrors).toBeGreaterThan(0);
   });
 });

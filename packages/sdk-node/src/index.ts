@@ -1,4 +1,4 @@
-export type { RecorderConfig } from "./config.js";
+export type { CaptureMode, RecorderConfig } from "./config.js";
 export type {
   BreakerOpenedDiagnostic,
   CaptureErrorDiagnostic,
@@ -21,6 +21,11 @@ export { OPERATIONS } from "./operations.js";
 export type { Operation } from "./operations.js";
 export { createRecorder } from "./recorder.js";
 export type {
+  ContinueJourneyOptions,
+  Entity,
+  ErrorInput,
+  FailOptions,
+  FinishOptions,
   IdentifyOptions,
   Journey,
   JourneyContext,
@@ -28,7 +33,8 @@ export type {
   JourneyOperations,
   RecordInput,
   Recorder,
+  ShutdownOptions,
+  StartJourneyOptions,
   WrapOptions
-} from "./recorder.js";
+} from "./types.js";
 export type { PropagatedContext, PropagationLevel } from "./propagation.js";
-export type { TraceContext } from "./trace.js";

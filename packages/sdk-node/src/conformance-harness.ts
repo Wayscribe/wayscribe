@@ -3,6 +3,8 @@ import type { AddressInfo } from "node:net";
 import { expand, type ConformanceCase } from "@flight-recorder/protocol/conformance";
 import {
   createRecorder,
+  type FailOptions,
+  type IdentifyOptions,
   type Journey,
   type JourneyGroup,
   type RecordInput,
@@ -128,7 +130,7 @@ async function makeCall(target: Journey | JourneyGroup, call: Call, run: string)
       if (!("identify" in target)) throw new Error("identify has no group form.");
       target.identify(
         args["aliases"] as Record<string, string>,
-        args["options"] as { displayable?: string[] } | undefined
+        args["options"] as IdentifyOptions | undefined
       );
       return;
     case "label":
@@ -136,7 +138,7 @@ async function makeCall(target: Journey | JourneyGroup, call: Call, run: string)
       target.label(args["text"] as string);
       return;
     case "fail":
-      target.fail(name, args["error"], args["metadata"] as Record<string, unknown>);
+      target.fail(name, args["error"], args["options"] as FailOptions | undefined);
       return;
     case "finish":
       target.finish({ status: args["status"] as "completed" | "failed" });

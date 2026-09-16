@@ -98,7 +98,7 @@ describe("capped keys and fields", () => {
           tooLongValue: "v".repeat(513),
           notAString: 7 as unknown as string
         },
-        { displayable: ["good", long] }
+        { displayableAliases: ["good", long] }
       );
     });
     // No marker among aliases: it would become a searchable alias.
@@ -144,7 +144,7 @@ describe("capped keys and fields", () => {
 
   it("changes nothing, and counts nothing, for fields within the caps", async () => {
     const { events, counters } = await capture((journey) => {
-      journey.identify({ [astral]: "y".repeat(512) }, { displayable: [astral] });
+      journey.identify({ [astral]: "y".repeat(512) }, { displayableAliases: [astral] });
     });
     expect(events[0]?.["aliases"]).toEqual({ [astral]: "y".repeat(512) });
     expect(counters.keysDropped).toBe(0);

@@ -93,21 +93,21 @@ describe("wrapper contract", () => {
   it("fail and finish do not throw", () => {
     const journey = journeyFor();
     expect(() => {
-      journey.fail("f", new Error("boom"), { attempt: 3 });
+      journey.fail("f", new Error("boom"), { metadata: { attempt: 3 } });
       journey.finish({ status: "failed" });
     }).not.toThrow();
   });
 
-  it("consume builds a journey from a supplied context", () => {
-    const journey = createRecorder(base).consume({
+  it("continueJourney builds a journey from a supplied context", () => {
+    const journey = createRecorder(base).continueJourney({
       context: { journeyId: "jrn_existing", entity: { type: "customer", id: "9" } }
     });
     expect(journey.context().journeyId).toBe("jrn_existing");
   });
 
-  it("consume falls back to an entity when no context was propagated", () => {
-    const journey = createRecorder(base).consume({
-      entityFallback: { type: "customer", id: "9" }
+  it("continueJourney falls back to an entity when no context was propagated", () => {
+    const journey = createRecorder(base).continueJourney({
+      entity: { type: "customer", id: "9" }
     });
     expect(journey.context().journeyId).toMatch(/^jrn_/);
     expect(journey.context().entity.id).toBe("9");
@@ -277,7 +277,7 @@ describe("recorded events", () => {
       journey.record({
         operation: "failed",
         name: "charge",
-        error: { message: "charge failed", stack } as { message: string }
+        error: { message: "charge failed", stack }
       });
     });
 

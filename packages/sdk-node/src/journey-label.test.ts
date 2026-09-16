@@ -145,7 +145,7 @@ describe("journey.label", () => {
       const journey = recorder.startJourney({
         entity: { type: "job_posting", id: "4567" },
         aliases: { postingId: "4567" },
-        displayable: ["postingId"],
+        displayableAliases: ["postingId"],
         label: "Mirantis"
       });
       journey.record({ operation: "received", name: "sweep" });
