@@ -181,6 +181,16 @@ await journey.publish(
 
 The helper should make propagation metadata available without forcing payload mutation.
 
+### `journeyIdFor`
+
+```typescript
+const journeyId = recorder.journeyIdFor({ type: "job_posting", id: posting.id });
+```
+
+Derives the journey id under `journeyIdSecret` (SDK-55, ADR-052). Never throws:
+without a usable secret it reports `configuration_error` and returns a random
+id (SDK-56).
+
 ### `across`
 
 ```typescript

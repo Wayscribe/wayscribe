@@ -225,7 +225,7 @@ environment is in the message because ingestion refuses an event from one
 environment into another's journey (ADR-038); without it, the same record in
 staging and production would collide. The label versions the derivation. 128
 bits of output is far past collision risk at any volume this product records,
-and the id is 36 characters, the same length as a random one. The result
+and the id is 36 characters, within the protocol's 128. The result
 satisfies the grammar propagation extraction accepts: the prefix, `[0-9a-f]`,
 well under 256 characters.
 
@@ -262,9 +262,9 @@ allowed to be loud: a counter that is not zero, a distinct kind for
 on the first run by asserting `configurationErrors` is zero. An entity that is
 not a string pair is the same error.
 
-Recorded as ADR-053, because ADR-038 says journey ids are random.
+Recorded as ADR-052, because ADR-038 says journey ids are random.
 
-`SDK_SPEC.md` gains the derivation as a SHOULD with ADR-053 as its source.
+`SDK_SPEC.md` gains the derivation as a SHOULD with ADR-052 as its source.
 
 ## 5. Installing the unpublished SDK
 
@@ -362,7 +362,7 @@ shows a displayable value as it is and marks a masked one as masked.
 
 Documented in the contract, `EVENT_PROTOCOL.md`, `SDK_SPEC.md`, the schemas,
 `docs/SECURITY.md` section 6 (the masking rule and this exception), and
-ADR-052. Conformance: `wire/displayable-alias`,
+ADR-053. Conformance: `wire/displayable-alias`,
 `wire/displayable-alias-every-statement` and `sdk/identify-displayable`, and
 `wire`/`sdk` identify cases updated for the new field.
 

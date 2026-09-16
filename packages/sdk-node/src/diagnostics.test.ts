@@ -212,6 +212,7 @@ describe("logDiagnostics", () => {
       breakerOpened: 0,
       payloadsOmitted: 0,
       payloadsTruncated: 0,
+      configurationErrors: 0,
       sent: 0
     });
   });

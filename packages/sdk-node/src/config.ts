@@ -29,6 +29,13 @@ export interface RecorderConfig {
    * under API instances times database pool size; see the README.
    */
   maxConcurrentSends?: number;
+  /**
+   * The key `journeyIdFor` derives journey ids under: a string of at least 32
+   * bytes, kept like any other credential. Rotating it starts new journeys for
+   * every entity. Without it, `journeyIdFor` reports a `configuration_error`
+   * and returns random ids (ADR-052).
+   */
+  journeyIdSecret?: string;
 }
 
 export interface ResolvedConfig {
@@ -47,6 +54,7 @@ export interface ResolvedConfig {
   onDiagnostic: ((diagnostic: Diagnostic) => void) | undefined;
   logDiagnostics: boolean;
   maxConcurrentSends: number;
+  journeyIdSecret: string | undefined;
 }
 
 /**
@@ -70,7 +78,8 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     propagate: config.propagate ?? "journey-and-type",
     onDiagnostic: config.onDiagnostic,
     logDiagnostics: config.logDiagnostics === true,
-    maxConcurrentSends: clampConcurrentSends(config.maxConcurrentSends)
+    maxConcurrentSends: clampConcurrentSends(config.maxConcurrentSends),
+    journeyIdSecret: config.journeyIdSecret
   };
 }
 

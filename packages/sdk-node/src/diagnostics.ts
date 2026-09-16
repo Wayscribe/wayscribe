@@ -17,7 +17,8 @@ export type FailureKind =
   | "capture_error"
   | "breaker_open"
   | "payload_omitted"
-  | "payload_truncated";
+  | "payload_truncated"
+  | "configuration_error";
 
 /**
  * `delivered_first` is the one diagnostic that is good news. It exists because
@@ -81,6 +82,13 @@ export interface Counters {
    * counted as omitted only.
    */
   payloadsTruncated: number;
+  /**
+   * Calls that needed a setting the recorder does not have, such as
+   * `journeyIdFor` without a usable `journeyIdSecret`, and settings that could
+   * not be used. The call still returned something safe; this is how a test
+   * notices it did not return what was meant.
+   */
+  configurationErrors: number;
   /** Accepted and stored. Not "handed to fetch" — actually stored. */
   sent: number;
 }
@@ -132,6 +140,7 @@ export function createDiagnostics(
     breakerOpened: 0,
     payloadsOmitted: 0,
     payloadsTruncated: 0,
+    configurationErrors: 0,
     sent: 0
   };
   const log = options.log === true;
@@ -168,6 +177,7 @@ export function createDiagnostics(
       if (diagnostic.kind === "breaker_open") counters.breakerOpened += 1;
       if (diagnostic.kind === "payload_omitted") counters.payloadsOmitted += 1;
       if (diagnostic.kind === "payload_truncated") counters.payloadsTruncated += 1;
+      if (diagnostic.kind === "configuration_error") counters.configurationErrors += 1;
 
       if (log) {
         try {

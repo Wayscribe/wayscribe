@@ -351,6 +351,8 @@ names carry the product's:
 | service | the name of the service doing the recording |
 | environment | which environment this process is |
 
+One more is optional: the **journey id secret**, used only by SDK-55.
+
 - **SDK-50.** An SDK SHOULD NOT read ambient environment variables of its own.
   The application decides where its configuration comes from.
 
@@ -407,6 +409,32 @@ They are numbered after the rest so that no identifier above moved.
 | --- | --- | --- |
 | SDK-54 | docs/superpowers/specs/2026-09-16-dogfood-gaps-design.md | sdk/across-journeys |
 
+### Deriving a journey id from the entity
+
+A host with nowhere to keep a journey id between runs can derive one from the
+entity. The derivation is keyed, because an unkeyed one is predictable, and a
+predictable journey id is the risk `INGESTION_CONTRACT.md` section 5 describes.
+
+- **SDK-55.** An SDK SHOULD offer a journey id derived from an entity under a
+  secret the host configures, of at least 32 bytes. When it does, it MUST
+  compute HMAC-SHA256, keyed with the secret's UTF-8 bytes, over four fields in
+  this order: the label `journey-id/v1`, the recorder's environment, the entity
+  type and the entity id, each written as a 4-byte big-endian length followed
+  by its UTF-8 bytes. The id MUST be the journey id prefix followed by the first
+  32 lowercase hex characters of the MAC, and MUST reproduce every vector in
+  `packages/protocol/fixtures/journey-id-derivation.json`. The SDK MUST NOT read
+  the secret from an environment variable of its own.
+- **SDK-56.** Deriving without a usable secret, or for an entity whose type and
+  id are not strings, MUST NOT throw and MUST NOT fail startup. The SDK MUST
+  report it, and MUST return a fresh unpredictable journey id rather than an
+  unkeyed derivation. A secret too short to use MUST be reported when the
+  recorder is created, and MUST NOT be used.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-55 | ADR-052; packages/protocol/fixtures/journey-id-derivation.json | section 14 |
+| SDK-56 | ADR-052; ADR-007 | section 14 |
+
 ## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive
@@ -440,4 +468,6 @@ either.
 | SDK-43, SDK-44, SDK-45, SDK-46 | Assert the default level, that aliases never propagate, that the entity id propagates only at the highest level, and that `traceparent` is never written. |
 | SDK-48, SDK-49 | Assert trace correlation works with the tracing library present and that the SDK works without it. |
 | SDK-50 | Assert the recorder reads no ambient environment variable of its own. |
+| SDK-55 | Reproduce every vector in `packages/protocol/fixtures/journey-id-derivation.json`, and assert the result is accepted by your own propagation extraction. |
+| SDK-56 | Derive without a secret, with a short one, and for an entity that is not a pair of strings; assert nothing throws, each is reported, the ids differ call to call, and a short secret is reported at creation. |
 | SDK-52 | Record a payload with a secret-named field holding a string over the limit and assert it arrives masked and is not counted as truncated; cut a payload and then force its omission and assert it is counted once, as omitted. |

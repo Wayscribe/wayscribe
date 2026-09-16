@@ -24,6 +24,7 @@ import {
 } from "./propagation.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
+import { deriveJourneyId, isEntity, journeyIdSecretProblem } from "./journey-id.js";
 import { createTraceReader } from "./trace.js";
 import { AbandonedError, Transport, UnsentError, type SendOutcome } from "./transport.js";
 
@@ -154,6 +155,16 @@ export interface Recorder {
     aliases?: Record<string, string>;
   }): Journey;
   continueJourney(context: JourneyContext): Journey;
+  /**
+   * The journey id for an entity, the same on every run and every machine,
+   * derived under `journeyIdSecret` so that it cannot be guessed from the
+   * entity (ADR-052). The environment is part of the derivation.
+   *
+   * Never throws. Without a usable secret it reports a `configuration_error`
+   * and returns a fresh random id, so recording goes on and nothing guessable
+   * is ever produced.
+   */
+  journeyIdFor(entity: { type: string; id: string }): string;
   /**
    * The journeys one operation touched, to record it on each of them in one
    * call. A journey named twice, by handle or by context, is recorded once.
@@ -508,6 +519,13 @@ export function createRecorder(config: RecorderConfig): Recorder {
   safely(diagnostics, "capture_error", () => {
     warnIfInsecure(resolved.endpoint, diagnostics);
   });
+  // A secret that was configured and cannot be used is reported now, once, so
+  // it surfaces at startup rather than at the first derived id. A missing one
+  // is not: most recorders never derive an id.
+  const secretProblem = journeyIdSecretProblem(resolved.journeyIdSecret);
+  if (resolved.journeyIdSecret !== undefined && secretProblem !== undefined) {
+    diagnostics.report({ kind: "configuration_error", reason: secretProblem });
+  }
   const queue = new BoundedQueue<unknown>(resolved.maxBufferedEvents, diagnostics);
   // Resolved once: record() is synchronous, so this cannot be an async import.
   const readTrace = createTraceReader();
@@ -1230,6 +1248,28 @@ export function createRecorder(config: RecorderConfig): Recorder {
       return journey;
     },
     continueJourney: (context) => makeJourney(context),
+    journeyIdFor(entity) {
+      const derived = safely(diagnostics, "capture_error", () => {
+        const secret = resolved.journeyIdSecret;
+        if (secretProblem !== undefined || secret === undefined) {
+          diagnostics.report({
+            kind: "configuration_error",
+            reason: secretProblem ?? "journeyIdSecret is not usable."
+          });
+          return undefined;
+        }
+        if (!isEntity(entity)) {
+          diagnostics.report({
+            kind: "configuration_error",
+            reason:
+              "journeyIdFor needs an entity whose type and id are strings, so it returned a random journey id."
+          });
+          return undefined;
+        }
+        return deriveJourneyId(secret, resolved.environment, entity);
+      });
+      return derived ?? `jrn_${randomUUID()}`;
+    },
     across(journeys) {
       const contexts = safely(diagnostics, "capture_error", () => contextsOf(journeys)) ?? [];
       return { ...operationsOn(contexts), journeys: () => [...contexts] };

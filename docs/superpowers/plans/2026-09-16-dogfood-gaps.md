@@ -78,7 +78,7 @@ Files: `packages/sdk-node/src/recorder.ts`, `index.ts`, conformance harness;
 
 Files: `packages/sdk-node/src/journey-id.ts` (new), `config.ts`, `recorder.ts`,
 `diagnostics.ts`, `index.ts`; `packages/protocol/fixtures/journey-id-derivation.json`;
-`docs/SDK_SPEC.md`, `docs/DECISIONS.md` (ADR-053), READMEs, CHANGELOG.
+`docs/SDK_SPEC.md`, `docs/DECISIONS.md` (ADR-052), READMEs, CHANGELOG.
 
 1. `journey-id.test.ts`: every vector in the fixture reproduces; the id matches
    the propagation grammar and survives `extractHttpContext`; environment, type
@@ -97,7 +97,7 @@ Files: `packages/protocol/src/event.ts`, `envelope.ts`, `ingestion.ts`, schemas;
 `apps/api/src/ingestion/ingest-event.ts`, `routes/present.ts`;
 `packages/sdk-node/src/recorder.ts`; `apps/web` journey page and types;
 conformance; `docs/INGESTION_CONTRACT.md`, `EVENT_PROTOCOL.md`, `API_SPEC.md`,
-`DATABASE_SCHEMA.md`, `SECURITY.md`, `SDK_SPEC.md`, `DECISIONS.md` (ADR-052),
+`DATABASE_SCHEMA.md`, `SECURITY.md`, `SDK_SPEC.md`, `DECISIONS.md` (ADR-053),
 CHANGELOG.
 
 1. Protocol tests: the field is optional, bounded, and a `__proto__` entry is

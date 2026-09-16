@@ -123,6 +123,51 @@ in a different process consuming a redelivered message.
 await journey.deliver("send-to-crm", payload, () => post(payload), { attempt: 2 });
 ```
 
+## The same record, the same journey
+
+A job that meets a record on many runs, with nowhere to keep a journey id
+between them, can derive one from the record instead:
+
+```typescript
+const recorder = createRecorder({
+  // ...
+  journeyIdSecret: process.env.JOURNEY_ID_SECRET // at least 32 bytes
+});
+
+const entity = { type: "job_posting", id: posting.id };
+const journey = recorder.continueJourney({
+  journeyId: recorder.journeyIdFor(entity),
+  entity
+});
+```
+
+The id is the same on every run and every machine for the same entity in the
+same environment, and it cannot be computed without the secret.
+
+**Do not use an unkeyed hash of the entity instead.** Anybody who knows the
+record and the scheme can compute it, and a journey id somebody else can
+predict is one they can claim first or append to, from another environment or
+through a forged propagated context. The
+[ingestion contract](../../docs/INGESTION_CONTRACT.md#5-the-two-409s) describes
+that risk. The secret is what makes a derived id as hard to guess as a random
+one; keep it like any other credential, and do not reuse the API key.
+
+**Rotating the secret starts new journeys** for every record. The old ones are
+kept, and nothing links them to the new ones.
+
+**Without a usable secret, `journeyIdFor` does not throw.** It reports a
+`configuration_error`, counts it in `configurationErrors`, and returns a fresh
+random id, so recording carries on and the journeys split until the secret is
+set. A secret shorter than 32 bytes is reported once when the recorder is
+created, and never used. The SDK reads no environment variable for it: the
+variable name above is your application's. Assert
+`recorder.diagnostics().configurationErrors === 0` in a test to catch a missing
+secret before it ships.
+
+The derivation is specified in [SDK_SPEC.md](../../docs/SDK_SPEC.md) (SDK-55),
+with test vectors in
+[`journey-id-derivation.json`](../protocol/fixtures/journey-id-derivation.json).
+
 ## One operation, many records
 
 A write that covers many records at once, such as a digest or a batch export,
@@ -213,7 +258,7 @@ const recorder = createRecorder({
 
 const counters = await recorder.shutdown();
 // { dropped, rejected, transportErrors, captureErrors, breakerOpened,
-//   payloadsOmitted, payloadsTruncated, sent }
+//   payloadsOmitted, payloadsTruncated, configurationErrors, sent }
 ```
 
 ## Is it sending?
@@ -284,6 +329,7 @@ change any counter.
 | `payload_truncated` | strings in a payload were longer than the server accepts and were cut; `detail` is `{ field, strings, charactersRemoved }`; the event is still sent | `payloadsTruncated` |
 | `dropped` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it (`no_verdict`) | `dropped` |
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
+| `configuration_error` | a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`, or a configured setting could not be used; the call returned something safe | `configurationErrors` |
 | `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
 
 ### An endpoint that is not encrypted
@@ -703,6 +749,7 @@ fleet against one instance. It is clamped to 1-16.
 | `onDiagnostic` | — | |
 | `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending) |
 | `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends) |
+| `journeyIdSecret` | — | at least 32 bytes; see [The same record, the same journey](#the-same-record-the-same-journey) |
 
 The SDK reads no environment variables. A library that changes behaviour based on
 ambient state is a library that behaves differently in your tests.

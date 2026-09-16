@@ -121,6 +121,15 @@ changes far less often.
 
 ### Added
 
+- **`recorder.journeyIdFor(entity)` derives a stable journey id** under a new
+  `journeyIdSecret` option of at least 32 bytes (ADR-052), so the same record
+  lands in the same journey on every run and machine while the id cannot be
+  guessed from the entity. The environment is part of the derivation. It never
+  throws: without a usable secret it reports a new `configuration_error`
+  diagnostic, counts it in `configurationErrors`, and returns a random id. The
+  derivation is SDK-55, with test vectors in
+  `packages/protocol/fixtures/journey-id-derivation.json`. Rotating the secret
+  starts new journeys.
 - **`recorder.across(journeys)` records one operation on many journeys.** A
   digest written once for many records is one call:
   `recorder.across(journeys).persist("write-digest", digest, write)`. Each

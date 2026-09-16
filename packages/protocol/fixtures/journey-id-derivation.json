@@ -1,0 +1,95 @@
+{
+  "comment": "Test vectors for deriving a journey id from an entity under a secret the host configures (docs/SDK_SPEC.md SDK-55, ADR-052). Computed independently of the Node SDK. An SDK that implements the derivation reproduces every one.",
+  "algorithm": {
+    "mac": "HMAC-SHA256",
+    "key": "the UTF-8 bytes of the secret, at least 32 bytes",
+    "message": "field(label) || field(environment) || field(entity.type) || field(entity.id)",
+    "field": "the 4-byte big-endian length of the UTF-8 bytes of the string, then those bytes",
+    "label": "journey-id/v1",
+    "id": "the prefix, then the first 32 lowercase hex characters (16 bytes) of the MAC",
+    "prefix": "jrn_",
+    "minimumSecretBytes": 32
+  },
+  "vectors": [
+    {
+      "name": "a job posting in production",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "job_posting",
+        "id": "greenhouse:4567"
+      },
+      "journeyId": "jrn_03229a6b36d35d0f9ba7e23793d64693"
+    },
+    {
+      "name": "the same posting in staging: the environment changes the id",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "staging",
+      "entity": {
+        "type": "job_posting",
+        "id": "greenhouse:4567"
+      },
+      "journeyId": "jrn_2de9db70f99c00a8a83d74339c1faba3"
+    },
+    {
+      "name": "the same id as another entity type",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "customer",
+        "id": "greenhouse:4567"
+      },
+      "journeyId": "jrn_e5719a446585589d80378930b4742671"
+    },
+    {
+      "name": "the same posting under another secret: rotation starts new journeys",
+      "secret": "journey id test vector secret two, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "job_posting",
+        "id": "greenhouse:4567"
+      },
+      "journeyId": "jrn_4a1cf9d48543f62f5de544daaf0277dd"
+    },
+    {
+      "name": "a non-ASCII id, encoded as UTF-8",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "customer",
+        "id": "顧客-42 José"
+      },
+      "journeyId": "jrn_9befbf2c9cb306f014e6d24588f1b48c"
+    },
+    {
+      "name": "an id with separators and spaces",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "order",
+        "id": "ORD/2024/12 #7"
+      },
+      "journeyId": "jrn_c93e912e710b930c13871462c78be1cc"
+    },
+    {
+      "name": "type ab with id c",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "prod",
+      "entity": {
+        "type": "ab",
+        "id": "c"
+      },
+      "journeyId": "jrn_739726cd7fde29947be987b3bf09156d"
+    },
+    {
+      "name": "type a with id bc: a naive concatenation would give the previous id",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "prod",
+      "entity": {
+        "type": "a",
+        "id": "bc"
+      },
+      "journeyId": "jrn_36d3f707b064a260431361731f1b32d7"
+    }
+  ]
+}

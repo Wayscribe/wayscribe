@@ -2110,3 +2110,63 @@ string that has already been masked.
   serialized each payload.
 - A client in another language gets the same guarantee only by doing the same thing, which
   `SDK_SPEC.md` now requires.
+
+---
+
+## ADR-052: A journey id may be derived from the entity, under a secret the host holds
+
+**Status:** Accepted. Qualifies ADR-038, which makes journey ids random so they cannot be
+guessed.
+
+### Context
+
+A job with no store of its own, run on a schedule, meets the same record on many runs and
+wants each run's steps in one journey. Storing the id loses it in exactly the case it matters,
+when a run fails before writing its state. The job that found this derived the id from the
+entity with an unkeyed SHA-256, which is stable and also predictable: anybody who knows the
+entity and the scheme can compute the id. A predictable journey id is what
+`INGESTION_CONTRACT.md` section 5 warns about. A key for another environment, or a forged
+propagated context, can claim the journey first or append to it, and a guessed id is a way to
+learn whether a journey exists.
+
+### Decision
+
+The SDK derives journey ids only under a secret the host configures, `journeyIdSecret`, of at
+least 32 bytes. `recorder.journeyIdFor(entity)` returns the prefix and the first 32 hex
+characters of HMAC-SHA256 over the length-prefixed label `journey-id/v1`, the recorder's
+environment, the entity type and the entity id. The environment is in the message because a
+journey cannot span environments (ADR-038). Length prefixes rather than a separator keep an id
+containing the separator from meeting another. The derivation is SDK-55 in `SDK_SPEC.md`, with
+vectors in `packages/protocol/fixtures/journey-id-derivation.json` computed outside this
+repository's code.
+
+The SDK reads no environment variable for the secret (SDK-50).
+
+**Without a usable secret, nothing throws.** A secret that is configured and too short, or not a
+string, is reported once as a `configuration_error` when the recorder is created, and is never
+used. A call to `journeyIdFor` without a usable secret, or with an entity whose type and id are
+not strings, reports a `configuration_error`, counts it in `configurationErrors`, and returns a
+fresh random journey id.
+
+### Why not throw
+
+A missing secret is a programming error in shape, but it reaches the SDK as configuration, and
+configuration is usually read from the deploy environment. Throwing from `createRecorder` breaks
+startup, which SDK-6 forbids. Throwing from `journeyIdFor` breaks the host's own code path in
+the one deployment where the variable was not set, which SDK-1 and ADR-007 forbid. Returning a
+random id keeps recording and never produces anything guessable; the cost is that the journeys
+split until the secret is set, and the counter, the diagnostic kind and `logDiagnostics` say so.
+
+### Why not an unkeyed hash
+
+It is predictable. A secret makes a derived id as hard to guess as a random one to anybody who
+does not hold it. Rotating the secret starts a new journey for every entity; the old ones are
+kept and nothing links them.
+
+### Consequences
+
+- A derived id is stable across runs and machines and unguessable without the secret. It is
+  exactly as strong as the secret, which is why a short one is refused rather than used.
+- The derivation is a SHOULD. An SDK without it still conforms.
+- The prefix is the one random ids carry, and will change with the rename; the vectors will be
+  regenerated then.
