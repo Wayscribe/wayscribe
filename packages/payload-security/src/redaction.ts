@@ -27,4 +27,5 @@ export {
 export { CIRCULAR, REDACTED, redact } from "./redact.js";
 export { maskSecretsInText } from "./mask-text.js";
 export { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
+export { looksLikeSecretName } from "./secret-name.js";
 export { toStorable, toStorableText } from "./storable.js";
