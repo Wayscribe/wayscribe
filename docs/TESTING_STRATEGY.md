@@ -123,7 +123,44 @@ packages/protocol/fixtures/
 └── v0.1-invalid-timestamp.json
 ```
 
-Fixtures should be reusable across SDK and API tests.
+Fixtures should be reusable across SDK and API tests. These five, and
+`v0.1-boundaries.json` beside them, are run through both Zod and Ajv by
+`packages/protocol/src/json-schema.test.ts`, which requires the two to agree
+about every one: a generated schema another language validates with must accept
+and refuse exactly what this server does.
+
+## 4a. Conformance suites
+
+```text
+packages/protocol/conformance/
+├── wire/    one HTTP request body per case
+└── sdk/     one sequence of recorder calls per case
+```
+
+These are the contract, not a test fixture: a change to one is a change to what
+this product promises and is reviewed as one (ADR-049). The format, the matchers
+and the tagged values are specified in
+[`INGESTION_CONTRACT.md`](INGESTION_CONTRACT.md) section 9, so that somebody
+implementing a client reads them in the same document as the routes.
+
+Three suites consume them, and they share one loader and one matcher so the
+three cannot disagree:
+
+| Suite | What it does |
+| --- | --- |
+| `apps/api/src/routes/conformance.integration.test.ts` | every `wire` case twice against a real PostgreSQL: sent for real and read back through the read routes, and again through the dry run. Both must equal the same expectation, which is what ties the dry run to reality |
+| `packages/sdk-node/src/conformance.test.ts` | every applicable `sdk` case against the real recorder and a stub endpoint, comparing the request body it actually sent |
+| `apps/api/src/routes/sdk-conformance.integration.test.ts` | those same captured bytes, sent to the dry run. This is the procedure an SDK in any language follows |
+
+Expectations are **written from the documents before the case is run**. Pasting
+actual output into an expectation is how a suite comes to bless a defect, which
+is what [`WHAT_RUNNING_IT_FOUND.md`](WHAT_RUNNING_IT_FOUND.md) records happening
+to test data written by whoever wrote the code.
+
+Requirements no fixture can express — host safety, error identity, queue bounds,
+shutdown accounting, the circuit breaker, the timestamp at operation start — are
+listed in [`SDK_SPEC.md`](SDK_SPEC.md) section 13, with what a test for each has
+to do.
 
 ## 5. Idempotency tests
 

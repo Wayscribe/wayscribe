@@ -472,6 +472,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Local development](docs/LOCAL_DEVELOPMENT.md) | Setup, commands, keys, troubleshooting |
 | [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention, deleting data, `doctor`, metrics |
 | [Node SDK](packages/sdk-node/README.md) | The SDK's full surface |
+| [SDK specification](docs/SDK_SPEC.md) | What a recorder in any language must do, as numbered requirements with a source for each |
 | [Demo scenario](docs/DEMO_SCENARIO.md) | The reference journey, end to end |
 | [Architecture](docs/ARCHITECTURE.md) | Components, flows, boundaries, scaling path |
 | [Event protocol](docs/EVENT_PROTOCOL.md) | The journey event contract |

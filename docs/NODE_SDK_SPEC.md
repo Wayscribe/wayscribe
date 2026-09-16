@@ -1,5 +1,13 @@
 # Node.js SDK Specification
 
+> **The Node appendix to [`SDK_SPEC.md`](SDK_SPEC.md).** That document says what
+> a recorder in any language must do, with a numbered requirement and a source
+> for each rule. This one is the Node half: the package, the public API with its
+> TypeScript signatures, the context model, the helper names, and the Node value
+> renderings. Where the two overlap, the neutral one is normative.
+>
+> The path is kept so existing links hold.
+
 ## 1. Package
 
 ```text
@@ -47,10 +55,23 @@ export const recorder = createRecorder({
     "customer.ssn"
   ],
 
-  batchSize: 20,
+  // Every one of these has a default; none has to be set. The defaults are in
+  // SDK_SPEC.md section 7 and in the README, and are resolved in
+  // packages/sdk-node/src/config.ts.
+  batchSize: 50,
   flushIntervalMs: 1_000,
   requestTimeoutMs: 1_500,
-  maxBufferedEvents: 1_000
+  maxBufferedEvents: 1_000,
+  maxPayloadBytes: 262_144,
+  maxConcurrentSends: 4,
+
+  // Silent by default. `logDiagnostics` prints one line per kind per minute to
+  // stderr; `onDiagnostic` hands each one to your own logging instead.
+  logDiagnostics: false,
+  onDiagnostic: undefined,
+
+  // Three levels; the default is the middle one. SDK_SPEC.md section 10.
+  propagate: "journey-and-type"
 });
 ```
 
@@ -247,39 +268,23 @@ const context = recorder.fromQueueAttributes(message.MessageAttributes);
 
 Payload-envelope propagation is optional and explicitly enabled.
 
-## 8. Batching
+## 8. Batching, transport and shutdown
 
-The SDK should:
+Moved to [`SDK_SPEC.md`](SDK_SPEC.md), which states them as numbered
+requirements for any language: buffering in section 6, transport and the retry
+rule in section 7, and shutdown in section 8. Three things there are narrower
+than this document once was, because the code is narrower:
 
-- enqueue events in memory
-- flush at batch size
-- flush on interval
-- flush on explicit call
-- attempt graceful shutdown flush
-- enforce a maximum queue size
+- **The queue drops the oldest event**, and counts the drop. Drop-newest was
+  offered here as a configurable policy and was never built.
+- **A batch holds at most a hundred events**, and `batchSize` is clamped to it.
+  An unclamped 150 produced a 400 the SDK read as a transport failure, retried,
+  and requeued, losing 170 events while the counters read like a brief blip.
+- **A per-event refusal of 500 or above is resent**, that event alone, for up to
+  30 seconds from its first refusal or 10 sends. It used to be treated as
+  permanent, so a database hiccup lost the event.
 
-When the queue is full, use a configurable policy:
-
-- drop newest
-- drop oldest
-- optional local spool in a future release
-
-Default should avoid unbounded memory growth.
-
-## 9. Transport reliability
-
-- short connection and request timeouts
-- capped exponential backoff
-- jitter
-- failure counter
-- circuit open period after repeated failures
-- no infinite retries
-- idempotent event IDs
-- debug logs only when enabled
-
-Transport errors should be reported through callbacks or internal diagnostics, not thrown into wrapped business logic by default.
-
-## 10. Payload capture and redaction
+## 9. Payload capture and redaction
 
 Redaction should run before an event enters the in-memory queue.
 
@@ -306,7 +311,7 @@ written entirely in the `**.` form — see ADR-035.
 
 The server will repeat redaction according to environment policy.
 
-## 11. OpenTelemetry interoperability
+## 10. OpenTelemetry interoperability
 
 When `@opentelemetry/api` is installed and an active span exists, the SDK may capture:
 
@@ -318,46 +323,33 @@ OpenTelemetry is optional.
 
 The SDK should avoid forcing an OpenTelemetry SDK installation.
 
-## 12. Error behavior
+## 11. Error behavior, shutdown and testing
 
-The SDK distinguishes:
+Moved to [`SDK_SPEC.md`](SDK_SPEC.md): host safety and error identity in section
+2, shutdown and its accounting in section 8, diagnostics in section 9, and the
+list of requirements no fixture can check, with what a test for each has to do,
+in section 13.
 
-- application callback error
-- recorder serialization error
-- recorder buffer error
-- recorder transport error
+What stays Node's: a wrapper returns a value for a synchronous callback and a
+promise for an asynchronous one, and never converts between them, so
+instrumenting a synchronous call does not turn a handled error into an unhandled
+rejection.
 
-Application callback errors are rethrown unchanged after the corresponding failure evidence is enqueued where possible.
+## 12. Node value renderings
 
-Recorder errors do not change callback results by default.
+What a Node value becomes on the wire is in
+[the README's table](../packages/sdk-node/README.md), which is generated from
+what the SDK actually stored rather than from what it intends to: `Date`,
+`BigInt`, `Map`, `Set`, `Headers`, `URLSearchParams`, `Buffer`, `Error`,
+`RegExp`, a thenable, `rawHeaders`, a cycle, a shared reference, a throwing
+getter. The neutral half of that list, the repairs every SDK must make, is
+`SDK_SPEC.md` section 5.
 
-## 13. Shutdown
+## 13. Supported Node versions
 
-Expose:
+Node 20.19 or later, as `engines` declares. ESM only: the package is published
+as `"type": "module"` with no CommonJS entry point.
 
-```typescript
-await recorder.shutdown({
-  timeoutMs: 2_000
-});
-```
-
-Shutdown:
-
-- stops accepting new events
-- attempts final flush
-- respects timeout
-- returns diagnostics
-- does not hang indefinitely
-
-## 14. Testing requirements
-
-- wrapper preserves callback return values
-- wrapper preserves callback errors
-- recorder outage does not fail callback
-- duplicate transport retry uses same event ID
-- buffer is bounded
-- redaction occurs before buffering
-- shutdown timeout works
-- trace context is optional
-- queue context round-trips
-- event timestamps and duration are valid
+`@opentelemetry/api` is optional and is reached through `createRequire`, so a
+bundler must not try to follow it. When it is absent the SDK works unchanged and
+records no trace ids.

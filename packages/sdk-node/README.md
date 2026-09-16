@@ -656,6 +656,20 @@ The package is ESM. `import` works on any Node 20; `require()` of it needs the
 rather than at 20.0. Verified against Node 20, 22, and 24, from both ESM and
 CommonJS.
 
+## The specifications behind this
+
+This package is one implementation of a specification that is not about Node.
+
+- **[SDK specification](../../docs/SDK_SPEC.md)** — what a recorder in any
+  language must do, as numbered requirements with a source for each. Read it if
+  you are writing a recorder, or if you want to know why this one behaves the
+  way it does.
+- **[Node appendix](../../docs/NODE_SDK_SPEC.md)** — the Node half: the public
+  API with its signatures, the context model, the helper names, and the Node
+  value renderings.
+- **[Ingestion contract](../../docs/INGESTION_CONTRACT.md)** — what the server
+  accepts and refuses, which is what this package sends to.
+
 ## License
 
 Apache-2.0

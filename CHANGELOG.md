@@ -112,6 +112,21 @@ changes far less often.
   is `400 invalid_query`, and `POST /v1/events` refuses it outright rather than
   ignoring it, so a client that guessed the wrong route cannot store events
   while believing it validated them (ADR-050).
+- **[`docs/SDK_SPEC.md`](docs/SDK_SPEC.md)**, what a recorder in any language
+  must do: fifty numbered requirements in RFC 2119 wording, each with a source
+  naming the decision or the document section it comes from, and each with
+  either the conformance case that checks it or a place in section 13, which
+  lists what no fixture can express and what a test for each has to do.
+  `docs/NODE_SDK_SPEC.md` keeps its path and becomes the Node appendix, and is
+  reconciled with what is actually built: the default batch size is 50 and not
+  20, the queue policy is drop-oldest only, and `maxConcurrentSends`,
+  `logDiagnostics`, `onDiagnostic` and `propagate` exist. It says nothing about
+  header, queue attribute or environment variable names, which the rename will
+  change; section 10 states only the propagation rules that survive it.
+- **Conformance fixtures**, under
+  [`packages/protocol/conformance/`](packages/protocol/conformance): thirty-seven
+  `wire` cases and twenty-two `sdk` cases that any implementation can run
+  through the dry run. A fixture change is a contract change (ADR-049).
 - **[`docs/INGESTION_CONTRACT.md`](docs/INGESTION_CONTRACT.md)**, normative for
   the two ingestion routes and written for somebody building a client that is
   not this repository's Node SDK: the routes and authentication, the refusals

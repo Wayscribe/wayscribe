@@ -3,7 +3,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { serverEnvSchema, statementTimeoutSchema } from "../packages/config/src/schema.js";
 import { JOURNEY_STATUSES } from "../packages/database/src/repositories/journey-list.js";
+import { DEFAULT_SECRET_PATHS } from "../packages/payload-security/src/default-secrets.js";
 import { DEFAULT_LIMITS } from "../packages/payload-security/src/limits.js";
+import { loadConformanceCases } from "../packages/protocol/src/conformance.js";
+import { resolveConfig } from "../packages/sdk-node/src/config.js";
 import {
   INGESTION_REFUSALS,
   MAX_BATCH_EVENTS,
@@ -383,6 +386,147 @@ describe("docs/INGESTION_CONTRACT.md against the code", () => {
     expect(spec).toContain("INGESTION_CONTRACT.md");
     for (const gone of ["unstorable_payload", "max_depth_exceeded", "event_id_conflict"]) {
       expect(spec, `API_SPEC.md still documents ingestion in full: ${gone}`).not.toContain(gone);
+    }
+  });
+});
+
+/**
+ * `docs/SDK_SPEC.md` is what a second implementation is written against, so its
+ * requirements have to be traceable and its fixture references have to resolve.
+ *
+ * Nothing here checks the prose. What it checks is the three things that make a
+ * requirement usable by somebody who is not in this repository: that it says
+ * where it came from, that a fixture it names exists, and that a requirement no
+ * fixture can check is actually listed among the ones an implementer has to
+ * test themselves.
+ */
+describe("docs/SDK_SPEC.md", () => {
+  const spec = (): string => read("docs/SDK_SPEC.md");
+
+  interface Requirement {
+    id: string;
+    source: string;
+    checkedBy: string;
+  }
+
+  /** Every row of every requirement table: `| SDK-n | source | checked by |`. */
+  const requirements = (): Requirement[] =>
+    [...spec().matchAll(/^\| (SDK-\d+) \| (.+?) \| (.+?) \|\s*$/gm)].map((match) => ({
+      id: match[1] ?? "",
+      source: match[2] ?? "",
+      checkedBy: match[3] ?? ""
+    }));
+
+  it("numbers its requirements without gaps or repeats", () => {
+    // A duplicated identifier is how two rules come to be called one thing.
+    const ids = requirements().map((one) => Number(one.id.replace("SDK-", "")));
+    expect(ids.length).toBeGreaterThan(40);
+    expect(ids).toEqual(Array.from({ length: ids.length }, (_unused, index) => index + 1));
+  });
+
+  it("states every MUST and SHOULD as a numbered requirement", () => {
+    // A rule in the prose with no identifier cannot be cited, checked, or
+    // argued with. Each bullet carrying one of these words has to be one.
+    const bullets = [...spec().matchAll(/^- \*\*(SDK-\d+)\.\*\* (.+(?:\n {2}.+)*)/gm)];
+    const numbered = new Set(bullets.map((match) => match[1]));
+    expect(numbered.size).toBe(requirements().length);
+    const keywords = bullets.filter((match) => /\b(MUST|SHOULD|MAY)\b/.test(match[2] ?? ""));
+    expect(keywords.length).toBe(bullets.length);
+  });
+
+  it("gives every requirement a source", () => {
+    for (const one of requirements()) {
+      expect(one.source.length, `${one.id} has no source`).toBeGreaterThan(3);
+    }
+  });
+
+  it("names only conformance cases that exist", () => {
+    const cases = new Set(
+      [
+        ...loadConformanceCases(`${root}packages/protocol/conformance/wire`),
+        ...loadConformanceCases(`${root}packages/protocol/conformance/sdk`)
+      ].map((one) => one.id)
+    );
+    for (const one of requirements()) {
+      if (one.checkedBy === "section 13") continue;
+      expect(cases, `${one.id} names a case that does not exist: ${one.checkedBy}`).toContain(
+        one.checkedBy
+      );
+    }
+  });
+
+  it("lists every requirement no fixture checks in section 13", () => {
+    // Otherwise "checked by section 13" is a promise nobody kept, and an
+    // implementer following this document would leave it untested.
+    const section = /\n## 13\.[\s\S]*$/.exec(spec())?.[0] ?? "";
+    for (const one of requirements()) {
+      if (one.checkedBy !== "section 13") continue;
+      expect(
+        section,
+        `${one.id} says section 13 checks it, and section 13 does not name it`
+      ).toContain(one.id);
+    }
+  });
+
+  it("copies the built-in secret names exactly", () => {
+    // An implementer in another language cannot import the file, so the list
+    // lives in the document; this is what stops the two from drifting.
+    const block = /### The eleven built-in secret names[\s\S]*?```text\n([\s\S]*?)```/.exec(spec());
+    expect(block, "the document no longer lists the built-in secret names").not.toBeNull();
+    const listed = (block?.[1] ?? "")
+      .trim()
+      .split("\n")
+      .map((line) => line.trim());
+    expect(listed).toEqual(DEFAULT_SECRET_PATHS.map((path) => path.replace("**.", "")));
+  });
+
+  it("states the defaults the SDK actually resolves", () => {
+    const defaults = new Map(
+      [
+        ...spec().matchAll(
+          /^\| (batch size|flush interval|request timeout|queue|payload budget) \| (.+?) \|\s*$/gm
+        )
+      ].map((match) => [match[1] ?? "", match[2] ?? ""])
+    );
+    const resolved = resolveConfig({
+      endpoint: "http://localhost:8080",
+      apiKey: "fr_test",
+      serviceName: "svc",
+      environment: "development"
+    });
+    expect(defaults.get("batch size")).toBe(String(resolved.batchSize));
+    expect(defaults.get("flush interval")).toBe(
+      `${resolved.flushIntervalMs.toLocaleString("en-US")} ms`
+    );
+    expect(defaults.get("request timeout")).toBe(
+      `${resolved.requestTimeoutMs.toLocaleString("en-US")} ms`
+    );
+    expect(defaults.get("queue")).toBe(
+      `${resolved.maxBufferedEvents.toLocaleString("en-US")} events`
+    );
+    expect(defaults.get("payload budget")).toBe(
+      `${resolved.maxPayloadBytes.toLocaleString("en-US")} bytes`
+    );
+  });
+
+  it("keeps NODE_SDK_SPEC.md as the appendix, and reconciled with what is built", () => {
+    const appendix = read("docs/NODE_SDK_SPEC.md");
+    expect(appendix, "the Node specification no longer points at the neutral one").toContain(
+      "SDK_SPEC.md"
+    );
+    // The three places it had drifted from the code.
+    expect(appendix, "the appendix still offers drop-newest, which was never built").not.toContain(
+      "drop newest"
+    );
+    expect(appendix).not.toMatch(/batchSize: 20/);
+  });
+
+  it("specifies no name the rename will change", () => {
+    // Section 10 states the propagation rules that survive a rename and no
+    // names at all; a header or variable name here would have to be rewritten
+    // in the same month it was published (ADR-049).
+    for (const name of ["x-flight-", "FLIGHT_RECORDER_", "flightJourney", "jrn_"]) {
+      expect(spec(), `SDK_SPEC.md names ${name}, which the rename changes`).not.toContain(name);
     }
   });
 });
