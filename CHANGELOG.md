@@ -588,6 +588,12 @@ changes far less often.
 
 ### Fixed
 
+- **The event detail no longer blames the capture policy for every empty
+  step.** An event with no input and no output said the environment stored
+  metadata only, which was false for every identify, finish and fail event and
+  for any step recorded without a payload. It now says that no payload was
+  recorded, and that a step may carry none or the environment may store
+  metadata only, since the API does not say which.
 - **A metadata key or alias the server would refuse no longer costs the
   event.** A top-level metadata key over 128 characters was sent and the whole
   event refused as `invalid_event`, as was an alias type over 128, an alias
