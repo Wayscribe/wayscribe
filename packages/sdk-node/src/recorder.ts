@@ -76,9 +76,10 @@ export interface WrapOptions<T = unknown> {
   metadata?: Record<string, unknown>;
   /**
    * What to record as the input, given the input. Runs when the wrapper is
-   * called, before the callback, so it sees the input as it went in. The
-   * callback still runs with whatever it closes over; this changes only what is
-   * recorded.
+   * called, before the callback, and what it returns is copied there and then,
+   * so the record is the input as it went in even when the projection returns
+   * objects the callback goes on to change. The callback still runs with
+   * whatever it closes over; this changes only what is recorded.
    *
    * Synchronous. A projection that throws or returns a promise records
    * `[UNCAPTURABLE]` and a `payload_omitted` diagnostic, and never reaches your
@@ -817,7 +818,17 @@ export function createRecorder(config: RecorderConfig): Recorder {
     };
   }
 
-  function enqueue(journeyId: string, entity: JourneyContext["entity"], input: RecordInput): void {
+  function enqueue(
+    journeyId: string,
+    entity: JourneyContext["entity"],
+    input: RecordInput,
+    /**
+     * The input, already captured at the call, for a wrapper whose
+     * `captureInput` projection may share objects its callback goes on to
+     * change. When given, `input.input` is not captured again.
+     */
+    capturedInput?: { value: Captured | undefined }
+  ): void {
     if (stopped) {
       // Silent until now: after shutdown the wrappers still ran the callback
       // and returned the right value, the server received nothing, and the
@@ -833,7 +844,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
 
     const captured = {
-      input: capture(input.input, "input"),
+      input: capturedInput === undefined ? capture(input.input, "input") : capturedInput.value,
       output: capture(input.output, "output"),
       // Through capture like input and output: metadata used to go in raw,
       // so a Prisma BigInt or a circular request object threw inside
@@ -1058,26 +1069,37 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ? undefined
         : { ...options.metadata, attempt };
 
-    // Projected now, before the callback can change what it was given.
-    const inputs = contexts.map((context) =>
-      options.captureInput === undefined
-        ? input
-        : project(options.captureInput, input, context, "input")
-    );
+    // Projected and captured now, before the callback can change what it was
+    // given. Capturing copies: a projection usually returns parts of the input
+    // rather than a copy of them, and the callback may change those parts.
+    const projection = options.captureInput;
+    const capturedInputs =
+      projection === undefined
+        ? undefined
+        : contexts.map((context) => ({
+            value: safely(diagnostics, "capture_error", () =>
+              capture(project(projection, input, context, "input"), "input")
+            )
+          }));
 
     const recordAll = (outcome: (context: JourneyContext) => Partial<RecordInput>): void => {
       const durationMs = Date.now() - startedAt;
       contexts.forEach((context, index) => {
         safely(diagnostics, "capture_error", () => {
-          enqueue(context.journeyId, context.entity, {
-            operation,
-            name,
-            input: inputs[index],
-            startedAt,
-            durationMs,
-            ...outcome(context),
-            ...(metadata === undefined ? {} : { metadata })
-          });
+          enqueue(
+            context.journeyId,
+            context.entity,
+            {
+              operation,
+              name,
+              input,
+              startedAt,
+              durationMs,
+              ...outcome(context),
+              ...(metadata === undefined ? {} : { metadata })
+            },
+            capturedInputs?.[index]
+          );
         });
       });
     };

@@ -588,6 +588,11 @@ changes far less often.
 
 ### Fixed
 
+- **`captureInput` records the input as it was at the call.** The projection
+  ran before the callback, but what it returned was copied only once the
+  callback had finished, so `captureInput: (i) => ({ items: i.items })` around a
+  callback that pushed to `items` recorded the pushed items. The projection's
+  result is now captured when it runs.
 - **The SDK conformance harness decodes a request body as a stream.** It
   decoded each chunk on its own, so a two-byte character split between two
   chunks arrived as two replacement characters and a string the SDK had cut to

@@ -166,8 +166,9 @@ const pdf = await journey.transform("render-invoice", invoice, () => renderPdf(i
 // pdf is the Buffer renderPdf returned, typed as one.
 ```
 
-`captureInput` runs when the wrapper is called, before your callback, so it sees
-the input as it went in. `captureOutput` runs when the callback has returned or
+`captureInput` runs when the wrapper is called, before your callback, and what
+it returns is copied there and then, so the record shows the input as it went in
+even when the projection returns objects your callback goes on to change. `captureOutput` runs when the callback has returned or
 resolved, and receives the resolved value; it is not called when the callback
 throws. Both receive the journey's context as a second argument. Both must be
 synchronous: one that throws or returns a promise records `[UNCAPTURABLE]` and a

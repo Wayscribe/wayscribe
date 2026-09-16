@@ -144,6 +144,43 @@ describe("captureInput", () => {
     expect(events[0]?.["output"]).toBe("ord_1");
   });
 
+  it("records the projection as it was at the call, even when the callback changes what it shares", async () => {
+    // The projection returns part of the input rather than a copy, which is
+    // the ordinary way to write one; the callback then changes that part.
+    const order = { id: "ord_1", items: ["a"] };
+    const { events } = await capture(async (journey) => {
+      await journey.transform(
+        "add-items",
+        order,
+        () => {
+          order.items.push("b", "c");
+          return Promise.resolve(order.items.length);
+        },
+        { captureInput: (input) => ({ items: (input as typeof order).items }) }
+      );
+    });
+    expect(events[0]?.["input"]).toEqual({ items: ["a"] });
+    expect(events[0]?.["output"]).toBe(3);
+  });
+
+  it("snapshots a projection that returns the input itself", async () => {
+    const shared = { items: ["a"] };
+    const events: Record<string, unknown>[] = [];
+    const recorded = await capture((journey) => {
+      journey.persist(
+        "write",
+        shared,
+        () => {
+          shared.items.push("b");
+          return true;
+        },
+        { captureInput: (input) => input }
+      );
+    });
+    events.push(...recorded.events);
+    expect(events[0]?.["input"]).toEqual({ items: ["a"] });
+  });
+
   it("applies on the failure path too", async () => {
     const { events } = await capture((journey) => {
       expect(() =>

@@ -390,7 +390,9 @@ They are numbered after the rest so that no identifier above moved.
 
 - **SDK-53.** A wrapper SHOULD accept a projection of its input and of its
   output, so a host can record a view of a value while its own code receives
-  the value itself. The input projection SHOULD run before the callback. A
+  the value itself. The input projection SHOULD run before the callback, and
+  its result MUST be captured when it runs, so a callback that changes what the
+  projection shares cannot change what is recorded. A
   projection that fails, or that does not return synchronously, MUST NOT affect
   the host's call, its return value or its error; the SDK MUST record
   `[UNCAPTURABLE]` in that payload's place and report it.
