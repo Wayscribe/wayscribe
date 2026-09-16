@@ -104,6 +104,8 @@ Users control the deployment, credentials, retention, and captured data.
 
 No event, payload, alias, or diagnostic data may be sent to a third party by default. Optional future BYOK AI features must be disabled by default and require explicit selection of the data being shared.
 
+The running services send no telemetry. Telemetry a dependency would send is switched off, as it is for Next.js in the web image and the web package's scripts. Building the images downloads base images, Alpine packages and npm packages; that is the only network access a build needs.
+
 ## 2. Product differentiation non-negotiables
 
 ### Record-first navigation

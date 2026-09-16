@@ -475,9 +475,13 @@ entity and alias search, journey timelines, transformation diffs, error and
 retry inspection, development replay, and retention controls require no payment
 and no hosted account.
 
-**Private by default.** No captured data is sent to an external service. There
-is no telemetry, no analytics, and no outbound connection other than the ones
-your own configuration creates.
+**Private by default.** No captured data is sent to an external service. The
+running services send no telemetry and no analytics, and make no outbound
+connection other than the ones your own configuration creates. Building the
+images is not offline: it downloads base images, Alpine packages and npm
+packages. Next.js's build telemetry is switched off
+(`NEXT_TELEMETRY_DISABLED=1`) in the web image and in the web package's
+scripts.
 
 The reasoning is recorded in [product
 principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of

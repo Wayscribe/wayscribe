@@ -588,6 +588,13 @@ changes far less often.
 
 ### Security
 
+- **Next.js no longer reports usage data when the web image is built.** `next
+  build` sends anonymous telemetry to Vercel unless `NEXT_TELEMETRY_DISABLED` is
+  set, and nothing set it, so the README's quick start contacted
+  `telemetry.nextjs.org` from the reader's machine while the README said there
+  was no telemetry. The web Dockerfile, the web package's scripts and CI now set
+  it, and the privacy statements say what they cover: the running services send
+  nothing, and a build still downloads base images and packages.
 - **A database error's row contents are no longer logged.** The API logged
   every property of an error, and PostgreSQL's `detail` prints the row a
   constraint refused, so a failed write could put a stored value, such as an

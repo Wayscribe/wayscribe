@@ -18,6 +18,9 @@ default:
 variables:
   # Not PNPM_HOME: that is the global binary directory, not the content store.
   PNPM_STORE_DIR: "$CI_PROJECT_DIR/.pnpm-store"
+  # The web package's scripts set this too; here it also covers any job that
+  # reaches Next another way. Next otherwise reports usage to Vercel.
+  NEXT_TELEMETRY_DISABLED: "1"
 
 stages:
   - verify

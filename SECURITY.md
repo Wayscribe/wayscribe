@@ -77,8 +77,12 @@ guard against mistakes rather than a control.
 
 ## What the product does with your data
 
-Nothing captured is sent anywhere. There is no telemetry, no analytics, and no
-outbound connection other than the ones your own configuration creates.
+Nothing captured is sent anywhere. The running services send no telemetry and
+no analytics, and make no outbound connection other than the ones your own
+configuration creates. Building the images is not offline: it downloads base
+images, Alpine packages and npm packages. Next.js's build telemetry is
+switched off (`NEXT_TELEMETRY_DISABLED=1`) in the web image and in the web
+package's scripts.
 
 Entity identifiers and alias values are encrypted at rest with keys derived from
 `ENCRYPTION_KEY`. **Payloads are not** — they are stored as `jsonb`, which is
