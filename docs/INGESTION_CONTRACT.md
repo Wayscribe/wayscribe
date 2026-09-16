@@ -81,6 +81,21 @@ These carry codes this API owns. They used to carry Fastify's own
 wire change. **The status is the stable part**: a client that meets a code it
 does not recognize should branch on the status.
 
+Two refusals in this class do not look like the rest, and a client should not be
+surprised by either:
+
+- **Headers larger than the server's header limit are refused `431` by Node
+  itself**, before anything in this application runs. The body is the runtime's,
+  not this API's: `{"error": "Request Header Fields Too Large", "message": "…",
+  "statusCode": 431}`, where `error` is a string rather than the object every
+  other refusal uses. Nothing here can change that without reading the socket
+  ahead of the runtime. Branch on the status.
+- **`Content-Type: text/plain` is parsed, not refused.** The framework has a
+  parser for it, so the body arrives as a string, and a string is not an
+  envelope: both routes answer `400 invalid_event` rather than `415`. Send
+  `application/json`. A content type with no parser at all is the `415` in the
+  table.
+
 **Unknown query parameters are refused.** `POST /v1/events` accepts none, and
 `POST /v1/events/batch` accepts only `dryRun`; anything else is `400
 invalid_query` naming the key. This is not pedantry: `?dryrun=true` was

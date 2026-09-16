@@ -503,6 +503,48 @@ describe("event ingestion", () => {
     });
   });
 
+  describe("a content type the framework parses but this API cannot use", () => {
+    /**
+     * `text/plain` is not a 415.
+     *
+     * The framework has a parser for it, so the body arrives as a string, and a
+     * string is not an envelope: both routes answer `400 invalid_event`. The
+     * ingestion contract section 2 says so, under the refusals that do not look
+     * like the rest, and this is what keeps that sentence true. The 415 is for
+     * a content type with no parser at all.
+     *
+     * Here rather than in `app.test.ts` because it needs a key that resolves:
+     * with a stub database the request gets past the parser and then fails the
+     * lookup, which proves nothing about the parser.
+     */
+    it.each(["/v1/events", "/v1/events/batch"])("%s answers 400 invalid_event", async (url) => {
+      const response = await app.inject({
+        method: "POST",
+        url,
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "text/plain" },
+        payload: JSON.stringify(event({ id: "evt_plain", journeyId: "jrn_plain" }))
+      });
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error.code).toBe("invalid_event");
+    });
+
+    it("is a 415 when nothing can parse the type at all", async () => {
+      // The control, so the case above is about the parser rather than about
+      // any unusual content type being refused.
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/vnd.api+json"
+        },
+        payload: "{}"
+      });
+      expect(response.statusCode).toBe(415);
+      expect(response.json().error.code).toBe("unsupported_media_type");
+    });
+  });
+
   describe("what the routes send, against the generated JSON Schema", () => {
     /**
      * The published schemas for the response shapes describe what the API
