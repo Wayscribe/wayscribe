@@ -58,7 +58,7 @@ export interface RecorderConfig {
    *
    * @defaultValue 262144
    */
-  maxPayloadBytes?: number | undefined;
+  maxEventBytes?: number | undefined;
   /**
    * What crosses a process boundary. The entity id propagates only at `full`
    * (SECURITY section 10); aliases never do.
@@ -67,7 +67,7 @@ export interface RecorderConfig {
    * @experimental The propagation names and grammar wait on the propagation
    * specification.
    */
-  propagate?: PropagationLevel | undefined;
+  propagation?: PropagationLevel | undefined;
   /**
    * Called with every diagnostic. A callback that throws is ignored.
    *
@@ -124,8 +124,8 @@ export interface ResolvedConfig {
   flushIntervalMs: number;
   requestTimeoutMs: number;
   maxBufferedEvents: number;
-  maxPayloadBytes: number;
-  propagate: PropagationLevel;
+  maxEventBytes: number;
+  propagation: PropagationLevel;
   onDiagnostic: ((diagnostic: Diagnostic) => void) | undefined;
   logDiagnostics: boolean;
   maxConcurrentSends: number;
@@ -288,8 +288,8 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     flushIntervalMs: positive("flushIntervalMs", 1_000, MAX_TIMER_MS),
     requestTimeoutMs: positive("requestTimeoutMs", 1_500, MAX_TIMER_MS),
     maxBufferedEvents: positive("maxBufferedEvents", 1_000),
-    maxPayloadBytes: positive("maxPayloadBytes", 262_144),
-    propagate: oneOf("propagate", PROPAGATION_LEVELS, "journey-and-type"),
+    maxEventBytes: positive("maxEventBytes", 262_144),
+    propagation: oneOf("propagation", PROPAGATION_LEVELS, "journey-and-type"),
     onDiagnostic:
       typeof onDiagnostic === "function"
         ? (onDiagnostic as (diagnostic: Diagnostic) => void)

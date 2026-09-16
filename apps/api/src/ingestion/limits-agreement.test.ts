@@ -108,7 +108,7 @@ describe("the SDK sends only what ingestion's limits accept", () => {
   describe.each([262_144, 20_000])("with a budget of %i bytes", (budget) => {
     it.each(Object.entries(HOSTILE))("%s", async (name, args) => {
       const captured = await captureCase(
-        caseFor(name, args, { maxPayloadBytes: budget }),
+        caseFor(name, args, { maxEventBytes: budget }),
         "agreement"
       );
       expect(captured.events).toHaveLength(1);

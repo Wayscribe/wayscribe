@@ -44,7 +44,7 @@ function attemptFor(message: Message): number {
 async function handleMain(message: Message): Promise<void> {
   const body = JSON.parse(message.Body ?? "{}") as CustomerMessage;
   const journey = recorder.continueJourney({
-    context: recorder.fromQueueAttributes(message.MessageAttributes),
+    context: recorder.extractSqsContext(message.MessageAttributes),
     // The default propagation level omits the entity ID (SECURITY.md section
     // 10), so the consumer supplies the one it already has from the body.
     entity: { type: "customer", id: body.customer.externalId }
@@ -91,7 +91,7 @@ async function handleMain(message: Message): Promise<void> {
 async function handleDeadLetter(message: Message): Promise<void> {
   const body = JSON.parse(message.Body ?? "{}") as CustomerMessage;
   const journey = recorder.continueJourney({
-    context: recorder.fromQueueAttributes(message.MessageAttributes),
+    context: recorder.extractSqsContext(message.MessageAttributes),
     entity: { type: "customer", id: body.customer.externalId }
   });
 

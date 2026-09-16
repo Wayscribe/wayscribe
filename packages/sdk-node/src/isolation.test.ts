@@ -66,7 +66,7 @@ describe("failure isolation (ADR-007)", () => {
   });
 
   it("does not throw when the payload exceeds the size guard", () => {
-    const recorder = createRecorder({ ...base, maxPayloadBytes: 64 });
+    const recorder = createRecorder({ ...base, maxEventBytes: 64 });
     const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
     expect(() => {
       journey.record({ operation: "transformed", name: "n", input: { blob: "x".repeat(5_000) } });

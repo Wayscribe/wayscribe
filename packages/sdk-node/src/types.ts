@@ -1,6 +1,12 @@
 import type { Counters } from "./diagnostics.js";
 import type { Operation } from "./operations.js";
-import type { PropagatedContext } from "./propagation.js";
+import type {
+  ContextEnvelope,
+  ExtractedPayload,
+  HttpHeadersInput,
+  PropagatedContext,
+  SqsMessageAttributes
+} from "./propagation.js";
 
 /**
  * The public shapes of the recorder, its journeys and their options.
@@ -317,19 +323,54 @@ export interface Recorder {
    * @experimental As `JourneyGroup`.
    */
   across(journeys: Iterable<Journey | JourneyContext>): JourneyGroup;
+  /**
+   * A copy of `headers` with the journey added, at the configured
+   * `propagation` level. Without a context, `headers` unchanged.
+   *
+   * @experimental The header names carry the product's name and change with it.
+   */
   injectHttpHeaders(
     headers: Record<string, string>,
     context: PropagatedContext
   ): Record<string, string>;
-  extractHttpContext(
-    headers: Record<string, string | string[] | undefined> | undefined
-  ): PropagatedContext | undefined;
-  toQueueAttributes(
+  /**
+   * The journey an inbound request carried, or undefined when it carried none
+   * that is well formed. Pass the result to `continueJourney` as `context`.
+   *
+   * @experimental As `injectHttpHeaders`.
+   */
+  extractHttpContext(headers: HttpHeadersInput | undefined): PropagatedContext | undefined;
+  /**
+   * A copy of `attributes` with the journey added as SQS or SNS message
+   * attributes, at the configured `propagation` level.
+   *
+   * @experimental The attribute names carry the product's name and change with it.
+   */
+  injectSqsAttributes<A extends object>(
+    attributes: A,
     context: PropagatedContext
-  ): Record<string, { DataType: string; StringValue: string }>;
-  fromQueueAttributes(attributes: unknown): PropagatedContext | undefined;
-  wrapPayload(payload: unknown, context: PropagatedContext): { _flight: unknown; data: unknown };
-  unwrapPayload(body: unknown): { context?: PropagatedContext; data: unknown };
+  ): A & SqsMessageAttributes;
+  /**
+   * The journey a message's attributes carried, or undefined. Takes the SQS
+   * attribute shape or plain name-to-value pairs.
+   *
+   * @experimental As `injectSqsAttributes`.
+   */
+  extractSqsContext(attributes: unknown): PropagatedContext | undefined;
+  /**
+   * `payload` in an envelope beside the journey, for a carrier with no headers
+   * or attributes. The payload itself is not changed.
+   *
+   * @experimental The envelope's key carries the product's name and changes with it.
+   */
+  injectPayload<T>(payload: T, context: PropagatedContext): ContextEnvelope<T>;
+  /**
+   * The payload from an envelope, and its journey. A body that is not an
+   * envelope comes back as `data`, with no context.
+   *
+   * @experimental As `injectPayload`.
+   */
+  extractPayload(body: unknown): ExtractedPayload;
   /** Sends everything queued now, and resolves when it has been sent or given up on. */
   flush(): Promise<void>;
   /**

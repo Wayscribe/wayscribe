@@ -37,4 +37,12 @@ export type {
   StartJourneyOptions,
   WrapOptions
 } from "./types.js";
-export type { PropagatedContext, PropagationLevel } from "./propagation.js";
+export type {
+  ContextEnvelope,
+  ExtractedPayload,
+  HttpHeadersInput,
+  PropagatedContext,
+  PropagationLevel,
+  SqsMessageAttributes,
+  SqsMessageAttributeValue
+} from "./propagation.js";

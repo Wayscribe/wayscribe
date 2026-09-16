@@ -51,7 +51,7 @@ describe("checkLimits", () => {
     // `redact` cuts cycles to [CIRCULAR] and stores the rest, so a parent/child
     // graph — an ORM entity, an Express req — is entirely capturable. This ran
     // first and rejected it, which made that repair unreachable and told the
-    // operator to raise maxPayloadBytes, a setting that cannot help.
+    // operator to raise maxEventBytes, a setting that cannot help.
     const cyclic: Record<string, unknown> = { name: "root" };
     cyclic["self"] = cyclic;
     expect(checkLimits(cyclic, DEFAULT_LIMITS).ok).toBe(true);

@@ -69,7 +69,7 @@ export async function captureCase(one: ConformanceCase, run: string): Promise<Ca
   const { port } = server.address() as AddressInfo;
 
   const settings = (one.recorder ?? {}) as {
-    maxPayloadBytes?: number;
+    maxEventBytes?: number;
     redact?: string[];
     captureMode?: "metadata-only" | "redacted-payload" | "full-payload";
   };

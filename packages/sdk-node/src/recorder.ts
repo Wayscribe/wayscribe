@@ -24,12 +24,13 @@ import {
 import type { Operation } from "./operations.js";
 import {
   extractHttpContext,
-  fromQueueAttributes,
+  extractPayload,
+  extractSqsContext,
   injectHttpHeaders,
-  toQueueAttributes,
-  unwrapPayload,
-  wrapPayload
+  injectPayload,
+  injectSqsAttributes
 } from "./propagation.js";
+import type { ContextEnvelope, SqsMessageAttributes } from "./propagation.js";
 import { acceptLabel } from "./label.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
@@ -666,9 +667,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
     try {
       // The server's own limits, as they fall on a payload two levels below the
       // envelope, with long strings measured as they will be cut (ADR-051). The
-      // string limit used to be scaled with maxPayloadBytes, which the server
+      // string limit used to be scaled with maxEventBytes, which the server
       // never did, so a 70 KB string passed here and cost the whole event there.
-      const limits = checkLimits(value, payloadLimits(resolved.maxPayloadBytes));
+      const limits = checkLimits(value, payloadLimits(resolved.maxEventBytes));
       if (!limits.ok) {
         // Discarding a payload silently made a full timeline look like a step
         // that genuinely carried nothing.
@@ -735,7 +736,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
    */
   function fitToBudget(envelope: { event: Record<string, unknown> }): void {
     const { event } = envelope;
-    const limits = eventLimits(resolved.maxPayloadBytes);
+    const limits = eventLimits(resolved.maxEventBytes);
     for (;;) {
       const result = checkLimits(envelope, limits);
       if (result.ok || result.reason !== "payload_too_large") return;
@@ -746,7 +747,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       reportOmitted(
         field,
         "too_large",
-        `The event exceeded maxPayloadBytes, so its ${field} was not captured.`
+        `The event exceeded maxEventBytes, so its ${field} was not captured.`
       );
     }
   }
@@ -1582,21 +1583,24 @@ export function createRecorder(config: RecorderConfig): Recorder {
     // headers rather than no request, and no context rather than no consumer.
     injectHttpHeaders: (headers, context) =>
       safely(diagnostics, "capture_error", () =>
-        injectHttpHeaders(headers, context, resolved.propagate)
+        injectHttpHeaders(headers, context, resolved.propagation)
       ) ?? headers,
     extractHttpContext: (headers) =>
       safely(diagnostics, "capture_error", () => extractHttpContext(headers)),
-    toQueueAttributes: (context) =>
-      safely(diagnostics, "capture_error", () => toQueueAttributes(context, resolved.propagate)) ??
-      {},
-    fromQueueAttributes: (attributes) =>
-      safely(diagnostics, "capture_error", () => fromQueueAttributes(attributes)),
-    wrapPayload: (payload, context) =>
+    injectSqsAttributes: (attributes, context) =>
       safely(diagnostics, "capture_error", () =>
-        wrapPayload(payload, context, resolved.propagate)
-      ) ?? { _flight: {}, data: payload },
-    unwrapPayload: (body) =>
-      safely(diagnostics, "capture_error", () => unwrapPayload(body)) ?? { data: body },
+        injectSqsAttributes(attributes, context, resolved.propagation)
+      ) ?? (attributes as typeof attributes & SqsMessageAttributes),
+    extractSqsContext: (attributes) =>
+      safely(diagnostics, "capture_error", () => extractSqsContext(attributes)),
+    // Without a context there is no envelope to fill, so the payload goes out
+    // in one with no journey, which extractPayload reads as no context.
+    injectPayload: (payload, context) =>
+      safely(diagnostics, "capture_error", () =>
+        injectPayload(payload, context, resolved.propagation)
+      ) ?? ({ _flight: {}, data: payload } as unknown as ContextEnvelope<typeof payload>),
+    extractPayload: (body) =>
+      safely(diagnostics, "capture_error", () => extractPayload(body)) ?? { data: body },
     async flush() {
       await safelyAsync(diagnostics, "transport_error", drainAll);
     },

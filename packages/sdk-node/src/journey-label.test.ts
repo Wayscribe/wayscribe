@@ -25,7 +25,7 @@ interface Captured {
 async function capture(
   record: (recorder: Recorder) => Promise<void> | void,
   refuse: (index: number) => boolean = () => false,
-  settings: { maxPayloadBytes?: number } = {}
+  settings: { maxEventBytes?: number } = {}
 ): Promise<Captured> {
   const events: Record<string, unknown>[] = [];
   let seen = 0;
@@ -233,7 +233,7 @@ describe("journey.label", () => {
         record(journey);
       },
       () => false,
-      { maxPayloadBytes: bytes + 100 }
+      { maxEventBytes: bytes + 100 }
     );
 
     expect(events).toHaveLength(1);

@@ -47,7 +47,7 @@ app.post("/webhooks/salesforce", async (request, reply) => {
       new SendMessageCommand({
         QueueUrl: queueUrl(),
         MessageBody: JSON.stringify(message),
-        MessageAttributes: recorder.toQueueAttributes(journey.context())
+        MessageAttributes: recorder.injectSqsAttributes({}, journey.context())
       })
     );
     return { messageId: sent.MessageId };

@@ -81,11 +81,11 @@ describe("settings that cannot be used", () => {
     ["requestTimeoutMs", -1, 1_500],
     ["maxBufferedEvents", Number.NaN, 1_000],
     ["maxBufferedEvents", "500", 1_000],
-    ["maxPayloadBytes", Number.POSITIVE_INFINITY, 262_144],
-    ["maxPayloadBytes", Number.NaN, 262_144],
+    ["maxEventBytes", Number.POSITIVE_INFINITY, 262_144],
+    ["maxEventBytes", Number.NaN, 262_144],
     // Not coerced: a number read from process.env is still a string.
-    ["maxPayloadBytes", "5000", 262_144],
-    ["maxPayloadBytes", 0.5, 262_144]
+    ["maxEventBytes", "5000", 262_144],
+    ["maxEventBytes", 0.5, 262_144]
   ] as const)("replaces %s of %s with the default and lists it", (key, value, fallback) => {
     // NaN as a queue bound compares false with every size, so the queue never
     // dropped anything; NaN or 2^31 as a timer fires after one millisecond.
@@ -150,11 +150,21 @@ describe("settings that cannot be used", () => {
     const resolved = resolveConfig({
       ...base,
       captureMode: "everything",
-      propagate: "all"
+      propagation: "all"
     } as never);
     expect(resolved.captureMode).toBe("redacted-payload");
-    expect(resolved.propagate).toBe("journey-and-type");
-    expect(resolved.problems.map((one) => one.setting)).toEqual(["captureMode", "propagate"]);
+    expect(resolved.propagation).toBe("journey-and-type");
+    expect(resolved.problems.map((one) => one.setting)).toEqual(["captureMode", "propagation"]);
+  });
+
+  it("does not read the names the options had before the first release", () => {
+    const resolved = resolveConfig({
+      ...base,
+      maxPayloadBytes: 1_000,
+      propagate: "full"
+    } as never);
+    expect(resolved.maxEventBytes).toBe(262_144);
+    expect(resolved.propagation).toBe("journey-and-type");
   });
 
   it("keeps the built-in secret names when redact is not a list of strings", () => {

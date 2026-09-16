@@ -538,7 +538,7 @@ describe("docs/SDK_SPEC.md", () => {
       `${resolved.maxBufferedEvents.toLocaleString("en-US")} events`
     );
     expect(defaults.get("event budget")).toBe(
-      `${resolved.maxPayloadBytes.toLocaleString("en-US")} bytes`
+      `${resolved.maxEventBytes.toLocaleString("en-US")} bytes`
     );
   });
 

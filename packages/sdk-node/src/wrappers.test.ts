@@ -554,7 +554,7 @@ describe("payloads the application cannot serialize", () => {
   it("stores a bigint id as digits rather than dropping the payload", async () => {
     // A Postgres `bigint` column and a snowflake id are both routine. The
     // diagnostic said `payload_too_large`, which sends an operator to raise
-    // maxPayloadBytes — a setting that could never have helped.
+    // maxEventBytes — a setting that could never have helped.
     const events = await collect((journey) => {
       journey.record({
         operation: "received",
