@@ -24,11 +24,16 @@ export type JourneyWindow = JourneyPreset | "custom";
 
 const DEFAULT_PRESET: JourneyPreset = "24h";
 
-/** The API's bounds for `q`, in code points (docs/API_SPEC.md section 6). */
-const MIN_TEXT_LENGTH = 2;
-const MAX_TEXT_LENGTH = 200;
-/** The API's bound for `entityType`, the longest type ingestion accepts. */
-const MAX_ENTITY_TYPE_LENGTH = 128;
+/**
+ * The API's bounds for `q`, in code points (docs/API_SPEC.md section 6), and
+ * for `entityType`, the longest type ingestion accepts.
+ *
+ * Restated rather than imported: the web app depends on no workspace package,
+ * and its image carries only its own dependencies. `tests/web-bounds.test.ts` checks them against the protocol's constants.
+ */
+export const MIN_TEXT_LENGTH = 2;
+export const MAX_TEXT_LENGTH = 200;
+export const MAX_ENTITY_TYPE_LENGTH = 128;
 
 export interface JourneyFilters {
   /** Partial text over labels and displayable alias values. Empty means none. */
@@ -405,6 +410,7 @@ function text(
   return value;
 }
 
+/** Restated from the API for the reason the bounds above are. */
 function codePoints(value: string): number {
   let count = 0;
   for (const _ of value) count += 1;

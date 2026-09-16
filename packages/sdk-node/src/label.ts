@@ -2,7 +2,7 @@ import { toStorableText } from "@flight-recorder/payload-security/redaction";
 // The subpath, not the package root: the root brings Zod, and the bundle
 // would carry it into every host.
 import { MAX_JOURNEY_LABEL_LENGTH } from "@flight-recorder/protocol/limits";
-import { fitsCodePoints } from "./code-points.js";
+import { firstCodePoints, fitsCodePoints } from "./code-points.js";
 import type { Diagnostics } from "./diagnostics.js";
 
 /**
@@ -11,21 +11,6 @@ import type { Diagnostics } from "./diagnostics.js";
  * would take a sixth of the label and say something no reader of a name needs.
  */
 export const LABEL_ELLIPSIS = "…";
-
-/**
- * The first `max` code points of `text`, which is longer than that. Sliced
- * where a code point ends, so a surrogate pair is never split.
- */
-export function firstCodePoints(text: string, max: number): string {
-  let units = 0;
-  let count = 0;
-  for (const codePoint of text) {
-    if (count === max) break;
-    units += codePoint.length;
-    count += 1;
-  }
-  return text.slice(0, units);
-}
 
 /**
  * `text` as the server will accept it for `journeyLabel`, or undefined.

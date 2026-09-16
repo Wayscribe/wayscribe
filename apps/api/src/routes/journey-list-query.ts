@@ -3,7 +3,7 @@ import {
   type JourneyStatus,
   type JourneyListFilters
 } from "@flight-recorder/database";
-import { MAX_ENTITY_TYPE_LENGTH } from "@flight-recorder/protocol";
+import { MAX_ENTITY_TYPE_LENGTH, MAX_JOURNEY_LABEL_LENGTH } from "@flight-recorder/protocol";
 
 export type ParsedJourneyListQuery =
   { ok: true; filters: JourneyListFilters } | { ok: false; message: string };
@@ -26,7 +26,7 @@ const instantMessage = (name: string): string =>
  * longest label, so a whole label can always be pasted back in.
  */
 const MIN_TEXT_LENGTH = 2;
-const MAX_TEXT_LENGTH = 200;
+const MAX_TEXT_LENGTH = MAX_JOURNEY_LABEL_LENGTH;
 
 /**
  * Every key this list reads. Anything else is refused: a misspelt filter
