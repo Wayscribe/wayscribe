@@ -127,10 +127,12 @@ describe("JourneyFilterBar", () => {
     ).toEqual(["all", "production", "retired"]);
   });
 
-  it("limits the text boxes to what the API accepts", () => {
+  it("bounds the text boxes without refusing text the API accepts", () => {
+    // A browser counts minlength and maxlength in UTF-16 code units, and the
+    // API counts code points, so a 200-code-point label of emoji is 400 units.
     renderBar({});
     expect(screen.getByLabelText("Contains").getAttribute("minLength")).toBe("2");
-    expect(screen.getByLabelText("Contains").getAttribute("maxLength")).toBe("200");
-    expect(screen.getByLabelText("Entity type").getAttribute("maxLength")).toBe("128");
+    expect(screen.getByLabelText("Contains").getAttribute("maxLength")).toBe("400");
+    expect(screen.getByLabelText("Entity type").getAttribute("maxLength")).toBe("256");
   });
 });

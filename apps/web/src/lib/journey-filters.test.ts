@@ -103,22 +103,43 @@ describe("readJourneyFilters", () => {
     expect(filters.notes).toEqual([]);
   });
 
-  it("ignores the range inputs under a preset, which the form sends empty or stale", () => {
-    const filters = readJourneyFilters(
-      { window: "7d", since: "2026-09-01T00:00", until: "2026-09-02T00:00" },
-      NOW
-    );
+  it("ignores empty range inputs under a preset without a note, as the form sends them", () => {
+    const filters = readJourneyFilters({ window: "7d", since: "", until: "" }, NOW);
     expect(filters.since).toBe("2026-09-08T12:00:00.000Z");
-    expect(filters.until).toBe("");
-    expect(filters.sinceInput).toBe("");
     expect(filters.notes).toEqual([]);
+  });
+
+  it("says so when it ignores a range typed or left beside a preset", () => {
+    const note =
+      "The custom range applies only when Time is custom range, so this shows the last 7 days.";
+    for (const range of [
+      { since: "2026-09-01T00:00", until: "2026-09-02T00:00" },
+      { since: "2026-09-01T00:00" },
+      { until: "2026-09-02T00:00" },
+      { since: "", until: "2026-09-02T00:00" }
+    ]) {
+      const filters = readJourneyFilters({ window: "7d", ...range }, NOW);
+      expect(filters.since, JSON.stringify(range)).toBe("2026-09-08T12:00:00.000Z");
+      expect(filters.until).toBe("");
+      expect(filters.sinceInput).toBe("");
+      expect(filters.notes, JSON.stringify(range)).toEqual([note]);
+    }
   });
 
   it("ignores a carried since without a cursor, which the page never writes for a preset", () => {
     // Otherwise `?since=2000-…&window=1h` lists years under "in the last hour".
-    expect(readJourneyFilters({ window: "1h", since: "2000-01-01T00:00:00.000Z" }, NOW).since).toBe(
-      "2026-09-15T11:00:00.000Z"
+    const filters = readJourneyFilters({ window: "1h", since: "2000-01-01T00:00:00.000Z" }, NOW);
+    expect(filters.since).toBe("2026-09-15T11:00:00.000Z");
+    expect(filters.notes).toHaveLength(1);
+  });
+
+  it("keeps a next-page link's since and empty until without a note", () => {
+    const filters = readJourneyFilters(
+      { window: "24h", since: "2026-09-14T11:00:00.000Z", until: "", cursor: "abc" },
+      NOW
     );
+    expect(filters.notes).toEqual([]);
+    expect(filters.cursor).toBe("abc");
   });
 
   it("keeps the since a next-page link carries, so the window does not move", () => {
@@ -146,7 +167,7 @@ describe("readJourneyFilters", () => {
     }
   });
 
-  it("drops an until beside a preset, even from a hand-edited next-page link", () => {
+  it("drops an until beside a preset, even from a hand-edited next-page link, and says so", () => {
     const filters = readJourneyFilters(
       {
         window: "24h",
@@ -157,6 +178,12 @@ describe("readJourneyFilters", () => {
       NOW
     );
     expect(filters.until).toBe("");
+    expect(filters.notes).toEqual([
+      "The custom range applies only when Time is custom range, so this shows the last 24 hours."
+    ]);
+    // A note starts the list from the top, with the window from now.
+    expect(filters.cursor).toBe("");
+    expect(filters.since).toBe("2026-09-14T12:00:00.000Z");
   });
 
   it("trims the text filters", () => {

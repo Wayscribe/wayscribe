@@ -55,8 +55,11 @@ export function JourneyFilterBar({
           name="q"
           type="search"
           defaultValue={filters.q}
+          // A browser counts these in UTF-16 code units and the API in code
+          // points, so the cap is twice the API's 200: a whole label of emoji
+          // can be pasted in, and the page and the API check the real bound.
           minLength={2}
-          maxLength={200}
+          maxLength={400}
           placeholder="Part of a label or displayable alias"
         />
       </div>
@@ -116,7 +119,8 @@ export function JourneyFilterBar({
           id="journeys-entity-type"
           name="entityType"
           defaultValue={filters.entityType}
-          maxLength={128}
+          // Twice the API's 128 code points, in UTF-16 units, as above.
+          maxLength={256}
           placeholder="any"
         />
       </div>

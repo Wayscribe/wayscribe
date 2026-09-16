@@ -176,6 +176,22 @@ describe("parseJourneyListQuery", () => {
       });
     });
 
+    it("trims surrounding white space, as the web form and q do, and reads white space alone as none", () => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", entityType: " job_posting\t" })).toMatchObject({
+        ok: true,
+        filters: { entityType: "job_posting" }
+      });
+      expect(parse({ since: "2026-09-14T12:00:00Z", entityType: "   " })).toMatchObject({
+        ok: true,
+        filters: { entityType: undefined }
+      });
+    });
+
+    it("counts the longest type after trimming", () => {
+      const longest = ` ${"a".repeat(128)} `;
+      expect(parse({ since: "2026-09-14T12:00:00Z", entityType: longest }).ok).toBe(true);
+    });
+
     it("accepts the protocol's longest type, counted in code points", () => {
       const longest = "\u{1D11E}".repeat(128);
       expect(parse({ since: "2026-09-14T12:00:00Z", entityType: longest }).ok).toBe(true);

@@ -111,8 +111,14 @@ export function parseJourneyListQuery(query: unknown, now: Date): ParsedJourneyL
   const service = single(params, "service");
   if (!service.ok) return service;
 
-  const entityType = single(params, "entityType");
-  if (!entityType.ok) return entityType;
+  const rawEntityType = single(params, "entityType");
+  if (!rawEntityType.ok) return rawEntityType;
+  // Trimmed, as the web form trims what is typed into it and as q is: a
+  // stray space would otherwise match no type and read as "nothing here".
+  // White space alone is an empty box. A type stored with surrounding white
+  // space cannot be filtered on; the protocol allows one, no SDK sends one.
+  const trimmedType = rawEntityType.value?.trim();
+  const entityType = { value: trimmedType === "" ? undefined : trimmedType };
   // Longer than any type ingestion accepts, so it could only match nothing.
   if (entityType.value !== undefined && codePoints(entityType.value) > MAX_ENTITY_TYPE_LENGTH) {
     return {

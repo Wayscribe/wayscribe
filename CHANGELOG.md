@@ -180,7 +180,7 @@ changes far less often.
   it with the journey.
 - **`GET /v1/journeys` filters by time range, entity type and text.** `until`
   ends the window (an instant after `since`, exclusive), `entityType` matches
-  one entity type exactly, and `q` (2 to 200 characters) matches, ignoring
+  one entity type exactly, after trimming surrounding white space as `q` is, and `q` (2 to 200 characters) matches, ignoring
   case, the journey label or the value of a displayable alias. `q` never
   matches a masked alias, an entity id or a journey id; `%`, `_` and `\` in
   it are ordinary characters. It filters inside the `since`/`until` window, so

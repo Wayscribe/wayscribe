@@ -234,7 +234,7 @@ where. Journeys are ordered by last activity, newest first (`lastEventAt`, then
 | `status` | `active`, `completed` or `failed`. Omitted or empty means any status. |
 | `environment` | An environment name. Omitted or empty means every environment the caller can read. |
 | `service` | An exact service name. Journeys with at least one event recorded by that service. |
-| `entityType` | An exact entity type, at most 128 characters. |
+| `entityType` | An exact entity type, at most 128 characters, after surrounding white space is removed. Omitted, empty or white space alone means any entity type. A type stored with surrounding white space cannot be matched. |
 | `q` | Text of 2 to 200 characters, after surrounding white space is removed. Journeys whose label, or the value of one of whose displayable aliases, contains it, ignoring case. Omitted, empty or white space alone means no text filter. |
 | `limit` | Page size, 25 by default, at most 100. |
 | `cursor` | `nextCursor` from the previous page. |

@@ -128,10 +128,20 @@ export function readJourneyFilters(params: SearchParams, now: Date): JourneyFilt
     // carries one for a preset: a bare `?since=2000-…&window=1h` would
     // otherwise list years of journeys under "in the last hour". Anything that
     // is not an instant this function could have written is recomputed too.
+    //
+    // A range beside a preset is otherwise set aside with a note: an until
+    // always (no link this page writes carries one for a preset), and a since
+    // when there is no cursor, which is a range typed into the form, or left
+    // there, before Time was changed.
+    const rangeNote = `The custom range applies only when Time is custom range, so this shows the ${JOURNEY_PRESETS[requested].label}.`;
+    if (rawUntil !== undefined && rawUntil !== "") notes.push(rangeNote);
     since =
       cursor !== "" && notes.length === 0 && rawSince !== undefined && isOwnInstant(rawSince, now)
         ? rawSince
         : presetSince(requested, now);
+    if (cursor === "" && rawSince !== undefined && rawSince !== "" && !notes.includes(rangeNote)) {
+      notes.push(rangeNote);
+    }
   }
 
   // The API does not refuse a cursor sent with different filters: it lists
