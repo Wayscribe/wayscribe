@@ -458,6 +458,163 @@ describe("schema constraints", () => {
     }, 30_000);
   });
 
+  describe("the journey browse columns (018)", () => {
+    const MIGRATION = "018_journey_browse.js";
+    const ADDED: [table: string, column: string, type: string][] = [
+      ["journeys", "label", "text"],
+      ["journeys", "label_at", "timestamp with time zone"],
+      ["journeys", "label_event_id", "text"],
+      ["journeys", "last_step", "text"],
+      ["journeys", "last_step_at", "timestamp with time zone"],
+      ["journeys", "last_step_event_id", "text"],
+      ["entity_aliases", "display_value", "text"]
+    ];
+
+    const columns = async (): Promise<
+      {
+        table_name: string;
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+        column_default: string | null;
+      }[]
+    > => {
+      const result: unknown = await db.raw(
+        `select table_name, column_name, data_type, is_nullable, column_default
+         from information_schema.columns
+         where (table_name, column_name) in (${ADDED.map(() => "(?, ?)").join(", ")})
+         order by table_name, column_name`,
+        ADDED.flatMap(([table, column]) => [table, column])
+      );
+      return (
+        result as {
+          rows: {
+            table_name: string;
+            column_name: string;
+            data_type: string;
+            is_nullable: string;
+            column_default: string | null;
+          }[];
+        }
+      ).rows;
+    };
+
+    const fileNodes = async (): Promise<unknown> => {
+      const result: unknown = await db.raw(
+        `select pg_relation_filenode('journeys') as journeys,
+                pg_relation_filenode('entity_aliases') as aliases`
+      );
+      return (result as { rows: unknown[] }).rows;
+    };
+
+    it("adds nullable columns with no default, and removes them on the way down", async () => {
+      expect(await columns()).toEqual(
+        ADDED.map(([table, column, type]) => ({
+          table_name: table,
+          column_name: column,
+          data_type: type,
+          is_nullable: "YES",
+          column_default: null
+        })).sort((a, b) =>
+          a.table_name === b.table_name
+            ? a.column_name.localeCompare(b.column_name)
+            : a.table_name.localeCompare(b.table_name)
+        )
+      );
+      await db.migrate.down({ name: MIGRATION });
+      expect(await columns()).toEqual([]);
+      await db.migrate.up({ name: MIGRATION });
+      expect(await columns()).toHaveLength(ADDED.length);
+    });
+
+    it("reads rows written before it as null without rewriting either table", async () => {
+      // Nullable columns with no default are catalogue changes: neither table's
+      // file is rewritten, so the exclusive lock is held for an instant. There
+      // is no backfill; old rows read as "no label" and "no last step".
+      const journeyId = "jrn_018";
+      await db.migrate.down({ name: MIGRATION });
+      await db("journeys").insert({
+        id: journeyId,
+        project_id: projectId,
+        environment_id: environmentId,
+        entity_type: "customer",
+        primary_entity_id_hash: "hash-018",
+        status: "active",
+        started_at: db.fn.now(),
+        last_event_at: db.fn.now(),
+        event_count: 1
+      });
+      await db("entity_aliases").insert({
+        project_id: projectId,
+        journey_id: journeyId,
+        alias_type: "old",
+        alias_value_hash: "old-018"
+      });
+      const before = await fileNodes();
+      await db.migrate.up({ name: MIGRATION });
+      expect(await fileNodes()).toEqual(before);
+      expect(
+        await db("journeys")
+          .where({ project_id: projectId, id: journeyId })
+          .first(
+            "label",
+            "label_at",
+            "label_event_id",
+            "last_step",
+            "last_step_at",
+            "last_step_event_id"
+          )
+      ).toEqual({
+        label: null,
+        label_at: null,
+        label_event_id: null,
+        last_step: null,
+        last_step_at: null,
+        last_step_event_id: null
+      });
+      expect(
+        await db("entity_aliases").where({ alias_value_hash: "old-018" }).pluck("display_value")
+      ).toEqual([null]);
+      await db("journeys").where({ id: journeyId }).delete();
+    });
+
+    for (const busy of ["journeys", "entity_aliases"]) {
+      it(`gives up rather than queueing ingestion behind it when ${busy} is busy, and a rerun succeeds`, async () => {
+        // ALTER TABLE waits for every lock on the table, and every insert that
+        // arrives meanwhile waits behind the ALTER. lock_timeout makes the
+        // migration fail after five seconds instead, leaving neither table
+        // changed; running it again retries.
+        await db.migrate.down({ name: MIGRATION });
+        let release: () => void = () => undefined;
+        const released = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let holding: () => void = () => undefined;
+        const held = new Promise<void>((resolve) => {
+          holding = resolve;
+        });
+        const reader = db.transaction(async (trx) => {
+          await trx(busy).select(db.raw("1")).limit(1);
+          holding();
+          await released;
+        });
+        await held;
+        try {
+          const started = Date.now();
+          await expect(db.migrate.up({ name: MIGRATION })).rejects.toThrow(/lock timeout/);
+          expect(Date.now() - started).toBeLessThan(15_000);
+          expect(Date.now() - started).toBeGreaterThanOrEqual(4_500);
+        } finally {
+          release();
+          await reader;
+        }
+        expect(await columns()).toEqual([]);
+        await db.migrate.up({ name: MIGRATION });
+        expect(await columns()).toHaveLength(ADDED.length);
+      }, 30_000);
+    }
+  });
+
   describe("replay runs' event foreign key index (016)", () => {
     const MIGRATION = "016_replay_runs_event_index.js";
 

@@ -178,6 +178,22 @@ where pid in (select pid from pg_locks where relation = 'entity_aliases'::regcla
 The previous API keeps working while the column exists and it does not know
 about it: its inserts get `false`, which is how every alias read before.
 
+### Migration 018 adds columns to `journeys` and `entity_aliases`
+
+`018_journey_browse.js` adds six nullable columns to `journeys` (`label`,
+`last_step`, and the timestamp and event id that decide which event set each)
+and `display_value` to `entity_aliases`. None has a default, so each is a
+catalogue change with no table rewrite. The lock handling is the same as 017:
+five seconds of `lock_timeout`, one transaction, and running `migrate` again
+retries after `canceling statement due to lock timeout`. The query above finds
+the transaction in the way; check `'journeys'::regclass` as well.
+
+There is no backfill. Journeys recorded before the upgrade show no label and
+no last step until their next event, and only aliases stated displayable after
+the upgrade get a plain-text copy for search. The previous API, still running
+between migrate and deploy, writes rows without these columns, and they read
+null in the same way.
+
 ### Migration 015 rewrites every replay run's headers
 
 Replays used to store the headers they sent, including the destination's

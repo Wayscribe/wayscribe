@@ -99,6 +99,12 @@ Constraints:
 | `completed_at` | timestamptz | Nullable |
 | `last_event_at` | timestamptz | Latest event timestamp |
 | `event_count` | integer | Derived summary |
+| `label` | text | Nullable. Public display label from the event with the latest `(timestamp, event id)` that carried one (migration `018_journey_browse.js`) |
+| `label_at` | timestamptz | Nullable. Timestamp of the event that set `label`, compared first when a later-arriving event carries a label |
+| `label_event_id` | text | Nullable. Id of the event that set `label`; breaks a tie between equal timestamps |
+| `last_step` | text | Nullable. Step name of the event with the latest `(timestamp, event id)`, so an out-of-order event does not move it backwards (migration `018_journey_browse.js`) |
+| `last_step_at` | timestamptz | Nullable. Timestamp of the event that set `last_step` |
+| `last_step_event_id` | text | Nullable. Id of the event that set `last_step`; breaks a tie between equal timestamps |
 | `created_at` | timestamptz | Required |
 | `updated_at` | timestamptz | Required |
 
@@ -109,6 +115,8 @@ Constraints and indexes:
 - index `(project_id, entity_type, primary_entity_id_hash)`
 - index `(project_id, status, last_event_at, id)` for recent failures across environments (migration `013_journeys_status_recent_index.js`)
 - check event count is nonnegative
+
+The label and last-step columns were added by migration `018_journey_browse.js` with no backfill: a journey recorded before it reads null in all six until its next event, and the UI shows that as no label and no last step.
 
 ### `entity_aliases`
 
@@ -121,6 +129,7 @@ Constraints and indexes:
 | `alias_value_hash` | text | Normalized search hash |
 | `encrypted_display_value` | text | Optional, in the envelope format (§5) |
 | `displayable` | boolean | Not null, default false. True only while every event that stated the alias listed it in `displayableAliases`; ingestion lowers it and never raises it (ADR-053, migration `017_alias_displayable.js`) |
+| `display_value` | text | Nullable. Plain-text copy of the alias value, present only while `displayable` is true; cleared in the same statement that lowers the flag (ADR-053, migration `018_journey_browse.js`) |
 | `created_at` | timestamptz | Required |
 
 Constraints and indexes:
