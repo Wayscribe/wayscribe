@@ -15,6 +15,17 @@ changes far less often.
 
 ### Changed
 
+- **The SDK no longer converts numeric strings in its options (SDK-60).**
+  `maxBufferedEvents: "5000"`, as read from `process.env`, used to take
+  effect, because JavaScript's comparisons and timers converted it. It now
+  falls back to the default, with a `configuration_error` report.
+- **The Helm migrate Job says when a migration failed, and is bounded.** It
+  printed `database not ready` after every failed attempt, including a
+  migration that failed on a reachable database, and retried every failure 30
+  times. It now says so only for a connection failure, and `migration failed
+  ... see the error above` otherwise, with `migrate`'s output printed in both
+  cases; a failure that is not a connection failure is retried once; and the
+  Job stops after `migrations.activeDeadlineSeconds`, 30 minutes by default.
 - **`GET /v1/journeys` refuses a query key it does not read.** An unknown key
   used to be ignored, so a misspelt filter such as `entity_type=order`
   returned an unfiltered list that looked filtered. It is now `400
@@ -186,11 +197,6 @@ changes far less often.
   it are ordinary characters. It filters inside the `since`/`until` window, so
   its cost follows the window, not the table. See `docs/API_SPEC.md` section 6
   for what "ignoring case" means on a given database.
-- **The Helm migrate Job says when a migration failed.** It printed
-  `database not ready` after every failed attempt, including a migration that
-  failed on a reachable database. It now says so only for a connection
-  failure, and `migration failed ... see the error above` otherwise, with
-  `migrate`'s output printed in both cases.
 - **The journey list is indexed for every environment and for text.**
   Migration `019_journey_browse_indexes.js` adds `journeys (project_id,
   last_event_at, id)` and a partial covering index on `entity_aliases
@@ -702,12 +708,9 @@ changes far less often.
   whole number in range, a `batchSize` or `maxConcurrentSends` that is clamped
   or replaced, an unknown `captureMode` or `propagate`, a non-boolean
   `logDiagnostics`, and a `redact` that is not a list of strings are each
-  reported as a `configuration_error` and replaced by the default or clamped.
-  **Numeric strings are no longer converted:** `maxBufferedEvents: "5000"`, as
-  read from `process.env`, used to take effect, because JavaScript's
-  comparisons and timers converted it; it now falls back to the default, with
-  a report. Convert such values with `Number()` before passing them. Before, a `maxBufferedEvents` of `NaN`
-  left the queue unbounded and a `flushIntervalMs` of `NaN` fired every
+  reported as a `configuration_error` and replaced by the default or clamped
+  (numeric strings included; see Changed). Before, a `maxBufferedEvents` of
+  `NaN` left the queue unbounded and a `flushIntervalMs` of `NaN` fired every
   millisecond. Every problem found at creation is printed when
   `logDiagnostics` is on, whatever else was printed that minute, and a
   missing or non-string `endpoint`, `apiKey`, `serviceName` or `environment`
@@ -912,6 +915,13 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
+- **Convert numeric SDK options before passing them.** A timer, queue bound or
+  byte budget given as a string, such as `maxBufferedEvents:
+  process.env.MAX_BUFFERED`, is now reported and replaced by the default
+  rather than converted. Pass `Number(...)` instead (see Changed).
+- **The Helm migrate Job now has a deadline**, `migrations.activeDeadlineSeconds`,
+  1800 seconds by default. Upgrade with `helm upgrade --timeout 30m` to match,
+  raise the value if your migrations need longer, or set it to null.
 - **Migration 018 adds columns, a constraint and a trigger.** The columns are
   nullable with no default, a catalogue change with no table rewrite; the
   constraint is added unvalidated and then validated in a second transaction
