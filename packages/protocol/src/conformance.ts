@@ -52,6 +52,7 @@ const recorderCallSchema = z.object({
     "publish",
     "deliver",
     "identify",
+    "label",
     "fail",
     "finish"
   ]),
@@ -59,8 +60,8 @@ const recorderCallSchema = z.object({
   repeat: z.number().int().positive().optional(),
   /**
    * Make the call on a group of this many journeys rather than on the case's
-   * one: the case's journey and others the harness starts. `identify` has no
-   * group form.
+   * one: the case's journey and others the harness starts. `identify` and
+   * `label` have no group form: each belongs to one journey.
    */
   journeys: z.number().int().min(2).max(100).optional(),
   args: z.record(z.string(), z.unknown()).optional()

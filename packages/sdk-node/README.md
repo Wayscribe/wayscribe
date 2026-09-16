@@ -121,6 +121,43 @@ and `record({ ..., aliases, displayableAliases })` take the same list. Never
 list an email address, a customer number, or anything else a reader of the
 timeline should not see.
 
+## Name a journey
+
+A label is what the Journeys page shows for a journey, and partial text typed
+into its filter matches it, so a journey can be found from what you remember
+of it rather than from an identifier:
+
+```typescript
+const journey = recorder.startJourney({
+  entity: { type: "job_posting", id: posting.id },
+  label: `${posting.company} · ${posting.title}`
+});
+
+// Or at any point later, once you know what to call it.
+journey.label(`${posting.company} · ${posting.title}`);
+```
+
+`label` records nothing by itself. Every event this journey object records
+after it carries the label, including events recorded through
+`recorder.across`. The server keeps the label of the event that started last,
+so repeating it on every event costs nothing, and an event that is lost cannot
+take the label with it. A later `label` call replaces the label from the next
+event on. The label belongs to the object: a second handle for the same
+journey, from `continueJourney` or `consume`, carries none until you set one,
+and a group made from a journey's context rather than the journey itself
+carries none either.
+
+**A label is stored, shown and searched in plain text, and is never
+redacted.** It is text you wrote to be read. Do not put personal data in it:
+no names of people, email addresses, customer numbers, or anything else a
+reader of the journey list should not see.
+
+It never throws. A label over 200 characters (Unicode code points, as the
+server counts them) is cut to its first 199 and `…`, never inside a character,
+and reported once as `payload_truncated`. A label that is empty, or is not a
+string, is not set, and is reported as `key_dropped`; the journey keeps any
+label it already had, and its events are sent as usual.
+
 ## Wrappers
 
 `transform`, `persist`, `publish`, and `deliver` each run your callback, return
@@ -251,8 +288,11 @@ Each journey gets its own event, with its own id, and all of them share one
 timestamp and one duration. The callback runs once, and the group's wrappers
 keep every promise the single-journey ones make. A group also has `record`,
 `fail` and `finish`. It has no `identify`, because an alias identifies one
-record. A journey named twice, as a handle or as a context, is recorded once;
-an empty group runs the callback and records nothing.
+record. It has no `label` either: labels belong to journeys, and each event a
+group records carries the label of its own journey, when the group was given
+the journey rather than its context. A journey named twice, as a handle or as
+a context, is recorded once, with the first handle's label; an empty group
+runs the callback and records nothing.
 
 ## Crossing a process boundary
 
@@ -669,6 +709,8 @@ runs:
    `key_dropped`. Characters here are code points, as the server counts them.
 5. An error's `type` or `code` over 256 characters is cut, ending in
    `[TRUNCATED]`.
+6. A journey label over 200 code points is cut to 199 and `…`, as
+   [Name a journey](#name-a-journey) describes.
 
 The event is always sent. `maxPayloadBytes` is the budget of the whole event,
 not of one payload, and should be the server's `MAX_EVENT_PAYLOAD_BYTES`:

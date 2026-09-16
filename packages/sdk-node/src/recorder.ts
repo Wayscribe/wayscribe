@@ -7,9 +7,13 @@ import {
   payloadLimits,
   redact,
   toStorable,
+  toStorableText,
   truncateStrings,
   type TruncationStats
 } from "@flight-recorder/payload-security/redaction";
+// The subpath, not the package root: the root brings Zod, and the bundle
+// would carry it into every host.
+import { MAX_JOURNEY_LABEL_LENGTH } from "@flight-recorder/protocol/limits";
 import { resolveConfig, type RecorderConfig } from "./config.js";
 import {
   createDiagnostics,
@@ -165,11 +169,26 @@ export interface IdentifyOptions {
 export interface Journey extends JourneyOperations {
   context(): JourneyContext;
   identify(aliases: Record<string, string>, options?: IdentifyOptions): void;
+  /**
+   * Names the journey for the Journeys page, where partial text finds it.
+   * Records nothing itself: every later event of this journey object carries
+   * the label, including events recorded through `across`. The server keeps the
+   * label of the event that started last, so repeating it costs nothing, and a
+   * lost event cannot take the label with it.
+   *
+   * Stored and shown in plain text, and never redacted: do not put personal
+   * data in it. Over 200 code points it is cut to 199 and `…`, and reported as
+   * `payload_truncated`. Anything that is not a non-empty string is left unset,
+   * keeping any earlier label, and reported as `key_dropped`. Never throws.
+   */
+  label(text: string): void;
 }
 
 /**
  * Several journeys that one operation touched, such as a digest written once
  * for many records. There is no `identify`: an alias identifies one record.
+ * There is no `label` either, for the same reason; an event a group records
+ * carries the label of the journey it is recorded on.
  */
 export interface JourneyGroup extends JourneyOperations {
   /** The journeys this group records on, each once, in the order given. */
@@ -182,6 +201,8 @@ export interface Recorder {
     aliases?: Record<string, string>;
     /** Passed to the `identify` that `aliases` makes. */
     displayable?: readonly string[];
+    /** Set before anything is recorded, as `journey.label` would set it. */
+    label?: string;
   }): Journey;
   continueJourney(context: JourneyContext): Journey;
   /**
@@ -242,6 +263,13 @@ export const MAX_ERROR_MESSAGE_LENGTH = 4096;
 export const MAX_ERROR_STACK_LENGTH = 16_384;
 
 const TRUNCATED = "[TRUNCATED]";
+
+/**
+ * What ends a cut journey label. One code point, so a cut label keeps 199 of
+ * the host's own. The payload marker, `[TRUNCATED: <n> characters removed]`,
+ * would take a sixth of the label and say something no reader of a name needs.
+ */
+const LABEL_ELLIPSIS = "\u2026";
 
 /**
  * The protocol's caps on keys and short fields (`packages/protocol` event
@@ -305,6 +333,21 @@ function fit(text: string, limit: number): string {
   return text.slice(0, limit - TRUNCATED.length).toWellFormed() + TRUNCATED;
 }
 
+/**
+ * The first `max` code points of `text`, which is longer than that. Sliced
+ * where a code point ends, so a surrogate pair is never split.
+ */
+function firstCodePoints(text: string, max: number): string {
+  let units = 0;
+  let count = 0;
+  for (const codePoint of text) {
+    if (count === max) break;
+    units += codePoint.length;
+    count += 1;
+  }
+  return text.slice(0, units);
+}
+
 /** Sets an own property, so a `__proto__` key stays a key. */
 function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
   Object.defineProperty(target, key, {
@@ -314,6 +357,17 @@ function defineOwn(target: Record<string, unknown>, key: string, value: unknown)
     configurable: true
   });
 }
+
+/**
+ * A journey the recorder records on, and how to read its label at the moment
+ * an event is made. A journey named by its context alone has no label.
+ */
+interface Target {
+  context: JourneyContext;
+  label: () => string | undefined;
+}
+
+const NO_LABEL = (): undefined => undefined;
 
 function isContext(value: unknown): value is JourneyContext {
   if (typeof value !== "object" || value === null) return false;
@@ -922,6 +976,44 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   /**
+   * `text` as the server will accept it for `journeyLabel`, or undefined.
+   *
+   * Made storable first, as every payload string is: a NUL removed and a lone
+   * surrogate replaced, so neither costs the event. What is left over the limit
+   * is cut, with the protocol's own constant, so the SDK and the API cannot
+   * disagree about the number. Anything that is not a string is refused unread:
+   * converting it would run the host's own `toString`. Neither report quotes
+   * the label, which is the host's text.
+   *
+   * Reported when the label is set, once, rather than on every event that
+   * carries it.
+   */
+  function acceptLabel(text: unknown): string | undefined {
+    const storable = typeof text === "string" ? toStorableText(text) : "";
+    if (storable === "") {
+      diagnostics.report({
+        kind: "key_dropped",
+        reason:
+          "A journey label that is not a non-empty string was not set; later events carry the label set before it, if any.",
+        detail: { field: "journeyLabel", keys: 1 }
+      });
+      return undefined;
+    }
+    if (fitsCodePoints(storable, MAX_JOURNEY_LABEL_LENGTH)) return storable;
+    const kept = firstCodePoints(storable, MAX_JOURNEY_LABEL_LENGTH - 1);
+    diagnostics.report({
+      kind: "payload_truncated",
+      reason: `A journey label was cut to ${String(MAX_JOURNEY_LABEL_LENGTH)} characters, ending in an ellipsis.`,
+      detail: {
+        field: "journeyLabel",
+        strings: 1,
+        charactersRemoved: storable.length - kept.length
+      }
+    });
+    return kept + LABEL_ELLIPSIS;
+  }
+
+  /**
    * An error record with credential-shaped text masked (ADR-046).
    *
    * Here rather than in `toErrorRecord`, because every error record reaches
@@ -958,8 +1050,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   function enqueue(
-    journeyId: string,
-    entity: JourneyContext["entity"],
+    target: Target,
     input: RecordInput,
     /**
      * The input, already captured at the call, for a wrapper whose
@@ -982,6 +1073,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
       return;
     }
 
+    const { journeyId, entity } = target.context;
+    // Read now, so the event carries the label its journey has as it is made.
+    const journeyLabel = target.label();
     const captured = {
       input: capturedInput === undefined ? capture(input.input, "input") : capturedInput.value,
       output: capture(input.output, "output"),
@@ -1012,6 +1106,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       ...(input.error === undefined ? {} : { error: maskedError(input.error) }),
       ...aliasesFor(input.aliases),
       ...displayableFor(input.displayableAliases),
+      ...(journeyLabel === undefined ? {} : { journeyLabel }),
       ...(captured.metadata === undefined
         ? {}
         : { metadata: withinKeyCap(captured.metadata.value) })
@@ -1194,7 +1289,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * which is what the caller's try/catch is waiting for.
    */
   function wrap<T>(
-    contexts: readonly JourneyContext[],
+    targets: readonly Target[],
     naturalOperation: Operation,
     name: string,
     input: unknown,
@@ -1217,7 +1312,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     const capturedInputs =
       projection === undefined
         ? undefined
-        : contexts.map((context) => ({
+        : targets.map(({ context }) => ({
             value: safely(diagnostics, "capture_error", () =>
               capture(project(projection, input, context, "input"), "input")
             )
@@ -1225,18 +1320,17 @@ export function createRecorder(config: RecorderConfig): Recorder {
 
     const recordAll = (outcome: (context: JourneyContext) => Partial<RecordInput>): void => {
       const durationMs = Date.now() - startedAt;
-      contexts.forEach((context, index) => {
+      targets.forEach((target, index) => {
         safely(diagnostics, "capture_error", () => {
           enqueue(
-            context.journeyId,
-            context.entity,
+            target,
             {
               operation,
               name,
               input,
               startedAt,
               durationMs,
-              ...outcome(context),
+              ...outcome(target.context),
               ...(metadata === undefined ? {} : { metadata })
             },
             capturedInputs?.[index]
@@ -1335,36 +1429,36 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   /**
-   * `input` on every journey in `contexts`, with one timestamp for all of them.
+   * `input` on every journey in `targets`, with one timestamp for all of them.
    * Each event goes through its own boundary, so one that cannot be recorded
    * does not cost the others.
    */
-  function recordOn(contexts: readonly JourneyContext[], input: RecordInput): void {
+  function recordOn(targets: readonly Target[], input: RecordInput): void {
     const startedAt = input.startedAt ?? Date.now();
-    for (const context of contexts) {
+    for (const target of targets) {
       safely(diagnostics, "capture_error", () => {
-        enqueue(context.journeyId, context.entity, { ...input, startedAt });
+        enqueue(target, { ...input, startedAt });
       });
     }
   }
 
-  function operationsOn(contexts: readonly JourneyContext[]): JourneyOperations {
+  function operationsOn(targets: readonly Target[]): JourneyOperations {
     return {
       record(input) {
         safely(diagnostics, "capture_error", () => {
-          recordOn(contexts, input);
+          recordOn(targets, input);
         });
       },
       transform: (name, input, fn, options) =>
-        wrap(contexts, "transformed", name, input, fn, options),
-      persist: (name, input, fn, options) => wrap(contexts, "persisted", name, input, fn, options),
+        wrap(targets, "transformed", name, input, fn, options),
+      persist: (name, input, fn, options) => wrap(targets, "persisted", name, input, fn, options),
       publish: (name, message, fn, options) =>
-        wrap(contexts, "published", name, message, fn, options),
+        wrap(targets, "published", name, message, fn, options),
       deliver: (name, payload, fn, options) =>
-        wrap(contexts, "delivered", name, payload, fn, options),
+        wrap(targets, "delivered", name, payload, fn, options),
       fail(name, error, metadata) {
         safely(diagnostics, "capture_error", () => {
-          recordOn(contexts, {
+          recordOn(targets, {
             operation: "failed",
             name,
             error: toErrorRecord(error),
@@ -1374,7 +1468,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       },
       finish(options) {
         safely(diagnostics, "capture_error", () => {
-          recordOn(contexts, {
+          recordOn(targets, {
             operation: options?.status === "failed" ? "failed" : "completed",
             name: "finish"
           });
@@ -1383,13 +1477,31 @@ export function createRecorder(config: RecorderConfig): Recorder {
     };
   }
 
+  /**
+   * How `across` reads the label of a journey it was handed, by the handle's
+   * identity. Weak, so a finished journey is not kept alive by it; and only
+   * this recorder's journeys are in it, so nothing a host passes is read for a
+   * label.
+   */
+  const labelOf = new WeakMap<object, () => string | undefined>();
+
   function makeJourney(context: JourneyContext): Journey {
-    return {
-      ...operationsOn([context]),
+    // Per handle: a second handle for the same journey starts without one.
+    let label: string | undefined;
+    const target: Target = { context, label: () => label };
+    const journey: Journey = {
+      ...operationsOn([target]),
       context: () => context,
+      label(text) {
+        safely(diagnostics, "capture_error", () => {
+          // A refused label leaves the earlier one: the server never clears a
+          // label either, so an empty string cannot remove one by accident.
+          label = acceptLabel(text) ?? label;
+        });
+      },
       identify(aliases, options) {
         safely(diagnostics, "capture_error", () => {
-          enqueue(context.journeyId, context.entity, {
+          enqueue(target, {
             operation: "identified",
             name: "identify",
             // Top-level, not under metadata: EVENT_PROTOCOL puts aliases on the
@@ -1403,6 +1515,8 @@ export function createRecorder(config: RecorderConfig): Recorder {
         });
       }
     };
+    labelOf.set(journey, target.label);
+    return journey;
   }
 
   /**
@@ -1411,11 +1525,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * Something that is neither a journey nor a context is reported and left
    * out, so a bad element costs its own event and not the host's call.
    */
-  function contextsOf(journeys: Iterable<Journey | JourneyContext>): JourneyContext[] {
+  function targetsOf(journeys: Iterable<Journey | JourneyContext>): Target[] {
     const seen = new Set<string>();
-    const contexts: JourneyContext[] = [];
+    const targets: Target[] = [];
     for (const one of journeys) {
-      const context = safely(diagnostics, "capture_error", () => {
+      const target = safely(diagnostics, "capture_error", (): Target => {
         const candidate: unknown =
           typeof (one as Partial<Journey> | null)?.context === "function"
             ? (one as Journey).context()
@@ -1423,13 +1537,18 @@ export function createRecorder(config: RecorderConfig): Recorder {
         if (!isContext(candidate)) {
           throw new TypeError("across() was given something that is not a journey.");
         }
-        return candidate;
+        // Typed as a journey or a context, but a host can pass anything.
+        const handle: unknown = one;
+        const label =
+          typeof handle === "object" && handle !== null ? labelOf.get(handle) : undefined;
+        return { context: candidate, label: label ?? NO_LABEL };
       });
-      if (context === undefined || seen.has(context.journeyId)) continue;
-      seen.add(context.journeyId);
-      contexts.push(context);
+      // The first handle named wins, label and all, as the first id always has.
+      if (target === undefined || seen.has(target.context.journeyId)) continue;
+      seen.add(target.context.journeyId);
+      targets.push(target);
     }
-    return contexts;
+    return targets;
   }
 
   return {
@@ -1442,12 +1561,20 @@ export function createRecorder(config: RecorderConfig): Recorder {
       const journey = makeJourney(
         context ?? { journeyId: `jrn_${randomUUID()}`, entity: { type: "unknown", id: "unknown" } }
       );
-      if (options.aliases !== undefined) {
-        journey.identify(
-          options.aliases,
-          options.displayable === undefined ? undefined : { displayable: options.displayable }
-        );
-      }
+      // Each option is read inside the boundary, and apart, so a getter that
+      // throws, or options that are not an object, cost that option and not
+      // the journey the host is about to use.
+      //
+      // The label first, so the identify below carries it.
+      safely(diagnostics, "capture_error", () => {
+        const { label } = options;
+        if (label !== undefined) journey.label(label);
+      });
+      safely(diagnostics, "capture_error", () => {
+        const { aliases, displayable } = options;
+        if (aliases === undefined) return;
+        journey.identify(aliases, displayable === undefined ? undefined : { displayable });
+      });
       return journey;
     },
     continueJourney: (context) => makeJourney(context),
@@ -1468,8 +1595,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
       return derived ?? `jrn_${randomUUID()}`;
     },
     across(journeys) {
-      const contexts = safely(diagnostics, "capture_error", () => contextsOf(journeys)) ?? [];
-      return { ...operationsOn(contexts), journeys: () => [...contexts] };
+      const targets = safely(diagnostics, "capture_error", () => targetsOf(journeys)) ?? [];
+      return {
+        ...operationsOn(targets),
+        journeys: () => targets.map(({ context }) => context)
+      };
     },
     // At the default propagation level the journey ID crosses the boundary and
     // the entity does not, so the consumer supplies the entity it already has

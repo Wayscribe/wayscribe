@@ -127,6 +127,18 @@ The optional second argument lists alias types a reader may see in full. It is
 sent as `displayableAliases`, and an alias stays displayable only while every
 statement of it lists it (SDK-57, ADR-053).
 
+### `label`
+
+```typescript
+journey.label(`${posting.company} · ${posting.title}`);
+```
+
+Sets the journey's label and records nothing. Every later event of this handle
+carries it as `journeyLabel`, including events recorded through `across`.
+`startJourney` takes the same text as `label`. Over 200 code points it is cut
+to 199 and `…`; an empty or non-string label is not set and is reported. It is
+shown in plain text, so it must not hold personal data (SDK-58, SDK-59).
+
 ### `record`
 
 ```typescript

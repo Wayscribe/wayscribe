@@ -134,6 +134,21 @@ changes far less often.
 
 ### Added
 
+- **The SDK can name a journey.** `journey.label(text)`, or `label` in the
+  options of `startJourney`, sets the text the Journeys page will show for the
+  journey and match by partial text. It records nothing by itself: every later
+  event of that journey object carries it as `journeyLabel`, including events
+  recorded through `recorder.across`, whose groups have no `label` of their
+  own. A label is stored and shown in plain text and never redacted, so it must
+  not hold personal data. Over 200 code points it is cut to 199 and `…`, never
+  inside a character, and reported as `payload_truncated`; an empty or
+  non-string label is not set, keeps any earlier one, and is reported as
+  `key_dropped`; the event is sent either way and nothing throws. The limit is
+  the protocol's own `MAX_JOURNEY_LABEL_LENGTH`, now also exported from the
+  import-free subpath `@flight-recorder/protocol/limits`, so the SDK bundle
+  does not carry Zod. SDK-58 and SDK-59 specify it, and the conformance format
+  gains a `label` call with three cases, `sdk/journey-label`,
+  `sdk/journey-label-cut` and `sdk/journey-label-empty`.
 - **Instrumenting code can mark aliases displayable** (ADR-053). Every alias is
   still masked when read, except one whose type the recording event listed in
   the new optional `displayableAliases` field; it is shown in full only while

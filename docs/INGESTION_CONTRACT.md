@@ -425,12 +425,14 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   is a sequence of recorder calls). `otlp` is reserved and unused.
 - A **`wire`** case carries `send`, the request body verbatim. An **`sdk`** case
   carries `calls` instead, each `{ "call": "record" | "transform" | "persist" |
-  "publish" | "deliver" | "identify" | "fail" | "finish", "name": "…", "args":
-  { } }`, with an optional `repeat`, and a `recorder` object for the settings
-  the case needs. A wrapper call's `args` are `input`, `output` (what the
-  callback returns) and `options`, the wrapper's options. A call with
-  `"journeys": n` is made on a group of n journeys, the case's own first, and
-  expects n results. An `sdk` case's `expect` may carry `wire`, the event the SDK
+  "publish" | "deliver" | "identify" | "label" | "fail" | "finish", "name":
+  "…", "args": { } }`, with an optional `repeat`, and a `recorder` object for
+  the settings the case needs. A wrapper call's `args` are `input`, `output`
+  (what the callback returns) and `options`, the wrapper's options. A `label`
+  call's `args` is `text`, the label to set; it records nothing, and the calls
+  after it carry the label. A call with `"journeys": n` is made on a group of n
+  journeys, the case's own first, and expects n results; `identify` and `label`
+  have no group form. An `sdk` case's `expect` may carry `wire`, the event the SDK
   is expected to send, beside `results`.
 - **`languages`** is `["*"]` or a list. A harness skips what it cannot express
   **and reports the skip**; a skip nobody sees is a case that quietly stopped

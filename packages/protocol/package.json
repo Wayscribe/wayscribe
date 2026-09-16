@@ -11,6 +11,11 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./limits": {
+      "development": "./src/limits.ts",
+      "types": "./dist/limits.d.ts",
+      "default": "./dist/limits.js"
+    },
     "./conformance": {
       "development": "./src/conformance.ts",
       "types": "./dist/conformance.d.ts",

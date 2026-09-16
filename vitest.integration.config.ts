@@ -12,6 +12,9 @@ export default defineConfig({
       "@flight-recorder/payload-security/redaction": fileURLToPath(
         new URL("./packages/payload-security/src/redaction.ts", import.meta.url)
       ),
+      "@flight-recorder/protocol/limits": fileURLToPath(
+        new URL("./packages/protocol/src/limits.ts", import.meta.url)
+      ),
       "@flight-recorder/protocol/conformance": fileURLToPath(
         new URL("./packages/protocol/src/conformance.ts", import.meta.url)
       ),

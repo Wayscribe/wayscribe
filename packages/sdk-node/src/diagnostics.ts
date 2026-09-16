@@ -80,14 +80,16 @@ export interface Counters {
    * Payloads sent with at least one string cut to the server's 65,536 code
    * units, and a marker saying how much went. Like `payloadsOmitted`, not part
    * of `dropped`: the event is sent. A payload cut and then omitted anyway is
-   * counted as omitted only.
+   * counted as omitted only. A journey label cut to 200 code points is counted
+   * here too, once when it is set.
    */
   payloadsTruncated: number;
   /**
    * Keys left off an event because the server would refuse the event over
    * them: a metadata key or alias type over 128 characters, an alias value
-   * that is not a string of at most 512, a displayable alias type over 128.
-   * Counted per key; the event is still sent.
+   * that is not a string of at most 512, a displayable alias type over 128, a
+   * journey label that is empty or not a string. Counted per key; the event is
+   * still sent.
    */
   keysDropped: number;
   /**

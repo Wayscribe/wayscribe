@@ -1,0 +1,53 @@
+{
+  "id": "sdk/journey-label-cut",
+  "title": "A label over 200 code points is cut to 199 and an ellipsis, without splitting a character, and the event is stored",
+  "source": "docs/SDK_SPEC.md SDK-58; packages/protocol/src/limits.ts",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "label",
+      "args": {
+        "text": {
+          "$concat": [
+            {
+              "$string": {
+                "char": "a",
+                "count": 198
+              }
+            },
+            "😀tail"
+          ]
+        }
+      }
+    },
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "sweep-board"
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "journeyLabel": {
+        "$concat": [
+          {
+            "$string": {
+              "char": "a",
+              "count": 198
+            }
+          },
+          "😀…"
+        ]
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

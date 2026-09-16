@@ -1,10 +1,10 @@
 import { z } from "zod";
+import { MAX_JOURNEY_LABEL_LENGTH } from "./limits.js";
+
+export { MAX_JOURNEY_LABEL_LENGTH };
 
 /** The largest `durationMs` accepted: 2^31 - 1, the most a PostgreSQL `integer` holds (about 24.8 days). */
 export const MAX_DURATION_MS = 2_147_483_647;
-
-/** The longest `journeyLabel` accepted, in Unicode code points, which is how Zod and Ajv both count. */
-export const MAX_JOURNEY_LABEL_LENGTH = 200;
 
 export const JOURNEY_OPERATIONS = [
   "received",
