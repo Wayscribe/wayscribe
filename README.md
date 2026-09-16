@@ -176,7 +176,7 @@ repository, commit the tarball to your application, and depend on it by path:
 
 ```bash
 pnpm install
-pnpm --filter @flight-recorder/node pack --pack-destination /path/to/your-app/vendor/
+pnpm --filter @flight-recorder/node run pack:release /path/to/your-app/vendor/
 cd /path/to/your-app
 npm install ./vendor/flight-recorder-node-0.1.0.tgz   # records "file:vendor/…tgz"
 ```
@@ -321,7 +321,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 55 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 56 ADRs, including the several that were
 wrong the first time and say so.
 
 ---

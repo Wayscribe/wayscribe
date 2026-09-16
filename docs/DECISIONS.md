@@ -2490,3 +2490,122 @@ nothing said so. Renaming `authToken` to `sessionCredential` was enough.
   ones.
 - Webhook signature headers recorded after the upgrade are stored as `[REDACTED]`; ones
   recorded before stay as they were.
+
+---
+
+## ADR-056: The Node SDK's public surface is settled before its first release
+
+**Status:** Accepted. Changes the Node SDK's API and package, before any
+release; changes nothing on the wire, in the language-neutral specification or
+in the server. Follows the API review of 2026-09-16. Leaves the product rename
+(the propagation names, the `_flight` key, the print prefix, the `fr_` key
+prefix and the package name) to its own decision.
+
+### Context
+
+`@flight-recorder/node` 0.1.0 had not been published, and the rename is the one
+breaking moment that can be planned. A review of the package as a user would
+install it found names that were wrong (`consume` recorded nothing;
+`diagnostics()` returned counters), diagnostics a host could only tell apart by
+matching prose, a `detail` typed `unknown` although the README documented its
+shape, option names that disagreed with each other, types that did not match
+what the wrappers do, declarations for internal modules in the tarball, and an
+`engines` range that admitted Node versions where `require()` of the package
+fails. Each is cheap before a release and breaking after it.
+
+### Decision
+
+- **One way to join a journey.** `continueJourney` takes an options object:
+  `{ context, entity, label }`, where `context` is what an extract helper
+  returned and `entity` is the fallback when it carries none, or
+  `{ journeyId, entity }` for an id the process already holds. `consume` is
+  removed, which leaves `consume`, `receive` and `validate` free for wrappers
+  that would record those operations. A `journeyId` that is not a non-empty
+  string is reported and replaced. The id form keeps working because a
+  journey's context and the options object have the same shape.
+- **Names that say what they return and take.** `diagnostics()` is
+  `counters()`. The queue helpers are `injectSqsAttributes(attributes,
+  context)` and `extractSqsContext`, because their shape is SQS's, and the
+  payload helpers are `injectPayload` and `extractPayload`: one rule,
+  `inject<Carrier>` and `extract<Carrier>Context`, as OpenTelemetry's
+  propagators have it. `fail` takes `{ metadata }`, like the wrappers.
+  `displayableAliases` is the one name for the displayable list.
+  `maxPayloadBytes`, the budget of a whole event, is `maxEventBytes`, and
+  `propagate` is `propagation`.
+- **Diagnostics a program can match.** Every diagnostic is
+  `{ kind, code, reason, detail }`. `code` is stable, drawn from a closed union
+  per kind, and is what a host matches on; `reason` is prose that may change in
+  any release. One interface per kind types `detail`, always an object;
+  `delivered_first` and `insecure_endpoint` move their fields into it. `detail`
+  stays `unknown` only where it carries a host or server object, and those are
+  named: `serverError` and `error`. `breaker_open` is `breaker_opened`, so every
+  kind maps to its counter by one rule. Codes are the Node SDK's API; the
+  conformance cases keep comparing kinds and details, so another SDK is not
+  bound to these strings.
+- **Counters in one unit.** Every counter but `recorded` and `sent` counts
+  reports of one kind, so `keysDropped` counts `key_dropped` reports and the
+  number of keys stays in `detail.keys`. `recorded` is new: an event built and
+  queued, or refused after shutdown, so `sent + rejected + dropped === recorded`
+  holds once shutdown returns, as SDK-38 promises and SDK-42 asks to be
+  checkable.
+- **Types that match the runtime.** A callback returning any thenable is typed
+  asynchronous, its wrapper returns a native promise of the resolved value
+  (`Promise.resolve` is applied, which leaves a native promise as it is), and
+  `isFailure` and `captureOutput` receive the resolved value. `WrapOptions`
+  takes the input's type, so a projection needs no cast. Every optional input
+  property is `?: T | undefined`, so a host compiled with
+  `exactOptionalPropertyTypes` can pass `process.env.X`. Every option type is
+  named and exported, with `Entity` for `{ type, id }`, and `record`'s error
+  type, `ErrorInput`, admits the `stack` the SDK already masked and bounded.
+  `TraceContext` is no longer exported: nothing public refers to it.
+- **Stability is marked.** `@experimental` in the declarations, and a README
+  section, on the propagation helpers and `propagation`, `across` and
+  `JourneyGroup`, `captureInput` and `captureOutput`, `journeyIdFor` and
+  `journeyIdSecret`, `label`, `maxConcurrentSends` and the `Counters` fields.
+  New diagnostic kinds and codes may arrive in any minor release;
+  `DiagnosticKind` stays a closed union so a `switch` narrows, and the README
+  tells a host to keep a `default` branch.
+- **One declaration file.** API Extractor rolls tsc's declarations into
+  `dist/index.d.ts`, and the build fails if a public type refers to one that
+  is not exported. The tarball holds the bundle, that file, the README and the
+  licence; no internal declaration or map can be imported under `node10`
+  resolution any more. No API report is checked in: the demo image builds the
+  package from a context without markdown, where a missing report would fail.
+- **A clean manifest.** `scripts/pack.mjs` packs with pnpm, which applies
+  `publishConfig`, removes `devDependencies` and `scripts`, and repacks with
+  npm; `publish-sdk.sh` publishes that tarball and checks its file list.
+  `exports` gains `./package.json`.
+- **Node 22.12 or later.** `require()` of an ES module is unflagged from 22.12,
+  and Node 20 reached end of life in April 2026, so `>=22.12.0` is the one
+  range the package can honestly promise. The bundle targets `node22`.
+
+### Alternatives rejected
+
+- **Keeping `consume` beside `continueJourney`.** Two entry points for one
+  thing, and a name that promised a `consumed` event it never recorded.
+- **Documenting which `reason` prefixes are stable.** Prose and machine
+  identifiers in one field break silently whenever the prose improves.
+- **Keeping `keysDropped` in keys and documenting the exception.** Every other
+  counter counts reports; a counter whose unit differs is a silent trap, and
+  the key count is still in the detail.
+- **`^20.19.0 || >=22.12.0`.** It works, and it promises support for a Node
+  line that no longer receives security fixes.
+- **A dual CommonJS and ES module build.** `require(esm)` covers CommonJS
+  hosts, and two builds could load two recorder instances in one process.
+- **Renaming the propagation names now.** They carry the product's name, which
+  is not decided; renaming them twice is worse than marking them experimental.
+
+### Consequences
+
+- Every caller of the SDK changes: the CHANGELOG lists each rename. The wire
+  format does not, so a server needs nothing.
+- Code that matched `reason` text must match `code`; code that read
+  `endpoint`, `accepted`, `scheme` or `host` from a diagnostic reads them from
+  `detail`.
+- A dashboard that plotted `keysDropped` as keys now plots reports.
+- The build needs API Extractor, a development dependency that is not shipped.
+- Node 20 and Node 22.0 to 22.11 are no longer supported.
+- The product rename still changes the propagation names, the `_flight` key,
+  the print prefix, the key prefix, the package name and repository fields, and
+  the README's relative links, which break on npmjs.com until they become
+  absolute URLs.

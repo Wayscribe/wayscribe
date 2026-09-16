@@ -1730,18 +1730,19 @@ hold `detail` in the clear; treat their failure lines as personal data too.
 | `rotate:reencrypt` exits 1 saying the lock is held | another run is still going; let it finish, then `rotate:status` |
 | `delete:range` exits 1 saying the retention lock is held | the retention sweep is running; run it again when that finishes |
 | An audit row for a deletion says `complete: false` | the run stopped part way; run the same command again (§8) |
-| SDK sends nothing | key validity, environment match, and the SDK's `onDiagnostic` counters |
+| SDK sends nothing | key validity, environment match, and the SDK's `onDiagnostic` reports and `counters()` |
 | Ingestion returns 403 | the key's environment does not match the event's |
 | Ingestion returns 401 after working | the key was revoked, which `pnpm key:list` shows, or it had not authenticated before `ENCRYPTION_KEY_PREVIOUS` was removed (§6) |
 
-The SDK's `shutdown()` returns counters: `sent`, `rejected`, `dropped`,
-`transportErrors`, `captureErrors`, and `breakerOpened`. `sent`, `rejected`, and
-`dropped` add up to the events recorded; `payloadsOmitted` counts payloads
+The SDK's `shutdown()` returns counters, and `counters()` returns them at any
+time: `recorded`, `sent`, `rejected`, `dropped`, `transportErrors`,
+`captureErrors`, `breakerOpened` and others. `sent`, `rejected`, and `dropped`
+add up to `recorded`; `payloadsOmitted` counts payloads
 replaced by `[PAYLOAD_TOO_LARGE]` on events that were still sent, and
 `payloadsTruncated` payloads sent with a string cut to the 65,536 character
 limit. If you raised `MAX_EVENT_PAYLOAD_BYTES`, raise the SDK's
 `maxEventBytes` to match, or the SDK keeps fitting events to the default. A non-zero `dropped` means events were
 not delivered: the bounded queue shed them under backpressure, the server kept
 refusing them for now past the retry budget, its reply gave no verdict for them,
-or `shutdown()` finished with them undelivered. Each diagnostic's reason says
+or `shutdown()` finished with them undelivered. Each diagnostic's `code` says
 which (`packages/sdk-node/README.md`, "Is it sending?").

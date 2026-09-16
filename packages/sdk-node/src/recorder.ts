@@ -940,11 +940,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
     capturedInput?: { value: Captured | undefined }
   ): void {
     if (stopped) {
-      // Silent until now: after shutdown the wrappers still ran the callback
-      // and returned the right value, the server received nothing, and the
-      // counters kept reporting a clean bill of health. Reachable by ordinary
-      // reading, because `flush()` appears in no user-facing documentation and
-      // the example calls shutdown "flush".
+      // This was once silent: after shutdown the wrappers still ran the
+      // callback and returned the right value, the server received nothing,
+      // and the counters kept reporting a clean bill of health. It was
+      // reachable by ordinary reading, when `flush()` was documented nowhere
+      // and the example called shutdown "flush". Counted as recorded, so
+      // sent + rejected + dropped still equals recorded.
       diagnostics.countRecorded();
       diagnostics.report({
         kind: "dropped",

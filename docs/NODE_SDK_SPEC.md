@@ -18,7 +18,7 @@ The first SDK targets Node.js active LTS and TypeScript applications.
 
 ## 2. Goals
 
-The SDK should make explicit instrumentation easy while guaranteeing that recorder failures do not break application work.
+The SDK makes explicit instrumentation easy while guaranteeing that recorder failures do not break application work.
 
 It should support:
 
@@ -56,20 +56,24 @@ export const recorder = createRecorder({
   ],
 
   // Every one of these has a default; none has to be set. The defaults are in
-  // SDK_SPEC.md section 7 and in the README, and are resolved in
-  // packages/sdk-node/src/config.ts.
+  // SDK_SPEC.md section 7, in the README, and in each option's @defaultValue,
+  // and are resolved in packages/sdk-node/src/config.ts.
   batchSize: 50,
   flushIntervalMs: 1_000,
   requestTimeoutMs: 1_500,
   maxBufferedEvents: 1_000,
   // The budget of one whole event: the server's MAX_EVENT_PAYLOAD_BYTES.
-  maxPayloadBytes: 262_144,
+  maxEventBytes: 262_144,
   maxConcurrentSends: 4,
 
   // Silent by default. `logDiagnostics` prints one line per kind per minute to
   // stderr; `onDiagnostic` hands each one to your own logging instead.
   logDiagnostics: false,
   onDiagnostic: undefined,
+
+  // Used only by journeyIdFor (SDK-55). Undefined is accepted, as it is for
+  // every optional setting.
+  journeyIdSecret: process.env.JOURNEY_ID_SECRET,
 
   // Key names that look like secrets and are not. They silence the
   // `unredacted_secret_name` warning, which is printed once per process and
@@ -78,11 +82,18 @@ export const recorder = createRecorder({
   knownSafeNames: [],
 
   // Three levels; the default is the middle one. SDK_SPEC.md section 10.
-  propagate: "journey-and-type"
+  propagation: "journey-and-type"
 });
 ```
 
+A setting that cannot be used never stops the recorder starting; it is
+reported as `configuration_error` and replaced by its default (SDK-6, SDK-60).
+
 ## 4. Public API
+
+The package exports two values, `createRecorder` and `OPERATIONS`, and types.
+Everything below is a method of the recorder or of a journey. ADR-056 records
+why the surface has this shape.
 
 ### `createRecorder`
 
@@ -94,120 +105,40 @@ function createRecorder(config: RecorderConfig): Recorder;
 
 ```typescript
 const journey = recorder.startJourney({
-  entity: {
-    type: "customer",
-    id: salesforceAccount.Id
-  },
-  aliases: {
-    salesforceAccountId: salesforceAccount.Id
-  }
+  entity: { type: "customer", id: salesforceAccount.Id },
+  aliases: { salesforceAccountId: salesforceAccount.Id }, // optional
+  displayableAliases: ["salesforceAccountId"], // optional
+  label: `${account.Name}` // optional, experimental
 });
 ```
 
-Returns a lightweight journey handle.
+`StartJourneyOptions`. Returns a lightweight journey handle with a new random
+journey id. `aliases` records an `identify` straight away, with
+`displayableAliases` as its options; `label` is set before it.
 
 ### `continueJourney`
 
 ```typescript
-const journey = recorder.continueJourney(context);
-```
-
-Used by downstream HTTP handlers and queue consumers.
-
-### `identify`
-
-```typescript
-journey.identify({
-  internalCustomerId: customer.id,
-  hubspotContactId: target.id
+// From a context another process propagated, with the entity the consumer has.
+const journey = recorder.continueJourney({
+  context: recorder.extractSqsContext(message.MessageAttributes),
+  entity: { type: "customer", id: body.customerId },
+  label: "optional, experimental"
 });
+
+// From a journey id this process holds, such as a derived one.
+const journey = recorder.continueJourney({ journeyId, entity });
 ```
 
-`identify` emits its own dedicated event, named `identify` (operation `identified`).
+`ContinueJourneyOptions`: `{ context?, journeyId?, entity?, label? }`. The
+journey id is the context's, else `journeyId`, else a new random one; the
+entity is the context's, else `entity`, else `{ type: "unknown", id: "unknown"
+}`. A `journeyId` that is not a non-empty string is reported as
+`configuration_error` with code `journey_id_invalid`, and a new journey is
+started. A journey's own `context()` is a valid `context`. Records nothing by
+itself. Used by downstream HTTP handlers and queue consumers.
 
-```typescript
-journey.identify({ postingId: posting.id }, { displayable: ["postingId"] });
-```
-
-The optional second argument lists alias types a reader may see in full. It is
-sent as `displayableAliases`, and an alias stays displayable only while every
-statement of it lists it (SDK-57, ADR-053).
-
-### `label`
-
-```typescript
-journey.label(`${posting.company} · ${posting.title}`);
-```
-
-Sets the journey's label and records nothing. Every later event of this handle
-carries it as `journeyLabel`, including events recorded through `across`.
-`startJourney` takes the same text as `label`. Over 200 code points it is cut
-to 199 and `…`; an empty or non-string label is not set and is reported. It is
-shown in plain text, so it must not hold personal data (SDK-58, SDK-59).
-
-### `record`
-
-```typescript
-journey.record({
-  operation: "validated",
-  name: "validate-customer-status",
-  input: customer,
-  output: result,
-  metadata: {
-    ruleSet: "customer-v2"
-  }
-});
-```
-
-`record` should enqueue asynchronously and not wait for the network.
-
-### `transform`
-
-```typescript
-const customer = await journey.transform(
-  "transform-salesforce-account",
-  salesforceAccount,
-  async () => transformSalesforceAccount(salesforceAccount)
-);
-```
-
-Behavior:
-
-- capture start time
-- execute callback
-- capture output
-- record duration
-- emit `transformed`
-- rethrow application callback errors
-- never replace application error semantics with recorder transport errors
-
-### `persist`
-
-```typescript
-await journey.persist(
-  "update-customer-record",
-  customer,
-  async () => customerRepository.update(customer)
-);
-```
-
-The callback result may be captured according to configuration.
-
-### `publish`
-
-```typescript
-await journey.publish(
-  "publish-customer-updated",
-  message,
-  async (context) => {
-    return sqs.send(buildCommand(message, context.queueAttributes));
-  }
-);
-```
-
-The helper should make propagation metadata available without forcing payload mutation.
-
-### `journeyIdFor`
+### `journeyIdFor` (experimental)
 
 ```typescript
 const journeyId = recorder.journeyIdFor({ type: "job_posting", id: posting.id });
@@ -217,7 +148,135 @@ Derives the journey id under `journeyIdSecret` (SDK-55, ADR-052). Never throws:
 without a usable secret it reports `configuration_error` and returns a random
 id (SDK-56).
 
-### `across`
+### `identify`
+
+```typescript
+journey.identify({
+  internalCustomerId: customer.id,
+  hubspotContactId: target.id
+});
+
+journey.identify({ postingId: posting.id }, { displayableAliases: ["postingId"] });
+```
+
+`identify` emits its own dedicated event, named `identify` (operation
+`identified`). The optional `IdentifyOptions` list alias types a reader may see
+in full. They are sent as `displayableAliases`, and an alias stays displayable
+only while every statement of it lists it (SDK-57, ADR-053).
+
+### `label` (experimental)
+
+```typescript
+journey.label(`${posting.company} · ${posting.title}`);
+```
+
+Sets the journey's label and records nothing. Every later event of this handle
+carries it as `journeyLabel`, including events recorded through `across`.
+`startJourney` and `continueJourney` take the same text as `label`. Over 200
+code points it is cut to 199 and `…`; an empty or non-string label is not set
+and is reported. It is shown in plain text, so it must not hold personal data
+(SDK-58, SDK-59).
+
+### `record`
+
+```typescript
+journey.record({
+  operation: "validated", // Operation: one of OPERATIONS
+  name: "validate-customer-status",
+  input: customer,
+  output: result,
+  metadata: { ruleSet: "customer-v2" },
+  aliases: undefined,
+  displayableAliases: undefined,
+  startedAt: Date.now(), // epoch milliseconds; defaults to now
+  durationMs: 12, // whole milliseconds
+  error: { message: "m", type: "T", code: "C", stack: undefined } // ErrorInput
+});
+```
+
+`RecordInput`. `record` queues the event and never waits for the network.
+`error.message` is masked and cut to 4,096 characters, and `error.stack` to
+16,384 (SDK-22); the SDK sends no stack of its own.
+
+`OPERATIONS` is the readonly list of the eleven operations, and `Operation` its
+union type.
+
+### The wrappers: `transform`, `persist`, `publish`, `deliver`
+
+```typescript
+const customer = await journey.transform(
+  "transform-salesforce-account",
+  salesforceAccount,
+  async () => transformSalesforceAccount(salesforceAccount)
+);
+
+await journey.persist("update-customer-record", customer, async () =>
+  customerRepository.update(customer)
+);
+
+await journey.publish("publish-customer-updated", message, async () =>
+  sqs.send(
+    new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: JSON.stringify(message),
+      MessageAttributes: recorder.injectSqsAttributes({}, journey.context())
+    })
+  )
+);
+
+await journey.deliver("deliver-customer-to-hubspot", customer, async () =>
+  httpClient.post("/contacts", customer, {
+    headers: recorder.injectHttpHeaders({}, journey.context())
+  })
+);
+```
+
+The callback takes no argument: propagation is done with the helpers in
+sections 6 and 7, inside the callback. Each wrapper records `transformed`,
+`persisted`, `published` or `delivered` with the input and the callback's
+value, the time the callback started and its duration, and:
+
+- returns the callback's value unchanged, and rethrows its exact error;
+- returns a value for a callback that returns a value, and a native promise of
+  the resolved value for one that returns a promise or any other thenable;
+- never replaces the application's error with a recorder error.
+
+```typescript
+transform<T, I = unknown>(name: string, input: I, fn: () => PromiseLike<T>,
+  options?: WrapOptions<Awaited<T>, I>): Promise<Awaited<T>>;
+transform<T, I = unknown>(name: string, input: I, fn: () => T,
+  options?: WrapOptions<T, I>): T;
+```
+
+### Wrapper options
+
+```typescript
+interface WrapOptions<T = unknown, I = unknown> {
+  isFailure?: ((result: T) => boolean) | undefined;
+  attempt?: number | undefined; // default 1
+  metadata?: Record<string, unknown> | undefined;
+  captureInput?: ((input: I, journey: JourneyContext) => unknown) | undefined; // experimental
+  captureOutput?: ((result: T, journey: JourneyContext) => unknown) | undefined; // experimental
+}
+```
+
+`T` is inferred from the callback and is the resolved value when the callback
+returns a thenable; `I` is inferred from the wrapper's input. An attempt above
+one records `retried` (SDK-13). A projection runs inside the recorder's failure
+boundary: one that throws or returns a promise records `[UNCAPTURABLE]` and a
+`payload_omitted` diagnostic with code `projection_failed` (SDK-53).
+
+### `fail` and `finish`
+
+```typescript
+journey.fail("customer-sync-failed", error, { metadata: { attempt: 3 } });
+journey.finish({ status: "completed" }); // or "failed"; default "completed"
+```
+
+`FailOptions` and `FinishOptions`. `fail` records `failed` for a terminal
+failure (SDK-14). `finish` records `completed` or `failed`, named `finish`.
+
+### `across` (experimental)
 
 ```typescript
 const group = recorder.across(journeys); // Iterable<Journey | JourneyContext>
@@ -228,95 +287,79 @@ Returns a `JourneyGroup`: `record`, `transform`, `persist`, `publish`,
 `deliver`, `fail` and `finish`, as on a journey, plus `journeys()`. Each call
 records one event per distinct journey id, each with its own event id and the
 same `timestamp` and `durationMs`; a wrapper runs its callback once. There is no
-`identify`. SDK-54.
+`identify` and no `label`. Something that is neither a journey nor a context is
+left out and reported as `capture_error` with code `not_a_journey`. SDK-54.
 
-### `consume`
+### Propagation helpers (experimental)
 
-```typescript
-const journey = recorder.consume({
-  context: recorder.fromQueueAttributes(message.MessageAttributes),
-  entityFallback: {
-    type: "customer",
-    id: message.Body.customerId
-  }
-});
-```
+`injectHttpHeaders`, `extractHttpContext`, `injectSqsAttributes`,
+`extractSqsContext`, `injectPayload`, `extractPayload`: sections 6 and 7.
 
-### `deliver`
+### `flush`, `shutdown`, `counters`
 
 ```typescript
-await journey.deliver(
-  "deliver-customer-to-hubspot",
-  customer,
-  async (context) => {
-    return httpClient.post("/contacts", customer, {
-      headers: context.httpHeaders
-    });
-  }
-);
+await recorder.flush(): Promise<void>;
+await recorder.shutdown({ timeoutMs: 2_000 }): Promise<Counters>; // ShutdownOptions
+recorder.counters(): Counters;
 ```
 
-### Wrapper options
+`flush` sends everything queued and resolves when it has been sent or given
+up on. `shutdown` stops accepting events, drains for up to `timeoutMs`
+(default 2,000), counts what it gave up as `dropped`, and resolves with the
+counters; it never throws or hangs (SDK-37 to SDK-39). `counters` returns a
+copy of the counters at any time.
 
-Every wrapper takes a last `options` argument, typed by what the callback
-returns:
+`Counters` (experimental: fields may be added) has `recorded`, `sent`,
+`rejected`, `dropped`, `transportErrors`, `captureErrors`, `breakerOpened`,
+`payloadsOmitted`, `payloadsTruncated`, `keysDropped`, `configurationErrors`
+and `unredactedSecretNames`. Every counter but `recorded` and `sent` counts
+reports of one diagnostic kind. Once `shutdown` has returned,
+`sent + rejected + dropped === recorded` (SDK-38, SDK-42).
 
-```typescript
-interface WrapOptions<T> {
-  isFailure?: (result: T) => boolean;
-  attempt?: number;
-  metadata?: Record<string, unknown>;
-  captureInput?: (input: unknown, journey: JourneyContext) => unknown;
-  captureOutput?: (result: T, journey: JourneyContext) => unknown;
-}
-```
+### Diagnostics
 
-`T` is inferred from the callback and is the resolved value when the callback
-returns a promise. The wrapper's own return type is still the callback's. A
-projection runs inside the recorder's failure boundary: one that throws or
-returns a promise records `[UNCAPTURABLE]` and a `payload_omitted` diagnostic
-with reason `projection_failed` (SDK-53).
-
-### `fail`
-
-```typescript
-journey.fail("customer-sync-failed", error, {
-  attempt: 3
-});
-```
-
-### `finish`
-
-```typescript
-journey.finish({
-  status: "completed"
-});
-```
+`onDiagnostic` receives `{ kind, code, reason, detail }`, a union of one
+interface per kind (`DroppedDiagnostic`, `PayloadTruncatedDiagnostic`, and so
+on). `code` is stable and is what code matches on; `reason` is prose that may
+change in any release; `detail` is an object typed per kind. New kinds and
+codes may be added in any minor release, so a `switch` needs a `default`
+branch. The kinds and codes are listed in the README.
 
 ## 5. Context model
 
 ```typescript
+interface Entity {
+  type: string;
+  id: string;
+}
+
 interface JourneyContext {
   journeyId: string;
-  entity: {
-    type: string;
-    id: string;
-  };
-  parentEventId?: string;
-  traceparent?: string;
+  entity: Entity;
+}
+
+// What crosses a boundary: the entity only at the levels that send it.
+interface PropagatedContext {
+  journeyId: string;
+  entity?: Entity | undefined;
 }
 ```
 
-Do not place sensitive aliases in propagated context.
+Aliases are never part of a context, and never propagate (SDK-44).
 
 ## 6. HTTP helpers
 
-HTTP helpers:
-
 ```typescript
-recorder.injectHttpHeaders(headers, journey.context());
-recorder.extractHttpContext(headers);
+const headers = recorder.injectHttpHeaders({ accept: "application/json" }, journey.context());
+const context = recorder.extractHttpContext(request.headers); // or a fetch Headers
 ```
+
+`injectHttpHeaders` returns a copy with the journey added at the configured
+`propagation` level, and the headers unchanged when there is no context.
+`extractHttpContext` takes an `HttpHeadersInput`: a fetch `Headers`, or a plain
+object such as Node's `IncomingHttpHeaders`, where values that are not strings
+are ignored and the first of a list is read. It returns `undefined` for a
+request that carries no well-formed journey.
 
 Potential later framework adapters:
 
@@ -328,16 +371,33 @@ Potential later framework adapters:
 
 Framework adapters are not required before explicit helpers work.
 
-## 7. Queue helpers
+## 7. Queue and payload helpers
 
 V0 prioritizes SQS message attributes.
 
 ```typescript
-const attributes = recorder.toQueueAttributes(journey.context());
-const context = recorder.fromQueueAttributes(message.MessageAttributes);
+const attributes = recorder.injectSqsAttributes({}, journey.context());
+const context = recorder.extractSqsContext(message.MessageAttributes);
 ```
 
-Payload-envelope propagation is optional and explicitly enabled.
+`injectSqsAttributes(attributes, context)` returns a copy of `attributes` with
+the journey added in the SQS and SNS `MessageAttributeValue` shape
+(`SqsMessageAttributes`). `extractSqsContext` takes that shape or plain
+name-to-value pairs.
+
+A carrier with neither headers nor attributes can carry the journey in an
+envelope around the payload. The helpers are always available; nothing enables
+them.
+
+```typescript
+const envelope = recorder.injectPayload(order, journey.context()); // ContextEnvelope<Order>
+const { context, data } = recorder.extractPayload(body); // ExtractedPayload
+```
+
+`extractPayload` returns a body that is not an envelope as `data`, with no
+context. The header, attribute and envelope names carry the product's current
+name and are not specified in `SDK_SPEC.md` (its section 1); they change at the
+rename.
 
 ## 8. Batching, transport and shutdown
 
@@ -378,18 +438,19 @@ key, as the name of a two-element `[name, value]` array element or of a
 interleaved header list such as HTTP/1.1 or HTTP/2 `rawHeaders`, and as a header line in a
 CRLF-delimited header block. SECURITY.md section 4 defines each shape. Every
 other form is anchored at the root, which is why the built-in secret list is
-written entirely in the `**.` form — see ADR-035.
+written entirely in the `**.` form; see ADR-035.
 
 The server will repeat redaction according to environment policy.
 
 ## 10. OpenTelemetry interoperability
 
-When `@opentelemetry/api` is installed and an active span exists, the SDK may capture:
+When `@opentelemetry/api` is installed and an active span exists, the SDK
+captures:
 
 - trace ID
 - span ID
-- trace flags
 
+It does not capture trace flags, and it never writes `traceparent` (SDK-46).
 OpenTelemetry is optional.
 
 The SDK should avoid forcing an OpenTelemetry SDK installation.
@@ -418,8 +479,14 @@ getter. The neutral half of that list, the repairs every SDK must make, is
 
 ## 13. Supported Node versions
 
-Node 20.19 or later, as `engines` declares. ESM only: the package is published
-as `"type": "module"` with no CommonJS entry point.
+Node 22.12 or later, as `engines` declares (`>=22.12.0`). ESM only: the package
+is published as `"type": "module"` with no CommonJS entry point, and
+`require()` of it works because Node 22.12 is the first 22 release where
+`require()` of an ES module needs no flag. Node 20 is past its end of life.
+
+The tarball holds one bundle, `dist/index.js`, and one declaration file,
+`dist/index.d.ts`, rolled up by API Extractor. `exports` names `.` and
+`./package.json`; no other path is importable, under any module resolution.
 
 `@opentelemetry/api` is optional and is reached through `createRequire`, so a
 bundler must not try to follow it. When it is absent the SDK works unchanged and
