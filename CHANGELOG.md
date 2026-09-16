@@ -509,6 +509,23 @@ changes far less often.
 
 ### Fixed
 
+- **A header entry carrying a third field no longer hides a credential.**
+  Redaction read `{"name": "authorization", "value": "Bearer …"}` as a header
+  and replaced the value, but only when the object had *exactly* those two
+  keys. A third key made it an ordinary object: nothing on it is named a secret,
+  so `{"headers": [{"name": "authorization", "value": "Bearer …", "other": 1}]}`
+  was stored in the clear, in the SDK and at ingestion alike. HAR's own header
+  object allows a `comment` beside `name` and `value`, so this was a shape real
+  clients produce. The rule now applies to any plain object with a string `name`
+  or `key` beside a `value`; only the value is replaced and every other field is
+  kept. The protections that actually prevented false positives are unchanged:
+  the name must be a string, it must normalise to a name somebody called a
+  secret, and a value that is itself a known header name is still left alone, so
+  a list of header names is not rewritten. **Rows written before this are not
+  changed by it.** An installation that captured payloads in this shape should
+  treat those rows as holding the credential, rotate what they hold, and use
+  `delete:journey` or `delete:range` (ADR-045) to remove them; redaction is
+  applied on the way in and never rewrites history.
 - **A payload carrying a `__proto__` key is ingested instead of refused.** The
   whole request came back `400` "Body is not valid JSON but content-type is set
   to 'application/json'" about a body that is valid JSON, because Fastify parses

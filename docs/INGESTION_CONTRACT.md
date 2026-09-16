@@ -84,7 +84,19 @@ does not recognize should branch on the status.
 A body containing a `__proto__` key, or a `constructor.prototype`, is ordinary
 JSON here and is accepted. Recording what the payload actually was is the
 product's whole promise, and those keys are safe to parse: they become ordinary
-own properties and no walk in this server assigns an incoming key onward.
+own properties, and every walk that rebuilds an object from an incoming one
+writes its keys with `Object.defineProperty` rather than assigning them. That
+was not free. One rebuild, in the branch that replaces a header pair's value,
+still assigned; `packages/payload-security/src/redact.test.ts` now sweeps every
+shape this server accepts rather than leaving it a claim.
+
+An `aliases` key called `__proto__` is accepted like any other, and stored as an
+alias of that type, when its value is a string. A non-string value is
+`invalid_event` with `details[0].path` of `event.aliases.__proto__`. That rule
+is stated because it is not free either: the parser's `z.record` neither keeps
+that key nor validates what is under it, so a second implementation has to
+restore the key *and* apply the value schema itself, or it will accept an object
+where every other alias must be a string.
 
 ---
 

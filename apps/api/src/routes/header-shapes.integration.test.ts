@@ -19,6 +19,7 @@ const REQUEST = "Bearer " + "tok" + "_ingest_shape_" + "REQ24";
 const H2_BEARER = "Bearer " + "tok" + "_ingest_shape_" + "H2REQ25";
 const H2_SET_COOKIE = "sid=" + "cookie" + "_ingest_shape_" + "H2RES26";
 const H2_API_KEY = "key" + "_ingest_shape_" + "H2HAR27";
+const THIRD_KEY = "Bearer " + "tok" + "_ingest_shape_" + "HAR28";
 
 /** rawHeaders from a real HTTP/2 exchange: the server's request and the client's response. */
 async function http2RawHeaders(): Promise<{ request: string[]; response: string[] }> {
@@ -209,5 +210,72 @@ describe("header credentials in array and header-block shapes", () => {
       { name: "x-api-key", value: "[REDACTED]" },
       { name: "accept", value: "application/json" }
     ]);
+  });
+
+  /**
+   * The shape a third key used to exempt, read back out of PostgreSQL.
+   *
+   * `namedValueKey` required exactly `name` and `value`, so a HAR entry carrying
+   * its own `comment` was an ordinary object: nothing on it is named a secret and
+   * the credential reached `jsonb` in the clear. Asserted on the row rather than
+   * on the function's return value, because the two disagreed once before.
+   */
+  describe("a name and value entry carrying other fields", () => {
+    it("stores the value redacted and every other field intact", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/events",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        payload: JSON.stringify({
+          protocolVersion: "0.1",
+          event: {
+            id: "evt_third_key",
+            journeyId: "jrn_third_key",
+            environment: "development",
+            service: "customer-integration",
+            entity: { type: "customer", id: "0018Z00002ABC" },
+            operation: "delivered",
+            name: "call-upstream-har",
+            timestamp: "2026-09-15T10:00:00.000Z",
+            input: {
+              har: [
+                { name: "authorization", value: THIRD_KEY, comment: "from the HAR" },
+                { name: "accept", value: "application/json", comment: "kept" }
+              ],
+              // A `__proto__` beside the pair goes through the branch that
+              // replaces the value, which rebuilds the object key by key.
+              // Inside an array, because that is the only place the pair rules
+              // apply: written bare the first time, this assertion said so.
+              withProto: JSON.parse(
+                `[{"name":"cookie","value":"sid=${THIRD_KEY}","__proto__":"kept"}]`
+              ) as unknown,
+              // The false positive the rule has always protected against: a list
+              // of header names is configuration, not headers.
+              notHeaders: [{ name: "authorization", value: "Content-Type", position: 1 }]
+            }
+          }
+        })
+      });
+      expect(response.statusCode, response.body).toBe(202);
+
+      const row = await db("journey_events")
+        .where({ project_id: projectId, id: "evt_third_key" })
+        .first();
+      const stored = JSON.stringify(row.input_payload);
+
+      expect(stored).not.toContain("HAR28");
+      expect(row.input_payload.har).toEqual([
+        { name: "authorization", value: "[REDACTED]", comment: "from the HAR" },
+        { name: "accept", value: "application/json", comment: "kept" }
+      ]);
+      expect(row.input_payload.withProto[0].value).toBe("[REDACTED]");
+      expect(stored).toContain('"__proto__":"kept"');
+      expect(row.input_payload.notHeaders).toEqual([
+        { name: "authorization", value: "Content-Type", position: 1 }
+      ]);
+      // The control: the whole entry was not dropped, which would satisfy every
+      // "does not contain the secret" assertion above on its own.
+      expect(row.input_payload.har[0].name).toBe("authorization");
+    });
   });
 });

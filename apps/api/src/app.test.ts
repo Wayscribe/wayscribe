@@ -538,7 +538,10 @@ describe("keys the JSON parser used to refuse the whole request for", () => {
    * have. `JSON.parse` makes both keys ordinary own data properties and leaves
    * the prototype alone; poisoning needs something that then writes an
    * attacker-named key with `target[key] = value`, and every walk that rebuilds
-   * an object here uses `defineKey` or `Object.defineProperty` instead.
+   * an object here uses `defineKey` or `Object.defineProperty` instead. One
+   * rebuild did still assign when this was written;
+   * `packages/payload-security/src/redact.test.ts` now sweeps every shape the
+   * server accepts rather than leaving that a claim.
    */
   const bodyWith = async (raw: string): Promise<{ statusCode: number; body: string }> => {
     const app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });

@@ -1,7 +1,7 @@
 {
   "id": "wire/header-name-value-objects",
-  "title": "{name,value} and {key,value} elements have their value redacted",
-  "source": "docs/SECURITY.md section 4",
+  "title": "A name and value element has its value redacted, however many other fields it carries",
+  "source": "docs/SECURITY.md section 4; docs/WHAT_RUNNING_IT_FOUND.md",
   "layer": "wire",
   "languages": ["*"],
   "send": {
@@ -40,8 +40,20 @@
             "extra": [
               {
                 "name": "authorization",
-                "value": "kept",
-                "comment": "three keys"
+                "value": "Bearer cfx-fake-THIRD",
+                "comment": "a third key"
+              }
+            ],
+            "notHeaders": [
+              {
+                "name": "colour",
+                "value": "red",
+                "index": 0
+              },
+              {
+                "name": "authorization",
+                "value": "Content-Type",
+                "index": 1
               }
             ]
           }
@@ -76,8 +88,20 @@
               "extra": [
                 {
                   "name": "authorization",
-                  "value": "kept",
-                  "comment": "three keys"
+                  "value": "[REDACTED]",
+                  "comment": "a third key"
+                }
+              ],
+              "notHeaders": [
+                {
+                  "name": "colour",
+                  "value": "red",
+                  "index": 0
+                },
+                {
+                  "name": "authorization",
+                  "value": "Content-Type",
+                  "index": 1
                 }
               ]
             }

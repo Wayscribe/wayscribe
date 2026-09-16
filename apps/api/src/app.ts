@@ -138,9 +138,11 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     // Safe to allow because the danger was never the parsing. `JSON.parse`
     // makes both names ordinary own data properties and leaves the object's
     // prototype alone; poisoning takes code that afterwards writes an
-    // attacker-named key with `target[key] = value`, and every walk here that
-    // rebuilds an object uses `defineKey` instead, which is the same defect
-    // this repository already fixed in redaction and in the SDK's serializer.
+    // attacker-named key with `target[key] = value`. Every walk here that
+    // rebuilds an object now uses `defineKey`, which was a claim before it was
+    // a fact: the branch replacing a header pair's value still assigned, and
+    // was unreachable for this key only because a third key exempted the object
+    // from that branch, which was itself the redaction hole fixed beside it.
     // Zod's object schemas drop unknown keys, and `parseEnvelope` restores the
     // one key `z.record` loses. `apps/api/src/app.test.ts` asserts that
     // `Object.prototype` is untouched after both bodies are ingested.
