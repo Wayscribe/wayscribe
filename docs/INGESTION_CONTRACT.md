@@ -308,6 +308,13 @@ what a dry run previews.
   finer fraction is truncated, not rounded.
 - **The journey's entity** is the one on its first stored event, and is not
   changed by later events.
+- **Aliases** are stored per journey, type and value, and read back masked.
+  `displayableAliases`, an optional list of alias types, marks aliases a reader
+  may see in full: an alias is stored as displayable when the first event that
+  states it lists it, and becomes masked for good when any later event states
+  it without listing it (ADR-053). A listed type that the event's `aliases`
+  does not name is ignored, not refused. A read returns each alias as
+  `{ type, displayValue, displayable }`.
 - **Unknown fields are accepted and dropped.** There is no column to store them
   in, and an unvalidated, unredacted field is not something to write to one. The
   rule is "accepted, not refused", which is what makes an additive optional

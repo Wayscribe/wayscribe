@@ -235,7 +235,7 @@ describe("key rotation completion", () => {
         expect(response.statusCode).toBe(200);
         expect(response.json().data).toMatchObject({
           entity: { id: ENTITY_ID },
-          aliases: [{ type: "salesforceAccountId", displayValue: "SF-A…001" }]
+          aliases: [{ type: "salesforceAccountId", displayValue: "SF-A…001", displayable: false }]
         });
       });
 

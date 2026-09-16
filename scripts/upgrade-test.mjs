@@ -846,6 +846,16 @@ async function main() {
   await waitForReady(CURRENT_IMAGE, "current");
   await compareRecorded(recorded, "after upgrade");
 
+  // Migration 017 gave every alias the baseline wrote the masked default, and
+  // nothing the baseline recorded could have asked for anything else (ADR-053).
+  const upgradedJ1 = await request("GET", `/v1/journeys/${J1.journeyId}`);
+  check(
+    upgradedJ1.json?.data?.aliases?.length === 2 &&
+      upgradedJ1.json.data.aliases.every((alias) => alias.displayable === false),
+    "after upgrade: the baseline's aliases read back masked, with displayable false",
+    upgradedJ1.json?.data?.aliases
+  );
+
   const nullKeyIdsBefore = Number(
     await sql(CURRENT_IMAGE, "select count(*) from api_keys where key_hash_key_id is null")
   );

@@ -12,6 +12,7 @@ export { OPERATIONS } from "./operations.js";
 export type { Operation } from "./operations.js";
 export { createRecorder } from "./recorder.js";
 export type {
+  IdentifyOptions,
   Journey,
   JourneyContext,
   JourneyGroup,

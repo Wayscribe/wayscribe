@@ -360,6 +360,104 @@ describe("schema constraints", () => {
     });
   });
 
+  describe("the alias display flag (017)", () => {
+    const MIGRATION = "017_alias_displayable.js";
+
+    const column = async (): Promise<
+      { data_type: string; is_nullable: string; column_default: string | null } | undefined
+    > => {
+      const result: unknown = await db.raw(
+        `select data_type, is_nullable, column_default from information_schema.columns
+         where table_name = 'entity_aliases' and column_name = 'displayable'`
+      );
+      return (
+        result as {
+          rows: { data_type: string; is_nullable: string; column_default: string | null }[];
+        }
+      ).rows[0];
+    };
+
+    it("adds a boolean that is false unless a statement says otherwise, and removes it on the way down", async () => {
+      expect(await column()).toEqual({
+        data_type: "boolean",
+        is_nullable: "NO",
+        column_default: "false"
+      });
+      await db.migrate.down({ name: MIGRATION });
+      expect(await column()).toBeUndefined();
+      await db.migrate.up({ name: MIGRATION });
+      expect(await column()).toBeDefined();
+    });
+
+    it("gives rows written before it the masked default without rewriting the table", async () => {
+      // A constant default is a catalogue change on PostgreSQL 11 and later: the
+      // table's file is not rewritten, so the migration does not hold its lock
+      // for the length of a copy while ingestion waits behind it.
+      const journeyId = "jrn_017";
+      await db("journeys").insert({
+        id: journeyId,
+        project_id: projectId,
+        environment_id: environmentId,
+        entity_type: "customer",
+        primary_entity_id_hash: "hash-017",
+        status: "active",
+        started_at: db.fn.now(),
+        last_event_at: db.fn.now(),
+        event_count: 1
+      });
+      await db.migrate.down({ name: MIGRATION });
+      await db("entity_aliases").insert({
+        project_id: projectId,
+        journey_id: journeyId,
+        alias_type: "old",
+        alias_value_hash: "old-017"
+      });
+      const fileBefore: unknown = await db.raw(
+        "select pg_relation_filenode('entity_aliases') as f"
+      );
+      await db.migrate.up({ name: MIGRATION });
+      const fileAfter: unknown = await db.raw("select pg_relation_filenode('entity_aliases') as f");
+      expect((fileAfter as { rows: unknown[] }).rows).toEqual(
+        (fileBefore as { rows: unknown[] }).rows
+      );
+      expect(
+        await db("entity_aliases").where({ alias_value_hash: "old-017" }).pluck("displayable")
+      ).toEqual([false]);
+      await db("journeys").where({ id: journeyId }).delete();
+    });
+
+    it("gives up rather than queueing ingestion behind it when the table is busy", async () => {
+      // ALTER TABLE waits for every lock on the table, and every insert that
+      // arrives meanwhile waits behind the ALTER. lock_timeout makes the
+      // migration fail after five seconds instead; running it again retries.
+      await db.migrate.down({ name: MIGRATION });
+      let release: () => void = () => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let holding: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        holding = resolve;
+      });
+      const reader = db.transaction(async (trx) => {
+        await trx("entity_aliases").select("id").limit(1);
+        holding();
+        await released;
+      });
+      await held;
+      try {
+        const started = Date.now();
+        await expect(db.migrate.up({ name: MIGRATION })).rejects.toThrow(/lock timeout/);
+        expect(Date.now() - started).toBeLessThan(15_000);
+      } finally {
+        release();
+        await reader;
+      }
+      await db.migrate.up({ name: MIGRATION });
+      expect(await column()).toBeDefined();
+    }, 30_000);
+  });
+
   describe("replay runs' event foreign key index (016)", () => {
     const MIGRATION = "016_replay_runs_event_index.js";
 

@@ -157,7 +157,9 @@ export function loadConformanceCases(directory: string): ConformanceCase[] {
     }
     cases.push(parsed.data);
   }
-  return cases;
+  // By id, not by file name: `identify-displayable.json` sorts before
+  // `identify.json`, because `-` precedes `.`, while its id sorts after.
+  return cases.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
 }
 
 /**

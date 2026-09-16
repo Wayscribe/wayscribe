@@ -2170,3 +2170,75 @@ kept and nothing links them.
 - The derivation is a SHOULD. An SDK without it still conforms.
 - The prefix is the one random ids carry, and will change with the rename; the vectors will be
   regenerated then.
+
+---
+
+## ADR-053: Instrumenting code may mark an alias displayable, and it takes every statement to keep it so
+
+**Status:** Accepted. An exception to the alias masking in `apps/api/src/routes/present.ts`.
+
+### Context
+
+Every alias value is masked when it is read, because an alias is another identifier for the
+record and the reader may not be entitled to it. That is right for an email address or a
+customer number. It is wrong for an identifier that is public by nature, such as a job
+posting's id on a public board: the job that found this could not tell two postings apart on
+the journey page, because both read `gree…567`.
+
+The owner decided the shape: display is opted into per alias by the instrumenting code, which
+knows what the identifier is; everything else stays masked exactly as before.
+
+### Decision
+
+- **Wire.** The event gains an optional `displayableAliases`, a list of alias types from the
+  same event's `aliases` that may be shown in full: at most 1,000 entries of at most 128
+  characters. Alias values keep their type. A type the event's `aliases` does not name is
+  ignored rather than refused, because refusing would lose the event over a flag that can only
+  mask. A server that predates the field accepts and drops it (ADR-049), so every alias stays
+  masked there.
+- **Storage.** `entity_aliases.displayable boolean not null default false`, migration 017.
+- **Two statements that disagree.** An alias is displayable only while **every** event that
+  stated it listed it. The first insert stores the event's flag; a later statement can lower
+  it and never raises it.
+- **Reads.** `GET /v1/journeys/:journeyId`, and the dry run's `stored.journey`, return each
+  alias as `{ type, displayValue, displayable }`. `displayValue` is the whole value when
+  `displayable` is true and masked exactly as before otherwise, including for a short value.
+- **SDK.** `identify(aliases, { displayable })`, `startJourney({ ..., displayable })`, and
+  `displayableAliases` on `record()`. The default is none.
+
+### Why every statement, and not the latest
+
+Events do not arrive in the order they happened. A batch is retried, several processes record
+the same record, and a resend of an old event is answered as a duplicate only if its content
+is identical. "The most recent statement wins" would therefore mean the most recently
+*arrived*, and a retried old event could unmask a value that a newer one had deliberately
+masked. The conjunction is order-independent and idempotent, errs toward masking, and a
+mistaken `displayable` is corrected by one event that states the alias without it. The cost is
+that a host must list the type every time it states the alias, which the SDK README says.
+
+A statement that does not mention an alias at all is not a statement about it: an event with
+other aliases, or none, changes nothing.
+
+### Why a column with a default is safe on a live database
+
+PostgreSQL 11 and later add a column with a constant default as a catalogue change: existing
+rows read the default without the table being rewritten. The ALTER still takes an exclusive
+lock for an instant, and waits for every transaction already using the table while new
+inserts queue behind it, so the migration sets `lock_timeout` to five seconds and fails rather
+than stalling ingestion; running `migrate` again retries it. The previous API, still running
+between migrate and deploy, inserts without the column and gets `false`. A test asserts the
+table's file is not rewritten and that the migration gives up behind a held lock.
+
+The upsert writes only when the flag moves from true to false, so a service that repeats
+`identify` on every event does not turn a no-op into an update. Key rotation keeps the rule: a
+row moved onto the current token keeps its flag, and a stale duplicate's flag is folded into
+the row that survives before the duplicate is deleted.
+
+### Consequences
+
+- A reader sees an identifier in full only because the code that recorded it said so, every
+  time it said anything about it. Nothing a reader sends can change that.
+- The stored journey schema gains a required `displayable` on each alias. That is a new field
+  in a response, which a client ignores if it does not know it.
+- Search, erasure and retention are unchanged: they match on the search token, not the display
+  value.

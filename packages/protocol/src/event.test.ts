@@ -49,6 +49,46 @@ describe("journeyEventSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  describe("displayableAliases", () => {
+    it("is optional, and a list of alias types", () => {
+      const event = {
+        ...minimalEvent,
+        aliases: { postingId: "gh_123", email: "a@example.com" },
+        displayableAliases: ["postingId"]
+      };
+      const parsed = journeyEventSchema.safeParse(event);
+      expect(parsed.success).toBe(true);
+      expect(parsed.data?.displayableAliases).toEqual(["postingId"]);
+    });
+
+    it("accepts a type the event's aliases do not name, which ingestion ignores", () => {
+      // Refusing it would lose the event over a flag that can only mask.
+      const event = { ...minimalEvent, displayableAliases: ["notHere", "__proto__"] };
+      expect(journeyEventSchema.safeParse(event).success).toBe(true);
+    });
+
+    it("refuses anything but a list of short strings", () => {
+      for (const displayableAliases of [
+        "postingId",
+        [7],
+        { postingId: true },
+        ["x".repeat(129)],
+        Array.from({ length: 1_001 }, (_unused, index) => `t${String(index)}`)
+      ]) {
+        expect(
+          journeyEventSchema.safeParse({ ...minimalEvent, displayableAliases }).success,
+          JSON.stringify(displayableAliases).slice(0, 40)
+        ).toBe(false);
+      }
+      expect(
+        journeyEventSchema.safeParse({
+          ...minimalEvent,
+          displayableAliases: Array.from({ length: 1_000 }, (_unused, index) => `t${String(index)}`)
+        }).success
+      ).toBe(true);
+    });
+  });
+
   it("accepts optional aliases, payloads, error, and metadata", () => {
     const complete = {
       ...minimalEvent,

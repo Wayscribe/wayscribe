@@ -1,0 +1,79 @@
+{
+  "id": "wire/displayable-alias-every-statement",
+  "title": "An alias is shown in full only while every event that stated it marked it",
+  "source": "ADR-053",
+  "layer": "wire",
+  "languages": ["*"],
+  "setup": {
+    "existing": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_first",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "job-sweep",
+          "entity": {
+            "type": "job_posting",
+            "id": "greenhouse:4567"
+          },
+          "operation": "identified",
+          "name": "identify",
+          "timestamp": "2026-09-16T08:00:00.000Z",
+          "aliases": {
+            "postingId": "greenhouse:4567",
+            "board": "greenhouse:acme"
+          },
+          "displayableAliases": ["postingId", "board"]
+        }
+      }
+    ]
+  },
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_second",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "job-sweep",
+          "entity": {
+            "type": "job_posting",
+            "id": "greenhouse:4567"
+          },
+          "operation": "identified",
+          "name": "identify",
+          "timestamp": "2026-09-16T08:05:00.000Z",
+          "aliases": {
+            "postingId": "greenhouse:4567"
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "journey": {
+            "aliases": [
+              {
+                "type": "board",
+                "displayValue": "greenhouse:acme",
+                "displayable": true
+              },
+              {
+                "type": "postingId",
+                "displayValue": "gree…567",
+                "displayable": false
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

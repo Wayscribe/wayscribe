@@ -33,7 +33,8 @@
                 "type": "internalCustomerId",
                 "displayValue": {
                   "$matches": "^cus_.*13$"
-                }
+                },
+                "displayable": false
               }
             ]
           }

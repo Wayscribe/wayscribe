@@ -62,6 +62,24 @@ async function handleWebhook(account) {
 
 Then search your Flight Recorder for `account.Id` and read the timeline.
 
+**Aliases are masked when they are read**, because they are other identifiers
+for the record and a reader may not be entitled to them. An identifier that is
+public by nature can be shown in full by listing its type:
+
+```typescript
+journey.identify(
+  { postingId: posting.id, recruiterEmail: posting.contact },
+  { displayable: ["postingId"] }
+);
+```
+
+List the type every time you state the alias: it is shown in full only while
+every event that stated it listed it, so one `identify` without the list masks
+it again for good (ADR-053). `startJourney({ entity, aliases, displayable })`
+and `record({ ..., aliases, displayableAliases })` take the same list. Never
+list an email address, a customer number, or anything else a reader of the
+timeline should not see.
+
 ## Wrappers
 
 `transform`, `persist`, `publish`, and `deliver` each run your callback, return

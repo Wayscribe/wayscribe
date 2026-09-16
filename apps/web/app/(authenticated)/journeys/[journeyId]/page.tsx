@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AliasList } from "../../../components/AliasList";
 import { JourneyTimeline } from "../../../components/JourneyTimeline";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
 import { requireProjectId } from "../../../../src/lib/current-project";
@@ -40,13 +41,7 @@ export default async function JourneyPage({
         </h1>
         <p className="muted">All times UTC.</p>
 
-        {journey.aliases.length === 0 ? null : (
-          <p className="muted">
-            Also known as{" "}
-            {journey.aliases.map((a) => `${a.type} ${a.displayValue ?? "—"}`).join(", ")}. These
-            identifiers all refer to the same record.
-          </p>
-        )}
+        <AliasList aliases={journey.aliases} />
 
         <p className="muted">
           <Link href={`/journeys/${encodeURIComponent(journeyId)}/delete`}>

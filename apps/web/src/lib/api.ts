@@ -14,7 +14,11 @@ export interface JourneyDetail {
   environment: string;
   entity: { type: string; id: string | null };
   status: string;
-  aliases: { type: string; displayValue: string | null }[];
+  /**
+   * `displayValue` is masked unless `displayable` is true. An API that
+   * predates the flag omits it, and its values are masked.
+   */
+  aliases: { type: string; displayValue: string | null; displayable?: boolean }[];
   services: string[];
   eventCount: number;
   startedAt: string;

@@ -120,7 +120,10 @@ async function makeCall(target: Journey | JourneyGroup, call: Call, run: string)
       return;
     case "identify":
       if (!("identify" in target)) throw new Error("identify has no group form.");
-      target.identify(args["aliases"] as Record<string, string>);
+      target.identify(
+        args["aliases"] as Record<string, string>,
+        args["options"] as { displayable?: string[] } | undefined
+      );
       return;
     case "fail":
       target.fail(name, args["error"], args["metadata"] as Record<string, unknown>);

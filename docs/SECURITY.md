@@ -317,6 +317,20 @@ Display values may be:
 - encrypted
 - available only to permitted local users
 
+What is built: alias display values are encrypted at rest (section 7) and
+**masked when read**, because an alias is another identifier for the record and
+a reader may not be entitled to it. The primary entity id is shown in full,
+since it is what the reader searched for.
+
+**The one exception** is an alias the instrumenting code marked displayable
+(ADR-053). An event may list alias types in `displayableAliases`, and an alias
+is then shown in full only while **every** event that stated it listed it: a
+later statement can mask it and nothing can unmask it again. The default is
+masked, a server that predates the field masks everything, and nothing a reader
+sends can change the flag. Mark only identifiers that are public by nature, such
+as a posting id on a public job board, and never an email address or a customer
+number.
+
 ## 7. Encryption
 
 At minimum:

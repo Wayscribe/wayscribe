@@ -65,7 +65,8 @@
                 "type": "salesforceAccountId",
                 "displayValue": {
                   "$matches": "^0.*C$"
-                }
+                },
+                "displayable": false
               }
             ]
           }

@@ -239,6 +239,9 @@ button {
 .op.failed {
   color: var(--failed);
 }
+.aliases .masked {
+  font-style: italic;
+}
 
 .detail {
   min-width: 0;

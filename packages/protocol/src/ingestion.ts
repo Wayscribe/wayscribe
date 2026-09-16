@@ -126,7 +126,12 @@ export const storedJourneySchema = z.object({
         .string()
         .nullable()
         .describe(
-          "Masked, because an alias may be an identifier the caller is not entitled to see in full."
+          "Masked, because an alias may be an identifier the caller is not entitled to see in full, unless displayable is true. Null when the key that encrypted it is no longer held."
+        ),
+      displayable: z
+        .boolean()
+        .describe(
+          "True when every event that stated this alias listed it in displayableAliases; displayValue is then the whole value."
         )
     })
   ),

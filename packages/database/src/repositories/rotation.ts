@@ -339,6 +339,10 @@ async function reencryptRow(
  * ingestion inserts concurrently is invisible to it; the update then fails on
  * the unique constraint. The savepoint keeps that failure from aborting the
  * batch, and the row is a duplicate after all.
+ *
+ * The stale row is one statement of the alias, so before it goes its display
+ * flag is folded into the row that stays: displayable only if both were
+ * (ADR-053).
  */
 async function reencryptAlias(
   trx: Knex.Transaction,
@@ -350,6 +354,22 @@ async function reencryptAlias(
 ): Promise<"rewritten" | "duplicate_removed" | "changed"> {
   const token = currentToken(keyring, plaintext);
   const removeStale = async (): Promise<"duplicate_removed" | "changed"> => {
+    await trx("entity_aliases")
+      .where({
+        project_id: row["projectId"],
+        journey_id: row["journeyId"],
+        alias_type: row["aliasType"],
+        alias_value_hash: token,
+        displayable: true
+      })
+      .whereNot({ id: row["id"] })
+      .whereExists((stale) => {
+        void stale
+          .select(trx.raw("1"))
+          .from({ s: "entity_aliases" })
+          .where({ "s.id": row["id"], "s.displayable": false });
+      })
+      .update({ displayable: false });
     const deleted = await trx("entity_aliases").where(unchanged).del();
     return deleted > 0 ? "duplicate_removed" : "changed";
   };

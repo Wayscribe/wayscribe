@@ -46,6 +46,12 @@ export interface RecordInput {
   output?: unknown;
   error?: { message: string; type?: string; code?: string };
   aliases?: Record<string, string>;
+  /**
+   * Alias types from `aliases` that a reader may see in full. Every other alias
+   * is masked when read, and an alias is shown in full only while every event
+   * that stated it listed it here (ADR-053).
+   */
+  displayableAliases?: readonly string[];
   metadata?: Record<string, unknown>;
   durationMs?: number;
   /**
@@ -135,9 +141,18 @@ export interface JourneyOperations {
   finish(options?: { status?: "completed" | "failed" }): void;
 }
 
+export interface IdentifyOptions {
+  /**
+   * Alias types that may be shown in full to a reader. The default is none:
+   * every alias is masked. List a type every time you state it, because an
+   * alias is shown only while every statement of it says so (ADR-053).
+   */
+  displayable?: readonly string[];
+}
+
 export interface Journey extends JourneyOperations {
   context(): JourneyContext;
-  identify(aliases: Record<string, string>): void;
+  identify(aliases: Record<string, string>, options?: IdentifyOptions): void;
 }
 
 /**
@@ -153,6 +168,8 @@ export interface Recorder {
   startJourney(options: {
     entity: { type: string; id: string };
     aliases?: Record<string, string>;
+    /** Passed to the `identify` that `aliases` makes. */
+    displayable?: readonly string[];
   }): Journey;
   continueJourney(context: JourneyContext): Journey;
   /**
@@ -252,6 +269,20 @@ const SETTLING_ROUNDS = 4;
 function fit(text: string, limit: number): string {
   if (text.length <= limit) return text.toWellFormed();
   return text.slice(0, limit - TRUNCATED.length).toWellFormed() + TRUNCATED;
+}
+
+/**
+ * `displayableAliases` for the event, copied at the call, with anything that is
+ * not a string left out. A value that is not a list is dropped whole: a wrong
+ * list can only mask, and a refused event would lose the aliases too.
+ */
+function displayableFor(list: unknown): { displayableAliases?: string[] } {
+  if (!Array.isArray(list)) return {};
+  return {
+    displayableAliases: (list as unknown[]).filter(
+      (type): type is string => typeof type === "string"
+    )
+  };
 }
 
 function isContext(value: unknown): value is JourneyContext {
@@ -830,6 +861,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       ...(captured.output === undefined ? {} : { output: captured.output.value }),
       ...(input.error === undefined ? {} : { error: maskedError(input.error) }),
       ...(input.aliases === undefined ? {} : { aliases: input.aliases }),
+      ...displayableFor(input.displayableAliases),
       ...(captured.metadata === undefined ? {} : { metadata: captured.metadata.value })
     };
     const envelope = { protocolVersion: "0.1", event };
@@ -1192,7 +1224,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     return {
       ...operationsOn([context]),
       context: () => context,
-      identify(aliases) {
+      identify(aliases, options) {
         safely(diagnostics, "capture_error", () => {
           enqueue(context.journeyId, context.entity, {
             operation: "identified",
@@ -1200,7 +1232,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
             // Top-level, not under metadata: EVENT_PROTOCOL puts aliases on the
             // event itself, and ingestion reads them from there. Nested, they
             // are accepted and then ignored, costing every alias-based search.
-            aliases
+            aliases,
+            ...(options?.displayable === undefined
+              ? {}
+              : { displayableAliases: options.displayable })
           });
         });
       }
@@ -1244,7 +1279,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
       const journey = makeJourney(
         context ?? { journeyId: `jrn_${randomUUID()}`, entity: { type: "unknown", id: "unknown" } }
       );
-      if (options.aliases !== undefined) journey.identify(options.aliases);
+      if (options.aliases !== undefined) {
+        journey.identify(
+          options.aliases,
+          options.displayable === undefined ? undefined : { displayable: options.displayable }
+        );
+      }
       return journey;
     },
     continueJourney: (context) => makeJourney(context),

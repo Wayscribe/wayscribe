@@ -81,6 +81,15 @@
         "maxLength": 512
       }
     },
+    "displayableAliases": {
+      "maxItems": 1000,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 128
+      },
+      "description": "Alias types from this event's aliases that a reader may see in full. Every other alias is masked when read. An alias is shown in full only while every event that stated it listed it here; a type this event's aliases do not name is ignored."
+    },
     "durationMs": {
       "type": "integer",
       "minimum": 0,

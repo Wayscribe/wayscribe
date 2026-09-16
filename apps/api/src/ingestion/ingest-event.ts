@@ -184,6 +184,9 @@ export async function ingestEvent(
 
     await updateJourneySummary(trx, context.projectId, journeyFacts);
 
+    // A type listed here and absent from `aliases` is ignored: it can only
+    // mask, so refusing the event over it would be the worse trade (ADR-053).
+    const displayable = new Set(event.displayableAliases ?? []);
     await upsertAliases(
       trx,
       context.projectId,
@@ -194,6 +197,7 @@ export async function ingestEvent(
           aliasType,
           aliasValueHash: tokens.current,
           encryptedDisplayValue: encryptValue(keyring, value),
+          displayable: displayable.has(aliasType),
           // During a rotation, a repeat of an alias stored under the previous
           // key's token moves that row rather than adding a second one.
           supersedesValueHash: tokens.previous

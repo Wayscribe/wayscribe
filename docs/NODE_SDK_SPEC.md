@@ -119,6 +119,14 @@ journey.identify({
 
 `identify` emits its own dedicated event, named `identify` (operation `identified`).
 
+```typescript
+journey.identify({ postingId: posting.id }, { displayable: ["postingId"] });
+```
+
+The optional second argument lists alias types a reader may see in full. It is
+sent as `displayableAliases`, and an alias stays displayable only while every
+statement of it lists it (SDK-57, ADR-053).
+
 ### `record`
 
 ```typescript

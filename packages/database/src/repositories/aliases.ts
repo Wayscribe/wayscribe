@@ -6,6 +6,11 @@ export interface AliasRow {
   aliasValueHash: string;
   encryptedDisplayValue: string | null;
   /**
+   * Whether this event marked the alias as displayable. The stored flag is the
+   * conjunction of every statement (ADR-053).
+   */
+  displayable: boolean;
+  /**
    * The token this value carried under the previous key, during a rotation;
    * null otherwise. A row stored under it is moved to `aliasValueHash` rather
    * than joined by a second row for the same alias.
@@ -19,6 +24,12 @@ export interface AliasRow {
  * Re-sending the same alias is a no-op rather than an error: an SDK that repeats
  * `identify()` on every event is behaving reasonably, and the unique constraint
  * exists to deduplicate, not to reject.
+ *
+ * The display flag is true only while every statement of the alias marked it
+ * (ADR-053). A repeat can lower it and never raises it, so the order events
+ * arrive in does not matter, and a repeat that leaves it where it is writes
+ * nothing: the conflict update runs only for a row that is displayable and a
+ * statement that is not.
  *
  * During a key rotation the same value produces a new token, so the unique
  * constraint no longer recognises a repeat. A row stored under the previous
@@ -45,11 +56,14 @@ export async function upsertAliases(
         journey_id: alias.journeyId,
         alias_type: alias.aliasType,
         alias_value_hash: alias.aliasValueHash,
-        encrypted_display_value: alias.encryptedDisplayValue
+        encrypted_display_value: alias.encryptedDisplayValue,
+        displayable: alias.displayable
       }))
     )
     .onConflict(["project_id", "journey_id", "alias_type", "alias_value_hash"])
-    .ignore();
+    .merge({ displayable: false })
+    .where("entity_aliases.displayable", true)
+    .andWhereRaw("not excluded.displayable");
 }
 
 /** PostgreSQL's unique_violation. */

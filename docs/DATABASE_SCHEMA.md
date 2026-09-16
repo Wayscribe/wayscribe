@@ -120,6 +120,7 @@ Constraints and indexes:
 | `alias_type` | text | Developer-defined stable name |
 | `alias_value_hash` | text | Normalized search hash |
 | `encrypted_display_value` | text | Optional, in the envelope format (§5) |
+| `displayable` | boolean | Not null, default false. True only while every event that stated the alias listed it in `displayableAliases`; ingestion lowers it and never raises it (ADR-053, migration `017_alias_displayable.js`) |
 | `created_at` | timestamptz | Required |
 
 Constraints and indexes:

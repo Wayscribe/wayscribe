@@ -174,6 +174,44 @@ test("masks the alias display value", async ({ page }) => {
   await expect(page.locator("body")).not.toContainText(ALIAS_VALUE);
 });
 
+test("shows an alias marked displayable in full, and marks the others as masked", async ({
+  page
+}) => {
+  // Its own journey, so the reference journey's seed does not change. Ids are
+  // versioned for the reason SEED_VERSION gives.
+  const version = "v1";
+  const journeyId = `jrn_e2e_displayable_${version}`;
+  const postingId = `greenhouse:e2e-${version}`;
+  const response = await fetch(`${API_URL}/v1/events`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      protocolVersion: "0.1",
+      event: {
+        id: `evt_e2e_displayable_${version}`,
+        journeyId,
+        environment: "development",
+        service: "job-sweep",
+        entity: { type: "job_posting", id: postingId },
+        operation: "identified",
+        name: "identify",
+        timestamp: "2026-09-16T08:00:00.000Z",
+        aliases: { postingId, recruiterEmail: "recruiter@example.com" },
+        displayableAliases: ["postingId"]
+      }
+    })
+  });
+  expect(response.ok, `seeding answered ${String(response.status)}`).toBe(true);
+
+  await signIn(page, journeyId);
+  await page.goto(`/journeys/${journeyId}`);
+  await expect(page.getByTestId("alias-postingId")).toHaveText(`postingId ${postingId}`);
+  await expect(page.getByTestId("alias-recruiterEmail")).toHaveText(
+    "recruiterEmail recr…com (masked)"
+  );
+  await expect(page.locator("body")).not.toContainText("recruiter@example.com");
+});
+
 test("renders an empty state rather than nothing for an unmatched search", async ({ page }) => {
   await signIn(page, JOURNEY_ID);
   await page.fill("input[name=q]", "no-such-identifier-anywhere");

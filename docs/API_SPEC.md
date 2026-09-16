@@ -276,7 +276,10 @@ Response:
       "id": "18492"
     },
     "status": "failed",
-    "aliases": [],
+    "aliases": [
+      { "type": "salesforceAccountId", "displayValue": "0018…ABC", "displayable": false },
+      { "type": "postingId", "displayValue": "greenhouse:4567", "displayable": true }
+    ],
     "services": [],
     "eventCount": 8,
     "startedAt": "2026-08-06T18:31:02.000Z",
@@ -285,6 +288,11 @@ Response:
   }
 }
 ```
+
+An alias's `displayValue` is masked unless `displayable` is true, which it is
+only when every event that stated the alias listed it in `displayableAliases`
+(ADR-053, `docs/SECURITY.md` section 6). It is null when the key that encrypted
+it is no longer held.
 
 ## 8. List journey events
 

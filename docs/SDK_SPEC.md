@@ -435,6 +435,19 @@ predictable journey id is the risk `INGESTION_CONTRACT.md` section 5 describes.
 | SDK-55 | ADR-052; packages/protocol/fixtures/journey-id-derivation.json | section 14 |
 | SDK-56 | ADR-052; ADR-007 | section 14 |
 
+### Displayable aliases
+
+- **SDK-57.** An SDK SHOULD let the host list, when it states aliases, the alias
+  types a reader may see in full, and send them as `displayableAliases` on the
+  same event. The default MUST be none. An SDK MUST NOT add a type the host did
+  not list, and SHOULD document that the list has to accompany every statement
+  of the alias, because the server keeps an alias displayable only while every
+  statement lists it.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-57 | ADR-053; docs/SECURITY.md section 6 | sdk/identify-displayable |
+
 ## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive

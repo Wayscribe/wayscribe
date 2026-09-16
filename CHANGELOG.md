@@ -121,6 +121,16 @@ changes far less often.
 
 ### Added
 
+- **Instrumenting code can mark aliases displayable** (ADR-053). Every alias is
+  still masked when read, except one whose type the recording event listed in
+  the new optional `displayableAliases` field; it is shown in full only while
+  every event that stated it listed it, so a later statement can mask it and
+  nothing can unmask it. The SDK takes the list as
+  `identify(aliases, { displayable })`, on `startJourney`, and as
+  `displayableAliases` on `record()`. `GET /v1/journeys/:journeyId` and the dry
+  run return each alias with a new `displayable` field, and the journey page
+  marks masked values as masked. Stored in a new column,
+  `entity_aliases.displayable`, by migration 017.
 - **`recorder.journeyIdFor(entity)` derives a stable journey id** under a new
   `journeyIdSecret` option of at least 32 bytes (ADR-052), so the same record
   lands in the same journey on every run and machine while the id cannot be
@@ -731,6 +741,14 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
+- **Migration 017 adds a column to `entity_aliases`.** It is a catalogue change
+  on PostgreSQL 11 and later and finishes at once, but it gives up after five
+  seconds if a long transaction holds the table, rather than stalling ingestion
+  behind it. Run `migrate` again if it does (docs/OPERATIONS.md section 4).
+- **Conformance cases are loaded in order of id**, not of file name. The two
+  differ once one case's name extends another's (`identify-displayable` and
+  `identify`), and a harness comparing with the manifest has to sort the same
+  way.
 - **`REPLAY_ALLOWED_HOSTS` defaults to `localhost` in `compose.published.yaml`
   and the Helm chart.** An installation that replays to `host.docker.internal`
   without setting the variable must now set it
