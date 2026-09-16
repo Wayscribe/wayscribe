@@ -15,7 +15,7 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. 1207 unit tests, 405 integration
+the step against a development destination. 1390 unit tests, 541 integration
 tests against a real PostgreSQL, 7 acceptance tests against a running stack.
 
 Nothing is published. There is no npm package and no image in any registry, so
