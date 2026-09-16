@@ -896,9 +896,11 @@ describe("schema constraints", () => {
         });
         await written;
         try {
-          const started = Date.now();
+          // No time bound is needed: the write stays open until `finally`, so
+          // a migration that waited for it would give up after its five-second
+          // lock_timeout, and this await would throw. Succeeding while the
+          // write is open is the property, however slow the runner.
           await db.migrate.up({ name: MIGRATION });
-          expect(Date.now() - started).toBeLessThan(4_000);
         } finally {
           release();
           await writer;
@@ -1088,20 +1090,35 @@ describe("schema constraints", () => {
       try {
         await waitForBuildToWait();
 
-        const started = Date.now();
-        await db("journeys").insert(journeyRow("jrn_019_during"));
-        await db("entity_aliases").insert({
-          project_id: projectId,
-          journey_id: "jrn_019_during",
-          alias_type: "company",
-          alias_value_hash: "hash-019",
-          displayable: true,
-          display_value: "During Co"
+        // A write that queued behind the build would wait until the earlier
+        // transaction ends, which is only after this block, so it would never
+        // finish here. The bound only turns that hang into a clear failure,
+        // well inside the test's timeout, so it can be generous.
+        const writes = (async () => {
+          await db("journeys").insert(journeyRow("jrn_019_during"));
+          await db("entity_aliases").insert({
+            project_id: projectId,
+            journey_id: "jrn_019_during",
+            alias_type: "company",
+            alias_value_hash: "hash-019",
+            displayable: true,
+            display_value: "During Co"
+          });
+          await db("journeys")
+            .where({ id: "jrn_019_during" })
+            .update({ last_event_at: db.fn.now(), label: "during" });
+        })();
+        let timer: NodeJS.Timeout | undefined;
+        const queued = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error("ingestion queued behind the index build"));
+          }, 15_000);
         });
-        await db("journeys")
-          .where({ id: "jrn_019_during" })
-          .update({ last_event_at: db.fn.now(), label: "during" });
-        expect(Date.now() - started).toBeLessThan(2_000);
+        try {
+          await Promise.race([writes, queued]);
+        } finally {
+          clearTimeout(timer);
+        }
         expect(migrated).toBe(false);
       } finally {
         release.resolve();
@@ -1144,8 +1161,10 @@ describe("schema constraints", () => {
         // The build waits on a session of its own, named so it can be found.
         await waitForBuildToWait(migration.APPLICATION_NAME);
         await expect(building).rejects.toThrow(/lock timeout/);
+        // It waited its two seconds, and gave up rather than waiting for the
+        // holder, which is released only below; the upper bound is loose.
         expect(Date.now() - started).toBeGreaterThanOrEqual(1_900);
-        expect(Date.now() - started).toBeLessThan(10_000);
+        expect(Date.now() - started).toBeLessThan(20_000);
       } finally {
         release.resolve();
         await holder;
