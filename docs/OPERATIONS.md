@@ -192,12 +192,10 @@ The timeout applies to each lock request, and the migration takes two locks.
 The ALTER on `journeys` can wait up to five seconds, then holds that lock while
 the ALTER on `entity_aliases` waits up to five more, so in the worst case
 writes to `journeys` stall for about ten seconds before the migration either
-finishes or gives up. A rollback (`down`) has the same shape in the other
-order, so it can stall writes to `entity_aliases` for as long. Ingestion locks
-`journeys` before `entity_aliases`, the same order as the migration, so a
-deadlock between the two is not expected. The rollback's order is the reverse,
-so a rollback during ingestion can deadlock; PostgreSQL detects it and cancels
-one side, and running the rollback again retries.
+finishes or gives up. A rollback (`down`) takes the same two locks in the same
+order, so it can stall writes to `journeys` for as long. Ingestion also locks
+`journeys` before `entity_aliases`, so a deadlock with ingestion is not
+expected in either direction.
 
 There is no backfill. A journey recorded before the upgrade shows no last step
 until its next event, and no label until an event that carries a label

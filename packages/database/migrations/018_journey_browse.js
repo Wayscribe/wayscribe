@@ -56,20 +56,17 @@ export async function up(knex) {
 
 /**
  * Dropping the columns is also a catalogue change, under the same timeout per
- * lock request. It takes the locks in the other order, `entity_aliases` then
- * `journeys`, so in the worst case it stalls writes to `entity_aliases` for
- * about ten seconds. Because that order is the reverse of ingestion's, a
- * rollback during ingestion can deadlock with it; PostgreSQL detects that and
- * cancels one side, and running the rollback again retries. Labels, last
- * steps and plain-text copies are then gone, which is the state before this
- * migration.
+ * lock request. It takes the locks in the same order as `up` and as
+ * ingestion, `journeys` then `entity_aliases`, so in the worst case it stalls
+ * writes to `journeys` for about ten seconds and a deadlock with ingestion is
+ * not expected. Labels, last steps and plain-text copies are then gone, which
+ * is the state before this migration.
  *
  * @param {import("knex").Knex} knex
  * @returns {Promise<void>}
  */
 export async function down(knex) {
   await knex.raw("set local lock_timeout = '5s'");
-  await knex.raw("alter table entity_aliases drop column if exists display_value");
   await knex.raw(
     `alter table journeys
        drop column if exists last_step_event_id,
@@ -79,4 +76,5 @@ export async function down(knex) {
        drop column if exists label_at,
        drop column if exists label`
   );
+  await knex.raw("alter table entity_aliases drop column if exists display_value");
 }
