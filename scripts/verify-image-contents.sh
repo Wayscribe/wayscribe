@@ -45,7 +45,7 @@ report "no source directories (found $COUNT)" "$([ "$COUNT" -eq 0 ] && echo 0 ||
 # They are not named like test files, so the pattern above does not reach them,
 # and they carry credential-shaped values on purpose: a redaction case cannot
 # prove a secret was replaced without holding something shaped like one.
-for DIR in /app/apps/demo /app/apps/web /app/packages/protocol/conformance; do
+for DIR in /app/apps/demo /app/apps/web /app/packages/protocol/conformance /app/packages/sdk-node; do
   # `cmd; report $?` would abort here under `set -e` on the first failure, so a
   # broken image would report one problem and hide the rest. The `&&`/`||` form
   # keeps the non-zero status out of `set -e`'s hands.
@@ -79,15 +79,50 @@ for FILE in /app/apps/api/dist/server.js /app/packages/database/dist/cli.js; do
   report "$FILE present" "$RC"
 done
 
-# Present is not the same as loadable: pruning a directory the CLI imports at
-# runtime leaves the file in place and breaks it on first use. Invoking it with
-# no arguments makes it resolve its imports and reach its own usage message.
-OUTPUT=$(docker run --rm --entrypoint node "$IMAGE" packages/database/dist/cli.js 2>&1 || true)
-case "$OUTPUT" in
-  *DATABASE_URL* | *Usage* | *usage*) RC=0 ;;
-  *) RC=1; echo "        unexpected CLI output: $OUTPUT" ;;
-esac
-report "database CLI runs" "$RC"
+# Present is not the same as loadable: pruning a directory an entry point
+# imports leaves the file in place and breaks it on first use.
+#
+# The check that used to live here ran the CLI with no arguments and accepted
+# any output mentioning DATABASE_URL. The CLI exits on that guard at the top of
+# the file, and every subcommand is behind a dynamic import, so nothing past the
+# guard was ever resolved: deleting payload-diff/dist and payload-security/dist
+# left this green while the server could not start. It proved the file existed,
+# which the check above already did.
+#
+# So both entry points are made to resolve their whole graph, and the failure
+# looked for is `ERR_MODULE_NOT_FOUND` specifically. In ESM the module graph is
+# evaluated before the entry module's body runs, so a missing workspace `dist`
+# surfaces ahead of any configuration guard, and the two are told apart by what
+# is printed rather than by an exit code they share.
+loads() {
+  NAME="$1"
+  OUTPUT=$(docker run --rm --entrypoint sh "$IMAGE" -c "$2" 2>&1 || true)
+  case "$OUTPUT" in
+    *ERR_MODULE_NOT_FOUND* | *"Cannot find module"* | *"Cannot find package"*)
+      report "$NAME resolves its imports" 1
+      echo "        $(echo "$OUTPUT" | grep -m1 'Cannot find')"
+      return
+      ;;
+  esac
+  case "$OUTPUT" in
+    *$3*) report "$NAME resolves its imports" 0 ;;
+    *)
+      report "$NAME resolves its imports" 1
+      echo "        unexpected output: $(echo "$OUTPUT" | head -3)"
+      ;;
+  esac
+}
+
+# The server statically imports config, database, protocol, payload-security and
+# payload-diff, so reaching its own configuration error means all five resolved.
+loads "the API server" "node apps/api/dist/server.js" "DATABASE_URL"
+
+# A subcommand, because that is what forces the CLI's dynamic imports. A
+# database that is not there makes it fail at the connection, which is after the
+# import it exists to check.
+loads "the database CLI" \
+  "DATABASE_URL=postgresql://u:p@127.0.0.1:1/x node packages/database/dist/cli.js project:list" \
+  "ECONNREFUSED"
 
 if [ "$FAILED" -ne 0 ]; then
   echo "Image contains files it should not, or is missing files it must have."

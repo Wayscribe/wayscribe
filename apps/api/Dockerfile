@@ -50,7 +50,13 @@ RUN find . -name node_modules -type d -prune -exec rm -rf {} + \
 # keep out of a published image, since a scanner reading one cannot tell a
 # fixture from a leak. The generated JSON Schema stays: it is small, it holds no
 # values, and the package exports it.
-RUN rm -rf apps/demo apps/web packages/protocol/conformance \
+#
+# `packages/sdk-node` goes with them. The API does not import it, at runtime or
+# at all: it became a development dependency so that one integration test could
+# drive the real recorder and send what it produced to the dry run, and the
+# `...` filter above then built it into the image. A recorder meant for other
+# people's applications has no business inside a server image.
+RUN rm -rf apps/demo apps/web packages/protocol/conformance packages/sdk-node \
  && find . -path ./node_modules -prune -o -type d -name src -print0 \
       | xargs -0 -r rm -rf \
  && find . -path ./node_modules -prune -o -type f \
