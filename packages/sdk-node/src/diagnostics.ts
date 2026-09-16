@@ -108,19 +108,14 @@ export interface TransportErrorDiagnostic {
  * A payload was replaced with `[PAYLOAD_TOO_LARGE]` or `[UNCAPTURABLE]`, or,
  * for `metadata`, left off; the event is still sent. The code says why:
  * `too_large` (the event's byte budget), `too_deep`, `too_wide`,
- * `string_too_long`, `unserialisable`, or `projection_failed` (a
- * `captureInput` or `captureOutput` threw or returned a promise; what it threw
- * is in `error`). Counted in `payloadsOmitted`.
+ * `unserialisable` (reading it threw, as a getter or a `toJSON` can), or
+ * `projection_failed` (a `captureInput` or `captureOutput` threw or returned a
+ * promise). What was thrown, if anything, is in `error`; it can quote the
+ * payload, so it is never printed. Counted in `payloadsOmitted`.
  */
 export interface PayloadOmittedDiagnostic {
   kind: "payload_omitted";
-  code:
-    | "too_large"
-    | "too_deep"
-    | "too_wide"
-    | "string_too_long"
-    | "unserialisable"
-    | "projection_failed";
+  code: "too_large" | "too_deep" | "too_wide" | "unserialisable" | "projection_failed";
   /** A sentence for a person. Its wording may change in any release. */
   reason: string;
   detail: { field: "input" | "output" | "metadata"; error?: unknown };
@@ -190,34 +185,53 @@ export interface DroppedDiagnostic {
 }
 
 /**
- * Recording failed inside the SDK, and the host's call was unaffected.
- * `unexpected_error` carries the thrown value in `error`; `not_a_journey` is
- * something given to `across` that is neither a journey nor a context.
- * Counted in `captureErrors`.
+ * A call could not record what it was asked to, and the host's call was
+ * unaffected. `unexpected_error`: something threw, with the thrown value in
+ * `error` (a value that cannot be described has a fixed reason).
+ * `not_a_journey`: something given to `across` is neither a journey nor a
+ * context. `invalid_options`: the options of the call named in `call` are not
+ * an object, or hold keys it does not read (never quoted). `context_missing`:
+ * an inject helper, named in `call`, was given no journey context. Counted in
+ * `captureErrors`.
  */
 export interface CaptureErrorDiagnostic {
   kind: "capture_error";
-  code: "unexpected_error" | "not_a_journey";
+  code: "unexpected_error" | "not_a_journey" | "invalid_options" | "context_missing";
   /** A sentence for a person. Its wording may change in any release. */
   reason: string;
-  detail: { error?: unknown };
+  detail: {
+    error?: unknown;
+    /** For `invalid_options` and `context_missing`: the method that was called. */
+    call?: string;
+  };
 }
 
 /**
- * A setting could not be used, or a call needed one the recorder does not
- * have; the call returned something safe. `setting_unusable` and
- * `required_setting_unusable` name the setting in `setting`, never its value.
- * `journey_id_secret_missing` and `journey_id_secret_unusable` come from
- * `journeyIdFor`, or from creating the recorder with a secret it cannot use;
- * `entity_invalid` is an entity `journeyIdFor` cannot derive from;
- * `journey_id_invalid` is a `journeyId` given to `continueJourney` that is not
- * a non-empty string. Counted in `configurationErrors`.
+ * A setting or an argument could not be used, or a call needed a setting the
+ * recorder does not have; the call returned something safe. `setting` names
+ * what could not be used, never its value.
+ *
+ * - `setting_unusable`, `required_setting_unusable`: a recorder setting.
+ * - `setting_renamed`: a setting or option given under the name it had
+ *   before the first release, which is not read; the reason names the new one.
+ * - `journey_id_secret_missing`, `journey_id_secret_unusable`: from
+ *   `journeyIdFor`, or from creating the recorder with a secret it cannot use.
+ * - `entity_invalid`: an entity that is missing, or whose type or id is not a
+ *   non-empty string, given to `journeyIdFor`, `startJourney` or
+ *   `continueJourney` (`setting` is `entity`, or `context` for a context's).
+ *   `startJourney` and `continueJourney` record under the entity
+ *   `{ type: "unknown", id: "unknown" }` instead.
+ * - `journey_id_invalid`: a `continueJourney` context, or `journeyId`, without
+ *   a non-empty string id; it is not used.
+ *
+ * Counted in `configurationErrors`.
  */
 export interface ConfigurationErrorDiagnostic {
   kind: "configuration_error";
   code:
     | "setting_unusable"
     | "required_setting_unusable"
+    | "setting_renamed"
     | "journey_id_secret_missing"
     | "journey_id_secret_unusable"
     | "entity_invalid"

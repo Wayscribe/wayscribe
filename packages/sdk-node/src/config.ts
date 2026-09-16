@@ -141,14 +141,27 @@ export interface ResolvedConfig {
 
 /** A setting `resolveConfig` could not use as given. The reason never quotes the value. */
 export interface ConfigProblem {
-  setting: keyof RecorderConfig;
+  setting: string;
+  code: "setting_unusable" | "required_setting_unusable" | "setting_renamed";
   reason: string;
   /**
    * The setting has no default, so nothing the recorder records reaches the
    * server until it is fixed.
    */
   required: boolean;
+  /**
+   * Printed once per process whatever `logDiagnostics` says: a required
+   * setting, because nothing reaches the server without it, and a renamed
+   * one, because the value is otherwise lost unseen (SDK-60).
+   */
+  printed: boolean;
 }
+
+/** Options a JavaScript caller may still pass under the name they had before the first release. */
+const RENAMED: Readonly<Record<string, keyof RecorderConfig>> = {
+  maxPayloadBytes: "maxEventBytes",
+  propagate: "propagation"
+};
 
 const REQUIRED = ["endpoint", "apiKey", "serviceName", "environment"] as const;
 type RequiredSetting = (typeof REQUIRED)[number];
@@ -191,10 +204,13 @@ const UNREADABLE = Symbol("unreadable");
 export function resolveConfig(config: RecorderConfig): ResolvedConfig {
   const problems: ConfigProblem[] = [];
   const problem = (setting: keyof RecorderConfig, reason: string): void => {
+    const required = (REQUIRED as readonly string[]).includes(setting);
     problems.push({
       setting,
+      code: required ? "required_setting_unusable" : "setting_unusable",
       reason,
-      required: (REQUIRED as readonly string[]).includes(setting)
+      required,
+      printed: required
     });
   };
   const read = (key: keyof RecorderConfig): unknown => {
@@ -275,6 +291,23 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     readOnce("knownSafeNames", "no name is exempt from the warning")
   );
   if (knownSafe.problem !== undefined) problem("knownSafeNames", knownSafe.problem);
+  for (const [old, current] of Object.entries(RENAMED)) {
+    let given: unknown;
+    try {
+      given = (config as unknown as Record<string, unknown>)[old];
+    } catch {
+      // Unreadable configuration is already reported, setting by setting.
+      continue;
+    }
+    if (given === undefined) continue;
+    problems.push({
+      setting: old,
+      code: "setting_renamed",
+      reason: `${old} is now called ${current}, and ${old} is not read; ${current} keeps its default unless it is set.`,
+      required: false,
+      printed: true
+    });
+  }
 
   return {
     endpoint,

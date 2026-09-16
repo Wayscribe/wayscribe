@@ -92,7 +92,13 @@ describe("settings that cannot be used", () => {
     const resolved = resolveConfig({ ...base, [key]: value });
     expect(resolved[key]).toBe(fallback);
     expect(resolved.problems).toEqual([
-      { setting: key, reason: expect.stringContaining(key) as string, required: false }
+      {
+        setting: key,
+        code: "setting_unusable",
+        reason: expect.stringContaining(key) as string,
+        required: false,
+        printed: false
+      }
     ]);
   });
 
@@ -120,13 +126,17 @@ describe("settings that cannot be used", () => {
     expect(resolved.problems).toEqual([
       {
         setting: "endpoint",
+        code: "required_setting_unusable",
         reason: expect.stringContaining("no request can be made") as string,
-        required: true
+        required: true,
+        printed: true
       },
       {
         setting: "apiKey",
+        code: "required_setting_unusable",
         reason: expect.stringContaining("refuses every request") as string,
-        required: true
+        required: true,
+        printed: true
       }
     ]);
     // The value is never quoted.
@@ -165,6 +175,19 @@ describe("settings that cannot be used", () => {
     } as never);
     expect(resolved.maxEventBytes).toBe(262_144);
     expect(resolved.propagation).toBe("journey-and-type");
+    // Reported, naming the new option: losing `propagate: "full"` unseen is a
+    // trap for a JavaScript caller.
+    expect(
+      resolved.problems.map(({ setting, code, printed, reason }) => [
+        setting,
+        code,
+        printed,
+        reason.includes(setting === "maxPayloadBytes" ? "maxEventBytes" : "propagation")
+      ])
+    ).toEqual([
+      ["maxPayloadBytes", "setting_renamed", true, true],
+      ["propagate", "setting_renamed", true, true]
+    ]);
   });
 
   it("keeps the built-in secret names when redact is not a list of strings", () => {

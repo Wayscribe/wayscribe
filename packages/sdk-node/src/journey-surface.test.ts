@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { journeyEventSchema } from "@flight-recorder/protocol";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { Diagnostic } from "./diagnostics.js";
 import {
@@ -11,6 +12,7 @@ import {
   type FinishOptions,
   type IdentifyOptions,
   type Journey,
+  type PropagatedContext,
   type RecordInput,
   type Recorder,
   type RecorderConfig,
@@ -187,6 +189,191 @@ describe("continueJourney", () => {
   });
 });
 
+/** What the server would say about the event, by its own schema. */
+const valid = (event: Record<string, unknown> | undefined): boolean =>
+  journeyEventSchema.safeParse(event).success;
+
+/** Every report but the one good-news diagnostic, as `kind/code`. */
+const reported = (diagnostics: Diagnostic[]): string[] =>
+  diagnostics.filter((d) => d.kind !== "delivered_first").map((d) => `${d.kind}/${d.code}`);
+
+describe("continueJourney given a context it cannot use", () => {
+  const handle = offline().startJourney({ entity: { type: "t", id: "1" } });
+  it.each([
+    ["an empty object", {}, undefined],
+    ["a string", "jrn_x", undefined],
+    ["a journey handle rather than its context", handle, undefined],
+    ["a numeric journey id", { journeyId: 42 }, undefined],
+    ["an empty journey id", { journeyId: "" }, undefined],
+    ["an empty object beside a held id", {}, "jrn_held"]
+  ])("treats %s as absent, reports it, and records a valid event", async (_what, context, held) => {
+    const { events, diagnostics } = await capture((recorder) => {
+      recorder
+        .continueJourney({
+          context: context as unknown as PropagatedContext,
+          ...(held === undefined ? {} : { journeyId: held }),
+          entity: { type: "customer", id: "42" }
+        })
+        .record({ operation: "consumed", name: "consume" });
+    });
+    expect(events).toHaveLength(1);
+    expect(valid(events[0])).toBe(true);
+    if (held === undefined) {
+      expect(events[0]?.["journeyId"]).toMatch(/^jrn_[0-9a-f-]{36}$/);
+    } else {
+      expect(events[0]?.["journeyId"]).toBe(held);
+    }
+    expect(events[0]?.["entity"]).toEqual({ type: "customer", id: "42" });
+    expect(diagnostics.filter((d) => d.kind === "configuration_error")).toEqual([
+      expect.objectContaining({ code: "journey_id_invalid", detail: { setting: "context" } })
+    ]);
+  });
+
+  it("keeps a usable id from a context whose entity is malformed, and uses the fallback entity", async () => {
+    const { events, diagnostics } = await capture((recorder) => {
+      recorder
+        .continueJourney({
+          context: { journeyId: "jrn_context", entity: { type: "order" } as unknown as Entity },
+          entity: { type: "customer", id: "42" }
+        })
+        .record({ operation: "consumed", name: "consume" });
+    });
+    expect(events[0]).toMatchObject({
+      journeyId: "jrn_context",
+      entity: { type: "customer", id: "42" }
+    });
+    expect(reported(diagnostics)).toEqual(["configuration_error/entity_invalid"]);
+    expect(diagnostics[0]?.detail).toEqual({ setting: "context" });
+  });
+
+  it("reports nothing for a usable context", async () => {
+    const { diagnostics } = await capture((recorder) => {
+      recorder
+        .continueJourney({ context: handle.context() })
+        .record({ operation: "consumed", name: "consume" });
+    });
+    expect(reported(diagnostics)).toEqual([]);
+  });
+});
+
+describe("an entity the recorder cannot record", () => {
+  const unusable: [string, unknown][] = [
+    ["null", null],
+    ["a string", "customer-1"],
+    ["an empty type", { type: "", id: "1" }],
+    ["an empty id", { type: "customer", id: "" }],
+    ["a numeric id", { type: "customer", id: 1 }],
+    ["no id", { type: "customer" }]
+  ];
+
+  it.each(unusable)(
+    "is reported by startJourney when it is %s, and the steps are recorded under the unknown entity",
+    async (_what, entity) => {
+      const { events, diagnostics } = await capture((recorder) => {
+        recorder
+          .startJourney({ entity: entity as Entity })
+          .record({ operation: "received", name: "receive" });
+      });
+      expect(events).toHaveLength(1);
+      expect(valid(events[0])).toBe(true);
+      expect(events[0]?.["entity"]).toEqual({ type: "unknown", id: "unknown" });
+      expect(reported(diagnostics)).toContain("configuration_error/entity_invalid");
+      expect(diagnostics.find((d) => d.code === "entity_invalid")?.detail).toEqual({
+        setting: "entity"
+      });
+    }
+  );
+
+  it.each(unusable)("is reported by continueJourney when it is %s", async (_what, entity) => {
+    const { events, diagnostics } = await capture((recorder) => {
+      recorder
+        .continueJourney({ journeyId: "jrn_held", entity: entity as Entity })
+        .record({ operation: "consumed", name: "consume" });
+    });
+    expect(events[0]).toMatchObject({
+      journeyId: "jrn_held",
+      entity: { type: "unknown", id: "unknown" }
+    });
+    expect(valid(events[0])).toBe(true);
+    expect(reported(diagnostics)).toEqual(["configuration_error/entity_invalid"]);
+  });
+
+  it("is reported when neither the context nor the options carry one", async () => {
+    const { events, diagnostics } = await capture((recorder) => {
+      recorder
+        .continueJourney({ context: { journeyId: "jrn_bare" } })
+        .record({ operation: "consumed", name: "consume" });
+    });
+    expect(events[0]?.["entity"]).toEqual({ type: "unknown", id: "unknown" });
+    expect(reported(diagnostics)).toEqual(["configuration_error/entity_invalid"]);
+  });
+
+  it("is copied, so a later change to the caller's object is not recorded", async () => {
+    const entity = { type: "customer", id: "42" };
+    const { events, diagnostics } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity });
+      entity.id = "changed";
+      journey.record({ operation: "received", name: "receive" });
+    });
+    expect(events[0]?.["entity"]).toEqual({ type: "customer", id: "42" });
+    expect(reported(diagnostics)).toEqual([]);
+  });
+});
+
+describe("continueJourney given no options at all", () => {
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+    ["a number", 7]
+  ])("reports %s once, and still records", async (_what, options) => {
+    const { events, diagnostics } = await capture((recorder) => {
+      recorder
+        .continueJourney(options as unknown as ContinueJourneyOptions)
+        .record({ operation: "consumed", name: "consume" });
+    });
+    expect(events).toHaveLength(1);
+    expect(valid(events[0])).toBe(true);
+    expect(reported(diagnostics)).toEqual(["capture_error/invalid_options"]);
+    expect(diagnostics.find((d) => d.code === "invalid_options")?.detail).toEqual({
+      call: "continueJourney"
+    });
+  });
+});
+
+describe("fail given options it cannot use", () => {
+  it.each([
+    ["positional metadata, as fail took before", { attempt: 3 }, undefined],
+    ["a string", "dlq", undefined],
+    ["null", null, undefined],
+    ["an array", [1], undefined],
+    ["metadata beside another key", { metadata: { queue: "dlq" }, attempt: 3 }, { queue: "dlq" }]
+  ])("reports %s and still records the failure", async (_what, options, metadata) => {
+    const { events, diagnostics } = await capture((recorder) => {
+      recorder
+        .startJourney({ entity: { type: "t", id: "1" } })
+        .fail("dead-letter", new Error("gave up"), options as unknown as FailOptions);
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.["metadata"]).toEqual(metadata);
+    expect(reported(diagnostics)).toEqual(["capture_error/invalid_options"]);
+    expect(diagnostics.find((d) => d.code === "invalid_options")?.detail).toEqual({
+      call: "fail"
+    });
+    // The keys of a host's object can be data; they are never quoted.
+    expect(JSON.stringify(diagnostics)).not.toContain("attempt");
+  });
+
+  it("reports nothing for { metadata } or no options", async () => {
+    const { diagnostics } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "t", id: "1" } });
+      journey.fail("a", new Error("x"), { metadata: { queue: "dlq" } });
+      journey.fail("b", new Error("x"));
+      journey.fail("c", new Error("x"), {});
+    });
+    expect(reported(diagnostics)).toEqual([]);
+  });
+});
+
 describe("fail", () => {
   it("takes its metadata in an options object", async () => {
     const { events } = await capture((recorder) => {
@@ -248,12 +435,28 @@ describe("displayableAliases", () => {
   });
 
   it("is no longer read under the old name", async () => {
-    const { events } = await capture((recorder) => {
+    const { events, diagnostics } = await capture((recorder) => {
       recorder
         .startJourney({ entity: { type: "t", id: "1" } })
         .identify({ a: "b" }, { displayable: ["a"] } as unknown as IdentifyOptions);
+      recorder.startJourney({
+        entity: { type: "t", id: "2" },
+        aliases: { a: "b" },
+        displayable: ["a"]
+      } as unknown as StartJourneyOptions);
     });
+    expect(events).toHaveLength(2);
     expect(events[0]).not.toHaveProperty("displayableAliases");
+    expect(events[1]).not.toHaveProperty("displayableAliases");
+    // Reported, since a JavaScript caller would otherwise lose the list unseen.
+    expect(
+      diagnostics
+        .filter((d) => d.code === "setting_renamed")
+        .map((d) => [d.reason.includes("displayableAliases"), d.detail])
+    ).toEqual([
+      [true, { setting: "displayable" }],
+      [true, { setting: "displayable" }]
+    ]);
   });
 });
 

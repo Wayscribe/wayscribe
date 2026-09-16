@@ -391,6 +391,28 @@ describe("what configuration problems print", () => {
     expect(lines.join("\n")).not.toContain("captureMode");
   });
 
+  it("prints an option under its old name once per process with logDiagnostics off, naming the new one", async () => {
+    const { lines, restore } = printed();
+    try {
+      for (let recorders = 0; recorders < 2; recorders += 1) {
+        const recorder = createRecorder({
+          ...base,
+          propagate: "full",
+          maxPayloadBytes: 1_000
+        } as unknown as RecorderConfig);
+        await recorder.shutdown({ timeoutMs: 100 });
+      }
+    } finally {
+      restore();
+    }
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("maxPayloadBytes");
+    expect(lines[0]).toContain("maxEventBytes");
+    expect(lines[1]).toContain("propagate");
+    expect(lines[1]).toContain("propagation");
+    expect(lines.join("\n")).not.toContain("full");
+  });
+
   it("prints nothing for a sound configuration", async () => {
     const { lines, restore } = printed();
     try {

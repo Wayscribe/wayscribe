@@ -513,9 +513,12 @@ A label is the journey's name on the Journeys page, where partial text finds it
   setting SHOULD take its default, or be clamped into range. A required
   setting (section 12) has no default, so nothing recorded reaches the server
   until it is fixed; an SDK SHOULD therefore print one warning for it per
-  process even when debug output is off. When debug output is on, every
-  problem found at creation MUST be printed, whatever rate limit applies to
-  other output, so that one cannot hide another.
+  process even when debug output is off. A setting given under a name the SDK
+  no longer reads SHOULD be reported the same way, naming the setting that
+  replaced it, and printed like a required one, because its value is otherwise
+  lost without a sign. When debug output is on, every problem found at
+  creation MUST be printed, whatever rate limit applies to other output, so
+  that one cannot hide another.
 
 | ID | Source | Checked by |
 | --- | --- | --- |

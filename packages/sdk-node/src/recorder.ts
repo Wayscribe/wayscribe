@@ -30,7 +30,7 @@ import {
   injectPayload,
   injectSqsAttributes
 } from "./propagation.js";
-import type { ContextEnvelope, SqsMessageAttributes } from "./propagation.js";
+import type { ContextEnvelope, PropagatedContext, SqsMessageAttributes } from "./propagation.js";
 import { acceptLabel } from "./label.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
@@ -86,7 +86,9 @@ const OMITTED_CODE: Record<LimitViolation, PayloadOmittedDiagnostic["code"]> = {
   payload_too_large: "too_large",
   max_depth_exceeded: "too_deep",
   max_keys_exceeded: "too_wide",
-  max_string_length_exceeded: "string_too_long",
+  // Unreachable: payload limits measure a long string as it will be cut, so no
+  // string is ever over the limit here. Mapped only because the type is total.
+  max_string_length_exceeded: "too_large",
   unserialisable_payload: "unserialisable"
 };
 
@@ -194,16 +196,37 @@ const NO_LABEL = (): undefined => undefined;
 /** The entity of a journey the host gave none for. */
 const UNKNOWN_ENTITY: Entity = { type: "unknown", id: "unknown" };
 
+/** A non-empty string, which is what the protocol requires of an identifier. */
+function isIdentifier(value: unknown): value is string {
+  return typeof value === "string" && value !== "";
+}
+
+/** An entity the server will accept: an object whose type and id are non-empty strings. */
+function isUsableEntity(value: unknown): value is Entity {
+  if (typeof value !== "object" || value === null) return false;
+  const { type, id } = value as Partial<Entity>;
+  return isIdentifier(type) && isIdentifier(id);
+}
+
+/** A journey's context the recorder can record on. Reading it runs the host's getters. */
 function isContext(value: unknown): value is JourneyContext {
   if (typeof value !== "object" || value === null) return false;
   const { journeyId, entity } = value as Partial<JourneyContext>;
-  return (
-    typeof journeyId === "string" &&
-    typeof entity === "object" &&
-    typeof entity.type === "string" &&
-    typeof entity.id === "string"
-  );
+  return isIdentifier(journeyId) && isUsableEntity(entity);
 }
+
+/** A copy, so a later change to the host's object does not change what is recorded. */
+function copyEntity(entity: Entity): Entity {
+  return { type: entity.type, id: entity.id };
+}
+
+/** Something shaped like a propagated context, as a one-argument inject call passes. */
+function isPropagated(value: unknown): boolean {
+  return typeof value === "object" && value !== null && "journeyId" in value;
+}
+
+/** What a journey's error becomes when the thrown value cannot be read at all. */
+const UNREADABLE_ERROR = "The thrown value could not be read.";
 
 /** Duck-typed rather than `instanceof Promise`: a thenable from any library counts. */
 function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
@@ -479,18 +502,20 @@ export function createRecorder(config: RecorderConfig): Recorder {
   // secret, it prints one line per process and setting even with
   // logDiagnostics off, the other exception to SDK-40 that SDK-56 allows.
   safely(diagnostics, "capture_error", () => {
-    for (const { setting, reason, required } of resolved.problems) {
+    for (const { setting, code, reason, required, printed } of resolved.problems) {
       const diagnostic: Diagnostic = {
         kind: "configuration_error",
-        code: required ? "required_setting_unusable" : "setting_unusable",
+        code,
         reason,
         detail: { setting }
       };
       diagnostics.report(diagnostic, undefined, { unlimited: true });
-      if (!required || resolved.logDiagnostics || !firstRequiredSettingWarning(setting)) continue;
+      if (!printed || resolved.logDiagnostics || !firstRequiredSettingWarning(setting)) continue;
       printDiagnostic(
         diagnostic,
-        "printed once per process, whether or not logDiagnostics is on, because nothing recorded reaches the server until it is fixed"
+        required
+          ? "printed once per process, whether or not logDiagnostics is on, because nothing recorded reaches the server until it is fixed"
+          : "printed once per process, whether or not logDiagnostics is on, because the setting is otherwise lost unseen"
       );
     }
   });
@@ -701,7 +726,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ...(stats.strings === 0 ? {} : { truncated: stats }),
         ...(found === undefined ? {} : { secretNames: found })
       };
-    } catch {
+    } catch (error) {
+      // A getter or a toJSON that throws. The event is kept with a marker, and
+      // the omission is reported like any other; the reason never quotes what
+      // was thrown, which can carry the payload.
+      diagnostics.report({
+        kind: "payload_omitted",
+        code: "unserialisable",
+        reason: `The ${field} could not be read, so it was not captured.`,
+        detail: { field, error }
+      });
       return { value: UNCAPTURABLE };
     }
   }
@@ -1138,16 +1172,30 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
   }
 
+  /**
+   * The error record for a thrown value. Never throws: a value that cannot be
+   * read, such as a revoked Proxy or a null-prototype object, is recorded with
+   * a fixed message, so the failure it stands for is still on the timeline.
+   */
   function toErrorRecord(error: unknown): ErrorInput {
-    if (error instanceof Error) {
-      const code = (error as { code?: unknown }).code;
-      return {
-        message: error.message,
-        type: error.name,
-        ...(typeof code === "string" ? { code } : {})
-      };
+    try {
+      if (error instanceof Error) {
+        // Typed as strings, but a host's error can hold anything.
+        const { message, name, code } = error as {
+          message: unknown;
+          name: unknown;
+          code?: unknown;
+        };
+        return {
+          message: String(message),
+          type: String(name),
+          ...(typeof code === "string" ? { code } : {})
+        };
+      }
+      return { message: String(error) };
+    } catch {
+      return { message: UNREADABLE_ERROR };
     }
-    return { message: String(error) };
   }
 
   /**
@@ -1273,15 +1321,35 @@ export function createRecorder(config: RecorderConfig): Recorder {
       throw error;
     }
 
-    if (!isThenable(produced)) {
-      recordSuccess(produced);
-      return produced;
+    let thenable: boolean;
+    try {
+      thenable = isThenable(produced);
+    } catch (error) {
+      // A `then` getter that throws. `await` would reject with its error, so
+      // the wrapper does too, rather than throw into the host, and the step is
+      // recorded as failed with it.
+      safely(diagnostics, "capture_error", () => {
+        diagnostics.report({
+          kind: "capture_error",
+          code: "unexpected_error",
+          reason: `${name} returned a value whose then could not be read; the wrapper rejects with the error it threw.`,
+          detail: { error }
+        });
+      });
+      recordFailure(error);
+      // The host's own error, whatever it is, as the rethrow rule requires.
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+      return Promise.reject(error);
+    }
+    if (!thenable) {
+      recordSuccess(produced as T);
+      return produced as T;
     }
 
     // Through Promise.resolve, so a thenable from another library comes back
     // as the native promise the types promise. A native promise is returned by
     // Promise.resolve as it is, so nothing changes for one.
-    return Promise.resolve(produced).then(
+    return Promise.resolve(produced as PromiseLike<T>).then(
       (result) => {
         recordSuccess(result);
         return result;
@@ -1368,7 +1436,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       fail(name, error, options) {
         // The options apart from the event: options that cannot be read cost
         // their metadata, not the failure being recorded.
-        const metadata = safely(diagnostics, "capture_error", () => options?.metadata);
+        const metadata = safely(diagnostics, "capture_error", () => failMetadata(options));
         safely(diagnostics, "capture_error", () => {
           recordOn(targets, {
             operation: "failed",
@@ -1413,6 +1481,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       },
       identify(aliases, options) {
         safely(diagnostics, "capture_error", () => {
+          reportRenamedOption(options, "displayable", "displayableAliases", "identify");
           enqueue(target, {
             operation: "identified",
             name: "identify",
@@ -1432,41 +1501,196 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   /**
+   * Whether an inject helper was given a context to inject, reporting it when
+   * not. A relay passing what `extractHttpContext` returned for a caller that
+   * does not record gets the carrier back unchanged.
+   */
+  function hasContext(context: unknown, call: string): context is PropagatedContext {
+    if (typeof context === "object" && context !== null) return true;
+    diagnostics.report({
+      kind: "capture_error",
+      code: "context_missing",
+      reason: `${call} was given no journey context, so it added none. Pass journey.context() as the last argument.`,
+      detail: { call }
+    });
+    return false;
+  }
+
+  /**
+   * A call's options that are not an object, or that hold something the call
+   * does not read, reported once. Key names are never quoted: a host's keys can
+   * be data.
+   */
+  function reportInvalidOptions(call: string, reason: string): void {
+    diagnostics.report({
+      kind: "capture_error",
+      code: "invalid_options",
+      reason,
+      detail: { call }
+    });
+  }
+
+  /**
+   * An option a JavaScript caller passed under the name it had before the
+   * first release. Reported, because the call otherwise loses it unseen.
+   */
+  function reportRenamedOption(options: unknown, old: string, current: string, call: string): void {
+    if (typeof options !== "object" || options === null) return;
+    try {
+      if (!(old in options)) return;
+    } catch {
+      // A Proxy that refuses `in`: its reads are reported where they fail.
+      return;
+    }
+    diagnostics.report({
+      kind: "configuration_error",
+      code: "setting_renamed",
+      reason: `${call} was given ${old}, which is now called ${current}; ${old} is not read.`,
+      detail: { setting: old }
+    });
+  }
+
+  function reportEntity(setting: string, reason: string): void {
+    diagnostics.report({
+      kind: "configuration_error",
+      code: "entity_invalid",
+      reason,
+      detail: { setting }
+    });
+  }
+
+  /** `fail`'s metadata, reporting options it cannot use. */
+  function failMetadata(options: unknown): Record<string, unknown> | undefined {
+    if (options === undefined) return undefined;
+    if (typeof options !== "object" || options === null || Array.isArray(options)) {
+      reportInvalidOptions(
+        "fail",
+        "fail was given options that are not an object; pass metadata as { metadata }."
+      );
+      return undefined;
+    }
+    if (Object.keys(options).some((key) => key !== "metadata")) {
+      reportInvalidOptions(
+        "fail",
+        "fail was given options other than metadata, which are not read; pass metadata as { metadata }."
+      );
+    }
+    return (options as { metadata?: Record<string, unknown> }).metadata;
+  }
+
+  /**
+   * The entity `startJourney` records under: the host's, copied, or the unknown
+   * entity, reported, when the host's cannot be recorded. The steps are kept
+   * either way; an event with an unusable entity would be refused whole.
+   */
+  function startedEntity(options: unknown): Entity {
+    // Unreadable options throw to the caller's boundary, which reports them.
+    const entity: unknown = (options as { entity?: unknown }).entity;
+    if (isUsableEntity(entity)) return copyEntity(entity);
+    reportEntity(
+      "entity",
+      "startJourney was given an entity whose type and id are not both non-empty strings, so its steps are recorded under the unknown entity."
+    );
+    return UNKNOWN_ENTITY;
+  }
+
+  /**
    * The context `continueJourney` joins.
    *
-   * At the default propagation level the journey id crosses the boundary and
-   * the entity does not, so the consumer supplies the entity it already has
-   * from the message body.
+   * The journey id is the context's, else `journeyId`, else a new random one.
+   * The entity is the context's, else `entity`, else the unknown entity. At the
+   * default propagation level the journey id crosses the boundary and the
+   * entity does not, so the consumer supplies the entity it already has from
+   * the message body.
    *
-   * Each option is read inside the boundary, and apart, as startJourney's are:
-   * missing options or a getter that throws used to throw into the consumer.
-   * Whatever cannot be read, the consumer still gets a journey; one it cannot
-   * place is a new one.
+   * Anything that cannot be used is reported and treated as absent: a context
+   * whose id is not a non-empty string, which used to be recorded as it was
+   * and cost the whole journey at the server; an entity whose type or id is
+   * not; options that are not an object, reported once. Each option is read
+   * inside the boundary, and apart, so a getter that throws costs that option.
    */
-  function continuedContext(options: ContinueJourneyOptions): JourneyContext {
-    const read = <K extends keyof ContinueJourneyOptions>(
-      key: K
-    ): ContinueJourneyOptions[K] | undefined =>
-      safely(diagnostics, "capture_error", () => options[key]);
-    const context = read("context");
-    const propagated = safely(diagnostics, "capture_error", () =>
-      context === undefined ? undefined : { journeyId: context.journeyId, entity: context.entity }
-    );
-    const entity: Entity = propagated?.entity ?? read("entity") ?? UNKNOWN_ENTITY;
-    if (propagated !== undefined) return { journeyId: propagated.journeyId, entity };
-
-    const journeyId: unknown = read("journeyId");
-    if (typeof journeyId === "string" && journeyId !== "") return { journeyId, entity };
-    if (journeyId !== undefined) {
-      diagnostics.report({
-        kind: "configuration_error",
-        code: "journey_id_invalid",
-        reason:
-          "continueJourney was given a journeyId that is not a non-empty string, so it started a new journey.",
-        detail: {}
-      });
+  function continuedContext(options: unknown): JourneyContext {
+    if (typeof options !== "object" || options === null) {
+      reportInvalidOptions(
+        "continueJourney",
+        "continueJourney was given options that are not an object, so it started a new journey under the unknown entity."
+      );
+      return { journeyId: `jrn_${randomUUID()}`, entity: UNKNOWN_ENTITY };
     }
-    return { journeyId: `jrn_${randomUUID()}`, entity };
+    const given = options as Record<keyof ContinueJourneyOptions, unknown>;
+    const read = (key: keyof ContinueJourneyOptions): unknown =>
+      safely(diagnostics, "capture_error", () => given[key]);
+    reportRenamedOption(options, "entityFallback", "entity", "continueJourney");
+
+    let journeyId: string | undefined;
+    let entity: Entity | undefined;
+
+    const context = read("context");
+    if (context !== undefined) {
+      const propagated = safely(diagnostics, "capture_error", () => {
+        if (typeof context !== "object" || context === null) return {};
+        const { journeyId: id, entity: carried } = context as Record<string, unknown>;
+        return { id, carried };
+      });
+      if (propagated !== undefined) {
+        if (isIdentifier(propagated.id)) {
+          journeyId = propagated.id;
+        } else {
+          diagnostics.report({
+            kind: "configuration_error",
+            code: "journey_id_invalid",
+            reason:
+              "continueJourney was given a context without a journey id, so it was not used. Pass what an extract helper returned, or a journey's context().",
+            detail: { setting: "context" }
+          });
+        }
+        if (isUsableEntity(propagated.carried)) {
+          entity = copyEntity(propagated.carried);
+        } else if (journeyId !== undefined && propagated.carried !== undefined) {
+          reportEntity(
+            "context",
+            "continueJourney was given a context whose entity type and id are not both non-empty strings, so its entity was not used."
+          );
+        }
+      }
+    }
+
+    if (journeyId === undefined) {
+      const held = read("journeyId");
+      if (isIdentifier(held)) {
+        journeyId = held;
+      } else if (held !== undefined) {
+        diagnostics.report({
+          kind: "configuration_error",
+          code: "journey_id_invalid",
+          reason:
+            "continueJourney was given a journeyId that is not a non-empty string, so it was not used.",
+          detail: { setting: "journeyId" }
+        });
+      }
+    }
+
+    if (entity === undefined) {
+      const fallback = read("entity");
+      if (isUsableEntity(fallback)) {
+        entity = copyEntity(fallback);
+      } else if (fallback !== undefined) {
+        reportEntity(
+          "entity",
+          "continueJourney was given an entity whose type and id are not both non-empty strings, so its steps are recorded under the unknown entity."
+        );
+      } else {
+        reportEntity(
+          "entity",
+          "continueJourney had no entity, from the context or the options, so its steps are recorded under the unknown entity. Pass the entity you have as entity."
+        );
+      }
+    }
+
+    return {
+      journeyId: journeyId ?? `jrn_${randomUUID()}`,
+      entity: entity ?? UNKNOWN_ENTITY
+    };
   }
 
   /**
@@ -1509,14 +1733,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
 
   return {
     startJourney(options) {
-      const context = safely(diagnostics, "capture_error", () => ({
-        journeyId: `jrn_${randomUUID()}`,
-        entity: options.entity
-      }));
-
-      const journey = makeJourney(
-        context ?? { journeyId: `jrn_${randomUUID()}`, entity: { type: "unknown", id: "unknown" } }
-      );
+      const entity =
+        safely(diagnostics, "capture_error", () => startedEntity(options)) ?? UNKNOWN_ENTITY;
+      const journey = makeJourney({ journeyId: `jrn_${randomUUID()}`, entity });
       // Each option is read inside the boundary, and apart, so a getter that
       // throws, or options that are not an object, cost that option and not
       // the journey the host is about to use.
@@ -1527,6 +1746,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         if (label !== undefined) journey.label(label);
       });
       safely(diagnostics, "capture_error", () => {
+        reportRenamedOption(options, "displayable", "displayableAliases", "startJourney");
         const { aliases, displayableAliases } = options;
         if (aliases === undefined) return;
         journey.identify(
@@ -1537,7 +1757,13 @@ export function createRecorder(config: RecorderConfig): Recorder {
       return journey;
     },
     continueJourney(options) {
-      const journey = makeJourney(continuedContext(options));
+      const context = safely(diagnostics, "capture_error", () => continuedContext(options)) ?? {
+        journeyId: `jrn_${randomUUID()}`,
+        entity: UNKNOWN_ENTITY
+      };
+      const journey = makeJourney(context);
+      const given: unknown = options;
+      if (typeof given !== "object" || given === null) return journey;
       safely(diagnostics, "capture_error", () => {
         const { label } = options;
         if (label !== undefined) journey.label(label);
@@ -1584,21 +1810,31 @@ export function createRecorder(config: RecorderConfig): Recorder {
     // headers rather than no request, and no context rather than no consumer.
     injectHttpHeaders: (headers, context) =>
       safely(diagnostics, "capture_error", () =>
-        injectHttpHeaders(headers, context, resolved.propagation)
+        hasContext(context, "injectHttpHeaders")
+          ? injectHttpHeaders(headers, context, resolved.propagation)
+          : headers
       ) ?? headers,
     extractHttpContext: (headers) =>
       safely(diagnostics, "capture_error", () => extractHttpContext(headers)),
     injectSqsAttributes: (attributes, context) =>
-      safely(diagnostics, "capture_error", () =>
-        injectSqsAttributes(attributes, context, resolved.propagation)
-      ) ?? (attributes as typeof attributes & SqsMessageAttributes),
+      safely(diagnostics, "capture_error", () => {
+        if (hasContext(context, "injectSqsAttributes")) {
+          return injectSqsAttributes(attributes, context, resolved.propagation);
+        }
+        // A context passed as the only argument would otherwise go out as the
+        // message's attributes.
+        return (isPropagated(attributes) ? {} : attributes) as typeof attributes &
+          SqsMessageAttributes;
+      }) ?? (attributes as typeof attributes & SqsMessageAttributes),
     extractSqsContext: (attributes) =>
       safely(diagnostics, "capture_error", () => extractSqsContext(attributes)),
     // Without a context there is no envelope to fill, so the payload goes out
     // in one with no journey, which extractPayload reads as no context.
     injectPayload: (payload, context) =>
       safely(diagnostics, "capture_error", () =>
-        injectPayload(payload, context, resolved.propagation)
+        hasContext(context, "injectPayload")
+          ? injectPayload(payload, context, resolved.propagation)
+          : undefined
       ) ?? ({ _flight: {}, data: payload } as unknown as ContextEnvelope<typeof payload>),
     extractPayload: (body) =>
       safely(diagnostics, "capture_error", () => extractPayload(body)) ?? { data: body },

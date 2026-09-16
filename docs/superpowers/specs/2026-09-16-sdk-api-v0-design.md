@@ -99,12 +99,17 @@ The codes, per kind:
 | `insecure_endpoint` | `unencrypted_endpoint` | `{ scheme, host }` |
 | `rejected` | `event_refused`, `request_refused` | `{ serverError?, events?, httpStatus? }` |
 | `transport_error` | `request_failed`, `refused_for_now`, `unexpected_error` | `{ unsent?, abandoned?, error? }` |
-| `payload_omitted` | `too_large`, `too_deep`, `too_wide`, `string_too_long`, `unserialisable`, `projection_failed` | `{ field, error? }` |
+| `payload_omitted` | `too_large`, `too_deep`, `too_wide`, `unserialisable`, `projection_failed` | `{ field, error? }` |
 | `payload_truncated` | `strings_cut`, `label_cut` | `{ field, strings, charactersRemoved }` |
 | `key_dropped` | `aliases_not_object`, `alias_invalid`, `displayable_alias_invalid`, `metadata_key_too_long`, `label_invalid` | `{ field, keys }` |
 | `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | `{ name?, operation? }` (set for `after_shutdown`) |
-| `capture_error` | `unexpected_error`, `not_a_journey` | `{ error? }` |
-| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | `{ setting? }` |
+| `capture_error` | `unexpected_error`, `not_a_journey`, `invalid_options`, `context_missing` | `{ error?, call? }` |
+| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | `{ setting? }` |
+
+The codes after review: `string_too_long` was unreachable and is gone;
+`invalid_options`, `context_missing` and `setting_renamed` were added, and
+`entity_invalid` and `journey_id_invalid` also cover `startJourney` and a
+`continueJourney` context (see ADR-056).
 | `breaker_opened` | `consecutive_failures` | `{ failures, cooldownMs }` |
 | `unredacted_secret_name` | `secret_like_name` | `{ field, name, path }` |
 

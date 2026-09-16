@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Journey } from "./recorder.js";
 
 // Port 1 refuses connections: the contract assertions below all hold with a dead
@@ -451,7 +452,10 @@ describe("the server's verdict", () => {
 
 describe("payloads the application cannot serialize", () => {
   /** Its own collector: `recordAnd` above is scoped to another block. */
-  async function collect(use: (journey: Journey) => unknown): Promise<Record<string, unknown>[]> {
+  async function collect(
+    use: (journey: Journey) => unknown,
+    seen: Diagnostic[] = []
+  ): Promise<Record<string, unknown>[]> {
     const received: Record<string, unknown>[] = [];
     const server = createServer((request, response) => {
       let body = "";
@@ -474,7 +478,11 @@ describe("payloads the application cannot serialize", () => {
     });
     const { port } = server.address() as AddressInfo;
 
-    const recorder = createRecorder({ ...base, endpoint: `http://127.0.0.1:${String(port)}` });
+    const recorder = createRecorder({
+      ...base,
+      endpoint: `http://127.0.0.1:${String(port)}`,
+      onDiagnostic: (d) => seen.push(d)
+    });
     await use(recorder.startJourney({ entity: { type: "customer", id: "1" } }));
     await recorder.shutdown({ timeoutMs: 2_000 });
     await new Promise<void>((resolve) => {
@@ -498,13 +506,18 @@ describe("payloads the application cannot serialize", () => {
       }
     };
 
+    const seen: Diagnostic[] = [];
     const events = await collect((journey) => {
       journey.record({ operation: "received", name: "receive-order", input: order });
-    });
+    }, seen);
+    const omitted = seen.filter((d) => d.kind === "payload_omitted");
 
     const received = events.find((e) => e["name"] === "receive-order");
     expect(received).toBeDefined();
     expect(received?.["input"]).toBe("[UNCAPTURABLE]");
+    // Reported, and counted, like any other payload not captured.
+    expect(omitted.map((d) => [d.code, d.detail.field])).toEqual([["unserialisable", "input"]]);
+    expect(omitted[0]?.reason).not.toContain("lines");
   });
 
   it("keeps the event, and its error, when the failing step is the one recorded", async () => {

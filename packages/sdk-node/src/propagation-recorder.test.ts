@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder } from "./recorder.js";
 
 const base = {
@@ -104,6 +105,43 @@ describe("propagation cannot break the host", () => {
     expect(recorder.extractHttpContext(null as never)).toBeUndefined();
     expect(recorder.extractSqsContext("not an object")).toBeUndefined();
     expect(recorder.extractPayload(null).data).toBeNull();
+  });
+
+  it("reports a context passed as the only argument, rather than sending it as attributes", () => {
+    const seen: Diagnostic[] = [];
+    const reporting = createRecorder({
+      endpoint: "http://127.0.0.1:1",
+      apiKey: "fr_test",
+      serviceName: "relay",
+      environment: "development",
+      onDiagnostic: (d) => seen.push(d)
+    });
+    const context = { journeyId: "jrn_1111", entity: { type: "customer", id: "C1" } };
+    const call = reporting.injectSqsAttributes.bind(reporting) as unknown as (
+      only: unknown
+    ) => unknown;
+    expect(call(context)).toEqual({});
+    expect(seen.map((d) => [d.kind, d.code])).toEqual([["capture_error", "context_missing"]]);
+  });
+
+  it("reports a missing context with its own code", () => {
+    const seen: Diagnostic[] = [];
+    const reporting = createRecorder({
+      endpoint: "http://127.0.0.1:1",
+      apiKey: "fr_test",
+      serviceName: "relay",
+      environment: "development",
+      onDiagnostic: (d) => seen.push(d)
+    });
+    const headers = { accept: "text/plain" };
+    expect(reporting.injectHttpHeaders(headers, undefined as never)).toEqual(headers);
+    expect(reporting.injectSqsAttributes({}, undefined as never)).toEqual({});
+    expect(reporting.injectPayload(1, undefined as never).data).toBe(1);
+    expect(seen.map((d) => d.code)).toEqual([
+      "context_missing",
+      "context_missing",
+      "context_missing"
+    ]);
   });
 
   it("no longer offers the old helper names", () => {

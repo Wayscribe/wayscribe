@@ -37,7 +37,7 @@ changes far less often.
   | `{ kind, reason, detail? }` | `{ kind, code, reason, detail }`: match on `code`, never on `reason` |
   | `delivered_first`'s `endpoint`, `accepted` | `detail.endpoint`, `detail.accepted` |
   | `insecure_endpoint`'s `scheme`, `host` | `detail.scheme`, `detail.host` |
-  | `payload_omitted`'s `detail.reason` (`payload_too_large`, `max_depth_exceeded`, `max_keys_exceeded`, `projection_failed`) | `code` (`too_large`, `too_deep`, `too_wide`, `projection_failed`, and `string_too_long`, `unserialisable`) |
+  | `payload_omitted`'s `detail.reason` (`payload_too_large`, `max_depth_exceeded`, `max_keys_exceeded`, `projection_failed`) | `code` (`too_large`, `too_deep`, `too_wide`, `projection_failed`, and `unserialisable`, now also reported for a payload whose getter throws) |
   | `dropped` reasons `queue_full`, `no_verdict: ...`, `shutdown: ...` | codes `queue_full`, `no_verdict`, `shutdown`, and `after_shutdown`, `retry_budget` |
   | `rejected`'s `detail`, the server's error | `detail.serverError`; a whole request refused is code `request_refused` with `detail.events` and `detail.httpStatus` |
   | `capture_error` and `transport_error` `detail`, the thrown value | `detail.error` |
@@ -56,7 +56,18 @@ changes far less often.
   asynchronous and returns a native promise; `captureInput` is typed with the
   wrapper's input; `record`'s error takes `stack`; `extractHttpContext` reads a
   fetch `Headers`; a `continueJourney` `journeyId` that is not a non-empty
-  string is reported as `journey_id_invalid`; the tarball holds one
+  string, or a context without one, is reported as `journey_id_invalid` and
+  not used; an entity that is missing or malformed is reported as
+  `entity_invalid` and the steps recorded under the unknown entity; `fail`
+  options other than `{ metadata }` are reported as `invalid_options`; an
+  inject helper given no context reports `context_missing`, and replaces a
+  journey's own headers or attributes already in the carrier; an option under
+  its old name is reported as `setting_renamed` (and `maxPayloadBytes` and
+  `propagate` are printed once per process); a thrown value that cannot be
+  described no longer escapes the failure boundary; a callback's value whose
+  `then` getter throws gives a rejected promise instead of a throw; a
+  callback returning a native `Promise` subclass now gets a plain `Promise`
+  back; the tarball holds one
   declaration file and no build-only manifest fields; and a Stability section
   in the SDK README lists what is experimental.
 

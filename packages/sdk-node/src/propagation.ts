@@ -89,6 +89,31 @@ const ATTR_JOURNEY = "flightJourneyId";
 const ATTR_ENTITY_TYPE = "flightEntityType";
 const ATTR_ENTITY_ID = "flightEntityId";
 
+const HEADERS: ReadonlySet<string> = new Set([
+  HEADER_JOURNEY,
+  HEADER_ENTITY_TYPE,
+  HEADER_ENTITY_ID
+]);
+const ATTRIBUTES: ReadonlySet<string> = new Set([ATTR_JOURNEY, ATTR_ENTITY_TYPE, ATTR_ENTITY_ID]);
+
+/**
+ * A copy of `carrier` without the journey's own names. A carrier forwarded
+ * from an inbound message still holds that journey's values, and merging over
+ * them would pair an old entity id with the new journey whenever the level
+ * does not send one. HTTP names compare without case; SQS names with it.
+ */
+function without<C extends object>(
+  carrier: C,
+  names: ReadonlySet<string>,
+  fold: (name: string) => string
+): C {
+  const copy: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(carrier)) {
+    if (!names.has(fold(name))) copy[name] = value;
+  }
+  return copy as C;
+}
+
 const MAX_VALUE_LENGTH = 256;
 // Printable, no whitespace or control characters: enough for our own identifiers,
 // and it rejects header injection outright.
@@ -149,7 +174,7 @@ export function injectHttpHeaders(
   const fields = fieldsFor(context, level);
   // A copy: mutating the caller's header object would surprise anyone reusing it.
   return {
-    ...headers,
+    ...without(headers, HEADERS, (name) => name.toLowerCase()),
     [HEADER_JOURNEY]: fields.journeyId,
     ...(fields.entityType === undefined ? {} : { [HEADER_ENTITY_TYPE]: fields.entityType }),
     ...(fields.entityId === undefined ? {} : { [HEADER_ENTITY_ID]: fields.entityId })
@@ -197,7 +222,7 @@ export function injectSqsAttributes<A extends object>(
 
   // A copy, as the HTTP helper makes: the caller may reuse its attributes.
   return {
-    ...attributes,
+    ...without(attributes, ATTRIBUTES, (name) => name),
     [ATTR_JOURNEY]: attribute(fields.journeyId),
     ...(fields.entityType === undefined
       ? {}

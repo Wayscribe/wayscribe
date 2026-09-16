@@ -2496,8 +2496,11 @@ nothing said so. Renaming `authToken` to `sessionCredential` was enough.
 ## ADR-056: The Node SDK's public surface is settled before its first release
 
 **Status:** Accepted. Changes the Node SDK's API and package, before any
-release; changes nothing on the wire, in the language-neutral specification or
-in the server. Follows the API review of 2026-09-16. Leaves the product rename
+release; changes nothing on the wire or in the server. Language-neutral
+material changes in two places: the shared SDK conformance cases use the Node
+option names (`maxEventBytes`, `displayableAliases`) in their `recorder` and
+`args` objects, and SDK-60 asks for a setting under a name no longer read to be
+reported and printed. Follows the API review of 2026-09-16. Leaves the product rename
 (the propagation names, the `_flight` key, the print prefix, the `fr_` key
 prefix and the package name) to its own decision.
 
@@ -2558,6 +2561,27 @@ fails. Each is cheap before a release and breaking after it.
   named and exported, with `Entity` for `{ type, id }`, and `record`'s error
   type, `ErrorInput`, admits the `stack` the SDK already masked and bounded.
   `TraceContext` is no longer exported: nothing public refers to it.
+- **What cannot be recorded is reported, never sent as it is.** A
+  `continueJourney` context without a non-empty string id is treated as
+  absent and reported (`journey_id_invalid`); the old `consume` fell back to a
+  random id, and sending the context as it was cost the whole journey at the
+  server. An entity that is missing, or whose type or id is not a non-empty
+  string, is reported (`entity_invalid`) and the steps are recorded under the
+  unknown entity, so they are kept. `fail` options that are not `{ metadata }`,
+  and an inject helper given no context, are reported (`invalid_options`,
+  `context_missing`). An option under its pre-release name (`maxPayloadBytes`,
+  `propagate`, `displayable`, `entityFallback`) is reported as
+  `setting_renamed`, and the two recorder settings are printed once per
+  process, because losing `propagate: "full"` unseen is a real trap for a
+  JavaScript caller. The inject helpers replace a journey's own headers and
+  attributes already in the carrier, so a forwarded message cannot pair an
+  old entity id with a new journey.
+- **The failure boundary cannot throw.** Describing a thrown value could
+  throw again (`String()` of a null-prototype object, `instanceof` on a revoked
+  Proxy); the boundary now falls back to a fixed reason, and an error record to
+  a fixed message. A callback's value whose `then` getter throws makes the
+  wrapper return a promise rejected with that error, as `await` would, and
+  the step is recorded as failed.
 - **Stability is marked.** `@experimental` in the declarations, and a README
   section, on the propagation helpers and `propagation`, `across` and
   `JourneyGroup`, `captureInput` and `captureOutput`, `journeyIdFor` and
@@ -2599,6 +2623,8 @@ fails. Each is cheap before a release and breaking after it.
 
 - Every caller of the SDK changes: the CHANGELOG lists each rename. The wire
   format does not, so a server needs nothing.
+- A native `Promise` subclass returned by a callback comes back as a plain
+  `Promise`, because the wrapper resolves it through `Promise.resolve`.
 - Code that matched `reason` text must match `code`; code that read
   `endpoint`, `accepted`, `scheme` or `host` from a diagnostic reads them from
   `detail`.

@@ -41,6 +41,22 @@ describe("HTTP propagation", () => {
     expect(original).toEqual({ "content-type": "application/json" });
   });
 
+  it("replaces a journey's headers already present, whatever their case", () => {
+    // Forwarding an inbound request's headers must not pair an old entity id
+    // with the new journey.
+    const stale = {
+      "X-Flight-Journey-Id": "jrn_old",
+      "x-flight-entity-type": "order",
+      "X-FLIGHT-ENTITY-ID": "old-id",
+      accept: "application/json"
+    };
+    expect(injectHttpHeaders(stale, context, "journey-and-type")).toEqual({
+      accept: "application/json",
+      "x-flight-journey-id": context.journeyId,
+      "x-flight-entity-type": "customer"
+    });
+  });
+
   it("preserves existing headers", () => {
     const headers = injectHttpHeaders({ authorization: "Bearer x" }, context, "journey-only");
     expect(headers["authorization"]).toBe("Bearer x");
@@ -97,6 +113,19 @@ describe("SQS propagation", () => {
     expect(injectSqsAttributes({}, context, "journey-only")["flightJourneyId"]).toEqual({
       DataType: "String",
       StringValue: context.journeyId
+    });
+  });
+
+  it("replaces a journey's attributes already present", () => {
+    const stale = {
+      flightJourneyId: { DataType: "String", StringValue: "jrn_old" },
+      flightEntityType: { DataType: "String", StringValue: "order" },
+      flightEntityId: { DataType: "String", StringValue: "old-id" },
+      tenant: { DataType: "String", StringValue: "acme" }
+    };
+    expect(injectSqsAttributes(stale, context, "journey-only")).toEqual({
+      tenant: { DataType: "String", StringValue: "acme" },
+      flightJourneyId: { DataType: "String", StringValue: context.journeyId }
     });
   });
 

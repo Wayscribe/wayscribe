@@ -372,18 +372,32 @@ const journey = recorder.continueJourney({
 
 `continueJourney` takes the journey from `context` when there is one, and
 starts a new journey when there is none, as for a request from a caller that
-does not record. `entity` is the entity to use when the context carries none,
-which is the default. By default the entity **ID does not propagate**: it is
+does not record. A context without a journey id, such as `{}` or a journey
+handle passed instead of its `context()`, is reported as `journey_id_invalid`
+and treated as absent. `entity` is the entity to use when the context carries
+none, which is the default. By default the entity **ID does not propagate**: it is
 often a real customer identifier, and sending it by default would write it into
 the headers, queue metadata, and logs of systems you may not control. The
 consumer supplies the ID it already has from the message body. A journey id you
 already hold, such as one from `journeyIdFor`, is passed as `journeyId`
 instead of `context`.
 
+**An entity the server would refuse is not sent.** When `startJourney` or
+`continueJourney` gets no entity, or one whose type or id is not a non-empty
+string, it reports `entity_invalid` and records the journey's steps under the
+entity `{ type: "unknown", id: "unknown" }`, so they are kept rather than
+refused. Search finds them by their aliases and labels; fix the call to have
+them filed under the record. The entity is copied, so changing your object
+afterwards does not change what is recorded.
+
 The helpers return a copy: the headers or attributes you pass are not changed,
-and anything already in them is kept. Without a context, `injectHttpHeaders`
-and `injectSqsAttributes` return what you passed. The extract helpers return
-`undefined` for anything that does not carry a well-formed journey.
+and anything already in them is kept, except a journey's own headers or
+attributes, which are replaced, so forwarding an inbound message's cannot pair
+an old entity id with the new journey. Without a context, `injectHttpHeaders`
+and `injectSqsAttributes` return what you passed and report `context_missing`;
+a context passed as the only argument to `injectSqsAttributes` is not sent as
+attributes. The extract helpers return `undefined` for anything that does not
+carry a well-formed journey.
 
 **A carrier with neither headers nor attributes** can carry the journey in an
 envelope around the payload:
@@ -430,17 +444,24 @@ no library. This one is built so that cannot happen:
   `payloadsOmitted` instead, and one sent with a string cut in
   `payloadsTruncated`, because its event is still sent.
 - Nothing is written to your console unless you set `logDiagnostics`, with
-  three exceptions, each printed once per process: a `journeyIdSecret` that
+  four exceptions, each printed once per process: a `journeyIdSecret` that
   cannot be used; a required setting (`endpoint`, `apiKey`, `serviceName`,
   `environment`) that is missing or not a string, since nothing recorded
-  reaches the server until it is fixed; and, once per name, a field whose name
-  looks like a secret that was sent in plain text. A line names the setting or
+  reaches the server until it is fixed; a setting under its old name
+  (`maxPayloadBytes`, `propagate`), since its value is not read; and, once per
+  name, a field whose name looks like a secret that was sent in plain text. A line names the setting or
   the field, never its value. Pass `onDiagnostic` if you want to hear about failures in your own
   logger.
 - A bad configuration value never stops your application starting. It is
   reported as a `configuration_error` and replaced by its default, or clamped
   into range. Values are not converted: `maxBufferedEvents: "5000"`, as read
   from `process.env`, is not a number, so the default is used and reported.
+  An option under the name it had before 0.1 (`maxPayloadBytes`,
+  `propagate`) is not read; it is reported as `setting_renamed`, naming the
+  new option, and printed once per process like a missing required setting.
+- A value your code throws that cannot even be described, such as a revoked
+  Proxy, is still handled: the wrapper rethrows it as it was, and the step is
+  recorded with the error message `The thrown value could not be read.`
 
 ```typescript
 const recorder = createRecorder({
@@ -573,12 +594,12 @@ in `<noun>Errors`, and a bare participle in itself (`dropped`).
 | `insecure_endpoint` | `unencrypted_endpoint` | the endpoint is `http:` to a dotted name or an IP address off this machine, so the API key travels unencrypted | `{ scheme, host }` | none |
 | `rejected` | `event_refused`, `request_refused` | the server understood an event and refused it (`event_refused`), or refused a whole request with a 4xx, once per event in it (`request_refused`); it is not retried | `{ serverError }`, or `{ events, httpStatus }` | `rejected` |
 | `transport_error` | `request_failed`, `refused_for_now`, `unexpected_error` | a request failed, or the server could not store an event for now; see below | `{ unsent, abandoned }`, or `{ error }` | `transportErrors` |
-| `payload_omitted` | `too_large`, `too_deep`, `too_wide`, `string_too_long`, `unserialisable`, `projection_failed` | a payload could not fit the server's limits, or a projection failed, and was replaced by a marker; the event is still sent | `{ field }`, and `error` for `projection_failed` | `payloadsOmitted` |
+| `payload_omitted` | `too_large`, `too_deep`, `too_wide`, `unserialisable`, `projection_failed` | a payload could not fit the server's limits, could not be read (a getter or `toJSON` threw), or a projection failed, and was replaced by a marker; the event is still sent | `{ field }`, and `error` for `unserialisable` and `projection_failed`, never printed | `payloadsOmitted` |
 | `payload_truncated` | `strings_cut`, `label_cut` | strings in a payload were longer than the server accepts and were cut, or a label was; the event is still sent | `{ field, strings, charactersRemoved }` | `payloadsTruncated` |
 | `key_dropped` | `aliases_not_object`, `alias_invalid`, `displayable_alias_invalid`, `metadata_key_too_long`, `label_invalid` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; or a label was not set; the event is still sent | `{ field, keys }`, `keys` being how many entries this report covers | `keysDropped`, per report |
 | `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it | `{ name, operation }` for `after_shutdown`, otherwise `{}` | `dropped` |
-| `capture_error` | `unexpected_error`, `not_a_journey` | recording failed inside the SDK, or `across` was given something that is not a journey; your call was unaffected | `{ error }` for `unexpected_error` | `captureErrors` |
-| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; the call returned something safe | `{ setting }` for a setting | `configurationErrors` |
+| `capture_error` | `unexpected_error`, `not_a_journey`, `invalid_options`, `context_missing` | something threw inside the SDK; `across` was given something that is not a journey; a call's options were not an object or held keys it does not read (such as `fail`'s old positional metadata); or an inject helper was given no context; your call was unaffected | `{ error }` for `unexpected_error`, `{ call }` for `invalid_options` and `context_missing` | `captureErrors` |
+| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors` |
 | `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
 

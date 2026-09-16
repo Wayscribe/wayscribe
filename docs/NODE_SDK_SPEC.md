@@ -135,8 +135,18 @@ journey id is the context's, else `journeyId`, else a new random one; the
 entity is the context's, else `entity`, else `{ type: "unknown", id: "unknown"
 }`. A `journeyId` that is not a non-empty string is reported as
 `configuration_error` with code `journey_id_invalid`, and a new journey is
-started. A journey's own `context()` is a valid `context`. Records nothing by
-itself. Used by downstream HTTP handlers and queue consumers.
+started; so is a `context` without a non-empty string id, which is then
+treated as absent (the `journeyId` option is used if there is one). A journey's
+own `context()` is a valid `context`; the journey handle itself is not. Records
+nothing by itself. Used by downstream HTTP handlers and queue consumers.
+
+An entity that is missing, or whose type or id is not a non-empty string, in
+the options or in the context, is reported as `entity_invalid`; the journey's
+steps are recorded under `{ type: "unknown", id: "unknown" }`, as they are for
+`startJourney`, so they are kept rather than refused by the server. Options
+that are not an object are reported once, as `capture_error` with code
+`invalid_options`. `entityFallback`, the old name, is reported as
+`setting_renamed`.
 
 ### `journeyIdFor` (experimental)
 
@@ -274,7 +284,9 @@ journey.finish({ status: "completed" }); // or "failed"; default "completed"
 ```
 
 `FailOptions` and `FinishOptions`. `fail` records `failed` for a terminal
-failure (SDK-14). `finish` records `completed` or `failed`, named `finish`.
+failure (SDK-14). Options that are not an object, or hold keys other than
+`metadata` (as the old positional metadata did), are reported as
+`invalid_options`; the failure is still recorded. `finish` records `completed` or `failed`, named `finish`.
 
 ### `across` (experimental)
 

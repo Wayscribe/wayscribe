@@ -43,11 +43,33 @@ export async function safelyAsync<T>(
   }
 }
 
+/** The reason for a thrown value that cannot be turned into text. */
+export const UNDESCRIBABLE = "A value was thrown that cannot be described.";
+
+/**
+ * A thrown value as text, or `UNDESCRIBABLE`. Never throws: `String()` of a
+ * null-prototype object throws, and so do `instanceof` and `String()` of a
+ * revoked Proxy, and the boundary must not throw a second time into the host.
+ */
+export function describeThrown(error: unknown): string {
+  try {
+    const text: unknown = error instanceof Error ? error.message : String(error);
+    return typeof text === "string" ? text : String(text);
+  } catch {
+    return UNDESCRIBABLE;
+  }
+}
+
 function report(diagnostics: Diagnostics, kind: BoundaryKind, error: unknown): void {
-  diagnostics.report({
-    kind,
-    code: "unexpected_error",
-    reason: error instanceof Error ? error.message : String(error),
-    detail: { error }
-  });
+  try {
+    diagnostics.report({
+      kind,
+      code: "unexpected_error",
+      reason: describeThrown(error),
+      detail: { error }
+    });
+  } catch {
+    // Reporting is itself guarded; this is the last line, and it stays silent
+    // rather than become the failure it was reporting.
+  }
 }
