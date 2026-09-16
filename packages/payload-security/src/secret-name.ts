@@ -94,9 +94,14 @@ const TERMS: readonly Term[] = [
  * (ADR-055): a diff must not change on a guess.
  */
 export function looksLikeSecretName(name: string): boolean {
-  const folded = withoutVersion(normaliseName(name));
-  if (folded === "") return false;
-  return TERMS.some((entry) => matchesTerm(folded, entry));
+  return looksLikeSecretFoldedName(normaliseName(name));
+}
+
+/** {@link looksLikeSecretName} for a name already passed through `normaliseName`. */
+export function looksLikeSecretFoldedName(folded: string): boolean {
+  const name = withoutVersion(folded);
+  if (name === "") return false;
+  return TERMS.some((entry) => matchesTerm(name, entry));
 }
 
 function matchesTerm(name: string, { term, except, qualifiers, alone }: Term): boolean {

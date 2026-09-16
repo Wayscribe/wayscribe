@@ -7,6 +7,7 @@ import {
   namedValueKey
 } from "./http-headers.js";
 import { normaliseName } from "./normalise-name.js";
+import { looksLikeSecretFoldedName } from "./secret-name.js";
 
 export { normaliseName };
 
@@ -43,9 +44,21 @@ type Segment = { kind: "literal"; value: string } | { kind: "any" } | { kind: "a
  *
  * Matched values are replaced rather than deleted: SECURITY.md section 4
  * requires preserving evidence that a value existed.
+ *
+ * `onUnredacted`, when given, is called for each object key the walk kept
+ * whose name looks like a secret (`looksLikeSecretName`) and whose value
+ * is a non-empty string or a number. It receives the key as written and its
+ * path, with every array index written `[*]`, and never the value. It is how a
+ * name no rule covers is warned about without a second walk (ADR-055); it
+ * changes nothing about what is returned. An observer that throws ends the
+ * walk, so a caller that must not fail guards it.
  */
-export function redact(value: unknown, paths: readonly string[]): unknown {
-  if (paths.length === 0) return value;
+export function redact(
+  value: unknown,
+  paths: readonly string[],
+  onUnredacted?: UnredactedObserver
+): unknown {
+  if (paths.length === 0 && onUnredacted === undefined) return value;
 
   const anyDepth = new Set<string>();
   const scoped: Segment[][] = [];
@@ -58,7 +71,43 @@ export function redact(value: unknown, paths: readonly string[]): unknown {
     scoped.push(parsePath(path));
   }
 
-  return walk(value, scoped, anyDepth, new Set());
+  const observed = onUnredacted === undefined ? undefined : { report: onUnredacted, path: [] };
+  return walk(value, scoped, anyDepth, new Set(), observed);
+}
+
+/** Told the name and generalised path of a kept value filed under a secret-looking name. */
+export type UnredactedObserver = (name: string, path: string) => void;
+
+/**
+ * The observer, and the key path to the value being walked.
+ *
+ * The path is a stack pushed on the way down and popped on the way up, and
+ * joined only when something is reported, so an ordinary payload costs one
+ * push and pop per key and no string building.
+ */
+interface Observed {
+  report: UnredactedObserver;
+  path: string[];
+}
+
+const ANY_INDEX = "[*]";
+
+function joinPath(path: readonly string[]): string {
+  let joined = "";
+  for (const segment of path) {
+    joined += segment === ANY_INDEX || joined === "" ? segment : `.${segment}`;
+  }
+  return joined;
+}
+
+/**
+ * A value worth warning about: something a credential could be. An object
+ * under a secret-looking name is a container whose own keys are examined in
+ * turn, and a boolean (`hasPassword`) never holds a credential.
+ */
+function isReportable(value: unknown): boolean {
+  if (typeof value === "string") return value !== "" && value !== REDACTED;
+  return typeof value === "number" || typeof value === "bigint";
 }
 
 /** Marks a rule that applies at every level rather than at one path. */
@@ -97,7 +146,8 @@ function walk(
   value: unknown,
   paths: Segment[][],
   anyDepth: ReadonlySet<string>,
-  seen: Set<object>
+  seen: Set<object>,
+  observed?: Observed
 ): unknown {
   if (typeof value === "string") {
     // A serialised header block, such as a ClientRequest's `_header`, files a
@@ -119,7 +169,7 @@ function walk(
   if (serialized !== undefined) {
     seen.add(value);
     try {
-      return walk(serialized.value, paths, anyDepth, seen);
+      return walk(serialized.value, paths, anyDepth, seen, observed);
     } finally {
       seen.delete(value);
     }
@@ -134,7 +184,7 @@ function walk(
   if (exotic !== undefined) {
     seen.add(value);
     try {
-      return walk(exotic.value, paths, anyDepth, seen);
+      return walk(exotic.value, paths, anyDepth, seen, observed);
     } finally {
       seen.delete(value);
     }
@@ -183,7 +233,13 @@ function walk(
             }
           }
         }
-        return walk(item, remaining, anyDepth, seen);
+        if (observed === undefined) return walk(item, remaining, anyDepth, seen);
+        observed.path.push(ANY_INDEX);
+        try {
+          return walk(item, remaining, anyDepth, seen, observed);
+        } finally {
+          observed.path.pop();
+        }
       });
     }
 
@@ -192,20 +248,34 @@ function walk(
       // `anyDepth` is checked at every level and never narrowed on the way
       // down, which is the whole of its guarantee: a key on this list is
       // replaced wherever it is filed.
-      if (anyDepth.has(normaliseName(key))) {
+      const name = normaliseName(key);
+      if (anyDepth.has(name)) {
         defineKey(result, key, REDACTED);
         continue;
       }
 
       const matching = paths.filter((path) => matches(path[0], key)).map((path) => path.slice(1));
+      if (matching.some((path) => path.length === 0)) {
+        defineKey(result, key, REDACTED);
+        continue;
+      }
 
-      defineKey(
-        result,
-        key,
-        matching.some((path) => path.length === 0)
-          ? REDACTED
-          : walkOrRedact(child, matching, anyDepth, seen)
-      );
+      if (observed === undefined) {
+        defineKey(result, key, walk(child, matching, anyDepth, seen));
+        continue;
+      }
+      // Kept, so a warning is due if the name reads as a secret. The type test
+      // comes first: it is the cheap one, and most values are not scalars
+      // under such a name.
+      observed.path.push(key);
+      try {
+        if (isReportable(child) && looksLikeSecretFoldedName(name)) {
+          observed.report(key, joinPath(observed.path));
+        }
+        defineKey(result, key, walk(child, matching, anyDepth, seen, observed));
+      } finally {
+        observed.path.pop();
+      }
     }
     return result;
   } finally {
@@ -229,15 +299,6 @@ function selfSerialized(value: object): { value: unknown } | undefined {
   } catch {
     return undefined;
   }
-}
-
-function walkOrRedact(
-  value: unknown,
-  paths: Segment[][],
-  anyDepth: ReadonlySet<string>,
-  seen: Set<object>
-): unknown {
-  return paths.some((path) => path.length === 0) ? REDACTED : walk(value, paths, anyDepth, seen);
 }
 
 /**
