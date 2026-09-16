@@ -101,6 +101,8 @@ export async function listRecentJourneys(
         const pattern = containsPattern(filters.text);
         // A filter on the rows the window already selected, not an index
         // lookup: no extension is required, and the window bounds the work.
+        // What that work costs at 120,000 journeys is measured in
+        // docs/OPERATIONS.md (Sizing, Listing journeys).
         // Only the two plain-text columns are compared. Masked aliases hold
         // no display_value (migration 018's check), and entity ids and alias
         // values are otherwise stored as ciphertext and tokens.
