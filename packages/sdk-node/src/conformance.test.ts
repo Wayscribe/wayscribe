@@ -60,10 +60,12 @@ describe("sdk conformance cases", () => {
     expect(skipped).toEqual([]);
   });
 
-  describe.each(cases.map((one) => [one.id, one] as const))("%s", (id, one) => {
-    const applicable = appliesTo(one, LANGUAGE);
-
-    it.runIf(applicable)("puts the expected event on the wire", () => {
+  // Generated only for what a case asserts. A test registered for every case
+  // and skipped where the case has no such expectation reported 72 skips on
+  // every run, and a skip count nobody reads is how a real skip hides.
+  const applicable = cases.filter((one) => appliesTo(one, LANGUAGE));
+  describe.each(applicable.map((one) => [one.id, one] as const))("%s", (id, one) => {
+    it("puts the expected event on the wire", () => {
       const result = captured.get(id);
       expect(result, "the case was never captured").toBeDefined();
       if (result === undefined) return;
@@ -84,9 +86,9 @@ describe("sdk conformance cases", () => {
       ).toEqual([]);
     });
 
-    it.runIf(applicable && one.expect.absentFromDiagnostics !== undefined)(
-      "puts none of the listed text in any diagnostic",
-      () => {
+    const absent = one.expect.absentFromDiagnostics;
+    if (absent !== undefined) {
+      it("puts none of the listed text in any diagnostic", () => {
         const reported = captured.get(id)?.diagnostics ?? [];
         expect(reported.length, "the case reported nothing, so it checks nothing").toBeGreaterThan(
           0
@@ -94,17 +96,16 @@ describe("sdk conformance cases", () => {
         const text = reported
           .map((entry) => `${entry.reason}\n${printed(entry.detail)}`)
           .join("\n");
-        for (const absent of one.expect.absentFromDiagnostics ?? []) {
-          expect(text, `a diagnostic contains ${absent}`).not.toContain(absent);
+        for (const listed of absent) {
+          expect(text, `a diagnostic contains ${listed}`).not.toContain(listed);
         }
-      }
-    );
+      });
+    }
 
-    it.runIf(applicable && one.expect.diagnostics !== undefined)(
-      "reports the expected diagnostics",
-      () => {
+    const expected = one.expect.diagnostics;
+    if (expected !== undefined) {
+      it("reports the expected diagnostics", () => {
         const result = captured.get(id);
-        const expected = one.expect.diagnostics ?? [];
         // Only the kinds the case names are compared, so a diagnostic of
         // another kind an implementation adds does not fail the case.
         const kinds = new Set(expected.map((entry) => entry.kind));
@@ -120,8 +121,8 @@ describe("sdk conformance cases", () => {
             )
           ).toEqual([]);
         });
-      }
-    );
+      });
+    }
   });
 
   it("splits more events than the batch ceiling across more than one request", () => {
