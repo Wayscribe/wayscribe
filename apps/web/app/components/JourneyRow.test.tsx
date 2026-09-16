@@ -20,11 +20,11 @@ const item: JourneyListRow = {
   ]
 };
 
-const renderRow = (row: JourneyListRow): HTMLElement => {
+const renderRow = (row: JourneyListRow, showEnvironment = false): HTMLElement => {
   render(
     <table>
       <tbody>
-        <JourneyRow item={row} />
+        <JourneyRow item={row} showEnvironment={showEnvironment} />
       </tbody>
     </table>
   );
@@ -94,6 +94,11 @@ describe("JourneyRow", () => {
       "audit-needs-review",
       "14"
     ]);
+  });
+
+  it("adds the environment after the status only when asked", () => {
+    const row = renderRow(item, true);
+    expect(cells(row).slice(1, 4)).toEqual(["failed", "production", "job_posting"]);
   });
 
   it("gives the exact time on the time element", () => {

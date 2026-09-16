@@ -60,16 +60,16 @@ Search `0018Z00002ABC` and you get one record's history, in order, across every
 service that touched it:
 
 ```text
-received      receive-salesforce-webhook     integration-api
-transformed   transform-salesforce-account   integration-api
-persisted     persist-customer               integration-api
-identified    identify                       integration-api
-published     publish-customer-updated       integration-api
-consumed      consume-customer-updated       sync-worker
-delivered     deliver-customer-to-target     sync-worker      422
-retried       retry-customer-delivery        sync-worker      422
-retried       retry-customer-delivery        sync-worker      422
-failed        move-message-to-dead-letter    sync-worker
+received      receive-salesforce-webhook     demo-integration
+transformed   transform-salesforce-account   demo-integration
+persisted     persist-customer               demo-integration
+identified    identify                       demo-integration
+published     publish-customer-updated       demo-integration
+consumed      consume-customer-updated       demo-worker
+delivered     deliver-customer-to-target     demo-worker       422
+retried       retry-customer-delivery        demo-worker       422
+retried       retry-customer-delivery        demo-worker       422
+failed        move-message-to-dead-letter    demo-worker
 ```
 
 Open the transformation and you get a **field-level diff** of what that step

@@ -36,7 +36,14 @@ export function shownAs(item: JourneyListRow): ShownAs {
  * cut with an ellipsis by the stylesheet (`.journey-table`) and given in full
  * as a title.
  */
-export function JourneyRow({ item }: { item: JourneyListRow }): ReactElement {
+export function JourneyRow({
+  item,
+  showEnvironment = false
+}: {
+  item: JourneyListRow;
+  /** Whether the table has an Environment column: only when it spans environments. */
+  showEnvironment?: boolean;
+}): ReactElement {
   const shown = shownAs(item);
   const shownClass =
     shown.kind === "label"
@@ -55,6 +62,11 @@ export function JourneyRow({ item }: { item: JourneyListRow }): ReactElement {
       <td className="col-status">
         <span className={item.status === "failed" ? "status failed" : "status"}>{item.status}</span>
       </td>
+      {showEnvironment ? (
+        <td className="col-environment" title={item.environment}>
+          {item.environment}
+        </td>
+      ) : null}
       <td className="col-type" title={item.entity.type}>
         {item.entity.type}
       </td>

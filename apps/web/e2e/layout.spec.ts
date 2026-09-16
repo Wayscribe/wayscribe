@@ -142,6 +142,19 @@ test.describe("the Journeys table", () => {
       // Joined alias values are cut to 200 characters before the stylesheet cuts them again.
       await expect(shown.nth(0)).toHaveText(`${LONG_ALIASES.company.slice(0, 199)}…`);
 
+      // No environment is chosen, so the list spans environments and the
+      // Environment column is present; a phone drops it with the other two.
+      // A CSS locator: a hidden header leaves the accessibility tree, so a role
+      // query could not tell "hidden" from "not rendered".
+      const environment = page.locator("thead th.col-environment");
+      await expect(environment).toHaveCount(1);
+      if (width === 400) {
+        await expect(environment).toBeHidden();
+      } else {
+        await expect(environment).toBeVisible();
+        await expect(page.locator("tbody td.col-environment").first()).toHaveText("development");
+      }
+
       expect(await horizontalOverflow(page)).toBe(0);
 
       // The table keeps to the page, and each long value is cut rather than wrapped.

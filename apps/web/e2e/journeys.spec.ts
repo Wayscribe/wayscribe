@@ -109,6 +109,7 @@ test("lists a labelled journey and the fallback rows, newest first", async ({ pa
   await expect(page.getByRole("columnheader")).toHaveText([
     "Last activity",
     "Status",
+    "Environment",
     "Entity type",
     "Shown as",
     "Last step",
@@ -124,11 +125,18 @@ test("lists a labelled journey and the fallback rows, newest first", async ({ pa
   await expect(rows(page).nth(2).getByRole("cell")).toHaveText([
     /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/,
     "failed",
+    "development",
     "customer",
     LABEL,
     "failed-step",
     "1"
   ]);
+
+  // With an environment chosen, every row shares it, so the column goes.
+  await page.goto(`/journeys?service=${SERVICE}&environment=development`);
+  await expect(rows(page)).toHaveCount(3);
+  await expect(page.getByRole("columnheader", { name: "Environment" })).toHaveCount(0);
+  await expect(rows(page).first().getByRole("cell")).toHaveCount(6);
 
   await page.getByRole("link", { name: LABEL }).click();
   await expect(page).toHaveURL(`/journeys/${LABELLED.journeyId}`);

@@ -287,8 +287,11 @@ button {
 .journey-table .col-status {
   width: 6.5rem;
 }
+.journey-table .col-environment {
+  width: 10%;
+}
 .journey-table .col-type {
-  width: 16%;
+  width: 14%;
 }
 .journey-table .col-step {
   width: 20%;
@@ -305,8 +308,9 @@ button {
 }
 
 @media (max-width: 40rem) {
-  /* A phone keeps what a row is shown as, and drops the two columns the
+  /* A phone keeps what a row is shown as, and drops the three columns the
      journey page repeats; the date sits above the time. */
+  .journey-table .col-environment,
   .journey-table .col-type,
   .journey-table .col-step {
     display: none;
