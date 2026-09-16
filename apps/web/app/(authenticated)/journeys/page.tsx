@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import type { ReactElement, ReactNode } from "react";
 import {
   ApiUnavailableError,
@@ -19,6 +20,7 @@ import {
   refusedListMessage,
   statusHref,
   toQueryString,
+  withoutEmptyValues,
   type JourneyFilters
 } from "../../../src/lib/journey-filters";
 import { JourneyFilterBar } from "../../components/JourneyFilterBar";
@@ -39,6 +41,8 @@ export default async function JourneysPage({
   searchParams: Promise<SearchParams>;
 }): Promise<ReactElement> {
   const params = await searchParams;
+  const cleaned = withoutEmptyValues(params);
+  if (cleaned !== null) redirect(cleaned === "" ? "/journeys" : `/journeys?${cleaned}`);
   const filters = readJourneyFilters(params, new Date());
 
   let environments: string[] = [];

@@ -49,7 +49,9 @@ changes far less often.
   no status, which is what Recent showed. The navigation link reads Journeys.
   A journey page is headed by the journey's label, when it has one, with the
   entity type and identifier beneath; opened from the Journeys page, its back
-  link returns to that list with the same filters and page.
+  link returns to that list with the same filters and page. The page drops
+  the empty values its plain GET form sends from the address, with a
+  redirect, so a filtered view is a short link.
 - **`GET /v1/journeys` says what `since` should be when it is missing or
   malformed.** The refusal was `since is required.`; it now names the format
   and gives an example instant, and `API_SPEC.md` says at the top of the route

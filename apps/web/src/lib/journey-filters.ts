@@ -209,7 +209,7 @@ export function journeysApiQuery(filters: JourneyFilters): string {
 export function nextPageHref(filters: JourneyFilters, cursor: string): string {
   const query = filterQuery(filters);
   query.set("since", filters.since);
-  query.set("until", filters.until);
+  if (filters.until !== "") query.set("until", filters.until);
   query.set("cursor", cursor);
   return `/journeys?${query.toString()}`;
 }
@@ -222,7 +222,7 @@ export function firstPageHref(filters: JourneyFilters): string {
   const query = filterQuery(filters);
   if (filters.window === "custom") {
     query.set("since", filters.since);
-    query.set("until", filters.until);
+    if (filters.until !== "") query.set("until", filters.until);
   }
   return `/journeys?${query.toString()}`;
 }
@@ -350,6 +350,28 @@ export function backFromJourney(params: SearchParams): { href: string; label: st
 }
 
 /**
+ * The query string without its empty values, or null when it has none.
+ *
+ * A plain GET form sends every field, so a search for one word produced an
+ * address with seven empty parameters. `readJourneyFilters` reads an empty
+ * value exactly as an absent one, so the page redirects to the address
+ * without them: same list, an address worth sharing. Order and repeated
+ * non-empty values are kept.
+ */
+export function withoutEmptyValues(params: SearchParams): string | null {
+  let dropped = false;
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+    for (const item of typeof value === "string" ? [value] : value) {
+      if (item === "") dropped = true;
+      else query.append(key, item);
+    }
+  }
+  return dropped ? query.toString() : null;
+}
+
+/**
  * What the page says when the API refuses its query. With a cursor, the link
  * is a stale or edited next-page link, and the newest page is the way back.
  * Without one, the filters themselves were refused, which this module is meant
@@ -364,15 +386,20 @@ export function refusedListMessage(filters: JourneyFilters): {
     : { text: "This page link is no longer valid.", offerNewest: true };
 }
 
+/** The filters that are set; an empty one reads the same as an absent one. */
 function filterQuery(filters: JourneyFilters): URLSearchParams {
-  return new URLSearchParams({
-    q: filters.q,
-    status: filters.status,
-    window: filters.window,
-    entityType: filters.entityType,
-    environment: filters.environment,
-    service: filters.service
-  });
+  const query = new URLSearchParams();
+  for (const [key, value] of [
+    ["q", filters.q],
+    ["status", filters.status],
+    ["window", filters.window],
+    ["entityType", filters.entityType],
+    ["environment", filters.environment],
+    ["service", filters.service]
+  ] as const) {
+    if (value !== "") query.set(key, value);
+  }
+  return query;
 }
 
 function rangeWords(filters: JourneyFilters): string {

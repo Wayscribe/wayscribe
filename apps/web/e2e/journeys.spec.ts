@@ -188,7 +188,10 @@ test("narrows the list by partial text in labels and displayable aliases", async
   // Part of the label, in another case.
   await page.getByLabel("Contains", { exact: true }).fill(`NEWAL ${RUN.toUpperCase()}`);
   await page.getByRole("button", { name: "Show" }).click();
-  await expect(page).toHaveURL(/[?&]q=NEWAL/);
+  // Only the filters that were set stay in the address.
+  await expect(page).toHaveURL(
+    `/journeys?q=${encodeURIComponent(`NEWAL ${RUN.toUpperCase()}`).replaceAll("%20", "+")}&window=24h&service=${SERVICE}`
+  );
   await expect(rows(page)).toHaveCount(1);
   await expect(shownAs(page, 0)).toHaveText(LABEL);
   await expect(page.getByLabel("Contains", { exact: true })).toHaveValue(
@@ -256,8 +259,10 @@ test("an old Recent link opens Journeys with its filters", async ({ page }) => {
   await expect(page).toHaveURL(`/journeys?service=${SERVICE}&status=failed`);
   await expect(rows(page)).toHaveCount(1);
 
+  // "Any status", which the Journeys page shows by default, and an empty value
+  // is dropped from the address.
   await page.goto(`/recent?status=&service=${SERVICE}`);
-  await expect(page).toHaveURL(`/journeys?status=&service=${SERVICE}`);
+  await expect(page).toHaveURL(`/journeys?service=${SERVICE}`);
   await expect(rows(page)).toHaveCount(3);
 
   // The search page's way in still reads as it did.

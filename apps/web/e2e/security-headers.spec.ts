@@ -115,9 +115,10 @@ test("the search, journey, journeys, replay, and delete pages work with no CSP v
   await expect(page.locator(".diff")).toContainText("Phone");
   expect(await violationsOn(page), "journey").toEqual([]);
 
-  // Journeys, reached through the old Recent address, which redirects.
+  // Journeys, reached through the old Recent address, which redirects, and
+  // then again without the empty value.
   await page.goto("/recent?status=&window=7d");
-  await expect(page).toHaveURL("/journeys?status=&window=7d");
+  await expect(page).toHaveURL("/journeys?window=7d");
   await expect(page.locator("h1")).toHaveText("Journeys");
   expect(await violationsOn(page), "journeys").toEqual([]);
 

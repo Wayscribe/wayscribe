@@ -3,6 +3,7 @@ import {
   activeFilterList,
   backFromJourney,
   journeyHref,
+  withoutEmptyValues,
   describeJourneyFilters,
   emptyListMessage,
   firstPageHref,
@@ -465,12 +466,11 @@ describe("nextPageHref", () => {
 
   it("carries a preset's since, with an empty until", () => {
     const filters = readJourneyFilters({ window: "7d", service: "billing" }, NOW);
-    expect(queryOf(nextPageHref(filters, "c"))).toMatchObject({
+    expect(queryOf(nextPageHref(filters, "c"))).toEqual({
       window: "7d",
+      service: "billing",
       since: "2026-09-08T12:00:00.000Z",
-      until: "",
-      q: "",
-      entityType: ""
+      cursor: "c"
     });
   });
 
@@ -512,11 +512,9 @@ describe("firstPageHref", () => {
     );
     expect(queryOf(firstPageHref(filters))).toEqual({
       q: "acme",
-      status: "",
       window: "1h",
       entityType: "customer",
-      environment: "production",
-      service: ""
+      environment: "production"
     });
   });
 
@@ -546,7 +544,7 @@ describe("statusHref", () => {
       ...queryOf(firstPageHref(filters)),
       status: "failed"
     });
-    expect(queryOf(statusHref(filters, ""))).toMatchObject({ status: "" });
+    expect(queryOf(statusHref(filters, ""))).not.toHaveProperty("status");
   });
 });
 
@@ -768,6 +766,47 @@ describe("journeyHref and backFromJourney", () => {
     }
     expect(backFromJourney({ from: "journeys", list: "q=%2F%2Fevil.test" }).href).toBe(
       "/journeys?q=%2F%2Fevil.test"
+    );
+  });
+});
+
+describe("withoutEmptyValues", () => {
+  it("says nothing needs changing when no value is empty", () => {
+    expect(withoutEmptyValues({})).toBeNull();
+    expect(withoutEmptyValues({ q: "acme", window: "24h" })).toBeNull();
+    expect(withoutEmptyValues({ status: ["failed", "active"] })).toBeNull();
+  });
+
+  it("drops the empty values a plain GET form sends, keeping the rest in order", () => {
+    expect(
+      withoutEmptyValues({
+        q: "",
+        window: "24h",
+        since: "",
+        until: "",
+        status: "",
+        entityType: "",
+        environment: "",
+        service: "billing"
+      })
+    ).toBe("window=24h&service=billing");
+    expect(withoutEmptyValues({ q: "", since: "" })).toBe("");
+    expect(withoutEmptyValues({ status: ["", "failed"], q: "a b" })).toBe("status=failed&q=a+b");
+  });
+
+  it("reads a cleaned query the same as the one it came from", () => {
+    const params = {
+      q: "",
+      status: "",
+      window: "custom",
+      since: "2026-09-10T08:00",
+      until: "",
+      entityType: "",
+      service: "sync"
+    };
+    const cleaned = withoutEmptyValues(params) ?? "";
+    expect(readJourneyFilters(queryOf(`/journeys?${cleaned}`), NOW)).toEqual(
+      readJourneyFilters(params, NOW)
     );
   });
 });
