@@ -215,13 +215,30 @@ describe("wire conformance cases", () => {
         );
       }
       if (expected.error !== undefined) {
+        const error = actual["error"] as
+          { code: unknown; httpStatus: unknown; details?: unknown } | undefined;
         problems.push(
           ...compareExpectation(
-            actual["error"] === undefined
+            error === undefined
               ? {}
               : {
-                  code: (actual["error"] as { code: unknown }).code,
-                  httpStatus: (actual["error"] as { httpStatus: unknown }).httpStatus
+                  code: error.code,
+                  httpStatus: error.httpStatus,
+                  // Paths only: a detail's message is the server's wording,
+                  // which the case format does not pin.
+                  // A malformed value is passed through as it is, so it shows
+                  // up as a comparison failure rather than a thrown error.
+                  ...(error.details === undefined
+                    ? {}
+                    : {
+                        details: Array.isArray(error.details)
+                          ? error.details.map((detail: unknown) =>
+                              typeof detail === "object" && detail !== null
+                                ? { path: (detail as { path?: unknown }).path }
+                                : detail
+                            )
+                          : error.details
+                      })
                 },
             expected.error,
             `${at}.error`

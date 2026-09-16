@@ -2254,3 +2254,107 @@ the row that survives before the duplicate is deleted.
   in a response, which a client ignores if it does not know it.
 - Search, erasure and retention are unchanged: they match on the search token, not the display
   value.
+
+## ADR-054: A journey may carry a public label, and the journey list matches partial text on public values only
+
+**Status:** Accepted. Builds on ADR-053 (displayable aliases) and ADR-044 (encrypted
+identifiers and search tokens). Changes `GET /v1/journeys` and replaces the Recent page.
+
+### Context
+
+Dogfooding the recorder on job-radar showed that the interface answered two questions only:
+"show me the journey for this identifier", through Search, which matches exactly, and "what
+failed recently", through the Recent page. The owner could not browse what happened in a
+period, and could not find a record from something half remembered, such as a company name
+or part of a URL.
+
+Entity identifiers and alias values are encrypted and matched through keyed search tokens,
+so the server can match them only exactly, and that has to stay true for masked values. Two
+kinds of value, however, are declared public by the code that records them: aliases marked
+displayable (ADR-053), and a label, which did not exist yet.
+
+### Decision
+
+- **A label.** An event may carry `journeyLabel`, public display text for its journey of 1
+  to 200 code points, set by the host (`journey.label(text)` in the SDK). An empty string
+  refuses the event; an event without the field leaves the label alone. The label is not
+  redacted.
+- **Latest operation start wins.** The journey keeps the label of the event with the
+  latest `timestamp` (the operation's start, ADR-031), whatever order events arrive in. The
+  journey's last step (the `name` of that latest event) follows the same rule. Timestamps are
+  compared at millisecond precision, the precision they are stored at, and the Node SDK
+  stamps whole milliseconds, so a quick journey's events often tie. A tie is broken as the
+  timeline breaks it: by the order the server received the events, then by the larger event
+  id compared byte by byte. Breaking it by event id alone was the first design, and since
+  the SDK makes ids at random it kept a random step as the last one, and an earlier label
+  after `label()` was called again. With arrival order, events sent one after another keep
+  their order; events sent concurrently in different requests are received in no
+  guaranteed order. A label is public by declaration, so an old event that
+  arrives late can at worst leave a stale label, never expose anything.
+- **Plain-text copies of displayable values.** `entity_aliases.display_value` holds the
+  alias value in plain text while, and only while, the alias is displayable. The upsert that
+  lowers the flag clears it in the same statement. The database enforces the rule with the
+  check constraint `entity_aliases_display_value_only_when_displayable`
+  (`displayable or display_value is null`), so no code path can leave a masked alias with a
+  plain value. A `BEFORE INSERT OR UPDATE` trigger,
+  `entity_aliases_clear_masked_display_value`, clears the copy of any row about to be written
+  masked. It exists for the previous build, which keeps ingesting during a rollout and lowers
+  the flag without knowing the copy exists: without the trigger its masking statement would
+  violate the check, fail the event, and put the row, value included, into the error log.
+  A value containing a NUL gets no copy, because a text column cannot hold one and the event
+  must not fail over it; it is read in full on the journey page and is never listed or
+  matched by text.
+- **Partial matching over those values only.** `GET /v1/journeys` takes `q`, 2 to 200
+  characters, and keeps a journey whose label or displayable alias value contains it,
+  ignoring case (`ILIKE`, with `%`, `_` and `\` escaped). It is always bounded by the
+  required `since` and an optional new `until`, so it scans a window, never the table. The
+  list also gains `entityType`, and each row gains `label`, `lastStep` and
+  `displayableAliases`.
+- **The Recent page becomes Journeys.** `/journeys` is a table of journeys over a chosen
+  period (the last 24 hours and any status by default) with a Contains box and a Failures
+  shortcut, and `/recent` redirects to it with its query string.
+- **Two indexes, from measurement.** At 120,000 journeys, text over 30 days took about
+  850 ms at p95 for an admin. Migration 019 adds `journeys_project_recent_idx` and the
+  partial covering index `entity_aliases_displayable_idx`, built concurrently; the same
+  cases then took 5 ms when text matched and about 300 ms when it matched nothing, and
+  ingestion measured the same with and without them (`docs/OPERATIONS.md` section 10).
+
+### What is deliberately not matched
+
+`q` never matches a masked alias value, an entity id, a journey id or an entity type, even
+when the text is exactly one of them. Those remain exact-match through Search and the search
+tokens. Matching them by partial text would need them in plain text, which is the exposure
+ADR-044 exists to prevent.
+
+### Alternatives rejected
+
+- **Filtering the rows already loaded, in the browser.** It needs no server change, but it
+  finds only what is on the current page, so it answers "is it among these 25" rather than
+  "did it happen this week".
+- **Full-text search over payloads.** It would find the most, and it reaches data nobody
+  declared searchable, needs an index over every payload, and makes redaction the only thing
+  standing between a query box and a customer's details. Deferred until partial matching on
+  public values proves too narrow.
+- **Showing every alias value in full.** It would make every alias matchable, and it undoes
+  masking for identifiers such as email addresses and customer numbers that the reader may
+  not be entitled to (ADR-053).
+
+### Consequences
+
+- Plain text now exists in the database for values the host declared public: labels, and
+  copies of displayable alias values. When an alias is masked the live row's copy goes at
+  once, but earlier row versions, WAL, replicas and backups keep the text until vacuum and
+  their own expiry, and destroying `ENCRYPTION_KEY` does not make it unreadable
+  (`docs/SECURITY.md` section 6).
+- What a label says is the host's responsibility. It is shown and matched as written, and
+  it must not hold personal data.
+- "Ignoring case" depends on the database's `LC_CTYPE`: under a UTF-8 locale `CAFÉ` finds
+  `Café`, under the `C` locale only ASCII letters fold (`docs/API_SPEC.md` section 6).
+- There is no backfill. A journey recorded before migration 018 has no label or last step
+  until new events arrive, and only aliases stated displayable after the upgrade get a
+  plain-text copy.
+- `GET /v1/journeys` now refuses a query key it does not read with `400 invalid_query`,
+  where it used to ignore it. A client that sent extra keys has to stop.
+- Text that matches nothing still tests every journey in the window, so its cost grows with
+  the window: an installation recording tens of thousands of journeys a day should search a
+  day or a week rather than a month.

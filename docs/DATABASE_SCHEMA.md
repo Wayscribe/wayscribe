@@ -99,6 +99,14 @@ Constraints:
 | `completed_at` | timestamptz | Nullable |
 | `last_event_at` | timestamptz | Latest event timestamp |
 | `event_count` | integer | Derived summary |
+| `label` | text | Nullable. Public display label from the event that carried one and comes last in the timeline's order, `(timestamp, received at, event id)` (migration `018_journey_browse.js`) |
+| `label_at` | timestamptz | Nullable. Timestamp of the event that set `label`, compared first when a later-arriving event carries a label. Event timestamps reach it at millisecond precision, so events less than a millisecond apart tie and `label_received_at` decides |
+| `label_received_at` | timestamptz | Nullable. When the server received the event that set `label`: its `journey_events.received_at`, the start of the transaction that stored it. Breaks a tie between equal timestamps, as the timeline does |
+| `label_event_id` | text | Nullable. Id of the event that set `label`; breaks a tie on both timestamp and arrival, compared with the "C" collation (byte order) whatever the database default |
+| `last_step` | text | Nullable. Step name of the event that comes last in the same order, so an out-of-order event does not move it backwards and it is the timeline's last step (migration `018_journey_browse.js`) |
+| `last_step_at` | timestamptz | Nullable. Timestamp of the event that set `last_step`, at millisecond precision like `label_at` |
+| `last_step_received_at` | timestamptz | Nullable. When the server received the event that set `last_step`, like `label_received_at` |
+| `last_step_event_id` | text | Nullable. Id of the event that set `last_step`; breaks a tie on both timestamp and arrival, in byte order like `label_event_id` |
 | `created_at` | timestamptz | Required |
 | `updated_at` | timestamptz | Required |
 
@@ -108,7 +116,10 @@ Constraints and indexes:
 - index `(project_id, environment_id, last_event_at desc)`
 - index `(project_id, entity_type, primary_entity_id_hash)`
 - index `(project_id, status, last_event_at, id)` for recent failures across environments (migration `013_journeys_status_recent_index.js`)
+- index `journeys_project_recent_idx` `(project_id, last_event_at, id)` for the journey list in every environment with any status, so a page is read in order and the list stops after it (migration `019_journey_browse_indexes.js`)
 - check event count is nonnegative
+
+The label and last-step columns were added by migration `018_journey_browse.js` with no backfill: a journey recorded before it reads null in all six. Its `last_step` columns fill on its next event; its `label` columns stay null, which the UI shows as no label, until an event that carries a label arrives.
 
 ### `entity_aliases`
 
@@ -121,6 +132,7 @@ Constraints and indexes:
 | `alias_value_hash` | text | Normalized search hash |
 | `encrypted_display_value` | text | Optional, in the envelope format (§5) |
 | `displayable` | boolean | Not null, default false. True only while every event that stated the alias listed it in `displayableAliases`; ingestion lowers it and never raises it (ADR-053, migration `017_alias_displayable.js`) |
+| `display_value` | text | Nullable. Plain-text copy of the alias value, present only while `displayable` is true; cleared in the same statement that lowers the flag, and by key rotation's duplicate folding when the folded flag is false, and by the trigger below for any other writer (ADR-053, migration `018_journey_browse.js`). Holds the same spelling as `encrypted_display_value`. Null for a displayable value containing a NUL, which a text column cannot hold |
 | `created_at` | timestamptz | Required |
 
 Constraints and indexes:
@@ -128,6 +140,11 @@ Constraints and indexes:
 - unique `(project_id, journey_id, alias_type, alias_value_hash)`
 - index `(project_id, alias_type, alias_value_hash)`
 - index `(project_id, alias_value_hash)`
+- partial index `entity_aliases_displayable_idx` `(project_id, journey_id) include (display_value) where displayable`, so the journey list's text filter tests a journey's displayable values with an index-only scan (migration `019_journey_browse_indexes.js`)
+- check `entity_aliases_display_value_only_when_displayable`: `displayable or display_value is null`, so a masked alias can never hold a plain value, whatever writes the row (migration `018_journey_browse.js`). Added `not valid` with the columns and validated in a separate transaction, which takes only a SHARE UPDATE EXCLUSIVE lock and so does not block ingestion
+- trigger `entity_aliases_clear_masked_display_value`, `before insert or update ... for each row`, running the plpgsql function of the same name, which sets `display_value` to null when `displayable` is false (migration `018_journey_browse.js`). The build before 018 lowers the flag without knowing the copy exists; during a rollout that statement would otherwise violate the check above, fail the event, and log the row. The check stays for a write that skips triggers
+
+`display_value` has no backfill either. A displayable alias stored before migration `018_journey_browse.js` gets its copy the next time an event states it displayable; that statement also replaces the row's ciphertext, so the two keep the same spelling. Until then it reads null.
 
 An alias value may intentionally map to more than one journey over time. Do not globally force uniqueness unless the domain requires it.
 

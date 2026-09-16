@@ -11,8 +11,9 @@ const PARAMETER_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
  * A request URL fit for the log: the path, and each query parameter's name
  * with its value replaced.
  *
- * A search's `q` is usually a customer identifier and the Recent page's filters
- * name services and environments, so values never reach the log. Names stay,
+ * A search's `q` is usually a customer identifier, and the Journeys page's
+ * filters name services and environments and carry text a reader half
+ * remembers, so values never reach the log. Names stay,
  * because "a search with a cursor" is what an operator reading the log needs.
  * The path stays whole: it carries route parameters such as a journey id,
  * which the API's own warnings already log.
@@ -58,6 +59,19 @@ export function pathOf(url: string): string {
  */
 const REQUEST_BYTES = new Set(["rawPacket"]);
 
+/**
+ * Properties a PostgreSQL error (node-postgres's `DatabaseError`) fills with
+ * row contents, logged as REDACTED when present.
+ *
+ * `detail` prints the failing row of a constraint violation ("Failing row
+ * contains (...)") and the key of a unique violation ("Key (...)=(...)"), so a
+ * masked alias being written, or a label, would reach the log. `where` and
+ * `internalQuery` can quote a statement run inside a function, values
+ * included. The rest, `code`, `constraint`, `table`, `column`, `schema`,
+ * `routine`, name the failure without its data and stay.
+ */
+const ROW_CONTENTS = new Set(["detail", "where", "internalQuery"]);
+
 /** How deep a chain of `cause`s is followed. */
 const MAX_CAUSE_DEPTH = 5;
 
@@ -75,7 +89,8 @@ export type LoggedError = {
  * property of the error, `rawPacket` included.
  *
  * Same shape otherwise: type, message, stack, the error's own properties such
- * as `code` and `statusCode`, and its cause.
+ * as `code` and `statusCode`, and its cause, except that a database error's
+ * fields that carry row contents are redacted.
  */
 export function serializeError(error: Error): LoggedError {
   return describeError(error, 0);
@@ -89,7 +104,7 @@ function describeError(error: Error, depth: number): LoggedError {
   };
   for (const [property, value] of Object.entries(error)) {
     if (REQUEST_BYTES.has(property) || property in logged) continue;
-    logged[property] = value;
+    logged[property] = ROW_CONTENTS.has(property) && value != null ? REDACTED : value;
   }
   if (error.cause instanceof Error && depth < MAX_CAUSE_DEPTH) {
     logged["cause"] = describeError(error.cause, depth + 1);

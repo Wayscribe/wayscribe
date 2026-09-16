@@ -9,7 +9,11 @@ export {
   type ApiKeyContext
 } from "./repositories/api-keys.js";
 export { keyringFromEnvironment } from "./keyring-env.js";
-export { upsertAliases, type AliasRow } from "./repositories/aliases.js";
+export {
+  ALIAS_DISPLAY_VALUE_CONSTRAINT,
+  upsertAliases,
+  type AliasRow
+} from "./repositories/aliases.js";
 export { insertEvent, type EventRow, type InsertOutcome } from "./repositories/events.js";
 export {
   applyJourneyEvent,
@@ -97,13 +101,14 @@ export {
   type SearchCursor
 } from "./repositories/cursors.js";
 export { searchJourneys, type SearchHit, type SearchPage } from "./repositories/search.js";
+export type { DisplayableAlias } from "./repositories/journey-summary.js";
 export {
   JOURNEY_STATUSES,
-  listRecentJourneys,
+  listJourneys,
   type JourneyStatus,
-  type RecentJourney,
-  type RecentJourneyFilters,
-  type RecentJourneyPage
+  type ListedJourney,
+  type JourneyListFilters,
+  type JourneyListPage
 } from "./repositories/journey-list.js";
 export { type ReadScope } from "./repositories/read-scope.js";
 export {

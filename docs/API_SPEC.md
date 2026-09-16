@@ -42,7 +42,7 @@ web interface stores the selection in its session.
 `GET /v1/projects` lists them. It takes the admin token alone, because it
 answers the question a caller has before it can name a project. Each item
 carries the project's environment names, sorted, which is what the web
-interface offers as the environment filter on recent journeys:
+interface offers as the environment filter on the Journeys page:
 
 ```json
 {
@@ -188,7 +188,10 @@ Response:
         "status": "failed",
         "eventCount": 8,
         "startedAt": "2026-08-06T18:31:02.000Z",
-        "lastEventAt": "2026-08-06T18:34:38.000Z"
+        "lastEventAt": "2026-08-06T18:34:38.000Z",
+        "label": "Acme renewal, 2026",
+        "lastStep": "sync-account",
+        "displayableAliases": [{ "type": "postingId", "value": "greenhouse:4567" }]
       }
     ],
     "nextCursor": null
@@ -196,13 +199,22 @@ Response:
 }
 ```
 
+`label` is the journey's label, or null until an event carries one. `lastStep`
+is the `name` of its latest event, or null for a journey no event has reached
+since the server began storing it. `displayableAliases` lists only the aliases
+a reader may see in full (ADR-053), as `{ type, value }`, ordered by alias type
+and then by value; a masked alias is never listed. A displayable alias written
+before the server kept plain-text copies is listed once an event states it
+again. A displayable value containing a NUL is never listed or matched by `q`,
+because the server keeps no plain-text copy of it; the journey read shows it.
+
 A missing or empty `q`, or `q` given more than once, is `400` `invalid_query`. A
 `cursor` given more than once is `400` `invalid_cursor`, on every list endpoint.
 
-## 6. List recent journeys
+## 6. List journeys
 
 ```http
-GET /v1/journeys?since=<instant, required>&status=failed&environment=<name>&service=<name>&limit=25&cursor=<cursor>
+GET /v1/journeys?since=<instant, required>&until=<instant>&status=failed&environment=<name>&service=<name>&entityType=<type>&q=<text>&limit=25&cursor=<cursor>
 ```
 
 **`since` is required, and has no default.** The list is always a window: it
@@ -218,11 +230,35 @@ where. Journeys are ordered by last activity, newest first (`lastEventAt`, then
 | Parameter | Meaning |
 | --- | --- |
 | `since` | Required. An ISO 8601 instant with a time zone, such as `2026-08-06T18:00:00Z`. Journeys whose last activity is at or after it. |
+| `until` | An ISO 8601 instant with a time zone, after `since`. Journeys whose last activity is before it. Omitted or empty means no upper bound. |
 | `status` | `active`, `completed` or `failed`. Omitted or empty means any status. |
 | `environment` | An environment name. Omitted or empty means every environment the caller can read. |
 | `service` | An exact service name. Journeys with at least one event recorded by that service. |
+| `entityType` | An exact entity type, at most 128 characters, after surrounding white space is removed. Omitted, empty or white space alone means any entity type. A type stored with surrounding white space cannot be matched. |
+| `q` | Text of 2 to 200 characters, after surrounding white space is removed. Journeys whose label, or the value of one of whose displayable aliases, contains it, ignoring case. Omitted, empty or white space alone means no text filter. |
 | `limit` | Page size, 25 by default, at most 100. |
 | `cursor` | `nextCursor` from the previous page. |
+
+**What `q` matches.** Only the two values stored in plain text: the journey's
+`label` and the values of its displayable aliases (ADR-053). It never matches
+a masked alias value, the entity id, a journey id or an entity type, even when
+the text is exactly one of them: those are stored as ciphertext and search
+tokens, and are found by exact value through search (section 5). `%`, `_` and
+`\` are ordinary characters in `q`, not wildcards. Characters are counted as
+Unicode code points.
+
+**What "ignoring case" means.** The comparison is PostgreSQL's `ILIKE`, which
+lowers both sides using the database's character classification (`LC_CTYPE`,
+fixed when the database was created). Under a UTF-8 locale such as
+`en_US.utf8`, the default of the official PostgreSQL images and the one the
+tests run on, `CAFÉ` finds `Café` and `été` finds `Été`. Accents are not
+removed: `cafe` does not find `Café`. A database created with the `C` locale
+lowers ASCII letters only, so there `CAFÉ` would not find `Café`. Run
+`select datctype from pg_database where datname = current_database()` to see
+which applies.
+
+`q` filters the journeys inside the `since`/`until` window, so its cost grows
+with the number of journeys in the window, not with the size of the table.
 
 Scope is the same as search. An API key reads its own environment only; naming
 another environment returns an empty page, not an error. The admin token reads
@@ -231,11 +267,22 @@ every environment of the named project.
 `400 invalid_query` when `since` is missing, is not a full instant with a time
 zone (the message gives an example of one), names an impossible date, or is more than 60 seconds ahead of the API's
 clock (a minute of skew between the caller and the API is tolerated); when
-`status` is not one of the three values; or when any parameter is given more
-than once. A malformed cursor is `400 invalid_cursor`.
+`until` is not a full instant, names an impossible date, or is not after
+`since`; when `status` is not one of the three values; when `entityType` is
+longer than 128 characters; when `q` is shorter than 2 or longer than 200
+characters; when any value holds a NUL; when any parameter is given more than
+once; or when the query names a parameter this list does not have, so that a
+misspelt filter is not silently ignored. `until` has no clock check: a range
+that ends after now lists everything up to now, whereas a future `since` could
+only list nothing. A malformed cursor is `400 invalid_cursor`.
 
 Keep `since` fixed while paging: a cursor continues the list it came from, and
-recomputing "24 hours ago" for each page moves the window under it. That is also
+recomputing "24 hours ago" for each page moves the window under it.
+A cursor holds a position in the list, the last row's `lastEventAt` and
+`journeyId`, and nothing about the filters, which always come from the request.
+Sent with different filters, it is not refused: it lists the rows those filters
+match that come after that position. To start a changed filter from the top,
+leave the cursor out. That is also
 why the server does not default it: a default would be recomputed on every
 request. A journey
 that receives an event between two page requests moves to the top of the list,
@@ -258,6 +305,9 @@ Response items are search results with the environment added:
         "eventCount": 8,
         "startedAt": "2026-08-06T18:31:02.000Z",
         "lastEventAt": "2026-08-06T18:34:38.000Z",
+        "label": "Acme renewal, 2026",
+        "lastStep": "sync-account",
+        "displayableAliases": [],
         "environment": "production"
       }
     ],
@@ -284,6 +334,8 @@ Response:
       "id": "18492"
     },
     "status": "failed",
+    "label": "Acme renewal, 2026",
+    "lastStep": "sync-account",
     "aliases": [
       { "type": "salesforceAccountId", "displayValue": "0018…ABC", "displayable": false },
       { "type": "postingId", "displayValue": "greenhouse:4567", "displayable": true }
@@ -297,7 +349,8 @@ Response:
 }
 ```
 
-An alias's `displayValue` is masked unless `displayable` is true, which it is
+`label` and `lastStep` are as in a search result (section 5). An alias's
+`displayValue` is masked unless `displayable` is true, which it is
 only when every event that stated the alias listed it in `displayableAliases`
 (ADR-053, `docs/SECURITY.md` section 6). It is null when the key that encrypted
 it is no longer held.
@@ -467,7 +520,7 @@ API port is 404.
 
 ## 15. Pagination
 
-Use cursor pagination for events, search results and recent journeys.
+Use cursor pagination for events, search results and the journey list.
 
 Do not expose database offsets as a compatibility contract.
 

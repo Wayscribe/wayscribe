@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { MAX_JOURNEY_LABEL_LENGTH } from "./limits.js";
+
+export { MAX_JOURNEY_LABEL_LENGTH };
 
 /** The largest `durationMs` accepted: 2^31 - 1, the most a PostgreSQL `integer` holds (about 24.8 days). */
 export const MAX_DURATION_MS = 2_147_483_647;
@@ -20,8 +23,11 @@ export const JOURNEY_OPERATIONS = [
 export const journeyOperationSchema = z.enum(JOURNEY_OPERATIONS);
 export type JourneyOperation = z.infer<typeof journeyOperationSchema>;
 
+/** The longest entity type accepted. The list's `entityType` filter refuses a longer one. */
+export const MAX_ENTITY_TYPE_LENGTH = 128;
+
 export const entitySchema = z.object({
-  type: z.string().min(1).max(128),
+  type: z.string().min(1).max(MAX_ENTITY_TYPE_LENGTH),
   id: z.string().min(1).max(512)
 });
 
@@ -91,6 +97,20 @@ export const journeyEventSchema = z.object({
     .max(MAX_DISPLAYABLE_ALIASES)
     .describe(
       "Alias types from this event's aliases that a reader may see in full. Every other alias is masked when read. An alias is shown in full only while every event that stated it listed it here; a type this event's aliases do not name is ignored."
+    )
+    .optional(),
+
+  /**
+   * Public display text for the journey, written by the instrumenting code.
+   * Empty is refused rather than read as "clear the label", which the protocol
+   * does not offer, so a label cannot be removed by accident.
+   */
+  journeyLabel: z
+    .string()
+    .min(1)
+    .max(MAX_JOURNEY_LABEL_LENGTH)
+    .describe(
+      "Public display text for this event's journey, 1 to 200 characters. It is shown and searchable in full, so it must not hold personal data. An event without it leaves the journey's label unchanged."
     )
     .optional(),
 

@@ -3,7 +3,7 @@ import {
   findEventDetail,
   findJourneyDetail,
   listJourneyEvents,
-  listRecentJourneys,
+  listJourneys,
   searchJourneys,
   type ReadScope
 } from "@flight-recorder/database";
@@ -17,7 +17,7 @@ import {
   type Principal
 } from "../principal.js";
 import { presentEvent, presentJourneyDetail, presentJourneySummary } from "./present.js";
-import { parseRecentJourneysQuery } from "./recent-query.js";
+import { parseJourneyListQuery } from "./journey-list-query.js";
 
 const DEFAULT_LIMIT = 25;
 const NULL_BYTE = String.fromCharCode(0);
@@ -114,8 +114,8 @@ export function registerQueryRoutes(
   });
 
   /**
-   * Recent journeys, for an investigation that starts from "what failed"
-   * rather than from an identifier.
+   * Journeys by last activity in a window, for an investigation that starts
+   * from "what happened" or "what failed" rather than from an identifier.
    *
    * Scoped exactly as search is. An API key asking for another environment
    * gets an empty page, not an error, because outside its scope nothing exists.
@@ -124,13 +124,13 @@ export function registerQueryRoutes(
     const principal = await authenticate(request, reply);
     if (principal === undefined) return reply;
 
-    const parsed = parseRecentJourneysQuery(request.query, new Date());
+    const parsed = parseJourneyListQuery(request.query, new Date());
     if (!parsed.ok) {
       return reply.code(400).send(errorBody("invalid_query", parsed.message, request.id));
     }
 
     try {
-      const page = await listRecentJourneys(
+      const page = await listJourneys(
         app.db,
         readScope(principal),
         parsed.filters,

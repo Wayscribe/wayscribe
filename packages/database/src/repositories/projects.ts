@@ -4,7 +4,7 @@ export interface ProjectSummary {
   id: string;
   name: string;
   slug: string;
-  /** Environment names, sorted. The Recent page offers them as a filter. */
+  /** Environment names, sorted. The Journeys page offers them as a filter. */
   environments: string[];
 }
 

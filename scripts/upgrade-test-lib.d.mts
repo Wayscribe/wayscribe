@@ -16,3 +16,8 @@ export declare function doctorVerdict(
   stdout: string,
   required: readonly string[]
 ): { ok: boolean; checks: number; problems: string[] };
+export declare function legacyJourneyListProblems(
+  status: number,
+  body: unknown,
+  journeys: { expected?: readonly string[]; absent?: readonly string[] }
+): string[];

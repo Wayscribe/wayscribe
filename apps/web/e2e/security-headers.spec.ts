@@ -95,7 +95,7 @@ test("every page is served with the security headers", async ({ page }) => {
   expect(again?.headers()["content-security-policy"]).not.toBe(policy);
 });
 
-test("the search, journey, recent, replay, and delete pages work with no CSP violation", async ({
+test("the search, journey, journeys, replay, and delete pages work with no CSP violation", async ({
   page
 }) => {
   const fromConsole = await watchViolations(page);
@@ -115,10 +115,12 @@ test("the search, journey, recent, replay, and delete pages work with no CSP vio
   await expect(page.locator(".diff")).toContainText("Phone");
   expect(await violationsOn(page), "journey").toEqual([]);
 
-  // Recent.
+  // Journeys, reached through the old Recent address, which redirects, and
+  // then again without the empty value.
   await page.goto("/recent?status=&window=7d");
-  await expect(page.locator("h1")).toBeVisible();
-  expect(await violationsOn(page), "recent").toEqual([]);
+  await expect(page).toHaveURL("/journeys?window=7d");
+  await expect(page.locator("h1")).toHaveText("Journeys");
+  expect(await violationsOn(page), "journeys").toEqual([]);
 
   // Replay: the review screen for the seeded event.
   await page.goto(`/journeys/${JOURNEY_ID}/replay?event=${EVENT_ID}`);

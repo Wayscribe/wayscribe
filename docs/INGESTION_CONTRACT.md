@@ -318,7 +318,33 @@ what a dry run previews.
   states it lists it, and becomes masked for good when any later event states
   it without listing it (ADR-053). A listed type that the event's `aliases`
   does not name is ignored, not refused. A read returns each alias as
-  `{ type, displayValue, displayable }`.
+  `{ type, displayValue, displayable }`. While an alias is displayable the
+  server also keeps its value in plain text, as the event spelled it, so it can
+  be matched by partial text; the statement that masks the alias removes that
+  copy at the same moment, and a masked alias never has one. A displayable
+  value containing a NUL is accepted, as any alias value is, but gets no copy,
+  since a text column cannot hold a NUL: it is read in full, and is neither
+  listed in `displayableAliases` nor matched by `q` (case
+  `wire/displayable-alias-nul`).
+- **`journeyLabel`**, optional, is public display text for the journey: 1 to
+  200 code points. An empty string refuses that event alone as `invalid_event`,
+  with `details[0].path` equal to `event.journeyLabel`; a label is never cleared
+  by sending one. The label is not redacted, because the host wrote it to be
+  shown. **Conflicts:** the journey keeps the label of the event that comes
+  last in its timeline's order: the latest `timestamp`, compared at
+  millisecond precision as it is stored; on a tie, the event the server
+  received later; on a tie on both, the larger event `id`, compared byte by
+  byte. An event without a label leaves the stored one unchanged, so an older
+  event arriving late changes nothing, and neither does a duplicate. Events
+  sent one after another, in one batch or in successive requests, are
+  received in that order; events sent concurrently in different requests are
+  received in no guaranteed order. In a dry run every event of the batch is
+  received at the same instant, so a tie on the timestamp goes to the event
+  `id`. A read returns the label as `label`, null until an event carries one.
+- **The last step** of a journey is the `name` of the event that comes last in
+  the same order, so it is the step the journey's timeline shows last, and an
+  event that arrives late never moves it backwards. A read returns it as
+  `lastStep`.
 - **Unknown fields are accepted and dropped.** There is no column to store them
   in, and an unvalidated, unredacted field is not something to write to one. The
   rule is "accepted, not refused", which is what makes an additive optional
@@ -411,12 +437,14 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   is a sequence of recorder calls). `otlp` is reserved and unused.
 - A **`wire`** case carries `send`, the request body verbatim. An **`sdk`** case
   carries `calls` instead, each `{ "call": "record" | "transform" | "persist" |
-  "publish" | "deliver" | "identify" | "fail" | "finish", "name": "…", "args":
-  { } }`, with an optional `repeat`, and a `recorder` object for the settings
-  the case needs. A wrapper call's `args` are `input`, `output` (what the
-  callback returns) and `options`, the wrapper's options. A call with
-  `"journeys": n` is made on a group of n journeys, the case's own first, and
-  expects n results. An `sdk` case's `expect` may carry `wire`, the event the SDK
+  "publish" | "deliver" | "identify" | "label" | "fail" | "finish", "name":
+  "…", "args": { } }`, with an optional `repeat`, and a `recorder` object for
+  the settings the case needs. A wrapper call's `args` are `input`, `output`
+  (what the callback returns) and `options`, the wrapper's options. A `label`
+  call's `args` is `text`, the label to set; it records nothing, and the calls
+  after it carry the label. A call with `"journeys": n` is made on a group of n
+  journeys, the case's own first, and expects n results; `identify` and `label`
+  have no group form. An `sdk` case's `expect` may carry `wire`, the event the SDK
   is expected to send, beside `results`.
 - **`languages`** is `["*"]` or a list. A harness skips what it cannot express
   **and reports the skip**; a skip nobody sees is a case that quietly stopped
@@ -430,7 +458,12 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   **`setup.otherEnvironment`** is ingested with a second environment's key,
   which is how a cross-environment case gets its journey.
 - **`expect`** is either `request` (a whole-request refusal: a status and a
-  code, and nothing stored) or `results`, one entry per sent event.
+  code, and nothing stored) or `results`, one entry per sent event. A refused
+  result's `error` carries `code` and `httpStatus`, and may carry `details`, a
+  list of `{ "path": "…" }` compared in order with the refusal's own details.
+  A detail's `message` is the server's wording and is not compared, so a case
+  may not list it. The comparison of `error` is a subset match at its top
+  level, so a case that omits `details` does not assert that none were sent.
 
 ### Comparison
 

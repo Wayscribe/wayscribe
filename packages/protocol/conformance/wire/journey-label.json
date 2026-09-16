@@ -1,0 +1,73 @@
+{
+  "id": "wire/journey-label",
+  "title": "An event may carry a journey label of up to 200 characters, counted as code points, and the journey reads it back",
+  "source": "docs/EVENT_PROTOCOL.md section 3; docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_short",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "job-sweep",
+          "entity": {
+            "type": "job_posting",
+            "id": "greenhouse:4567"
+          },
+          "operation": "received",
+          "name": "sweep-board",
+          "timestamp": "2026-09-16T08:00:00.000Z",
+          "journeyLabel": "Mirantis · Senior SWE, AI Infra"
+        }
+      },
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}_longest",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "job-sweep",
+          "entity": {
+            "type": "job_posting",
+            "id": "greenhouse:4567"
+          },
+          "operation": "identified",
+          "name": "identify",
+          "timestamp": "2026-09-16T08:01:00.000Z",
+          "journeyLabel": {
+            "$string": {
+              "char": "𝄞",
+              "count": 200
+            }
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      },
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "journey": {
+            "label": {
+              "$string": {
+                "char": "𝄞",
+                "count": 200
+              }
+            },
+            "lastStep": "identify"
+          }
+        }
+      }
+    ]
+  }
+}

@@ -22,6 +22,9 @@ const WEB_URL = process.env["WEB_URL"] ?? "http://localhost:3000";
 const ADMIN_TOKEN = process.env["ADMIN_TOKEN"] ?? "replace-for-local-development-0000";
 const ENTITY_ID = process.env["ENTITY_ID"] ?? "0018Z00002ABC";
 const PROJECT = process.env["PROJECT_NAME"] ?? "Demo";
+// The demo worker's service, so the Journeys shot lists the demo's journeys
+// and not whatever else the database holds, such as the browser suite's.
+const JOURNEYS_SERVICE = process.env["JOURNEYS_SERVICE"] ?? "demo-worker";
 const OUT = fileURLToPath(new URL("../docs/images/", import.meta.url));
 
 // Wide enough that the timeline and the detail pane sit side by side, which is
@@ -61,6 +64,13 @@ try {
 
   await page.waitForSelector("a[href^='/journeys/']");
   await shot("search");
+
+  await page.goto(`${WEB_URL}/journeys?service=${encodeURIComponent(JOURNEYS_SERVICE)}`);
+  await page.waitForSelector("table tbody tr");
+  await shot("journeys");
+
+  await page.goBack();
+  await page.waitForSelector("a[href^='/journeys/']");
 
   await page.click("a[href^='/journeys/']");
   await page.waitForSelector("text=All times UTC");

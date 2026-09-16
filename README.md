@@ -60,16 +60,16 @@ Search `0018Z00002ABC` and you get one record's history, in order, across every
 service that touched it:
 
 ```text
-received      receive-salesforce-webhook     integration-api
-transformed   transform-salesforce-account   integration-api
-persisted     persist-customer               integration-api
-identified    identify                       integration-api
-published     publish-customer-updated       integration-api
-consumed      consume-customer-updated       sync-worker
-delivered     deliver-customer-to-target     sync-worker      422
-retried       retry-customer-delivery        sync-worker      422
-retried       retry-customer-delivery        sync-worker      422
-failed        move-message-to-dead-letter    sync-worker
+received      receive-salesforce-webhook     demo-integration
+transformed   transform-salesforce-account   demo-integration
+persisted     persist-customer               demo-integration
+identified    identify                       demo-integration
+published     publish-customer-updated       demo-integration
+consumed      consume-customer-updated       demo-worker
+delivered     deliver-customer-to-target     demo-worker       422
+retried       retry-customer-delivery        demo-worker       422
+retried       retry-customer-delivery        demo-worker       422
+failed        move-message-to-dead-letter    demo-worker
 ```
 
 Open the transformation and you get a **field-level diff** of what that step
@@ -100,9 +100,15 @@ One changed field. The fix works, tested against the input that actually failed.
 
 That is the whole loop: **find where the value was lost, then prove the fix.**
 
-No identifier yet, only an alert that deliveries are failing? The Recent page
-lists the journeys that failed in the last hour, day or week, narrowed by
-environment and service, and each one opens the same timeline.
+No identifier yet, only an alert that deliveries are failing? The Journeys page
+lists what happened in the last hour, day, week or month, or in a range you
+choose, narrowed by status, entity type, environment, service, or part of a
+journey's label or displayable alias. Its Failures shortcut shows only what
+failed, and each row opens the same timeline.
+
+![The Journeys page: a filter bar above a table of journeys with their last
+activity, status, entity type, what each is shown as, last step and event
+count](docs/images/journeys.png)
 
 ---
 
@@ -240,7 +246,8 @@ no library. This one is built so that cannot happen:
 - The transport retries behind a circuit breaker and gives up rather than piling
   up.
 - `shutdown()` races the final flush against a timeout and never hangs.
-- Nothing is written to your console unless you ask for it.
+- Nothing is written to your console unless you ask for it, apart from one line
+  per process for a configuration under which nothing recorded can be stored.
 
 ---
 
@@ -297,7 +304,10 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
   list rather than replacing it, so adding one cannot silently disable the rest.
 - Entity identifiers and alias values are **encrypted at rest**. Payloads are
   not — they are stored as `jsonb`, which is exactly why redaction runs before
-  they leave your process and again before they are written.
+  they leave your process and again before they are written. Two things the
+  instrumenting code declares public are also kept in plain text so they can be
+  found by partial text: a journey's label, and a copy of each alias value it
+  marked displayable ([SECURITY.md](docs/SECURITY.md) section 6).
 - Search uses HMAC tokens, so an identifier is findable without being stored in
   the clear.
 - Every encrypted value names the key that wrote it, so `ENCRYPTION_KEY`
@@ -311,7 +321,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 53 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 54 ADRs, including the several that were
 wrong the first time and say so.
 
 ---

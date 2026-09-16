@@ -190,6 +190,21 @@ describe("comparing against an expectation", () => {
     expect(compareExpectation({ a: [2, 1] }, { a: [1, 2] }).length).toBe(2);
   });
 
+  it("fails details that are reordered, missing, or extra", () => {
+    const sent = {
+      details: [{ path: "event.journeyLabel" }, { path: "event.name" }]
+    };
+    expect(compareExpectation(sent, sent)).toEqual([]);
+    const reordered = { details: [{ path: "event.name" }, { path: "event.journeyLabel" }] };
+    expect(compareExpectation(sent, reordered).length).toBeGreaterThan(0);
+    const missing = { details: [{ path: "event.journeyLabel" }] };
+    expect(compareExpectation(sent, missing).length).toBeGreaterThan(0);
+    const extra = {
+      details: [{ path: "event.journeyLabel" }, { path: "event.name" }, { path: "event.id" }]
+    };
+    expect(compareExpectation(sent, extra).length).toBeGreaterThan(0);
+  });
+
   it("tells null from a missing key", () => {
     expect(compareExpectation({ a: null }, { a: null })).toEqual([]);
     expect(compareExpectation({}, { a: null })).toEqual(["a: expected to be present"]);
@@ -221,6 +236,30 @@ describe("the committed wire cases", () => {
     const good = cases[0] as ConformanceCase;
     const typo = { ...good, expects: good.expect };
     expect(conformanceCaseSchema.safeParse(typo).success).toBe(false);
+  });
+
+  it("lets a refusal name the fields it expects in details, by path only", () => {
+    const good = cases[0] as ConformanceCase;
+    const refusal = (details: unknown): unknown => ({
+      ...good,
+      expect: {
+        results: [
+          {
+            status: "rejected",
+            error: { code: "invalid_event", httpStatus: 400, details }
+          }
+        ]
+      }
+    });
+    expect(conformanceCaseSchema.safeParse(refusal([{ path: "event.journeyLabel" }])).success).toBe(
+      true
+    );
+    // The message is the server's own wording, not the contract, so a case
+    // that pins it is a typo rather than an expectation.
+    expect(
+      conformanceCaseSchema.safeParse(refusal([{ path: "event.journeyLabel", message: "x" }]))
+        .success
+    ).toBe(false);
   });
 
   it("fails a wire case that carries recorder calls", () => {

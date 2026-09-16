@@ -1,0 +1,35 @@
+{
+  "id": "sdk/journey-label",
+  "title": "A label set on a journey is carried on its later events",
+  "source": "docs/SDK_SPEC.md SDK-58; docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "label",
+      "args": {
+        "text": "Mirantis · Senior SWE, AI Infra"
+      }
+    },
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "sweep-board"
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "received",
+      "name": "sweep-board",
+      "journeyLabel": "Mirantis · Senior SWE, AI Infra"
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

@@ -1,8 +1,13 @@
 // The parts of scripts/measure-storage.mjs that decide what it may touch and
 // whether its numbers mean anything, kept apart so tests can reach them
 // without a database. The script itself runs only against a live PostgreSQL.
+// scripts/measure-journey-list.mjs uses the same schema prefix and VACUUM.
 
-/** Every schema the script creates starts with this, and nothing else may. */
+/**
+ * Every schema the measurement scripts create starts with this, and nothing
+ * else may. measure-storage.mjs drops any it finds left over, including one
+ * measure-journey-list.mjs kept.
+ */
 export const MEASUREMENT_SCHEMA_PREFIX = "measure_storage_";
 
 /**

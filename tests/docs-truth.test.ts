@@ -13,7 +13,10 @@ import {
   PROTOCOL_ERROR_CODES,
   TRANSPORT_REFUSALS
 } from "../packages/protocol/src/index.js";
-import { parseRecentJourneysQuery } from "../apps/api/src/routes/recent-query.js";
+import {
+  JOURNEY_LIST_PARAMETERS,
+  parseJourneyListQuery
+} from "../apps/api/src/routes/journey-list-query.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -218,28 +221,31 @@ describe("the documentation's checkable claims", () => {
 
   describe("GET /v1/journeys in API_SPEC.md", () => {
     const section = (): string => {
-      const match = /## 6\. List recent journeys\n([\s\S]*?)\n## 7\./.exec(
-        read("docs/API_SPEC.md")
-      );
-      expect(match, "API_SPEC.md has no section 6 for recent journeys").not.toBeNull();
+      const match = /## 6\. List journeys\n([\s\S]*?)\n## 7\./.exec(read("docs/API_SPEC.md"));
+      expect(match, "API_SPEC.md has no section 6 for the journey list").not.toBeNull();
       return match?.[1] ?? "";
     };
     /** First-column names of the parameter table. */
     const documented = (): string[] =>
-      [...section().matchAll(/^\| `([a-z]+)` \|/gm)].map((m) => m[1] ?? "");
+      [...section().matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((m) => m[1] ?? "");
 
     it("documents exactly the query parameters the route reads", () => {
+      // The parser refuses every other key, so its list is the route's.
+      expect(documented()).toEqual([...JOURNEY_LIST_PARAMETERS]);
       expect(documented()).toEqual([
         "since",
+        "until",
         "status",
         "environment",
         "service",
+        "entityType",
+        "q",
         "limit",
         "cursor"
       ]);
     });
 
-    it.each(["since", "status", "environment", "service"])(
+    it.each(["since", "until", "status", "environment", "service", "entityType", "q"])(
       "documents %s, which the parser validates",
       (name) => {
         // A repeated parameter is refused by name only if the parser reads it.
@@ -247,7 +253,7 @@ describe("the documentation's checkable claims", () => {
           since: "2026-01-01T00:00:00Z",
           [name]: ["a", "b"]
         };
-        expect(parseRecentJourneysQuery(query, new Date("2026-09-15T00:00:00Z"))).toEqual({
+        expect(parseJourneyListQuery(query, new Date("2026-09-15T00:00:00Z"))).toEqual({
           ok: false,
           message: `${name} must be given once.`
         });
@@ -475,9 +481,10 @@ describe("docs/SDK_SPEC.md", () => {
     );
     for (const one of requirements()) {
       if (one.checkedBy === "section 14") continue;
-      expect(cases, `${one.id} names a case that does not exist: ${one.checkedBy}`).toContain(
-        one.checkedBy
-      );
+      // A requirement may name several cases, separated by commas.
+      for (const id of one.checkedBy.split(/,\s*/)) {
+        expect(cases, `${one.id} names a case that does not exist: ${id}`).toContain(id);
+      }
     }
   });
 

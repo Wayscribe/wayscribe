@@ -31,6 +31,13 @@ metadata:
 spec:
   # The retry loop inside the container is the real one.
   backoffLimit: 1
+  # The whole Job, retries included, ends after this long, so a migration
+  # that keeps waiting (019 behind a backup, say) cannot run for hours.
+  # Killing a concurrent index build midway leaves an invalid index that the
+  # next `migrate` drops and rebuilds.
+  {{- with .Values.migrations.activeDeadlineSeconds }}
+  activeDeadlineSeconds: {{ . }}
+  {{- end }}
   template:
     metadata:
       labels:
@@ -60,18 +67,39 @@ spec:
           # A probe answers a different question than the operation does, and
           # relying on backoffLimit instead left two Error pods beside a healthy
           # install — which reads as a broken deployment to anyone glancing at it.
+          #
+          # A failure that reads as a connection failure is retried up to 30
+          # times, about a minute, while the database starts. Anything else,
+          # such as migration 019 giving up on a lock timeout behind a backup,
+          # is reported as a failed migration, with its error printed above,
+          # and retried once only: a rerun repairs what an interrupted index
+          # build left, and more attempts would each wait as long again. The
+          # output is captured to a file and matched afterwards, so the match
+          # never races the command.
           command:
             - sh
             - -c
             - |
+              failed=0
               for attempt in $(seq 1 30); do
-                if node packages/database/dist/cli.js migrate; then
+                if node packages/database/dist/cli.js migrate > /tmp/migrate.log 2>&1; then
+                  cat /tmp/migrate.log
                   exit 0
                 fi
-                echo "database not ready (attempt $attempt); retrying in 2s"
+                cat /tmp/migrate.log
+                if grep -qiE 'ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EHOSTUNREACH|getaddrinfo|starting up|Timeout acquiring a connection|Connection terminated' /tmp/migrate.log; then
+                  echo "database not ready (attempt $attempt); retrying in 2s"
+                else
+                  failed=$((failed + 1))
+                  if [ "$failed" -ge 2 ]; then
+                    echo "migration failed twice, see the error above; not retrying"
+                    exit 1
+                  fi
+                  echo "migration failed (attempt $attempt), see the error above; retrying once in 2s"
+                fi
                 sleep 2
               done
-              echo "database never became reachable"
+              echo "migrate did not succeed in 30 attempts; the last error is above"
               exit 1
           env:
             {{- include "flight-recorder.databaseEnv" . | nindent 12 }}

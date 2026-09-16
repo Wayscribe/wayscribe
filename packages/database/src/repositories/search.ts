@@ -1,6 +1,6 @@
 import type { Knex } from "knex";
 import { orderJourneysAfter, toJourneyPage, type JourneyPage } from "./journey-keyset.js";
-import { JOURNEY_SUMMARY_COLUMNS } from "./journey-summary.js";
+import { journeySummaryColumns, type DisplayableAlias } from "./journey-summary.js";
 import type { ReadScope } from "./read-scope.js";
 
 export interface SearchHit {
@@ -11,6 +11,12 @@ export interface SearchHit {
   eventCount: number;
   startedAt: Date;
   lastEventAt: Date;
+  /** Public display text, or null when no event has set one. */
+  label: string | null;
+  /** The step name of the latest event, or null for a journey not written since migration 018. */
+  lastStep: string | null;
+  /** Aliases a reader may see in full, in alias type order, then by value. */
+  displayableAliases: DisplayableAlias[];
 }
 
 export type SearchPage = JourneyPage<SearchHit>;
@@ -121,7 +127,7 @@ export async function searchJourneys(
           })
         );
     })
-    .select(...JOURNEY_SUMMARY_COLUMNS)
+    .select(...journeySummaryColumns(db))
     .from({ j: "journeys" })
     .join("matches", "matches.journey_id", "j.id")
     .where("j.project_id", project)

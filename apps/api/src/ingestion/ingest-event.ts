@@ -106,7 +106,12 @@ export async function ingestEvent(
     encryptedPrimaryEntityId: encryptValue(keyring, event.entity.id),
     eventTimestamp: new Date(event.timestamp),
     operation: event.operation,
-    hasError: event.error !== undefined
+    hasError: event.error !== undefined,
+    eventId: event.id,
+    // `name` is required, so every event can set the last step.
+    stepName: event.name,
+    // Not redacted: the host wrote it to be shown (see INGESTION_CONTRACT.md).
+    label: event.journeyLabel ?? null
   };
 
   return db.transaction(async (trx) => {
@@ -197,6 +202,11 @@ export async function ingestEvent(
           aliasType,
           aliasValueHash: tokens.current,
           encryptedDisplayValue: encryptValue(keyring, value),
+          // Kept in plain text only while the alias is displayable; see
+          // upsertAliases. A text column cannot hold a NUL, and the value is
+          // valid on the wire, so such a value gets no copy rather than
+          // costing the event.
+          value: value.includes("\u0000") ? null : value,
           displayable: displayable.has(aliasType),
           // During a rotation, a repeat of an alias stored under the previous
           // key's token moves that row rather than adding a second one.

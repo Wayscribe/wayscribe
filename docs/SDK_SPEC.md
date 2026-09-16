@@ -290,8 +290,9 @@ may differ; it should be able to say why.
 
 ## 9. Diagnostics
 
-- **SDK-40.** An SDK MUST be silent by default. Debug output is opt-in. The one
-  exception is the warning SDK-56 allows, at most once per process.
+- **SDK-40.** An SDK MUST be silent by default. Debug output is opt-in. The
+  exceptions are the warnings SDK-56 and SDK-60 allow, each at most once per
+  process.
 - **SDK-41.** A printed diagnostic MUST NOT contain a payload, an API key, a
   message from the server, or the endpoint's path or query. A path or a query
   can carry a credential.
@@ -465,6 +466,50 @@ predictable journey id is the risk `INGESTION_CONTRACT.md` section 5 describes.
 | --- | --- | --- |
 | SDK-57 | ADR-053; docs/SECURITY.md section 6 | sdk/identify-displayable |
 
+### Journey labels
+
+A label is the journey's name on the Journeys page, where partial text finds it
+(`EVENT_PROTOCOL.md` section 3).
+
+- **SDK-58.** An SDK SHOULD let a host set a label on a journey, sent as
+  `journeyLabel`. When it does, it MUST send only labels the protocol accepts.
+  A label over 200 code points MUST be cut, at a code point boundary so that no
+  surrogate pair is split, to at most 200 code points, and reported; the events
+  carrying it MUST still be sent. A label that is empty, consists only of
+  whitespace (Unicode White_Space, line terminators and U+FEFF, as ECMAScript's
+  `trim` removes), or is not a string, MUST NOT be sent and MUST be reported, and the event it would have been on
+  MUST still be sent. Setting a label records nothing by itself. An SDK SHOULD
+  carry the label on every later event of the journey, not only the next one:
+  the server keeps the label of the event that started last, so repeating it
+  changes nothing, and an event that is lost would otherwise take the label
+  with it. The Node SDK cuts to 199 code points followed by `…` (U+2026), and
+  leaves an earlier label in place when a later one is refused.
+- **SDK-59.** An SDK SHOULD document that a label is stored, shown and matched in
+  plain text, is never redacted, and so should not hold personal data or
+  anything else a reader of the journey list may not see.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-58 | EVENT_PROTOCOL section 3; packages/protocol/src/limits.ts; docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1 | sdk/journey-label, sdk/journey-label-blank, sdk/journey-label-cut, sdk/journey-label-empty |
+| SDK-59 | docs/superpowers/specs/2026-09-16-journeys-browse-design.md section 1 | section 14 |
+
+### Configuration that cannot be used
+
+- **SDK-60.** A configuration value that is missing, cannot be read, has the
+  wrong type or is out of range MUST NOT fail startup (SDK-6). An SDK MUST
+  report each such value when the recorder is created, naming the setting and
+  never its value, and MUST NOT coerce one type into another. An optional
+  setting SHOULD take its default, or be clamped into range. A required
+  setting (section 12) has no default, so nothing recorded reaches the server
+  until it is fixed; an SDK SHOULD therefore print one warning for it per
+  process even when debug output is off. When debug output is on, every
+  problem found at creation MUST be printed, whatever rate limit applies to
+  other output, so that one cannot hide another.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-60 | ADR-007; ADR-052; packages/sdk-node/src/config.ts | section 14 |
+
 ## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive
@@ -498,6 +543,9 @@ either.
 | SDK-43, SDK-44, SDK-45, SDK-46 | Assert the default level, that aliases never propagate, that the entity id propagates only at the highest level, and that `traceparent` is never written. |
 | SDK-48, SDK-49 | Assert trace correlation works with the tracing library present and that the SDK works without it. |
 | SDK-50 | Assert the recorder reads no ambient environment variable of its own. |
+| SDK-52 | Record a payload with a secret-named field holding a string over the limit and assert it arrives masked and is not counted as truncated; cut a payload and then force its omission and assert it is counted once, as omitted. |
 | SDK-55 | Reproduce every vector in `packages/protocol/fixtures/journey-id-derivation.json`, and assert the result is accepted by your own propagation extraction. |
 | SDK-56 | Derive without a secret, with a short one, for each entity the fixture's `refused` list names, and for an entity that is not a pair of strings; assert nothing throws, each is reported, the ids differ call to call, a short secret is reported at creation, and a missing or short secret prints one warning per process with debug output off. |
-| SDK-52 | Record a payload with a secret-named field holding a string over the limit and assert it arrives masked and is not counted as truncated; cut a payload and then force its omission and assert it is counted once, as omitted. |
+| SDK-58 | Set a label that is not a string, including one whose conversion to text throws, and assert nothing throws, it is reported, and the event is sent without it. |
+| SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
+| SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. |

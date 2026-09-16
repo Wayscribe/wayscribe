@@ -293,7 +293,7 @@ describe("log redaction", () => {
 });
 
 describe("query strings in the log", () => {
-  // A search's `q` is usually a customer identifier, and the Recent page's
+  // A search's `q` is usually a customer identifier, and the Journeys page's
   // filters name services and environments. Fastify's request log line used to
   // carry `req.url` whole, so every search wrote the identifier to the log.
   const VALUE = "CUST-LOGGED-8841";

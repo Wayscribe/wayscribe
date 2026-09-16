@@ -125,6 +125,25 @@ helm:
       if ! grep -q "app.kubernetes.io/component: web" api-policy.yaml; then
         echo "the API policy does not admit the web pod when ingressFrom is set"; cat api-policy.yaml; exit 1
       fi
+    # The migrate Job is bounded by default, and the bound can be removed.
+    - |
+      helm template fr deploy/helm/flight-recorder \
+        --set postgresql.enabled=true \
+        --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
+        --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111 \
+        --show-only templates/migrate-job.yaml > migrate-job.yaml
+      if ! grep -q "activeDeadlineSeconds: 1800" migrate-job.yaml; then
+        echo "the migrate Job lost its deadline"; cat migrate-job.yaml; exit 1
+      fi
+      helm template fr deploy/helm/flight-recorder \
+        --set postgresql.enabled=true \
+        --set migrations.activeDeadlineSeconds=null \
+        --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
+        --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111 \
+        --show-only templates/migrate-job.yaml > migrate-job.yaml
+      if grep -q "activeDeadlineSeconds" migrate-job.yaml; then
+        echo "migrations.activeDeadlineSeconds=null still renders a deadline"; cat migrate-job.yaml; exit 1
+      fi
     # And refuses a metrics port equal to the API's. An `if`, not `!`: a
     # negated command does not fail a job under `set -e`.
     - if helm template fr deploy/helm/flight-recorder

@@ -197,6 +197,164 @@ describe("deletion", () => {
     return (result as { rows: { n: number }[] }).rows[0]?.n ?? -1;
   };
 
+  /**
+   * A journey with a label, a last step and a displayable alias with its
+   * plain-text copy, each text unique to this journey so a scan can find it.
+   */
+  const publicText = async (project: string, journeyId: string, hash: string): Promise<void> => {
+    await db("journeys")
+      .where({ project_id: project, id: journeyId })
+      .update({
+        label: `label-of-${journeyId}`,
+        label_at: db.fn.now(),
+        label_event_id: `evt-label-${journeyId}`,
+        last_step: `step-of-${journeyId}`,
+        last_step_at: db.fn.now(),
+        last_step_event_id: `evt-step-${journeyId}`
+      });
+    await db("entity_aliases").insert({
+      project_id: project,
+      journey_id: journeyId,
+      alias_type: "company",
+      alias_value_hash: hash,
+      displayable: true,
+      display_value: `copy-of-${journeyId}`
+    });
+  };
+
+  /**
+   * The tables holding a row whose text contains any of these strings.
+   *
+   * Every table the schema has, read from the catalogue, so a copy kept
+   * anywhere (an audit row, a new table) is found, not only in the rows the
+   * deletion is known to remove.
+   */
+  const tablesHolding = async (texts: readonly string[]): Promise<string[]> => {
+    const tables = (await db("information_schema.tables")
+      .where({ table_schema: "public", table_type: "BASE TABLE" })
+      .pluck("table_name")) as string[];
+    const holding: string[] = [];
+    for (const name of tables.sort()) {
+      for (const text of texts) {
+        const found: unknown = await db.raw(
+          "select exists (select 1 from ?? as t where strpos(t::text, ?) > 0) as found",
+          [name, text]
+        );
+        if ((found as { rows: { found: boolean }[] }).rows[0]?.found === true) {
+          holding.push(`${name}: ${text}`);
+        }
+      }
+    }
+    return holding;
+  };
+
+  const publicTextOf = (journeyId: string): string[] => [
+    `label-of-${journeyId}`,
+    `step-of-${journeyId}`,
+    `copy-of-${journeyId}`
+  ];
+
+  describe("public text of removed journeys", () => {
+    it("leaves no label, last step or plain-text copy behind after deleteJourney", async () => {
+      await journey({ project: projectA, environment: productionA, id: "jrn_public_gone" });
+      await publicText(projectA, "jrn_public_gone", "hash-public-gone");
+      await journey({ project: projectA, environment: productionA, id: "jrn_public_kept" });
+      await publicText(projectA, "jrn_public_kept", "hash-public-kept");
+
+      const result = await deleteJourney(db, {
+        projectId: projectA,
+        journeyId: "jrn_public_gone",
+        actor: "admin"
+      });
+      expect(result).toMatchObject({ ok: true });
+      expect(await tablesHolding(publicTextOf("jrn_public_gone"))).toEqual([]);
+      // The control: the scan finds text that is still there.
+      expect(await tablesHolding(publicTextOf("jrn_public_kept"))).toEqual([
+        "entity_aliases: copy-of-jrn_public_kept",
+        "journeys: label-of-jrn_public_kept",
+        "journeys: step-of-jrn_public_kept"
+      ]);
+    });
+
+    it("leaves none behind after an erasure", async () => {
+      const value = "erased-identifier";
+      await journey({
+        project: projectA,
+        environment: productionA,
+        id: "jrn_public_entity",
+        hash: token(keyringA, value)
+      });
+      await publicText(projectA, "jrn_public_entity", "hash-public-entity");
+      await journey({ project: projectA, environment: productionA, id: "jrn_public_alias" });
+      // The erased value is the displayable alias itself.
+      await publicText(projectA, "jrn_public_alias", token(keyringA, value));
+      await journey({ project: projectA, environment: productionA, id: "jrn_public_kept" });
+      await publicText(projectA, "jrn_public_kept", "hash-public-kept");
+
+      const result = await eraseIdentifier(db, keyringA, {
+        projectId: projectA,
+        value,
+        actor: "admin"
+      });
+      expect(result).toMatchObject({ ok: true, deletedJourneys: 2 });
+      expect(
+        await tablesHolding([
+          ...publicTextOf("jrn_public_entity"),
+          ...publicTextOf("jrn_public_alias"),
+          value
+        ])
+      ).toEqual([]);
+      expect(await tablesHolding(publicTextOf("jrn_public_kept"))).toHaveLength(3);
+    });
+
+    it("leaves none behind after a range deletion", async () => {
+      const at = new Date("2026-01-15T00:00:00Z");
+      await journey({
+        project: projectA,
+        environment: productionA,
+        id: "jrn_public_range",
+        lastEventAt: at
+      });
+      await publicText(projectA, "jrn_public_range", "hash-public-range");
+      await journey({ project: projectA, environment: productionA, id: "jrn_public_kept" });
+      await publicText(projectA, "jrn_public_kept", "hash-public-kept");
+
+      const result = await deleteRange(db, {
+        projectId: projectA,
+        environment: "production",
+        after: new Date("2026-01-01T00:00:00Z"),
+        before: new Date("2026-02-01T00:00:00Z"),
+        actor: "cli"
+      });
+      expect(result).toMatchObject({ ok: true, deletedJourneys: 1 });
+      expect(await tablesHolding(publicTextOf("jrn_public_range"))).toEqual([]);
+      expect(await tablesHolding(publicTextOf("jrn_public_kept"))).toHaveLength(3);
+    });
+
+    it("leaves none behind after a retention sweep", async () => {
+      // Every environment here keeps the default seven days.
+      await journey({
+        project: projectA,
+        environment: developmentA,
+        id: "jrn_public_expired",
+        lastEventAt: new Date(Date.now() - 30 * 86_400_000)
+      });
+      await publicText(projectA, "jrn_public_expired", "hash-public-expired");
+      await journey({
+        project: projectA,
+        environment: developmentA,
+        id: "jrn_public_kept",
+        lastEventAt: new Date()
+      });
+      await publicText(projectA, "jrn_public_kept", "hash-public-kept");
+
+      const result = await sweepExpiredJourneys(db);
+      expect(result).toMatchObject({ ran: true });
+      expect(await tablesHolding(publicTextOf("jrn_public_expired"))).toEqual([]);
+      expect(await tablesHolding(publicTextOf("jrn_public_kept"))).toHaveLength(3);
+    });
+  });
+
   describe("deleteJourney", () => {
     it("deletes the journey with its events, aliases, and replay runs, and nothing in another journey or project", async () => {
       const target = "jrn_shared_id";

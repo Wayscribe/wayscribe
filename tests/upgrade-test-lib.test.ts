@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { containedIn, doctorVerdict, releaseTags } from "../scripts/upgrade-test-lib.mjs";
+import {
+  containedIn,
+  doctorVerdict,
+  legacyJourneyListProblems,
+  releaseTags
+} from "../scripts/upgrade-test-lib.mjs";
 
 describe("releaseTags, the upgrade test's baseline candidates", () => {
   it("keeps only vMAJOR.MINOR.PATCH tags, newest first", () => {
@@ -138,5 +143,73 @@ describe("doctorVerdict, the upgrade test's reading of doctor", () => {
 
   it("fails when doctor printed nothing it recognises", () => {
     expect(doctorVerdict(0, "Unknown command: doctor", ["Migrations"]).ok).toBe(false);
+  });
+});
+
+describe("legacyJourneyListProblems, the journey list over an earlier build's rows", () => {
+  const row = (
+    journeyId: string,
+    fields: Record<string, unknown> = {}
+  ): Record<string, unknown> => ({
+    journeyId,
+    label: null,
+    lastStep: null,
+    displayableAliases: [],
+    ...fields
+  });
+  const body = (...items: unknown[]): unknown => ({ data: { items, nextCursor: null } });
+
+  it("passes rows with a null label and last step and no displayable aliases", () => {
+    expect(
+      legacyJourneyListProblems(200, body(row("a"), row("b"), row("new", { label: "x" })), {
+        expected: ["a", "b"],
+        absent: ["c"]
+      })
+    ).toEqual([]);
+  });
+
+  it("fails when the list does not answer 200, as a list that cannot read old rows does", () => {
+    expect(
+      legacyJourneyListProblems(
+        500,
+        { error: { code: "internal_error" } },
+        {
+          expected: ["a"]
+        }
+      )
+    ).toEqual(['status 500: {"error":{"code":"internal_error"}}']);
+  });
+
+  it("fails on a missing body, a missing row, and a row the filter should exclude", () => {
+    expect(legacyJourneyListProblems(200, undefined, { expected: ["a"] })).toEqual([
+      "no items array: undefined"
+    ]);
+    expect(
+      legacyJourneyListProblems(200, body(row("c")), { expected: ["a"], absent: ["c"] })
+    ).toEqual(["a: not listed", "c: listed, expected the filter to exclude it"]);
+  });
+
+  it("fails on a label, a last step or displayable aliases, and on fields that are missing", () => {
+    expect(
+      legacyJourneyListProblems(
+        200,
+        body(
+          row("a", {
+            label: "Acme",
+            lastStep: "receive",
+            displayableAliases: [{ type: "t", value: "v" }]
+          }),
+          { journeyId: "b" }
+        ),
+        { expected: ["a", "b"] }
+      )
+    ).toEqual([
+      'a: label "Acme", expected null',
+      'a: lastStep "receive", expected null',
+      'a: displayableAliases [{"type":"t","value":"v"}], expected []',
+      "b: label undefined, expected null",
+      "b: lastStep undefined, expected null",
+      "b: displayableAliases undefined, expected []"
+    ]);
   });
 });

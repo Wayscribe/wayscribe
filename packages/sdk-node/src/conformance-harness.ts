@@ -125,6 +125,10 @@ async function makeCall(target: Journey | JourneyGroup, call: Call, run: string)
         args["options"] as { displayable?: string[] } | undefined
       );
       return;
+    case "label":
+      if (!("label" in target)) throw new Error("label has no group form.");
+      target.label(args["text"] as string);
+      return;
     case "fail":
       target.fail(name, args["error"], args["metadata"] as Record<string, unknown>);
       return;

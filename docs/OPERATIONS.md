@@ -140,7 +140,9 @@ Every release is gated on an upgrade test (`scripts/upgrade-test.mjs`, the
 commit from before v1's storage format changes), records journeys,
 aliases, a transformation diff, an error and a replay destination through it,
 then starts the new build against the same database volume and checks that every
-search and detail reads back unchanged, that existing API keys still
+search and detail reads back unchanged, that the journey list reads the old
+journeys under every filter (with no label or last step, since nothing is
+backfilled), that existing API keys still
 authenticate, and that `rotate:reencrypt` upgrades the stored formats. From a
 source checkout, `node scripts/upgrade-test.mjs` runs it with Docker and nothing
 else, and `UPGRADE_BASELINE_REF` chooses the version to upgrade from.
@@ -177,6 +179,79 @@ where pid in (select pid from pg_locks where relation = 'entity_aliases'::regcla
 
 The previous API keeps working while the column exists and it does not know
 about it: its inserts get `false`, which is how every alias read before.
+
+### Upgrading to the journey browsing release (migrations 018 and 019)
+
+This release adds journey labels, last steps and partial text matching on
+public values (ADR-054). Two migrations run, and neither rewrites a table.
+
+**Migration 018** (`018_journey_browse.js`) adds six nullable columns to
+`journeys` (`label`, `last_step`, and the timestamp and event id that decide
+which event set each), `display_value` to `entity_aliases`, the check
+constraint `entity_aliases_display_value_only_when_displayable`, and the
+trigger `entity_aliases_clear_masked_display_value` with its plpgsql function
+of the same name. None of the columns has a default, so each is a catalogue
+change with no table rewrite. It runs in two transactions of its own:
+
+1. The ALTERs, with the constraint added `not valid`, which is also a catalogue
+   change, and the trigger, created under the lock the ALTERs already hold. The lock handling is the same as 017: five seconds of
+   `lock_timeout` per lock request, and running `migrate` again retries after
+   `canceling statement due to lock timeout`. The query above finds the
+   transaction in the way; check `'journeys'::regclass` as well.
+2. `VALIDATE CONSTRAINT`, which reads every row of `entity_aliases` but takes
+   only a SHARE UPDATE EXCLUSIVE lock, so reads and ingestion carry on while it
+   runs. The column is null in every existing row, so validation always
+   passes. If it gives up behind a lock, the columns, the trigger and the
+   unvalidated constraint stay, the migration is not recorded, and the next
+   `migrate` skips the first transaction and validates.
+
+The timeout applies to each lock request, and the first transaction takes two
+locks. The ALTER on `journeys` can wait up to five seconds, then holds that
+lock while the ALTER on `entity_aliases` waits up to five more, so in the
+worst case writes to `journeys` stall for about ten seconds before the
+migration either finishes or gives up. A rollback (`down`) takes the same two
+locks in the same order, so it can stall writes to `journeys` for as long.
+Ingestion also locks `journeys` before `entity_aliases`, so a deadlock with
+ingestion is not expected in either direction. Rolling back 018 on its own
+(knex's `migrate:down --name 018_journey_browse.js`) drops `display_value`,
+and PostgreSQL drops 019's `entity_aliases_displayable_idx` with it, while 019
+stays recorded as applied; roll back the whole batch (`db:rollback`), or 019
+and then 018. Do not roll back 017 alone while 018 is applied either: its
+column is dropped, and 018's trigger then fails every alias write because it
+reads `displayable`.
+
+**Migration 019** (`019_journey_browse_indexes.js`) builds
+`journeys_project_recent_idx` and `entity_aliases_displayable_idx` with
+`CREATE INDEX CONCURRENTLY`, so it does not block ingestion, but it can wait:
+up to 10 minutes for its lock and for every transaction that started before
+the build, such as a long retention batch, an admin deletion or a nightly
+`pg_dump`. It then fails with `canceling statement due to lock timeout`, and
+running `migrate` again drops the invalid index the attempt left and builds it
+afresh. Run it against PostgreSQL directly, not through a transaction-pooling
+PgBouncer. On Helm, allow for the wait with `helm upgrade --timeout 30m`; the
+migrate Job now prints `migration failed ... see the error above` rather than
+`database not ready` for a failure that is not a connection failure, retries
+such a failure once rather than 30 times, and stops after
+`migrations.activeDeadlineSeconds` (30 minutes by default). *Indexes*
+in section 10 has the query that shows which transaction the build is waiting
+on, and what to do if the migrate process was killed partway.
+
+**There is no backfill.** A journey recorded before the upgrade shows no last
+step until its next event, and no label until an event that carries a label
+arrives; until then the Journeys page shows it by entity type and identifier,
+as the Recent page did. Only aliases stated displayable after the upgrade get
+a plain-text copy, so `q` does not find an older displayable alias until an
+event states it again. The previous API, still running between migrate and
+deploy or alongside the new one during a rolling upgrade, writes rows without
+these columns, and they read null in the same way, which the constraint
+allows. It also masks aliases the new API has already given a copy, and it
+lowers the flag without clearing the copy, because it does not know the column
+exists; its key rotation (`rotate:reencrypt`) folds duplicates the same way.
+The constraint would refuse those statements, failing the event with a 500.
+The trigger clears the copy of any row written masked before the constraint
+is checked, so the previous build's statements succeed and the copy goes with
+the flag. The upgrade test checks that journeys the previous build recorded
+list with `label` and `lastStep` null.
 
 ### Migration 015 rewrites every replay run's headers
 
@@ -887,10 +962,62 @@ event insert, and the span id index adds one on every event that carries a
 span id. `replay_runs_journey_event_idx` (migration 016) serves deletion rather
 than reads: every event a deleted journey takes with it looks up its replay runs
 through that foreign key, and without the index each one scanned the project's
-replay runs (§13, Statement timeout). Migrations 013, 014, and 016 build their
-indexes with `CREATE INDEX CONCURRENTLY`, so on a large installation they take
-longer than the other migrations but do not block ingestion while they run (014
-took 3 seconds over 3 million events).
+replay runs (§13, Statement timeout). The journey list over every environment
+and its text filter use `journeys_project_recent_idx` and
+`entity_aliases_displayable_idx` (migration 019, *Listing journeys* below).
+Migrations 013, 014, 016, and 019 build their indexes with
+`CREATE INDEX CONCURRENTLY`, so on a large installation they take longer than
+the other migrations but do not block ingestion while they run (014 took 3
+seconds over 3 million events).
+
+Run `migrate` against PostgreSQL directly, not through a PgBouncer in
+transaction pooling mode. 019 sets `lock_timeout` on its connection and then
+builds on it, and behind transaction pooling the setting and the build can
+land on different server connections.
+
+A concurrent build does not block ingestion, but it waits for transactions
+that started before it, in any table of the database, to end: a long
+retention batch, an admin deletion, a nightly `pg_dump`. While it waits, the
+migrate step simply takes longer. 019 waits up to 10 minutes for any one of
+them, or for its own lock, and then gives up. `migrate` prints:
+
+```text
+migration file "019_journey_browse_indexes.js" failed
+migration failed with error: canceling statement due to lock timeout
+```
+
+followed by the stack, and exits 1. Nothing is blocked meanwhile, and nothing
+is lost: run `migrate` again once the transaction ends, and it drops the index
+the interrupted build left invalid and builds it afresh. To see what the build
+is waiting for, list the transactions older than it:
+
+```sql
+select pid, usename, application_name, state, xact_start,
+       now() - xact_start as running_for, left(query, 80) as query
+  from pg_stat_activity
+ where datname = current_database()
+   and xact_start < (select xact_start from pg_stat_activity
+                      where query ilike 'create index concurrently%'
+                      order by xact_start limit 1)
+ order by xact_start;
+```
+
+An `idle in transaction` row there is a session someone left open; ending it
+(`select pg_terminate_backend(<pid>)`) lets the build finish. A `pg_dump` is
+best left to finish.
+
+On Helm, the migrate Job retries `migrate` up to 30 times while the error
+reads as a connection failure, printing `database not ready`. Any other
+failure, such as this lock timeout, prints `migration failed ... see the error
+above` and is retried once only, so read the error printed above that line.
+The Job as a whole is stopped after `migrations.activeDeadlineSeconds`, 30
+minutes by default, so the worst case is bounded; a build it stops leaves an
+invalid index that the next `migrate` rebuilds. Each attempt at 019 can wait
+10 minutes, and Helm waits for the Job only as long as `--timeout` (5 minutes
+by default), so on an installation where a backup may be running, upgrade
+with `helm upgrade --timeout 30m`, matching the deadline, or expect Helm to
+report a timeout while the Job carries on. Before this release the Job printed `database not
+ready` for every failure, whatever the cause.
 
 If one of those builds stops partway, what to do depends on how it stopped:
 
@@ -898,7 +1025,7 @@ If one of those builds stops partway, what to do depends on how it stopped:
   `migrate` exited. Run `migrate` again. It drops the index the failed build
   left invalid and builds it afresh.
 - **The migrate process was killed** (`kill -9`, an evicted pod, a stopped
-  container). Because 013, 014, and 016 run outside a transaction, the migration lock is
+  container). Because 013, 014, 016, and 019 run outside a transaction, the migration lock is
   still set and every `migrate` after it fails with a message that the
   migration table is locked; the Helm Job's retries fail the same way and
   `/ready` stays `migrations_pending`. First make sure no `migrate` is still
@@ -911,6 +1038,141 @@ If one of those builds stops partway, what to do depends on how it stopped:
 
   (`pnpm db:migrate:unlock` from a checkout.) Releasing the lock while another
   `migrate` is running lets two run at once, so check first.
+
+### Listing journeys
+
+`scripts/measure-journey-list.mjs` records journeys through the real ingestion
+code and times `GET /v1/journeys` through the real API, in process (Fastify's
+`inject`: authentication, validation, the query and the response are in the
+figure, the network is not). Each case is three warm-up requests and then 40
+timed ones, page of 25, and the slowest cases are run again under
+`EXPLAIN (ANALYZE, BUFFERS)` with the SQL and parameters the API sent. Run on
+the machine and PostgreSQL of *Measured disk per event* above (Apple M3 Pro,
+PostgreSQL 17.11, `postgres:17-alpine` with its default configuration: 128 MB
+`shared_buffers`, `jit` on), with the cache warm.
+
+The data: 120,000 journeys of three events each (360,000 events) and three
+aliases each, about 650 MiB in the three tables. Four environments hold 80, 12, 6 and
+2 percent of the journeys. 85 percent completed, 5 percent failed, 10 percent
+still active. Entity types customer, order, invoice and subscription at 50, 30,
+15 and 5 percent. Three journeys in four have a label, mostly distinct
+(`Sync order ORD-0001234 for Acme 271`), built from eight verbs and twenty
+company names so that some words recur: `sync` is in 11,136 labels, `acme` in
+4,515. 85 percent of journeys show two of their aliases (204,442 displayable
+aliases in all); every journey has one masked alias, and the rest have only
+masked ones. Last activity is spread evenly over 40 days, so a 24-hour window
+holds about 2,940 journeys and a 30-day window about 89,860. The API key is
+scoped to the busy environment. `q` matching none is the worst case: nothing
+lets the query stop early, so every journey in the window is tested.
+
+Migration 019 adds two indexes for this list, `journeys_project_recent_idx` on
+`journeys (project_id, last_event_at, id)` and `entity_aliases_displayable_idx`
+on `entity_aliases (project_id, journey_id) include (display_value) where
+displayable`. Before is the same run with both dropped, on the same rows;
+p50 / p95 in milliseconds:
+
+| Case | 24 h before | 24 h after | 30 d before | 30 d after |
+|---|---|---|---|---|
+| No filter, admin (every environment) | 13.2 / 15.0 | 1.6 / 2.8 | 30.7 / 32.3 | 1.5 / 3.4 |
+| No filter, admin, second page | 12.8 / 13.3 | 1.7 / 1.8 | 31.4 / 32.3 | 1.7 / 2.0 |
+| No filter, API key (one environment) | 2.6 / 2.9 | 2.3 / 3.4 | 2.9 / 3.8 | 1.9 / 2.1 |
+| `status=failed`, admin | 1.6 / 5.2 | 2.6 / 3.3 | 2.5 / 3.9 | 2.1 / 3.5 |
+| `q=sync` (matches many), admin | 16.3 / 17.2 | 4.8 / 7.5 | 770.1 / 844.6 | 4.3 / 5.4 |
+| `q=sync`, admin, second page | 15.2 / 17.5 | 2.6 / 3.8 | 772.3 / 799.2 | 4.2 / 5.4 |
+| `q` matching none, admin | 14.9 / 15.6 | 10.1 / 11.7 | 805.7 / 842.7 | 261.6 / 315.6 |
+| `q` matching none, API key | 10.6 / 11.1 | 8.4 / 9.1 | 517.6 / 538.0 | 207.5 / 214.1 |
+| `q=acme` and `entityType=invoice`, admin | | | 113.6 / 117.0 | 4.5 / 5.4 |
+
+Before the indexes, four runs on the same rows put the worst case, `q`
+matching none for an admin over 30 days, between 840 and 930 ms at p95: under
+the one second this list was measured against, but too close to it on a fast
+machine with a warm cache. With the journeys index alone, the two `q`
+matching none cases over 30 days were 731 and 614 ms at p95; the alias index
+is what brings them to about 300 and 200.
+
+What the plans show:
+
+- **Before, every environment with any status read the whole window.** No
+  index led with `(project_id, last_event_at)`: `journeys_recent_idx` has the
+  environment second and `journeys_status_recent_idx` the status, so the
+  planner scanned `journeys_recent_idx` over the window, merged it with the
+  environments, and sorted. Without `q` that sort was cheap (a top-25 heapsort
+  of 89,864 rows, 31 ms). With `q` every journey in the window had its label
+  and aliases tested before the sort, so a `q` matching many journeys cost as
+  much as one matching none: 89,864 journeys and 89,864 alias probes, about
+  545,000 buffers, about 800 ms. Now the list walks
+  `journeys_project_recent_idx` backwards in order and stops after a page, so
+  `q=sync` reads a few hundred journeys. The API key's list, one environment,
+  already walked `journeys_recent_idx` that way and is unchanged.
+- **`q` matching none still cannot stop early**, whatever the index: it tests
+  all 89,864 journeys for an admin over 30 days, 71,918 for the API key, 2,944
+  over 24 hours. What changed is the price of each test. Each alias probe is
+  now an index-only scan of `entity_aliases_displayable_idx` with no heap
+  fetch (363,699 buffers for the admin case, all cached, against 548,398
+  before, a quarter of them read from disk), and the whole plan is cheap enough that
+  PostgreSQL no longer JIT-compiles it. The cost still grows with the journeys
+  in the window, about 3 ms per thousand here. These figures were taken right
+  after `VACUUM (ANALYZE)`, when every page is marked all-visible. On a live
+  system the most recently written pages are not, and an index-only scan
+  still reads the table for those, so the gain on text matching nothing will
+  be smaller for the newest journeys, which are the ones a 24-hour window
+  holds, until autovacuum reaches them.
+- **JIT compilation was about 170 ms of the old plans.** Their estimated cost
+  passed `jit_above_cost`, and compiling took 171 to 176 ms of the 786 to 848
+  ms they executed in; with `jit = off` on the database, the three slowest
+  cases measured 626, 618 and 704 ms at p95. The new plans are estimated below
+  the threshold and do not compile, but a larger window or table can bring
+  it back.
+
+At 120,000 journeys the journeys index is 11 MB and the alias index 19 MB.
+
+**What they cost ingestion.** Every event updates its journey's
+`last_event_at`, which is now written to one more index, and every displayable
+alias is written to the alias index. Timed through the API with the busy
+environment's key: a batch of 100 events (ten new journeys of ten events, each
+with a label and three aliases, one or two of them displayable) and a single
+event that starts a journey with the same label and aliases. The three index
+sets took turns, round after round, on the same tables, so drift as the
+tables grew is shared. p50 / p95 in milliseconds:
+
+| | Both indexes | Journeys index only | Neither |
+|---|---|---|---|
+| Batch of 100, run 1 (400 each) | 230.6 / 279.6 | 237.3 / 288.5 | 234.3 / 289.1 |
+| Single event, run 1 (400 each) | 4.3 / 6.5 | 4.0 / 5.8 | 4.6 / 7.1 |
+| Batch of 100, run 2 (800 each) | 248.3 / 294.4 | 248.9 / 299.6 | 243.1 / 294.0 |
+| Single event, run 2 (800 each) | 4.7 / 7.0 | 4.9 / 6.7 | 4.6 / 6.5 |
+
+The difference is inside the noise. A batch, which is how the SDK sends, costs
+the same with either index set. A single event's p95 moves by less than a
+millisecond in either direction and not consistently: in run 1 both indexes
+were 12 percent slower than the journeys index alone but faster than neither,
+and in run 2 both were 4 percent slower than the journeys index alone and 8
+percent slower than neither. Run 2 started from 133,860 journeys, after run 1's
+ingestion.
+
+**What to expect, then.** A 24-hour window, the Journeys page's default, is
+under 12 ms in every case at this size. Text over 30 days that matches
+something returns in a few milliseconds. Text that matches nothing reads every
+journey in the window, 0.2 to 0.3 s with 70,000 to 90,000 journeys in it, and
+that grows in proportion to the journeys in the window: somewhere around 5
+million journeys in the window it would reach the 15-second statement timeout
+(§13) and fail with `query_timeout`. An installation recording tens of
+thousands of journeys a day should search text over a day or a week rather
+than a month. If a plan of this list shows JIT in `EXPLAIN ANALYZE` on your
+data, `ALTER ROLE … SET jit = off` for the API's role takes that share off.
+
+To measure your own shape, against a scratch database (it refuses one that
+already holds journeys, and works in a schema of its own that it drops after):
+
+```bash
+pnpm --filter "@flight-recorder/api..." build
+node scripts/measure-journey-list.mjs --database-url postgresql://… --journeys 120000
+```
+
+`--keep` leaves the schema for a second run with `--reuse`, which applies any
+new migration first. Each `--drop-index <name>` adds a stage without that index
+and the ones named before it, so indexes can be compared on the same rows;
+`--no-list` measures ingestion only.
 
 ## 11. Security scanning
 
@@ -1350,8 +1612,9 @@ parameters with every value replaced by `[REDACTED]`:
 { "req": { "method": "GET", "url": "/v1/search?q=[REDACTED]&limit=[REDACTED]" } }
 ```
 
-A searched value is usually a customer identifier, and the Recent page's filters
-name services and environments, so no query value is ever logged. A parameter
+A searched value is usually a customer identifier, and the Journeys page's
+filters name services and environments and carry text a reader half
+remembers, so no query value is ever logged. A parameter
 name that does not look like one (an email address pasted without `=`, or
 anything longer than 64 characters) is replaced too, and so is anything after a
 `;` in the path, where some clients put session ids. The path is logged whole,
@@ -1367,14 +1630,20 @@ A request too malformed for Node to parse never becomes a request line. At
 Node attaches the raw bytes it received to that error as `rawPacket`, headers
 and query string included; no error the API logs ever carries that property.
 
-One caveat remains: an error's own properties are logged, and a database error
-can describe the row it refused, as PostgreSQL's `detail` does for a unique
-violation. Those lines are at `warn` or `error`, for failures, and name columns
-the API writes, not request headers.
-
 Before this, the request line carried the full URL, so logs kept from an earlier
-version hold searched identifiers and Recent filters in the clear. Treat them as
+version hold searched identifiers and the filters of the Recent page (now the
+Journeys page) in the clear. Treat them as
 personal data, and let them age out or delete them.
+
+An error's own properties are logged, except the ones a database error fills
+with row contents. PostgreSQL's `detail` prints the row a constraint refused
+("Failing row contains (...)") or the key a unique violation found, and
+`where` and `internalQuery` can quote a statement with its values, so all
+three are logged as `[REDACTED]`. The SQLSTATE `code`, `constraint`, `table`,
+`column` and `routine` stay, which is enough to tell which rule failed. The
+message is kept: for these failures it holds the statement with `$1`
+placeholders, not the values bound to them. Logs from an earlier version can
+hold `detail` in the clear; treat their failure lines as personal data too.
 
 ## 14. When something is wrong
 

@@ -121,6 +121,50 @@ and `record({ ..., aliases, displayableAliases })` take the same list. Never
 list an email address, a customer number, or anything else a reader of the
 timeline should not see.
 
+## Name a journey
+
+A label is what the Journeys page shows for a journey, and partial text typed
+into its filter matches it, so a journey can be found from what you remember
+of it rather than from an identifier:
+
+```typescript
+const journey = recorder.startJourney({
+  entity: { type: "job_posting", id: posting.id },
+  label: `${posting.company} · ${posting.title}`
+});
+
+// Or at any point later, once you know what to call it.
+journey.label(`${posting.company} · ${posting.title}`);
+```
+
+`label` records nothing by itself. Every event this journey object records
+after it carries the label, including events recorded through
+`recorder.across`. The server keeps the label of the event that started last,
+so repeating it on every event costs nothing, and an event that is lost cannot
+take the label with it. A later `label` call replaces the label from the next
+event on. Events started in the same millisecond keep the order the server
+received them in, and the recorder sends a journey's events in the order they
+were recorded unless it sends several batches at once (`maxConcurrentSends`),
+in which case a label set within the same millisecond may lose to the one
+before it. The label belongs to the object: a second handle for the same
+journey, from `continueJourney` or `consume`, carries none until you set one,
+and a group made from a journey's context rather than the journey itself
+carries none either. In `recorder.across`, a journey handle made by a
+different recorder carries no label.
+
+**A label is stored, shown and searched in plain text, and is never
+redacted.** It is text you wrote to be read. Do not put personal data in it:
+no names of people, email addresses, customer numbers, or anything else a
+reader of the journey list should not see.
+
+It never throws. A label over 200 characters (Unicode code points, as the
+server counts them) is cut to its first 199 and `…`, never inside a character,
+and reported once as `payload_truncated`. A label that is empty, is only
+whitespace, or is not a string, is not set, and is reported as `key_dropped`; the journey keeps any
+label it already had, and its events are sent as usual. Both are counted
+(`payloadsTruncated`, `keysDropped`) once, when `label()` is called, not once
+per event that carries the label.
+
 ## Wrappers
 
 `transform`, `persist`, `publish`, and `deliver` each run your callback, return
@@ -221,7 +265,8 @@ random id, so recording carries on and the journeys split until the secret is
 set. A secret shorter than 32 bytes is reported once when the recorder is
 created, and never used. Because split journeys are easy to miss, a missing or
 short secret also prints one line to stderr, once per process, even with
-`logDiagnostics` off; it is the only thing the SDK prints unasked. An entity
+`logDiagnostics` off; it and the required-setting warning below are the only
+things the SDK prints unasked. An entity
 whose type or id holds an unpaired surrogate is refused the same way (reported,
 random id, no warning line): it cannot be encoded faithfully, and the server
 refuses such an id anyway. The SDK reads no environment variable for it: the
@@ -251,8 +296,11 @@ Each journey gets its own event, with its own id, and all of them share one
 timestamp and one duration. The callback runs once, and the group's wrappers
 keep every promise the single-journey ones make. A group also has `record`,
 `fail` and `finish`. It has no `identify`, because an alias identifies one
-record. A journey named twice, as a handle or as a context, is recorded once;
-an empty group runs the callback and records nothing.
+record. It has no `label` either: labels belong to journeys, and each event a
+group records carries the label of its own journey, when the group was given
+the journey rather than its context. A journey named twice, as a handle or as
+a context, is recorded once, with the first handle's label; an empty group
+runs the callback and records nothing.
 
 ## Crossing a process boundary
 
@@ -312,8 +360,17 @@ no library. This one is built so that cannot happen:
   and `dropped` add up to the events recorded. A payload too large to capture
   is counted in `payloadsOmitted` instead, and one sent with a string cut in
   `payloadsTruncated`, because its event is still sent.
-- Nothing is written to your console unless you set `logDiagnostics`. Pass
-  `onDiagnostic` if you want to hear about failures in your own logger.
+- Nothing is written to your console unless you set `logDiagnostics`, with two
+  exceptions, each printed once per process: a `journeyIdSecret` that cannot
+  be used, and a required setting (`endpoint`, `apiKey`, `serviceName`,
+  `environment`) that is missing or not a string, since nothing recorded
+  reaches the server until it is fixed. The line names the setting, never its
+  value. Pass `onDiagnostic` if you want to hear about failures in your own
+  logger.
+- A bad configuration value never stops your application starting. It is
+  reported as a `configuration_error` and replaced by its default, or clamped
+  into range. Values are not converted: `maxBufferedEvents: "5000"`, as read
+  from `process.env`, is not a number, so the default is used and reported.
 
 ```typescript
 const recorder = createRecorder({
@@ -669,6 +726,8 @@ runs:
    `key_dropped`. Characters here are code points, as the server counts them.
 5. An error's `type` or `code` over 256 characters is cut, ending in
    `[TRUNCATED]`.
+6. A journey label over 200 code points is cut to 199 and `…`, as
+   [Name a journey](#name-a-journey) describes.
 
 The event is always sent. `maxPayloadBytes` is the budget of the whole event,
 not of one payload, and should be the server's `MAX_EVENT_PAYLOAD_BYTES`:

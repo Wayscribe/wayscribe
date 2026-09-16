@@ -1,0 +1,36 @@
+{
+  "id": "sdk/journey-label-empty",
+  "title": "An empty label is dropped rather than sent, and the event is stored",
+  "source": "docs/SDK_SPEC.md SDK-58; wire/journey-label-empty",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "label",
+      "args": {
+        "text": ""
+      }
+    },
+    {
+      "call": "record",
+      "args": {
+        "operation": "received",
+        "name": "sweep-board"
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "name": "sweep-board",
+      "journeyLabel": {
+        "$absent": true
+      }
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

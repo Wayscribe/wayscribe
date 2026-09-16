@@ -149,3 +149,52 @@ export function doctorVerdict(exitCode, stdout, required) {
   }
   return { ok: problems.length === 0, checks: statuses.size, problems };
 }
+
+/**
+ * Problems with a `GET /v1/journeys` answer that should list journeys an
+ * earlier build recorded, before any event reached them after the upgrade.
+ *
+ * Migration 018 adds the label and last-step columns with no backfill, so each
+ * of those journeys must be listed with `label` and `lastStep` null (present
+ * and null, not missing) and no displayable aliases: the earlier build had no
+ * `displayableAliases` field, so every alias it stored is masked and has no
+ * plain-text copy. A status other than 200, which is what a list that cannot
+ * read old rows answers, is a problem on its own.
+ *
+ * `expected` lists the journey ids that must appear; `absent` those that must
+ * not, for a filter that should exclude them.
+ *
+ * @param {number} status
+ * @param {unknown} body
+ * @param {{ expected?: readonly string[], absent?: readonly string[] }} journeys
+ * @returns {string[]}
+ */
+export function legacyJourneyListProblems(status, body, { expected = [], absent = [] }) {
+  if (status !== 200) return [`status ${String(status)}: ${JSON.stringify(body)}`];
+  const items = /** @type {{ data?: { items?: unknown } } | undefined} */ (body)?.data?.items;
+  if (!Array.isArray(items)) return [`no items array: ${JSON.stringify(body)}`];
+
+  const problems = [];
+  const byId = new Map(items.map((item) => [item?.journeyId, item]));
+  for (const id of expected) {
+    const item = byId.get(id);
+    if (item === undefined) {
+      problems.push(`${id}: not listed`);
+      continue;
+    }
+    if (item.label !== null)
+      problems.push(`${id}: label ${JSON.stringify(item.label)}, expected null`);
+    if (item.lastStep !== null) {
+      problems.push(`${id}: lastStep ${JSON.stringify(item.lastStep)}, expected null`);
+    }
+    if (!Array.isArray(item.displayableAliases) || item.displayableAliases.length !== 0) {
+      problems.push(
+        `${id}: displayableAliases ${JSON.stringify(item.displayableAliases)}, expected []`
+      );
+    }
+  }
+  for (const id of absent) {
+    if (byId.has(id)) problems.push(`${id}: listed, expected the filter to exclude it`);
+  }
+  return problems;
+}

@@ -34,7 +34,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { clearTimeout, setTimeout } from "node:timers";
 import { setTimeout as sleep } from "node:timers/promises";
-import { containedIn, doctorVerdict, releaseTags } from "./upgrade-test-lib.mjs";
+import {
+  containedIn,
+  doctorVerdict,
+  legacyJourneyListProblems,
+  releaseTags
+} from "./upgrade-test-lib.mjs";
 
 /**
  * main immediately before the key rotation merge (d1bae55^1). It predates
@@ -589,6 +594,74 @@ async function replayThroughEcho(image, destinationId, label) {
   return data;
 }
 
+/**
+ * The journey list and read over journeys the baseline recorded, before any
+ * event reaches them through this build. Migration 018 adds the label and
+ * last-step columns with no backfill, so the list must read those rows, every
+ * new parameter must work against them, and each must come back with `label`
+ * and `lastStep` null and no displayable aliases. A list that fails on old rows
+ * answers 500, which fails here.
+ */
+async function checkLegacyJourneyList() {
+  step("Current: the journey list reads the baseline's journeys");
+  const baselineIds = [J1.journeyId, J2.journeyId, J3.journeyId];
+  const window =
+    `since=${encodeURIComponent(new Date(STARTED_AT.getTime() - 60_000).toISOString())}` +
+    `&until=${encodeURIComponent(new Date(Date.now() + 60_000).toISOString())}`;
+  const cases = [
+    ["every journey in the window", window, { expected: baselineIds }],
+    [
+      "entityType=customer",
+      `${window}&entityType=customer`,
+      { expected: [J1.journeyId, J3.journeyId], absent: [J2.journeyId] }
+    ],
+    [
+      "entityType=order and status=completed",
+      `${window}&entityType=order&status=completed`,
+      { expected: [J2.journeyId], absent: [J1.journeyId, J3.journeyId] }
+    ],
+    // The baseline's aliases are masked and have no plain-text copy, and entity
+    // ids are never matched by text, so these find nothing.
+    [
+      "q with a masked alias value",
+      `${window}&q=${encodeURIComponent(J1.aliases.hubspotContactId)}`,
+      { absent: baselineIds }
+    ],
+    [
+      "q with an entity id",
+      `${window}&q=${encodeURIComponent(J1.entity.id)}`,
+      { absent: baselineIds }
+    ]
+  ];
+  for (const [name, query, journeys] of cases) {
+    const response = await request("GET", `/v1/journeys?${query}`);
+    const problems = legacyJourneyListProblems(response.status, response.json, journeys);
+    check(
+      problems.length === 0,
+      `GET /v1/journeys, ${name}: ${journeys.expected === undefined ? "lists none of the baseline's journeys" : "lists the baseline's journeys with label and lastStep null"}`,
+      problems.join("\n")
+    );
+  }
+
+  const unknownKey = await request("GET", `/v1/journeys?${window}&entity_type=customer`);
+  check(
+    unknownKey.status === 400 && unknownKey.json?.error?.code === "invalid_query",
+    "GET /v1/journeys refuses an unknown key with 400 invalid_query",
+    unknownKey.json
+  );
+
+  for (const journeyId of baselineIds) {
+    const detail = await request("GET", `/v1/journeys/${journeyId}`);
+    check(
+      detail.status === 200 &&
+        detail.json.data.label === null &&
+        detail.json.data.lastStep === null,
+      `GET /v1/journeys/${journeyId} reads with label and lastStep null`,
+      detail.json
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Baseline choice
 
@@ -855,6 +928,8 @@ async function main() {
     "after upgrade: the baseline's aliases read back masked, with displayable false",
     upgradedJ1.json?.data?.aliases
   );
+
+  await checkLegacyJourneyList();
 
   const nullKeyIdsBefore = Number(
     await sql(CURRENT_IMAGE, "select count(*) from api_keys where key_hash_key_id is null")

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { parseEnvelope } from "./envelope.js";
+import { PROTOCOL_ERROR_CODES } from "./errors.js";
 import { journeyEventSchema } from "./event.js";
 
 const minimalEvent = {
@@ -86,6 +88,55 @@ describe("journeyEventSchema", () => {
           displayableAliases: Array.from({ length: 1_000 }, (_unused, index) => `t${String(index)}`)
         }).success
       ).toBe(true);
+    });
+  });
+
+  describe("journeyLabel", () => {
+    // An astral character is one code point and two UTF-16 units, so a count
+    // in units would refuse the 200-character label below.
+    const clef = "\u{1D11E}";
+
+    it("is optional, and kept when present", () => {
+      const parsed = journeyEventSchema.safeParse({
+        ...minimalEvent,
+        journeyLabel: "Mirantis · Senior SWE, AI Infra"
+      });
+      expect(parsed.success).toBe(true);
+      expect(parsed.data?.journeyLabel).toBe("Mirantis · Senior SWE, AI Infra");
+    });
+
+    it("counts code points: 200 fit and 201 do not", () => {
+      expect(
+        journeyEventSchema.safeParse({ ...minimalEvent, journeyLabel: clef.repeat(200) }).success
+      ).toBe(true);
+      expect(
+        journeyEventSchema.safeParse({ ...minimalEvent, journeyLabel: clef.repeat(201) }).success
+      ).toBe(false);
+      expect(
+        journeyEventSchema.safeParse({ ...minimalEvent, journeyLabel: "x".repeat(201) }).success
+      ).toBe(false);
+    });
+
+    it("refuses an empty label and names the field", () => {
+      // An empty string would read as "clear the label", which the protocol
+      // does not offer: a host that wants no label sends none.
+      const result = parseEnvelope({
+        protocolVersion: "0.1",
+        event: { ...minimalEvent, journeyLabel: "" }
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(PROTOCOL_ERROR_CODES.invalidEvent);
+      expect(result.details[0]?.path).toBe("event.journeyLabel");
+    });
+
+    it("refuses anything but a string", () => {
+      for (const journeyLabel of [7, null, ["label"], { text: "label" }, true]) {
+        expect(
+          journeyEventSchema.safeParse({ ...minimalEvent, journeyLabel }).success,
+          JSON.stringify(journeyLabel)
+        ).toBe(false);
+      }
     });
   });
 

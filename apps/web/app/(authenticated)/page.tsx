@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ApiUnavailableError, ProjectNotSelectedError, search } from "../../src/lib/api";
 import { requireProjectId } from "../../src/lib/current-project";
-import { JourneyRow } from "../components/JourneyRow";
+import { JourneyListItem } from "../components/JourneyListItem";
 
 export default async function SearchPage({
   searchParams
@@ -23,7 +23,7 @@ export default async function SearchPage({
       )}
       <header className="page-heading">
         <h1>Find a record</h1>
-        <Link href="/recent">No identifier? See recent failures</Link>
+        <Link href="/journeys?status=failed">No identifier? See recent failures</Link>
       </header>
       <p className="muted">
         Search any identifier you have — a customer ID, an external reference, a trace or message
@@ -79,7 +79,7 @@ async function Results({ query }: { query: string }) {
   return (
     <ul className="results">
       {items.map((item) => (
-        <JourneyRow key={item.journeyId} item={item} />
+        <JourneyListItem key={item.journeyId} item={item} />
       ))}
     </ul>
   );
