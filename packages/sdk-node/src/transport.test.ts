@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDiagnostics, type Diagnostics } from "./diagnostics.js";
+import { createDiagnostics, type Diagnostic, type Diagnostics } from "./diagnostics.js";
 import { Transport, UnsentError, type SendOutcome } from "./transport.js";
 
 const envelope = { protocolVersion: "0.1", event: { id: "evt_1" } };
@@ -10,10 +10,11 @@ function harness(
   // will not accept, so they are adapted at the call site below rather than
   // rewritten — what they assert about retries and the breaker is unchanged.
   send: (batch: readonly unknown[]) => Promise<number | SendOutcome | undefined>,
-  overrides: Record<string, unknown> = {}
+  overrides: Record<string, unknown> = {},
+  seen: Diagnostic[] = []
 ): { transport: Transport; diagnostics: Diagnostics; advance: (ms: number) => void } {
   let currentTime = 1_000_000;
-  const diagnostics = createDiagnostics();
+  const diagnostics = createDiagnostics((d) => seen.push(d));
   const transport = new Transport(
     {
       send: async (batch) => {
@@ -69,12 +70,26 @@ describe("Transport", () => {
 
   it("opens the breaker after consecutive failures and stops attempting", async () => {
     const send = vi.fn().mockRejectedValue(new Error("network"));
-    const { transport, diagnostics } = harness(send, { maxAttempts: 1 });
+    const seen: Diagnostic[] = [];
+    const { transport, diagnostics } = harness(send, { maxAttempts: 1 }, seen);
 
     for (let i = 0; i < 3; i += 1) {
       await expect(transport.send([envelope])).rejects.toThrow();
     }
-    expect(diagnostics.counters().breakerOpened).toBeGreaterThan(0);
+    expect(diagnostics.counters().breakerOpened).toBe(1);
+    expect(seen.filter((d) => d.kind === "breaker_opened")).toEqual([
+      {
+        kind: "breaker_opened",
+        code: "consecutive_failures",
+        reason: "3 sends failed in a row, so sending pauses for 1 seconds.",
+        detail: { failures: 3, cooldownMs: 1_000 }
+      }
+    ]);
+    expect(seen.filter((d) => d.kind === "transport_error").map((d) => d.code)).toEqual([
+      "request_failed",
+      "request_failed",
+      "request_failed"
+    ]);
 
     send.mockClear();
     await expect(transport.send([envelope])).rejects.toThrow(/circuit open/i);
@@ -214,7 +229,7 @@ describe("Transport, when the server refuses some events for now", () => {
     const { send } = refusing(["b"]);
     const seen: string[] = [];
     let now = 1_000_000;
-    const diagnostics = createDiagnostics((d) => seen.push(`${d.kind}|${d.reason}`));
+    const diagnostics = createDiagnostics((d) => seen.push(`${d.kind}|${d.code}|${d.reason}`));
     const transport = new Transport(
       {
         send,
@@ -246,6 +261,10 @@ describe("Transport, when the server refuses some events for now", () => {
     expect(await unsentAfter(transport.send(offered))).toEqual([]);
     expect(diagnostics.counters().dropped).toBe(1);
     expect(seen.join()).toContain("storage_error");
+    const codes = seen.map((line) => line.split("|").slice(0, 2).join("|"));
+    expect(new Set(codes)).toEqual(
+      new Set(["transport_error|refused_for_now", "dropped|retry_budget"])
+    );
   });
 
   it("drops an event refused in ten sends, even inside thirty seconds", async () => {

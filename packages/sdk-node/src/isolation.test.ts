@@ -40,7 +40,7 @@ describe("failure isolation (ADR-007)", () => {
     expect(() => {
       for (let i = 0; i < 50; i += 1) journey.record({ operation: "received", name: "n" });
     }).not.toThrow();
-    expect(recorder.diagnostics().dropped).toBeGreaterThan(0);
+    expect(recorder.counters().dropped).toBeGreaterThan(0);
   });
 
   it("does not throw when the diagnostics callback throws", () => {

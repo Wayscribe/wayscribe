@@ -287,7 +287,7 @@ describe("createRecorder", () => {
         name: "r"
       });
     }).not.toThrow();
-    expect(recorder?.diagnostics().configurationErrors).toBeGreaterThan(0);
+    expect(recorder?.counters().configurationErrors).toBeGreaterThan(0);
     void recorder?.shutdown({ timeoutMs: 100 });
   });
 

@@ -8,6 +8,7 @@ import {
   redact,
   toStorable,
   truncateStrings,
+  type LimitViolation,
   type TruncationStats
 } from "@flight-recorder/payload-security/redaction";
 import { fitsCodePoints } from "./code-points.js";
@@ -17,7 +18,9 @@ import {
   printDiagnostic,
   type Counters,
   type Diagnostic,
-  type Diagnostics
+  type Diagnostics,
+  type KeyDroppedDiagnostic,
+  type PayloadOmittedDiagnostic
 } from "./diagnostics.js";
 import type { Operation } from "./operations.js";
 import {
@@ -238,11 +241,24 @@ export interface Recorder {
   unwrapPayload(body: unknown): { context?: PropagatedContext; data: unknown };
   flush(): Promise<void>;
   shutdown(options?: { timeoutMs?: number }): Promise<Counters>;
-  diagnostics(): Counters;
+  counters(): Counters;
 }
 
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
 const UNCAPTURABLE = "[UNCAPTURABLE]";
+
+/**
+ * The code a payload omitted for breaking a limit is reported with. The limit's
+ * own name goes in the reason only: codes are the SDK's API, and the limit
+ * names belong to payload-security.
+ */
+const OMITTED_CODE: Record<LimitViolation, PayloadOmittedDiagnostic["code"]> = {
+  payload_too_large: "too_large",
+  max_depth_exceeded: "too_deep",
+  max_keys_exceeded: "too_wide",
+  max_string_length_exceeded: "string_too_long",
+  unserialisable_payload: "unserialisable"
+};
 
 const PAYLOAD_FIELDS: readonly PayloadField[] = ["input", "output", "metadata"];
 
@@ -422,7 +438,9 @@ function readOutcome(
   const noVerdict = (why: string): void => {
     diagnostics.report({
       kind: "dropped",
-      reason: `no_verdict: ${why}; the server may have stored this event, so it is not sent again`
+      code: "no_verdict",
+      reason: `The server's reply gave no verdict for this event (${why}); the server may have stored it, so it is not sent again.`,
+      detail: {}
     });
   };
   if (verdicts.length < batch.length) {
@@ -461,7 +479,15 @@ function readOutcome(
       return;
     }
 
-    diagnostics.report({ kind: "rejected", reason: described, detail: result.error }, logLine);
+    diagnostics.report(
+      {
+        kind: "rejected",
+        code: "event_refused",
+        reason: described,
+        detail: { serverError: result.error }
+      },
+      logLine
+    );
   });
   return {
     accepted,
@@ -541,9 +567,9 @@ function warnIfInsecure(endpoint: string, diagnostics: Diagnostics): void {
   if (url.protocol !== "http:" || isLocalOrInternal(url.hostname)) return;
   diagnostics.report({
     kind: "insecure_endpoint",
-    scheme: "http:",
-    host: url.hostname,
-    reason: `The endpoint is http: to ${url.hostname}, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.`
+    code: "unencrypted_endpoint",
+    reason: `The endpoint is http: to ${url.hostname}, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.`,
+    detail: { scheme: "http:", host: url.hostname }
   });
 }
 
@@ -621,7 +647,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
   // logDiagnostics off, the other exception to SDK-40 that SDK-56 allows.
   safely(diagnostics, "capture_error", () => {
     for (const { setting, reason, required } of resolved.problems) {
-      const diagnostic: Diagnostic = { kind: "configuration_error", reason };
+      const diagnostic: Diagnostic = {
+        kind: "configuration_error",
+        code: required ? "required_setting_unusable" : "setting_unusable",
+        reason,
+        detail: { setting }
+      };
       diagnostics.report(diagnostic, undefined, { unlimited: true });
       if (!required || resolved.logDiagnostics || !firstRequiredSettingWarning(setting)) continue;
       printDiagnostic(
@@ -642,7 +673,15 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * already says it.
    */
   const reportSecretProblem = (reason: string): void => {
-    const diagnostic: Diagnostic = { kind: "configuration_error", reason };
+    const diagnostic: Diagnostic = {
+      kind: "configuration_error",
+      code:
+        resolved.journeyIdSecret === undefined
+          ? "journey_id_secret_missing"
+          : "journey_id_secret_unusable",
+      reason,
+      detail: { setting: "journeyIdSecret" }
+    };
     // The first report is the warning, so with logging on it is printed even
     // when another configuration problem was printed this minute.
     const first = firstSecretWarning();
@@ -708,7 +747,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
             // process. Marked so the transport can tell the two apart.
             const error = new Error(`Ingestion responded ${String(response.status)}.`);
             if (response.status >= 400 && response.status < 500) {
-              (error as { permanent?: boolean }).permanent = true;
+              Object.assign(error, { permanent: true, httpStatus: response.status });
             }
             throw error;
           }
@@ -726,9 +765,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
             const endpoint = originOf(resolved.endpoint);
             diagnostics.report({
               kind: "delivered_first",
+              code: "first_delivery",
               reason: `Connected to ${endpoint}; the server accepted ${String(accepted)} ${accepted === 1 ? "event" : "events"}.`,
-              endpoint,
-              accepted
+              detail: { endpoint, accepted }
             });
           }
           return outcome;
@@ -801,7 +840,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
       if (!limits.ok) {
         // Discarding a payload silently made a full timeline look like a step
         // that genuinely carried nothing.
-        reportOmitted(field, limits.reason, `A payload was not captured: ${limits.reason}.`);
+        reportOmitted(
+          field,
+          OMITTED_CODE[limits.reason],
+          `A payload was not captured: ${limits.reason}.`
+        );
         return { value: TOO_LARGE };
       }
 
@@ -830,12 +873,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
   }
 
-  function reportOmitted(field: PayloadField, reason: string, message: string): void {
-    diagnostics.report({
-      kind: "payload_omitted",
-      reason: message,
-      detail: { field, reason }
-    });
+  function reportOmitted(
+    field: PayloadField,
+    code: PayloadOmittedDiagnostic["code"],
+    message: string
+  ): void {
+    diagnostics.report({ kind: "payload_omitted", code, reason: message, detail: { field } });
   }
 
   /** Captured metadata, or nothing at all when it cannot be represented. */
@@ -870,7 +913,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       else event[field] = TOO_LARGE;
       reportOmitted(
         field,
-        "payload_too_large",
+        "too_large",
         `The event exceeded maxPayloadBytes, so its ${field} was not captured.`
       );
     }
@@ -888,9 +931,15 @@ export function createRecorder(config: RecorderConfig): Recorder {
     return event["metadata"] === undefined ? undefined : "metadata";
   }
 
-  function reportDropped(field: string, keys: number, what: string): void {
+  function reportDropped(
+    field: KeyDroppedDiagnostic["detail"]["field"],
+    code: KeyDroppedDiagnostic["code"],
+    keys: number,
+    what: string
+  ): void {
     diagnostics.report({
       kind: "key_dropped",
+      code,
       reason: `${String(keys)} ${keys === 1 ? "entry" : "entries"} left off the event's ${field}: ${what}.`,
       detail: { field, keys }
     });
@@ -906,7 +955,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
   function aliasesFor(aliases: unknown): { aliases?: Record<string, string> } {
     if (aliases === undefined) return {};
     if (typeof aliases !== "object" || aliases === null || Array.isArray(aliases)) {
-      reportDropped("aliases", 1, "aliases that are not an object of alias types to values");
+      reportDropped(
+        "aliases",
+        "aliases_not_object",
+        1,
+        "aliases that are not an object of alias types to values"
+      );
       return {};
     }
     const kept: Record<string, string> = {};
@@ -925,6 +979,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     if (dropped > 0) {
       reportDropped(
         "aliases",
+        "alias_invalid",
         dropped,
         "an alias type over 128 characters, or a value that is not a string of at most 512"
       );
@@ -942,6 +997,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     if (dropped > 0) {
       reportDropped(
         "displayableAliases",
+        "displayable_alias_invalid",
         dropped,
         "an entry that is not an alias type of at most 128 characters"
       );
@@ -967,7 +1023,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
     if (dropped === 0) return metadata;
     defineOwn(record, KEY_TOO_LONG, dropped);
-    reportDropped("metadata", dropped, "a key over 128 characters");
+    reportDropped("metadata", "metadata_key_too_long", dropped, "a key over 128 characters");
     return record;
   }
 
@@ -983,6 +1039,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       const { strings } = one.truncated;
       diagnostics.report({
         kind: "payload_truncated",
+        code: "strings_cut",
         reason: `${String(strings)} ${strings === 1 ? "string" : "strings"} in the ${field} were cut to ${MAX_STRING_LENGTH.toLocaleString("en-US")} characters.`,
         detail: { field, ...one.truncated }
       });
@@ -1057,9 +1114,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // counters kept reporting a clean bill of health. Reachable by ordinary
       // reading, because `flush()` appears in no user-facing documentation and
       // the example calls shutdown "flush".
+      diagnostics.countRecorded();
       diagnostics.report({
         kind: "dropped",
-        reason: "The recorder was shut down; this event was not recorded.",
+        code: "after_shutdown",
+        reason: "The recorder was shut down, so this event was not sent.",
         detail: { name: input.name, operation: input.operation }
       });
       return;
@@ -1108,6 +1167,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     fitToBudget(envelope);
     reportTruncations(event, captured);
     reportSecretNames(event, captured);
+    diagnostics.countRecorded();
     queue.push(envelope);
 
     // Capped, because N events recorded in one turn of the event loop used to
@@ -1239,7 +1299,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
     for (const _event of lost) {
       diagnostics.report({
         kind: "dropped",
-        reason: "shutdown: the recorder shut down before this event was delivered"
+        code: "shutdown",
+        reason: "The recorder shut down before this event was delivered.",
+        detail: {}
       });
     }
   }
@@ -1415,8 +1477,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
     const failed = (reason: string, error?: unknown): string => {
       diagnostics.report({
         kind: "payload_omitted",
+        code: "projection_failed",
         reason,
-        detail: { field, reason: "projection_failed", ...(error === undefined ? {} : { error }) }
+        detail: { field, ...(error === undefined ? {} : { error }) }
       });
       return UNCAPTURABLE;
     };
@@ -1537,13 +1600,19 @@ export function createRecorder(config: RecorderConfig): Recorder {
     const seen = new Set<string>();
     const targets: Target[] = [];
     for (const one of journeys) {
-      const target = safely(diagnostics, "capture_error", (): Target => {
+      const target = safely(diagnostics, "capture_error", (): Target | undefined => {
         const candidate: unknown =
           typeof (one as Partial<Journey> | null)?.context === "function"
             ? (one as Journey).context()
             : one;
         if (!isContext(candidate)) {
-          throw new TypeError("across() was given something that is not a journey.");
+          diagnostics.report({
+            kind: "capture_error",
+            code: "not_a_journey",
+            reason: "across() was given something that is not a journey, so it was left out.",
+            detail: {}
+          });
+          return undefined;
         }
         // Typed as a journey or a context, but a host can pass anything.
         const handle: unknown = one;
@@ -1595,7 +1664,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
         }
         const problem = entityProblem(entity);
         if (problem !== undefined) {
-          diagnostics.report({ kind: "configuration_error", reason: problem });
+          diagnostics.report({
+            kind: "configuration_error",
+            code: "entity_invalid",
+            reason: problem,
+            detail: {}
+          });
           return undefined;
         }
         return deriveJourneyId(secret, resolved.environment, entity);
@@ -1675,6 +1749,6 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // Read after the race, so the counters describe what actually landed.
       return diagnostics.counters();
     },
-    diagnostics: () => diagnostics.counters()
+    counters: () => diagnostics.counters()
   };
 }

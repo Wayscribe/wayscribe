@@ -1,12 +1,21 @@
 export type { RecorderConfig } from "./config.js";
 export type {
+  BreakerOpenedDiagnostic,
+  CaptureErrorDiagnostic,
+  ConfigurationErrorDiagnostic,
   Counters,
   DeliveredFirstDiagnostic,
   Diagnostic,
+  DiagnosticCode,
   DiagnosticKind,
-  FailureDiagnostic,
-  FailureKind,
-  InsecureEndpointDiagnostic
+  DroppedDiagnostic,
+  InsecureEndpointDiagnostic,
+  KeyDroppedDiagnostic,
+  PayloadOmittedDiagnostic,
+  PayloadTruncatedDiagnostic,
+  RejectedDiagnostic,
+  TransportErrorDiagnostic,
+  UnredactedSecretNameDiagnostic
 } from "./diagnostics.js";
 export { OPERATIONS } from "./operations.js";
 export type { Operation } from "./operations.js";

@@ -52,6 +52,12 @@ function accountedFor(counters: Counters): number {
   return counters.sent + counters.rejected + counters.dropped;
 }
 
+/** The promise SDK-38 makes, checked against the recorder's own `recorded`. */
+function expectReconciled(counters: Counters, recorded: number): void {
+  expect(counters.recorded).toBe(recorded);
+  expect(accountedFor(counters)).toBe(counters.recorded);
+}
+
 async function record(
   endpoint: string,
   count: number,
@@ -63,7 +69,7 @@ async function record(
   for (let i = 0; i < count; i += 1)
     journey.record({ operation: "received", name: `n${String(i)}` });
   const counters = await recorder.shutdown({ timeoutMs });
-  return { counters, later: () => recorder.diagnostics() };
+  return { counters, later: () => recorder.counters() };
 }
 
 describe("every recorded event is accounted for at shutdown", () => {
@@ -82,7 +88,7 @@ describe("every recorded event is accounted for at shutdown", () => {
     await server.close();
 
     expect(counters).toMatchObject({ sent: 0, rejected: 0, dropped: 3 });
-    expect(accountedFor(counters)).toBe(3);
+    expectReconciled(counters, 3);
   });
 
   it("counts events still queued against an unreachable endpoint as dropped", async () => {
@@ -90,6 +96,7 @@ describe("every recorded event is accounted for at shutdown", () => {
     // 1,000 left at shutdown used to vanish with no counter at all.
     const { counters } = await record("http://127.0.0.1:1", 3_000, 3_000);
     expect(counters).toMatchObject({ sent: 0, rejected: 0, dropped: 3_000 });
+    expectReconciled(counters, 3_000);
   });
 
   it("counts a batch still in flight when the timeout wins, and nothing more afterwards", async () => {
@@ -98,6 +105,7 @@ describe("every recorded event is accounted for at shutdown", () => {
     const { counters, later } = await record(server.endpoint, 3, 200);
 
     expect(counters).toMatchObject({ sent: 0, rejected: 0, dropped: 3 });
+    expectReconciled(counters, 3);
     // The abandoned request must not be counted again when it fails later.
     await new Promise((resolve) => {
       setTimeout(resolve, 1_800);
@@ -114,6 +122,7 @@ describe("every recorded event is accounted for at shutdown", () => {
     await server.close();
 
     expect(counters).toMatchObject({ sent: 0, rejected: 3, dropped: 0 });
+    expectReconciled(counters, 3);
   });
 
   it("keeps the invariant when a payload is too large to capture", async () => {
@@ -132,7 +141,7 @@ describe("every recorded event is accounted for at shutdown", () => {
     await server.close();
 
     expect(counters).toMatchObject({ sent: 3, rejected: 0, dropped: 0, payloadsOmitted: 1 });
-    expect(accountedFor(counters)).toBe(3);
+    expectReconciled(counters, 3);
   });
 
   it("counts a healthy run as all sent", async () => {
@@ -145,6 +154,55 @@ describe("every recorded event is accounted for at shutdown", () => {
     await server.close();
 
     expect(counters).toMatchObject({ sent: 120, rejected: 0, dropped: 0 });
+    expectReconciled(counters, 120);
+  });
+
+  it("counts the events a queue overflow shed against a server that stores the rest", async () => {
+    const server = await serving((events, response) => {
+      json(response, 202, { data: { results: events.map(() => ({ status: "accepted" })) } });
+    });
+    const { counters } = await record(server.endpoint, 30, 5_000, {
+      maxBufferedEvents: 10,
+      batchSize: 100,
+      flushIntervalMs: 60_000
+    });
+    await server.close();
+
+    expect(counters.dropped).toBeGreaterThan(0);
+    expectReconciled(counters, 30);
+  });
+
+  it("counts per-event refusals, and events the reply gave no verdict for", async () => {
+    const server = await serving((events, response) => {
+      // The first event refused for good, the second stored, the rest unanswered.
+      json(response, 202, {
+        data: {
+          results: [
+            {
+              status: "rejected",
+              error: { code: "invalid_event", message: "no", httpStatus: 400 }
+            },
+            { status: "accepted" }
+          ].slice(0, events.length)
+        }
+      });
+    });
+    const { counters } = await record(server.endpoint, 4, 5_000);
+    await server.close();
+
+    expect(counters).toMatchObject({ sent: 1, rejected: 1, dropped: 2 });
+    expectReconciled(counters, 4);
+  });
+
+  it("counts an event recorded after shutdown as recorded and dropped", async () => {
+    const recorder = createRecorder({ ...base, endpoint: "http://127.0.0.1:1" });
+    const journey = recorder.startJourney({ entity: { type: "customer", id: "1" } });
+    await recorder.shutdown({ timeoutMs: 100 });
+    journey.record({ operation: "received", name: "late" });
+    journey.transform("late-transform", 1, () => 2);
+
+    expect(recorder.counters()).toMatchObject({ sent: 0, rejected: 0, dropped: 2 });
+    expectReconciled(recorder.counters(), 2);
   });
 });
 

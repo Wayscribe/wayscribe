@@ -91,6 +91,7 @@ describe("fitting an event to the server's limits", () => {
     expect(diagnostics.filter((d) => d.kind === "payload_truncated")).toEqual([
       {
         kind: "payload_truncated",
+        code: "strings_cut",
         reason: expect.stringContaining("input") as string,
         detail: { field: "input", strings: 1, charactersRemoved: 4_500 }
       }
@@ -129,9 +130,9 @@ describe("fitting an event to the server's limits", () => {
     expect((event["output"] as { normalized: string }).normalized).toHaveLength(50_000);
     expect(event["metadata"]).toEqual({ tenant: "acme" });
     expect(counters.payloadsOmitted).toBe(1);
-    expect(diagnostics.find((d) => d.kind === "payload_omitted")?.detail).toEqual({
-      field: "input",
-      reason: "payload_too_large"
+    expect(diagnostics.find((d) => d.kind === "payload_omitted")).toMatchObject({
+      code: "too_large",
+      detail: { field: "input" }
     });
   });
 
@@ -179,9 +180,9 @@ describe("fitting an event to the server's limits", () => {
       journey.record({ operation: "received", name: "deep", input: nested });
     });
     expect(events[0]?.["input"]).toBe("[PAYLOAD_TOO_LARGE]");
-    expect(diagnostics.find((d) => d.kind === "payload_omitted")?.detail).toEqual({
-      field: "input",
-      reason: "max_depth_exceeded"
+    expect(diagnostics.find((d) => d.kind === "payload_omitted")).toMatchObject({
+      code: "too_deep",
+      detail: { field: "input" }
     });
   });
 

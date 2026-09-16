@@ -33,10 +33,10 @@ describe("an endpoint that sends the API key in cleartext", () => {
     expect(seen.filter((d) => d.kind === "insecure_endpoint")).toEqual([
       {
         kind: "insecure_endpoint",
-        scheme: "http:",
-        host: "ingest.example.com",
+        code: "unencrypted_endpoint",
         reason:
-          "The endpoint is http: to ingest.example.com, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine."
+          "The endpoint is http: to ingest.example.com, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.",
+        detail: { scheme: "http:", host: "ingest.example.com" }
       }
     ]);
   });
@@ -72,7 +72,7 @@ describe("an endpoint that sends the API key in cleartext", () => {
     const userinfo = ["svc", "hunter2"].join(":");
     const seen = await diagnosticsFor(`http://${userinfo}@ingest.example.com/path?token=abc`);
     const [diagnostic] = seen.filter((d) => d.kind === "insecure_endpoint");
-    expect(diagnostic).toMatchObject({ scheme: "http:", host: "ingest.example.com" });
+    expect(diagnostic).toMatchObject({ detail: { scheme: "http:", host: "ingest.example.com" } });
     const text = JSON.stringify(diagnostic);
     for (const secret of ["svc:", "hunter2", "path", "token", "abc"]) {
       expect(text).not.toContain(secret);
@@ -112,7 +112,8 @@ describe("an endpoint that sends the API key in cleartext", () => {
 
   it("changes no counter", async () => {
     const recorder = createRecorder({ ...base, endpoint: "http://ingest.example.com" });
-    expect(recorder.diagnostics()).toEqual({
+    expect(recorder.counters()).toEqual({
+      recorded: 0,
       dropped: 0,
       rejected: 0,
       transportErrors: 0,

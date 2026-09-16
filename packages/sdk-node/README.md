@@ -271,7 +271,7 @@ whose type or id holds an unpaired surrogate is refused the same way (reported,
 random id, no warning line): it cannot be encoded faithfully, and the server
 refuses such an id anyway. The SDK reads no environment variable for it: the
 variable name above is your application's. Assert
-`recorder.diagnostics().configurationErrors === 0` in a test to catch a missing
+`recorder.counters().configurationErrors === 0` in a test to catch a missing
 secret before it ships.
 
 The derivation is specified in [SDK_SPEC.md](../../docs/SDK_SPEC.md) (SDK-55),
@@ -455,7 +455,7 @@ change any counter.
 | `dropped` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it (`no_verdict`) | `dropped` |
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
 | `configuration_error` | a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`, or a configured setting could not be used; the call returned something safe | `configurationErrors` |
-| `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
+| `breaker_opened` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
 | `unredacted_secret_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; `detail` is `{ field, name, path }`, never the value, with the name as written, cut to 128 characters; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `unredactedSecretNames`, per name |
 
 ### An endpoint that is not encrypted

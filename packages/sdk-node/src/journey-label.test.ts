@@ -243,9 +243,9 @@ describe("journey.label", () => {
     expect(counters.payloadsOmitted).toBe(1);
     expect(counters.payloadsTruncated).toBe(0);
     expect(counters.sent).toBe(1);
-    expect(diagnostics.find((d) => d.kind === "payload_omitted")?.detail).toEqual({
-      field: "input",
-      reason: "payload_too_large"
+    expect(diagnostics.find((d) => d.kind === "payload_omitted")).toMatchObject({
+      code: "too_large",
+      detail: { field: "input" }
     });
   });
 

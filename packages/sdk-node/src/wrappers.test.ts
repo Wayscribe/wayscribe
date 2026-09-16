@@ -745,7 +745,7 @@ describe("after shutdown", () => {
 
     expect(seen.some((line) => line.startsWith("dropped|"))).toBe(true);
     expect(seen.join()).toContain("shut down");
-    expect(recorder.diagnostics().dropped).toBe(1);
+    expect(recorder.counters().dropped).toBe(1);
   });
 });
 

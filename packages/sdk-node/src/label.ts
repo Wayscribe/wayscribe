@@ -35,6 +35,7 @@ export function acceptLabel(text: unknown, diagnostics: Diagnostics): string | u
   if (storable.trim() === "") {
     diagnostics.report({
       kind: "key_dropped",
+      code: "label_invalid",
       reason:
         "A journey label that is not a string with visible text was not set; later events carry the label set before it, if any.",
       detail: { field: "journeyLabel", keys: 1 }
@@ -46,6 +47,7 @@ export function acceptLabel(text: unknown, diagnostics: Diagnostics): string | u
   const removed = storable.length - kept.length;
   diagnostics.report({
     kind: "payload_truncated",
+    code: "label_cut",
     reason: `A journey label was cut to ${String(MAX_JOURNEY_LABEL_LENGTH)} code points, ending in an ellipsis; ${String(removed)} UTF-16 code units were removed.`,
     detail: { field: "journeyLabel", strings: 1, charactersRemoved: removed }
   });

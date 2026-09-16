@@ -66,7 +66,7 @@ async function recordNamed(
   endpoint: string,
   names: readonly string[],
   seen: string[] = []
-): Promise<ReturnType<ReturnType<typeof createRecorder>["diagnostics"]>> {
+): Promise<ReturnType<ReturnType<typeof createRecorder>["counters"]>> {
   const recorder = createRecorder({
     ...base,
     endpoint,
@@ -178,7 +178,7 @@ describe("a refusal that lasts, on a clock", () => {
 
     await vi.advanceTimersByTimeAsync(60_000);
 
-    expect(recorder.diagnostics()).toMatchObject({ sent: 1, dropped: 0, rejected: 0 });
+    expect(recorder.counters()).toMatchObject({ sent: 1, dropped: 0, rejected: 0 });
     // More than the three refusals that used to be the whole budget.
     expect(count(sent, "n")).toBeGreaterThan(3);
   });
@@ -220,11 +220,11 @@ describe("a refusal that lasts, on a clock", () => {
 
     // Past the eighth send, at 32 s, and its retries: refused for 28 s.
     await until(35);
-    expect(recorder.diagnostics()).toMatchObject({ dropped: 0, breakerOpened: 0 });
+    expect(recorder.counters()).toMatchObject({ dropped: 0, breakerOpened: 0 });
 
     // The ninth send, at 36 s: refused for 32 s, so given up on.
     await until(37);
-    expect(recorder.diagnostics()).toMatchObject({ dropped: 1, rejected: 0, breakerOpened: 0 });
+    expect(recorder.counters()).toMatchObject({ dropped: 1, rejected: 0, breakerOpened: 0 });
     expect(seen.some((line) => line.startsWith("dropped|") && line.includes("30 seconds"))).toBe(
       true
     );
@@ -254,7 +254,7 @@ describe("a refusal that lasts, on a clock", () => {
         await vi.advanceTimersByTimeAsync(100);
       }
       await vi.advanceTimersByTimeAsync(5_000);
-      const counters = recorder.diagnostics();
+      const counters = recorder.counters();
       vi.unstubAllGlobals();
       return { stored, dropped: counters.dropped };
     }

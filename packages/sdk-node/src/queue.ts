@@ -40,7 +40,12 @@ export class BoundedQueue<T> {
   private trim(): void {
     while (this.items.length > this.capacity) {
       this.items.shift();
-      this.diagnostics.report({ kind: "dropped", reason: "queue_full" });
+      this.diagnostics.report({
+        kind: "dropped",
+        code: "queue_full",
+        reason: "The queue was full, so its oldest event was dropped.",
+        detail: {}
+      });
     }
   }
 }
