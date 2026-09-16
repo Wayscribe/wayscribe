@@ -64,6 +64,15 @@ describe("secretNamesResult", () => {
     expect(detail.length).toBeLessThan(200);
   });
 
+  it("masks credential shapes in a printed name, as the SDK's line does", () => {
+    const { detail } = secretNamesResult({
+      events: 5,
+      names: [{ name: "postgres://app:hunter2secret@db/xToken", events: 1 }]
+    });
+    expect(detail).not.toContain("hunter2secret");
+    expect(detail).toContain("[REDACTED]");
+  });
+
   it("orders names with equal counts by name, so the output is stable", () => {
     const { detail } = secretNamesResult({
       events: 5,
@@ -80,7 +89,7 @@ describe("the sample", () => {
   it("is bounded", () => {
     expect(SAMPLE_BOUNDS).toEqual({
       journeysPerEnvironment: 100,
-      eventsPerJourney: 20,
+      eventsPerJourney: 5,
       events: 2_000,
       timeoutMs: 5_000
     });

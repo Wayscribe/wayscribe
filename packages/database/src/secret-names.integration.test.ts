@@ -4,7 +4,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { formatDoctor } from "./doctor.js";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig } from "./knex-config.js";
-import { sampleSecretNames, secretNamesCheck } from "./secret-names.js";
+import {
+  inSampleTransaction,
+  SAMPLE_BOUNDS,
+  sampleSecretNames,
+  secretNamesCheck
+} from "./secret-names.js";
 
 /**
  * Doctor's secret-name check against real stored payloads (ADR-055): what it
@@ -93,6 +98,8 @@ describe("doctor's secret-name sample", () => {
           pinned: "yes",
           tokenCount: 7,
           nextPageToken: "page-2",
+          auth: "jwt",
+          clientSecret: "None",
           lines: [{ settings: { sessionCredential: SESSION_VALUE } }]
         },
         metadata: { authToken: AUTH_VALUE }
@@ -107,7 +114,7 @@ describe("doctor's secret-name sample", () => {
     const busy = await journey("production", 3);
     const busyEvents = Array.from({ length: 25 }, (_unused, index) =>
       event(busy, "production", 100 - index, {
-        input: index < 5 ? { staleSecret: OLD_VALUE } : { orderId: index }
+        input: index < 20 ? { staleSecret: OLD_VALUE } : { orderId: index }
       })
     );
     await db("journey_events").insert(busyEvents);
@@ -120,8 +127,8 @@ describe("doctor's secret-name sample", () => {
 
   it("returns candidate names with counts, and no value", async () => {
     const sample = await sampleSecretNames(db);
-    // Two events in the first journey, one in the second, twenty of the busy one.
-    expect(sample.events).toBe(23);
+    // Two events in the first journey, one in the second, five of the busy one.
+    expect(sample.events).toBe(8);
     const byName = Object.fromEntries(sample.names.map(({ name, events }) => [name, events]));
     expect(byName).toEqual({
       authToken: 2,
@@ -142,11 +149,39 @@ describe("doctor's secret-name sample", () => {
     const result = await secretNamesCheck(db);
     expect(result.status).toBe("WARN");
     expect(result.detail).toBe(
-      "3 key names that look like secrets hold plain values in the 23 most recent events sampled: authToken (in 2), cardPin (in 1), sessionCredential (in 1)."
+      "3 key names that look like secrets hold plain values in the 8 most recent events sampled: authToken (in 2), cardPin (in 1), sessionCredential (in 1)."
     );
     const printed = formatDoctor([result]).join("\n");
     for (const value of [AUTH_VALUE, SESSION_VALUE, OLD_VALUE]) {
       expect(printed).not.toContain(value);
+    }
+  });
+
+  it("reads in a read-only transaction", async () => {
+    await expect(
+      inSampleTransaction(db, (trx) =>
+        trx.raw("insert into projects (name, slug) values ('w', 'w')")
+      )
+    ).rejects.toMatchObject({ code: "25006" });
+    const readOnly = await inSampleTransaction(db, async (trx) => {
+      const found: unknown = await trx.raw("select current_setting('transaction_read_only') as ro");
+      return (found as { rows: { ro: string }[] }).rows[0]?.ro;
+    });
+    expect(readOnly).toBe("on");
+  });
+
+  it("warns, rather than fails, when the sample cannot run", async () => {
+    await db.raw("create schema if not exists bare");
+    // A role that sees none of the tables: every connection looks in `bare`.
+    const empty = knex({ ...createKnexConfig(container.getConnectionUri()), searchPath: ["bare"] });
+    try {
+      const result = await secretNamesCheck(empty);
+      expect(result).toMatchObject({
+        status: "WARN",
+        detail: expect.stringMatching(/^The sample could not run \(42P01\): /) as unknown
+      });
+    } finally {
+      await empty.destroy();
     }
   });
 
@@ -166,5 +201,79 @@ describe("doctor's secret-name sample", () => {
     } finally {
       await holder.destroy();
     }
+  });
+});
+
+describe("doctor's secret-name sample across a large installation", () => {
+  let container: StartedPostgreSqlContainer;
+  let db: Knex;
+  const environmentNames: string[] = [];
+
+  beforeAll(async () => {
+    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    db = knex(createKnexConfig(container.getConnectionUri()));
+    await db.migrate.latest();
+
+    // Three projects, five environments, 150 journeys of 6 events each in
+    // every environment: 4,500 events, more than the sample's cap, with the
+    // environment created first also the most recently active.
+    let environmentNumber = 0;
+    for (const [slug, names] of [
+      ["alpha", ["production", "staging"]],
+      ["beta", ["production", "development"]],
+      ["gamma", ["production"]]
+    ] as const) {
+      const projectId = await insertReturningId(db, "projects", { name: slug, slug });
+      for (const name of names) {
+        environmentNumber += 1;
+        const environmentId = await insertReturningId(db, "environments", {
+          project_id: projectId,
+          name
+        });
+        const marker = `env${String(environmentNumber)}Token`;
+        environmentNames.push(marker);
+        await db.raw(
+          `insert into journeys (id, project_id, environment_id, entity_type, primary_entity_id_hash,
+                                 status, started_at, last_event_at, event_count)
+           select 'jrn_' || ? || '_' || g, ?, ?, 'customer', 'h' || g, 'completed',
+                  now() - make_interval(mins => g + ?), now() - make_interval(mins => g + ?), 6
+             from generate_series(1, 150) g`,
+          [environmentNumber, projectId, environmentId, environmentNumber, environmentNumber]
+        );
+        await db.raw(
+          `insert into journey_events (id, project_id, environment_id, journey_id, protocol_version,
+                                       content_hash, operation, name, service, event_timestamp,
+                                       input_payload)
+           select 'evt_' || j.id || '_' || k, j.project_id, j.environment_id, j.id, '0.1', 'h',
+                  'received', 'step', 'svc', j.last_event_at - make_interval(secs => k),
+                  jsonb_build_object(?::text, 'value-' || k, 'orderId', k)
+             from journeys j cross join generate_series(1, 6) k
+            where j.environment_id = ?`,
+          [marker, environmentId]
+        );
+      }
+    }
+  });
+
+  afterAll(async () => {
+    await db.destroy();
+    await container.stop();
+  });
+
+  it("reads every environment of every project, within the cap", async () => {
+    const total = await db("journey_events").count({ n: "*" });
+    expect(Number((total as { n: string }[])[0]?.n)).toBe(4_500);
+
+    const sample = await sampleSecretNames(db);
+    expect(sample.events).toBe(SAMPLE_BOUNDS.events);
+    const byName = Object.fromEntries(sample.names.map(({ name, events }) => [name, events]));
+    // Five environments share 2,000 events evenly.
+    expect(byName).toEqual(
+      Object.fromEntries(environmentNames.map((name) => [name, SAMPLE_BOUNDS.events / 5]))
+    );
+  });
+
+  it("takes the same sample twice", async () => {
+    expect(await sampleSecretNames(db)).toEqual(await sampleSecretNames(db));
   });
 });
