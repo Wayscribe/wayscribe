@@ -2038,9 +2038,14 @@ operation; it is for conformance suites, for a setup check, and for a mapping un
   key and database read access can already confirm a guess at a masked value by resending a
   rebuilt event. The dry run makes that quieter, not cheaper, and it is one request per guess
   either way.
-- **The preview returns only what the caller sent**, after this installation's own capture,
-  redaction and masking, to the key that sent it. It does disclose the shape of the environment's
-  redaction policy, which the caller can already infer by sending an event and reading it back.
+- **The preview returns what the sending key could already read.** The stored event is the one
+  the caller sent, after this installation's own capture, redaction and masking. The stored
+  journey is the whole journey as a read of it would show it: when the event joins a journey
+  that already exists in the caller's environment, the preview includes that journey's earlier
+  label, services and displayable aliases, with masked aliases still masked. The same key can
+  already read that journey by its id, so nothing new is disclosed. The preview does show the
+  shape of the environment's redaction policy, which the caller can already infer by sending an
+  event and reading it back.
 - **The transaction holds its locks longer, and the cost falls on somebody else.** A batch of a
   hundred events holds every row it touched until the rollback, where a real send releases each
   after its own event. A real ingestion contending for one of those rows waits, and is cancelled
