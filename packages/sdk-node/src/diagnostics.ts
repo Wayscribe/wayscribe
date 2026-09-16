@@ -109,11 +109,21 @@ export interface Diagnostics {
    * to `onDiagnostic` whole; the console gets only what is safe to put in a log
    * store the operator may not control.
    */
-  report(diagnostic: Diagnostic, logLine?: string): void;
+  report(diagnostic: Diagnostic, logLine?: string, options?: ReportOptions): void;
   recordSent(count: number): void;
   counters(): Counters;
   /** Prints any repeats still suppressed. A no-op unless logging is on. */
   flushLog(): void;
+}
+
+export interface ReportOptions {
+  /**
+   * Printed whatever else of its kind was printed this minute. For what a
+   * recorder reports once, at creation: several configuration problems arrive
+   * together, and the rate limit printed only the first, which could hide the
+   * one warning SDK-56 requires.
+   */
+  unlimited?: boolean;
 }
 
 export interface DiagnosticsOptions {
@@ -158,14 +168,15 @@ export function createDiagnostics(
   const lastPrinted = new Map<DiagnosticKind, number>();
   const suppressed = new Map<DiagnosticKind, number>();
 
-  function print(diagnostic: Diagnostic, logLine: string | undefined): void {
+  function print(diagnostic: Diagnostic, logLine: string | undefined, unlimited: boolean): void {
     const { kind } = diagnostic;
     const now = Date.now();
     const last = lastPrinted.get(kind);
     // delivered_first and insecure_endpoint happen once per recorder, so they
     // can never flood, and a second recorder in the same process must not have
-    // its warning hidden by the first one's.
-    const once = kind === "delivered_first" || kind === "insecure_endpoint";
+    // its warning hidden by the first one's. An unlimited report is one the
+    // recorder makes once, at creation, for the same reason.
+    const once = unlimited || kind === "delivered_first" || kind === "insecure_endpoint";
     if (!once && last !== undefined && now - last < LOG_WINDOW_MS) {
       suppressed.set(kind, (suppressed.get(kind) ?? 0) + 1);
       return;
@@ -180,7 +191,7 @@ export function createDiagnostics(
   }
 
   return {
-    report(diagnostic, logLine) {
+    report(diagnostic, logLine, options) {
       if (diagnostic.kind === "dropped") counters.dropped += 1;
       if (diagnostic.kind === "rejected") counters.rejected += 1;
       if (diagnostic.kind === "transport_error") counters.transportErrors += 1;
@@ -193,7 +204,7 @@ export function createDiagnostics(
 
       if (log) {
         try {
-          print(diagnostic, logLine);
+          print(diagnostic, logLine, options?.unlimited === true);
         } catch {
           // Formatting runs the masker over text the recorder did not write; a
           // failure there must not cost the callback below.

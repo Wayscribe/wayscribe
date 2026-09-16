@@ -603,17 +603,35 @@ changes far less often.
 
 ### Fixed
 
-- **Four SDK entry points no longer throw into the host over what they are
-  given.** `recorder.consume()` with no options, or options whose getters
-  throw; a wrapper given `null` options, a throwing getter, or metadata that
-  throws when copied; `startJourney` with no options; and `createRecorder` with
-  no configuration, a getter that throws, or an endpoint that is not a string
-  all threw. Each now degrades: a new journey, a first attempt with no options,
-  or the setting's default, and a `capture_error` or `configuration_error` says
-  so. `createRecorder` also replaces a timer, queue bound or byte budget that is
-  not a whole number in range, and an unknown `captureMode` or `propagate`,
-  with the default: a `maxBufferedEvents` of `NaN` left the queue unbounded,
-  and a `flushIntervalMs` of `NaN` fired every millisecond.
+- **SDK entry points no longer throw into the host over what they are
+  given.** These threw: `recorder.consume()` with no options, or with options
+  whose getters throw; `startJourney()` with no options, or with a throwing
+  `aliases` or `displayable` getter (they were read outside the guard); a
+  wrapper given `null` options, a Proxy, a throwing option getter, `metadata`
+  that throws when copied, or an `attempt` whose conversion throws; and
+  `createRecorder()` with no configuration, a throwing getter, or an endpoint
+  that is not a string. Each now degrades to a new journey, a first attempt
+  with no options, or the setting's default, and a `capture_error` or
+  `configuration_error` says so. A wrapper reads each option once.
+  `continueJourney`, `across` and `journeyIdFor` never threw, and tests now
+  hold that.
+- **`createRecorder` reports every setting it cannot use, and no longer
+  coerces them (SDK-60).** A timer, queue bound or byte budget that is not a
+  whole number in range, a `batchSize` or `maxConcurrentSends` that is clamped
+  or replaced, an unknown `captureMode` or `propagate`, a non-boolean
+  `logDiagnostics`, and a `redact` that is not a list of strings are each
+  reported as a `configuration_error` and replaced by the default or clamped.
+  **Numeric strings are no longer converted:** `maxBufferedEvents: "5000"`, as
+  read from `process.env`, used to take effect, because JavaScript's
+  comparisons and timers converted it; it now falls back to the default, with
+  a report. Convert such values with `Number()` before passing them. Before, a `maxBufferedEvents` of `NaN`
+  left the queue unbounded and a `flushIntervalMs` of `NaN` fired every
+  millisecond. Every problem found at creation is printed when
+  `logDiagnostics` is on, whatever else was printed that minute, and a
+  missing or non-string `endpoint`, `apiKey`, `serviceName` or `environment`
+  prints one line per process even when it is off, naming the setting and
+  never its value, because nothing recorded reaches the server until it is
+  fixed.
 - **The event detail no longer blames the capture policy for every empty
   step.** An event with no input and no output said the environment stored
   metadata only, which was false for every identify, finish and fail event and

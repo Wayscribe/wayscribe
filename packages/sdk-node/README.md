@@ -261,7 +261,8 @@ random id, so recording carries on and the journeys split until the secret is
 set. A secret shorter than 32 bytes is reported once when the recorder is
 created, and never used. Because split journeys are easy to miss, a missing or
 short secret also prints one line to stderr, once per process, even with
-`logDiagnostics` off; it is the only thing the SDK prints unasked. An entity
+`logDiagnostics` off; it and the required-setting warning below are the only
+things the SDK prints unasked. An entity
 whose type or id holds an unpaired surrogate is refused the same way (reported,
 random id, no warning line): it cannot be encoded faithfully, and the server
 refuses such an id anyway. The SDK reads no environment variable for it: the
@@ -355,8 +356,17 @@ no library. This one is built so that cannot happen:
   and `dropped` add up to the events recorded. A payload too large to capture
   is counted in `payloadsOmitted` instead, and one sent with a string cut in
   `payloadsTruncated`, because its event is still sent.
-- Nothing is written to your console unless you set `logDiagnostics`. Pass
-  `onDiagnostic` if you want to hear about failures in your own logger.
+- Nothing is written to your console unless you set `logDiagnostics`, with two
+  exceptions, each printed once per process: a `journeyIdSecret` that cannot
+  be used, and a required setting (`endpoint`, `apiKey`, `serviceName`,
+  `environment`) that is missing or not a string, since nothing recorded
+  reaches the server until it is fixed. The line names the setting, never its
+  value. Pass `onDiagnostic` if you want to hear about failures in your own
+  logger.
+- A bad configuration value never stops your application starting. It is
+  reported as a `configuration_error` and replaced by its default, or clamped
+  into range. Values are not converted: `maxBufferedEvents: "5000"`, as read
+  from `process.env`, is not a number, so the default is used and reported.
 
 ```typescript
 const recorder = createRecorder({

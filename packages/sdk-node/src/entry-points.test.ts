@@ -1,7 +1,9 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { forgetRequiredSettingWarnings } from "./config.js";
 import type { Counters, Diagnostic } from "./diagnostics.js";
+import { forgetSecretWarning } from "./journey-id.js";
 import { createRecorder, type Recorder, type RecorderConfig, type WrapOptions } from "./index.js";
 
 /**
@@ -207,6 +209,47 @@ describe("wrapper options", () => {
     expect(events[0]?.["output"]).toBe("value");
   });
 
+  it("reads each option once", async () => {
+    const reads = new Map<string, number>();
+    const counted = <V>(key: string, value: V): V => {
+      reads.set(key, (reads.get(key) ?? 0) + 1);
+      return value;
+    };
+    const options = {
+      get attempt(): number {
+        return counted("attempt", 2);
+      },
+      get metadata(): Record<string, unknown> {
+        return counted("metadata", { tenant: "acme" });
+      },
+      get captureInput(): () => string {
+        return counted("captureInput", () => "in");
+      },
+      get captureOutput(): () => string {
+        return counted("captureOutput", () => "out");
+      },
+      get isFailure(): () => boolean {
+        return counted("isFailure", () => false);
+      }
+    };
+    const { events } = await withStub(async (endpoint, diagnostics) => {
+      const recorder = createRecorder(config(endpoint, diagnostics));
+      const journey = recorder.startJourney({ entity: { type: "t", id: "1" } });
+      journey.transform("sync", 1, () => 2, options);
+      await journey.persist("async", 1, () => Promise.resolve(2), options);
+      return recorder;
+    });
+    expect(Object.fromEntries(reads)).toEqual({
+      attempt: 2,
+      metadata: 2,
+      captureInput: 2,
+      captureOutput: 2,
+      isFailure: 2
+    });
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ input: "in", output: "out", operation: "retried" });
+  });
+
   it("still honours readable options", async () => {
     const { events } = await withStub((endpoint, diagnostics) => {
       const recorder = createRecorder(config(endpoint, diagnostics));
@@ -277,9 +320,89 @@ describe("createRecorder", () => {
       return recorder;
     });
     expect(counters.configurationErrors).toBe(1);
-    expect(diagnostics.map((d) => d.reason)).toContain("redact could not be read.");
+    expect(diagnostics.map((d) => d.reason)).toContain(
+      "redact could not be read; only the built-in secret names apply."
+    );
     expect(events).toHaveLength(1);
     // The built-in secret names still apply when the configured ones cannot be read.
     expect(events[0]?.["input"]).toEqual({ password: "[REDACTED]" });
+  });
+});
+
+describe("what configuration problems print", () => {
+  const printed = (): { lines: string[]; restore: () => void } => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+    return {
+      lines,
+      restore: () => {
+        spy.mockRestore();
+      }
+    };
+  };
+  const base: RecorderConfig = {
+    endpoint: "http://127.0.0.1:1",
+    apiKey: "fr_test",
+    serviceName: "svc",
+    environment: "development"
+  };
+
+  beforeEach(() => {
+    forgetSecretWarning();
+    forgetRequiredSettingWarnings();
+  });
+
+  it("prints every problem found at creation with logDiagnostics on, the secret's included", async () => {
+    const { lines, restore } = printed();
+    try {
+      const recorder = createRecorder({
+        ...base,
+        logDiagnostics: true,
+        captureMode: "bogus" as never,
+        journeyIdSecret: "too short to use"
+      });
+      await recorder.shutdown({ timeoutMs: 100 });
+    } finally {
+      restore();
+    }
+    expect(lines.filter((line) => line.includes("captureMode"))).toHaveLength(1);
+    expect(lines.filter((line) => line.includes("journeyIdSecret"))).toHaveLength(1);
+    expect(lines.join("\n")).not.toContain("too short to use");
+  });
+
+  it("prints a missing required setting once per process with logDiagnostics off, and never its value", async () => {
+    const { lines, restore } = printed();
+    try {
+      for (let recorders = 0; recorders < 2; recorders += 1) {
+        const recorder = createRecorder({
+          ...base,
+          endpoint: undefined as never,
+          apiKey: 918_273_645 as never,
+          captureMode: "bogus" as never
+        });
+        await recorder.shutdown({ timeoutMs: 100 });
+      }
+    } finally {
+      restore();
+    }
+    // One line each for the two required settings; the optional one is silent.
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("endpoint");
+    expect(lines[0]).toContain("once per process");
+    expect(lines[1]).toContain("apiKey");
+    expect(lines.join("\n")).not.toContain("918273645");
+    expect(lines.join("\n")).not.toContain("captureMode");
+  });
+
+  it("prints nothing for a sound configuration", async () => {
+    const { lines, restore } = printed();
+    try {
+      await createRecorder(base).shutdown({ timeoutMs: 100 });
+    } finally {
+      restore();
+    }
+    expect(lines).toEqual([]);
   });
 });

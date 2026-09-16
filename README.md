@@ -240,7 +240,8 @@ no library. This one is built so that cannot happen:
 - The transport retries behind a circuit breaker and gives up rather than piling
   up.
 - `shutdown()` races the final flush against a timeout and never hangs.
-- Nothing is written to your console unless you ask for it.
+- Nothing is written to your console unless you ask for it, apart from one line
+  per process for a configuration under which nothing recorded can be stored.
 
 ---
 

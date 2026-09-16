@@ -11,7 +11,7 @@ import {
   type TruncationStats
 } from "@flight-recorder/payload-security/redaction";
 import { fitsCodePoints } from "./code-points.js";
-import { resolveConfig, type RecorderConfig } from "./config.js";
+import { firstRequiredSettingWarning, resolveConfig, type RecorderConfig } from "./config.js";
 import {
   createDiagnostics,
   printDiagnostic,
@@ -609,10 +609,25 @@ export function createRecorder(config: RecorderConfig): Recorder {
     warnIfInsecure(resolved.endpoint, diagnostics);
   });
   // Settings resolveConfig had to replace. Reported rather than thrown, so the
-  // host starts either way (SDK-6); the reason names the setting, never its value.
-  for (const problem of resolved.problems) {
-    diagnostics.report({ kind: "configuration_error", reason: problem });
-  }
+  // host starts either way (SDK-6); the reason names the setting, never its
+  // value. Exempt from the log's rate limit: they arrive together, once, and
+  // each is a different thing to fix.
+  //
+  // A required setting has no default, so every event is lost until it is
+  // fixed, silently to anybody not reading diagnostics. Like an unusable
+  // secret, it prints one line per process and setting even with
+  // logDiagnostics off, the other exception to SDK-40 that SDK-56 allows.
+  safely(diagnostics, "capture_error", () => {
+    for (const { setting, reason, required } of resolved.problems) {
+      const diagnostic: Diagnostic = { kind: "configuration_error", reason };
+      diagnostics.report(diagnostic, undefined, { unlimited: true });
+      if (!required || resolved.logDiagnostics || !firstRequiredSettingWarning(setting)) continue;
+      printDiagnostic(
+        diagnostic,
+        "printed once per process, whether or not logDiagnostics is on, because nothing recorded reaches the server until it is fixed"
+      );
+    }
+  });
   // A secret that was configured and cannot be used is reported now, once, so
   // it surfaces at startup rather than at the first derived id. A missing one
   // is not: most recorders never derive an id.
@@ -626,8 +641,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
    */
   const reportSecretProblem = (reason: string): void => {
     const diagnostic: Diagnostic = { kind: "configuration_error", reason };
-    diagnostics.report(diagnostic);
-    if (!firstSecretWarning() || resolved.logDiagnostics) return;
+    // The first report is the warning, so with logging on it is printed even
+    // when another configuration problem was printed this minute.
+    const first = firstSecretWarning();
+    diagnostics.report(diagnostic, undefined, { unlimited: first });
+    if (!first || resolved.logDiagnostics) return;
     printDiagnostic(
       diagnostic,
       "printed once per process, whether or not logDiagnostics is on, because derived journeys split until it is fixed"
@@ -1243,17 +1261,20 @@ export function createRecorder(config: RecorderConfig): Recorder {
     // callback ran. Options that cannot be read are reported and the step is
     // recorded as a first attempt with no options.
     const settings: WrapSettings<T> = safely(diagnostics, "capture_error", () => {
+      // Each option read once: a getter is the host's code, and reading it
+      // twice can give two answers.
       const given: WrapOptions<T> = options ?? {};
+      const { captureInput, captureOutput, isFailure } = given;
       const attempt = given.attempt ?? 1;
-      const metadata =
-        given.metadata === undefined && attempt === 1 ? undefined : { ...given.metadata, attempt };
+      const extra = given.metadata;
+      const metadata = extra === undefined && attempt === 1 ? undefined : { ...extra, attempt };
       return {
         // ADR-022: a retry records as `retried` rather than the natural verb.
         operation: attempt > 1 ? ("retried" as const) : naturalOperation,
         metadata,
-        captureInput: given.captureInput,
-        captureOutput: given.captureOutput,
-        isFailure: given.isFailure
+        captureInput,
+        captureOutput,
+        isFailure
       };
     }) ?? { operation: naturalOperation };
     const { operation, metadata, captureInput, captureOutput, isFailure } = settings;

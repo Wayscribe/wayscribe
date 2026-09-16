@@ -82,14 +82,68 @@ describe("settings that cannot be used", () => {
     ["maxBufferedEvents", Number.NaN, 1_000],
     ["maxBufferedEvents", "500", 1_000],
     ["maxPayloadBytes", Number.POSITIVE_INFINITY, 262_144],
+    ["maxPayloadBytes", Number.NaN, 262_144],
+    // Not coerced: a number read from process.env is still a string.
+    ["maxPayloadBytes", "5000", 262_144],
     ["maxPayloadBytes", 0.5, 262_144]
   ] as const)("replaces %s of %s with the default and lists it", (key, value, fallback) => {
     // NaN as a queue bound compares false with every size, so the queue never
     // dropped anything; NaN or 2^31 as a timer fires after one millisecond.
     const resolved = resolveConfig({ ...base, [key]: value });
     expect(resolved[key]).toBe(fallback);
-    expect(resolved.problems).toHaveLength(1);
-    expect(resolved.problems[0]).toContain(key);
+    expect(resolved.problems).toEqual([
+      { setting: key, reason: expect.stringContaining(key) as string, required: false }
+    ]);
+  });
+
+  it.each([
+    ["batchSize", 150, 100],
+    ["batchSize", 0, 50],
+    ["batchSize", "20", 50],
+    ["maxConcurrentSends", 0, 1],
+    ["maxConcurrentSends", 99, 16],
+    ["maxConcurrentSends", 1.5, 4]
+  ] as const)("reports %s of %s, clamped or replaced with %s", (key, value, expected) => {
+    const resolved = resolveConfig({ ...base, [key]: value });
+    expect(resolved[key]).toBe(expected);
+    expect(resolved.problems.map((one) => one.setting)).toEqual([key]);
+  });
+
+  it("reports a logDiagnostics that is not a boolean, and leaves logging off", () => {
+    const resolved = resolveConfig({ ...base, logDiagnostics: "true" } as never);
+    expect(resolved.logDiagnostics).toBe(false);
+    expect(resolved.problems.map((one) => one.setting)).toEqual(["logDiagnostics"]);
+  });
+
+  it("marks a required setting, and says what becomes of events without it", () => {
+    const resolved = resolveConfig({ ...base, endpoint: undefined, apiKey: 7 } as never);
+    expect(resolved.problems).toEqual([
+      {
+        setting: "endpoint",
+        reason: expect.stringContaining("no request can be made") as string,
+        required: true
+      },
+      {
+        setting: "apiKey",
+        reason: expect.stringContaining("refuses every request") as string,
+        required: true
+      }
+    ]);
+    // The value is never quoted.
+    expect(JSON.stringify(resolved.problems)).not.toContain("7");
+  });
+
+  it("says a setting could not be read, and only that, when the configuration is null", () => {
+    const resolved = resolveConfig(null as never);
+    const reasons = resolved.problems.map((one) => one.reason);
+    expect(reasons.filter((reason) => reason.includes("is not a string"))).toEqual([]);
+    expect(resolved.problems.filter((one) => one.required).map((one) => one.setting)).toEqual([
+      "endpoint",
+      "apiKey",
+      "serviceName",
+      "environment"
+    ]);
+    expect(reasons.every((reason) => reason.includes("could not be read"))).toBe(true);
   });
 
   it("replaces an unknown capture mode or propagation level with the default", () => {
@@ -100,7 +154,7 @@ describe("settings that cannot be used", () => {
     } as never);
     expect(resolved.captureMode).toBe("redacted-payload");
     expect(resolved.propagate).toBe("journey-and-type");
-    expect(resolved.problems).toHaveLength(2);
+    expect(resolved.problems.map((one) => one.setting)).toEqual(["captureMode", "propagate"]);
   });
 
   it("keeps the built-in secret names when redact is not a list of strings", () => {
