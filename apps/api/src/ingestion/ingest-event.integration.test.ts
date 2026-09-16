@@ -255,7 +255,7 @@ describe("ingestion stores labels, last steps and plain-text copies", () => {
       headers: { authorization: `Bearer ${apiKey}` }
     });
     expect(read.statusCode, read.body).toBe(200);
-    expect((read.json() as { data: { aliases: unknown[] } }).data.aliases).toContainEqual({
+    expect(read.json().data.aliases).toContainEqual({
       type: "company",
       displayValue: value,
       displayable: true
@@ -301,8 +301,7 @@ describe("ingestion stores labels, last steps and plain-text copies", () => {
       url: "/v1/journeys/jrn_surrogate",
       headers: { authorization: `Bearer ${apiKey}` }
     });
-    const shown = (read.json() as { data: { aliases: { displayValue: string }[] } }).data.aliases[0]
-      ?.displayValue;
+    const shown = read.json().data.aliases[0]?.displayValue;
     expect(shown).toBe(`Acme${String.fromCharCode(0xfffd)}Corp`);
     expect(await aliasColumns("jrn_surrogate")).toEqual([
       { alias_type: "company", displayable: true, display_value: shown }
