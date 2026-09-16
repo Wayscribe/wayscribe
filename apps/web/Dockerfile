@@ -1,5 +1,10 @@
 # Build context is the repository root: this is a pnpm workspace.
 FROM node:24-alpine AS base
+# Next sends anonymous usage data to Vercel from `next build` unless this is
+# set, and the README's quick start builds this image on the reader's machine.
+# Set here so the build stage inherits it, and again in the runtime stage, which
+# starts from a fresh base image.
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
 WORKDIR /app
 
@@ -25,6 +30,7 @@ FROM node:24-alpine AS runtime
 # rather than when the upstream tag is rebuilt.
 RUN apk upgrade --no-cache
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 WORKDIR /app

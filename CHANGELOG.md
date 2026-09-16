@@ -401,6 +401,12 @@ shorter overview is in
 
 ### Security
 
+- **Next.js telemetry is off wherever Next runs.** `next build` reports
+  anonymous usage data to Vercel unless `NEXT_TELEMETRY_DISABLED` is set, and
+  the README's quick start builds the web image on the reader's machine. The web
+  Dockerfile (build and runtime stages), the web package's `dev`, `build` and
+  `start` scripts, and CI all set it. The running services send no telemetry;
+  building the images still downloads base images and packages.
 - **Redaction matches built-in secret names at any depth** (ADR-035), in the SDK
   before an event leaves the process and again at ingestion, in every capture
   mode. Rules of the form `**.name` match a key wherever it appears; a bare
