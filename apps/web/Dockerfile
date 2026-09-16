@@ -50,6 +50,10 @@ RUN rm -rf /usr/local/lib/node_modules/npm \
 COPY --from=build /app/apps/web/.next/standalone ./
 # Static assets are deliberately excluded from the trace and must be copied.
 COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+# Apache-2.0 asks a redistributor to pass on the LICENSE and NOTICE, and a
+# published image is a redistribution. Same path as in the API image;
+# scripts/verify-image-contents.sh checks they are there.
+COPY --from=build /app/LICENSE /app/NOTICE /licenses/
 
 USER node
 EXPOSE 3000

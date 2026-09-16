@@ -1,5 +1,5 @@
 #!/bin/sh
-# What is allowed to be inside the API runtime image.
+# What is allowed to be inside a runtime image, and what must be there.
 #
 # The image once carried 61 test files, 167 TypeScript sources, the demo
 # application and the web application, because the Dockerfile copied the whole
@@ -10,10 +10,23 @@
 # This runs against the built image rather than reading the Dockerfile, because
 # the question is what shipped, not what the build intended to ship.
 #
-# Usage: scripts/verify-image-contents.sh <image>
+# Usage: scripts/verify-image-contents.sh <image> [api|web]
+#
+# The kind defaults to api, which runs every check below. web runs only the
+# checks that apply to the web image: the legal files and its entry point. The
+# rest are written against the API image's layout, a whole workspace tree under
+# /app, which the web image, a Next standalone bundle, does not have.
 set -eu
 
-IMAGE="${1:?usage: verify-image-contents.sh <image>}"
+IMAGE="${1:?usage: verify-image-contents.sh <image> [api|web]}"
+KIND="${2:-api}"
+case "$KIND" in
+  api | web) ;;
+  *)
+    echo "usage: verify-image-contents.sh <image> [api|web]" >&2
+    exit 2
+    ;;
+esac
 FAILED=0
 
 report() {
@@ -25,7 +38,27 @@ report() {
   fi
 }
 
-echo "Verifying contents of $IMAGE"
+echo "Verifying contents of $IMAGE ($KIND)"
+
+# Apache-2.0 asks a redistributor to pass on the LICENSE and NOTICE, and every
+# published image is a redistribution. Both Dockerfiles copy them to /licenses.
+# Checked non-empty rather than merely present, since an empty file satisfies
+# `test -e` and informs nobody.
+for FILE in /licenses/LICENSE /licenses/NOTICE; do
+  docker run --rm --entrypoint sh "$IMAGE" -c "test -s $FILE" && RC=0 || RC=1
+  report "$FILE present" "$RC"
+done
+
+if [ "$KIND" = "web" ]; then
+  docker run --rm --entrypoint sh "$IMAGE" -c "test -f /app/apps/web/server.js" && RC=0 || RC=1
+  report "/app/apps/web/server.js present" "$RC"
+  if [ "$FAILED" -ne 0 ]; then
+    echo "Image is missing files it must have."
+    exit 1
+  fi
+  echo "Image contents verified."
+  exit 0
+fi
 
 # Nothing under node_modules is our doing — a dependency shipping its own tests
 # is that dependency's decision, and pruning it is a job for the package manager.
