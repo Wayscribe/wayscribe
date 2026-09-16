@@ -402,7 +402,8 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   carries `calls` instead, each `{ "call": "record" | "transform" | "persist" |
   "publish" | "deliver" | "identify" | "fail" | "finish", "name": "…", "args":
   { } }`, with an optional `repeat`, and a `recorder` object for the settings
-  the case needs. An `sdk` case's `expect` may carry `wire`, the event the SDK
+  the case needs. A wrapper call's `args` are `input`, `output` (what the
+  callback returns) and `options`, the wrapper's options. An `sdk` case's `expect` may carry `wire`, the event the SDK
   is expected to send, beside `results`.
 - **`languages`** is `["*"]` or a list. A harness skips what it cannot express
   **and reports the skip**; a skip nobody sees is a case that quietly stopped
@@ -457,6 +458,8 @@ request body, so a tag there is a mistake rather than a value.
 | `{"$cycle": "#/input"}` | a reference to an ancestor, by JSON pointer |
 | `{"$ref": "#/input/shipTo"}` | a second reference to an earlier node |
 | `{"$utf16": [55296]}` | a string from code units, for a lone surrogate |
+| `{"$projection": "/invoiceId"}` | a function returning the value at that JSON pointer in its first argument, for a wrapper's `captureInput` or `captureOutput` |
+| `{"$throwingProjection": "message"}` | a function that throws an error with that message |
 | `{"$map": {}}`, `{"$set": []}`, `{"$error": {}}`, `{"$buffer": ""}`, `{"$throwingGetter": ""}` | Node-only host values |
 
 `{{run}}` in any string, key or value, is replaced by a value unique to the run,

@@ -72,7 +72,7 @@ describe("wrapper contract", () => {
   it("returns the value untouched even when isFailure marks it failed", () => {
     const response = { status: 422 };
     const returned = journeyFor().deliver("d", {}, () => response, {
-      isFailure: (r) => (r as { status: number }).status >= 400
+      isFailure: (r) => r.status >= 400
     });
     // isFailure changes what is recorded, never what the application receives.
     expect(returned).toBe(response);
@@ -177,7 +177,7 @@ describe("recorded events", () => {
   it("records an error for a non-throwing failure", async () => {
     const events = await recordAnd((journey) =>
       journey.deliver("d", {}, () => ({ status: 422 }), {
-        isFailure: (r) => (r as { status: number }).status >= 400
+        isFailure: (r) => r.status >= 400
       })
     );
     expect(events.find((e) => e["operation"] === "delivered")?.["error"]).toBeDefined();

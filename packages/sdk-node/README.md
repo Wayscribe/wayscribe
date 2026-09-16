@@ -95,6 +95,26 @@ const response = await journey.deliver("send-to-crm", payload, () => post(payloa
 });
 ```
 
+**Recording a view of the value.** `captureInput` and `captureOutput` choose what
+is recorded, while the wrapper still hands your code the real value. A step that
+returns a PDF can record its size and still return the `Buffer`:
+
+```typescript
+const pdf = await journey.transform("render-invoice", invoice, () => renderPdf(invoice), {
+  captureInput: (input) => ({ invoiceId: (input as Invoice).id }),
+  captureOutput: (buffer) => ({ bytes: buffer.length })
+});
+// pdf is the Buffer renderPdf returned, typed as one.
+```
+
+`captureInput` runs when the wrapper is called, before your callback, so it sees
+the input as it went in. `captureOutput` runs when the callback has returned or
+resolved, and receives the resolved value; it is not called when the callback
+throws. Both receive the journey's context as a second argument. Both must be
+synchronous: one that throws or returns a promise records `[UNCAPTURABLE]` and a
+`payload_omitted` diagnostic with reason `projection_failed`, and your call and
+its return value are unaffected.
+
 **Retries.** Pass the attempt number and the wrapper records `retried` instead of
 the natural verb. The SDK cannot count attempts itself: a retry usually happens
 in a different process consuming a redelivered message.

@@ -382,6 +382,19 @@ They are numbered after the rest so that no identifier above moved.
 | SDK-51 | ADR-051 | sdk/long-string-truncated |
 | SDK-52 | ADR-051 | section 14 |
 
+### Projections
+
+- **SDK-53.** A wrapper SHOULD accept a projection of its input and of its
+  output, so a host can record a view of a value while its own code receives
+  the value itself. The input projection SHOULD run before the callback. A
+  projection that fails, or that does not return synchronously, MUST NOT affect
+  the host's call, its return value or its error; the SDK MUST record
+  `[UNCAPTURABLE]` in that payload's place and report it.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-53 | ADR-007; docs/superpowers/specs/2026-09-16-dogfood-gaps-design.md | sdk/projection-throws |
+
 ## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive

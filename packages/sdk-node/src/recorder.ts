@@ -57,12 +57,34 @@ export interface RecordInput {
   startedAt?: number;
 }
 
-export interface WrapOptions {
+/**
+ * Options for the four wrappers. `T` is what the callback returns, resolved if
+ * it returns a promise, and is inferred from the callback.
+ */
+export interface WrapOptions<T = unknown> {
   /** Marks a result that did not throw but represents a failure, e.g. HTTP 422. */
-  isFailure?: (result: unknown) => boolean;
+  isFailure?: (result: T) => boolean;
   /** 1 for a first attempt. Anything higher records `retried` (ADR-022). */
   attempt?: number;
   metadata?: Record<string, unknown>;
+  /**
+   * What to record as the input, given the input. Runs when the wrapper is
+   * called, before the callback, so it sees the input as it went in. The
+   * callback still runs with whatever it closes over; this changes only what is
+   * recorded.
+   *
+   * Synchronous. A projection that throws or returns a promise records
+   * `[UNCAPTURABLE]` and a `payload_omitted` diagnostic, and never reaches your
+   * code.
+   */
+  captureInput?: (input: unknown, journey: JourneyContext) => unknown;
+  /**
+   * What to record as the output, given the callback's value. The wrapper
+   * still returns the value itself: a callback returning a `Buffer` can record
+   * `{ bytes: buffer.length }` and hand the caller the `Buffer`. Not called
+   * when the callback throws. Same failure rule as `captureInput`.
+   */
+  captureOutput?: (result: T, journey: JourneyContext) => unknown;
 }
 
 export interface Journey {
@@ -81,25 +103,30 @@ export interface Journey {
     name: string,
     input: unknown,
     fn: () => Promise<T>,
-    options?: WrapOptions
+    options?: WrapOptions<T>
   ): Promise<T>;
-  transform<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions): T;
-  persist<T>(name: string, input: unknown, fn: () => Promise<T>, options?: WrapOptions): Promise<T>;
-  persist<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions): T;
+  transform<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions<T>): T;
+  persist<T>(
+    name: string,
+    input: unknown,
+    fn: () => Promise<T>,
+    options?: WrapOptions<T>
+  ): Promise<T>;
+  persist<T>(name: string, input: unknown, fn: () => T, options?: WrapOptions<T>): T;
   publish<T>(
     name: string,
     message: unknown,
     fn: () => Promise<T>,
-    options?: WrapOptions
+    options?: WrapOptions<T>
   ): Promise<T>;
-  publish<T>(name: string, message: unknown, fn: () => T, options?: WrapOptions): T;
+  publish<T>(name: string, message: unknown, fn: () => T, options?: WrapOptions<T>): T;
   deliver<T>(
     name: string,
     payload: unknown,
     fn: () => Promise<T>,
-    options?: WrapOptions
+    options?: WrapOptions<T>
   ): Promise<T>;
-  deliver<T>(name: string, payload: unknown, fn: () => T, options?: WrapOptions): T;
+  deliver<T>(name: string, payload: unknown, fn: () => T, options?: WrapOptions<T>): T;
   fail(name: string, error: unknown, metadata?: Record<string, unknown>): void;
   finish(options?: { status?: "completed" | "failed" }): void;
 }
@@ -932,12 +959,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * which is what the caller's try/catch is waiting for.
    */
   function wrap<T>(
-    context: JourneyContext,
+    contexts: readonly JourneyContext[],
     naturalOperation: Operation,
     name: string,
     input: unknown,
     fn: () => T | Promise<T>,
-    options: WrapOptions = {}
+    options: WrapOptions<T> = {}
   ): T | Promise<T> {
     const startedAt = Date.now();
     const attempt = options.attempt ?? 1;
@@ -948,35 +975,49 @@ export function createRecorder(config: RecorderConfig): Recorder {
         ? undefined
         : { ...options.metadata, attempt };
 
+    // Projected now, before the callback can change what it was given.
+    const inputs = contexts.map((context) =>
+      options.captureInput === undefined
+        ? input
+        : project(options.captureInput, input, context, "input")
+    );
+
+    const recordAll = (outcome: (context: JourneyContext) => Partial<RecordInput>): void => {
+      const durationMs = Date.now() - startedAt;
+      contexts.forEach((context, index) => {
+        safely(diagnostics, "capture_error", () => {
+          enqueue(context.journeyId, context.entity, {
+            operation,
+            name,
+            input: inputs[index],
+            startedAt,
+            durationMs,
+            ...outcome(context),
+            ...(metadata === undefined ? {} : { metadata })
+          });
+        });
+      });
+    };
+
     const recordFailure = (error: unknown): void => {
       safely(diagnostics, "capture_error", () => {
-        enqueue(context.journeyId, context.entity, {
-          operation,
-          name,
-          input,
-          startedAt,
-          durationMs: Date.now() - startedAt,
-          error: toErrorRecord(error),
-          ...(metadata === undefined ? {} : { metadata })
-        });
+        const record = toErrorRecord(error);
+        recordAll(() => ({ error: record }));
       });
     };
 
     const recordSuccess = (result: T): void => {
       safely(diagnostics, "capture_error", () => {
         const failed = options.isFailure === undefined ? false : options.isFailure(result);
-        enqueue(context.journeyId, context.entity, {
-          operation,
-          name,
-          input,
-          output: result,
-          startedAt,
-          durationMs: Date.now() - startedAt,
+        recordAll((context) => ({
+          output:
+            options.captureOutput === undefined
+              ? result
+              : project(options.captureOutput, result, context, "output"),
           ...(failed
             ? { error: { message: `${name} reported a failed result.`, code: "result_failed" } }
-            : {}),
-          ...(metadata === undefined ? {} : { metadata })
-        });
+            : {})
+        }));
       });
     };
 
@@ -1007,6 +1048,46 @@ export function createRecorder(config: RecorderConfig): Recorder {
     );
   }
 
+  /**
+   * A host's projection, run so that nothing it does can reach the host.
+   *
+   * A throw, or a returned promise, records `[UNCAPTURABLE]` and one
+   * `payload_omitted`. A returned promise is given a handler, so its rejection
+   * cannot surface as an unhandled rejection. The projection's own error goes to
+   * `onDiagnostic` in `detail` and never into the reason, which is what
+   * `logDiagnostics` prints: its message can quote the payload.
+   */
+  function project<V>(
+    projection: (value: V, journey: JourneyContext) => unknown,
+    value: V,
+    context: JourneyContext,
+    field: "input" | "output"
+  ): unknown {
+    const option = field === "input" ? "captureInput" : "captureOutput";
+    const failed = (reason: string, error?: unknown): string => {
+      diagnostics.report({
+        kind: "payload_omitted",
+        reason,
+        detail: { field, reason: "projection_failed", ...(error === undefined ? {} : { error }) }
+      });
+      return UNCAPTURABLE;
+    };
+    try {
+      const projected = projection(value, context);
+      // Inside the try as well: reading `then` runs the value's own getter.
+      if (!isThenable(projected)) return projected;
+      projected.then(
+        () => undefined,
+        () => undefined
+      );
+      return failed(
+        `The ${option} projection returned a promise; projections must be synchronous, so the ${field} was not captured.`
+      );
+    } catch (error) {
+      return failed(`The ${option} projection threw, so the ${field} was not captured.`, error);
+    }
+  }
+
   function makeJourney(context: JourneyContext): Journey {
     return {
       context: () => context,
@@ -1028,12 +1109,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
         });
       },
       transform: (name, input, fn, options) =>
-        wrap(context, "transformed", name, input, fn, options),
-      persist: (name, input, fn, options) => wrap(context, "persisted", name, input, fn, options),
+        wrap([context], "transformed", name, input, fn, options),
+      persist: (name, input, fn, options) => wrap([context], "persisted", name, input, fn, options),
       publish: (name, message, fn, options) =>
-        wrap(context, "published", name, message, fn, options),
+        wrap([context], "published", name, message, fn, options),
       deliver: (name, payload, fn, options) =>
-        wrap(context, "delivered", name, payload, fn, options),
+        wrap([context], "delivered", name, payload, fn, options),
       fail(name, error, metadata) {
         safely(diagnostics, "capture_error", () => {
           enqueue(context.journeyId, context.entity, {

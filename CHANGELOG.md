@@ -121,6 +121,15 @@ changes far less often.
 
 ### Added
 
+- **Wrappers can record a projection of what they wrap.** `captureInput` and
+  `captureOutput` choose what is recorded while the wrapper still returns the
+  callback's own value, so a step that returns a PDF can record
+  `{ bytes: buffer.length }` and hand the caller the `Buffer`. `WrapOptions` is
+  now generic in the callback's result, so `captureOutput` and `isFailure` see
+  the resolved value with its type. A projection that throws or returns a
+  promise records `[UNCAPTURABLE]` and a `payload_omitted` diagnostic with
+  reason `projection_failed`, and never reaches the host. The conformance format
+  gains two tags for it, `$projection` and `$throwingProjection`.
 - **Dry-run validation.** `POST /v1/events/batch?dryRun=true` runs the whole
   batch and rolls it back, answering `200` with `data.dryRun: true` and the same
   per-event results a real send would have given. An accepted, non-duplicate

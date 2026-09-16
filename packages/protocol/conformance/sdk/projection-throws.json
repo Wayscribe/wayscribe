@@ -1,0 +1,41 @@
+{
+  "id": "sdk/projection-throws",
+  "title": "A projection that throws records a marker, and the event is still sent",
+  "source": "ADR-007; docs/superpowers/specs/2026-09-16-dogfood-gaps-design.md section 2",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "transform",
+      "name": "map-order",
+      "args": {
+        "input": {
+          "orderId": "ord_1"
+        },
+        "output": {
+          "customerId": "cus_1"
+        },
+        "options": {
+          "captureOutput": {
+            "$throwingProjection": "the projection has a bug"
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "transformed",
+      "input": {
+        "orderId": "ord_1"
+      },
+      "output": "[UNCAPTURABLE]"
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

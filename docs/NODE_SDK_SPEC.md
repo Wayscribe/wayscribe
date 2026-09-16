@@ -207,6 +207,27 @@ await journey.deliver(
 );
 ```
 
+### Wrapper options
+
+Every wrapper takes a last `options` argument, typed by what the callback
+returns:
+
+```typescript
+interface WrapOptions<T> {
+  isFailure?: (result: T) => boolean;
+  attempt?: number;
+  metadata?: Record<string, unknown>;
+  captureInput?: (input: unknown, journey: JourneyContext) => unknown;
+  captureOutput?: (result: T, journey: JourneyContext) => unknown;
+}
+```
+
+`T` is inferred from the callback and is the resolved value when the callback
+returns a promise. The wrapper's own return type is still the callback's. A
+projection runs inside the recorder's failure boundary: one that throws or
+returns a promise records `[UNCAPTURABLE]` and a `payload_omitted` diagnostic
+with reason `projection_failed` (SDK-53).
+
 ### `fail`
 
 ```typescript
