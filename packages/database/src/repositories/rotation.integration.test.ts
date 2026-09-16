@@ -425,6 +425,32 @@ describe("key rotation commands", () => {
       for (const row of rows) expect(keyIdOf(row.encrypted ?? "")).toBe(keyringB.current.id);
     });
 
+    it.each([
+      [true, false],
+      [false, true],
+      [true, true]
+    ])(
+      "keeps an alias masked when the stale row it deletes said displayable %s and the current one %s",
+      async (staleFlag, currentFlag) => {
+        // Displayable only if every statement says so (ADR-053): the stale copy
+        // is one of those statements, so its flag is folded in before it goes.
+        await journeyUnder(keyringB, "jrn_1", "E-1");
+        await aliasUnder(keyringA, "jrn_1", "salesforceAccountId", "SF-1");
+        await aliasUnder(keyringB, "jrn_1", "salesforceAccountId", "SF-1");
+        await db("entity_aliases")
+          .where({ alias_value_hash: token(keyringA, "SF-1") })
+          .update({ displayable: staleFlag });
+        await db("entity_aliases")
+          .where({ alias_value_hash: token(keyringB, "SF-1") })
+          .update({ displayable: currentFlag });
+
+        const result = await reencryptValues(db, rotated);
+        expect(table(result, "entity_aliases")).toMatchObject({ duplicatesRemoved: 1 });
+        const flags: unknown = await db("entity_aliases").pluck("displayable");
+        expect(flags).toEqual([staleFlag && currentFlag]);
+      }
+    );
+
     /** A promise and the function that settles it, for ordering two connections. */
     const signal = (): { promise: Promise<void>; fire: () => void } => {
       let fire: () => void = () => undefined;
@@ -458,6 +484,7 @@ describe("key rotation commands", () => {
             aliasType: "salesforceAccountId",
             aliasValueHash: token(keyringB, "SF-1"),
             encryptedDisplayValue: ingested,
+            displayable: false,
             supersedesValueHash: token(keyringA, "SF-1")
           }
         ]);

@@ -68,7 +68,7 @@ async function handleMain(message: Message): Promise<void> {
     {
       // A 422 is a failure the target reports rather than throws, which is
       // exactly what `isFailure` exists for (ADR-022).
-      isFailure: (value) => (value as DeliveryResult).status >= 400,
+      isFailure: (value) => value.status >= 400,
       attempt
     }
   );

@@ -89,8 +89,25 @@ export function TimelineList({
               {multiDay ? `${dayLabel(event.eventTimestamp)} ` : ""}
               {timeOfDay(event.eventTimestamp)}
             </span>
-            <span className={event.hasError ? "op failed" : "op"}>{event.operation}</span>
-            <span className="muted">{event.service}</span>
+            {/* The step's own name leads: a long journey is mostly one
+                operation, and rows labelled by it all read the same. An event
+                with no name falls back to its operation, shown once. */}
+            {event.name === "" ? (
+              <span className={event.hasError ? "step failed" : "step"}>{event.operation}</span>
+            ) : (
+              <>
+                <span className="step" title={event.name}>
+                  {event.name}
+                </span>
+                <span
+                  className={event.hasError ? "op failed" : "op"}
+                  title={`operation: ${event.operation}`}
+                >
+                  {event.operation}
+                </span>
+              </>
+            )}
+            <span className="muted service">{event.service}</span>
             {skewSeconds(event.eventTimestamp, event.receivedAt) > SKEW_THRESHOLD_SECONDS ? (
               <span
                 className="muted"

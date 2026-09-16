@@ -170,7 +170,7 @@ describe("Zod and Ajv agree", () => {
       if (typeof schema["maxLength"] === "number" && path.length > 0) {
         found.push({ path, max: schema["maxLength"] });
       }
-      for (const key of ["properties", "propertyNames", "additionalProperties"] as const) {
+      for (const key of ["properties", "propertyNames", "additionalProperties", "items"] as const) {
         const child = schema[key];
         if (typeof child !== "object" || child === null) continue;
         if (key === "properties") {
@@ -192,6 +192,7 @@ describe("Zod and Ajv agree", () => {
       expect(names).toContain("entity.id");
       expect(names).toContain("error.message");
       expect(names).toContain("aliases.<propertyNames>");
+      expect(names).toContain("displayableAliases.<items>");
       expect(capped.length).toBeGreaterThan(15);
     });
 
@@ -234,6 +235,8 @@ describe("Zod and Ajv agree", () => {
       } else if (rest[0] === "<propertyNames>") {
         // A record's key. `error.message` is required beside anything under it.
         event[head] = { [value]: head === "aliases" ? "ord_77" : 1 };
+      } else if (rest[0] === "<items>") {
+        event[head] = [value];
       } else if (rest[0] === "<additionalProperties>") {
         event[head] = { orderId: value };
       } else {

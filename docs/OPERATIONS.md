@@ -158,6 +158,26 @@ docker run --rm --network flight-recorder_default \
   --entrypoint node flight-recorder-api packages/database/dist/cli.js migrate
 ```
 
+### Migration 017 adds a column to `entity_aliases`
+
+`017_alias_displayable.js` adds `displayable boolean not null default false`
+(ADR-053). On PostgreSQL 11 and later that is a catalogue change, not a table
+rewrite, so it finishes at once on any size of table. It does need a moment of
+exclusive lock, and to get it the ALTER waits for every transaction already
+using the table while new ingestion queues behind it. The migration therefore
+sets `lock_timeout` to five seconds: behind a long-running transaction it fails
+with `canceling statement due to lock timeout` and changes nothing, and running
+`migrate` again retries it. If it keeps failing, look for the transaction
+holding the table:
+
+```sql
+select pid, state, xact_start, query from pg_stat_activity
+where pid in (select pid from pg_locks where relation = 'entity_aliases'::regclass);
+```
+
+The previous API keeps working while the column exists and it does not know
+about it: its inserts get `false`, which is how every alias read before.
+
 ### Migration 015 rewrites every replay run's headers
 
 Replays used to store the headers they sent, including the destination's
@@ -1379,7 +1399,10 @@ personal data, and let them age out or delete them.
 The SDK's `shutdown()` returns counters: `sent`, `rejected`, `dropped`,
 `transportErrors`, `captureErrors`, and `breakerOpened`. `sent`, `rejected`, and
 `dropped` add up to the events recorded; `payloadsOmitted` counts payloads
-replaced by `[PAYLOAD_TOO_LARGE]` on events that were still sent. A non-zero `dropped` means events were
+replaced by `[PAYLOAD_TOO_LARGE]` on events that were still sent, and
+`payloadsTruncated` payloads sent with a string cut to the 65,536 character
+limit. If you raised `MAX_EVENT_PAYLOAD_BYTES`, raise the SDK's
+`maxPayloadBytes` to match, or the SDK keeps fitting events to the default. A non-zero `dropped` means events were
 not delivered: the bounded queue shed them under backpressure, the server kept
 refusing them for now past the retry budget, its reply gave no verdict for them,
 or `shutdown()` finished with them undelivered. Each diagnostic's reason says

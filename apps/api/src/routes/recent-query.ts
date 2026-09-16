@@ -14,7 +14,17 @@ export type ParsedRecentQuery =
  */
 const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 
-const INSTANT_MESSAGE = "since must be an ISO-8601 instant with a time zone.";
+const INSTANT_MESSAGE =
+  "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z.";
+
+/**
+ * Required, with no default. A default computed here ("the last 24 hours")
+ * would be recomputed for every page and move the window under the cursor,
+ * and would hide that the list is windowed at all. The refusal says what to
+ * send instead.
+ */
+const REQUIRED_MESSAGE =
+  "since is required: the earliest last activity to list, as an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z.";
 
 /**
  * How far ahead of this server's clock `since` may be.
@@ -38,7 +48,7 @@ export function parseRecentJourneysQuery(query: unknown, now: Date): ParsedRecen
 
   const since = single(params, "since");
   if (!since.ok) return since;
-  if (since.value === undefined) return { ok: false, message: "since is required." };
+  if (since.value === undefined) return { ok: false, message: REQUIRED_MESSAGE };
   const match = ISO_INSTANT.exec(since.value);
   if (match === null || !isCalendarDate(match[1], match[2], match[3])) {
     return { ok: false, message: INSTANT_MESSAGE };

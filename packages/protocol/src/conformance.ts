@@ -46,6 +46,12 @@ const recorderCallSchema = z.object({
   ]),
   name: z.string().optional(),
   repeat: z.number().int().positive().optional(),
+  /**
+   * Make the call on a group of this many journeys rather than on the case's
+   * one: the case's journey and others the harness starts. `identify` has no
+   * group form.
+   */
+  journeys: z.number().int().min(2).max(100).optional(),
   args: z.record(z.string(), z.unknown()).optional()
 });
 
@@ -151,7 +157,9 @@ export function loadConformanceCases(directory: string): ConformanceCase[] {
     }
     cases.push(parsed.data);
   }
-  return cases;
+  // By id, not by file name: `identify-displayable.json` sorts before
+  // `identify.json`, because `-` precedes `.`, while its id sorts after.
+  return cases.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
 }
 
 /**
@@ -291,7 +299,9 @@ const HOST_TAGS = new Set([
   "$set",
   "$error",
   "$buffer",
-  "$throwingGetter"
+  "$throwingGetter",
+  "$projection",
+  "$throwingProjection"
 ]);
 
 function buildTag(
@@ -372,6 +382,19 @@ function buildTag(
         enumerable: true
       });
       return host;
+    }
+    case "$projection": {
+      // A function for a wrapper's captureInput or captureOutput option: it
+      // returns the value at a JSON pointer into its first argument. Every
+      // language has functions, so a case using one still applies to all.
+      const pointer = String(value);
+      return (argument: unknown): unknown => resolvePointer(argument, pointer);
+    }
+    case "$throwingProjection": {
+      const thrown = String(value);
+      return (): never => {
+        throw new Error(thrown);
+      };
     }
     default:
       throw new Error(`Unknown tag ${tag} in a conformance case.`);

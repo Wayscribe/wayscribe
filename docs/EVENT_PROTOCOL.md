@@ -55,6 +55,7 @@ interface JourneyEventV01 {
   timestamp: string;
 
   aliases?: Record<string, string>;
+  displayableAliases?: string[]; // alias types a reader may see in full
 
   durationMs?: number; // whole milliseconds, 0 to 2147483647
   parentEventId?: string;
@@ -268,7 +269,10 @@ Rules:
 
 - Alias names are developer-defined but should be stable.
 - Alias values may be sensitive.
-- Server configuration determines whether display values are encrypted, redacted, or omitted.
+- Display values are encrypted at rest and masked when read. An event may list
+  alias types in `displayableAliases` to have them shown in full; an alias is
+  shown in full only while every event that stated it listed it, and a listed
+  type the event's `aliases` does not name is ignored (ADR-053).
 - Searchable aliases should have normalized hashes.
 - Aliases must not be propagated through HTTP headers unless explicitly safe.
 

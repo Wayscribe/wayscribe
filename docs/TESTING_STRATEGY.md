@@ -159,7 +159,7 @@ to test data written by whoever wrote the code.
 
 Requirements no fixture can express, such as host safety, error identity, queue
 bounds, shutdown accounting, the circuit breaker and the timestamp at operation
-start, are listed in [`SDK_SPEC.md`](SDK_SPEC.md) section 13, with what a test
+start, are listed in [`SDK_SPEC.md`](SDK_SPEC.md) section 14, with what a test
 for each has to do.
 
 ## 5. Idempotency tests

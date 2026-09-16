@@ -1,0 +1,49 @@
+{
+  "id": "sdk/projected-output",
+  "title": "A wrapper records the projections of its input and output, not the values themselves",
+  "source": "docs/superpowers/specs/2026-09-16-dogfood-gaps-design.md section 2",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "deliver",
+      "name": "render-invoice",
+      "args": {
+        "input": {
+          "invoiceId": "inv_42",
+          "lines": [
+            {
+              "sku": "A",
+              "quantity": 2
+            }
+          ]
+        },
+        "output": {
+          "$buffer": "%PDF-1.7 a rendered invoice"
+        },
+        "options": {
+          "captureInput": {
+            "$projection": "/invoiceId"
+          },
+          "captureOutput": {
+            "$projection": "/length"
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "delivered",
+      "name": "render-invoice",
+      "input": "inv_42",
+      "output": 27
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false
+      }
+    ]
+  }
+}

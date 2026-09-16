@@ -11,7 +11,15 @@ import { maskSecretsInText } from "@flight-recorder/payload-security/redaction";
  * wait for a recovery that is never coming.
  */
 export type FailureKind =
-  "dropped" | "rejected" | "transport_error" | "capture_error" | "breaker_open" | "payload_omitted";
+  | "dropped"
+  | "rejected"
+  | "transport_error"
+  | "capture_error"
+  | "breaker_open"
+  | "payload_omitted"
+  | "payload_truncated"
+  | "key_dropped"
+  | "configuration_error";
 
 /**
  * `delivered_first` is the one diagnostic that is good news. It exists because
@@ -68,6 +76,27 @@ export interface Counters {
    * there counted one event twice, once as dropped and once as sent.
    */
   payloadsOmitted: number;
+  /**
+   * Payloads sent with at least one string cut to the server's 65,536 code
+   * units, and a marker saying how much went. Like `payloadsOmitted`, not part
+   * of `dropped`: the event is sent. A payload cut and then omitted anyway is
+   * counted as omitted only.
+   */
+  payloadsTruncated: number;
+  /**
+   * Keys left off an event because the server would refuse the event over
+   * them: a metadata key or alias type over 128 characters, an alias value
+   * that is not a string of at most 512, a displayable alias type over 128.
+   * Counted per key; the event is still sent.
+   */
+  keysDropped: number;
+  /**
+   * Calls that needed a setting the recorder does not have, such as
+   * `journeyIdFor` without a usable `journeyIdSecret`, and settings that could
+   * not be used. The call still returned something safe; this is how a test
+   * notices it did not return what was meant.
+   */
+  configurationErrors: number;
   /** Accepted and stored. Not "handed to fetch" — actually stored. */
   sent: number;
 }
@@ -118,6 +147,9 @@ export function createDiagnostics(
     captureErrors: 0,
     breakerOpened: 0,
     payloadsOmitted: 0,
+    payloadsTruncated: 0,
+    keysDropped: 0,
+    configurationErrors: 0,
     sent: 0
   };
   const log = options.log === true;
@@ -153,6 +185,9 @@ export function createDiagnostics(
       if (diagnostic.kind === "capture_error") counters.captureErrors += 1;
       if (diagnostic.kind === "breaker_open") counters.breakerOpened += 1;
       if (diagnostic.kind === "payload_omitted") counters.payloadsOmitted += 1;
+      if (diagnostic.kind === "payload_truncated") counters.payloadsTruncated += 1;
+      if (diagnostic.kind === "configuration_error") counters.configurationErrors += 1;
+      if (diagnostic.kind === "key_dropped") counters.keysDropped += keysIn(diagnostic.detail);
 
       if (log) {
         try {
@@ -182,6 +217,26 @@ export function createDiagnostics(
       suppressed.clear();
     }
   };
+}
+
+/**
+ * One diagnostic printed whatever `log` says, formatted and bounded like any
+ * other printed line, with `note` saying why it was printed.
+ *
+ * For the one warning SDK-40 allows by default: a misconfiguration that splits
+ * journeys and that nothing else would bring to anybody's attention.
+ */
+export function printDiagnostic(diagnostic: Diagnostic, note: string): void {
+  try {
+    write(`${PREFIX} ${diagnostic.kind}: ${printable(diagnostic.reason)} (${note})`);
+  } catch {
+    // As in report(): formatting must not become a failure of its own.
+  }
+}
+
+function keysIn(detail: unknown): number {
+  const keys = (detail as { keys?: unknown } | undefined)?.keys;
+  return typeof keys === "number" && Number.isInteger(keys) && keys > 0 ? keys : 1;
 }
 
 function plural(repeats: number): string {

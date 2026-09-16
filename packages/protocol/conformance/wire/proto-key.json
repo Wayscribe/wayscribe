@@ -58,13 +58,15 @@
                 "type": "__proto__",
                 "displayValue": {
                   "$matches": "^a.*o$"
-                }
+                },
+                "displayable": false
               },
               {
                 "type": "salesforceAccountId",
                 "displayValue": {
                   "$matches": "^0.*C$"
-                }
+                },
+                "displayable": false
               }
             ]
           }

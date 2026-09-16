@@ -143,6 +143,20 @@ Two details a client author needs:
 - The size limit is measured over the **whole envelope as the server received
   it**, not over `input` alone, and the structural limits are measured before
   anything walks the payload.
+- **A client should fit an event before sending it**, because a refusal loses
+  the whole event. The Node SDK runs the server's own check,
+  `eventLimits(MAX_EVENT_PAYLOAD_BYTES)` from `packages/payload-security`, on
+  every envelope before it is queued. It cuts a string over the limit to its
+  start and `[TRUNCATED: <n> characters removed]`, exactly 65,536 code units in
+  all, with `<n>` in code units, and with a CRLF before the marker when the
+  string held one, so the server still reads it as a header block; replaces a payload that still does not fit, or
+  is nested too deep or too wide, with `[PAYLOAD_TOO_LARGE]`, the larger of
+  `input` and `output` first; and leaves off `metadata` last (ADR-051). It
+  also leaves off a metadata key or alias type over 128 code points and an
+  alias value that is not a string of at most 512, which the schema would
+  refuse, adding `"[KEY_TOO_LONG]": <n>` to metadata when it drops keys there. A
+  payload sits two levels below the envelope's root, so it has 30 levels of
+  its own. The server treats both markers as ordinary strings.
 - The units differ, deliberately. The schema's own string maxima count Unicode
   **code points**, so 128 astral characters fit a 128-character id. The
   structural cap that produces `max_string_length_exceeded` counts UTF-16 **code
@@ -298,6 +312,13 @@ what a dry run previews.
   finer fraction is truncated, not rounded.
 - **The journey's entity** is the one on its first stored event, and is not
   changed by later events.
+- **Aliases** are stored per journey, type and value, and read back masked.
+  `displayableAliases`, an optional list of alias types, marks aliases a reader
+  may see in full: an alias is stored as displayable when the first event that
+  states it lists it, and becomes masked for good when any later event states
+  it without listing it (ADR-053). A listed type that the event's `aliases`
+  does not name is ignored, not refused. A read returns each alias as
+  `{ type, displayValue, displayable }`.
 - **Unknown fields are accepted and dropped.** There is no column to store them
   in, and an unvalidated, unredacted field is not something to write to one. The
   rule is "accepted, not refused", which is what makes an additive optional
@@ -392,12 +413,18 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   carries `calls` instead, each `{ "call": "record" | "transform" | "persist" |
   "publish" | "deliver" | "identify" | "fail" | "finish", "name": "…", "args":
   { } }`, with an optional `repeat`, and a `recorder` object for the settings
-  the case needs. An `sdk` case's `expect` may carry `wire`, the event the SDK
+  the case needs. A wrapper call's `args` are `input`, `output` (what the
+  callback returns) and `options`, the wrapper's options. A call with
+  `"journeys": n` is made on a group of n journeys, the case's own first, and
+  expects n results. An `sdk` case's `expect` may carry `wire`, the event the SDK
   is expected to send, beside `results`.
 - **`languages`** is `["*"]` or a list. A harness skips what it cannot express
   **and reports the skip**; a skip nobody sees is a case that quietly stopped
   running.
-- **`setup.environment`** names the capture mode the case needs.
+- **`setup.environment`** names the capture mode and redaction the case needs.
+  In an `sdk` case it is the server's setting only: the recorder never sees it,
+  and the harness applies it to the environment the captured bytes are sent
+  to.
   **`setup.existing`** holds envelopes ingested **for real** before the case
   runs, which is how a duplicate or conflict case gets its prior row;
   **`setup.otherEnvironment`** is ingested with a second environment's key,
@@ -447,6 +474,8 @@ request body, so a tag there is a mistake rather than a value.
 | `{"$cycle": "#/input"}` | a reference to an ancestor, by JSON pointer |
 | `{"$ref": "#/input/shipTo"}` | a second reference to an earlier node |
 | `{"$utf16": [55296]}` | a string from code units, for a lone surrogate |
+| `{"$projection": "/invoiceId"}` | a function returning the value at that JSON pointer in its first argument, for a wrapper's `captureInput` or `captureOutput` |
+| `{"$throwingProjection": "message"}` | a function that throws an error with that message |
 | `{"$map": {}}`, `{"$set": []}`, `{"$error": {}}`, `{"$buffer": ""}`, `{"$throwingGetter": ""}` | Node-only host values |
 
 `{{run}}` in any string, key or value, is replaced by a value unique to the run,

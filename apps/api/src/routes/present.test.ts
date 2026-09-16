@@ -46,42 +46,87 @@ describe("presentAliases", () => {
     const result = presentAliases(key, [
       {
         aliasType: "salesforceAccountId",
-        encryptedDisplayValue: encryptValue(key, "SF-ALIAS-99001")
+        encryptedDisplayValue: encryptValue(key, "SF-ALIAS-99001"),
+        displayable: false
       }
     ]);
-    expect(result).toEqual([{ type: "salesforceAccountId", displayValue: "SF-A…001" }]);
+    expect(result).toEqual([
+      { type: "salesforceAccountId", displayValue: "SF-A…001", displayable: false }
+    ]);
   });
 
   it("masks an alias written under the previous key during a rotation", () => {
     const result = presentAliases(createKeyring(KEY_B, KEY_A), [
       {
         aliasType: "salesforceAccountId",
-        encryptedDisplayValue: encryptValue(key, "SF-ALIAS-99001")
+        encryptedDisplayValue: encryptValue(key, "SF-ALIAS-99001"),
+        displayable: false
       }
     ]);
-    expect(result).toEqual([{ type: "salesforceAccountId", displayValue: "SF-A…001" }]);
+    expect(result).toEqual([
+      { type: "salesforceAccountId", displayValue: "SF-A…001", displayable: false }
+    ]);
   });
 
   it("reports the missing key's id for an alias under a removed key", () => {
     const met: string[] = [];
     const result = presentAliases(
       createKeyring(KEY_B),
-      [{ aliasType: "salesforceAccountId", encryptedDisplayValue: encryptValue(key, "SF-1") }],
+      [
+        {
+          aliasType: "salesforceAccountId",
+          encryptedDisplayValue: encryptValue(key, "SF-1"),
+          displayable: true
+        }
+      ],
       (keyId) => met.push(keyId)
     );
-    expect(result).toEqual([{ type: "salesforceAccountId", displayValue: null }]);
+    expect(result).toEqual([
+      { type: "salesforceAccountId", displayValue: null, displayable: true }
+    ]);
     expect(met).toEqual([key.current.id]);
+  });
+
+  it("shows a displayable alias in full, and still masks the rest", () => {
+    // The exception to masking (ADR-053): instrumenting code marked this type,
+    // in every event that stated it.
+    const result = presentAliases(key, [
+      {
+        aliasType: "postingId",
+        encryptedDisplayValue: encryptValue(key, "greenhouse:4567"),
+        displayable: true
+      },
+      {
+        aliasType: "email",
+        encryptedDisplayValue: encryptValue(key, "someone@example.com"),
+        displayable: false
+      },
+      { aliasType: "shortId", encryptedDisplayValue: encryptValue(key, "123"), displayable: true }
+    ]);
+    expect(result).toEqual([
+      { type: "postingId", displayValue: "greenhouse:4567", displayable: true },
+      { type: "email", displayValue: "some…com", displayable: false },
+      // A short value is shown too when displayable: the full-mask rule exists
+      // because a partial mask would disclose it, which is moot here.
+      { type: "shortId", displayValue: "123", displayable: true }
+    ]);
   });
 
   it("fully masks short values", () => {
     const result = presentAliases(key, [
-      { aliasType: "shortId", encryptedDisplayValue: encryptValue(key, "12345") }
+      {
+        aliasType: "shortId",
+        encryptedDisplayValue: encryptValue(key, "12345"),
+        displayable: false
+      }
     ]);
     expect(result[0]?.displayValue).toBe("…");
   });
 
   it("returns a null display value when nothing was stored", () => {
-    const result = presentAliases(key, [{ aliasType: "t", encryptedDisplayValue: null }]);
+    const result = presentAliases(key, [
+      { aliasType: "t", encryptedDisplayValue: null, displayable: true }
+    ]);
     expect(result[0]?.displayValue).toBeNull();
   });
 });

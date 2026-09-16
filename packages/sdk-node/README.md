@@ -15,13 +15,54 @@ leaves your infrastructure.
 
 ## Install (not yet on npm)
 
-**The package is not published yet.** Until it is, install it from a clone of
-this repository, as [`examples/instrument-a-service`](../../examples/instrument-a-service/README.md)
-does. Once it is published, this will be:
+**The package is not published yet.** Until it is, pack it from a clone of this
+repository and commit the tarball to your application:
+
+```bash
+# In the clone. `pack` builds first, so the tarball holds the compiled package.
+pnpm install
+pnpm --filter @flight-recorder/node pack --pack-destination /path/to/your-app/vendor/
+```
+
+```json
+{
+  "dependencies": {
+    "@flight-recorder/node": "file:vendor/flight-recorder-node-0.1.0.tgz"
+  }
+}
+```
+
+```bash
+# In your application.
+npm install
+git add vendor/flight-recorder-node-0.1.0.tgz package.json package-lock.json
+```
+
+**Why a tarball rather than a path into the clone.** `npm install
+/path/to/flight-recorder/packages/sdk-node` links your application to a
+directory that has to stay built: its `dist` is not in git, so the day somebody
+runs `git clean`, switches branch, or deploys to a machine without that clone,
+the import fails. That matters most for a job with no build step of its own,
+such as a script run by cron or launchd, where nothing rebuilds the SDK before
+it runs. A tarball is a built copy that travels with your application and
+installs the same way on every machine.
+
+**After pulling a change that adds or updates the tarball, run `npm ci`** (or
+`npm install`) before the next run. The lockfile's integrity hash for the
+package changed, and until the install runs, `node_modules` still holds the
+old copy, or holds none on a fresh deploy. The first service instrumented
+this way had a deploy that skipped the install, and it hung.
+
+To take a newer SDK, pack again, replace the tarball, run `npm install`, and
+commit both. Once the package is published, all of this becomes:
 
 ```bash
 npm install @flight-recorder/node
 ```
+
+[`examples/instrument-a-service`](../../examples/instrument-a-service/README.md)
+installs from the clone's directory instead, because it lives inside the
+clone.
 
 ## Record a journey
 
@@ -62,6 +103,24 @@ async function handleWebhook(account) {
 
 Then search your Flight Recorder for `account.Id` and read the timeline.
 
+**Aliases are masked when they are read**, because they are other identifiers
+for the record and a reader may not be entitled to them. An identifier that is
+public by nature can be shown in full by listing its type:
+
+```typescript
+journey.identify(
+  { postingId: posting.id, recruiterEmail: posting.contact },
+  { displayable: ["postingId"] }
+);
+```
+
+List the type every time you state the alias: it is shown in full only while
+every event that stated it listed it, so one `identify` without the list masks
+it again for good (ADR-053). `startJourney({ entity, aliases, displayable })`
+and `record({ ..., aliases, displayableAliases })` take the same list. Never
+list an email address, a customer number, or anything else a reader of the
+timeline should not see.
+
 ## Wrappers
 
 `transform`, `persist`, `publish`, and `deliver` each run your callback, return
@@ -95,6 +154,27 @@ const response = await journey.deliver("send-to-crm", payload, () => post(payloa
 });
 ```
 
+**Recording a view of the value.** `captureInput` and `captureOutput` choose what
+is recorded, while the wrapper still hands your code the real value. A step that
+returns a PDF can record its size and still return the `Buffer`:
+
+```typescript
+const pdf = await journey.transform("render-invoice", invoice, () => renderPdf(invoice), {
+  captureInput: (input) => ({ invoiceId: (input as Invoice).id }),
+  captureOutput: (buffer) => ({ bytes: buffer.length })
+});
+// pdf is the Buffer renderPdf returned, typed as one.
+```
+
+`captureInput` runs when the wrapper is called, before your callback, and what
+it returns is copied there and then, so the record shows the input as it went in
+even when the projection returns objects your callback goes on to change. `captureOutput` runs when the callback has returned or
+resolved, and receives the resolved value; it is not called when the callback
+throws. Both receive the journey's context as a second argument. Both must be
+synchronous: one that throws or returns a promise records `[UNCAPTURABLE]` and a
+`payload_omitted` diagnostic with reason `projection_failed`, and your call and
+its return value are unaffected.
+
 **Retries.** Pass the attempt number and the wrapper records `retried` instead of
 the natural verb. The SDK cannot count attempts itself: a retry usually happens
 in a different process consuming a redelivered message.
@@ -102,6 +182,77 @@ in a different process consuming a redelivered message.
 ```typescript
 await journey.deliver("send-to-crm", payload, () => post(payload), { attempt: 2 });
 ```
+
+## The same record, the same journey
+
+A job that meets a record on many runs, with nowhere to keep a journey id
+between them, can derive one from the record instead:
+
+```typescript
+const recorder = createRecorder({
+  // ...
+  journeyIdSecret: process.env.JOURNEY_ID_SECRET // at least 32 bytes
+});
+
+const entity = { type: "job_posting", id: posting.id };
+const journey = recorder.continueJourney({
+  journeyId: recorder.journeyIdFor(entity),
+  entity
+});
+```
+
+The id is the same on every run and every machine for the same entity in the
+same environment, and it cannot be computed without the secret.
+
+**Do not use an unkeyed hash of the entity instead.** Anybody who knows the
+record and the scheme can compute it, and a journey id somebody else can
+predict is one they can claim first or append to, from another environment or
+through a forged propagated context. The
+[ingestion contract](../../docs/INGESTION_CONTRACT.md#5-the-two-409s) describes
+that risk. The secret is what makes a derived id as hard to guess as a random
+one; keep it like any other credential, and do not reuse the API key.
+
+**Rotating the secret starts new journeys** for every record. The old ones are
+kept, and nothing links them to the new ones.
+
+**Without a usable secret, `journeyIdFor` does not throw.** It reports a
+`configuration_error`, counts it in `configurationErrors`, and returns a fresh
+random id, so recording carries on and the journeys split until the secret is
+set. A secret shorter than 32 bytes is reported once when the recorder is
+created, and never used. Because split journeys are easy to miss, a missing or
+short secret also prints one line to stderr, once per process, even with
+`logDiagnostics` off; it is the only thing the SDK prints unasked. An entity
+whose type or id holds an unpaired surrogate is refused the same way (reported,
+random id, no warning line): it cannot be encoded faithfully, and the server
+refuses such an id anyway. The SDK reads no environment variable for it: the
+variable name above is your application's. Assert
+`recorder.diagnostics().configurationErrors === 0` in a test to catch a missing
+secret before it ships.
+
+The derivation is specified in [SDK_SPEC.md](../../docs/SDK_SPEC.md) (SDK-55),
+with test vectors in
+[`journey-id-derivation.json`](../protocol/fixtures/journey-id-derivation.json).
+
+## One operation, many records
+
+A write that covers many records at once, such as a digest or a batch export,
+is one operation in each of their timelines. `recorder.across` records it on
+all of them in one call:
+
+```typescript
+const group = recorder.across(journeys);
+await group.persist("write-digest", digest, () => writeDigest(digest), {
+  // Each journey's event can carry its own view of the shared input.
+  captureInput: (_digest, journey) => digest.lineFor(journey.entity.id)
+});
+```
+
+Each journey gets its own event, with its own id, and all of them share one
+timestamp and one duration. The callback runs once, and the group's wrappers
+keep every promise the single-journey ones make. A group also has `record`,
+`fail` and `finish`. It has no `identify`, because an alias identifies one
+record. A journey named twice, as a handle or as a context, is recorded once;
+an empty group runs the callback and records nothing.
 
 ## Crossing a process boundary
 
@@ -159,7 +310,8 @@ no library. This one is built so that cannot happen:
 - `shutdown()` never hangs; it races the final flush against a timeout, and
   counts every event it could not deliver as `dropped`, so `sent`, `rejected`,
   and `dropped` add up to the events recorded. A payload too large to capture
-  is counted in `payloadsOmitted` instead, because its event is still sent.
+  is counted in `payloadsOmitted` instead, and one sent with a string cut in
+  `payloadsTruncated`, because its event is still sent.
 - Nothing is written to your console unless you set `logDiagnostics`. Pass
   `onDiagnostic` if you want to hear about failures in your own logger.
 
@@ -170,7 +322,8 @@ const recorder = createRecorder({
 });
 
 const counters = await recorder.shutdown();
-// { dropped, rejected, transportErrors, captureErrors, breakerOpened, payloadsOmitted, sent }
+// { dropped, rejected, transportErrors, captureErrors, breakerOpened,
+//   payloadsOmitted, payloadsTruncated, keysDropped, configurationErrors, sent }
 ```
 
 ## Is it sending?
@@ -237,9 +390,12 @@ change any counter.
 | `insecure_endpoint` | the endpoint is `http:` to a dotted name or an IP address off this machine, so the API key travels unencrypted | none |
 | `rejected` | the server understood an event and refused it; it is not retried | `rejected` |
 | `transport_error` | a request failed, or the server could not store an event for now; see below | `transportErrors` |
-| `payload_omitted` | a payload exceeded `maxPayloadBytes` and was replaced by `[PAYLOAD_TOO_LARGE]`; the event is still sent | `payloadsOmitted` |
+| `payload_omitted` | a payload could not fit the server's limits and was replaced by `[PAYLOAD_TOO_LARGE]`; `detail` names the `field` and the `reason`; the event is still sent | `payloadsOmitted` |
+| `payload_truncated` | strings in a payload were longer than the server accepts and were cut; `detail` is `{ field, strings, charactersRemoved }`; the event is still sent | `payloadsTruncated` |
+| `key_dropped` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; `detail` is `{ field, keys }`; the event is still sent | `keysDropped`, per key |
 | `dropped` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it (`no_verdict`) | `dropped` |
 | `capture_error` | recording failed inside the SDK; your call was unaffected | `captureErrors` |
+| `configuration_error` | a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`, or a configured setting could not be used; the call returned something safe | `configurationErrors` |
 | `breaker_open` | sends pause for 30 seconds after five failed in a row | `breakerOpened` |
 
 ### An endpoint that is not encrypted
@@ -464,7 +620,9 @@ Every row below is what the SDK actually stored, not what it intends to.
 | `Set` | an array |
 | `Error` | `{name, message}` plus its own properties and its `cause` — no `stack` |
 | `RegExp` | the literal, `"/secret-(\\d+)/gi"` |
-| over `maxPayloadBytes` | `"[PAYLOAD_TOO_LARGE]"`, and a `payload_omitted` diagnostic |
+| a string over 65,536 characters | its start and `[TRUNCATED: 4500 characters removed]`, 65,536 characters in all, and a `payload_truncated` diagnostic |
+| a payload that cannot fit the event's budget, even cut | `"[PAYLOAD_TOO_LARGE]"`, and a `payload_omitted` diagnostic |
+| nested more than 30 levels, or an object or array of more than 1,000 entries | `"[PAYLOAD_TOO_LARGE]"`, and a `payload_omitted` diagnostic |
 | a getter that throws | `"[UNCAPTURABLE]"`, and the event is still recorded |
 
 Redaction runs *inside* all of these, so an `authorization` entry in a header
@@ -485,6 +643,36 @@ Two consequences worth knowing:
 An `Error`'s `stack` is left out: it is the largest field on a typical error and
 the timeline already carries the failure. An error with its own `toJSON` is
 asked first, so a library that chooses to include its stack still does.
+
+### Fitting the server's limits
+
+The server refuses a whole event that breaks one of its limits (the
+[ingestion contract](../../docs/INGESTION_CONTRACT.md#3-limits) lists them), so
+the SDK makes every event fit before sending it, with the same check the server
+runs:
+
+1. A payload nested more than 30 levels deep (the envelope takes the other two),
+   or with an object or array of more than 1,000 entries, is replaced with
+   `[PAYLOAD_TOO_LARGE]`.
+2. Every string longer than 65,536 characters is cut to its start and
+   `[TRUNCATED: 4500 characters removed]`, 65,536 characters in all.
+   "Characters" are UTF-16 code units, what `string.length` counts. Cutting
+   happens after redaction, so it never reveals a masked value.
+3. If the whole event is still over `maxPayloadBytes`, the larger of `input` and
+   `output` is replaced with `[PAYLOAD_TOO_LARGE]`, then the other, then
+   `metadata` is left off.
+
+4. A top-level `metadata` key over 128 characters is left off, and
+   `"[KEY_TOO_LONG]": <n>` says how many went. An alias whose type is over 128
+   characters, or whose value is not a string of at most 512, is left off with
+   no marker, since a marker would be stored as an alias. Both are reported as
+   `key_dropped`. Characters here are code points, as the server counts them.
+5. An error's `type` or `code` over 256 characters is cut, ending in
+   `[TRUNCATED]`.
+
+The event is always sent. `maxPayloadBytes` is the budget of the whole event,
+not of one payload, and should be the server's `MAX_EVENT_PAYLOAD_BYTES`:
+raising it above that only produces events the server refuses.
 
 A value that cannot be captured never costs you the event. The step is recorded
 either way, with a marker in place of the payload, because the step whose payload
@@ -631,10 +819,11 @@ fleet against one instance. It is clamped to 1-16.
 | `flushIntervalMs` | `1000` | |
 | `requestTimeoutMs` | `1500` | |
 | `maxBufferedEvents` | `1000` | oldest are dropped past this |
-| `maxPayloadBytes` | `262144` | larger payloads record a marker instead |
+| `maxPayloadBytes` | `262144` | the byte budget of one whole event; set it to the server's `MAX_EVENT_PAYLOAD_BYTES` |
 | `onDiagnostic` | — | |
 | `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending) |
 | `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends) |
+| `journeyIdSecret` | — | at least 32 bytes; see [The same record, the same journey](#the-same-record-the-same-journey) |
 
 The SDK reads no environment variables. A library that changes behaviour based on
 ambient state is a library that behaves differently in your tests.

@@ -20,7 +20,7 @@ export function EventDetail({
   return (
     <section>
       <h2>{event.name}</h2>
-      <p className="muted">
+      <p className="muted wrap">
         {event.operation} · {event.service}
         {event.durationMs === null ? "" : ` · ${String(event.durationMs)} ms`}
       </p>
@@ -64,8 +64,12 @@ export function EventDetail({
 
       <h3>Payloads</h3>
       {!event.hasInput && !event.hasOutput ? (
+        // Not "the capture policy stripped it": identify, finish and fail events
+        // carry no payload by nature, a caller may record a step without one,
+        // and the API does not say which of those happened.
         <p className="muted">
-          No payload captured. This environment&rsquo;s capture policy stores metadata only.
+          No payload was recorded for this step. Some steps carry none, and an environment set to
+          capture metadata only stores none for any step.
         </p>
       ) : (
         <div className="split">

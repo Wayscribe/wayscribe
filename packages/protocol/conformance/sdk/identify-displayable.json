@@ -1,0 +1,53 @@
+{
+  "id": "sdk/identify-displayable",
+  "title": "identify sends the alias types it was told may be shown, and only those are read in full",
+  "source": "ADR-053",
+  "layer": "sdk",
+  "languages": ["*"],
+  "calls": [
+    {
+      "call": "identify",
+      "args": {
+        "aliases": {
+          "internalCustomerId": "cus_88213",
+          "email": "someone@example.com"
+        },
+        "options": {
+          "displayable": ["internalCustomerId"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "wire": {
+      "operation": "identified",
+      "aliases": {
+        "internalCustomerId": "cus_88213",
+        "email": "someone@example.com"
+      },
+      "displayableAliases": ["internalCustomerId"]
+    },
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "journey": {
+            "aliases": [
+              {
+                "type": "email",
+                "displayValue": "some…com",
+                "displayable": false
+              },
+              {
+                "type": "internalCustomerId",
+                "displayValue": "cus_88213",
+                "displayable": true
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

@@ -64,6 +64,8 @@ describe("sdk conformance cases", () => {
         return;
       }
 
+      // One event per expected result, which is what a group case is about.
+      expect(result.events.length).toBe((one.expect.results ?? []).length);
       const first = result.events[0];
       expect(first, "the recorder sent nothing").toBeDefined();
       expect(

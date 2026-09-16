@@ -55,18 +55,48 @@ describe("parseRecentJourneysQuery", () => {
   });
 
   it.each([
-    [{}, "since is required."],
-    [{ since: "" }, "since is required."],
-    [{ since: "yesterday" }, "since must be an ISO-8601 instant with a time zone."],
+    [
+      {},
+      "since is required: the earliest last activity to list, as an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
+    [
+      { since: "" },
+      "since is required: the earliest last activity to list, as an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
+    [
+      { since: "yesterday" },
+      "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
     // Date.parse accepts these; a filter should not guess what they meant.
-    [{ since: "2026-09-14" }, "since must be an ISO-8601 instant with a time zone."],
-    [{ since: "2026-09-14T12:00:00" }, "since must be an ISO-8601 instant with a time zone."],
-    [{ since: "2026-13-01T00:00:00Z" }, "since must be an ISO-8601 instant with a time zone."],
+    [
+      { since: "2026-09-14" },
+      "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
+    [
+      { since: "2026-09-14T12:00:00" },
+      "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
+    [
+      { since: "2026-13-01T00:00:00Z" },
+      "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
     // V8 rolls these over to 2 March and 1 October rather than refusing them.
-    [{ since: "2026-02-30T00:00:00Z" }, "since must be an ISO-8601 instant with a time zone."],
-    [{ since: "2026-09-31T00:00:00Z" }, "since must be an ISO-8601 instant with a time zone."],
-    [{ since: "2025-02-29T00:00:00Z" }, "since must be an ISO-8601 instant with a time zone."],
-    [{ since: "2026-09-14T24:30:00Z" }, "since must be an ISO-8601 instant with a time zone."],
+    [
+      { since: "2026-02-30T00:00:00Z" },
+      "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
+    [
+      { since: "2026-09-31T00:00:00Z" },
+      "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
+    [
+      { since: "2025-02-29T00:00:00Z" },
+      "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
+    [
+      { since: "2026-09-14T24:30:00Z" },
+      "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+    ],
     // Past the clock tolerance.
     [{ since: "2026-09-15T12:01:01Z" }, "since must not be in the future."],
     [

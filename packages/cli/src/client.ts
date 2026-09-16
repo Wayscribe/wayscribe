@@ -28,8 +28,11 @@ export interface JourneySummary {
 }
 
 export interface JourneyDetail extends JourneySummary {
-  /** `displayValue` arrives masked — the API never returns a full alias in a listing. */
-  aliases: { type: string; displayValue: string }[];
+  /**
+   * `displayValue` arrives masked unless `displayable` is true, which only the
+   * instrumenting code can make it (ADR-053). An older API omits the flag.
+   */
+  aliases: { type: string; displayValue: string; displayable?: boolean }[];
   services: string[];
   completedAt: string | null;
 }

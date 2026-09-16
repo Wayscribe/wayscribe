@@ -184,7 +184,9 @@ button {
 /* Master-detail: the timeline stays visible while an event is inspected. */
 .journey {
   display: grid;
-  grid-template-columns: minmax(18rem, 40%) 1fr;
+  /* minmax(0, ...): a grid column's minimum is otherwise its widest content,
+     so one long step name or service widened the whole page. */
+  grid-template-columns: minmax(18rem, 40%) minmax(0, 1fr);
   gap: 1.25rem;
   margin-top: 1rem;
   align-items: start;
@@ -193,7 +195,7 @@ button {
 @media (max-width: 60rem) {
   /* Master-detail is the weakest layout on a narrow screen; stack instead. */
   .journey {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -222,7 +224,6 @@ button {
   align-items: baseline;
   padding: 0.55rem 0.7rem;
   color: var(--fg);
-  flex-wrap: wrap;
 }
 .timeline a:hover {
   text-decoration: none;
@@ -232,12 +233,41 @@ button {
   font-size: 0.8rem;
   color: var(--muted);
 }
-.op {
+.step {
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
+}
+/* One line per row: the name gives way first, and the service sits at the end. */
+.timeline a > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.timeline a > .step,
+.timeline a > .service {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.timeline a > .service {
+  margin-left: auto;
+}
+.step.failed {
+  color: var(--failed);
+}
+.op {
+  font-size: 0.75rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
 }
 .op.failed {
   color: var(--failed);
+  border-color: var(--failed);
+}
+.aliases .masked {
+  font-style: italic;
 }
 
 .detail {
@@ -306,6 +336,9 @@ button {
   gap: 0.35rem;
 }
 .chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
   font-size: 0.8rem;
   padding: 0.25rem 0.65rem;
   border: 1px solid var(--line);
@@ -371,4 +404,13 @@ button.danger {
   background: var(--failed);
   /* The page colour: white on the light theme's red, dark on the dark theme's pink. */
   color: var(--bg);
+}
+
+/* Names come from instrumented code and can run to hundreds of characters with
+   no space in them: a step name (256), a service (128), an entity id (512).
+   Text that shows them in full breaks anywhere rather than widening the page. */
+h1,
+h2,
+.wrap {
+  overflow-wrap: anywhere;
 }

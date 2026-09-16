@@ -1,0 +1,56 @@
+{
+  "id": "wire/displayable-alias",
+  "title": "An alias the event marks displayable is read in full, and the rest stay masked",
+  "source": "ADR-053; docs/SECURITY.md section 6",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "job-sweep",
+          "entity": {
+            "type": "job_posting",
+            "id": "greenhouse:4567"
+          },
+          "operation": "identified",
+          "name": "identify",
+          "timestamp": "2026-09-16T08:00:00.000Z",
+          "aliases": {
+            "postingId": "greenhouse:4567",
+            "recruiterEmail": "someone@example.com"
+          },
+          "displayableAliases": ["postingId", "notOneOfThisEventsAliases"]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "journey": {
+            "aliases": [
+              {
+                "type": "postingId",
+                "displayValue": "greenhouse:4567",
+                "displayable": true
+              },
+              {
+                "type": "recruiterEmail",
+                "displayValue": "some…com",
+                "displayable": false
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

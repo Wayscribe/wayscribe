@@ -345,13 +345,15 @@
                 "type": "internalCustomerId",
                 "displayValue": {
                   "$matches": "^c.*3$"
-                }
+                },
+                "displayable": false
               },
               {
                 "type": "salesforceAccountId",
                 "displayValue": {
                   "$matches": "^0.*C$"
-                }
+                },
+                "displayable": false
               }
             ]
           }

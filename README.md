@@ -165,15 +165,25 @@ still in use.
 
 ## Instrument your own service
 
-The SDK is not published to npm yet. Until it is, build it from a clone of this
-repository and install it from there:
+The SDK is not published to npm yet. Until it is, pack it from a clone of this
+repository, commit the tarball to your application, and depend on it by path:
 
 ```bash
-pnpm install && pnpm --filter @flight-recorder/node build
-npm install /path/to/flight-recorder/packages/sdk-node
+pnpm install
+pnpm --filter @flight-recorder/node pack --pack-destination /path/to/your-app/vendor/
+cd /path/to/your-app
+npm install ./vendor/flight-recorder-node-0.1.0.tgz   # records "file:vendor/…tgz"
 ```
 
-Once it is published, that becomes `npm install @flight-recorder/node`.
+A tarball is a built copy that travels with your application. A path into the
+clone instead links to a directory whose build output is not in git, which
+breaks on the next `git clean`, branch switch, or machine without the clone,
+and nothing rebuilds it for a job that has no build step of its own. **After
+pulling a change that adds or updates the tarball, run `npm ci` before the job
+runs again**; a deploy that skipped it hung. The
+[SDK README](packages/sdk-node/README.md#install-not-yet-on-npm) has the
+details. Once the package is published, all of this becomes
+`npm install @flight-recorder/node`.
 
 ```typescript
 import { createRecorder } from "@flight-recorder/node";
@@ -301,7 +311,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 50 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 53 ADRs, including the several that were
 wrong the first time and say so.
 
 ---

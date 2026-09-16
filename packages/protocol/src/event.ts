@@ -61,6 +61,9 @@ const isoTimestampSchema = z.iso.datetime({ offset: true });
  * rules written there would be the drift that hides the next defect.
  */
 export const recordKeySchema = z.string().max(128);
+
+/** As many as an object may have keys, so every alias of one event can be listed. */
+export const MAX_DISPLAYABLE_ALIASES = 1_000;
 export const aliasValueSchema = z.string().max(512);
 export const metadataValueSchema = z.unknown();
 
@@ -78,6 +81,18 @@ export const journeyEventSchema = z.object({
   timestamp: isoTimestampSchema,
 
   aliases: z.record(recordKeySchema, aliasValueSchema).optional(),
+  /**
+   * Alias types this event marks as displayable in full (ADR-053). A type not
+   * in this event's `aliases` is ignored. An alias is shown in full only while
+   * every event that stated it marked it.
+   */
+  displayableAliases: z
+    .array(recordKeySchema)
+    .max(MAX_DISPLAYABLE_ALIASES)
+    .describe(
+      "Alias types from this event's aliases that a reader may see in full. Every other alias is masked when read. An alias is shown in full only while every event that stated it listed it here; a type this event's aliases do not name is ignored."
+    )
+    .optional(),
 
   // Stored in an int4 column. A larger value passed validation and failed the
   // insert, which a batch reported as a transient 500 the SDK resent.

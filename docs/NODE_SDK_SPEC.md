@@ -62,6 +62,7 @@ export const recorder = createRecorder({
   flushIntervalMs: 1_000,
   requestTimeoutMs: 1_500,
   maxBufferedEvents: 1_000,
+  // The budget of one whole event: the server's MAX_EVENT_PAYLOAD_BYTES.
   maxPayloadBytes: 262_144,
   maxConcurrentSends: 4,
 
@@ -117,6 +118,14 @@ journey.identify({
 ```
 
 `identify` emits its own dedicated event, named `identify` (operation `identified`).
+
+```typescript
+journey.identify({ postingId: posting.id }, { displayable: ["postingId"] });
+```
+
+The optional second argument lists alias types a reader may see in full. It is
+sent as `displayableAliases`, and an alias stays displayable only while every
+statement of it lists it (SDK-57, ADR-053).
 
 ### `record`
 
@@ -180,6 +189,29 @@ await journey.publish(
 
 The helper should make propagation metadata available without forcing payload mutation.
 
+### `journeyIdFor`
+
+```typescript
+const journeyId = recorder.journeyIdFor({ type: "job_posting", id: posting.id });
+```
+
+Derives the journey id under `journeyIdSecret` (SDK-55, ADR-052). Never throws:
+without a usable secret it reports `configuration_error` and returns a random
+id (SDK-56).
+
+### `across`
+
+```typescript
+const group = recorder.across(journeys); // Iterable<Journey | JourneyContext>
+await group.persist("write-digest", digest, () => writeDigest(digest));
+```
+
+Returns a `JourneyGroup`: `record`, `transform`, `persist`, `publish`,
+`deliver`, `fail` and `finish`, as on a journey, plus `journeys()`. Each call
+records one event per distinct journey id, each with its own event id and the
+same `timestamp` and `durationMs`; a wrapper runs its callback once. There is no
+`identify`. SDK-54.
+
 ### `consume`
 
 ```typescript
@@ -205,6 +237,27 @@ await journey.deliver(
   }
 );
 ```
+
+### Wrapper options
+
+Every wrapper takes a last `options` argument, typed by what the callback
+returns:
+
+```typescript
+interface WrapOptions<T> {
+  isFailure?: (result: T) => boolean;
+  attempt?: number;
+  metadata?: Record<string, unknown>;
+  captureInput?: (input: unknown, journey: JourneyContext) => unknown;
+  captureOutput?: (result: T, journey: JourneyContext) => unknown;
+}
+```
+
+`T` is inferred from the callback and is the resolved value when the callback
+returns a promise. The wrapper's own return type is still the callback's. A
+projection runs inside the recorder's failure boundary: one that throws or
+returns a promise records `[UNCAPTURABLE]` and a `payload_omitted` diagnostic
+with reason `projection_failed` (SDK-53).
 
 ### `fail`
 
@@ -328,7 +381,7 @@ The SDK should avoid forcing an OpenTelemetry SDK installation.
 Moved to [`SDK_SPEC.md`](SDK_SPEC.md): host safety and error identity in section
 2, shutdown and its accounting in section 8, diagnostics in section 9, and the
 list of requirements no fixture can check, with what a test for each has to do,
-in section 13.
+in section 14.
 
 What stays Node's: a wrapper returns a value for a synchronous callback and a
 promise for an asynchronous one, and never converts between them, so

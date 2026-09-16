@@ -180,7 +180,13 @@ a name in exactly these shapes, in the SDK and on the server alike:
   name has the rest of that line replaced, as in `Authorization: [REDACTED]`. A
   `http.ClientRequest`'s `_header`, which axios puts on `error.request`, is this
   shape. Nothing else in the string is touched, and a string without a CRLF is
-  never examined.
+  never examined, with one exception: a string ending in the truncation marker
+  (`[TRUNCATED: <n> characters removed]`) is read as a block too. A client
+  that cut a block to its first line lost the only CRLF with the cut, and that
+  line must not escape masking. The Node SDK, cutting a string that holds a
+  CRLF, puts the marker on a line of its own for the same reason: the
+  environment's own redaction paths, which the SDK does not know, may name the
+  first header (ADR-051).
 
 In the three positional shapes, a value that is itself one of those common
 header names is kept, so a list of header names such as
@@ -316,6 +322,20 @@ Display values may be:
 - masked
 - encrypted
 - available only to permitted local users
+
+What is built: alias display values are encrypted at rest (section 7) and
+**masked when read**, because an alias is another identifier for the record and
+a reader may not be entitled to it. The primary entity id is shown in full,
+since it is what the reader searched for.
+
+**The one exception** is an alias the instrumenting code marked displayable
+(ADR-053). An event may list alias types in `displayableAliases`, and an alias
+is then shown in full only while **every** event that stated it listed it: a
+later statement can mask it and nothing can unmask it again. The default is
+masked, a server that predates the field masks everything, and nothing a reader
+sends can change the flag. Mark only identifiers that are public by nature, such
+as a posting id on a public job board, and never an email address or a customer
+number.
 
 ## 7. Encryption
 

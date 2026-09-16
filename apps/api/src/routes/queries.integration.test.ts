@@ -255,7 +255,11 @@ describe("query endpoints", () => {
   it("returns the journey with masked aliases and distinct services", async () => {
     const data = (await get("/v1/journeys/jrn_q")).json().data;
     expect(data.entity.id).toBe("0018Z00002ABC");
-    expect(data.aliases[0]).toEqual({ type: "salesforceAccountId", displayValue: "SF-A…001" });
+    expect(data.aliases[0]).toEqual({
+      type: "salesforceAccountId",
+      displayValue: "SF-A…001",
+      displayable: false
+    });
     expect(data.services).toEqual(["customer-integration"]);
     expect(data.eventCount).toBe(2);
     // The web interface's delete confirmation names it.

@@ -107,6 +107,24 @@ describe("expanding a case", () => {
       expect(() => built.value).toThrow("nope");
     });
 
+    it("builds a projection that returns the value a pointer names in its argument", () => {
+      const project = host({ $projection: "/order/id" }) as (value: unknown) => unknown;
+      expect(project({ order: { id: "ord_1" } })).toBe("ord_1");
+      const whole = host({ $projection: "" }) as (value: unknown) => unknown;
+      expect(whole(7)).toBe(7);
+      const size = host({ $projection: "/length" }) as (value: unknown) => unknown;
+      expect(size(Buffer.from("four"))).toBe(4);
+    });
+
+    it("builds a projection that throws", () => {
+      const project = host({ $throwingProjection: "no view" }) as (value: unknown) => unknown;
+      expect(() => project({})).toThrow("no view");
+    });
+
+    it("refuses a projection in a wire case", () => {
+      expect(() => expandWire({ p: { $projection: "/a" } })).toThrow("only allowed in an sdk case");
+    });
+
     it("closes a cycle at the node the pointer names", () => {
       const built = host({ name: "root", self: { $cycle: "#" } }) as { self: unknown };
       expect(built.self).toBe(built);

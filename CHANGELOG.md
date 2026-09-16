@@ -15,6 +15,34 @@ changes far less often.
 
 ### Changed
 
+- **`GET /v1/journeys` says what `since` should be when it is missing or
+  malformed.** The refusal was `since is required.`; it now names the format
+  and gives an example instant, and `API_SPEC.md` says at the top of the route
+  that `since` is required and has no default. A server-side default was
+  considered and not adopted: it would be recomputed on every page and move the
+  window under the cursor. Only the message text changed; the status and code
+  are the same.
+- **Timeline rows lead with the step's name.** A row read as its operation and
+  service, so a long journey of one operation read "transformed, transformed,
+  transformed". The name now comes first, with the operation as a small badge
+  beside it and the service after; an event with no name shows its operation
+  once. The Recent page and search results list journeys by entity, not steps,
+  and are unchanged.
+- **The SDK fits every event to the server's limits before sending it**
+  (ADR-051). It used to measure each payload on its own and scale its string
+  limit with `maxPayloadBytes`, while the server measures the whole envelope and
+  never scaled anything, so a 70,000 character string, two payloads that each
+  fit, or a payload 31 levels deep left the SDK and were refused, losing the
+  whole event. Now a string over 65,536 characters is cut to its start and
+  `[TRUNCATED: <n> characters removed]`; a payload that still does not fit, or
+  is too deep or too wide, becomes `[PAYLOAD_TOO_LARGE]`, the larger of `input`
+  and `output` first and `metadata` last; and the event is always sent. The SDK
+  runs the same check as ingestion, `eventLimits` from `payload-security`.
+  **`maxPayloadBytes` is now the budget of one whole event**, and should be set
+  to the server's `MAX_EVENT_PAYLOAD_BYTES`; the default is unchanged. A new
+  diagnostic, `payload_truncated`, and counter, `payloadsTruncated`, report cut
+  payloads separately from omitted ones, and `payload_omitted` now names the
+  `field` in its detail.
 - **The refusals that happen before a route runs carry codes this API owns.**
   A body over the limit was `413 FST_ERR_CTP_BODY_TOO_LARGE`, a content type
   with no parser `415 FST_ERR_CTP_INVALID_MEDIA_TYPE`, and a body that is not
@@ -106,6 +134,42 @@ changes far less often.
 
 ### Added
 
+- **Instrumenting code can mark aliases displayable** (ADR-053). Every alias is
+  still masked when read, except one whose type the recording event listed in
+  the new optional `displayableAliases` field; it is shown in full only while
+  every event that stated it listed it, so a later statement can mask it and
+  nothing can unmask it. The SDK takes the list as
+  `identify(aliases, { displayable })`, on `startJourney`, and as
+  `displayableAliases` on `record()`. `GET /v1/journeys/:journeyId` and the dry
+  run return each alias with a new `displayable` field, and the journey page
+  marks masked values as masked. Stored in a new column,
+  `entity_aliases.displayable`, by migration 017.
+- **`recorder.journeyIdFor(entity)` derives a stable journey id** under a new
+  `journeyIdSecret` option of at least 32 bytes (ADR-052), so the same record
+  lands in the same journey on every run and machine while the id cannot be
+  guessed from the entity. The environment is part of the derivation. It never
+  throws: without a usable secret it reports a new `configuration_error`
+  diagnostic, counts it in `configurationErrors`, and returns a random id. The
+  derivation is SDK-55, with test vectors in
+  `packages/protocol/fixtures/journey-id-derivation.json`. Rotating the secret
+  starts new journeys.
+- **`recorder.across(journeys)` records one operation on many journeys.** A
+  digest written once for many records is one call:
+  `recorder.across(journeys).persist("write-digest", digest, write)`. Each
+  journey gets its own event and id, the events share one timestamp and
+  duration, and the callback runs once with the wrappers' usual guarantees. A
+  group has `record`, the four wrappers, `fail` and `finish`, and no `identify`.
+  Nothing on the wire changes. `Journey` now extends a new `JourneyOperations`
+  interface, which `JourneyGroup` extends too.
+- **Wrappers can record a projection of what they wrap.** `captureInput` and
+  `captureOutput` choose what is recorded while the wrapper still returns the
+  callback's own value, so a step that returns a PDF can record
+  `{ bytes: buffer.length }` and hand the caller the `Buffer`. `WrapOptions` is
+  now generic in the callback's result, so `captureOutput` and `isFailure` see
+  the resolved value with its type. A projection that throws or returns a
+  promise records `[UNCAPTURABLE]` and a `payload_omitted` diagnostic with
+  reason `projection_failed`, and never reaches the host. The conformance format
+  gains two tags for it, `$projection` and `$throwingProjection`.
 - **Dry-run validation.** `POST /v1/events/batch?dryRun=true` runs the whole
   batch and rolls it back, answering `200` with `data.dryRun: true` and the same
   per-event results a real send would have given. An accepted, non-duplicate
@@ -324,6 +388,13 @@ changes far less often.
 
 ### Security
 
+- **A truncated header block can no longer hide a secret header from the
+  server's masking.** The server masked secret-named lines only in text holding
+  a CRLF, so a block whose first header was secret only by the environment's
+  redaction paths, with a value over 65,536 characters, lost its only line break
+  to the SDK's cut and was stored with most of the value unmasked. The SDK now
+  puts the truncation marker after a CRLF when the string held one, and the
+  server reads text ending in the marker as a header block.
 - **The SDK is published with npm trusted publishing and provenance.** The
   `publish-sdk` job used a long-lived `NPM_TOKEN` and attached no provenance. It
   now exchanges a GitLab OIDC token for a short-lived publish token and signs a
@@ -517,6 +588,35 @@ changes far less often.
 
 ### Fixed
 
+- **The event detail no longer blames the capture policy for every empty
+  step.** An event with no input and no output said the environment stored
+  metadata only, which was false for every identify, finish and fail event and
+  for any step recorded without a payload. It now says that no payload was
+  recorded, and that a step may carry none or the environment may store
+  metadata only, since the API does not say which.
+- **A metadata key or alias the server would refuse no longer costs the
+  event.** A top-level metadata key over 128 characters was sent and the whole
+  event refused as `invalid_event`, as was an alias type over 128, an alias
+  value over 512 or not a string, a displayable alias type over 128, and an
+  error `type` or `code` over 256. The SDK now leaves such keys off (with
+  `"[KEY_TOO_LONG]": <n>` in metadata, and no marker among aliases) and reports
+  a new `key_dropped` diagnostic counted in `keysDropped`, and cuts the error
+  fields. The event is sent.
+- **`journeyIdFor` refuses an entity it cannot encode faithfully, and a missing
+  secret is no longer silent.** An entity id holding an unpaired surrogate was
+  encoded with U+FFFD in its place, so `"a\uD800"` and `"a�"` derived one
+  id; such an entity is now reported and gets a random id, and the vectors list
+  it under `refused`. A missing or short `journeyIdSecret` now also prints one
+  warning line per process even with `logDiagnostics` off.
+- **`captureInput` records the input as it was at the call.** The projection
+  ran before the callback, but what it returned was copied only once the
+  callback had finished, so `captureInput: (i) => ({ items: i.items })` around a
+  callback that pushed to `items` recorded the pushed items. The projection's
+  result is now captured when it runs.
+- **The SDK conformance harness decodes a request body as a stream.** It
+  decoded each chunk on its own, so a two-byte character split between two
+  chunks arrived as two replacement characters and a string the SDK had cut to
+  the limit reached the dry run one code unit over it.
 - **A header entry carrying a third field no longer hides a credential.**
   Redaction read `{"name": "authorization", "value": "Bearer …"}` as a header
   and replaced the value, but only when the object had *exactly* those two
@@ -686,6 +786,14 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
+- **Migration 017 adds a column to `entity_aliases`.** It is a catalogue change
+  on PostgreSQL 11 and later and finishes at once, but it gives up after five
+  seconds if a long transaction holds the table, rather than stalling ingestion
+  behind it. Run `migrate` again if it does (docs/OPERATIONS.md section 4).
+- **Conformance cases are loaded in order of id**, not of file name. The two
+  differ once one case's name extends another's (`identify-displayable` and
+  `identify`), and a harness comparing with the manifest has to sort the same
+  way.
 - **`REPLAY_ALLOWED_HOSTS` defaults to `localhost` in `compose.published.yaml`
   and the Helm chart.** An installation that replays to `host.docker.internal`
   without setting the variable must now set it

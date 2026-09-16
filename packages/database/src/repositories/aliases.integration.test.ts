@@ -69,6 +69,7 @@ describe("upsertAliases", () => {
       aliasType: "sf",
       aliasValueHash: "new-hash",
       encryptedDisplayValue: "new-cipher",
+      displayable: false,
       supersedesValueHash: null
     };
     await upsertAliases(db, projectId, [alias]);
@@ -76,6 +77,87 @@ describe("upsertAliases", () => {
     expect(await stored()).toEqual([
       { alias_type: "sf", alias_value_hash: "new-hash", encrypted_display_value: "new-cipher" }
     ]);
+  });
+
+  describe("the display flag", () => {
+    const alias = {
+      journeyId: "jrn_1",
+      aliasType: "postingId",
+      aliasValueHash: "posting-hash",
+      encryptedDisplayValue: "posting-cipher",
+      supersedesValueHash: null
+    };
+    const flag = async (): Promise<boolean | undefined> => {
+      const row: unknown = await db("entity_aliases")
+        .where({ project_id: projectId, alias_type: "postingId" })
+        .first("displayable");
+      return (row as { displayable: boolean } | undefined)?.displayable;
+    };
+    /** The row's version: it changes whenever the row is written. */
+    const version = async (): Promise<string> => {
+      const row: unknown = await db("entity_aliases")
+        .where({ project_id: projectId, alias_type: "postingId" })
+        .first(db.raw("xmin::text as xmin"));
+      return (row as { xmin: string }).xmin;
+    };
+
+    it("defaults to masked for a row written without it", async () => {
+      await seed("postingId", "posting-hash", "posting-cipher");
+      expect(await flag()).toBe(false);
+    });
+
+    it("stores the flag the first statement gives", async () => {
+      await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
+      expect(await flag()).toBe(true);
+    });
+
+    it("masks an alias once any statement leaves it unmarked", async () => {
+      // Displayable only if every statement says so (ADR-053).
+      await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
+      await upsertAliases(db, projectId, [{ ...alias, displayable: false }]);
+      expect(await flag()).toBe(false);
+    });
+
+    it("never unmasks an alias a statement left unmarked, whatever arrives later", async () => {
+      // Order-independent: a retried old event cannot undo a newer one.
+      await upsertAliases(db, projectId, [{ ...alias, displayable: false }]);
+      await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
+      expect(await flag()).toBe(false);
+    });
+
+    it("does not write the row for a repeat that leaves the flag where it is", async () => {
+      // An SDK that repeats identify on every event must not turn a no-op into
+      // an update on every event.
+      await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
+      const before = await version();
+      await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
+      expect(await version()).toBe(before);
+
+      await upsertAliases(db, projectId, [{ ...alias, displayable: false }]);
+      const lowered = await version();
+      expect(lowered).not.toBe(before);
+      await upsertAliases(db, projectId, [{ ...alias, displayable: false }]);
+      await upsertAliases(db, projectId, [{ ...alias, displayable: true }]);
+      expect(await version()).toBe(lowered);
+    });
+
+    it("keeps the flag on a row moved to the current token, then applies the new statement", async () => {
+      await seed("postingId", "old-hash", "old-cipher");
+      await db("entity_aliases")
+        .where({ alias_value_hash: "old-hash" })
+        .update({ displayable: true });
+      await upsertAliases(db, projectId, [
+        { ...alias, displayable: true, supersedesValueHash: "old-hash" }
+      ]);
+      expect(await flag()).toBe(true);
+
+      await db("entity_aliases").delete();
+      await seed("postingId", "old-hash", "old-cipher");
+      await upsertAliases(db, projectId, [
+        { ...alias, displayable: true, supersedesValueHash: "old-hash" }
+      ]);
+      expect(await flag()).toBe(false);
+    });
   });
 
   it("moves a row written under the previous key's token instead of adding a second", async () => {
@@ -89,6 +171,7 @@ describe("upsertAliases", () => {
         aliasType: "sf",
         aliasValueHash: "new-hash",
         encryptedDisplayValue: "new-cipher",
+        displayable: false,
         supersedesValueHash: "old-hash"
       }
     ]);
@@ -107,6 +190,7 @@ describe("upsertAliases", () => {
         aliasType: "sf",
         aliasValueHash: "new-hash",
         encryptedDisplayValue: "new-cipher",
+        displayable: false,
         supersedesValueHash: "old-hash"
       }
     ]);
@@ -133,6 +217,7 @@ describe("upsertAliases", () => {
           aliasType: "sf",
           aliasValueHash: "new-hash",
           encryptedDisplayValue: "newer-cipher",
+          displayable: false,
           supersedesValueHash: "old-hash"
         }
       ])
@@ -188,6 +273,7 @@ describe("upsertAliases", () => {
             aliasType: "sf",
             aliasValueHash: "new-hash",
             encryptedDisplayValue: "shared-cipher",
+            displayable: false,
             supersedesValueHash: "old-hash"
           }
         ])
@@ -237,6 +323,7 @@ describe("upsertAliases", () => {
           aliasType: "sf",
           aliasValueHash: "new-hash",
           encryptedDisplayValue: "second-cipher",
+          displayable: false,
           supersedesValueHash: "old-hash"
         }
       ]);

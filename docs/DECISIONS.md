@@ -2049,3 +2049,208 @@ operation; it is for conformance suites, for a setup check, and for a mapping un
   anybody holding an ingest key can make, and this is the one way it can affect a live service
   rather than only its own transaction. The contract says so, and says to use a separate
   environment and separate journey ids for a conformance run.
+
+---
+
+## ADR-051: The SDK fits an event to the server's limits, by the server's own check
+
+**Status:** Accepted. Changes what `maxPayloadBytes` means, and stops the SDK scaling its
+string limit with it.
+
+### Context
+
+The SDK measured each payload on its own against `maxPayloadBytes`, and raised its string
+limit to the same number so that raising the budget would let a long HTML body through. The
+API measures the whole envelope, with `MAX_EVENT_PAYLOAD_BYTES` for bytes, strings at 65,536
+UTF-16 code units, and depth counted from the envelope's root. Nothing on the server scaled.
+
+Instrumenting a real job showed what that disagreement costs. A 70,000 character string was
+refused `max_string_length_exceeded`; two payloads that each fit the budget were refused
+`payload_too_large` together; a payload 31 levels deep would be refused for depth. Each time
+the SDK had counted the event as fine, and each time the server refused the whole event, so
+the step vanished from the timeline rather than losing only its payload. The job worked around
+it by fitting events itself before the SDK saw them.
+
+### Decision
+
+**Truncate, then omit.** Before an event is queued, the SDK applies exactly the limits the API
+enforces, using the same functions:
+
+- `packages/payload-security` exports `eventLimits(maxEventBytes)`, which ingestion calls on
+  every envelope, and `payloadLimits(maxEventBytes)`, the same limits placed two levels down
+  where a payload sits, with long strings measured as they will be cut.
+- A payload that fails `payloadLimits` is replaced with `[PAYLOAD_TOO_LARGE]`, as before.
+- Every string over 65,536 code units is cut, after redaction, to its start and
+  `[TRUNCATED: <n> characters removed]`, exactly 65,536 code units in all.
+- The envelope is then checked with `eventLimits`. While it is over the byte budget, the larger
+  of `input` and `output` is replaced with the marker, then the other, then `metadata` is
+  dropped. The event is always sent.
+- A `payload_truncated` diagnostic and a `payloadsTruncated` counter report a payload sent with
+  a string cut, separately from `payload_omitted`. Neither is part of
+  `sent + rejected + dropped`.
+
+`maxPayloadBytes` is now the byte budget of one event and should equal the server's
+`MAX_EVENT_PAYLOAD_BYTES`. The default, 262,144, is unchanged.
+
+Truncation is per string, because the limit is per string and the case that found it was one
+long field among many short ones. It happens after redaction, so a cut can only shorten a
+string that has already been masked.
+
+### Consequences
+
+- An event the SDK sends is one the server's limit check has already passed, and a unit test
+  in `apps/api` runs hostile inputs through the recorder and then through `ingestEvent` to
+  hold that. It found a defect on its first run, in the test harness rather than the SDK: the
+  stub endpoint decoded request chunks one at a time, so a two-byte character split between
+  chunks arrived as two replacement characters.
+- A payload with a long string is now stored, cut, where it used to be stored as a marker (on
+  the SDK's side) or lost with its event (on the server's). `maxPayloadBytes` set above the
+  server's limit no longer lets a long string through; it could never be stored anyway.
+- Capture costs one more serialization per event, of the envelope. The payload check already
+  serialized each payload.
+- A review found that a cut could defeat the server's header masking, which read only text
+  containing a CRLF. A block whose first header is secret only by the environment's redaction
+  paths, with a value over the limit, lost its only line break, and about 65,500 characters of
+  the value were stored unmasked where the event used to be refused. Two changes close it: the
+  SDK puts the marker after a CRLF when the string held one, and the server reads text ending
+  in the marker as a header block. `sdk/truncated-header-block` and
+  `wire/truncated-header-line-masked` hold both halves.
+- A client in another language gets the same guarantee only by doing the same thing, which
+  `SDK_SPEC.md` now requires.
+
+---
+
+## ADR-052: A journey id may be derived from the entity, under a secret the host holds
+
+**Status:** Accepted. Qualifies ADR-038, which makes journey ids random so they cannot be
+guessed.
+
+### Context
+
+A job with no store of its own, run on a schedule, meets the same record on many runs and
+wants each run's steps in one journey. Storing the id loses it in exactly the case it matters,
+when a run fails before writing its state. The job that found this derived the id from the
+entity with an unkeyed SHA-256, which is stable and also predictable: anybody who knows the
+entity and the scheme can compute the id. A predictable journey id is what
+`INGESTION_CONTRACT.md` section 5 warns about. A key for another environment, or a forged
+propagated context, can claim the journey first or append to it, and a guessed id is a way to
+learn whether a journey exists.
+
+### Decision
+
+The SDK derives journey ids only under a secret the host configures, `journeyIdSecret`, of at
+least 32 bytes. `recorder.journeyIdFor(entity)` returns the prefix and the first 32 hex
+characters of HMAC-SHA256 over the length-prefixed label `journey-id/v1`, the recorder's
+environment, the entity type and the entity id. The environment is in the message because a
+journey cannot span environments (ADR-038). Length prefixes rather than a separator keep an id
+containing the separator from meeting another. The derivation is SDK-55 in `SDK_SPEC.md`, with
+vectors in `packages/protocol/fixtures/journey-id-derivation.json` computed outside this
+repository's code.
+
+The SDK reads no environment variable for the secret (SDK-50).
+
+**Without a usable secret, nothing throws.** A secret that is configured and too short, or not a
+string, is reported once as a `configuration_error` when the recorder is created, and is never
+used. A call to `journeyIdFor` without a usable secret, or with an entity whose type and id are
+not strings, reports a `configuration_error`, counts it in `configurationErrors`, and returns a
+fresh random journey id.
+
+### Why not throw
+
+A missing secret is a programming error in shape, but it reaches the SDK as configuration, and
+configuration is usually read from the deploy environment. Throwing from `createRecorder` breaks
+startup, which SDK-6 forbids. Throwing from `journeyIdFor` breaks the host's own code path in
+the one deployment where the variable was not set, which SDK-1 and ADR-007 forbid. Returning a
+random id keeps recording and never produces anything guessable; the cost is that the journeys
+split until the secret is set, and the counter, the diagnostic kind and `logDiagnostics` say so.
+
+### Why not an unkeyed hash
+
+It is predictable. A secret makes a derived id as hard to guess as a random one to anybody who
+does not hold it. Rotating the secret starts a new journey for every entity; the old ones are
+kept and nothing links them.
+
+### Consequences
+
+- A derived id is stable across runs and machines and unguessable without the secret. It is
+  exactly as strong as the secret, which is why a short one is refused rather than used.
+- The derivation is a SHOULD. An SDK without it still conforms.
+- The prefix is the one random ids carry, and will change with the rename; the vectors will be
+  regenerated then.
+- After review: an entity holding an unpaired surrogate is refused rather than derived, since
+  UTF-8 encoding would give it the id of its U+FFFD replacement; the fixture lists such
+  entities under `refused`. And a missing or short secret prints one warning per process even
+  with `logDiagnostics` off, the one exception to SDK-40, because a counter nobody reads does
+  not stop journeys splitting in production.
+
+---
+
+## ADR-053: Instrumenting code may mark an alias displayable, and it takes every statement to keep it so
+
+**Status:** Accepted. An exception to the alias masking in `apps/api/src/routes/present.ts`.
+
+### Context
+
+Every alias value is masked when it is read, because an alias is another identifier for the
+record and the reader may not be entitled to it. That is right for an email address or a
+customer number. It is wrong for an identifier that is public by nature, such as a job
+posting's id on a public board: the job that found this could not tell two postings apart on
+the journey page, because both read `gree…567`.
+
+The owner decided the shape: display is opted into per alias by the instrumenting code, which
+knows what the identifier is; everything else stays masked exactly as before.
+
+### Decision
+
+- **Wire.** The event gains an optional `displayableAliases`, a list of alias types from the
+  same event's `aliases` that may be shown in full: at most 1,000 entries of at most 128
+  characters. Alias values keep their type. A type the event's `aliases` does not name is
+  ignored rather than refused, because refusing would lose the event over a flag that can only
+  mask. A server that predates the field accepts and drops it (ADR-049), so every alias stays
+  masked there.
+- **Storage.** `entity_aliases.displayable boolean not null default false`, migration 017.
+- **Two statements that disagree.** An alias is displayable only while **every** event that
+  stated it listed it. The first insert stores the event's flag; a later statement can lower
+  it and never raises it.
+- **Reads.** `GET /v1/journeys/:journeyId`, and the dry run's `stored.journey`, return each
+  alias as `{ type, displayValue, displayable }`. `displayValue` is the whole value when
+  `displayable` is true and masked exactly as before otherwise, including for a short value.
+- **SDK.** `identify(aliases, { displayable })`, `startJourney({ ..., displayable })`, and
+  `displayableAliases` on `record()`. The default is none.
+
+### Why every statement, and not the latest
+
+Events do not arrive in the order they happened. A batch is retried, several processes record
+the same record, and a resend of an old event is answered as a duplicate only if its content
+is identical. "The most recent statement wins" would therefore mean the most recently
+*arrived*, and a retried old event could unmask a value that a newer one had deliberately
+masked. The conjunction is order-independent and idempotent, errs toward masking, and a
+mistaken `displayable` is corrected by one event that states the alias without it. The cost is
+that a host must list the type every time it states the alias, which the SDK README says.
+
+A statement that does not mention an alias at all is not a statement about it: an event with
+other aliases, or none, changes nothing.
+
+### Why a column with a default is safe on a live database
+
+PostgreSQL 11 and later add a column with a constant default as a catalogue change: existing
+rows read the default without the table being rewritten. The ALTER still takes an exclusive
+lock for an instant, and waits for every transaction already using the table while new
+inserts queue behind it, so the migration sets `lock_timeout` to five seconds and fails rather
+than stalling ingestion; running `migrate` again retries it. The previous API, still running
+between migrate and deploy, inserts without the column and gets `false`. A test asserts the
+table's file is not rewritten and that the migration gives up behind a held lock.
+
+The upsert writes only when the flag moves from true to false, so a service that repeats
+`identify` on every event does not turn a no-op into an update. Key rotation keeps the rule: a
+row moved onto the current token keeps its flag, and a stale duplicate's flag is folded into
+the row that survives before the duplicate is deleted.
+
+### Consequences
+
+- A reader sees an identifier in full only because the code that recorded it said so, every
+  time it said anything about it. Nothing a reader sends can change that.
+- The stored journey schema gains a required `displayable` on each alias. That is a new field
+  in a response, which a client ignores if it does not know it.
+- Search, erasure and retention are unchanged: they match on the search token, not the display
+  value.

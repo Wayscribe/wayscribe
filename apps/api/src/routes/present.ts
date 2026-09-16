@@ -10,6 +10,7 @@ import { decryptValue, UnknownKeyError, type Keyring } from "@flight-recorder/pa
 export interface PresentedAlias {
   type: string;
   displayValue: string | null;
+  displayable: boolean;
 }
 
 /**
@@ -17,7 +18,8 @@ export interface PresentedAlias {
  *
  * Unmasked deliberately: this is the value the caller searched for, so returning
  * it reveals nothing they did not already hold. Alias values are masked because
- * they are *other* identifiers the caller may not be entitled to see.
+ * they are *other* identifiers the caller may not be entitled to see, unless the
+ * instrumenting code marked the alias displayable (ADR-053).
  *
  * Undecryptable data returns null rather than throwing. A row under a key the
  * keyring no longer holds should degrade one field, not fail the whole request.
@@ -78,7 +80,11 @@ export function presentAliases(
 ): PresentedAlias[] {
   return aliases.map((alias) => {
     const value = presentEntityId(keyring, alias.encryptedDisplayValue, onUnknownKey);
-    return { type: alias.aliasType, displayValue: value === null ? null : maskDisplayValue(value) };
+    // Masked unless every event that stated this alias marked it displayable,
+    // which the stored flag records (ADR-053). The flag is the only way out of
+    // the mask; nothing a reader sends can change it.
+    const shown = value === null || alias.displayable ? value : maskDisplayValue(value);
+    return { type: alias.aliasType, displayValue: shown, displayable: alias.displayable };
   });
 }
 

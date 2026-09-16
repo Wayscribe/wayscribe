@@ -4,6 +4,8 @@ import { scoped, type ReadScope } from "./read-scope.js";
 export interface JourneyAlias {
   aliasType: string;
   encryptedDisplayValue: string | null;
+  /** Marked displayable by every event that stated it (ADR-053). */
+  displayable: boolean;
 }
 
 export interface JourneyDetail {
@@ -60,7 +62,11 @@ export async function findJourneyDetail(
   // environment of its own.
   const aliases: unknown = await db("entity_aliases")
     .where({ project_id: scope.projectId, journey_id: journeyId })
-    .select("alias_type as aliasType", "encrypted_display_value as encryptedDisplayValue")
+    .select(
+      "alias_type as aliasType",
+      "encrypted_display_value as encryptedDisplayValue",
+      "displayable"
+    )
     .orderBy("alias_type");
 
   const services: unknown = await db("journey_events")

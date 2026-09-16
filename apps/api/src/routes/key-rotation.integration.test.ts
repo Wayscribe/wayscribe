@@ -180,10 +180,12 @@ describe("key rotation grace period", () => {
       expect(response.statusCode).toBe(200);
       const data = response.json().data as {
         entity: { id: string };
-        aliases: { type: string; displayValue: string }[];
+        aliases: { type: string; displayValue: string; displayable: boolean }[];
       };
       expect(data.entity.id).toBe(ENTITY_ID);
-      expect(data.aliases).toEqual([{ type: "salesforceAccountId", displayValue: "SF-A…001" }]);
+      expect(data.aliases).toEqual([
+        { type: "salesforceAccountId", displayValue: "SF-A…001", displayable: false }
+      ]);
     });
 
     it("moves a key written under A onto B the first time it reads", async () => {
@@ -241,7 +243,7 @@ describe("key rotation grace period", () => {
         const server = boot(rotated);
         const response = await get(server, queryKey, "/v1/journeys/jrn_rot");
         expect(response.json().data.aliases).toEqual([
-          { type: "salesforceAccountId", displayValue: "SF-A…001" }
+          { type: "salesforceAccountId", displayValue: "SF-A…001", displayable: false }
         ]);
       });
 

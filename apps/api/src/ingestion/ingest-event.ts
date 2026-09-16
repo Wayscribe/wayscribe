@@ -12,6 +12,7 @@ import {
   redactAlways,
   checkLimits,
   contentHash,
+  eventLimits,
   contentHashMatches,
   encryptValue,
   maskSecretsInText,
@@ -64,7 +65,9 @@ export async function ingestEvent(
   /** From ALLOW_FULL_PAYLOAD_CAPTURE. */
   allowFullPayload = false
 ): Promise<IngestResult> {
-  const limits = checkLimits(body, { ...DEFAULT_LIMITS, maxBytes: maxPayloadBytes });
+  // The same call the SDK makes before it sends (ADR-051), so an event the SDK
+  // fitted is one this check has already passed.
+  const limits = checkLimits(body, eventLimits(maxPayloadBytes));
   if (!limits.ok) {
     return reject(400, limits.reason, "The event exceeded a configured limit.");
   }
@@ -181,6 +184,9 @@ export async function ingestEvent(
 
     await updateJourneySummary(trx, context.projectId, journeyFacts);
 
+    // A type listed here and absent from `aliases` is ignored: it can only
+    // mask, so refusing the event over it would be the worse trade (ADR-053).
+    const displayable = new Set(event.displayableAliases ?? []);
     await upsertAliases(
       trx,
       context.projectId,
@@ -191,6 +197,7 @@ export async function ingestEvent(
           aliasType,
           aliasValueHash: tokens.current,
           encryptedDisplayValue: encryptValue(keyring, value),
+          displayable: displayable.has(aliasType),
           // During a rotation, a repeat of an alias stored under the previous
           // key's token moves that row rather than adding a second one.
           supersedesValueHash: tokens.previous
