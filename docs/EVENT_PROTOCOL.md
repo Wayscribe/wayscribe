@@ -101,7 +101,9 @@ detail path `event.journeyLabel`, rather than read as clearing the label: a
 host that wants no label sends none, and an event without the field leaves the
 journey's label as it was. When events carry different labels, the label of the
 event with the latest `timestamp` wins, whatever order the events arrive in; a
-tie is broken by the larger event `id`, compared byte by byte. An older event
+tie is broken by the larger event `id`, compared byte by byte. Timestamps are
+compared at millisecond precision, the precision they are stored at, so two
+events less than a millisecond apart tie. An older event
 that arrives later therefore never replaces a newer label, and a replayed event
 can at worst leave a stale one. The label is shown and searchable in full and is
 not redacted, so it must not hold personal data.
@@ -287,10 +289,13 @@ Rules:
 
 - Alias names are developer-defined but should be stable.
 - Alias values may be sensitive.
-- Display values are encrypted at rest and masked when read. An event may list
+- Alias values are encrypted at rest and masked when read. An event may list
   alias types in `displayableAliases` to have them shown in full; an alias is
   shown in full only while every event that stated it listed it, and a listed
-  type the event's `aliases` does not name is ignored (ADR-053).
+  type the event's `aliases` does not name is ignored (ADR-053). While an alias
+  is displayable the server also stores its value in plain text, so the
+  journey list can match it by partial text; the statement that masks the
+  alias removes that copy, and a masked alias never has one (ADR-054).
 - Searchable aliases should have normalized hashes.
 - Aliases must not be propagated through HTTP headers unless explicitly safe.
 

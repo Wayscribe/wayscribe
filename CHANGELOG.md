@@ -26,7 +26,16 @@ changes far less often.
   reader may see in full as `{ type, value }`, in alias type order. A masked
   alias is never listed. `GET /v1/journeys/:journeyId`, and the dry run's
   `stored.journey`, gain `label` and `lastStep`; aliases stay masked as before.
-
+- **The Recent page is now the Journeys page** (ADR-054). `/journeys` lists
+  what happened in a period, any status and the last 24 hours by default, as a
+  dense table (last activity, status, entity type, what the journey is shown
+  as, last step, events) under a filter form with a Contains box, presets for
+  an hour, a day, a week and 30 days, a custom range, status, entity type,
+  environment and service. A journey is shown as its label, else its
+  displayable alias values, else its entity type and identifier. A Failures
+  shortcut keeps "what failed" one click away. `/recent` redirects to
+  `/journeys` with its query string, adding `status=failed` when the link named
+  no status, which is what Recent showed. The navigation link reads Journeys.
 - **`GET /v1/journeys` says what `since` should be when it is missing or
   malformed.** The refusal was `since is required.`; it now names the format
   and gives an example instant, and `API_SPEC.md` says at the top of the route
@@ -146,6 +155,24 @@ changes far less often.
 
 ### Added
 
+- **A journey can carry a public label** (ADR-054). Events gain an optional
+  `journeyLabel`, 1 to 200 code points; an empty string refuses that event as
+  `invalid_event`, and an event without the field leaves the label alone. The
+  journey keeps the label of the event with the latest `timestamp`, ties broken
+  by the larger event id, whatever order events arrive in, and it now also
+  keeps its last step, the `name` of that latest event, under the same rule.
+  Timestamps are compared at millisecond precision. The label is not redacted.
+  The regenerated JSON Schema carries the field, and three wire cases,
+  `wire/journey-label`, `wire/journey-label-empty` and
+  `wire/journey-label-latest-wins`, specify it.
+- **Displayable alias values have a plain-text copy for matching** (ADR-054).
+  Migration `018_journey_browse.js` adds `journeys.label`, `journeys.last_step`
+  and the timestamp and event id that decide each, and
+  `entity_aliases.display_value`, which ingestion fills only while an alias is
+  displayable and clears in the statement that masks it. A check constraint,
+  `entity_aliases_display_value_only_when_displayable`, refuses a masked alias
+  with a plain value whatever writes the row. Deletion, erasure and retention
+  remove all of it with the journey.
 - **`GET /v1/journeys` filters by time range, entity type and text.** `until`
   ends the window (an instant after `since`, exclusive), `entityType` matches
   one entity type exactly, and `q` (2 to 200 characters) matches, ignoring
@@ -169,7 +196,6 @@ changes far less often.
   from 843 ms to 316 ms. Ingestion measured the same with and without them.
   `scripts/measure-journey-list.mjs` reproduces the figures
   (`docs/OPERATIONS.md` section 10).
-
 - **The SDK can name a journey.** `journey.label(text)`, or `label` in the
   options of `startJourney`, sets the text the Journeys page will show for the
   journey and match by partial text. It records nothing by itself: every later
@@ -439,6 +465,14 @@ changes far less often.
 
 ### Security
 
+- **Two kinds of value are now stored in plain text** (ADR-054): journey
+  labels, and copies of the values of aliases marked displayable, so the
+  journey list can match them by partial text. Masked aliases and entity ids
+  stay encrypted and tokenised, and `q` never matches them. When an alias is
+  masked the live row's copy is removed at once, but earlier row versions keep
+  the text until vacuum, it stays in WAL, replicas and backups, and destroying
+  `ENCRYPTION_KEY` does not cover it; `docs/SECURITY.md` section 6 says how to
+  purge it. A label is shown as written and must not hold personal data.
 - **A truncated header block can no longer hide a secret header from the
   server's masking.** The server masked secret-named lines only in text holding
   a CRLF, so a block whose first header was secret only by the environment's
@@ -866,6 +900,16 @@ audit, all merged the same day. The pattern behind them is written up in
 
 ### Upgrade notes
 
+- **Migration 018 adds columns and a constraint.** The columns are nullable
+  with no default, a catalogue change with no table rewrite; the constraint is
+  added unvalidated and then validated in a second transaction that does not
+  block writes. Each lock request gives up after five seconds, so in the worst
+  case writes to `journeys` stall for about ten seconds; run `migrate` again if
+  it gives up. There is no backfill: journeys recorded before the upgrade show
+  no label or last step until new events arrive, and older displayable aliases
+  are not matched by text until an event states them again. A database that
+  ran an earlier development build of 018 lacks the constraint;
+  docs/OPERATIONS.md section 4 says how to check and add it.
 - **Migration 019 builds two indexes concurrently.** It does not block
   ingestion, but it waits for transactions that started before it, and gives
   up with `canceling statement due to lock timeout` after 10 minutes if one (a
@@ -875,6 +919,8 @@ audit, all merged the same day. The pattern behind them is written up in
   transaction-pooling PgBouncer. On Helm, allow for the wait with
   `helm upgrade --timeout`. docs/OPERATIONS.md section 10 has a query that
   shows what the build is waiting for.
+- **`GET /v1/journeys` refuses unknown query keys** (see Changed). A client
+  that sends keys the list does not read gets `400 invalid_query`.
 - **Migration 017 adds a column to `entity_aliases`.** It is a catalogue change
   on PostgreSQL 11 and later and finishes at once, but it gives up after five
   seconds if a long transaction holds the table, rather than stalling ingestion

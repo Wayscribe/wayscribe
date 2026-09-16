@@ -323,10 +323,11 @@ Display values may be:
 - encrypted
 - available only to permitted local users
 
-What is built: alias display values are encrypted at rest (section 7) and
-**masked when read**, because an alias is another identifier for the record and
-a reader may not be entitled to it. The primary entity id is shown in full,
-since it is what the reader searched for.
+What is built: every alias value is stored encrypted (section 7) and matched
+through its search token, and a masked alias is **masked when read**, because an
+alias is another identifier for the record and a reader may not be entitled to
+it. A masked alias has no plain-text form anywhere in the database. The primary
+entity id is shown in full, since it is what the reader searched for.
 
 **The one exception** is an alias the instrumenting code marked displayable
 (ADR-053). An event may list alias types in `displayableAliases`, and an alias
@@ -337,6 +338,60 @@ sends can change the flag. Mark only identifiers that are public by nature, such
 as a posting id on a public job board, and never an email address or a customer
 number.
 
+### What is stored in plain text, and why
+
+Two kinds of value are stored in plain text, both declared public by the code
+that records them (ADR-054):
+
+- **Journey labels** (`journeys.label`), the display text an event sets with
+  `journeyLabel`. The host writes a label on purpose, to be shown and found, so
+  it is **not redacted**: whatever the label says is stored and shown as sent.
+  Do not put personal data in a label, such as a person's name or email
+  address. What a label says is the host's responsibility.
+- **Copies of displayable alias values** (`entity_aliases.display_value`),
+  beside the encrypted value, so that the journey list can match them by
+  partial text without decrypting every alias. A copy exists only while the
+  alias is displayable. The database enforces that with a check constraint,
+  `entity_aliases_display_value_only_when_displayable`
+  (`displayable or display_value is null`), so no code path, including a
+  future bug or a manual update, can leave a masked alias with a plain value.
+
+Masked aliases and entity identifiers stay encrypted and tokenised exactly as
+before.
+
+### What the journey list's text filter can match
+
+`q` on `GET /v1/journeys` matches, ignoring case, part of a journey's label or
+part of the value of one of its displayable aliases, and nothing else. It never
+matches a masked alias value, an entity id, a journey id or an entity type, even
+when the text is exactly one of them: those are found by exact value through
+search and its tokens, and a reader who does not already know one learns
+nothing about it from `q`. It is always bounded by a time window, and it keeps
+the list's scope: an API key reads its own environment only.
+
+### A masked alias's copy outlives the row version
+
+When an event masks an alias that was displayable, the same statement clears
+the live row's copy, so no read returns it and `q` no longer matches it. The
+text is not gone from the disk at that moment:
+
+- PostgreSQL keeps the earlier row version until `VACUUM` reclaims it, and
+  anyone who can read the table files can read it until then.
+- It remains in the write-ahead log, in streaming replicas until they replay
+  past it, in WAL archives, and in every backup taken while the alias was
+  displayable.
+- Unlike ciphertext, it is **not covered by key destruction**: destroying or
+  rotating `ENCRYPTION_KEY` makes encrypted values unreadable, and does nothing
+  to a plain-text copy.
+
+To purge a value that should never have been displayable, delete the journeys
+that hold it (`POST /v1/erasures` or `delete:identifier`, `docs/OPERATIONS.md`
+section 8), then run `VACUUM` on `entity_aliases` so the dead row versions are
+reclaimed. Copies in WAL archives and backups age out under the operator's
+retention policy for those, which this service does not control. The same holds
+for a label: replacing it leaves the old text in earlier row versions, WAL and
+backups until the same cleanup.
+
 ## 7. Encryption
 
 At minimum:
@@ -346,11 +401,12 @@ At minimum:
 - application encryption for stored replay headers
 - external encryption key supplied through environment or secret manager
 
-Alias display values, entity identifiers, and replay destination headers are
-already encrypted at rest with a key derived from `ENCRYPTION_KEY`, in the format
-and under the keys ADR-044 describes. Payloads are not, and this is a settled
-decision rather than an interim state (ADR-040): redaction, not encryption, is
-the payload control.
+Alias values, entity identifiers, and replay destination headers are already
+encrypted at rest with a key derived from `ENCRYPTION_KEY`, in the format and
+under the keys ADR-044 describes. A displayable alias also has a plain-text
+copy, and a journey label is plain text (section 6). Payloads are not
+encrypted, and this is a settled decision rather than an interim state
+(ADR-040): redaction, not encryption, is the payload control.
 
 Encryption keys must not be stored in the same database as ciphertext.
 

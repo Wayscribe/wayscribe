@@ -140,7 +140,9 @@ Every release is gated on an upgrade test (`scripts/upgrade-test.mjs`, the
 commit from before v1's storage format changes), records journeys,
 aliases, a transformation diff, an error and a replay destination through it,
 then starts the new build against the same database volume and checks that every
-search and detail reads back unchanged, that existing API keys still
+search and detail reads back unchanged, that the journey list reads the old
+journeys under every filter (with no label or last step, since nothing is
+backfilled), that existing API keys still
 authenticate, and that `rotate:reencrypt` upgrades the stored formats. From a
 source checkout, `node scripts/upgrade-test.mjs` runs it with Docker and nothing
 else, and `UPGRADE_BASELINE_REF` chooses the version to upgrade from.
@@ -178,31 +180,105 @@ where pid in (select pid from pg_locks where relation = 'entity_aliases'::regcla
 The previous API keeps working while the column exists and it does not know
 about it: its inserts get `false`, which is how every alias read before.
 
-### Migration 018 adds columns to `journeys` and `entity_aliases`
+### Upgrading to the journey browsing release (migrations 018 and 019)
 
-`018_journey_browse.js` adds six nullable columns to `journeys` (`label`,
-`last_step`, and the timestamp and event id that decide which event set each)
-and `display_value` to `entity_aliases`. None has a default, so each is a
-catalogue change with no table rewrite. The lock handling is the same as 017:
-five seconds of `lock_timeout`, one transaction, and running `migrate` again
-retries after `canceling statement due to lock timeout`. The query above finds
-the transaction in the way; check `'journeys'::regclass` as well.
+This release adds journey labels, last steps and partial text matching on
+public values (ADR-054). Two migrations run, and neither rewrites a table.
 
-The timeout applies to each lock request, and the migration takes two locks.
-The ALTER on `journeys` can wait up to five seconds, then holds that lock while
-the ALTER on `entity_aliases` waits up to five more, so in the worst case
-writes to `journeys` stall for about ten seconds before the migration either
-finishes or gives up. A rollback (`down`) takes the same two locks in the same
-order, so it can stall writes to `journeys` for as long. Ingestion also locks
-`journeys` before `entity_aliases`, so a deadlock with ingestion is not
-expected in either direction.
+**Migration 018** (`018_journey_browse.js`) adds six nullable columns to
+`journeys` (`label`, `last_step`, and the timestamp and event id that decide
+which event set each), `display_value` to `entity_aliases`, and the check
+constraint `entity_aliases_display_value_only_when_displayable`. None of the
+columns has a default, so each is a catalogue change with no table rewrite. It
+runs in two transactions of its own:
 
-There is no backfill. A journey recorded before the upgrade shows no last step
-until its next event, and no label until an event that carries a label
-arrives. Only aliases stated displayable after the upgrade get a plain-text
-copy for search. The previous API, still running
-between migrate and deploy, writes rows without these columns, and they read
-null in the same way.
+1. The ALTERs, with the constraint added `not valid`, which is also a catalogue
+   change. The lock handling is the same as 017: five seconds of
+   `lock_timeout` per lock request, and running `migrate` again retries after
+   `canceling statement due to lock timeout`. The query above finds the
+   transaction in the way; check `'journeys'::regclass` as well.
+2. `VALIDATE CONSTRAINT`, which reads every row of `entity_aliases` but takes
+   only a SHARE UPDATE EXCLUSIVE lock, so reads and ingestion carry on while it
+   runs. The column is null in every existing row, so validation always
+   passes. If it gives up behind a lock, the columns and the unvalidated
+   constraint stay, the migration is not recorded, and the next `migrate`
+   skips the ALTERs and validates.
+
+The timeout applies to each lock request, and the first transaction takes two
+locks. The ALTER on `journeys` can wait up to five seconds, then holds that
+lock while the ALTER on `entity_aliases` waits up to five more, so in the
+worst case writes to `journeys` stall for about ten seconds before the
+migration either finishes or gives up. A rollback (`down`) takes the same two
+locks in the same order, so it can stall writes to `journeys` for as long.
+Ingestion also locks `journeys` before `entity_aliases`, so a deadlock with
+ingestion is not expected in either direction.
+
+**Migration 019** (`019_journey_browse_indexes.js`) builds
+`journeys_project_recent_idx` and `entity_aliases_displayable_idx` with
+`CREATE INDEX CONCURRENTLY`, so it does not block ingestion, but it can wait:
+up to 10 minutes for its lock and for every transaction that started before
+the build, such as a long retention batch, an admin deletion or a nightly
+`pg_dump`. It then fails with `canceling statement due to lock timeout`, and
+running `migrate` again drops the invalid index the attempt left and builds it
+afresh. Run it against PostgreSQL directly, not through a transaction-pooling
+PgBouncer. On Helm, allow for the wait with `helm upgrade --timeout 30m`; the
+migrate Job now prints `migration failed ... see the error above` rather than
+`database not ready` for a failure that is not a connection failure. *Indexes*
+in section 10 has the query that shows which transaction the build is waiting
+on, and what to do if the migrate process was killed partway.
+
+**There is no backfill.** A journey recorded before the upgrade shows no last
+step until its next event, and no label until an event that carries a label
+arrives; until then the Journeys page shows it by entity type and identifier,
+as the Recent page did. Only aliases stated displayable after the upgrade get
+a plain-text copy, so `q` does not find an older displayable alias until an
+event states it again. The previous API, still running between migrate and
+deploy, writes rows without these columns, and they read null in the same way,
+which the constraint allows. The upgrade test checks that journeys the previous
+build recorded list with `label` and `lastStep` null.
+
+**A database that ran an earlier development build of this release** (the
+`journeys-browse` branch before the constraint was added to 018) has 018
+recorded as applied without the constraint, and `migrate` will not add it.
+Check with:
+
+```sql
+select 1 from pg_constraint
+ where conrelid = 'entity_aliases'::regclass
+   and conname = 'entity_aliases_display_value_only_when_displayable';
+```
+
+If that returns no row, roll 018 back and forward. Each `rollback` reverts the
+whole latest batch, so first see which migrations share a batch with 018:
+
+```sql
+select batch, name from knex_migrations where batch >= (
+  select batch from knex_migrations where name = '018_journey_browse.js'
+) order by id;
+```
+
+If 018's batch holds only 018 (and 019, or a later batch holds 019), run
+`rollback` until it prints `018_journey_browse.js` among the migrations it
+rolled back, then `migrate`. Rolling 018 back drops the labels, last steps and
+plain-text copies stored so far; they return as new events arrive. If the batch
+also holds 017 or an earlier migration, a rollback would revert those too and
+lose what they store (017's displayable flags), so add the constraint by hand
+instead, as 018 does:
+
+```sql
+alter table entity_aliases
+  add constraint entity_aliases_display_value_only_when_displayable
+  check (displayable or display_value is null) not valid;
+alter table entity_aliases
+  validate constraint entity_aliases_display_value_only_when_displayable;
+```
+
+Run them as two statements, not in one transaction, so the validation does not
+scan the table under the first statement's exclusive lock, and set
+`lock_timeout` first, as 018 does, if ingestion is running. The validation
+fails if any masked alias already holds a plain value; clear those with
+`update entity_aliases set display_value = null where not displayable and display_value is not null`
+and validate again.
 
 ### Migration 015 rewrites every replay run's headers
 
@@ -1560,8 +1636,9 @@ parameters with every value replaced by `[REDACTED]`:
 { "req": { "method": "GET", "url": "/v1/search?q=[REDACTED]&limit=[REDACTED]" } }
 ```
 
-A searched value is usually a customer identifier, and the Recent page's filters
-name services and environments, so no query value is ever logged. A parameter
+A searched value is usually a customer identifier, and the Journeys page's
+filters name services and environments and carry text a reader half
+remembers, so no query value is ever logged. A parameter
 name that does not look like one (an email address pasted without `=`, or
 anything longer than 64 characters) is replaced too, and so is anything after a
 `;` in the path, where some clients put session ids. The path is logged whole,

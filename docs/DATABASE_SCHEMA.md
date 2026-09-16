@@ -100,10 +100,10 @@ Constraints:
 | `last_event_at` | timestamptz | Latest event timestamp |
 | `event_count` | integer | Derived summary |
 | `label` | text | Nullable. Public display label from the event with the latest `(timestamp, event id)` that carried one (migration `018_journey_browse.js`) |
-| `label_at` | timestamptz | Nullable. Timestamp of the event that set `label`, compared first when a later-arriving event carries a label |
+| `label_at` | timestamptz | Nullable. Timestamp of the event that set `label`, compared first when a later-arriving event carries a label. Event timestamps reach it at millisecond precision, so events less than a millisecond apart tie and `label_event_id` decides |
 | `label_event_id` | text | Nullable. Id of the event that set `label`; breaks a tie between equal timestamps, compared with the "C" collation (byte order) whatever the database default |
 | `last_step` | text | Nullable. Step name of the event with the latest `(timestamp, event id)`, so an out-of-order event does not move it backwards (migration `018_journey_browse.js`) |
-| `last_step_at` | timestamptz | Nullable. Timestamp of the event that set `last_step` |
+| `last_step_at` | timestamptz | Nullable. Timestamp of the event that set `last_step`, at millisecond precision like `label_at` |
 | `last_step_event_id` | text | Nullable. Id of the event that set `last_step`; breaks a tie between equal timestamps, in byte order like `label_event_id` |
 | `created_at` | timestamptz | Required |
 | `updated_at` | timestamptz | Required |

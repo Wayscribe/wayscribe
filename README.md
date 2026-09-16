@@ -304,7 +304,10 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
   list rather than replacing it, so adding one cannot silently disable the rest.
 - Entity identifiers and alias values are **encrypted at rest**. Payloads are
   not — they are stored as `jsonb`, which is exactly why redaction runs before
-  they leave your process and again before they are written.
+  they leave your process and again before they are written. Two things the
+  instrumenting code declares public are also kept in plain text so they can be
+  found by partial text: a journey's label, and a copy of each alias value it
+  marked displayable ([SECURITY.md](docs/SECURITY.md) section 6).
 - Search uses HMAC tokens, so an identifier is findable without being stored in
   the clear.
 - Every encrypted value names the key that wrote it, so `ENCRYPTION_KEY`
@@ -318,7 +321,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 53 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md) — 54 ADRs, including the several that were
 wrong the first time and say so.
 
 ---

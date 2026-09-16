@@ -328,11 +328,14 @@ what a dry run previews.
   by sending one. The label is not redacted, because the host wrote it to be
   shown. **Conflicts:** the journey keeps the label of the event with the
   latest `timestamp`; a tie is broken by the larger event `id`, compared byte
-  by byte, and an event without a label leaves the stored one unchanged. So the
-  order events arrive in does not matter, and a duplicate changes nothing. A
+  by byte, and an event without a label leaves the stored one unchanged. So
+  the order events arrive in does not matter, and a duplicate changes nothing.
+  Timestamps are compared at millisecond precision, as they are stored, so
+  events less than a millisecond apart tie and are ordered by event `id`. A
   read returns it as `label`, null until an event carries one.
 - **The last step** of a journey is the `name` of its event with the latest
-  `timestamp`, ties broken by the larger event `id` as for the label. An event
+  `timestamp`, compared at millisecond precision with ties broken by the
+  larger event `id`, as for the label. An event
   that arrives late never moves it backwards. A read returns it as `lastStep`.
 - **Unknown fields are accepted and dropped.** There is no column to store them
   in, and an unvalidated, unredacted field is not something to write to one. The
