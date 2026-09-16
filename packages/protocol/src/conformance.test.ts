@@ -190,6 +190,21 @@ describe("comparing against an expectation", () => {
     expect(compareExpectation({ a: [2, 1] }, { a: [1, 2] }).length).toBe(2);
   });
 
+  it("fails details that are reordered, missing, or extra", () => {
+    const sent = {
+      details: [{ path: "event.journeyLabel" }, { path: "event.name" }]
+    };
+    expect(compareExpectation(sent, sent)).toEqual([]);
+    const reordered = { details: [{ path: "event.name" }, { path: "event.journeyLabel" }] };
+    expect(compareExpectation(sent, reordered).length).toBeGreaterThan(0);
+    const missing = { details: [{ path: "event.journeyLabel" }] };
+    expect(compareExpectation(sent, missing).length).toBeGreaterThan(0);
+    const extra = {
+      details: [{ path: "event.journeyLabel" }, { path: "event.name" }, { path: "event.id" }]
+    };
+    expect(compareExpectation(sent, extra).length).toBeGreaterThan(0);
+  });
+
   it("tells null from a missing key", () => {
     expect(compareExpectation({ a: null }, { a: null })).toEqual([]);
     expect(compareExpectation({}, { a: null })).toEqual(["a: expected to be present"]);

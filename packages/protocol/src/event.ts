@@ -3,6 +3,9 @@ import { z } from "zod";
 /** The largest `durationMs` accepted: 2^31 - 1, the most a PostgreSQL `integer` holds (about 24.8 days). */
 export const MAX_DURATION_MS = 2_147_483_647;
 
+/** The longest `journeyLabel` accepted, in Unicode code points, which is how Zod and Ajv both count. */
+export const MAX_JOURNEY_LABEL_LENGTH = 200;
+
 export const JOURNEY_OPERATIONS = [
   "received",
   "identified",
@@ -65,9 +68,6 @@ export const recordKeySchema = z.string().max(128);
 /** As many as an object may have keys, so every alias of one event can be listed. */
 export const MAX_DISPLAYABLE_ALIASES = 1_000;
 export const aliasValueSchema = z.string().max(512);
-
-/** The most code points a journey label may hold, counted as every other cap here is. */
-export const MAX_JOURNEY_LABEL_LENGTH = 200;
 export const metadataValueSchema = z.unknown();
 
 export const journeyEventSchema = z.object({

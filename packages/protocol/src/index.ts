@@ -25,6 +25,7 @@ export {
 export { defineProtoKey, ownProtoKey } from "./proto-key.js";
 export {
   JOURNEY_OPERATIONS,
+  MAX_JOURNEY_LABEL_LENGTH,
   deploymentSchema,
   entitySchema,
   errorSchema,

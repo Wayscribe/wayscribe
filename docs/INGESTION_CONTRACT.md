@@ -439,7 +439,8 @@ Files live under `packages/protocol/conformance/<layer>/<case>.json`.
   result's `error` carries `code` and `httpStatus`, and may carry `details`, a
   list of `{ "path": "…" }` compared in order with the refusal's own details.
   A detail's `message` is the server's wording and is not compared, so a case
-  may not list it.
+  may not list it. The comparison of `error` is a subset match at its top
+  level, so a case that omits `details` does not assert that none were sent.
 
 ### Comparison
 
