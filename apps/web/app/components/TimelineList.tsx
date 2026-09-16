@@ -96,7 +96,9 @@ export function TimelineList({
               <span className={event.hasError ? "step failed" : "step"}>{event.operation}</span>
             ) : (
               <>
-                <span className="step">{event.name}</span>
+                <span className="step" title={event.name}>
+                  {event.name}
+                </span>
                 <span
                   className={event.hasError ? "op failed" : "op"}
                   title={`operation: ${event.operation}`}
@@ -105,7 +107,7 @@ export function TimelineList({
                 </span>
               </>
             )}
-            <span className="muted">{event.service}</span>
+            <span className="muted service">{event.service}</span>
             {skewSeconds(event.eventTimestamp, event.receivedAt) > SKEW_THRESHOLD_SECONDS ? (
               <span
                 className="muted"

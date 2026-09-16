@@ -222,7 +222,6 @@ button {
   align-items: baseline;
   padding: 0.55rem 0.7rem;
   color: var(--fg);
-  flex-wrap: wrap;
 }
 .timeline a:hover {
   text-decoration: none;
@@ -235,7 +234,21 @@ button {
 .step {
   font-weight: 600;
   font-size: 0.9rem;
-  overflow-wrap: anywhere;
+}
+/* One line per row: the name gives way first, and the service sits at the end. */
+.timeline a > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.timeline a > .step,
+.timeline a > .service {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.timeline a > .service {
+  margin-left: auto;
 }
 .step.failed {
   color: var(--failed);
