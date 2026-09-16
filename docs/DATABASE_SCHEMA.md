@@ -116,7 +116,7 @@ Constraints and indexes:
 - index `(project_id, status, last_event_at, id)` for recent failures across environments (migration `013_journeys_status_recent_index.js`)
 - check event count is nonnegative
 
-The label and last-step columns were added by migration `018_journey_browse.js` with no backfill: a journey recorded before it reads null in all six until its next event, and the UI shows that as no label and no last step.
+The label and last-step columns were added by migration `018_journey_browse.js` with no backfill: a journey recorded before it reads null in all six. Its `last_step` columns fill on its next event; its `label` columns stay null, which the UI shows as no label, until an event that carries a label arrives.
 
 ### `entity_aliases`
 

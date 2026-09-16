@@ -188,9 +188,21 @@ five seconds of `lock_timeout`, one transaction, and running `migrate` again
 retries after `canceling statement due to lock timeout`. The query above finds
 the transaction in the way; check `'journeys'::regclass` as well.
 
-There is no backfill. Journeys recorded before the upgrade show no label and
-no last step until their next event, and only aliases stated displayable after
-the upgrade get a plain-text copy for search. The previous API, still running
+The timeout applies to each lock request, and the migration takes two locks.
+The ALTER on `journeys` can wait up to five seconds, then holds that lock while
+the ALTER on `entity_aliases` waits up to five more, so in the worst case
+writes to `journeys` stall for about ten seconds before the migration either
+finishes or gives up. A rollback (`down`) has the same shape in the other
+order, so it can stall writes to `entity_aliases` for as long. Ingestion locks
+`journeys` before `entity_aliases`, the same order as the migration, so a
+deadlock between the two is not expected. The rollback's order is the reverse,
+so a rollback during ingestion can deadlock; PostgreSQL detects it and cancels
+one side, and running the rollback again retries.
+
+There is no backfill. A journey recorded before the upgrade shows no last step
+until its next event, and no label until an event that carries a label
+arrives. Only aliases stated displayable after the upgrade get a plain-text
+copy for search. The previous API, still running
 between migrate and deploy, writes rows without these columns, and they read
 null in the same way.
 

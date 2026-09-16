@@ -22,14 +22,20 @@
  * exclusive lock each ALTER takes is held for an instant rather than for a
  * copy. That lock still has to wait for every transaction already reading or
  * writing the table, and every ingestion that arrives meanwhile queues behind
- * the ALTER, so `lock_timeout` makes it give up after five seconds instead of
- * stalling ingestion. The migration runs in one transaction, so one that gave
- * up leaves nothing behind; run `migrate` again.
+ * the ALTER, so `lock_timeout` makes it give up instead of stalling
+ * ingestion. The timeout applies to each lock request, not to the migration:
+ * the first ALTER can wait up to five seconds for `journeys`, then holds that
+ * lock while the second waits up to five more for `entity_aliases`, so in the
+ * worst case writes to `journeys` stall for about ten seconds. Ingestion takes
+ * its locks in the same order, `journeys` before `entity_aliases`, so a
+ * deadlock with it is not expected. The migration runs in one transaction, so
+ * one that gave up leaves nothing behind; run `migrate` again.
  *
  * There is no backfill. Journeys and aliases written before this migration
- * read null, which the UI shows as no label and no last step until the
- * journey's next event. The previous API, still running between migrate and
- * deploy, writes rows without these columns, and they read null the same way.
+ * read null. A journey's `last_step` fills on its next event; its `label` stays
+ * null, which the UI shows as no label, until an event that carries a label
+ * arrives. The previous API, still running between migrate and deploy, writes
+ * rows without these columns, and they read null the same way.
  *
  * @param {import("knex").Knex} knex
  * @returns {Promise<void>}
@@ -49,9 +55,14 @@ export async function up(knex) {
 }
 
 /**
- * Dropping the columns is also a catalogue change, under the same lock and the
- * same timeout. Labels, last steps and plain-text copies are then gone, which
- * is the state before this migration.
+ * Dropping the columns is also a catalogue change, under the same timeout per
+ * lock request. It takes the locks in the other order, `entity_aliases` then
+ * `journeys`, so in the worst case it stalls writes to `entity_aliases` for
+ * about ten seconds. Because that order is the reverse of ingestion's, a
+ * rollback during ingestion can deadlock with it; PostgreSQL detects that and
+ * cancels one side, and running the rollback again retries. Labels, last
+ * steps and plain-text copies are then gone, which is the state before this
+ * migration.
  *
  * @param {import("knex").Knex} knex
  * @returns {Promise<void>}
