@@ -51,12 +51,15 @@ export function spansDays(timestamps: readonly string[]): boolean {
 }
 
 /**
- * How far a service's clock was from the server's, in seconds.
+ * How much later the server received an event than the time the service
+ * recorded for it, in seconds. Negative when the service's clock runs ahead.
  *
- * `ARCHITECTURE.md` section 264 asks the interface to indicate when timestamps
- * appear inconsistent or arrive late, and nothing did. Ingestion latency puts a
+ * `ARCHITECTURE.md` asks the interface to indicate when timestamps appear
+ * inconsistent or arrive late, and nothing did. Ingestion latency puts a
  * second or two of honest distance here, so only a gap large enough to reorder
- * a timeline is worth showing.
+ * a timeline is worth showing. Only a positive gap is shown: a service clock
+ * that is behind, an event that waited to be sent, or a step that ran long. A
+ * clock that runs ahead gives a negative gap and is never marked.
  */
 export function skewSeconds(eventTimestamp: string, receivedAt: string): number {
   return Math.round((new Date(receivedAt).getTime() - new Date(eventTimestamp).getTime()) / 1000);

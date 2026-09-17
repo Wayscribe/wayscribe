@@ -111,7 +111,7 @@ export function TimelineList({
             {skewSeconds(event.eventTimestamp, event.receivedAt) > SKEW_THRESHOLD_SECONDS ? (
               <span
                 className="muted"
-                title={`Recorded at ${fullTimestamp(event.eventTimestamp)}, received at ${fullTimestamp(event.receivedAt)}. This service's clock may be wrong, which would put the timeline out of order.`}
+                title={`Recorded at ${fullTimestamp(event.eventTimestamp)}, received at ${fullTimestamp(event.receivedAt)}. Received more than two minutes late: this service's clock may be behind, which would put the timeline out of order, or the event waited to be sent, or the step ran long.`}
               >
                 ⚠ clock
               </span>
