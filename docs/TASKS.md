@@ -154,7 +154,7 @@ ever finished.
 - [x] Add transformation-focused diff viewer.
 - [x] Add error display.
 - [x] Add alias display and identity-map summary.
-- [ ] Add loading and empty states.
+- [x] Add loading and empty states.
 - [ ] Add plain-language explanations for journey, alias, transformation, and replay.
 - [x] Add browser tests.
 

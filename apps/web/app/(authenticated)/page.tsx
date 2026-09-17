@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { ApiUnavailableError, ProjectNotSelectedError, search } from "../../src/lib/api";
 import { requireProjectId } from "../../src/lib/current-project";
 import { JourneyListItem } from "../components/JourneyListItem";
@@ -38,7 +39,21 @@ export default async function SearchPage({
       {query === "" ? (
         <p className="muted">Enter an identifier above to begin.</p>
       ) : (
-        <Results query={query} />
+        // Its own boundary, so the heading and the form arrive at once and only
+        // the results wait on the API. Keyed by the query, so a new search shows
+        // the fallback again rather than the previous results. Not a loading.tsx:
+        // that would stream the journey pages too, and cost them their 404
+        // (journeys/(list)/loading.tsx says why).
+        <Suspense
+          key={query}
+          fallback={
+            <p className="muted" role="status">
+              Searching…
+            </p>
+          }
+        >
+          <Results query={query} />
+        </Suspense>
       )}
     </main>
   );
