@@ -74,8 +74,9 @@ Presenting the work, and closing what the last review opened.
   and dogfooded by adding a Python service to the Leadline project. ADR-049 said
   a second SDK waits for a team that needs one; that was written before the
   contract, the fixtures and the dry run existed, and they are what make a second
-  SDK a normal piece of work instead of a second product. The order after it is
-  OpenTelemetry log ingest, then further languages by what pilot teams ask for.
+  SDK a normal piece of work instead of a second product. ADR-059 supersedes that
+  condition and sets the order: Python, then OpenTelemetry log ingest, then
+  further languages by what pilot teams ask for.
 
 - **Per-record timing and context, before the first release.**
   Wayscribe already stores when each step started and how long it took, so most
@@ -147,8 +148,9 @@ all of it is cheap to add once there is a reason.
 
 - Fastify, Express, and fetch/Axios adapters for the stacks pilot teams actually
   run, as separate packages over the SDK's public API (ADR-049)
-- SDKs in languages beyond Python, by what pilot teams ask for, built against
-  `docs/SDK_SPEC.md` and checked with the conformance fixtures
+- SDKs in languages beyond Python, by what pilot teams ask for (ADR-049,
+  ADR-059), built against `docs/SDK_SPEC.md` and checked with the conformance
+  fixtures
 - S3-compatible payload storage, backup and restore tooling
 - an audit-log interface, retention and legal-hold controls
 - high-availability deployment

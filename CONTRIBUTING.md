@@ -33,7 +33,7 @@ V0 is focused on:
 - field-level diffs
 - development-only HTTP replay
 
-Please do not introduce additional SDK languages, AI features, new storage engines, or production replay without an accepted architecture decision. Kubernetes has one: ADR-042 covers the local-cluster Helm chart, and anything beyond it needs its own.
+Please do not introduce additional SDK languages, AI features, new storage engines, or production replay without an accepted architecture decision. Kubernetes has one: ADR-042 covers the local-cluster Helm chart, and anything beyond it needs its own. Python has one too: ADR-059 makes it the next SDK, after the first release, and every other language still waits for a decision of its own.
 
 Contributions must preserve:
 

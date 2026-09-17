@@ -52,13 +52,15 @@ enforces. OTLP ingestion is not built yet.
 The first version is TypeScript throughout, API, interface, protocol, SDK and
 demo, so one set of schemas serves all of them
 ([ADR-003](DECISIONS.md#adr-003-use-typescript-across-v0)). **Python is next**,
-after the first release: most of the pipelines, workers and integrations this
-tool is for are written in it. ADR-049 said a second SDK waits for a team that
-needs one, and that held while there was no contract to build one against. There
-is one now, so the cost of a second SDK is its build and its maintenance rather
-than a second design ([ADR-049](DECISIONS.md#adr-049-the-contract-is-the-deliverable-and-a-second-sdk-waits-for-a-team-that-needs-one)).
-Languages after Python follow what pilot teams ask for; OpenTelemetry log ingest
-covers the rest in the meantime.
+after the first release
+([ADR-059](DECISIONS.md#adr-059-python-is-the-next-sdk)): most of the pipelines,
+workers and integrations this tool is for are written in it.
+[ADR-049](DECISIONS.md#adr-049-the-contract-is-the-deliverable-and-a-second-sdk-waits-for-a-team-that-needs-one)
+said a second SDK waits for a team that needs one, and that held while there was
+no contract to build one against. There is one now, so the cost of a second SDK
+is its build and its maintenance rather than a second design, and ADR-059
+supersedes that condition for Python. Languages after Python follow what pilot
+teams ask for; OpenTelemetry log ingest covers the rest in the meantime.
 
 What was built instead is the contract a recorder in any language is written
 against: the [ingestion contract](INGESTION_CONTRACT.md), JSON Schema generated
