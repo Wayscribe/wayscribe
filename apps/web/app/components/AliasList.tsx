@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 import type { JourneyDetail } from "../../src/lib/api";
+import { EXPLANATIONS } from "./explanations";
 
 /**
  * The other identifiers a journey's record is known by.
@@ -31,7 +32,7 @@ export function AliasList({ aliases }: { aliases: JourneyDetail["aliases"] }) {
           </span>
         </Fragment>
       ))}
-      . These identifiers all refer to the same record.
+      . {EXPLANATIONS.alias}
     </p>
   );
 }

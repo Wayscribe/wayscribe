@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DiffTable } from "../../../../components/DiffTable";
+import { ReplayFailure } from "../../../../components/ReplayFailure";
 import { ReplayHeaders } from "../../../../components/ReplayHeaders";
 import {
   ApiUnavailableError,
@@ -24,10 +25,10 @@ export default async function ReplayPage({
   searchParams
 }: {
   params: Promise<{ journeyId: string }>;
-  searchParams: Promise<{ event?: string; replay?: string }>;
+  searchParams: Promise<{ event?: string; replay?: string; error?: string }>;
 }) {
   const { journeyId } = await params;
-  const { event: eventId, replay: replayId } = await searchParams;
+  const { event: eventId, replay: replayId, error: failure } = await searchParams;
   const projectId = await requireProjectId();
 
   if (eventId === undefined) notFound();
@@ -47,6 +48,7 @@ export default async function ReplayPage({
           <Link href={`/journeys/${journeyId}?event=${eventId}`}>← Back to the journey</Link>
         </p>
         <h1>Replay this input</h1>
+        {failure === undefined ? null : <ReplayFailure code={failure} />}
         <p className="muted">
           Sends what <span className="mono">{event.name}</span> received to a development
           destination, so you can check a fix against the input that actually failed. Nothing is
