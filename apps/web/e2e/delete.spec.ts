@@ -59,7 +59,10 @@ test("deletes a journey through the confirmation page, and search no longer find
   await page.getByRole("button", { name: "Delete journey" }).click();
 
   await expect(page).toHaveURL("/?deleted=customer");
-  await expect(page.getByRole("status")).toContainText("Deleted the customer journey.");
+  // Filtered: the search form also has a status line, empty until it is sent.
+  await expect(
+    page.getByRole("status").filter({ hasText: "Deleted the customer journey." })
+  ).toHaveClass("notice");
 
   await page.fill("input[name=q]", ENTITY_ID);
   await page.click("button[type=submit]");

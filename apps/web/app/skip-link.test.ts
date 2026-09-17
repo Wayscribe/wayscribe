@@ -26,6 +26,20 @@ describe("the skip link target", () => {
     expect(files.length).toBeGreaterThan(5);
   });
 
+  it("has a <main> in every page file but the redirect-only ones", () => {
+    // These only ever redirect, so they render nothing to skip to.
+    const redirectOnly = [join("(authenticated)", "recent", "page.tsx")];
+    const without = files
+      .map((file) => file.slice(APP.length))
+      .filter((file) => !redirectOnly.includes(file))
+      .filter((file) => !/<main\b/.test(readFileSync(join(APP, file), "utf8")));
+    expect(without).toEqual([]);
+    // Kept honest: an allowlisted page that grows a <main> leaves the list.
+    for (const file of redirectOnly) {
+      expect(readFileSync(join(APP, file), "utf8")).not.toMatch(/<main\b/);
+    }
+  });
+
   it("is on every <main> in every page file", () => {
     const missing = files.flatMap((file) =>
       [...readFileSync(file, "utf8").matchAll(/<main\b[^>]*>/g)]

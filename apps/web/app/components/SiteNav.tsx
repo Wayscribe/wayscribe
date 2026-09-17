@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LinkPending } from "./LinkPending";
 
 /**
  * The glossary, as the repository hosts it.
@@ -18,8 +19,14 @@ export const GLOSSARY_URL =
 export function SiteNav() {
   return (
     <nav className="site-nav" aria-label="Main">
-      <Link href="/">Search</Link>
-      <Link href="/journeys">Journeys</Link>
+      <Link href="/">
+        Search
+        <LinkPending />
+      </Link>
+      <Link href="/journeys">
+        Journeys
+        <LinkPending />
+      </Link>
       <a className="site-nav-aside muted" href={GLOSSARY_URL}>
         Glossary
       </a>

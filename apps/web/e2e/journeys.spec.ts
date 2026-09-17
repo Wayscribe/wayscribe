@@ -374,7 +374,10 @@ test("says so when a filter is repeated, and lists without it", async ({ page })
   await expect(page.locator(".filter-notes")).toHaveText(
     "status was given more than once, so it was left out."
   );
-  await expect(page.getByRole("status")).toContainText("status was given more than once");
+  // Filtered: the filter form also has a status line, empty until it is sent.
+  await expect(
+    page.getByRole("status").filter({ hasText: "status was given more than once" })
+  ).toHaveCount(1);
   await expect(rows(page)).toHaveCount(3);
 });
 

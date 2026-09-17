@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import type { JourneyListRow } from "../../src/lib/api";
 import { journeyHref } from "../../src/lib/journey-filters";
 import { fullTimestamp } from "../../src/lib/time";
+import { LinkPending } from "./LinkPending";
 
 /**
  * How many characters of joined alias values a row keeps. A label is at most
@@ -87,6 +88,7 @@ export function JourneyRow({
           className={shownClass}
           title={shown.text}
         >
+          <LinkPending />
           {shown.text}
         </Link>
       </td>

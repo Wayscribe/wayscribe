@@ -212,6 +212,51 @@ button {
   top: 0.5rem;
 }
 
+/* Loading feedback, shown only with JavaScript: the pages are not streamed, so
+   a sent form or a followed link would otherwise show nothing until the next
+   page arrives. */
+.pending-status {
+  margin: 0 0 1rem;
+}
+.pending-status:empty {
+  margin: 0;
+}
+button[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.75;
+}
+/* A small ring inside a link being followed. Delayed, so a fast navigation
+   does not flash it. */
+.link-pending {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin: 0 0.35em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.05em;
+  opacity: 0;
+  animation:
+    link-pending-in 0s linear 150ms forwards,
+    link-pending-spin 0.8s linear infinite;
+}
+@keyframes link-pending-in {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes link-pending-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .link-pending {
+    animation: link-pending-in 0s linear 150ms forwards;
+  }
+}
+
 /* Journeys: a plain GET form of filters, wrapping on a narrow screen. */
 .journey-filters {
   display: flex;

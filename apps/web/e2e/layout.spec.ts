@@ -175,9 +175,7 @@ test.describe("the Journeys table", () => {
       expect(cutHeaders).toEqual([]);
 
       // The table keeps to the page, and each long value is cut rather than wrapped.
-      // By class: the page streams behind its loading state, and React leaves
-      // empty hidden <table> shells from the stream at the end of the body.
-      const tableBox = await page.locator("table.journey-table").boundingBox();
+      const tableBox = await page.locator("table").boundingBox();
       const mainBox = await page.locator("main").boundingBox();
       expect(tableBox?.width).toBeLessThanOrEqual(mainBox?.width ?? 0);
       for (const index of [0, 1]) {

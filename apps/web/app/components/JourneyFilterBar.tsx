@@ -4,13 +4,16 @@ import {
   JOURNEY_STATUSES,
   type JourneyFilters
 } from "../../src/lib/journey-filters";
+import { PendingForm, PendingSubmit } from "./PendingForm";
 
 /**
  * The Journeys page's filters: a plain GET form rendered on the server.
  *
- * No client state, so it works without JavaScript and a filtered view is a URL
- * someone can paste. Not the timeline's `FilterBar`, which toggles filters in
- * the browser: this one only ever submits.
+ * No client state for the filters, so it works without JavaScript and a
+ * filtered view is a URL someone can paste. `PendingForm` only adds a status
+ * line once the form is sent, when JavaScript is there to show it. Not the
+ * timeline's `FilterBar`, which toggles filters in the browser: this one only
+ * ever submits.
  *
  * The custom range uses `datetime-local` inputs, which carry no time zone.
  * They are read as UTC, like every time the app shows, and the group says so.
@@ -34,13 +37,14 @@ export function JourneyFilterBar({
     // client-side navigation, such as the Failures shortcut, and an
     // uncontrolled field ignores a new defaultValue, so the form showed the
     // old filters over the new list. A new key rebuilds it.
-    <form
+    <PendingForm
       key={JSON.stringify(filters)}
       method="get"
       action="/journeys"
       className="journey-filters"
       role="search"
       aria-label="Filter journeys"
+      pendingMessage="Loading journeys…"
     >
       {/* Labels name their control by id rather than by wrapping it: a label
           wrapped around a select also takes in the options' text, so a
@@ -148,10 +152,10 @@ export function JourneyFilterBar({
           placeholder="any"
         />
       </div>
-      <button type="submit">Show</button>
+      <PendingSubmit>Show</PendingSubmit>
       <p id="journeys-range-hint" className="muted hint">
         The range applies when Time is set to custom range; leave To empty for up to now.
       </p>
-    </form>
+    </PendingForm>
   );
 }

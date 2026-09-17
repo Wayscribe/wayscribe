@@ -8,8 +8,8 @@ import {
   listJourneys,
   listProjects,
   type JourneyListPage
-} from "../../../../src/lib/api";
-import { requireProjectId } from "../../../../src/lib/current-project";
+} from "../../../src/lib/api";
+import { requireProjectId } from "../../../src/lib/current-project";
 import {
   describeJourneyFilters,
   emptyListMessage,
@@ -22,9 +22,10 @@ import {
   toQueryString,
   withoutEmptyValues,
   type JourneyFilters
-} from "../../../../src/lib/journey-filters";
-import { JourneyFilterBar } from "../../../components/JourneyFilterBar";
-import { JourneyTable } from "../../../components/JourneyTable";
+} from "../../../src/lib/journey-filters";
+import { JourneyFilterBar } from "../../components/JourneyFilterBar";
+import { LinkPending } from "../../components/LinkPending";
+import { JourneyTable } from "../../components/JourneyTable";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -35,8 +36,11 @@ type SearchParams = Record<string, string | string[] | undefined>;
  *
  * Rendered on the server from the URL alone, so a filtered view is a link.
  *
- * In the `(list)` route group so its loading state covers this page and not
- * the journey pages beside it (`loading.tsx` says why).
+ * Deliberately not streamed: no loading.tsx and no Suspense around the data.
+ * The page has to work without JavaScript, and a streamed page reveals its
+ * content with a script; streaming also turns this page's redirects into a
+ * 200 and a meta refresh. Pending feedback comes from the form and the row
+ * links instead (`PendingForm`, `LinkPending`), and only with JavaScript.
  */
 export default async function JourneysPage({
   searchParams
@@ -147,7 +151,10 @@ export default async function JourneysPage({
           {page.nextCursor === null ? null : (
             <>
               Showing {page.items.length} journeys.{" "}
-              <Link href={nextPageHref(filters, page.nextCursor)}>Next page</Link>
+              <Link href={nextPageHref(filters, page.nextCursor)}>
+                Next page
+                <LinkPending />
+              </Link>
             </>
           )}{" "}
           {filters.cursor === "" ? null : (
