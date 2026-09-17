@@ -100,31 +100,34 @@ payloads at all. Treat the database as holding whatever your workflows carry.
 
 ## What does the SDK cost my service?
 
-Measured on 2026-09-16 with the SDK's own benchmark
+Measured on 2026-09-17 with the SDK's own benchmark
 (`pnpm --filter @flight-recorder/node bench`) on an Apple M3 Pro, macOS 26.2,
 Node 24.19.0, default configuration, while the machine ran other work.
 Source: [SDK README, What it costs](../packages/sdk-node/README.md#what-it-costs).
 
-**Time added to each wrapped call**, in microseconds:
+**Time added to each wrapped call**, in microseconds. The benchmark sleeps
+between calls; "cores idle" is that default run, and "core awake" is the same
+run with a core kept busy (`--awake`), which is closer to a service under load.
 
-| Wrapper | Payload | Added p50 | Added p99 |
+| Wrapper | Payload | Cores idle, p50 / p99 | Core awake, p50 / p99 |
 | --- | --- | --- | --- |
-| `transform` (sync) | 1 KiB | 112 | 1,462 |
-| `persist` (async) | 1 KiB | 93 | 1,504 |
-| `transform` (sync) | 64 KiB | 2,172 | 12,526 |
-| `persist` (async) | 64 KiB | 1,717 | 10,917 |
+| `transform` (sync) | 1 KiB | 89 / 1,341 | 31 / 324 |
+| `persist` (async) | 1 KiB | 67 / 1,507 | 18 / 205 |
+| `transform` (sync) | 64 KiB | 1,816 / 14,424 | 1,563 / 12,336 |
+| `persist` (async) | 64 KiB | 1,541 / 12,875 | 757 / 6,477 |
 
 Most of it is redaction and the copy that makes a payload safe to store, so it
 grows with the payload. The p99 is mostly the one call in each batch of 50 that
-serialises the batch.
+serialises the batch. An endpoint that is down or slow adds nothing a call
+waits on.
 
 **Sustained load**, 2,000 wrapped calls a second for 60 seconds at 1 KiB:
 
 | | Unwrapped | Wrapped |
 | --- | --- | --- |
 | Heap after GC, start to end | 7.0 to 8.0 MiB | 9.2 to 9.4 MiB |
-| Resident set size at the end | 77 MiB | 220 MiB |
-| Event-loop delay beyond its timer, p50 / p99 | 0.40 / 1.01 ms | 0.20 / 1.79 ms |
+| Resident set size at the end | 76 MiB | 219 MiB |
+| Event-loop delay beyond its timer, p50 / p99 | 0.45 / 0.99 ms | 0.17 / 1.73 ms |
 | Events stored / dropped | | 124,000 / 0 |
 
 The SDK has no runtime dependencies. If you record large payloads, record a
@@ -199,12 +202,15 @@ and a single event 4.3 and 4.7 ms
 Your service carries on. Source:
 [SDK README](../packages/sdk-node/README.md#it-cannot-break-your-application).
 
-- **Recording never waits on the network.** Against an endpoint answering after
-  200 ms, the time added per call at 1 KiB was 60 to 125 µs at p50, as against a
-  working endpoint; with the endpoint refusing connections it was 96 to 161 µs,
-  because every event past the queue's bound is dropped and reported. Neither
-  is the 200 ms a waited-on request would add (two runs on 2026-09-16,
-  [What it costs](../packages/sdk-node/README.md#what-it-costs)).
+- **Recording never waits on the network.** With a core kept awake, the time
+  added per call at 1 KiB was the same against an endpoint answering after
+  200 ms, against one refusing connections, and against a working one: 31 to
+  34 µs at p50 for `transform` and 18 to 19 µs for `persist`. With the
+  processor idle between calls every figure is higher and moves more; a
+  refusing endpoint can read higher still (90 and 125 µs for `transform`,
+  against 89 and 114), because a process whose sends fail at once leaves its
+  cores idle for longer. None is the 200 ms a waited-on request would add (two
+  runs of each on 2026-09-17, [What it costs](../packages/sdk-node/README.md#what-it-costs)).
 - **Events wait in a bounded queue**, 1,000 by default (`maxBufferedEvents`).
   Past it, the oldest are dropped and counted, so memory does not grow with the
   outage.

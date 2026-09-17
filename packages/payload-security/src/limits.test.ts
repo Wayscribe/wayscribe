@@ -157,6 +157,40 @@ describe("checkLimits", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("unserialisable_payload");
   });
+
+  it("stops measuring once a payload is certainly over the limit", () => {
+    // Shared references, 24 levels: 26 objects, and 16 million leaves once
+    // expanded. Serialising all of it to measure it took about 2 seconds and
+    // 245 MB on an Apple M3 Pro.
+    let dag: unknown = "x";
+    for (let level = 0; level < 24; level += 1) dag = { l: dag, r: dag };
+    const started = performance.now();
+    const result = checkLimits(dag, DEFAULT_LIMITS);
+    const elapsed = performance.now() - started;
+    expect(result).toEqual({ ok: false, reason: "payload_too_large" });
+    expect(elapsed).toBeLessThan(250);
+  });
+
+  it("measures exactly at the limit, with keys, escapes and wide characters", () => {
+    // Stopping early must not move the boundary by a byte.
+    const value = {
+      "ky": ["é", "😀", 1.5, true, null, { "": " " }],
+      skipped: undefined,
+      fn: () => 1,
+      list: [undefined, () => 1],
+      // Left out of the JSON, so they must weigh nothing on the way.
+      ...Object.fromEntries(
+        Array.from({ length: 200 }, (_unused, index) => [`u${String(index)}`, undefined])
+      ),
+      symbol: Symbol("s")
+    };
+    const bytes = Buffer.byteLength(JSON.stringify(value), "utf8");
+    expect(checkLimits(value, { ...DEFAULT_LIMITS, maxBytes: bytes }).ok).toBe(true);
+    expect(checkLimits(value, { ...DEFAULT_LIMITS, maxBytes: bytes - 1 })).toEqual({
+      ok: false,
+      reason: "payload_too_large"
+    });
+  });
 });
 
 /**

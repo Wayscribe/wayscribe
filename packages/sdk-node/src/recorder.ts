@@ -7,7 +7,6 @@ import {
   payloadLimits,
   redact,
   toStorable,
-  truncateStrings,
   type LimitViolation,
   type TruncationStats
 } from "@flight-recorder/payload-security/redaction";
@@ -716,11 +715,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // left from a capture that failed part way is dropped first.
       secretNames.take(field);
       const stats: TruncationStats = { strings: 0, charactersRemoved: 0 };
-      const stored = truncateStrings(
-        toStorable(redact(value, resolved.redact, secretNames.observerFor(field))),
-        MAX_STRING_LENGTH,
+      const stored = toStorable(redact(value, resolved.redact, secretNames.observerFor(field)), {
+        max: MAX_STRING_LENGTH,
         stats
-      );
+      });
       const found = secretNames.take(field);
       return {
         value: stored,
@@ -770,6 +768,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * never withheld.
    */
   function fitToBudget(envelope: { event: Record<string, unknown> }): void {
+    if (plainlyWithinBudget(envelope)) return;
     const { event } = envelope;
     const limits = eventLimits(resolved.maxEventBytes);
     for (;;) {
@@ -787,11 +786,42 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
   }
 
+  /**
+   * True when the envelope is certainly within the byte budget, measured
+   * without the server's check. `fitToBudget` then has nothing to do: the check
+   * could only answer `ok`, or a structural reason it does not act on.
+   *
+   * The check walks the envelope and serialises it through a replacer, which
+   * calls back into JavaScript for every value. On a 1 KiB `transform` that was
+   * a quarter of the time a wrapped call took (measured on 2026-09-16).
+   *
+   * Plain `JSON.stringify` measures what the wire carries, since the batch is
+   * sent with it too. For the payloads that is also what the check measures:
+   * `input`, `output` and `metadata` have been through capture, so every Map,
+   * Set, Error, BigInt and cycle in them is already rendered. Not everything on
+   * the envelope has: `name` and `operation` are the caller's, and `error`
+   * keeps any extra fields a JavaScript caller put on it. A Map in one of those
+   * measures here as the `{}` it is sent as, where the check would have
+   * weighed its entries; a BigInt or a cycle throws, here and when the batch
+   * is sent, and falls back to the check.
+   */
+  function plainlyWithinBudget(envelope: { event: Record<string, unknown> }): boolean {
+    try {
+      const text = JSON.stringify(envelope);
+      return Buffer.byteLength(text, "utf8") <= resolved.maxEventBytes;
+    } catch {
+      return false;
+    }
+  }
+
   function nextToOmit(event: Record<string, unknown>): PayloadField | undefined {
     const size = (field: "input" | "output"): number => {
       const value = event[field];
       if (value === undefined || value === TOO_LARGE || value === UNCAPTURABLE) return 0;
-      return Buffer.byteLength(JSON.stringify(value), "utf8");
+      // A function or a Symbol serialises to nothing: it takes no room, and
+      // weighing `undefined` threw and lost the whole event.
+      const text = JSON.stringify(value) as string | undefined;
+      return text === undefined ? 0 : Buffer.byteLength(text, "utf8");
     };
     const input = size("input");
     const output = size("output");
@@ -1131,9 +1161,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * Starts a background flush unless the cap is already reached.
    *
    * The cap is `maxConcurrentSends` (config.ts says why the default is four).
+   *
+   * Nothing is started while the breaker is open: that send would throw at
+   * once and hand its batch back unchanged, so skipping it changes no event
+   * and no counter. It used to run for every event recorded against a
+   * refusing endpoint, inside the call being recorded. The interval tries
+   * again once the cooldown is over, and `flush()` and `shutdown()` do not
+   * come through here.
    */
   function maybeFlush(): void {
-    if (inFlight.size < resolved.maxConcurrentSends) track(flush());
+    if (inFlight.size < resolved.maxConcurrentSends && !transport.isOpen()) track(flush());
   }
 
   // The interval goes through the same cap. Without that it could add one more

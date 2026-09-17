@@ -10,6 +10,8 @@ import { buildRecorder, defaultMaxConcurrentSends } from "./build.mjs";
  *   pnpm --filter @flight-recorder/node bench            full run, about ten minutes
  *   pnpm --filter @flight-recorder/node bench -- --quick  shorter windows, for checking the harness
  *   pnpm --filter @flight-recorder/node bench -- --only=latency,sustained,concurrency
+ *   pnpm --filter @flight-recorder/node bench -- --only=latency --awake
+ *                                                         with a core kept awake (see awake.mjs)
  *
  * Every measurement runs in its own child process against an ingestion stub
  * that is also its own process, so neither the stub nor an earlier scenario
@@ -20,6 +22,7 @@ import { buildRecorder, defaultMaxConcurrentSends } from "./build.mjs";
  * assertion.
  */
 const quick = process.argv.includes("--quick");
+const awake = process.argv.includes("--awake");
 const onlyArgument = process.argv.find((argument) => argument.startsWith("--only="));
 const only = new Set(
   onlyArgument === undefined
@@ -61,7 +64,12 @@ function runScenario(args, stub) {
     const child = fork(
       fileURLToPath(new URL("./scenario.mjs", import.meta.url)),
       [JSON.stringify(args)],
-      { execArgv: ["--expose-gc"] }
+      {
+        execArgv: [
+          "--expose-gc",
+          ...(awake ? ["--import", new URL("./awake.mjs", import.meta.url).href] : [])
+        ]
+      }
     );
     child.on("message", (message) => {
       if (message?.type === "stats" && stub !== undefined) {
@@ -91,7 +99,9 @@ const log = (text = "") => {
 };
 
 const cpu = cpus()[0]?.model ?? "unknown CPU";
-log(`# Flight Recorder SDK overhead${quick ? " (quick)" : ""}`);
+log(
+  `# Flight Recorder SDK overhead${quick ? " (quick)" : ""}${awake ? " (a core kept awake)" : ""}`
+);
 log();
 log(
   `${cpu}, ${String(cpus().length)} cores, ${fixed(totalmem() / 2 ** 30, 0)} GiB; ` +

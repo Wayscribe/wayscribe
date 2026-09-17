@@ -88,6 +88,38 @@ describe("truncateStrings", () => {
     );
   });
 
+  it("copies the children before the first cut as they were, in order, holes and __proto__ included", () => {
+    const shared = { deep: ["short"] };
+    const value = JSON.parse(
+      `{"__proto__": {"x": 1}, "first": "a", "nested": null, "late": "${"z".repeat(300)}", "after": 2}`
+    ) as Record<string, unknown>;
+    value["nested"] = shared;
+    // eslint-disable-next-line no-sparse-arrays -- the hole before the cut is the case
+    const list: unknown[] = [shared, , "b", "w".repeat(300), "c"];
+    const before = JSON.stringify({ value, list });
+
+    const result = truncateStrings(value, 200) as Record<string, unknown>;
+    expect(Object.keys(result)).toEqual(["__proto__", "first", "nested", "late", "after"]);
+    expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+    expect(Object.getOwnPropertyDescriptor(result, "__proto__")?.value).toBe(value["__proto__"]);
+    expect(result["nested"]).toBe(shared);
+    expect((result["late"] as string).length).toBe(200);
+    expect(result["after"]).toBe(2);
+
+    const cutList = truncateStrings(list, 200) as unknown[];
+    expect(cutList).toHaveLength(5);
+    expect(cutList[0]).toBe(shared);
+    // Filled as it always was: a hole before the cut is an undefined element.
+    expect(1 in cutList).toBe(true);
+    expect(cutList[1]).toBeUndefined();
+    expect(cutList[2]).toBe("b");
+    expect((cutList[3] as string).length).toBe(200);
+    expect(cutList[4]).toBe("c");
+
+    // The input is not changed.
+    expect(JSON.stringify({ value, list })).toBe(before);
+  });
+
   it("does not cut keys, which the server's limit does not measure", () => {
     const key = "k".repeat(300);
     const result = truncateStrings({ [key]: "v" }, 200) as Record<string, unknown>;

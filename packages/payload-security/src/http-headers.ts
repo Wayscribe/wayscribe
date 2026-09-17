@@ -157,7 +157,11 @@ export function maskHeaderLines(
   // Text ending in the truncation marker counts as a block too: a client that
   // cut a block to its first line, and lost the only line break with it, must
   // not have that line escape masking.
-  if (!text.includes(CRLF) && !TRUNCATION_MARKER_PATTERN.test(text)) return text;
+  // The pattern is anchored at the end, so text not ending in its last
+  // character cannot match, and most text is ruled out without the search.
+  if (!text.includes(CRLF) && !(text.endsWith("]") && TRUNCATION_MARKER_PATTERN.test(text))) {
+    return text;
+  }
 
   let output = "";
   let copied = 0;

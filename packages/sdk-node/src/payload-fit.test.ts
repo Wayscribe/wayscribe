@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { checkLimits, eventLimits } from "@flight-recorder/payload-security/redaction";
 import { describe, expect, it } from "vitest";
 import type { Counters, Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Journey, type RecorderConfig } from "./index.js";
@@ -262,6 +263,107 @@ describe("fitting an event to the server's limits", () => {
     const raw = (events[0]?.["input"] as { raw: string }).raw;
     expect(raw).toHaveLength(65_536);
     expect(raw.endsWith("\r\n[TRUNCATED: 4543 characters removed]")).toBe(true);
+  });
+
+  it("omits a payload exactly when the server's check says the event is too large", async () => {
+    // Every value the capture pipeline renders: text of one to four UTF-8
+    // bytes, a lone surrogate, a NUL, a BigInt, a Map, a Set, a Date, an
+    // Error, a shared object and a cycle. The budget is swept one byte at a
+    // time across the event's size, so a measurement that differs from the
+    // server's by a single byte fails here.
+    const shared = { note: "shared é" };
+    const payload = (): Record<string, unknown> => {
+      const value: Record<string, unknown> = {
+        text: "plain ascii, é ü, 漢字, 😀 and a lone \ud800 with a \u0000 in it",
+        big: 12_345_678_901_234_567_890n,
+        map: new Map<string, unknown>([
+          ["k", "v"],
+          ["n", 1]
+        ]),
+        set: new Set(["a", "ß"]),
+        when: new Date(0),
+        error: new Error("failed: ü"),
+        left: shared,
+        right: shared
+      };
+      value["self"] = value;
+      return value;
+    };
+    const metadata = { tenant: "acmé" };
+    const record = (journey: Journey): void => {
+      journey.record({ operation: "received", name: "sweep", input: payload(), metadata });
+    };
+
+    const whole = await capture(record);
+    const sent = whole.events[0] ?? {};
+    const envelope = { protocolVersion: "0.1", event: sent };
+    const size = Buffer.byteLength(JSON.stringify(envelope), "utf8");
+    expect(checkLimits(envelope, eventLimits(size))).toEqual({ ok: true });
+    expect(checkLimits(envelope, eventLimits(size - 1))).toEqual({
+      ok: false,
+      reason: "payload_too_large"
+    });
+
+    for (let budget = size - 3; budget <= size + 3; budget += 1) {
+      const { events } = await capture(record, { maxEventBytes: budget });
+      const omitted = events[0]?.["input"] === "[PAYLOAD_TOO_LARGE]";
+      expect({ budget, omitted }).toEqual({ budget, omitted: budget < size });
+      if (!omitted) expect(events[0]?.["input"]).toEqual(sent["input"]);
+    }
+  });
+
+  it("sends the event when a payload JSON cannot write pushes it to omit the other", async () => {
+    // A function or a Symbol serialises to nothing. Weighing it used to throw
+    // inside the recorder, and the event was lost as a capture error.
+    for (const input of [() => 1, Symbol("s")]) {
+      const { events, counters } = await capture(
+        (journey) => {
+          journey.record({
+            operation: "transformed",
+            name: "map",
+            input,
+            output: { a: "x".repeat(450) }
+          });
+        },
+        { maxEventBytes: 600 }
+      );
+      expect(counters).toMatchObject({ recorded: 1, sent: 1, captureErrors: 0 });
+      expect(events[0]?.["output"]).toBe("[PAYLOAD_TOO_LARGE]");
+      expect(events[0]).not.toHaveProperty("input");
+    }
+  });
+
+  it("returns promptly from a payload of shared references that expands past the budget", async () => {
+    // 26 objects, each holding the next twice, 24 deep: 16 million leaves once
+    // serialised. record() used to spend about 2 seconds and 245 MB on it.
+    let dag: unknown = "x";
+    for (let level = 0; level < 24; level += 1) dag = { l: dag, r: dag };
+    let elapsed = Number.POSITIVE_INFINITY;
+    const { events, diagnostics } = await capture((journey) => {
+      const started = performance.now();
+      journey.record({ operation: "received", name: "dag", input: dag });
+      elapsed = performance.now() - started;
+    });
+    expect(elapsed).toBeLessThan(250);
+    expect(events[0]?.["input"]).toBe("[PAYLOAD_TOO_LARGE]");
+    expect(diagnostics.find((d) => d.kind === "payload_omitted")).toMatchObject({
+      code: "too_large",
+      detail: { field: "input" }
+    });
+  });
+
+  it("reports no cut for a long string whose key another key replaced", async () => {
+    // `note ` and `note` are one key once stored, and the later value wins.
+    const input = JSON.parse(`{"note\\u0000": "${"x".repeat(70_000)}", "note": "short"}`) as Record<
+      string,
+      unknown
+    >;
+    const { events, diagnostics, counters } = await capture((journey) => {
+      journey.record({ operation: "received", name: "collide", input });
+    });
+    expect(events[0]?.["input"]).toEqual({ note: "short" });
+    expect(counters.payloadsTruncated).toBe(0);
+    expect(diagnostics.filter((d) => d.kind === "payload_truncated")).toEqual([]);
   });
 
   it("keeps the exact accounting: sent + rejected + dropped equals recorded", async () => {

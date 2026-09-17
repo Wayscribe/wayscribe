@@ -1,5 +1,6 @@
 import { renderExotic } from "./exotic.js";
 import { CIRCULAR, defineKey } from "./redact.js";
+import { cutString, type TruncationStats } from "./truncate.js";
 
 /** NUL. PostgreSQL rejects it in `text` and in `jsonb` alike. */
 const NUL = "\u0000";
@@ -41,21 +42,40 @@ export function toStorableText(text: string): string {
  * caller configured at least one path, so this is the path a bare
  * `toStorable(value)` takes.
  */
-export function toStorable(value: unknown): unknown {
-  return walk(value, new Set());
+export function toStorable(value: unknown, cut?: StringCut): unknown {
+  if (cut === undefined) return walk(value, new Set(), (text) => text);
+  const { max, stats } = cut;
+  return walk(value, new Set(), (text) => cutString(text, max, stats));
+}
+
+/**
+ * Every string value in the result cut to `max`, as `truncateStrings` would
+ * cut the result, with the cuts counted in `stats`. Keys are not cut.
+ *
+ * In the same walk, because a capture that stored and then cut walked every
+ * payload twice. The result serialises to the same JSON; the only other
+ * difference is that a hole in an array stays a hole where `truncateStrings`
+ * would copy it as `undefined`, and JSON writes both as `null`.
+ */
+export interface StringCut {
+  max: number;
+  stats: TruncationStats;
 }
 
 /**
  * `seen` is the ancestor chain, not everything visited: two fields pointing at
  * one address object is ordinary, and calling the second [CIRCULAR] would show
  * up in the diff as a change to a field that never changed.
+ *
+ * `finish` is applied to every string value the result holds, after it is made
+ * storable.
  */
-function walk(value: unknown, seen: Set<object>): unknown {
-  if (typeof value === "string") return toStorableText(value);
-  if (typeof value === "bigint") return value.toString();
+function walk(value: unknown, seen: Set<object>, finish: (text: string) => string): unknown {
+  if (typeof value === "string") return finish(toStorableText(value));
+  if (typeof value === "bigint") return finish(value.toString());
   if (value === null || typeof value !== "object") return value;
 
-  if (seen.has(value)) return CIRCULAR;
+  if (seen.has(value)) return finish(CIRCULAR);
 
   // Defence in depth. In the SDK pipeline `redact` runs first and has already
   // rendered these, but `toStorable` is exported on its own and must not be the
@@ -64,7 +84,7 @@ function walk(value: unknown, seen: Set<object>): unknown {
   if (exotic !== undefined) {
     seen.add(value);
     try {
-      return walk(exotic.value, seen);
+      return walk(exotic.value, seen, finish);
     } finally {
       seen.delete(value);
     }
@@ -72,13 +92,29 @@ function walk(value: unknown, seen: Set<object>): unknown {
 
   seen.add(value);
   try {
-    if (Array.isArray(value)) return value.map((child) => walk(child, seen));
+    if (Array.isArray(value)) return value.map((child) => walk(child, seen, finish));
 
+    const entries = Object.entries(value);
+    // Keys too: a NUL in a key is as unstorable as one in a value, and jsonb
+    // rejects the whole document either way.
     const result: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(value)) {
-      // Keys too: a NUL in a key is as unstorable as one in a value, and jsonb
-      // rejects the whole document either way.
-      defineKey(result, toStorableText(key), walk(child, seen));
+    if (entries.every(([key]) => toStorableText(key) === key)) {
+      for (const [key, child] of entries) defineKey(result, key, walk(child, seen, finish));
+      return result;
+    }
+    const keys = entries.map(([key]) => toStorableText(key));
+
+    // Two keys that differ only by a NUL or a lone surrogate become one key.
+    // The last value written wins, in the place the first one took, as
+    // assigning them in order does. Only that value is walked: one walked and
+    // then overwritten was never stored, and `finish` would have counted a
+    // cut in it.
+    const last = new Map<string, number>();
+    keys.forEach((key, index) => last.set(key, index));
+    for (const key of keys) {
+      if (Object.hasOwn(result, key)) continue;
+      const child: unknown = entries[last.get(key) ?? 0]?.[1];
+      defineKey(result, key, walk(child, seen, finish));
     }
     return result;
   } finally {

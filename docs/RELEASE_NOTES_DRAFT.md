@@ -42,13 +42,16 @@ release will not.
   once regardless: a missing or unusable required setting, a renamed option, a
   missing journey-id secret, and a secret-looking field name no redaction rule
   covers. Each diagnostic has a stable `code` to match on.
-- **What it costs is measured.** On 2026-09-16, on an Apple M3 Pro, wrapping a
-  call with a 1 KiB payload added 112 µs at p50 and 1,462 µs at p99 for
-  `transform`, and 93 µs and 1,504 µs for `persist`; at 64 KiB a `transform`
-  added 2,172 µs at p50. At 2,000 wrapped calls a second for a minute, the heap
-  after collection went from 9.2 to 9.4 MiB, and the resident set ended at
-  220 MiB against 77 MiB unwrapped (SDK README, "What it costs"). The machine
-  was running other work, so read these as orders of magnitude.
+- **What it costs is measured.** On 2026-09-17, on an Apple M3 Pro, wrapping a
+  call with a 1 KiB payload added 89 µs at p50 and 1,341 µs at p99 for
+  `transform`, and 67 µs and 1,507 µs for `persist`, with the processor idle
+  between calls; with a core kept awake, as in a busy service, 31 µs and 18 µs
+  at p50. At 64 KiB a `transform` added 1,816 µs at p50, or 1,563 µs with a core
+  awake. At 2,000 wrapped calls a second for a minute, the heap after
+  collection went from 9.2 to 9.4 MiB, and the resident set ended at 219 MiB
+  against 76 MiB unwrapped (SDK README, "What it costs"). The machine was
+  running other work, so read these as orders of magnitude. Tests in
+  `pnpm test` count how often capture walks a payload.
 - **A contract for other clients:** [the ingestion contract](INGESTION_CONTRACT.md),
   [the SDK specification](SDK_SPEC.md), generated JSON Schema, and conformance
   fixtures that any implementation can run through the dry run.

@@ -108,6 +108,21 @@ export class Transport {
     private readonly diagnostics: Diagnostics
   ) {}
 
+  /**
+   * True while the breaker would refuse a send without trying: it is open and
+   * its cooldown has not elapsed. Reading it changes nothing.
+   *
+   * For the recorder's background flushes. A send started now would only throw,
+   * after taking a batch off the queue and before putting it back, which is
+   * work in the calling process for nothing (measured on 2026-09-16: with the
+   * endpoint refusing connections, every recorded event started one).
+   */
+  public isOpen(): boolean {
+    if (this.openedAt === null) return false;
+    const now = this.options.now ?? Date.now;
+    return now() - this.openedAt < this.options.breakerCooldownMs;
+  }
+
   public async send(batch: readonly unknown[]): Promise<void> {
     const now = this.options.now ?? Date.now;
 
