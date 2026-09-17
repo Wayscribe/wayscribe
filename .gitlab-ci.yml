@@ -345,6 +345,9 @@ container-scan:
     # built image, and adding a docker build to every push is a worse trade than
     # catching a regression at merge.
     - ./scripts/verify-image-contents.sh scan/api:$CI_COMMIT_SHA
+    # The web image gets the checks that apply to a Next standalone bundle:
+    # the legal files and its entry point.
+    - ./scripts/verify-image-contents.sh scan/web:$CI_COMMIT_SHA web
     - |
       for image in scan/api:$CI_COMMIT_SHA scan/web:$CI_COMMIT_SHA; do
         echo "=== $image ==="
