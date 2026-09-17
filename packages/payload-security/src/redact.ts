@@ -166,6 +166,13 @@ function toSegment(raw: string): Segment {
 }
 
 /**
+ * No scoped rules. Shared, because the walk only reads rule lists, and the
+ * default configuration has no scoped rules at all: filtering an empty list
+ * into two new ones for every key was a measurable part of capture.
+ */
+const NO_PATHS: Segment[][] = [];
+
+/**
  * `seen` holds the current *ancestor chain*, not everything ever visited.
  *
  * A single accumulating set cannot tell a cycle from a shared reference. Two
@@ -229,9 +236,10 @@ function walk(
   seen.add(value);
   try {
     if (Array.isArray(value)) {
-      const remaining = paths
-        .filter((path) => path[0]?.kind === "arrayAny")
-        .map((path) => path.slice(1));
+      const remaining =
+        paths.length === 0
+          ? NO_PATHS
+          : paths.filter((path) => path[0]?.kind === "arrayAny").map((path) => path.slice(1));
       // Descends even with nothing remaining. Returning early here is what let
       // an array swallow the rules: elements were walked with no paths, so a
       // secret one level inside a list was never examined again.
@@ -308,7 +316,10 @@ function walk(
         continue;
       }
 
-      const matching = paths.filter((path) => matches(path[0], key)).map((path) => path.slice(1));
+      const matching =
+        paths.length === 0
+          ? NO_PATHS
+          : paths.filter((path) => matches(path[0], name)).map((path) => path.slice(1));
       if (matching.some((path) => path.length === 0)) {
         defineKey(result, key, REDACTED);
         continue;
@@ -380,9 +391,10 @@ export function defineKey(target: Record<string, unknown>, key: string, value: u
   target[key] = value;
 }
 
-function matches(segment: Segment | undefined, key: string): boolean {
+/** `name` is the key already passed through `normaliseName`. */
+function matches(segment: Segment | undefined, name: string): boolean {
   if (segment === undefined) return false;
   if (segment.kind === "any") return true;
   if (segment.kind === "arrayAny") return false;
-  return segment.value === normaliseName(key);
+  return segment.value === name;
 }

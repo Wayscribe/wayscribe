@@ -113,6 +113,33 @@ describe("Transport", () => {
     expect(send).toHaveBeenCalledOnce();
   });
 
+  it("says whether a send now would be refused by the open breaker", async () => {
+    const send = vi.fn().mockRejectedValue(new Error("network"));
+    const { transport, advance } = harness(send, { maxAttempts: 1 });
+
+    expect(transport.isOpen()).toBe(false);
+    for (let i = 0; i < 2; i += 1) {
+      await expect(transport.send([envelope])).rejects.toThrow();
+    }
+    expect(transport.isOpen()).toBe(false);
+    await expect(transport.send([envelope])).rejects.toThrow();
+    expect(transport.isOpen()).toBe(true);
+
+    // Asking changes nothing: the breaker is still open for a send.
+    await expect(transport.send([envelope])).rejects.toThrow(/circuit open/i);
+
+    advance(999);
+    expect(transport.isOpen()).toBe(true);
+    advance(2);
+    // Past the cooldown a send would be attempted, so the breaker no longer
+    // stands in its way, though only a send closes it.
+    expect(transport.isOpen()).toBe(false);
+    send.mockClear();
+    send.mockResolvedValue(undefined);
+    await transport.send([envelope]);
+    expect(send).toHaveBeenCalledOnce();
+  });
+
   it("resets the failure count on success", async () => {
     const send = vi
       .fn()

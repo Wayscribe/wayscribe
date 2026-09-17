@@ -53,6 +53,16 @@ export interface TruncationStats {
   charactersRemoved: number;
 }
 
+/** `truncateText`, counting the cut in `stats` when there was one. */
+export function cutString(value: string, max: number, stats: TruncationStats): string {
+  if (value.length <= max) return value;
+  const cut = truncateText(value, max);
+  const removed = Number(TRUNCATION_MARKER_PATTERN.exec(cut)?.[1] ?? value.length);
+  stats.strings += 1;
+  stats.charactersRemoved += removed;
+  return cut;
+}
+
 /**
  * Every string in a JSON-compatible value cut to `max`, with a marker.
  *
@@ -69,36 +79,46 @@ export function truncateStrings(
   max: number,
   stats: TruncationStats = { strings: 0, charactersRemoved: 0 }
 ): unknown {
-  if (typeof value === "string") {
-    if (value.length <= max) return value;
-    const cut = truncateText(value, max);
-    const removed = Number(TRUNCATION_MARKER_PATTERN.exec(cut)?.[1] ?? value.length);
-    stats.strings += 1;
-    stats.charactersRemoved += removed;
-    return cut;
-  }
+  if (typeof value === "string") return cutString(value, max, stats);
 
+  // The copy is started at the first child that changed, with the children
+  // before it, rather than built alongside and thrown away: nearly every payload
+  // has nothing to cut, and a copy of each one was a fifth of this walk's cost.
   if (Array.isArray(value)) {
-    const result: unknown[] = [];
-    let changed = false;
-    for (const child of value as unknown[]) {
+    const children = value as unknown[];
+    let result: unknown[] | undefined;
+    for (let index = 0; index < children.length; index += 1) {
+      const child = children[index];
       const next = truncateStrings(child, max, stats);
-      if (next !== child) changed = true;
+      if (result === undefined) {
+        if (next === child) continue;
+        // Element by element, not `slice`, so a hole becomes `undefined` as it
+        // did when the copy was built alongside.
+        result = [];
+        for (let earlier = 0; earlier < index; earlier += 1) result.push(children[earlier]);
+      }
       result.push(next);
     }
-    return changed ? result : value;
+    return result ?? value;
   }
 
   if (value === null || typeof value !== "object" || !isPlainObject(value)) return value;
 
-  let changed = false;
-  const result: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
+  const entries = Object.entries(value);
+  let result: Record<string, unknown> | undefined;
+  for (let index = 0; index < entries.length; index += 1) {
+    const [key, child] = entries[index] as [string, unknown];
     const next = truncateStrings(child, max, stats);
-    if (next !== child) changed = true;
+    if (result === undefined) {
+      if (next === child) continue;
+      result = {};
+      for (const [earlierKey, earlier] of entries.slice(0, index)) {
+        defineKey(result, earlierKey, earlier);
+      }
+    }
     defineKey(result, key, next);
   }
-  return changed ? result : value;
+  return result ?? value;
 }
 
 function isPlainObject(value: object): boolean {

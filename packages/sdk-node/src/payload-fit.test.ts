@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { checkLimits, eventLimits } from "@flight-recorder/payload-security/redaction";
 import { describe, expect, it } from "vitest";
 import type { Counters, Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Journey, type RecorderConfig } from "./index.js";
@@ -262,6 +263,53 @@ describe("fitting an event to the server's limits", () => {
     const raw = (events[0]?.["input"] as { raw: string }).raw;
     expect(raw).toHaveLength(65_536);
     expect(raw.endsWith("\r\n[TRUNCATED: 4543 characters removed]")).toBe(true);
+  });
+
+  it("omits a payload exactly when the server's check says the event is too large", async () => {
+    // Every value the capture pipeline renders: text of one to four UTF-8
+    // bytes, a lone surrogate, a NUL, a BigInt, a Map, a Set, a Date, an
+    // Error, a shared object and a cycle. The budget is swept one byte at a
+    // time across the event's size, so a measurement that differs from the
+    // server's by a single byte fails here.
+    const shared = { note: "shared é" };
+    const payload = (): Record<string, unknown> => {
+      const value: Record<string, unknown> = {
+        text: "plain ascii, é ü, 漢字, 😀 and a lone \ud800 with a \u0000 in it",
+        big: 12_345_678_901_234_567_890n,
+        map: new Map<string, unknown>([
+          ["k", "v"],
+          ["n", 1]
+        ]),
+        set: new Set(["a", "ß"]),
+        when: new Date(0),
+        error: new Error("failed: ü"),
+        left: shared,
+        right: shared
+      };
+      value["self"] = value;
+      return value;
+    };
+    const metadata = { tenant: "acmé" };
+    const record = (journey: Journey): void => {
+      journey.record({ operation: "received", name: "sweep", input: payload(), metadata });
+    };
+
+    const whole = await capture(record);
+    const sent = whole.events[0] ?? {};
+    const envelope = { protocolVersion: "0.1", event: sent };
+    const size = Buffer.byteLength(JSON.stringify(envelope), "utf8");
+    expect(checkLimits(envelope, eventLimits(size))).toEqual({ ok: true });
+    expect(checkLimits(envelope, eventLimits(size - 1))).toEqual({
+      ok: false,
+      reason: "payload_too_large"
+    });
+
+    for (let budget = size - 3; budget <= size + 3; budget += 1) {
+      const { events } = await capture(record, { maxEventBytes: budget });
+      const omitted = events[0]?.["input"] === "[PAYLOAD_TOO_LARGE]";
+      expect({ budget, omitted }).toEqual({ budget, omitted: budget < size });
+      if (!omitted) expect(events[0]?.["input"]).toEqual(sent["input"]);
+    }
   });
 
   it("keeps the exact accounting: sent + rejected + dropped equals recorded", async () => {
