@@ -6,6 +6,7 @@ import { createKnexConfig } from "../knex-config.js";
 import { insertReturningId } from "../insert.js";
 import { KeyAdminError, issueKey, listKeys, revokeKey } from "./key-admin.js";
 import { findApiKeyByPrefix } from "./api-keys.js";
+import { listAudit } from "./audit.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 
@@ -108,5 +109,113 @@ describe("API key administration", () => {
       expect(Object.keys(key)).not.toContain("keyHash");
       expect(key.keyPrefix).toHaveLength(12);
     }
+  });
+
+  describe("the audit trail (SECURITY.md section 13)", () => {
+    const projectId = async (): Promise<string> => {
+      const row: unknown = await db("projects").where({ slug: "local" }).first("id");
+      return (row as { id: string }).id;
+    };
+    const rowsFor = async (action: string, resourceId: string) =>
+      (await listAudit(db, await projectId(), 1000)).filter(
+        (row) => row.action === action && row.resourceId === resourceId
+      );
+
+    it("records an issued key, by prefix and never by value, in the key's own transaction", async () => {
+      const issued = await issueKey(db, keyring, {
+        projectSlug: "local",
+        environmentName: "audited",
+        name: "audited-worker"
+      });
+
+      const rows = await rowsFor("api_key.created", issued.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        actor: "cli",
+        resourceType: "api_key",
+        metadata: {
+          keyPrefix: issued.keyPrefix,
+          name: "audited-worker",
+          environment: "audited",
+          environmentCreated: true
+        }
+      });
+      // The key itself is the one thing the row must not hold, in any field.
+      expect(JSON.stringify(rows[0])).not.toContain(issued.apiKey);
+
+      const second = await issueKey(db, keyring, {
+        projectSlug: "local",
+        environmentName: "audited",
+        name: "audited-second"
+      });
+      expect((await rowsFor("api_key.created", second.id))[0]?.metadata).toMatchObject({
+        environmentCreated: false
+      });
+    });
+
+    it("records a revocation once, and nothing for a refused one", async () => {
+      const issued = await issueKey(db, keyring, {
+        projectSlug: "local",
+        environmentName: "development",
+        name: "audited-revoke"
+      });
+      await revokeKey(db, issued.keyPrefix);
+      await expect(revokeKey(db, issued.keyPrefix)).rejects.toThrow(KeyAdminError);
+
+      const rows = await rowsFor("api_key.revoked", issued.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        actor: "cli",
+        resourceType: "api_key",
+        metadata: {
+          keyPrefix: issued.keyPrefix,
+          name: "audited-revoke",
+          environment: "development"
+        }
+      });
+    });
+
+    it("writes no key and no row when the project does not exist", async () => {
+      const before = await db("audit_events").count({ n: "*" });
+      const keysBefore = await db("api_keys").count({ n: "*" });
+      await expect(
+        issueKey(db, keyring, { projectSlug: "absent", environmentName: "x", name: "x" })
+      ).rejects.toThrow(KeyAdminError);
+      expect(await db("audit_events").count({ n: "*" })).toEqual(before);
+      expect(await db("api_keys").count({ n: "*" })).toEqual(keysBefore);
+    });
+
+    it("rolls the key back when its audit row cannot be written", async () => {
+      // The property "a key never exists without the record of its issue" is
+      // only true if the two share a transaction. Break the audit insert and
+      // check the key did not survive it.
+      await db.raw(`
+        create function refuse_key_audit() returns trigger language plpgsql as $$
+        begin
+          if new.action = 'api_key.created' then
+            raise exception 'audit refused for the test';
+          end if;
+          return new;
+        end $$;
+        create trigger refuse_key_audit before insert on audit_events
+          for each row execute function refuse_key_audit();
+      `);
+      try {
+        const keysBefore = await db("api_keys").count({ n: "*" });
+        await expect(
+          issueKey(db, keyring, {
+            projectSlug: "local",
+            environmentName: "never-created",
+            name: "unaudited"
+          })
+        ).rejects.toThrow(/audit refused/);
+        expect(await db("api_keys").count({ n: "*" })).toEqual(keysBefore);
+        expect(await db("environments").where({ name: "never-created" }).first()).toBeUndefined();
+      } finally {
+        await db.raw(
+          "drop trigger refuse_key_audit on audit_events; drop function refuse_key_audit();"
+        );
+      }
+    });
   });
 });

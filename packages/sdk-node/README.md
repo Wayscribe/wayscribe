@@ -300,8 +300,8 @@ random id, so recording carries on and the journeys split until the secret is
 set. A secret shorter than 32 bytes is reported once when the recorder is
 created, and never used. Because split journeys are easy to miss, a missing or
 short secret also prints one line to stderr, once per process, even with
-`logDiagnostics` off; it and the required-setting warning below are the only
-things the SDK prints unasked. An entity
+`logDiagnostics` off; it is one of the four warnings the SDK prints unasked
+([It cannot break your application](#it-cannot-break-your-application)). An entity
 whose type or id holds an unpaired surrogate is refused the same way (reported,
 random id, no warning line): it cannot be encoded faithfully, and the server
 refuses such an id anyway. The SDK reads no environment variable for it: the
@@ -446,8 +446,8 @@ no library. This one is built so that cannot happen:
 - Nothing is written to your console unless you set `logDiagnostics`, with
   four exceptions, each printed once per process: a `journeyIdSecret` that
   cannot be used; a required setting (`endpoint`, `apiKey`, `serviceName`,
-  `environment`) that is missing or not a string, since nothing recorded
-  reaches the server until it is fixed; a setting under its old name
+  `environment`) that is missing, empty, blank or not a string, since nothing
+  recorded reaches the server until it is fixed; a setting under its old name
   (`maxPayloadBytes`, `propagate`), since its value is not read; and, once per
   name, a field whose name looks like a secret that was sent in plain text. A line names the setting or
   the field, never its value. Pass `onDiagnostic` if you want to hear about failures in your own
@@ -732,8 +732,9 @@ case, `-` and `_` ignored:
   contents of a `Map`, `Headers` or `URLSearchParams`
 - a name-value pair: an array element that is a two-element array whose first
   item is a string, such as fetch's `[["Authorization", "Bearer …"]]`
-- a name-value object in an array, with exactly the keys `name` and `value`
-  (HAR) or `key` and `value` (Playwright's `headersArray`)
+- a name-value object in an array: a plain object with a string `name` (HAR) or
+  a string `key` (Playwright's `headersArray`) beside a `value`. Only `value` is
+  replaced, whatever other keys the object has, such as HAR's `comment`
 - an interleaved header list: a flat string array of even length whose
   even-indexed items are all valid HTTP header names or HTTP/2 pseudo-headers
   such as `:path`, and include at least one common header (`host`,
@@ -762,11 +763,15 @@ Redaction goes by name, so a credential under a name neither list covers is
 sent in plain text: rename `authToken` to `sessionCredential` and it is. The SDK
 never redacts on a guess, because a guess would change what your diffs show.
 It tells you instead, once per name per process, whether or not
-`logDiagnostics` is on:
+`logDiagnostics` is on. With `logDiagnostics` off, the default, the line ends
+with a note saying why it was printed:
 
 ```text
 [flight-recorder] unredacted_secret_name: A field named "sessionCredential" (at input.session.sessionCredential) looks like a secret and was sent unredacted. If it holds a secret, add "**.sessionCredential" to the redact option; if it does not, add "sessionCredential" to knownSafeNames. (printed once per process and name, whether or not logDiagnostics is on, because the value is stored in plain text)
 ```
+
+With `logDiagnostics: true` the same line is printed without the note in
+parentheses. Both forms were printed by the built SDK on 2026-09-16.
 
 The line and the diagnostic name the field and where it was, with array
 indices written `[*]`; they never include the value. Names are checked as
@@ -958,9 +963,12 @@ would not serialize is very often the step you are trying to debug.
 
 Measured with the SDK's own benchmark on an Apple M3 Pro (12 cores, 18 GiB),
 macOS 26.2, Node 24.19.0, with the default configuration and
-`maxConcurrentSends` of 4. The machine was running other work at the time, so
-read the numbers as orders of magnitude; the maximums in particular are noisy.
-To reproduce, from the repository root (about ten minutes):
+`maxConcurrentSends` of 4. The time per call and the sustained load were
+measured on 2026-09-16, with the SDK as it is now, including the check for
+secret-looking names; the send concurrency tables are from 2026-09-15. The
+machine was running other work, so read the numbers as orders of magnitude; the
+maximums in particular are noisy. To reproduce, from the repository root (about
+ten minutes):
 
 ```bash
 pnpm --filter @flight-recorder/node bench
@@ -974,23 +982,33 @@ call and moves a lot between runs.
 
 | Wrapper | Payload | Added p50 | Added p99 |
 | --- | --- | --- | --- |
-| `transform` (sync) | 1 KiB | 30 | 513 |
-| `persist` (async) | 1 KiB | 75 | 1,146 |
-| `transform` (sync) | 64 KiB | 1,420 | 19,555 |
-| `persist` (async) | 64 KiB | 1,079 | 10,337 |
+| `transform` (sync) | 1 KiB | 112 | 1,462 |
+| `persist` (async) | 1 KiB | 93 | 1,504 |
+| `transform` (sync) | 64 KiB | 2,172 | 12,526 |
+| `persist` (async) | 64 KiB | 1,717 | 10,917 |
+
+A second run the same day gave 112, 69, 2,165 and 1,625 µs at p50. The run of
+2026-09-15, before the secret-name check was added, gave 30, 75, 1,420 and
+1,079: a `transform` at 1 KiB now costs several times what it did, and the
+larger payloads about half as much again.
 
 Most of that is redaction and the copy that makes a payload safe to store, and
 it grows with the payload. The p99 is dominated by one call in every batch of
 50: the call that fills a batch starts its send, and serialising the batch
 happens inside that call. At 64 KiB a separate one-off measurement, timing
-`JSON.stringify` inside those calls, put it at about 8 ms of an 11 ms call. The
+`JSON.stringify` inside those calls on 2026-09-15, put it at about 8 ms of an
+11 ms call. The
 event loop spends that time whichever call it lands in.
 
-**Capture never waits on the network.** With the endpoint refusing connections,
-or answering after 200 ms, the added p50 stayed in the range measured against
-the local stub: across three full runs, 20 to 116 µs at 1 KiB and 694 to
-1,854 µs at 64 KiB for every endpoint, with no ordering by endpoint that held
-from one run to the next. Unreachable, every event is dropped and counted:
+**Capture never waits on the network.** Against a stub that answers after
+200 ms, the added p50 matched the local stub's: 111 to 125 µs for `transform`
+at 1 KiB and 60 to 64 µs for `persist`, in two runs on 2026-09-16. With the
+endpoint refusing connections it was higher, 139 to 161 µs and 96 to 102 µs,
+and 10 to 23 percent higher at 64 KiB, in both runs, while the p99 was lower
+(412 against 1,462 µs for `transform` at 1 KiB): once the queue is full every
+new event drops the oldest and reports it, which is work in the calling
+process, and no batch is ever serialised. Neither comes near the 200 ms a call
+would add if it waited on the request. Unreachable, every event is dropped and counted:
 those beyond the queue's 1,000 as it fills, and the rest when `shutdown()`
 finishes. Against the 200 ms stub at 2,000 calls a second,
 one process sending 4 batches at a time stores about 1,000 events a second and
@@ -1001,22 +1019,23 @@ alternating `transform` and `persist`.
 
 | | Unwrapped | Wrapped |
 | --- | --- | --- |
-| Heap after GC, start to end | 6.9 to 7.8 MiB | 9.0 to 9.1 MiB |
-| Heap, highest of one sample a second | 8.6 MiB | 61.3 MiB |
-| Resident set size at the end | 76 MiB | 219 MiB |
-| Event-loop delay beyond its 10 ms timer, p50 / p99 | 0.39 / 0.96 ms | 0.19 / 1.71 ms |
+| Heap after GC, start to end | 7.0 to 8.0 MiB | 9.2 to 9.4 MiB |
+| Heap, highest of one sample a second | 8.7 MiB | 57.7 MiB |
+| Resident set size at the end | 77 MiB | 220 MiB |
+| Event-loop delay beyond its 10 ms timer, p50 / p99 | 0.40 / 1.01 ms | 0.20 / 1.79 ms |
 | Events stored / dropped | | 124,000 / 0 |
 
 The 124,000 events stored are the 120,000 of the measured minute and the 4,000
 recorded during the two seconds of warm-up before it.
 
-The heap after collection does not grow over the minute. The heap figure
+The heap after collection grows by 0.2 MiB over the minute, as the unwrapped
+run's grows by 1.0 MiB. The heap figure
 between collections is a sample taken once a second, not a true peak. The
 resident set is about 140 MiB larger; the heap between collections accounts for
 about 50 MiB of that, and the benchmark does not break down the rest.
 
 **Send concurrency:** one process producing events for 15 seconds against a stub
-with a fixed delay per batch.
+with a fixed delay per batch, measured on 2026-09-15.
 
 This table models one process against a server that can serve any number of
 requests at once. It shows what a low cap costs that one process; it does not
@@ -1028,7 +1047,8 @@ processes shares instances times pool size.
 processes at 200 events a second each, five times that for ten seconds of a
 thirty-second run, against one API instance with a pool of ten connections and
 4 ms per event (about 2,500 events a second). The model copies the API's batch
-route, pool, and behaviour when a client gives up, and nothing else.
+route, pool, and behaviour when a client gives up, and nothing else. Measured on
+2026-09-15:
 
 | | `maxConcurrentSends` 4 | `maxConcurrentSends` 8 |
 | --- | --- | --- |

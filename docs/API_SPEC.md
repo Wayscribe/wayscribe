@@ -396,15 +396,14 @@ Response:
 GET /v1/events/:eventId
 ```
 
-Response may include:
-
-- payloads according to permission and capture policy
-- structural diff
-- error
-- runtime metadata
-- deployment metadata
-- technical identifiers
-- replay eligibility
+The response is the stored event, as
+[`stored-event.schema.json`](../packages/protocol/schemas/0.1/stored-event.schema.json)
+describes it: its ids (`id`, `journeyId`, `parentEventId`, `traceId`, `spanId`,
+`messageId`, `correlationId`), `operation`, `name`, `service`,
+`eventTimestamp`, `receivedAt`, `durationMs`, `hasInput`, `hasOutput`,
+`hasError`, `inputPayload` and `outputPayload` as the capture mode stored them,
+`payloadDiff`, `error`, and the runtime, deployment and custom metadata. An API
+key reads events of its own environment only.
 
 ## 10. Create replay destination
 
@@ -429,9 +428,13 @@ Request:
 replay request is appended to it. Path traversal, absolute URLs, and protocol-relative
 URLs are rejected. See ADR-019.
 
-The server must validate the destination against configured host policy.
-
-Sensitive headers must be encrypted at rest or loaded from environment-backed secret configuration.
+`environmentType` must be `local`, `development` or `test`; anything else is
+`400 invalid_environment_type`. The host is not checked when the destination is
+created: `REPLAY_ALLOWED_HOSTS` is applied to every replay, when it is sent
+(section 12). `headers` are encrypted at rest with a key derived from
+`ENCRYPTION_KEY`. Creating a destination writes a `replay_destination.created`
+audit row that records its name and not its base URL. There is no route that
+updates a destination.
 
 ## 11. List replay destinations
 
@@ -439,7 +442,7 @@ Sensitive headers must be encrypted at rest or loaded from environment-backed se
 GET /v1/replay-destinations
 ```
 
-Secrets are never returned.
+Configured header values are never returned.
 
 ## 12. Create replay
 
@@ -452,33 +455,53 @@ Request:
 ```json
 {
   "eventId": "evt_transform_01",
-  "destinationId": "rpd_01",
+  "destinationId": "7d0c…",
   "method": "POST",
-  "path": "/replay/customer",
-  "payload": {
-    "id": "0018Z00002ABC",
-    "phone": "+1 919 555 1234"
-  },
-  "headers": {
-    "content-type": "application/json"
-  }
+  "path": "/replay/customer"
 }
 ```
 
-Response:
+`method` is `POST`, `PUT` or `PATCH`, and `POST` when omitted. There is no
+`payload` or `headers` field: the body sent is the event's recorded input,
+exactly as stored (ADR-032), and the headers are the destination's own plus
+`content-type`, `user-agent` and `x-flight-replay` (`SECURITY.md` section 9).
+`path` is appended to the destination's base URL; absolute URLs,
+protocol-relative URLs and path traversal are refused (ADR-019).
+
+The replay runs synchronously, with a 10-second timeout, and reads at most
+256 KiB of the response. The answer is the stored run: `200` when the
+destination was reached or the request failed, `422` when it was blocked (a host
+outside `REPLAY_ALLOWED_HOSTS`, or destination headers that cannot be
+decrypted).
 
 ```json
 {
   "data": {
-    "replayId": "rpl_01",
+    "id": "5b1e…",
+    "eventId": "evt_transform_01",
+    "destinationId": "7d0c…",
+    "method": "POST",
+    "path": "/replay/customer",
+    "requestPayload": { "id": "0018Z00002ABC", "phone": "+1 919 555 1234" },
+    "requestHeaders": { "content-type": "application/json", "user-agent": "flight-recorder-replay", "x-flight-replay": "true" },
     "status": "completed",
     "responseStatus": 200,
-    "durationMs": 83
+    "responsePayload": { "phone": "+1 919 555 1234" },
+    "durationMs": 83,
+    "error": null,
+    "createdAt": "2026-08-06T18:40:00.000Z",
+    "completedAt": "2026-08-06T18:40:00.083Z",
+    "comparison": []
   }
 }
 ```
 
-V0 may execute synchronously with a strict timeout. A background replay worker can be introduced later.
+`comparison` is the diff of the event's recorded output against the response,
+or null when the run did not complete or the event recorded no output.
+
+An unknown event or destination is `404 not_found`, an event with no captured
+input is `409 no_captured_input`, and a disabled destination is
+`409 destination_disabled`. None of these writes a run or an audit row.
 
 A missing body, a field that is not a string, a `destinationId` that is not a
 uuid, or a null byte in `eventId` or `path` is `400` `invalid_request`.
@@ -492,16 +515,11 @@ GET /v1/replays/:replayId
 A `replayId` that is not a uuid is `404` `not_found`, the same answer as an
 unknown replay.
 
-Returns:
-
-- sanitized request, including `requestHeaders`: every header sent, by name,
-  with `[REDACTED]` as the value of each destination header and blocked name
-  (`REPLAY_SPEC.md` section 8)
-- response status
-- sanitized response
-- timing
-- result diff
-- audit metadata
+Returns the stored run, in the shape section 12 shows. `requestHeaders` holds
+every header sent, by name, with `[REDACTED]` as the value of each destination
+header and blocked name (`REPLAY_SPEC.md` section 8). `responsePayload` has
+had every destination header value of at least 8 characters replaced
+(`SECURITY.md` section 7).
 
 ## 14. Health endpoints
 
@@ -526,17 +544,11 @@ Do not expose database offsets as a compatibility contract.
 
 ## 16. Request limits
 
-Initial configurable limits should cover:
-
-- total request body
-- event payload
-- batch size
-- metadata depth
-- string lengths
-- replay response body
-- replay duration
-
-Exact defaults belong in configuration documentation once implementation measurements exist.
+Ingestion's limits, with their defaults and configuration names, are in
+[`INGESTION_CONTRACT.md`](INGESTION_CONTRACT.md) section 3, which a test holds
+to the code. A replay waits at most 10 seconds and reads at most 256 KiB of the
+response; neither is configurable. List endpoints return 25 items by default
+and at most 100.
 
 ## 17. Delete a journey
 

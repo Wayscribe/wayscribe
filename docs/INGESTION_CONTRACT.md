@@ -13,8 +13,8 @@ schemas the server validates with, under
 [`packages/protocol/schemas/0.1/`](../packages/protocol/schemas/0.1), as JSON
 Schema draft 2020-12. They are checked byte for byte against the generator by a
 unit test, so they cannot drift. Conformance fixtures are under
-[`packages/protocol/conformance/`](../packages/protocol/conformance) and section
-10 says how to run them.
+[`packages/protocol/conformance/`](../packages/protocol/conformance), and
+section 9, [Running them](#running-them), says how to run them.
 
 ---
 
@@ -550,7 +550,7 @@ database.
   calls the dry run itself.
 - The loader, the expander and the matcher have to be reimplemented in your
   language. This repository's copy is `packages/protocol/src/conformance.ts`,
-  which is around five hundred lines including its comments and its tagged host
-  values; the parts a `wire` harness needs are the loader, `{{run}}`
+  which is under six hundred lines including its comments and its tagged host
+  values (570 on 2026-09-16); the parts a `wire` harness needs are the loader, `{{run}}`
   substitution, the four builders and the comparison, and they are the smaller
   half. Everything they have to do is specified above.

@@ -170,10 +170,16 @@ audit:
 # Every allowance in .gitleaks.toml was checked by reading the line it matched,
 # and is written against the value rather than the path wherever possible, so it
 # cannot hide whatever lands in that file next.
+#
+# The image is pinned by tag and digest. `latest` meant a new gitleaks release,
+# with new rules, could turn the pipeline red on a commit that changed nothing,
+# or change what passes without anyone choosing it. Move the pin on purpose:
+# run the new version against the history locally first
+# (`gitleaks detect --config=.gitleaks.toml`).
 secrets:
   stage: security
   image:
-    name: zricethezav/gitleaks:latest
+    name: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
     entrypoint: [""]
   before_script: []
   cache: {}

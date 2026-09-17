@@ -42,13 +42,13 @@ release will not.
   once regardless: a missing or unusable required setting, a renamed option, a
   missing journey-id secret, and a secret-looking field name no redaction rule
   covers. Each diagnostic has a stable `code` to match on.
-- **What it costs is measured.** On an Apple M3 Pro, wrapping a call with a
-  1 KiB payload added 30 µs at p50 and 513 µs at p99 for `transform`, and 75 µs
-  and 1,146 µs for `persist`; at 64 KiB a `transform` added 1,420 µs at p50. At
-  2,000 wrapped calls a second for a minute, the heap after collection stayed at
-  9.0 to 9.1 MiB, and the resident set ended at 219 MiB against 76 MiB unwrapped
-  (SDK README, "What it costs"). The machine was running other work, so read
-  these as orders of magnitude.
+- **What it costs is measured.** On 2026-09-16, on an Apple M3 Pro, wrapping a
+  call with a 1 KiB payload added 112 µs at p50 and 1,462 µs at p99 for
+  `transform`, and 93 µs and 1,504 µs for `persist`; at 64 KiB a `transform`
+  added 2,172 µs at p50. At 2,000 wrapped calls a second for a minute, the heap
+  after collection went from 9.2 to 9.4 MiB, and the resident set ended at
+  220 MiB against 77 MiB unwrapped (SDK README, "What it costs"). The machine
+  was running other work, so read these as orders of magnitude.
 - **A contract for other clients:** [the ingestion contract](INGESTION_CONTRACT.md),
   [the SDK specification](SDK_SPEC.md), generated JSON Schema, and conformance
   fixtures that any implementation can run through the dry run.
@@ -67,10 +67,11 @@ release will not.
 - **Disk use is measured.** With the demo's shape of event (payloads averaging
   120 bytes of JSON), a million events took about 1,049 bytes each in
   `metadata-only` and 1,494 bytes each in `redacted-payload`, indexes included,
-  on PostgreSQL 17.11. By the sizing formula, a million events a day kept 30 days
+  on PostgreSQL 17.11 on an Apple M3 Pro, measured on 2026-09-15. By the sizing formula, a million events a day kept 30 days
   in `redacted-payload` needs about 63 GiB (OPERATIONS section 10, "Measured disk
   per event" and "A formula").
-- **Installs** as a Compose stack or with a Helm chart for a local single-node
+- **Installs** as a Compose stack, which runs the release you name in
+  `FLIGHT_RECORDER_VERSION`, or with a Helm chart for a local single-node
   cluster.
 
 ### Finding a record
@@ -78,10 +79,12 @@ release will not.
 - **Search** by any identifier the record is known by, independent of the type
   it was stored under. At a million journeys, a value that matches a few
   journeys takes about 0.1 ms, and one that matches 20,000 took 64 ms for an
-  API key scoped to one environment (OPERATIONS section 10, "Indexes").
+  API key scoped to one environment, measured on 2026-09-15 on PostgreSQL 17
+  (OPERATIONS section 10, "Indexes").
 - **The Journeys page** lists what happened in a period, filtered by status,
   entity type, environment, service, and part of a journey's label or of an
-  alias marked displayable, with a Failures shortcut. At 120,000 journeys, a
+  alias marked displayable, with a Failures shortcut. Measured on 2026-09-16 at
+  120,000 journeys on an Apple M3 Pro, a
   24-hour window returned in under 12 ms in every measured case; text that
   matches nothing over 30 days, the worst case, took 262 ms at p50 and 316 ms at
   p95 with about 90,000 journeys in the window (OPERATIONS section 10, "Listing journeys").
@@ -108,7 +111,8 @@ release will not.
   `rotate:reencrypt` and `rotate:status` (OPERATIONS section 6).
 - **Deletion on demand** of a journey, every journey matching an identifier, a
   time window, or a replay destination, admin-only and audited without the value
-  (OPERATIONS section 8).
+  (OPERATIONS section 8). Issuing and revoking an API key are audited too
+  (SECURITY section 13).
 - **Retention** per environment, swept inside the API process (OPERATIONS
   section 7).
 - **Upgrades** are gated on a test that records data with an earlier build and

@@ -109,7 +109,9 @@ When the server stores the first batch, the SDK prints one line:
 ```
 
 If that line never appears, the lines that do appear say why. These were all
-produced against a local stack:
+produced against a local stack with `logDiagnostics: true`. With it off, the
+`configuration_error` lines still print, and end with a note in parentheses
+saying why they were printed unasked:
 
 | First line you see | Cause | Fix |
 | --- | --- | --- |
@@ -226,7 +228,7 @@ this table is `packages/sdk-node/src/diagnostics.ts`.
 | `capture_error` | `invalid_options` | a call's options were not an object, or held keys it does not read; `detail.call` names the call | check the call's options; `fail(name, error, { metadata })` takes metadata under `metadata` |
 | `capture_error` | `context_missing` | an inject helper got no context; nothing was added | pass `journey.context()` as the last argument |
 | `configuration_error` | `setting_unusable` | an optional setting had the wrong type or range; the default was used | fix the value; nothing is converted, so `"5000"` from `process.env` is not a number |
-| `configuration_error` | `required_setting_unusable` | `endpoint`, `apiKey`, `serviceName` or `environment` is missing or not a string | set it; nothing is stored until you do, and this prints even with `logDiagnostics` off |
+| `configuration_error` | `required_setting_unusable` | `endpoint`, `apiKey`, `serviceName` or `environment` is missing, empty, blank, or not a string | set it; nothing is stored until you do, and this prints even with `logDiagnostics` off |
 | `configuration_error` | `setting_renamed` | a setting under its old name (`maxPayloadBytes`, `propagate`), which is not read | use the new name the line gives |
 | `configuration_error` | `journey_id_secret_missing` | `journeyIdFor` was called without a `journeyIdSecret`; it returned a random id | set a secret of at least 32 bytes; until then each run starts a new journey |
 | `configuration_error` | `journey_id_secret_unusable` | the secret is shorter than 32 bytes, or is not a string | use a longer secret |
@@ -407,7 +409,8 @@ On a new journey, a missing label has its own causes:
 ## The secret-name warning
 
 This line prints once per name per process, whether or not `logDiagnostics` is
-on:
+on. This is the form printed with `logDiagnostics: true`; with it off, the line
+ends with a note in parentheses saying why it was printed:
 
 ```text
 [flight-recorder] unredacted_secret_name: A field named "sessionCredential" (at input.sessionCredential) looks like a secret and was sent unredacted. If it holds a secret, add "**.sessionCredential" to the redact option; if it does not, add "sessionCredential" to knownSafeNames.

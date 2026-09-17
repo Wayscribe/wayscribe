@@ -2,8 +2,8 @@
 
 A form provider posts a lead to an Express webhook. The webhook normalizes it
 and queues a BullMQ job; a worker creates the contact in HubSpot and retries
-when HubSpot refuses. Leadline is being built as a working version of this
-stack.
+when HubSpot refuses. Leadline, a separate dogfood project outside this
+repository, is being built as a working version of this stack.
 
 The complete code, which this repository type-checks against the SDK, is in
 [`examples/recipes/express-bullmq-hubspot`](../../examples/recipes/express-bullmq-hubspot).

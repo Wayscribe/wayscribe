@@ -145,7 +145,8 @@ export const RECENT_MS = 30_000;
  * first render, which is a hydration mismatch on every warm journey.
  *
  * A delta that is negative (a service clock running ahead, which is a real
- * possibility here — the timeline warns about exactly that skew) or NaN (an
+ * possibility here, and one the timeline's clock marker cannot show, since it
+ * marks only a step received long after its own timestamp) or NaN (an
  * unparsable timestamp) is not recent: both are `< RECENT_MS` arithmetically,
  * and neither is evidence that anything just happened.
  */

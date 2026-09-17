@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { serverEnvSchema, statementTimeoutSchema } from "../packages/config/src/schema.js";
 import { JOURNEY_STATUSES } from "../packages/database/src/repositories/journey-list.js";
@@ -17,58 +15,14 @@ import {
   JOURNEY_LIST_PARAMETERS,
   parseJourneyListQuery
 } from "../apps/api/src/routes/journey-list-query.js";
-
-const root = fileURLToPath(new URL("../", import.meta.url));
-
-const read = (relative: string): string => readFileSync(`${root}${relative}`, "utf8");
+import { filesEndingWith, findSection, markdownFiles, read, root } from "./docs-helpers.js";
 
 /** The text of a `## ` section of a markdown document, up to the next one. */
 const section = (markdown: string, heading: string): string => {
-  const start = markdown.indexOf(`\n## ${heading}\n`);
-  expect(start, `no section "${heading}"`).toBeGreaterThanOrEqual(0);
-  const end = markdown.indexOf("\n## ", start + 1);
-  return markdown.slice(start, end === -1 ? undefined : end);
+  const found = findSection(markdown, heading);
+  expect(found, `no section "${heading}"`).toBeDefined();
+  return found ?? "";
 };
-
-/** Directories with nothing authored in them. */
-const SKIP = new Set([
-  "node_modules",
-  ".git",
-  "dist",
-  ".next",
-  ".pnpm-store",
-  "coverage",
-  "playwright-report",
-  "test-results",
-  // The frozen planning records quote claims as they were, which is the point
-  // of keeping them.
-  "superpowers"
-]);
-
-/**
- * Every markdown file in the repository, so a claim cannot reappear in one that
- * nobody thought to list.
- *
- * Walked rather than asked of `git ls-files`. The CI image is `node:24-alpine`
- * and has no git — GitLab clones with a separate helper container — so the first
- * version of this passed on a clean clone and failed in the pipeline with
- * `spawnSync git ENOENT`. A unit test should not need a tool outside Node.
- */
-function markdownFiles(directory = "", found: string[] = []): string[] {
-  return filesEndingWith(".md", directory, found);
-}
-
-function filesEndingWith(suffix: string, directory = "", found: string[] = []): string[] {
-  for (const entry of readdirSync(`${root}${directory}`, { withFileTypes: true })) {
-    if (entry.name.startsWith(".") && entry.name !== ".gitlab") continue;
-    if (SKIP.has(entry.name)) continue;
-
-    const relative = directory === "" ? entry.name : `${directory}/${entry.name}`;
-    if (entry.isDirectory()) filesEndingWith(suffix, relative, found);
-    else if (entry.name.endsWith(suffix)) found.push(relative);
-  }
-  return found;
-}
 
 /**
  * Claims the documentation makes that the repository can check for itself.
@@ -81,7 +35,7 @@ function filesEndingWith(suffix: string, directory = "", found: string[] = []): 
 describe("the documentation's checkable claims", () => {
   it("counts the ADRs correctly", () => {
     const actual = (read("docs/DECISIONS.md").match(/^## ADR-/gm) ?? []).length;
-    const claimed = /\[the decision log\]\(docs\/DECISIONS\.md\) — (\d+) ADRs/.exec(
+    const claimed = /\[the decision log\]\(docs\/DECISIONS\.md\): (\d+) ADRs/.exec(
       read("README.md")
     );
 

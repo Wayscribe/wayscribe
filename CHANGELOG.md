@@ -258,13 +258,18 @@ shorter overview is in
   own schema only and install no extensions. `infrastructure/compose.bundled.yaml`
   is an overlay that runs PostgreSQL alongside, for evaluation and local work.
 - **Install shapes.** `infrastructure/compose.published.yaml` pulls the images
-  and migrates on first boot. A Helm chart runs the stack on a local
+  and migrates on first boot. It requires `FLIGHT_RECORDER_VERSION`, the
+  release tag to run, and has no `latest` fallback, so a pull cannot move the
+  database across a release nobody chose. A Helm chart runs the stack on a local
   single-node cluster (ADR-042, `deploy/helm/README.md`); its migrate Job
   retries a connection failure, retries any other failure once with
   `migration failed ... see the error above`, and stops after
   `migrations.activeDeadlineSeconds`, 30 minutes by default.
 - **`project:create` and `project:list`**, and **`key:create`, `key:revoke`,
   `key:list`**, all in the API image, so a new installation needs no checkout.
+  `key:create` and `key:revoke` write `api_key.created` and `api_key.revoked`
+  audit rows in the same transaction as the key, naming it by prefix
+  (`docs/SECURITY.md` section 13).
 - **`doctor`** checks an installation and says what to fix, one line per check
   (`PASS`, `WARN`, `FAIL`, `SKIP`): the database and its PostgreSQL version,
   pending migrations (naming a missing schema grant as such), published default secrets, stored data the
@@ -414,6 +419,10 @@ shorter overview is in
 
 ### Security
 
+- **The secrets scanner is pinned.** The `secrets` job ran
+  `zricethezav/gitleaks:latest`, so a new gitleaks release could change the
+  gate without anyone choosing it. It now runs `v8.30.1`, pinned by digest, as
+  Trivy, Syft and cosign already were.
 - **LICENSE and NOTICE ship with the package and the images.** The npm package
   and the API and web images now include the project's LICENSE and NOTICE, as
   Apache-2.0 asks of anyone redistributing it; in the images they are at
@@ -527,6 +536,10 @@ shorter overview is in
 
 These apply to an installation or a host application built from an earlier
 development build of `main`. A new installation can skip them.
+
+- **`compose.published.yaml` needs `FLIGHT_RECORDER_VERSION`.** It used to fall
+  back to `latest`. Export the release tag, such as
+  `FLIGHT_RECORDER_VERSION=v0.1.0`, beside `COMPOSE_FILE`.
 
 - **Empty journeys left by development builds.** Before this release, an event
   refused with `event_id_conflict` and a journey id that did not exist yet

@@ -131,7 +131,7 @@ input above reads:
 }
 ```
 
-That was taken from a local stack with this recorder's configuration, trimmed
+That was taken from a local stack on 2026-09-16 with this recorder's configuration, trimmed
 to the fields shown. `**.customer_details` replaces the buyer's name, email and
 address as one value; drop it from `redact` only if the environment's capture
 mode already keeps payloads out.

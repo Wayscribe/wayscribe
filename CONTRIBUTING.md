@@ -2,9 +2,9 @@
 
 > **Where to contribute.** Development happens on
 > [GitLab](https://gitlab.com/jojithedev/flight-recorder). If you found this on
-> GitHub, that is a read-only mirror: it is force-pushed from GitLab on every
-> green pipeline, so a pull request opened there cannot be merged and would be
-> overwritten. Please open a merge request on GitLab instead.
+> GitHub, that is a read-only mirror: GitLab's `main` and tags are force-pushed
+> to it once their pipeline has passed, so a pull request opened there cannot be
+> merged and would be overwritten. Please open a merge request on GitLab instead.
 
 
 Flight Recorder is in early development. Contributions should protect the narrow V0 scope and the reliability of applications being observed.
@@ -33,13 +33,13 @@ V0 is focused on:
 - field-level diffs
 - development-only HTTP replay
 
-Please do not introduce additional SDK languages, AI features, new storage engines, or production replay without an accepted architecture decision. Kubernetes has one — ADR-042 covers the local-cluster Helm chart, and anything beyond it needs its own.
+Please do not introduce additional SDK languages, AI features, new storage engines, or production replay without an accepted architecture decision. Kubernetes has one: ADR-042 covers the local-cluster Helm chart, and anything beyond it needs its own.
 
 Contributions must preserve:
 
 - a free and useful self-hosted core
 - a lightweight default installation
-- a first useful journey in approximately 15 minutes
+- a first useful journey in approximately 15 minutes, the target in [product principles](docs/PRODUCT_PRINCIPLES.md) (the demo showed its journey within a minute of a fresh clone, measured on 2026-09-14)
 - clear entity-first terminology
 - record-first navigation, identity mapping, transformation diffs, existing-architecture support, and safe development replay
 

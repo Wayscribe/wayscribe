@@ -1,8 +1,9 @@
 # Frequently asked questions
 
 Every number on this page was measured, and each names the document it comes
-from and the machine it was taken on. Read them as orders of magnitude for your
-own hardware, not as guarantees.
+from, the date, and the machine it was taken on, or says that the machine was
+not recorded. Read them as orders of magnitude for your own hardware, not as
+guarantees.
 
 - [Why not OpenTelemetry?](#why-not-opentelemetry)
 - [Why is Node the first SDK?](#why-is-node-the-first-sdk)
@@ -99,18 +100,19 @@ payloads at all. Treat the database as holding whatever your workflows carry.
 
 ## What does the SDK cost my service?
 
-Measured with the SDK's own benchmark (`pnpm --filter @flight-recorder/node bench`)
-on an Apple M3 Pro, macOS 26.2, Node 24.19.0, default configuration, while the
-machine ran other work. Source: [SDK README, What it costs](../packages/sdk-node/README.md#what-it-costs).
+Measured on 2026-09-16 with the SDK's own benchmark
+(`pnpm --filter @flight-recorder/node bench`) on an Apple M3 Pro, macOS 26.2,
+Node 24.19.0, default configuration, while the machine ran other work.
+Source: [SDK README, What it costs](../packages/sdk-node/README.md#what-it-costs).
 
 **Time added to each wrapped call**, in microseconds:
 
 | Wrapper | Payload | Added p50 | Added p99 |
 | --- | --- | --- | --- |
-| `transform` (sync) | 1 KiB | 30 | 513 |
-| `persist` (async) | 1 KiB | 75 | 1,146 |
-| `transform` (sync) | 64 KiB | 1,420 | 19,555 |
-| `persist` (async) | 64 KiB | 1,079 | 10,337 |
+| `transform` (sync) | 1 KiB | 112 | 1,462 |
+| `persist` (async) | 1 KiB | 93 | 1,504 |
+| `transform` (sync) | 64 KiB | 2,172 | 12,526 |
+| `persist` (async) | 64 KiB | 1,717 | 10,917 |
 
 Most of it is redaction and the copy that makes a payload safe to store, so it
 grows with the payload. The p99 is mostly the one call in each batch of 50 that
@@ -120,9 +122,9 @@ serialises the batch.
 
 | | Unwrapped | Wrapped |
 | --- | --- | --- |
-| Heap after GC, start to end | 6.9 to 7.8 MiB | 9.0 to 9.1 MiB |
-| Resident set size at the end | 76 MiB | 219 MiB |
-| Event-loop delay beyond its timer, p50 / p99 | 0.39 / 0.96 ms | 0.19 / 1.71 ms |
+| Heap after GC, start to end | 7.0 to 8.0 MiB | 9.2 to 9.4 MiB |
+| Resident set size at the end | 77 MiB | 220 MiB |
+| Event-loop delay beyond its timer, p50 / p99 | 0.40 / 1.01 ms | 0.20 / 1.79 ms |
 | Events stored / dropped | | 124,000 / 0 |
 
 The SDK has no runtime dependencies. If you record large payloads, record a
@@ -130,9 +132,10 @@ smaller view of them with `captureInput` and `captureOutput`.
 
 ## How much disk does an event take?
 
-Measured by `scripts/measure-storage.mjs` on an Apple M3 Pro with PostgreSQL
-17.11 (`postgres:17-alpine`, default configuration), for journeys of ten events
-and two aliases each, with payloads averaging 120 bytes of JSON. Source:
+Measured on 2026-09-15 by `scripts/measure-storage.mjs` on an Apple M3 Pro with
+PostgreSQL 17.11 (`postgres:17-alpine`, default configuration), for journeys of
+ten events and two aliases each, with payloads averaging 120 bytes of JSON.
+Source:
 [Operations §10, Measured disk per event](OPERATIONS.md#measured-disk-per-event).
 
 | Capture mode | Per event, at 1,000,000 events | Per event, compacted | Per journey |
@@ -156,7 +159,9 @@ measure your own payload shape. Its worked example, a million events a day kept
 ## How fast are search and the journey list?
 
 **Search**, by exact identifier. The last two rows are for an API key scoped to
-one environment. Source: [Operations §10, Indexes](OPERATIONS.md#indexes).
+one environment. Measured on 2026-09-15 with `EXPLAIN (ANALYZE, BUFFERS)` on
+PostgreSQL 17; the commits that record these figures do not name the machine.
+Source: [Operations §10, Indexes](OPERATIONS.md#indexes).
 
 | Case | Time |
 | --- | --- |
@@ -166,8 +171,8 @@ one environment. Source: [Operations §10, Indexes](OPERATIONS.md#indexes).
 
 **The journey list**, `GET /v1/journeys`, timed through the real API in process
 (the network is not in the figure) with 120,000 journeys and 360,000 events,
-page of 25, warm cache, on an Apple M3 Pro with PostgreSQL 17.11. p50 / p95 in
-milliseconds. Source:
+page of 25, warm cache, measured on 2026-09-16 on an Apple M3 Pro with
+PostgreSQL 17.11. p50 / p95 in milliseconds. Source:
 [Operations §10, Listing journeys](OPERATIONS.md#listing-journeys).
 
 | Case | Last 24 hours | Last 30 days |
@@ -194,10 +199,12 @@ and a single event 4.3 and 4.7 ms
 Your service carries on. Source:
 [SDK README](../packages/sdk-node/README.md#it-cannot-break-your-application).
 
-- **Recording never waits on the network.** With the endpoint refusing
-  connections, or answering after 200 ms, the time added per call stayed within
-  what was measured against a working endpoint: 20 to 116 µs at p50 for 1 KiB,
-  across three runs ([What it costs](../packages/sdk-node/README.md#what-it-costs)).
+- **Recording never waits on the network.** Against an endpoint answering after
+  200 ms, the time added per call at 1 KiB was 60 to 125 µs at p50, as against a
+  working endpoint; with the endpoint refusing connections it was 96 to 161 µs,
+  because every event past the queue's bound is dropped and reported. Neither
+  is the 200 ms a waited-on request would add (two runs on 2026-09-16,
+  [What it costs](../packages/sdk-node/README.md#what-it-costs)).
 - **Events wait in a bounded queue**, 1,000 by default (`maxBufferedEvents`).
   Past it, the oldest are dropped and counted, so memory does not grow with the
   outage.
@@ -255,8 +262,9 @@ reads no environment variables.
 
 ## Which PostgreSQL versions does it support?
 
-PostgreSQL 15 or later; CI tests 17. `doctor` fails below 15 and warns below 17.
-It needs an ordinary database and role (`USAGE`, `CREATE`, `SELECT`, `INSERT`,
+PostgreSQL 15 or later. CI runs the whole integration suite on 15, 17 and 18;
+16 is not run. `doctor` fails below 15 and warns on a release newer than 18,
+the newest CI tests. It needs an ordinary database and role (`USAGE`, `CREATE`, `SELECT`, `INSERT`,
 `UPDATE`, `DELETE` on its own schema), installs no extensions, and can share a
 database with other tables. Source:
 [Operations §1, Bring your own database](OPERATIONS.md#bring-your-own-database).

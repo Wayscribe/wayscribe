@@ -526,9 +526,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
   /**
    * A secret that cannot be used splits every derived journey into one per
    * run, silently to anybody not reading diagnostics. So besides the
-   * diagnostic, one line is printed per process even with logDiagnostics off:
-   * the one exception to SDK-40 (SDK-56). With logging on, the ordinary line
-   * already says it.
+   * diagnostic, one line is printed per process even with logDiagnostics off,
+   * as SDK-56 allows; the other unasked warnings are a required setting that
+   * cannot be used, a renamed setting, and a secret-looking name (SDK-60,
+   * SDK-61). With logging on, the ordinary line already says it.
    */
   const reportSecretProblem = (reason: string): void => {
     const diagnostic: Diagnostic = {
