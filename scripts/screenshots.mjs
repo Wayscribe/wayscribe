@@ -115,6 +115,29 @@ const LAST_STEP = { failed: "move-message-to-dead-letter", completed: "finish" }
 const settled = (journey, status) =>
   journey.status === status && journey.lastStep === LAST_STEP[status];
 
+/**
+ * How long the journey page keeps offering Live updates after the last event,
+ * from `RECENT_MS` in apps/web/src/lib/timeline.ts. Repeated here rather than
+ * imported because this script is plain Node and that is TypeScript.
+ */
+const RECENT_MS = 30_000;
+
+/**
+ * Wait for a journey to stop being recent.
+ *
+ * Inside that window the timeline offers a checked Live toggle and polls. That
+ * is correct behaviour and the wrong picture: whether the chip is in the shot
+ * would depend on how fast the machine seeded, and the reader these shots are
+ * for is looking at a failure that happened earlier, not watching one arrive.
+ */
+async function waitUntilSettledLongEnough(journeyId) {
+  const journey = (await api(`/v1/journeys/${journeyId}`)).data;
+  const remaining = RECENT_MS + 1_000 - (Date.now() - Date.parse(journey.lastEventAt));
+  if (remaining <= 0) return;
+  console.log(`  waiting ${String(Math.ceil(remaining / 1000))}s for the Live window to close`);
+  await new Promise((resolve) => setTimeout(resolve, remaining));
+}
+
 /** Fires one webhook and waits for the journey to reach its last step. */
 async function trigger(account, status) {
   const response = await fetch(`${SOURCE_URL}/trigger`, {
@@ -223,6 +246,7 @@ try {
   // The reference journey by id rather than the first search hit: which journey
   // a search lists first depends on which was written last, and these three
   // shots are all about the one that dead-lettered.
+  await waitUntilSettledLongEnough(REFERENCE_JOURNEY);
   await page.goto(`${WEB_URL}/journeys/${REFERENCE_JOURNEY}`);
   await page.waitForSelector("text=All times UTC");
   await shot("timeline");
@@ -241,8 +265,9 @@ try {
   // to the demo's corrected handler and compare the result with the original.
   await page.click("a:has-text('Replay this input')");
   await page.waitForSelector("text=What will be sent");
-  // The option's text is "<name> - <base url> (<type>)", so it is matched on
-  // the name rather than reconstructed.
+  // The option's text is "<name>: <base url> (<type>)", so it is matched on the
+  // name rather than reconstructed; the rest of the line is the screen's copy
+  // and not this script's business.
   const destination = await page.$eval(
     "#destinationId",
     (select, name) => [...select.options].find((option) => option.text.includes(name))?.value,
