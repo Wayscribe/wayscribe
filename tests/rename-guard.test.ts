@@ -42,7 +42,6 @@ const ALLOWED_FILES = [
   /^CHANGELOG\.md$/, // past entries are history
   /^tests\/rename-guard\.test\.ts$/,
   /^packages\/payload-security\/src\/derivation-labels\.test\.ts$/,
-  /^scripts\/rename-to-wayscribe\.mjs$/, // the one-off rename script; removed in its own commit
   /^pnpm-lock\.yaml$/
 ];
 
