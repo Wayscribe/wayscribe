@@ -327,6 +327,12 @@ shorter overview is in
 
 ### Changed
 
+- **A blank required setting is reported as missing (SDK-60).** An empty or
+  whitespace-only `endpoint`, `apiKey`, `serviceName` or `environment`, such as
+  `process.env.FLIGHT_RECORDER_API_KEY ?? ""` with the variable unset, now
+  prints `configuration_error: <setting> is empty, ...` once per process, even
+  with `logDiagnostics` off, instead of only a 401 from the server.
+
 - **CI tests the versions the project claims.** The SDK and CLI run on Node
   22.12.0 and 24, including `import` and `require()` of the packed tarball in
   fresh projects, and the integration suite runs on PostgreSQL 15, 17 and 18.
@@ -521,6 +527,13 @@ shorter overview is in
 
 These apply to an installation or a host application built from an earlier
 development build of `main`. A new installation can skip them.
+
+- **Empty journeys left by development builds.** Before this release, an event
+  refused with `event_id_conflict` and a journey id that did not exist yet
+  created that journey with no events, and it appeared in the journey list. A
+  refused event now leaves no trace. Journeys left behind this way have
+  `eventCount` 0; remove any you find with `delete:journey` (OPERATIONS
+  section 8).
 
 - **Rename SDK calls and options** as in the table under Changed. Convert
   numeric SDK options before passing them:
