@@ -55,6 +55,12 @@ Set the repository description to something that says it plainly:
 Read-only mirror. Development happens at https://gitlab.com/jojithedev/wayscribe
 ```
 
+Then upload the **social preview**: Settings, General, Social preview, and
+choose `site/public/og.png`, the same 1200x630 card wayscribe.dev serves as its
+`og:image`. GitHub has no API for this one, so it is a manual step, and it has
+to be repeated whenever the card changes. `site/README.md` says where the card
+comes from and how to regenerate it.
+
 ### 3. Create a fine-grained personal access token
 
 GitHub → **Settings → Developer settings → Personal access tokens → Fine-grained

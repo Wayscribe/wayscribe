@@ -30,8 +30,9 @@ and not currently a priority; see *If this goes public*.
 Presenting the work, and closing what the last review opened.
 
 - ~~**Screenshots in the README.**~~ **Built:** the README opens with the diff
-  view, and `docs/images` holds search, timeline, diff and the Journeys page,
-  regenerated with `pnpm screenshots`.
+  view, and `docs/images` holds search, timeline, diff, replay and the Journeys
+  page, regenerated with `pnpm screenshots`, which seeds the journeys it needs
+  through the demo's own webhook.
 - ~~**Surface the decision log.**~~ **Built:** the README's first section after
   the screenshot points at [the decision log](DECISIONS.md), and its ADR count is
   checked by `tests/docs-truth.test.ts`.

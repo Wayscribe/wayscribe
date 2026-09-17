@@ -9,8 +9,47 @@ import starlightLinksValidator from "starlight-links-validator";
 
 const manifest = JSON.parse(readFileSync(new URL("./docs-manifest.json", import.meta.url), "utf8"));
 
+/** One authority for the origin, so the canonical links and og:image agree. */
+const SITE = "https://wayscribe.dev";
+
+/**
+ * The site's description, which is also the landing page's own.
+ *
+ * Starlight uses it for the meta description and og:description of any page
+ * that does not set its own, which is most of the generated documentation, so
+ * a link to any of them says what the landing page says.
+ */
+const DESCRIPTION =
+  "Self-hosted, record-level debugging. Follow one customer record across " +
+  "your services and see which step changed its data.";
+
+/**
+ * The social preview card, built from assets/brand/og.svg by `pnpm brand`.
+ *
+ * Starlight already emits og:title, og:type, og:url, og:locale,
+ * og:description, og:site_name and twitter:card (summary_large_image) on every
+ * page, taking the title and description from the page and falling back to the
+ * two above. Only the image is missing, and adding a second copy of a tag it
+ * already writes would leave two of each in the head. Absolute URLs, because a
+ * crawler reads og:image without a base.
+ */
+const socialImage = [
+  { tag: "meta", attrs: { property: "og:image", content: `${SITE}/og.png` } },
+  { tag: "meta", attrs: { property: "og:image:width", content: "1200" } },
+  { tag: "meta", attrs: { property: "og:image:height", content: "630" } },
+  {
+    tag: "meta",
+    attrs: {
+      property: "og:image:alt",
+      content:
+        "Wayscribe. A customer's record is wrong, and you can't tell which " + "service changed it."
+    }
+  },
+  { tag: "meta", attrs: { name: "twitter:image", content: `${SITE}/og.png` } }
+];
+
 export default defineConfig({
-  site: "https://wayscribe.dev",
+  site: SITE,
   // GitLab Pages serves public/; the CI job copies dist/ there.
   outDir: "./dist",
   // No image is transformed, so sharp, a native dependency, is not needed.
@@ -18,10 +57,10 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Wayscribe",
-      description:
-        "Self-hosted, record-level debugging: follow one customer record across your services and see where its data changed.",
+      description: DESCRIPTION,
       logo: { src: "./src/assets/logo.svg", replacesTitle: false },
       favicon: "/favicon.svg",
+      head: socialImage,
       // Nothing is loaded from another host: no web fonts, no analytics, no
       // external scripts. Starlight's defaults use system fonts.
       customCss: ["./src/styles/theme.css"],

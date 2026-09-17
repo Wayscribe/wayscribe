@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { TEST_ACCOUNT } from "./account.js";
+import { accountFrom } from "./account.js";
 import { optionalEnv } from "./env.js";
 
 /**
@@ -11,11 +11,22 @@ const integrationUrl = optionalEnv("INTEGRATION_URL", "http://demo-integration:3
 
 app.get("/health", () => ({ status: "ok" }));
 
-app.post("/trigger", async (_request, reply) => {
+/**
+ * Fire one webhook.
+ *
+ * With no body it sends the reference account of `DEMO_SCENARIO.md` section 3,
+ * which is what `pnpm demo:trigger` and the acceptance test do. A JSON body
+ * overrides the account's fields, so the demo can produce more than one journey
+ * to look at: another customer, or the same account carrying `Phone__c`, which
+ * the broken transformation does read and which therefore reaches the target
+ * and completes. The stack stays the only source of the data either way.
+ */
+app.post("/trigger", async (request, reply) => {
+  const account = accountFrom(request.body);
   const response = await fetch(`${integrationUrl}/webhooks/salesforce`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(TEST_ACCOUNT)
+    body: JSON.stringify(account)
   });
 
   const body: unknown = await response.json();

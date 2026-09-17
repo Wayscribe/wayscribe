@@ -100,6 +100,14 @@ Then **replay the original input** against your corrected code and compare:
 
 One changed field. The fix works, tested against the input that actually failed.
 
+![The replay page for transform-salesforce-account: the recorded Salesforce
+payload about to be sent to a development destination, the corrected handler's
+200 response carrying the phone number, and an Original versus replay table
+where phone goes from null to "+1 919 555 1234"](docs/images/replay.png)
+
+*Nothing is sent until you have read what will be sent, and the destination has
+to be on an allowlist. Replay to production is not supported.*
+
 That is the whole loop: **find where the value was lost, then prove the fix.**
 
 No identifier yet, only an alert that deliveries are failing? The Journeys page

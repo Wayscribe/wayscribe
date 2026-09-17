@@ -129,6 +129,6 @@
         "output": "alternatives.md"
       }
     ],
-    "images": ["docs/images/timeline.png", "docs/images/diff.png"]
+    "images": ["docs/images/timeline.png", "docs/images/diff.png", "docs/images/replay.png"]
   }
 }

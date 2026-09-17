@@ -1,0 +1,103 @@
+<!--
+  Source for site/public/og.png, the 1200x630 social preview.
+
+  The headline is the landing page's own hero title, so a link preview says the
+  same thing the page says. The rule across the lower third is the mark drawn
+  large: the thread runs, it steps, and everything after the step is the other
+  colour.
+
+  Type is the system interface stack, which is what the site and the product
+  interface use; nothing is fetched from a font host and no font file is
+  committed here. The committed og.png was rasterized on macOS, where that stack
+  resolves to the system interface font, so a render on another operating system
+  will set the same words in that system's interface font.
+
+  Regenerate with headless Chromium at 1200x630 (scripts/render-brand.mjs).
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1200"
+  height="630"
+  viewBox="0 0 1200 630"
+  fill="none"
+>
+  <rect width="1200" height="630" fill="#11203c" />
+
+  <!-- The mark, without its tile: the background is already the tile colour. -->
+  <g transform="translate(80 70) scale(2.4)">
+    <path
+      d="M4.9 22.5 H15 V9.5"
+      stroke="#94b8ff"
+      stroke-width="4.4"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path d="M15 9.5 H27.1" stroke="#ff7a63" stroke-width="4.4" stroke-linecap="round" />
+  </g>
+
+  <text
+    x="184"
+    y="124"
+    fill="#f2f6ff"
+    font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    font-size="42"
+    font-weight="600"
+    letter-spacing="-0.4"
+  >
+    Wayscribe
+  </text>
+
+  <text
+    fill="#ffffff"
+    font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    font-size="60"
+    font-weight="600"
+    letter-spacing="-1.2"
+  >
+    <tspan x="80" y="272">A customer&#8217;s record is wrong, and you</tspan>
+    <tspan x="80" y="348">can&#8217;t tell which service changed it.</tspan>
+  </text>
+
+  <text
+    x="80"
+    y="410"
+    fill="#93a7c9"
+    font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    font-size="28"
+    font-weight="400"
+  >
+    Wayscribe follows it across your services and points at the step that did.
+  </text>
+
+  <!-- The mark's motif at full width: run, step, and the rest in the other colour. -->
+  <path
+    d="M80 520 H620 V470"
+    stroke="#94b8ff"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path d="M620 470 H1120" stroke="#ff7a63" stroke-width="9" stroke-linecap="round" />
+
+  <text
+    x="80"
+    y="580"
+    fill="#93a7c9"
+    font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    font-size="26"
+    font-weight="400"
+  >
+    Self-hosted, record-level debugging
+  </text>
+  <text
+    x="1120"
+    y="580"
+    text-anchor="end"
+    fill="#93a7c9"
+    font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    font-size="26"
+    font-weight="500"
+  >
+    wayscribe.dev
+  </text>
+</svg>
