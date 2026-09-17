@@ -1,0 +1,20 @@
+{
+  "name": "flight-recorder-recipe-express-bullmq-hubspot",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Express webhook, BullMQ queue and worker, HubSpot contact, instrumented with Flight Recorder.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@flight-recorder/node": "file:../../../packages/sdk-node",
+    "bullmq": "^5.0.0",
+    "express": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  // For this repository's check (tests/recipes-typecheck.test.ts): the SDK is
+  // resolved to its source, and Fastify and the SQS client to the stubs. In
+  // your own application, install the packages and drop `paths` and the stubs.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@flight-recorder/node": ["../../../packages/sdk-node/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "../stubs/fastify.d.ts", "../stubs/aws-sdk-client-sqs.d.ts"]
+}
