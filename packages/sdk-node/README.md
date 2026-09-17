@@ -1046,11 +1046,11 @@ at 2,000 calls a second, one process sending 4 batches at a time stores about
 1,000 events a second and drops the rest, which the concurrency table below
 shows in detail.
 
-`src/overhead.test.ts`, part of `pnpm test`, holds a wrapped 1 KiB `transform` to
-a fixed multiple of a plain copy of its input and output, timed in the same
-process. It measured 7.2 to 8.0 after the change and 9.55 to 9.99 before it, and
-fails above 9.5. Run the benchmark above before a release all the same: the
-test catches a regression the size of this one, not a smaller one.
+`src/capture-walks.test.ts` counts the calls instead of timing them: each payload
+is checked, redacted and stored once, and an event within budget skips the
+server's check, so the extra walks fail on any machine. `src/overhead.test.ts`
+only trips on a gross slowdown, a ratio of 11 to plain work (7.2 to 8.0 now,
+9.31 to 10.05 before). Run the benchmark above before a release all the same.
 
 **Sustained load:** 2,000 wrapped calls a second for 60 seconds, 1 KiB,
 alternating `transform` and `persist`, with the cores idle between calls.

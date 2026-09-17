@@ -3,32 +3,27 @@ import { describe, expect, it } from "vitest";
 import { createRecorder } from "./recorder.js";
 
 /**
- * What a wrapped call costs, held relative to plain work in the same process.
+ * A tripwire for a gross slowdown of a wrapped call, not a regression detector.
  *
- * The SDK's benchmark (`bench/overhead.mjs`) measures microseconds, which
- * depend on the machine and on what it is doing: one build measured 30 µs at
- * p50 for a 1 KiB `transform` on 2026-09-15 and 85 µs on 2026-09-16 on the
- * same laptop, and the current build 114 µs with its cores idle between calls
- * and 40 µs with one kept awake. A limit in microseconds would either fail on a
- * busy CI runner or pass anything. This test times a wrapped `transform` of a
- * 1 KiB record against a plain capture written in the test, in this process,
- * interleaved, and compares the fastest of many short runs of each. A run the
- * machine interrupted, or spent on a slower core, is only ever slower, so the
- * fastest is the closest estimate of the work; and both sides are JavaScript
- * walking the same objects, so their ratio moves far less than either time.
+ * Times a wrapped `transform` of a 1 KiB record against a plain copy and
+ * serialisation of its input and output, in this process, interleaved, and
+ * compares the fastest of many short runs of each. Microseconds depend on the
+ * machine and on what it is doing; the ratio moves less, but not little enough
+ * to separate a 40 percent regression from noise. On an Apple M3 Pro on
+ * 2026-09-16 it read 7.2 to 8.0 with the capture fix, and 9.31 to 10.05 on the
+ * build before it (`eac66cb`), where most runs stayed under 9.5. The limit is
+ * therefore well above both, and catches only something like a walk that
+ * became quadratic or a payload serialised many times over.
  *
- * Measured on 2026-09-16 (Apple M3 Pro, Node 24.19.0 and 22.23.1): 7.2 to 8.0,
- * including with eleven of twelve cores kept busy. Before the fix that added
- * this test it was 9.55 to 9.99: the event budget check (ADR-051) and a second
- * walk to cut strings had made a 1 KiB `transform` about 40 percent slower. The
- * same comparison on a bundle gave the same ratios within 5 percent on Alpine
- * arm64 and emulated x64. A regression of that size fails here.
+ * The regression that fix removed is held by `capture-walks.test.ts`, which
+ * counts the calls instead. `bench/overhead.mjs` and `bench/capture-cpu.mjs`
+ * are the measurements for the README.
  */
 
 const RUNS = 41;
 const CALLS_PER_RUN = 100;
 const WARMUP_CALLS = 2_000;
-const RATIO_LIMIT = 9.5;
+const RATIO_LIMIT = 11;
 
 /** The benchmark's record, grown until its JSON is 1 KiB. */
 function payloadOf(bytes: number): Record<string, unknown> {
@@ -80,7 +75,7 @@ function perCall(call: () => unknown): number {
 }
 
 describe("the cost of a wrapped call", () => {
-  it("stays within a fixed multiple of a plain capture of its input and output", async () => {
+  it("stays within a generous multiple of a plain capture of its input and output", async () => {
     const payload = payloadOf(1_024);
     const transform = (): Record<string, unknown> => ({ ...payload, mapped: true });
     const recorder = createRecorder({

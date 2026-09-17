@@ -793,12 +793,17 @@ export function createRecorder(config: RecorderConfig): Recorder {
    *
    * The check walks the envelope and serialises it through a replacer, which
    * calls back into JavaScript for every value. On a 1 KiB `transform` that was
-   * a quarter of the time a wrapped call took (measured on 2026-09-16). Plain
-   * `JSON.stringify` gives the same text here, because everything on the
-   * envelope has already been through capture or was built by this file: plain
-   * objects, arrays, and well-formed strings, with every Map, Set, Error,
-   * BigInt and cycle already rendered. The replacer exists for values that are
-   * not like that. Anything that throws falls back to the check.
+   * a quarter of the time a wrapped call took (measured on 2026-09-16).
+   *
+   * Plain `JSON.stringify` measures what the wire carries, since the batch is
+   * sent with it too. For the payloads that is also what the check measures:
+   * `input`, `output` and `metadata` have been through capture, so every Map,
+   * Set, Error, BigInt and cycle in them is already rendered. Not everything on
+   * the envelope has: `name` and `operation` are the caller's, and `error`
+   * keeps any extra fields a JavaScript caller put on it. A Map in one of those
+   * measures here as the `{}` it is sent as, where the check would have
+   * weighed its entries; a BigInt or a cycle throws, here and when the batch
+   * is sent, and falls back to the check.
    */
   function plainlyWithinBudget(envelope: { event: Record<string, unknown> }): boolean {
     try {
