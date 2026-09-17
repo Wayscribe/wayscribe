@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { releaseManifest } from "../scripts/release-manifest.mjs";
+import { LEGAL_FILES, releaseManifest } from "../scripts/release-manifest.mjs";
 
 /**
  * The manifest users install, as the repository declares it and as the release
@@ -64,11 +64,18 @@ describe("the release manifest", () => {
   });
 
   it("keeps what npm and a user read", () => {
-    for (const key of ["name", "version", "type", "license", "repository", "engines", "files"]) {
+    for (const key of ["name", "version", "type", "license", "repository", "engines"]) {
       expect(released[key], key).toEqual(packed[key]);
     }
     expect(released.exports).toEqual(manifest.publishConfig?.exports);
     expect(released.publishConfig).toEqual({ access: "public" });
+  });
+
+  it("lists the LICENSE and NOTICE after the files the repository declares", () => {
+    expect(LEGAL_FILES).toEqual(["LICENSE", "NOTICE"]);
+    expect(released.files).toEqual(["dist", "README.md", "LICENSE", "NOTICE"]);
+    const again = releaseManifest({ ...packed, files: ["dist", "LICENSE"] }) as Manifest;
+    expect(again.files).toEqual(["dist", "LICENSE", "NOTICE"]);
   });
 
   it("has no dependencies at all", () => {

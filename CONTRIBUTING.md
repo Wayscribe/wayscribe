@@ -9,6 +9,8 @@
 
 Flight Recorder is in early development. Contributions should protect the narrow V0 scope and the reliability of applications being observed.
 
+Participation in this project is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Before contributing
 
 Read:

@@ -79,6 +79,11 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 COPY --from=build --chown=node:node /app /app
+# Apache-2.0 asks a redistributor to pass on the LICENSE and NOTICE, and a
+# published image is a redistribution. /licenses is where both images keep
+# them, so an operator finds them at the same path in either one;
+# scripts/verify-image-contents.sh checks they are there.
+COPY --from=build /app/LICENSE /app/NOTICE /licenses/
 
 # The base image ships npm and corepack, and neither is used at runtime — the
 # container runs `node` directly. Container scanning reported seven CVEs against

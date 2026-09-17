@@ -401,6 +401,11 @@ shorter overview is in
 
 ### Security
 
+- **LICENSE and NOTICE ship with the package and the images.** The npm package
+  and the API and web images now include the project's LICENSE and NOTICE, as
+  Apache-2.0 asks of anyone redistributing it; in the images they are at
+  `/licenses/`. The release checks fail if either file is missing, and the web
+  image now carries the same OCI labels as the API image.
 - **Next.js telemetry is off wherever Next runs.** `next build` reports
   anonymous usage data to Vercel unless `NEXT_TELEMETRY_DISABLED` is set, and
   the README's quick start builds the web image on the reader's machine. The web

@@ -86,15 +86,25 @@ TARBALL="$1"
 # `workspace:` range cannot be installed from the registry, and build-only
 # fields are noise in every user's node_modules.
 #
-# And the files: the bundle, one declaration file, the README and the licence,
-# and nothing else. Thirteen internal declaration files and their maps once
-# shipped, importable under legacy module resolution and failing at runtime.
+# And the files: the bundle, one declaration file, the README, and the LICENSE
+# and NOTICE that Apache-2.0 asks a redistributor to pass on, and nothing else.
+# Thirteen internal declaration files and their maps once shipped, importable
+# under legacy module resolution and failing at runtime.
 FILES="$(tar -tzf "$TARBALL" | sort | tr '\n' ' ')"
-EXPECTED="package/LICENSE package/README.md package/dist/index.d.ts package/dist/index.js package/package.json "
+EXPECTED="package/LICENSE package/NOTICE package/README.md package/dist/index.d.ts package/dist/index.js package/package.json "
 if [ "$FILES" != "$EXPECTED" ]; then
   echo "FAIL: the tarball holds ${FILES}; expected ${EXPECTED}" >&2
   exit 1
 fi
+
+# Present is not enough: the legal files are the repository root's, byte for
+# byte, since pack.mjs copies them from there and nowhere else keeps a copy.
+for NAME in LICENSE NOTICE; do
+  if ! tar -xzOf "$TARBALL" "package/${NAME}" | cmp -s - "$NAME"; then
+    echo "FAIL: package/${NAME} in the tarball differs from ${NAME} at the repository root." >&2
+    exit 1
+  fi
+done
 
 tar -xzOf "$TARBALL" package/package.json | node -e '
   let text = "";
