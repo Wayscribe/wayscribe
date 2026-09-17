@@ -21,6 +21,48 @@ at `main`. A published document with an em or en dash stops the build.
 To publish another document, add it to `docs-manifest.json` and to the
 `.site-changes` list in `.gitlab-ci.yml`; `pnpm test` fails until both have it.
 
+## The mark and the social preview
+
+The sources are SVG, in `assets/brand/`, and are the files to edit. The rasters
+beside them are generated:
+
+```bash
+pnpm brand    # from the repository root
+```
+
+| File | What it is |
+| --- | --- |
+| `assets/brand/mark.svg` | The mark: a thread that runs, steps, and continues in the other colour. No type, no gradient, legible at 16px. |
+| `assets/brand/mark-512.png`, `mark-1024.png` | Raster exports, for the GitLab project avatar and anything else that wants an icon. |
+| `assets/brand/og.svg` | The 1200x630 social preview: the name, the landing page's own headline, and the mark's motif. |
+| `site/public/og.png` | What `pnpm brand` renders from it, and what `og:image` points at. |
+| `site/public/favicon.svg` | The mark, tile and all. |
+| `site/src/assets/logo.svg` | The same mark without its tile, for the site header. |
+
+`astro.config.mjs` adds `og:image`, its dimensions, its alt text and
+`twitter:image`, each with an absolute `https://wayscribe.dev` URL, to every
+page. Starlight already writes `og:title`, `og:type`, `og:url`, `og:locale`,
+`og:description`, `og:site_name` and `twitter:card` itself, taking the title and
+description from the page and falling back to the site's, so those are not
+repeated here; a second copy would leave two of each in the head.
+
+The type in `og.svg` is set in the system interface stack, the same one the site
+and the product interface use. No font file is committed and nothing is fetched
+from a font host. A render on another operating system sets the same words in
+that system's interface font.
+
+### Uploading the images, by hand
+
+Neither of these has an API worth scripting, and both are done once.
+
+1. **The GitLab project avatar.** Settings, General, Project avatar: upload
+   `assets/brand/mark-512.png`. It can also be set with
+   `glab api -X PUT projects/jojithedev%2Fwayscribe --form avatar=@assets/brand/mark-512.png`.
+2. **The GitHub social preview.** GitHub has no API for it. On the mirror, go to
+   Settings, General, Social preview, and upload `site/public/og.png`, the same
+   file this site serves. Do it again whenever the preview changes. See
+   [docs/MIRRORING.md](../docs/MIRRORING.md).
+
 ## Dependencies
 
 The site is a package of its own, with its own `pnpm-lock.yaml`, and is not a
