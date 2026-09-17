@@ -28,7 +28,8 @@ before you do this, and nothing is mirrored.
 
 ### 1. Create the GitHub repository
 
-Empty. No README, no license, no `.gitignore` — the first mirror push force-writes
+The mirror is `github.com/wayscribe/wayscribe`, in the `wayscribe` organization.
+Create it empty. No README, no license, no `.gitignore` — the first mirror push force-writes
 history, and an initial commit would just be overwritten.
 
 ### 2. Turn off everything that collects contributions
@@ -71,12 +72,14 @@ tokens**.
 | Variable | Value | Flags |
 | --- | --- | --- |
 | `GITHUB_TOKEN` | the token from step 3 | **Masked**, **Protected** |
-| `GITHUB_REPOSITORY` | `your-username/wayscribe` | Protected |
+| `GITHUB_REPOSITORY` | `wayscribe/wayscribe` | Protected |
 
 **Protected matters.** It restricts the variable to protected branches and tags,
 so a job on an unmerged feature branch cannot read a token that can write to your
-public GitHub repository. `main` and `v*` tags should both be protected under
-**Settings → Repository → Protected branches / Protected tags**.
+public GitHub repository. `main` and `v*` tags are both protected under
+**Settings → Repository → Protected branches / Protected tags** (tags since
+2026-09-17). A tag that is not protected never sees the variable, so its mirror
+and release jobs are skipped.
 
 **Masked matters** too: it keeps the token out of job logs.
 
