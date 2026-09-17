@@ -53,6 +53,18 @@ async function requireKeyring(): Promise<Keyring | undefined> {
   }
 }
 
+/** Apply the local seed and print what it created, for `seed` and `reset`. */
+async function seed(keyring: Keyring): Promise<void> {
+  const { seedLocal } = await import("./seed-local.js");
+  const result = await seedLocal(db, keyring, defaultRetentionDays);
+  console.log("Local seed applied.");
+  console.log(`  project:     ${result.projectId}`);
+  console.log(`  environment: ${result.environmentId}`);
+  console.log("");
+  console.log("  API key (shown once, not recoverable):");
+  console.log(`    ${result.apiKey}`);
+}
+
 try {
   switch (command) {
     case "migrate": {
@@ -86,14 +98,35 @@ try {
     case "seed": {
       const keyring = await requireKeyring();
       if (keyring === undefined) break;
-      const { seedLocal } = await import("./seed-local.js");
-      const result = await seedLocal(db, keyring, defaultRetentionDays);
-      console.log("Local seed applied.");
-      console.log(`  project:     ${result.projectId}`);
-      console.log(`  environment: ${result.environmentId}`);
-      console.log("");
-      console.log("  API key (shown once, not recoverable):");
-      console.log(`    ${result.apiKey}`);
+      await seed(keyring);
+      break;
+    }
+    case "reset": {
+      // Checked before anything is dropped, the keyring included: a reset
+      // that wiped the schema and then could not seed would leave less than
+      // it found.
+      const { parseResetArgs } = await import("./reset.js");
+      const parsed = parseResetArgs(args, process.env, databaseUrl);
+      if (!parsed.ok) {
+        console.error(parsed.message);
+        process.exitCode = 1;
+        break;
+      }
+      const keyring = await requireKeyring();
+      if (keyring === undefined) break;
+
+      // `all`: every batch, not only the last. Migration 019 drops its
+      // indexes concurrently on connections of its own, which is why this
+      // runs through knex's migrator rather than a DROP SCHEMA.
+      const [, reverted] = (await db.migrate.rollback({}, true)) as [number, string[]];
+      console.log(
+        reverted.length === 0
+          ? "Nothing to roll back."
+          : `Rolled back ${String(reverted.length)} migrations.`
+      );
+      const [, applied] = (await db.migrate.latest()) as [number, string[]];
+      console.log(`Applied ${String(applied.length)} migrations.`);
+      await seed(keyring);
       break;
     }
     case "seed-demo": {
@@ -315,7 +348,7 @@ try {
     default: {
       console.error(`Unknown command: ${command ?? "(none)"}`);
       console.error(
-        "Usage: tsx src/cli.ts <migrate|migrate:unlock|rollback|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep|rotate:reencrypt|rotate:status|delete:journey|delete:identifier|delete:range|delete:destination|doctor>"
+        "Usage: tsx src/cli.ts <migrate|migrate:unlock|rollback|reset|seed|seed-demo|project:create|project:list|key:create|key:revoke|key:list|retention:sweep|rotate:reencrypt|rotate:status|delete:journey|delete:identifier|delete:range|delete:destination|doctor>"
       );
       process.exitCode = 1;
       break;
