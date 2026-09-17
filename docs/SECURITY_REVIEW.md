@@ -133,7 +133,7 @@ cosign verify registry.gitlab.com/jojithedev/wayscribe/api:vX.Y.Z \
 
 ## Reporting a vulnerability
 
-Open a confidential issue at
+Email <security@wayscribe.dev>, or open a confidential issue at
 <https://gitlab.com/jojithedev/wayscribe/-/issues/new>. Expect an
 acknowledgement within a week
 ([../SECURITY.md](../SECURITY.md#reporting-a-vulnerability)).

@@ -4,9 +4,10 @@
 
 Please report security issues privately rather than opening a public issue.
 
-Open a [confidential issue](https://gitlab.com/jojithedev/wayscribe/-/issues/new)
-with the **Confidential** box ticked. That keeps the report visible only to
-project members.
+Email **security@wayscribe.dev**, or open a
+[confidential issue](https://gitlab.com/jojithedev/wayscribe/-/issues/new)
+with the **Confidential** box ticked. Email reaches only the maintainer; a
+confidential issue is visible only to project members.
 
 Include what you did, what happened, and what you expected. A proof of concept
 helps but is not required.
