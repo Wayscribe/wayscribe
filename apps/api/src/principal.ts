@@ -1,4 +1,4 @@
-import type { ApiKeyContext } from "@flight-recorder/database";
+import type { ApiKeyContext } from "@wayscribe/database";
 import { timingSafeEqual } from "node:crypto";
 import type { Knex } from "knex";
 import { authenticatePresentedKey, bearerToken, type ApiKeyAuthenticator } from "./auth.js";

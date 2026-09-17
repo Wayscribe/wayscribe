@@ -37,21 +37,21 @@ describe("API key verifiers", () => {
     });
 
   it("returns the verifier's key id with the lookup", async () => {
-    await insertKey("fr_labelled1", { key_hash: "aa", key_hash_key_id: "0123456789ab" });
-    expect((await findApiKeyByPrefix(db, "fr_labelled1"))?.keyHashKeyId).toBe("0123456789ab");
+    await insertKey("wsk_labelled", { key_hash: "aa", key_hash_key_id: "0123456789ab" });
+    expect((await findApiKeyByPrefix(db, "wsk_labelled"))?.keyHashKeyId).toBe("0123456789ab");
   });
 
   it("returns a null key id for a key issued before verifiers were labelled", async () => {
-    await insertKey("fr_unlabeled", { key_hash: "bb" });
-    expect((await findApiKeyByPrefix(db, "fr_unlabeled"))?.keyHashKeyId).toBeNull();
+    await insertKey("wsk_unlabeld", { key_hash: "bb" });
+    expect((await findApiKeyByPrefix(db, "wsk_unlabeld"))?.keyHashKeyId).toBeNull();
   });
 
   it("replaces a verifier that has not changed since it was read", async () => {
-    const id = await insertKey("fr_replace01", { key_hash: "cc" });
+    const id = await insertKey("wsk_replace1", { key_hash: "cc" });
     expect(
       await replaceApiKeyVerifier(db, id, "cc", { keyHash: "dd", keyHashKeyId: "ba9876543210" })
     ).toBe(true);
-    const context = await findApiKeyByPrefix(db, "fr_replace01");
+    const context = await findApiKeyByPrefix(db, "wsk_replace1");
     expect(context?.keyHash).toBe("dd");
     expect(context?.keyHashKeyId).toBe("ba9876543210");
   });
@@ -60,11 +60,11 @@ describe("API key verifiers", () => {
     // Two requests presenting the same key during a rotation both try to move
     // it. The loser must not overwrite whatever the winner, or the demo seed,
     // wrote in between.
-    const id = await insertKey("fr_replace02", { key_hash: "ee", key_hash_key_id: "111111111111" });
+    const id = await insertKey("wsk_replace2", { key_hash: "ee", key_hash_key_id: "111111111111" });
     expect(
       await replaceApiKeyVerifier(db, id, "stale", { keyHash: "ff", keyHashKeyId: "222222222222" })
     ).toBe(false);
-    const context = await findApiKeyByPrefix(db, "fr_replace02");
+    const context = await findApiKeyByPrefix(db, "wsk_replace2");
     expect(context?.keyHash).toBe("ee");
     expect(context?.keyHashKeyId).toBe("111111111111");
   });

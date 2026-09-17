@@ -1,13 +1,9 @@
-import {
-  findApiKeyByPrefix,
-  replaceApiKeyVerifier,
-  type ApiKeyContext
-} from "@flight-recorder/database";
+import { findApiKeyByPrefix, replaceApiKeyVerifier, type ApiKeyContext } from "@wayscribe/database";
 import {
   API_KEY_PREFIX_LENGTH,
   verifyApiKeyWithKeyring,
   type Keyring
-} from "@flight-recorder/payload-security";
+} from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 
 export type AuthResult =

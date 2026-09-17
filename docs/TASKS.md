@@ -267,7 +267,7 @@ the honest picture.
 - [x] Implement retention selection.
 - [x] Implement bounded deletion.
 - [x] Add cleanup metrics. One structured log line per sweep (ADR-026), and the
-      `flight_recorder_retention_*` counters and last-success timestamp on
+      `wayscribe_retention_*` counters and last-success timestamp on
       `/metrics` (ADR-047).
 - [x] Add backup documentation.
 - [x] Add restore documentation.
@@ -289,8 +289,8 @@ the honest picture.
 - [x] Add release workflow.
 - [ ] Publish `api` and `web` images to a container registry. **Pipeline built and
       gated on a tag; needs someone to run the manual job.**
-- [ ] Publish `@flight-recorder/node` to npm. **Dry run passes; needs ownership of
-      the @flight-recorder scope and a trusted publisher registered on npmjs.com
+- [ ] Publish `@wayscribe/node` to npm. **Dry run passes; needs ownership of
+      the @wayscribe scope and a trusted publisher registered on npmjs.com
       (`docs/OPERATIONS.md` §11).**
 - [x] Change the quick start to pull published images rather than build from source.
       `infrastructure/compose.published.yaml` exists and the README leads with it;

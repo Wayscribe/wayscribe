@@ -24,7 +24,7 @@ Authentication for reads:
 
 ```text
 Authorization: Bearer <admin-token>
-x-flight-project-id: <project-id>
+x-wayscribe-project-id: <project-id>
 ```
 
 The header is exactly the scheme, one space, and the token. The scheme is read in
@@ -34,7 +34,7 @@ An API key is scoped to one project and one environment and may ingest. An admin
 token reads across every environment of one **named** project and may not ingest
 (ADR-029).
 
-`x-flight-project-id` selects that project. It may be omitted when the
+`x-wayscribe-project-id` selects that project. It may be omitted when the
 installation has exactly one project, in which case the API resolves it; with
 more than one, omitting it is a `404 project_not_found` rather than a guess. The
 web interface stores the selection in its session.
@@ -464,7 +464,7 @@ Request:
 `method` is `POST`, `PUT` or `PATCH`, and `POST` when omitted. There is no
 `payload` or `headers` field: the body sent is the event's recorded input,
 exactly as stored (ADR-032), and the headers are the destination's own plus
-`content-type`, `user-agent` and `x-flight-replay` (`SECURITY.md` section 9).
+`content-type`, `user-agent` and `x-wayscribe-replay` (`SECURITY.md` section 9).
 `path` is appended to the destination's base URL; absolute URLs,
 protocol-relative URLs and path traversal are refused (ADR-019).
 
@@ -483,7 +483,7 @@ decrypted).
     "method": "POST",
     "path": "/replay/customer",
     "requestPayload": { "id": "0018Z00002ABC", "phone": "+1 919 555 1234" },
-    "requestHeaders": { "content-type": "application/json", "user-agent": "flight-recorder-replay", "x-flight-replay": "true" },
+    "requestHeaders": { "content-type": "application/json", "user-agent": "wayscribe-replay", "x-wayscribe-replay": "true" },
     "status": "completed",
     "responseStatus": 200,
     "responsePayload": { "phone": "+1 919 555 1234" },
@@ -555,7 +555,7 @@ and at most 100.
 ```http
 DELETE /v1/journeys/:journeyId
 Authorization: Bearer <admin-token>
-x-flight-project-id: <project-id>
+x-wayscribe-project-id: <project-id>
 ```
 
 Admin token only. An API key gets `401 unauthorized` with the same body as the
@@ -569,7 +569,7 @@ and writes a `journey.deleted` audit row in the same transaction.
   as a read, so it reveals nothing about other projects.
 - `400 invalid_request` for a journey id containing a null byte or longer than
   the protocol's 128 characters.
-- `404 project_not_found` when `x-flight-project-id` is not a UUID, names no
+- `404 project_not_found` when `x-wayscribe-project-id` is not a UUID, names no
   project, or is omitted while more than one project exists.
 
 A path parameter longer than 1,152 characters as encoded in the URL, nine for
@@ -580,7 +580,7 @@ each of the protocol's 128, is refused with `414` before any route runs.
 ```http
 POST /v1/erasures
 Authorization: Bearer <admin-token>
-x-flight-project-id: <project-id>
+x-wayscribe-project-id: <project-id>
 ```
 
 Request:
@@ -644,7 +644,7 @@ Errors:
   boolean.
 - `404 environment_not_found` when the project has no environment with that
   name.
-- `404 project_not_found` when `x-flight-project-id` is not a UUID, names no
+- `404 project_not_found` when `x-wayscribe-project-id` is not a UUID, names no
   project, or is omitted while more than one project exists.
 
 ## 19. Delete a replay destination
@@ -652,7 +652,7 @@ Errors:
 ```http
 DELETE /v1/replay-destinations/:destinationId
 Authorization: Bearer <admin-token>
-x-flight-project-id: <project-id>
+x-wayscribe-project-id: <project-id>
 ```
 
 Deletes the destination and every replay run sent to it, in one transaction. A
@@ -665,5 +665,5 @@ and the number of runs, not the base URL or the headers.
   not a UUID.
 - `400 invalid_request` for an id containing a null byte or longer than 512
   characters.
-- `404 project_not_found` when `x-flight-project-id` is not a UUID, names no
+- `404 project_not_found` when `x-wayscribe-project-id` is not a UUID, names no
   project, or is omitted while more than one project exists.

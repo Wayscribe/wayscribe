@@ -1,4 +1,4 @@
-import { REDACTED } from "@flight-recorder/payload-security";
+import { REDACTED } from "@wayscribe/payload-security";
 
 /**
  * Headers that never travel with a replay.
@@ -27,8 +27,8 @@ const BLOCKED = new Set([
   "stripe-signature"
 ]);
 
-/** Never overridden by a caller or a destination: Flight Recorder identifies itself. */
-const USER_AGENT = "flight-recorder-replay";
+/** Never overridden by a caller or a destination: Wayscribe identifies itself. */
+const USER_AGENT = "wayscribe-replay";
 
 export interface HeaderResult {
   /** What goes out on the wire, with real values. Never persisted. */
@@ -89,11 +89,11 @@ export function applyHeaderPolicy(
   headers["content-type"] = headers["content-type"] ?? "application/json";
   headers["user-agent"] = USER_AGENT;
   // States plainly, at the destination, that this request is not a real one.
-  headers["x-flight-replay"] = "true";
+  headers["x-wayscribe-replay"] = "true";
   // These two replaced whatever a destination configured under the same name,
-  // so what was sent is Flight Recorder's own value and nothing is withheld.
+  // so what was sent is Wayscribe's own value and nothing is withheld.
   withheld.delete("user-agent");
-  withheld.delete("x-flight-replay");
+  withheld.delete("x-wayscribe-replay");
 
   const recorded: Record<string, string> = {};
   for (const [name, value] of Object.entries(headers)) {

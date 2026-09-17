@@ -1,14 +1,14 @@
-# Run Flight Recorder from published images, without cloning this repository.
+# Run Wayscribe from published images, without cloning this repository.
 #
-#   curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml
+#   curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/main/infrastructure/compose.published.yaml
 #
-# Flight Recorder stores everything in one PostgreSQL database, and expects you
+# Wayscribe stores everything in one PostgreSQL database, and expects you
 # to bring your own: the one your team already backs up, monitors, and holds
 # the credentials for. Point it at that, and name the release you are running:
 #
 #   export COMPOSE_FILE=compose.published.yaml
-#   export FLIGHT_RECORDER_VERSION=vX.Y.Z
-#   export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
+#   export WAYSCRIBE_VERSION=vX.Y.Z
+#   export DATABASE_URL=postgresql://user:password@db.internal:5432/wayscribe
 #   export ENCRYPTION_KEY=$(openssl rand -hex 32)
 #   export ADMIN_TOKEN=$(openssl rand -hex 32)
 #   docker compose up -d
@@ -16,7 +16,7 @@
 # COMPOSE_FILE names the files every later `docker compose` command in the shell
 # reads, so the one-off commands below see the same stack.
 #
-# FLIGHT_RECORDER_VERSION is required, and names a release by its git tag, v
+# WAYSCRIBE_VERSION is required, and names a release by its git tag, v
 # included (releases are 0.x, so a tag looks like v0.1.0). There is no `latest`
 # fallback on purpose: the migrate service applies the schema of whatever image
 # it pulls, so an unpinned `docker compose pull` could move a database forward
@@ -46,14 +46,14 @@
 #   docker compose run --rm --entrypoint node api \
 #     packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key <key>
 #
-# `compose.yaml` builds from source instead and is for people working on Flight
-# Recorder itself.
+# `compose.yaml` builds from source instead and is for people working on
+# Wayscribe itself.
 #
 # The API logs a warning at every boot while the published default secrets are
 # in use. To rotate ENCRYPTION_KEY later, set the old value as
 # ENCRYPTION_KEY_PREVIOUS while the new one takes over. See docs/OPERATIONS.md.
 
-name: flight-recorder
+name: wayscribe
 
 x-database: &database
   # Empty rather than required, so that `-f compose.bundled.yaml` can supply it.
@@ -69,13 +69,13 @@ services:
   # schema. If your team applies migrations through its own process, skip this
   # service and run the same command when you choose to.
   migrate:
-    image: registry.gitlab.com/jojithedev/flight-recorder/api:${FLIGHT_RECORDER_VERSION:?set FLIGHT_RECORDER_VERSION to the release tag to run, such as v0.1.0}
+    image: registry.gitlab.com/jojithedev/wayscribe/api:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag to run, such as v0.1.0}
     environment: *database
     entrypoint: ["node", "packages/database/dist/cli.js", "migrate"]
     restart: "no"
 
   api:
-    image: registry.gitlab.com/jojithedev/flight-recorder/api:${FLIGHT_RECORDER_VERSION:?set FLIGHT_RECORDER_VERSION to the release tag to run, such as v0.1.0}
+    image: registry.gitlab.com/jojithedev/wayscribe/api:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag to run, such as v0.1.0}
     environment:
       <<: *database
       APP_URL: http://localhost:3000
@@ -114,7 +114,7 @@ services:
         condition: service_completed_successfully
 
   web:
-    image: registry.gitlab.com/jojithedev/flight-recorder/web:${FLIGHT_RECORDER_VERSION:?set FLIGHT_RECORDER_VERSION to the release tag to run, such as v0.1.0}
+    image: registry.gitlab.com/jojithedev/wayscribe/web:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag to run, such as v0.1.0}
     environment:
       # Server-side only. The browser never contacts the API, so this is the
       # internal service name rather than a host-reachable address.

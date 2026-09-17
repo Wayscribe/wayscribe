@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { journeyEventSchema } from "@flight-recorder/protocol";
+import { journeyEventSchema } from "@wayscribe/protocol";
 import { describe, expect, it } from "vitest";
 import type { Counters, Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Journey } from "./index.js";
@@ -43,7 +43,7 @@ async function capture(record: (journey: Journey) => void): Promise<Captured> {
   try {
     const recorder = createRecorder({
       endpoint: `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`,
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "svc",
       environment: "development",
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic)

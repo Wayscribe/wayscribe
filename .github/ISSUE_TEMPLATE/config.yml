@@ -7,17 +7,17 @@ blank_issues_enabled: false
 
 contact_links:
   - name: Report a bug
-    url: https://gitlab.com/jojithedev/flight-recorder/-/issues/new
+    url: https://gitlab.com/jojithedev/wayscribe/-/issues/new
     about: This GitHub repository is a read-only mirror. Bugs are tracked on GitLab.
 
   - name: Request a feature
-    url: https://gitlab.com/jojithedev/flight-recorder/-/issues/new
+    url: https://gitlab.com/jojithedev/wayscribe/-/issues/new
     about: Ideas and feature requests belong on GitLab, where development happens.
 
   - name: Report a security vulnerability
-    url: https://gitlab.com/jojithedev/flight-recorder/-/blob/main/SECURITY.md
+    url: https://gitlab.com/jojithedev/wayscribe/-/blob/main/SECURITY.md
     about: Please report privately rather than in any public tracker.
 
   - name: Read the documentation
-    url: https://gitlab.com/jojithedev/flight-recorder#readme
+    url: https://gitlab.com/jojithedev/wayscribe#readme
     about: Setup, operations, architecture, and the decision log.

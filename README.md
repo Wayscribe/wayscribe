@@ -1,6 +1,6 @@
-# Flight Recorder
+# Wayscribe
 
-[![pipeline](https://gitlab.com/jojithedev/flight-recorder/badges/main/pipeline.svg)](https://gitlab.com/jojithedev/flight-recorder/-/pipelines)
+[![pipeline](https://gitlab.com/jojithedev/wayscribe/badges/main/pipeline.svg)](https://gitlab.com/jojithedev/wayscribe/-/pipelines)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-24-brightgreen.svg)](.nvmrc)
 
@@ -10,6 +10,8 @@ where its data changed.**
 Free, self-hosted, and small enough to run on a laptop. No account, no hosted
 service, and nothing captured is sent anywhere you did not configure.
 
+Wayscribe was called Flight Recorder until September 2026.
+
 ![A customer's journey across two services, with the transformation step open
 and a field-level diff showing Phone going in with a value and phone coming out
 null](docs/images/diff.png)
@@ -17,7 +19,7 @@ null](docs/images/diff.png)
 *One record, every service that touched it, and the step where the value was
 lost. Regenerate with `pnpm screenshots`.*
 
-> **Development happens on [GitLab](https://gitlab.com/jojithedev/flight-recorder).**
+> **Development happens on [GitLab](https://gitlab.com/jojithedev/wayscribe).**
 > Issues and merge requests go there. Any GitHub repository is a read-only
 > mirror; see [docs/MIRRORING.md](docs/MIRRORING.md).
 
@@ -49,7 +51,7 @@ tell you the call succeeded and nothing about what it carried.
 
 So you start grepping.
 
-**Flight Recorder is built for that exact half hour.** Search the customer. Read
+**Wayscribe is built for that exact half hour.** Search the customer. Read
 the timeline. Look at the step where the value changed.
 
 ---
@@ -117,7 +119,7 @@ count](docs/images/journeys.png)
 You need Docker with Compose. Nothing else: no Node, no database, no account.
 
 ```bash
-git clone https://gitlab.com/jojithedev/flight-recorder.git && cd flight-recorder
+git clone https://gitlab.com/jojithedev/wayscribe.git && cd wayscribe
 ```
 
 ```bash
@@ -198,9 +200,9 @@ repository, commit the tarball to your application, and depend on it by path:
 
 ```bash
 pnpm install
-pnpm --filter @flight-recorder/node run pack:release /path/to/your-app/vendor/
+pnpm --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
 cd /path/to/your-app
-npm install ./vendor/flight-recorder-node-0.1.0.tgz   # records "file:vendor/…tgz"
+npm install ./vendor/wayscribe-node-0.1.0.tgz   # records "file:vendor/…tgz"
 ```
 
 A tarball is a built copy that travels with your application. A path into the
@@ -211,14 +213,14 @@ pulling a change that adds or updates the tarball, run `npm ci` before the job
 runs again**; a deploy that skipped it hung. The
 [SDK README](packages/sdk-node/README.md#install-not-yet-on-npm) has the
 details. Once the package is published, all of this becomes
-`npm install @flight-recorder/node`.
+`npm install @wayscribe/node`.
 
 ```typescript
-import { createRecorder } from "@flight-recorder/node";
+import { createRecorder } from "@wayscribe/node";
 
 const recorder = createRecorder({
   endpoint: "http://localhost:8080",
-  apiKey: process.env.FLIGHT_RECORDER_API_KEY,
+  apiKey: process.env.WAYSCRIBE_API_KEY,
   serviceName: "billing-api",
   environment: "development",
   // Prints `delivered_first` once events are stored, or why they are not.
@@ -278,11 +280,11 @@ no library. This one is built so that cannot happen:
 
 ## Why this is not tracing
 
-Tracing answers *"which call was slow, and did it succeed?"* Flight Recorder
+Tracing answers *"which call was slow, and did it succeed?"* Wayscribe
 answers *"what happened to this record, and where did its data change?"* Both
 are useful. They are not the same question.
 
-| | Flight Recorder | APM / tracing |
+| | Wayscribe | APM / tracing |
 | --- | --- | --- |
 | You search by | a customer, order, or invoice ID | a trace ID or a service |
 | The unit is | one record's journey | one request's spans |
@@ -339,7 +341,7 @@ platforms, which shows teams pay for it.
 [docs/ALTERNATIVES.md](docs/ALTERNATIVES.md) has the licence, the overlap and
 the gap for each, with a source and the date it was checked. If a tool does all
 four, this claim is wrong: please
-[open an issue](https://gitlab.com/jojithedev/flight-recorder/-/issues) with a
+[open an issue](https://gitlab.com/jojithedev/wayscribe/-/issues) with a
 link to it.
 
 ---
@@ -379,7 +381,7 @@ service**: no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md): 56 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md): 57 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -427,16 +429,16 @@ published. Until they are, use [Try it](#try-it), which runs from a clone.
 [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
 will pull the images, migrate on first boot, and need no checkout.
 
-Flight Recorder keeps everything in one PostgreSQL database, 15 or later, and
+Wayscribe keeps everything in one PostgreSQL database, 15 or later, and
 expects you to bring your own: the one your team already backs up, monitors,
 and holds the credentials for.
 
 ```bash
-curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml
+curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/main/infrastructure/compose.published.yaml
 export COMPOSE_FILE=compose.published.yaml
-export FLIGHT_RECORDER_VERSION=vX.Y.Z   # the release to run; releases are 0.x
+export WAYSCRIBE_VERSION=vX.Y.Z   # the release to run; releases are 0.x
 
-export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
+export DATABASE_URL=postgresql://user:password@db.internal:5432/wayscribe
 export ENCRYPTION_KEY=$(openssl rand -hex 32)
 export ADMIN_TOKEN=$(openssl rand -hex 32)
 docker compose up -d
@@ -444,7 +446,7 @@ docker compose up -d
 
 `COMPOSE_FILE` names the files every `docker compose` command in this shell
 reads, so the commands below always see the same stack you started.
-`FLIGHT_RECORDER_VERSION` is required: the file has no `latest` fallback,
+`WAYSCRIBE_VERSION` is required: the file has no `latest` fallback,
 because the `migrate` service applies the schema of whatever image it pulls,
 and an unpinned pull could move your database across a minor release. Export
 both again in a new shell.
@@ -453,7 +455,7 @@ To try it without standing a database up first, add the bundled overlay to that
 list. It runs PostgreSQL alongside and sets `DATABASE_URL` for you:
 
 ```bash
-curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.bundled.yaml
+curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/main/infrastructure/compose.bundled.yaml
 export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
 docker compose up -d
 ```
@@ -479,13 +481,13 @@ with it:
 
 ```bash
 docker compose run --rm --entrypoint node api \
-  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
+  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key wsk_…
 ```
 
 `doctor` prints one line per check (the database, migrations, default secrets,
 keys, the API) and the fix for anything that fails, and exits 1 if anything did
 ([Operations §12](docs/OPERATIONS.md#12-checking-an-installation)). Then give
-the key to your service as `FLIGHT_RECORDER_API_KEY` and follow
+the key to your service as `WAYSCRIBE_API_KEY` and follow
 [Instrument your own service](#instrument-your-own-service).
 
 ### Not in V0
@@ -510,7 +512,7 @@ recorded durations and gaps. Duplication and loss are not yet first-class.
 
 ---
 
-## What Flight Recorder is not
+## What Wayscribe is not
 
 - an application performance monitoring platform
 - a log aggregator
@@ -523,7 +525,7 @@ recorded durations and gaps. Duplication and loss are not yet first-class.
 
 It observes workflows that already exist.
 
-**One caution worth reading.** Flight Recorder records the contents of your
+**One caution worth reading.** Wayscribe records the contents of your
 integration payloads. Treat its database as holding whatever your workflows
 carry. If that includes regulated data, review `captureMode` first:
 `metadata-only` records the shape of a journey without storing payloads at all.
@@ -598,7 +600,7 @@ apps/
   demo/                 the reference journey, five entry points in one image
 packages/
   protocol/             event schema and version
-  sdk-node/             to be published as @flight-recorder/node
+  sdk-node/             to be published as @wayscribe/node
   cli/                  read-only CLI over the HTTP API
   database/             migrations, repositories, operator CLI
   payload-security/     redaction, encryption, keys, search tokens
@@ -615,7 +617,7 @@ infrastructure/         Compose files and queue configuration
 
 AI agents write most of the code in this repository. Jorge, the owner, makes the
 decisions, and each one is recorded with its reasoning in
-[the decision log](docs/DECISIONS.md), which holds 56 ADRs.
+[the decision log](docs/DECISIONS.md), which holds 57 ADRs.
 [What running it found](docs/WHAT_RUNNING_IT_FOUND.md) lists the defects the
 agents' tests missed and running the software found, and what changed in the
 testing because of them.

@@ -141,7 +141,7 @@ export function formatJourney(
   }
 
   lines.push("");
-  lines.push(style.dim("All times UTC. Open a step with: flight-recorder event <id> --diff"));
+  lines.push(style.dim("All times UTC. Open a step with: wayscribe event <id> --diff"));
   return lines.join("\n");
 }
 

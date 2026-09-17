@@ -27,13 +27,13 @@ Create it once per server process. `next dev` reloads modules on every edit, so
 the recorder is kept on `globalThis` rather than created again each time.
 
 ```typescript
-const cache = globalThis as typeof globalThis & { flightRecorder?: Recorder };
+const cache = globalThis as typeof globalThis & { wayscribe?: Recorder };
 
-export const recorder: Recorder = (cache.flightRecorder ??= createRecorder({
-  endpoint: process.env.FLIGHT_RECORDER_URL ?? "http://localhost:8080",
-  apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? "",
+export const recorder: Recorder = (cache.wayscribe ??= createRecorder({
+  endpoint: process.env.WAYSCRIBE_URL ?? "http://localhost:8080",
+  apiKey: process.env.WAYSCRIBE_API_KEY ?? "",
   serviceName: "storefront",
-  environment: process.env.FLIGHT_RECORDER_ENVIRONMENT ?? "development",
+  environment: process.env.WAYSCRIBE_ENVIRONMENT ?? "development",
   // Stripe's checkout session carries the buyer's details.
   redact: ["**.customer_details", "**.email"],
   // Experimental: at least 32 bytes, kept like any other credential.

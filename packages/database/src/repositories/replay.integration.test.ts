@@ -1,5 +1,5 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKeyring, parseEncryptedValue } from "@flight-recorder/payload-security";
+import { createKeyring, parseEncryptedValue } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";

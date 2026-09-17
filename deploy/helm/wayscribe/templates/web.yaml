@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "flight-recorder.fullname" . }}-web
+  name: {{ include "wayscribe.fullname" . }}-web
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
   replicas: {{ .Values.web.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+      app.kubernetes.io/name: {{ include "wayscribe.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: web
   template:
     metadata:
       labels:
-        {{- include "flight-recorder.labels" . | nindent 8 }}
+        {{- include "wayscribe.labels" . | nindent 8 }}
         app.kubernetes.io/component: web
     spec:
       {{- with .Values.image.pullSecrets }}
@@ -31,7 +31,7 @@ spec:
           emptyDir: {}
       containers:
         - name: web
-          image: {{ include "flight-recorder.image" (dict "Values" .Values "Chart" .Chart "component" "web") }}
+          image: {{ include "wayscribe.image" (dict "Values" .Values "Chart" .Chart "component" "web") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
@@ -50,13 +50,13 @@ spec:
             # this is the in-cluster service rather than anything reachable from
             # outside.
             - name: API_URL
-              value: "http://{{ include "flight-recorder.fullname" . }}-api:{{ .Values.api.service.port }}"
+              value: "http://{{ include "wayscribe.fullname" . }}-api:{{ .Values.api.service.port }}"
             # Must match the API's. The web app derives its session signing key
             # from this, so a mismatch invalidates every session silently.
             - name: ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "flight-recorder.secretName" . }}
+                  name: {{ include "wayscribe.secretName" . }}
                   key: ADMIN_TOKEN
             - name: TRUSTED_PROXY_COUNT
               value: {{ .Values.web.trustedProxyCount | quote }}
@@ -72,9 +72,9 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "flight-recorder.fullname" . }}-web
+  name: {{ include "wayscribe.fullname" . }}-web
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
   type: {{ .Values.web.service.type }}
@@ -84,6 +84,6 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+    app.kubernetes.io/name: {{ include "wayscribe.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: web

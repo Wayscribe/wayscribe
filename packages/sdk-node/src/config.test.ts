@@ -8,7 +8,7 @@ import {
 
 const base = {
   endpoint: "http://127.0.0.1:1",
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "development"
 };
@@ -143,7 +143,7 @@ describe("settings that cannot be used", () => {
     expect(JSON.stringify(resolved.problems)).not.toContain("7");
   });
 
-  // `apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? ""` is how the docs write
+  // `apiKey: process.env.WAYSCRIBE_API_KEY ?? ""` is how the docs write
   // it, so an unset variable arrives as "". It used to pass as a usable key and
   // the only sign was a 401.
   it.each(["endpoint", "apiKey", "serviceName", "environment"] as const)(

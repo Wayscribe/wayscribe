@@ -25,7 +25,7 @@ const ids = (layer) =>
 
 const manifest = {
   comment:
-    "Every conformance case, by id. A case file is the contract, so one going missing is a contract change and has to be a failing test rather than a smaller run. Regenerate with: pnpm --filter @flight-recorder/protocol run conformance:manifest",
+    "Every conformance case, by id. A case file is the contract, so one going missing is a contract change and has to be a failing test rather than a smaller run. Regenerate with: pnpm --filter @wayscribe/protocol run conformance:manifest",
   wire: ids("wire"),
   sdk: ids("sdk")
 };

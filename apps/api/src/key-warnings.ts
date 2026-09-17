@@ -1,5 +1,5 @@
-import { findUnreadableData, pendingMigrationCount } from "@flight-recorder/database";
-import type { Keyring } from "@flight-recorder/payload-security";
+import { findUnreadableData, pendingMigrationCount } from "@wayscribe/database";
+import type { Keyring } from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import type { ApiMetrics } from "./metrics/api-metrics.js";
 

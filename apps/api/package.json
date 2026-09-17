@@ -1,5 +1,5 @@
 {
-  "name": "@flight-recorder/api",
+  "name": "@wayscribe/api",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,18 +10,18 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@flight-recorder/config": "workspace:*",
-    "@flight-recorder/database": "workspace:*",
-    "@flight-recorder/payload-diff": "workspace:*",
-    "@flight-recorder/payload-security": "workspace:*",
-    "@flight-recorder/protocol": "workspace:*",
+    "@wayscribe/config": "workspace:*",
+    "@wayscribe/database": "workspace:*",
+    "@wayscribe/payload-diff": "workspace:*",
+    "@wayscribe/payload-security": "workspace:*",
+    "@wayscribe/protocol": "workspace:*",
     "fastify": "^5.12.4",
     "knex": "^3.3.0",
     "pg": "^8.23.0",
     "undici": "^8.10.2"
   },
   "devDependencies": {
-    "@flight-recorder/node": "workspace:*",
+    "@wayscribe/node": "workspace:*",
     "@testcontainers/postgresql": "^11.14.0",
     "ajv": "^8.20.0",
     "tsx": "^4.23.13"

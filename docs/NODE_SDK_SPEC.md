@@ -11,7 +11,7 @@
 ## 1. Package
 
 ```text
-@flight-recorder/node
+@wayscribe/node
 ```
 
 The first SDK targets Node.js active LTS and TypeScript applications.
@@ -36,11 +36,11 @@ It should support:
 ## 3. Initialization
 
 ```typescript
-import { createRecorder } from "@flight-recorder/node";
+import { createRecorder } from "@wayscribe/node";
 
 export const recorder = createRecorder({
-  endpoint: process.env.FLIGHT_RECORDER_URL!,
-  apiKey: process.env.FLIGHT_RECORDER_API_KEY!,
+  endpoint: process.env.WAYSCRIBE_URL!,
+  apiKey: process.env.WAYSCRIBE_API_KEY!,
   serviceName: "customer-integration",
   environment: process.env.NODE_ENV ?? "development",
 
@@ -407,9 +407,8 @@ const { context, data } = recorder.extractPayload(body); // ExtractedPayload
 ```
 
 `extractPayload` returns a body that is not an envelope as `data`, with no
-context. The header, attribute and envelope names carry the product's current
-name and are not specified in `SDK_SPEC.md` (its section 1); they change at the
-rename.
+context. The header, attribute and envelope names are not specified in
+`SDK_SPEC.md` yet (its section 1); they wait on the propagation specification.
 
 ## 8. Batching, transport and shutdown
 

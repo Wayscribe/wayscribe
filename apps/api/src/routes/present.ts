@@ -4,8 +4,8 @@ import {
   type JourneyAlias,
   type JourneyDetail,
   type SearchHit
-} from "@flight-recorder/database";
-import { decryptValue, UnknownKeyError, type Keyring } from "@flight-recorder/payload-security";
+} from "@wayscribe/database";
+import { decryptValue, UnknownKeyError, type Keyring } from "@wayscribe/payload-security";
 
 export interface PresentedAlias {
   type: string;

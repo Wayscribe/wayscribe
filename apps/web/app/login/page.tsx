@@ -13,7 +13,7 @@ export default async function LoginPage({
 
   return (
     <main id="main" className="centered">
-      <h1>Flight Recorder</h1>
+      <h1>Wayscribe</h1>
       <p className="muted">
         Sign in with the <code>ADMIN_TOKEN</code> this installation was started with.
       </p>

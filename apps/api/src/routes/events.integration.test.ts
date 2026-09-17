@@ -1,8 +1,8 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { buildJsonSchemas } from "@flight-recorder/protocol";
+import { buildJsonSchemas } from "@wayscribe/protocol";
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
-import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId } from "@wayscribe/database";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -205,7 +205,7 @@ describe("event ingestion", () => {
   });
 
   it("rejects an unknown key", async () => {
-    expect((await send(event(), "fr_totallyfakekeyvalue")).statusCode).toBe(401);
+    expect((await send(event(), "wsk_totallyfakekeyvalue")).statusCode).toBe(401);
   });
 
   it("rejects an event naming another environment", async () => {
@@ -619,7 +619,7 @@ describe("event ingestion", () => {
     });
 
     it("validates the error body of a refused credential", async () => {
-      const response = await send(event({ id: "evt_schema_401" }), "fr_not_a_key");
+      const response = await send(event({ id: "evt_schema_401" }), "wsk_not_a_key");
       expect(response.statusCode).toBe(401);
       against(errorBody, response.json(), "401");
     });

@@ -24,7 +24,7 @@ export type AdminGuard = (
  * It refuses an API key outright rather than resolving it to a principal. An
  * API key lives in application configuration on servers many people can reach
  * and exists to write events; a leaked one must not be able to send requests
- * from Flight Recorder or delete what it recorded.
+ * from Wayscribe or delete what it recorded.
  *
  * One definition shared by every admin-only route, so the 401 an API key gets
  * cannot drift between them.
@@ -45,7 +45,7 @@ export function adminGuard(app: FastifyInstance, adminToken: string): AdminGuard
 
     const projectId = await resolveAdminProjectId(
       app.db,
-      single(request.headers["x-flight-project-id"])
+      single(request.headers["x-wayscribe-project-id"])
     );
     if (projectId === undefined) {
       await reply

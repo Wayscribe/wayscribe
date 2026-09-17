@@ -5,8 +5,8 @@ import {
   insertReturningId,
   listAudit,
   startRun
-} from "@flight-recorder/database";
-import { createKeyring, issueApiKey, searchTokens } from "@flight-recorder/payload-security";
+} from "@wayscribe/database";
+import { createKeyring, issueApiKey, searchTokens } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
@@ -82,7 +82,7 @@ describe("deletion routes", () => {
 
   const admin = (projectId: string): Record<string, string> => ({
     authorization: `Bearer ${ADMIN_TOKEN}`,
-    "x-flight-project-id": projectId
+    "x-wayscribe-project-id": projectId
   });
 
   const journey = async (
@@ -164,7 +164,7 @@ describe("deletion routes", () => {
       for (const route of routes) {
         const response = await app.inject({
           ...route,
-          headers: { authorization: `Bearer ${apiKey}`, "x-flight-project-id": projectA }
+          headers: { authorization: `Bearer ${apiKey}`, "x-wayscribe-project-id": projectA }
         });
         expect(response.statusCode).toBe(401);
         const { requestId: _requestId, ...body } = response.json<ErrorBody>().error;

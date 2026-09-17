@@ -34,7 +34,7 @@ async function sent(run: (recorder: Recorder) => void): Promise<Record<string, u
   try {
     const recorder = createRecorder({
       endpoint: `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`,
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "svc",
       environment: "development"
     });

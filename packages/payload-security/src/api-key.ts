@@ -35,8 +35,15 @@ export function apiKeyRecord(pepper: Buffer, apiKey: string): StoredApiKey {
   };
 }
 
+/**
+ * A new key: `wsk_` and 32 base64url characters, 36 in all.
+ *
+ * Keys issued before the rename (ADR-057) start `fr_` and are 35 characters.
+ * They still verify: the server looks a key up by its first 12 characters and
+ * verifies an HMAC of the whole key, so it never checks which prefix a key has.
+ */
 export function generateApiKey(pepper: Buffer): GeneratedApiKey {
-  const apiKey = `fr_${randomBytes(KEY_BYTES).toString("base64url")}`;
+  const apiKey = `wsk_${randomBytes(KEY_BYTES).toString("base64url")}`;
   return { apiKey, ...apiKeyRecord(pepper, apiKey) };
 }
 

@@ -11,8 +11,8 @@ This page backs the claim in the README's
 > show the field that changed; (3) replay a recorded input against development;
 > (4) with no platform to move onto.
 
-Each tool below does part of that job, and some do their part better than Flight
-Recorder does. Every statement about a tool is taken from that tool's own
+Each tool below does part of that job, and some do their part better than
+Wayscribe does. Every statement about a tool is taken from that tool's own
 documentation, licence file or pricing page, and each source carries the date
 it was checked. Statements that could not be confirmed from such a source were
 left out. Where this page says a tool's documentation does not describe
@@ -103,7 +103,7 @@ pay for it: [Nodinite](#nodinite), [Turbo360 BAM](#turbo360-business-activity-mo
 - **What they lack for this job:** a span carries the attributes you set on it.
   Neither project's documentation describes capturing the payload a step
   received and produced, comparing the two field by field, or replaying a
-  recorded input. Flight Recorder reads the active trace and span ids onto its
+  recorded input. Wayscribe reads the active trace and span ids onto its
   events so the two can be used together.
 - **Sources:**
   [Jaeger query service definition, `TraceQueryParameters`](https://github.com/jaegertracing/jaeger-idl/blob/main/proto/api_v3/query_service.proto),
@@ -161,7 +161,7 @@ pay for it: [Nodinite](#nodinite), [Turbo360 BAM](#turbo360-business-activity-mo
   "Up to 3 nodes or 60 pods".
 - **Overlap:** Keploy replays the recorded requests "in a sandboxed
   environment", with dependencies virtualised and responses compared, which is
-  close to Flight Recorder's development replay. Kubeshark shows the requests
+  close to Wayscribe's development replay. Kubeshark shows the requests
   and responses that crossed the cluster.
 - **What they lack for this job:** Keploy turns traffic into regression tests
   for an application; its documentation does not describe finding one business
@@ -289,6 +289,6 @@ to a vendor, a platform or both.
 ## How to correct this page
 
 If a tool here does something this page says it does not, or a tool that does
-all four is missing, [open an issue](https://gitlab.com/jojithedev/flight-recorder/-/issues)
+all four is missing, [open an issue](https://gitlab.com/jojithedev/wayscribe/-/issues)
 with a link to that tool's documentation. The README claim and this page are
 changed together, and both carry the date they were last checked.

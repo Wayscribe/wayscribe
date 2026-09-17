@@ -1,4 +1,4 @@
-title = "Flight Recorder"
+title = "Wayscribe"
 
 # The default rules, plus allowances for values that are deliberately fake.
 #
@@ -26,8 +26,9 @@ regexes = [
   '''replace-for-local-development-0000''',
   '''local-admin-token-000000000000000''',
   '''admin-token-for-tests-0000000000''',
-  # API-key fixtures. A real one is 32 random characters after `fr_`.
-  '''fr_(test|validkey1|demo00000)[A-Za-z0-9_-]*''',
+  # API-key fixtures. A real one is 32 random characters after `wsk_`, or after
+  # `fr_` for a key issued before the rename (ADR-057).
+  '''(wsk|fr)_(test|validkey1|demo0000)[A-Za-z0-9_-]*''',
   # doctor.integration.test.ts: distinctive fake secrets whose whole purpose is
   # to be searched for in doctor's output, so they must look like secrets to a
   # scanner. Each carries the `doctor-` prefix and a role name no real

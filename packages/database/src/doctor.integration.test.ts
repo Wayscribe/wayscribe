@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { createKeyring, encryptValue, searchTokens } from "@flight-recorder/payload-security";
+import { LEGACY_PUBLISHED_DEMO_API_KEY, PUBLISHED_DEMO_API_KEY } from "@wayscribe/config";
+import { createKeyring, encryptValue, searchTokens } from "@wayscribe/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -408,7 +409,7 @@ describe("doctor", () => {
   it("warns while the published demo key is active, and names the revoke", async () => {
     // compose.demo.yaml commits this key so the demo starts with nothing
     // configured. On any other installation it lets anyone write events.
-    const demoKey = "fr_demo00000000000000000000000000000";
+    const demoKey = "wsk_demo0000000000000000000000000000";
     await withDatabase("demokey", async (db) => {
       await db.migrate.latest();
       await db("projects").insert({ name: "Acme", slug: "acme" });
@@ -423,19 +424,51 @@ describe("doctor", () => {
     const active = await doctor([], {}, "demokey");
 
     expect(statusOf(active, "Projects and keys"), active.output).toBe("WARN");
-    expect(lineOf(active, "Projects and keys")).toContain("fr_demo00000");
-    expect(active.output).toContain("key:revoke fr_demo00000");
+    expect(lineOf(active, "Projects and keys")).toContain("wsk_demo0000");
+    expect(active.output).toContain("key:revoke wsk_demo0000");
     expect(active.code).toBe(0);
     expect(active.output).not.toContain(demoKey);
 
     const db = knex(createKnexConfig(urlFor("demokey")));
     try {
-      await revokeKey(db, "fr_demo00000");
+      await revokeKey(db, "wsk_demo0000");
     } finally {
       await db.destroy();
     }
     const revoked = await doctor([], {}, "demokey");
     expect(statusOf(revoked, "Projects and keys"), revoked.output).toBe("PASS");
+  });
+
+  it("warns while the demo key published before the rename is active, alone or with the current one", async () => {
+    // A demo stack seeded before ADR-057 holds the old key, which still
+    // authenticates, and demo-bootstrap adds the new one beside it.
+    await withDatabase("legacydemo", async (db) => {
+      await db.migrate.latest();
+      await seedDemo(db, keyring, LEGACY_PUBLISHED_DEMO_API_KEY);
+    });
+
+    const legacy = await doctor([], {}, "legacydemo");
+    expect(statusOf(legacy, "Projects and keys"), legacy.output).toBe("WARN");
+    expect(lineOf(legacy, "Projects and keys")).toContain(
+      "including fr_demo00000, the published demo key"
+    );
+    expect(legacy.output).toContain("revoke it: key:revoke fr_demo00000.");
+    expect(legacy.output).not.toContain(LEGACY_PUBLISHED_DEMO_API_KEY);
+
+    const db = knex(createKnexConfig(urlFor("legacydemo")));
+    try {
+      await seedDemo(db, keyring, PUBLISHED_DEMO_API_KEY);
+    } finally {
+      await db.destroy();
+    }
+    const both = await doctor([], {}, "legacydemo");
+    expect(statusOf(both, "Projects and keys"), both.output).toBe("WARN");
+    expect(lineOf(both, "Projects and keys")).toContain(
+      "including wsk_demo0000 and fr_demo00000, published demo keys"
+    );
+    expect(both.output).toContain(
+      "revoke them: key:revoke wsk_demo0000, then key:revoke fr_demo00000."
+    );
   });
 
   it("fails a revoked key", async () => {
@@ -465,11 +498,11 @@ describe("doctor", () => {
   });
 
   it("fails a key this database never issued", async () => {
-    const run = await doctor(["--api-key", "fr_neverissued0000000000000000000000"], {});
+    const run = await doctor(["--api-key", "wsk_neverissued000000000000000000000"], {});
 
     expect(run.code).toBe(1);
-    expect(lineOf(run, "API key")).toContain("No key with prefix fr_neverissu");
-    expect(run.output).not.toContain("fr_neverissued0000000000000000000000");
+    expect(lineOf(run, "API key")).toContain("No key with prefix wsk_neveriss");
+    expect(run.output).not.toContain("wsk_neverissued000000000000000000000");
   });
 
   it("fails when the API is not ready, with its reason", async () => {

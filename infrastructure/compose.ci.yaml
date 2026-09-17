@@ -9,7 +9,7 @@
 # container. The two ports the test needs are republished on all interfaces so
 # it can reach them at the `docker` host, and nothing else is.
 
-name: flight-recorder
+name: wayscribe
 
 # `!override` rather than a plain list: Compose appends port lists across
 # files, so without it each service kept its 127.0.0.1 binding and gained a

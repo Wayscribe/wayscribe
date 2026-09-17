@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  apiKeyShapeProblem,
   doctorExitCode,
   formatDoctor,
   parseDoctorArgs,
@@ -16,12 +17,12 @@ describe("parseDoctorArgs", () => {
 
   it("reads both flags, separated or joined with =", () => {
     expect(
-      parseDoctorArgs(["--api-url", "http://api:8080", "--api-key=fr_abcdefghijklmnop"])
-    ).toEqual({ ok: true, apiUrl: "http://api:8080", apiKey: "fr_abcdefghijklmnop" });
+      parseDoctorArgs(["--api-url", "http://api:8080", "--api-key=wsk_abcdefghijklmnop"])
+    ).toEqual({ ok: true, apiUrl: "http://api:8080", apiKey: "wsk_abcdefghijklmnop" });
   });
 
   it("keeps an = inside a value", () => {
-    expect(parseDoctorArgs(["--api-key=fr_a=b"])).toEqual({ ok: true, apiKey: "fr_a=b" });
+    expect(parseDoctorArgs(["--api-key=wsk_a=b"])).toEqual({ ok: true, apiKey: "wsk_a=b" });
   });
 
   it.each([
@@ -37,14 +38,35 @@ describe("parseDoctorArgs", () => {
   });
 
   it("never echoes an argument it does not recognise, which may be a key", () => {
-    const parsed = parseDoctorArgs(["fr_pasted_without_its_flag_000000000"]);
-    expect(parsed.ok ? "" : parsed.message).not.toContain("fr_pasted");
+    const parsed = parseDoctorArgs(["wsk_pasted_without_its_flag_00000000"]);
+    expect(parsed.ok ? "" : parsed.message).not.toContain("wsk_pasted");
   });
+});
+
+describe("apiKeyShapeProblem", () => {
+  it("accepts a key in the current form", () => {
+    expect(apiKeyShapeProblem("wsk_" + "q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A")).toBeNull();
+  });
+
+  it("accepts a key issued before the rename, which starts fr_", () => {
+    expect(apiKeyShapeProblem("fr_" + "q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A")).toBeNull();
+  });
+
+  it.each([["sk_" + "q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A"], ["wsk_short"], [""]])(
+    "refuses %j, naming the wsk_ form",
+    (presented) => {
+      const problem = apiKeyShapeProblem(presented);
+      expect(problem?.status).toBe("FAIL");
+      expect(problem?.detail).toBe(
+        "The key given is not a Wayscribe API key, which starts wsk_ (or fr_ for keys issued before the rename)."
+      );
+    }
+  );
 });
 
 describe("formatDoctor", () => {
   const results: CheckResult[] = [
-    { status: "PASS", check: "Database reachable", detail: 'Connected to database "flight".' },
+    { status: "PASS", check: "Database reachable", detail: 'Connected to database "wayscribe".' },
     { status: "WARN", check: "Projects and keys", detail: "No project.", fix: "Create one." },
     { status: "FAIL", check: "ADMIN_TOKEN", detail: "A default.", fix: "Set your own." },
     { status: "SKIP", check: "API key", detail: "Not checked: migrations are pending." }
@@ -52,7 +74,7 @@ describe("formatDoctor", () => {
 
   it("prints one line per check, the fix beneath it, and a summary", () => {
     expect(formatDoctor(results)).toEqual([
-      'PASS  Database reachable      Connected to database "flight".',
+      'PASS  Database reachable      Connected to database "wayscribe".',
       "WARN  Projects and keys       No project.",
       "                              Fix: Create one.",
       "FAIL  ADMIN_TOKEN             A default.",
@@ -84,15 +106,15 @@ describe("scrubbing secrets from results", () => {
           ADMIN_TOKEN: "admin-token-value-0000000000000000",
           ENCRYPTION_KEY: " encryption-key-value-000000000000 ",
           ENCRYPTION_KEY_PREVIOUS: "",
-          DATABASE_URL: "postgresql://flight:p%40ss%2Fword@db:5432/flight"
+          DATABASE_URL: "postgresql://wayscribe:p%40ss%2Fword@db:5432/wayscribe"
         },
-        "fr_presentedkey000000000000000000000"
+        "wsk_presentedkey00000000000000000000"
       ).sort()
     ).toEqual(
       [
         "admin-token-value-0000000000000000",
         "encryption-key-value-000000000000",
-        "fr_presentedkey000000000000000000000",
+        "wsk_presentedkey00000000000000000000",
         "p%40ss%2Fword",
         "p@ss/word"
       ].sort()
@@ -100,14 +122,14 @@ describe("scrubbing secrets from results", () => {
   });
 
   it("scrubs a password of four characters or more wherever it appears, in detail and fix", () => {
-    const secrets = secretsIn({ DATABASE_URL: "postgresql://u:hunt@db/flight" }, undefined);
+    const secrets = secretsIn({ DATABASE_URL: "postgresql://u:hunt@db/wayscribe" }, undefined);
     expect(scrub([result("role said hunt", "not hunt again")], secrets)).toEqual([
       result("role said [redacted]", "not [redacted] again")
     ]);
   });
 
   it("leaves a password shorter than four characters alone, since it would blank ordinary text", () => {
-    const secrets = secretsIn({ DATABASE_URL: "postgresql://u:a1@db/flight" }, undefined);
+    const secrets = secretsIn({ DATABASE_URL: "postgresql://u:a1@db/wayscribe" }, undefined);
     expect(secrets).toEqual([]);
     expect(scrub([result("PostgreSQL 17.1a1")], secrets)).toEqual([result("PostgreSQL 17.1a1")]);
   });

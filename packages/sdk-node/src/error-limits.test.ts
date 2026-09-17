@@ -1,5 +1,5 @@
-import { maskSecretsInText } from "@flight-recorder/payload-security/redaction";
-import { errorSchema } from "@flight-recorder/protocol";
+import { maskSecretsInText } from "@wayscribe/payload-security/redaction";
+import { errorSchema } from "@wayscribe/protocol";
 import { describe, expect, it } from "vitest";
 import { MAX_ERROR_MESSAGE_LENGTH, MAX_ERROR_STACK_LENGTH, boundedMaskedText } from "./recorder.js";
 

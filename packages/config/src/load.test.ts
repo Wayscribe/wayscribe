@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ConfigError, loadEncryptionKeys, loadServerEnv, loadStatementTimeoutMs } from "./load.js";
 
 const validEnv = {
-  DATABASE_URL: "postgresql://flight:flight@localhost:5432/flight",
+  DATABASE_URL: "postgresql://wayscribe:wayscribe@localhost:5432/wayscribe",
   APP_URL: "http://localhost:3000",
   API_URL: "http://localhost:8080",
   ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef",
@@ -36,7 +36,7 @@ describe("loadServerEnv", () => {
   });
 
   it("tells an operator what to do when DATABASE_URL is unset", () => {
-    // Flight Recorder expects you to bring your own database, so an unset
+    // Wayscribe expects you to bring your own database, so an unset
     // DATABASE_URL is the most likely first-run mistake. `Invalid URL` is
     // accurate and useless; it does not say the variable is the problem, and it
     // does not mention the overlay that runs one for you.

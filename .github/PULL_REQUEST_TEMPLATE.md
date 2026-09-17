@@ -9,7 +9,7 @@ mirror, and **a pull request opened here cannot be merged.**
 
 Development happens on GitLab:
 
-**https://gitlab.com/jojithedev/flight-recorder**
+**https://gitlab.com/jojithedev/wayscribe**
 
 Every green pipeline on `main` force-pushes here, which means anything committed
 to this repository is overwritten the next time that runs. That includes a
@@ -18,10 +18,10 @@ merged pull request. We would rather tell you now than let your work disappear.
 ### Where to take this instead
 
 - **Code changes** — open a merge request on
-  [GitLab](https://gitlab.com/jojithedev/flight-recorder/-/merge_requests).
+  [GitLab](https://gitlab.com/jojithedev/wayscribe/-/merge_requests).
   Creating an account is free and takes about a minute.
 - **Bugs and ideas** — open an issue on
-  [GitLab](https://gitlab.com/jojithedev/flight-recorder/-/issues).
+  [GitLab](https://gitlab.com/jojithedev/wayscribe/-/issues).
 - **Security issues** — please do not open anything publicly. See
   [SECURITY.md](../SECURITY.md).
 

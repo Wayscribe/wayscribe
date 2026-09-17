@@ -1,12 +1,13 @@
 # Changelog
 
-Notable changes to Flight Recorder. Dates are the day the work merged.
+Notable changes to Wayscribe, which was called Flight Recorder until
+2026-09-17. Dates are the day the work merged.
 
 Versions follow [semantic versioning](https://semver.org). Before 1.0 the minor
 version may carry breaking changes; the patch version will not.
 
 The published artifacts are versioned together: the `api` and `web` images and
-the `@flight-recorder/node` package share a version, because the event protocol
+the `@wayscribe/node` package share a version, because the event protocol
 is the contract between them and a mismatch is not something a user should have
 to reason about. The protocol itself carries its own `protocolVersion`, which
 changes far less often.
@@ -19,6 +20,61 @@ published before it, so there is no earlier release to upgrade from. Under
 development builds of `main`, for anyone running one from a git checkout. A
 shorter overview is in
 [docs/RELEASE_NOTES_DRAFT.md](docs/RELEASE_NOTES_DRAFT.md).
+
+### Renamed to Wayscribe (2026-09-17)
+
+The product was called Flight Recorder until this change (ADR-057). The entries
+below this one were written before it and use the old names; this table gives
+the new one for each. There are no aliases: the old names are not read.
+
+| What | Before | Now |
+| --- | --- | --- |
+| Product | Flight Recorder | Wayscribe |
+| Packages | `@flight-recorder/*`, SDK `@flight-recorder/node` | `@wayscribe/*`, SDK `@wayscribe/node` |
+| CLI binary | `flight-recorder` | `wayscribe` |
+| HTTP headers | `x-flight-journey-id`, `x-flight-entity-type`, `x-flight-entity-id`, `x-flight-replay`, `x-flight-project-id`, `x-flight-api-key` | `x-wayscribe-journey-id`, `x-wayscribe-entity-type`, `x-wayscribe-entity-id`, `x-wayscribe-replay`, `x-wayscribe-project-id`, `x-wayscribe-api-key` |
+| Queue message attributes | `flightJourneyId`, `flightEntityType`, `flightEntityId` | `wayscribeJourneyId`, `wayscribeEntityType`, `wayscribeEntityId` |
+| Payload envelope key | `_flight` | `_wayscribe` |
+| Environment variables | `FLIGHT_RECORDER_API_KEY`, `_URL`, `_TOKEN`, `_PROJECT`, `_ENVIRONMENT`, `_VERSION`, `_WEB` | `WAYSCRIBE_API_KEY`, `_URL`, `_TOKEN`, `_PROJECT`, `_ENVIRONMENT`, `_VERSION`, `_WEB` |
+| Demo, acceptance and browser suite variables | `FLIGHT_API_KEY`, `FLIGHT_API_URL`, `FLIGHT_ENDPOINT`, `FLIGHT_ENVIRONMENT` | `WAYSCRIBE_API_KEY`, `WAYSCRIBE_API_URL`, `WAYSCRIBE_ENDPOINT`, `WAYSCRIBE_ENVIRONMENT` |
+| Prometheus metrics (nine families) | `flight_recorder_*` | `wayscribe_*` |
+| Alert rules | `FlightRecorderRetentionStalled`, `FlightRecorderRejectingEvents`, `FlightRecorderDatabaseStrained` | `WayscribeRetentionStalled`, `WayscribeRejectingEvents`, `WayscribeDatabaseStrained` |
+| SDK print prefix | `[flight-recorder]` | `[wayscribe]` |
+| Web session cookie | `flight_session` | `wayscribe_session` |
+| New API keys | `fr_` and 32 characters | `wsk_` and 32 characters |
+| Published demo key | `fr_demo...` | `wsk_demo...` |
+| Images | `registry.gitlab.com/jojithedev/flight-recorder/{api,web}`, demo `flight-recorder-demo:local` | `registry.gitlab.com/jojithedev/wayscribe/{api,web}`, demo `wayscribe-demo:local` |
+| Helm chart | `deploy/helm/flight-recorder`, example release `fr` | `deploy/helm/wayscribe`, example release `ws` |
+| Compose project and network | `flight-recorder`, `flight-recorder_default` | `wayscribe`, `wayscribe_default` |
+| Local database user, password and name | `flight` | `wayscribe` |
+| GitLab project, after merge | `jojithedev/flight-recorder` | `jojithedev/wayscribe` |
+
+What keeps working:
+
+- **Stored data.** The key-derivation labels did not change, so encrypted
+  identifiers and search tokens from before the rename still work, and no
+  migration was added.
+- **API keys that start `fr_`.** The server never checked the prefix. Masking
+  in error text and `doctor` accept both forms, and `doctor` still warns while
+  the old published demo key is active.
+
+What you have to do when upgrading a checkout or a deployment:
+
+- **Rename what your services set:** the SDK dependency and imports, the
+  environment variables, and any header or queue attribute a service other
+  than the SDK reads or writes.
+- **Update dashboards and alert rules** to the `wayscribe_*` metrics and the
+  new alert names.
+- **Sign in to the interface once more.** The session cookie is now
+  `wayscribe_session`. A session is still signed with the same key, but the
+  browser holds it under the old name, which is no longer read, so everyone
+  signed in is asked to sign in again, once.
+- **Pull images from the new path.** The old registry path does not redirect.
+- **Start a local Compose stack afresh.** The project, volume and database
+  user changed, so an old stack's database is not picked up
+  ([LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md#upgrading-a-checkout-from-before-the-rename)).
+  Copy `.env.example` to `.env` again, or change the user and name in
+  `DATABASE_URL`.
 
 ### Added
 

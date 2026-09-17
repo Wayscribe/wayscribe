@@ -1,22 +1,22 @@
 # A local single-node cluster — kind, k3s, or Docker Desktop.
 #
-#   kind create cluster --name flight-recorder
+#   kind create cluster --name wayscribe
 #   docker compose -f infrastructure/compose.yaml build api web
-#   docker tag flight-recorder-api:latest flight-recorder/api:local
-#   docker tag flight-recorder-web:latest flight-recorder/web:local
-#   kind load docker-image flight-recorder/api:local flight-recorder/web:local --name flight-recorder
+#   docker tag wayscribe-api:latest wayscribe/api:local
+#   docker tag wayscribe-web:latest wayscribe/web:local
+#   kind load docker-image wayscribe/api:local wayscribe/web:local --name wayscribe
 #
-#   helm install fr deploy/helm/flight-recorder -f deploy/helm/values-local.yaml \
+#   helm install ws deploy/helm/wayscribe -f deploy/helm/values-local.yaml \
 #     --set secrets.encryptionKey=$(openssl rand -hex 32) \
 #     --set secrets.adminToken=$(openssl rand -hex 32)
 #
-#   kubectl port-forward svc/fr-flight-recorder-web 3000:3000
+#   kubectl port-forward svc/ws-wayscribe-web 3000:3000
 #
 # The secrets are not in this file on purpose. A values file with real keys in
 # it is a file somebody commits.
 
 image:
-  registry: flight-recorder
+  registry: wayscribe
   tag: local
   # Never: the images were loaded into the cluster directly and do not exist in
   # any registry. Without this, kubelet tries to pull and the pod sits in

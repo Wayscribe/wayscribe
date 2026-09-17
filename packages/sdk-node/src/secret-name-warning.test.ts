@@ -70,7 +70,7 @@ async function run(
   try {
     const recorder = createRecorder({
       endpoint,
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "svc",
       environment: "development",
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -170,7 +170,7 @@ describe("the unredacted secret-name warning", () => {
     });
     expect(first.printed).toHaveLength(2);
     expect(first.printed[0]).toMatch(
-      /^\[flight-recorder\] unredacted_secret_name: A field named "authToken" .*printed once per process/
+      /^\[wayscribe\] unredacted_secret_name: A field named "authToken" .*printed once per process/
     );
     expect(first.printed.join("\n")).not.toContain(VALUE);
 
@@ -337,7 +337,7 @@ describe("the unredacted secret-name warning", () => {
       const before = process.memoryUsage().heapUsed;
       const recorder = createRecorder({
         endpoint,
-        apiKey: "fr_test",
+        apiKey: "wsk_test",
         serviceName: "svc",
         environment: "development",
         onDiagnostic: (diagnostic) => kept.push(diagnostic)

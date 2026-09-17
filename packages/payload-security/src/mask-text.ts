@@ -64,8 +64,8 @@ const JSON_WEB_TOKEN = /(?<![A-Za-z0-9_\]-])eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+
  * classic, OAuth, user, server and refresh tokens and fine-grained tokens;
  * GitLab personal access tokens; AWS access key ids; Google API keys; OpenAI
  * and Anthropic keys; npm tokens; SendGrid keys; Slack app tokens; Hugging Face
- * tokens; and this product's own API keys, which are `fr_` and 32 base64url
- * characters.
+ * tokens; and this product's own API keys, which are `wsk_` and 32 base64url
+ * characters, or `fr_` and 32 for keys issued before the rename (ADR-057).
  */
 const PROVIDER_TOKEN = new RegExp(
   "(?<![A-Za-z0-9_\\]-])(?:" +
@@ -78,7 +78,7 @@ const PROVIDER_TOKEN = new RegExp(
       "glpat-[A-Za-z0-9_-]{20,}(?:\\.[A-Za-z0-9_-]+)*",
       "(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])",
       "AIza[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])",
-      "fr_[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])",
+      "(?:wsk|fr)_[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])",
       "sk-(?:proj-|ant-(?:api|admin)\\d\\d-)?[A-Za-z0-9_-]{20,}",
       "npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])",
       "SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}",

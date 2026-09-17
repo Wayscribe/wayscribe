@@ -1,12 +1,12 @@
-# Flight Recorder 0.x preview: release notes
+# Wayscribe 0.x preview: release notes
 
-**Draft, 2026-09-16.** Nothing described here is published yet. The version
-number, the product name and the install commands will be filled in when the
+**Draft, 2026-09-16, renamed 2026-09-17.** Nothing described here is published
+yet. The version number and the install commands will be filled in when the
 release is cut. The full list of changes is in [CHANGELOG.md](../CHANGELOG.md).
 
 ## What it is
 
-Flight Recorder records what happened to one business record, such as a
+Wayscribe records what happened to one business record, such as a
 customer, an order or an invoice, as it moves through your services, and shows
 the step where its data changed. It is self-hosted, stores everything in a
 PostgreSQL database you run, and needs no account or hosted service.
@@ -14,11 +14,25 @@ PostgreSQL database you run, and needs no account or hosted service.
 This is a preview. Before 1.0 a minor release may change the API; a patch
 release will not.
 
+## The name
+
+The product took the name Wayscribe on 2026-09-17, before anything was
+published (ADR-057). Anyone running a development build
+from before then needs the new names, with no aliases for the old ones: the
+`@wayscribe/node` package, the `wayscribe` CLI, the `x-wayscribe-*` headers,
+the `wayscribeJourneyId`, `wayscribeEntityType` and `wayscribeEntityId` queue
+attributes, the `_wayscribe` envelope key, the `WAYSCRIBE_*` environment
+variables, the `wayscribe_*` metrics and `Wayscribe*` alert rules, the
+`registry.gitlab.com/jojithedev/wayscribe` images, and `wayscribe` as the local
+database user and name. New API keys start `wsk_`. Stored data stays readable
+and keys issued before the rename, which start `fr_`, keep working. The
+[CHANGELOG](../CHANGELOG.md) has the full table.
+
 ## What is in this preview
 
 ### Recording and the SDK
 
-- **`@flight-recorder/node`**, a Node SDK with no runtime dependencies. The
+- **`@wayscribe/node`**, a Node SDK with no runtime dependencies. The
   wrappers (`transform`, `persist`, `publish`, `deliver`) run your code, return
   its value unchanged, rethrow its exact error, and record what went in and what
   came out. A synchronous callback stays synchronous.
@@ -74,7 +88,7 @@ release will not.
   in `redacted-payload` needs about 63 GiB (OPERATIONS section 10, "Measured disk
   per event" and "A formula").
 - **Installs** as a Compose stack, which runs the release you name in
-  `FLIGHT_RECORDER_VERSION`, or with a Helm chart for a local single-node
+  `WAYSCRIBE_VERSION`, or with a Helm chart for a local single-node
   cluster.
 
 ### Finding a record
@@ -186,9 +200,8 @@ From the [roadmap](ROADMAP.md), briefly:
   out, journey duration and stuck journeys, retry detail, a small standard
   metadata vocabulary, the deployment on each event, and duration filters on the
   Journeys page.
-- **OpenTelemetry log ingest** (`POST /v1/logs`, OTLP over HTTP), after the
-  rename.
+- **OpenTelemetry log ingest** (`POST /v1/logs`, OTLP over HTTP).
 - **The quick start run literally in CI**, from a clean clone and a copied
   `.env`.
-- **The propagation specification and its test vectors**, once the rename fixes
-  the header and attribute names.
+- **The propagation specification and its test vectors**, now that the rename
+  has settled the header and attribute names.

@@ -57,7 +57,7 @@ export function parseResetArgs(
  * protected.
  *
  * Never the user, password or database name: on the bundled stack the
- * database is called `flight`, the same word as its password, which is why
+ * database is called `wayscribe`, the same word as its password, which is why
  * `doctor` does not print it either.
  */
 export function describeTarget(databaseUrl: string): string {

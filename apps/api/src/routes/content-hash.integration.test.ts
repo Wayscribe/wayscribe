@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
+import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import {
   createKeyring,
   issueApiKey,
   legacyContentHash,
   type Keyring
-} from "@flight-recorder/payload-security";
-import { parseEnvelope } from "@flight-recorder/protocol";
+} from "@wayscribe/payload-security";
+import { parseEnvelope } from "@wayscribe/protocol";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";

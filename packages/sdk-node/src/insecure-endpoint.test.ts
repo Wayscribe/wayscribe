@@ -3,7 +3,7 @@ import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder } from "./recorder.js";
 
 const base = {
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "development"
 };
@@ -55,7 +55,7 @@ describe("an endpoint that sends the API key in cleartext", () => {
     expect(seen.some((d) => d.kind === "insecure_endpoint")).toBe(true);
   });
 
-  it.each(["http://api:8080", "http://flight-recorder-api:8080", "http://API:8080"])(
+  it.each(["http://api:8080", "http://wayscribe-api:8080", "http://API:8080"])(
     "is not reported for the single-label name in %s",
     async (endpoint) => {
       // A name with no dot resolves only through container or cluster DNS on
@@ -99,7 +99,7 @@ describe("an endpoint that sends the API key in cleartext", () => {
     await diagnosticsFor("http://ingest.example.com", { logDiagnostics: true });
     vi.restoreAllMocks();
     expect(lines[0]).toBe(
-      "[flight-recorder] insecure_endpoint: The endpoint is http: to ingest.example.com, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine."
+      "[wayscribe] insecure_endpoint: The endpoint is http: to ingest.example.com, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine."
     );
   });
 

@@ -56,35 +56,35 @@ export function createApiMetrics(db: Knex): ApiMetrics {
   const registry = new Registry();
 
   const requests = registry.counter(
-    "flight_recorder_http_requests_total",
+    "wayscribe_http_requests_total",
     "HTTP requests answered by the API, by method, route pattern, and status.",
     ["method", "route", "status"]
   );
   const durations = registry.histogram(
-    "flight_recorder_http_request_duration_seconds",
+    "wayscribe_http_request_duration_seconds",
     "Time from receiving a request to finishing its response, by method and route pattern.",
     HTTP_DURATION_BUCKETS,
     ["method", "route"]
   );
   const events = registry.counter(
-    "flight_recorder_events_total",
+    "wayscribe_events_total",
     "Events that reached ingestion, by result. Duplicates are accepted and not stored again.",
     ["result"]
   );
   for (const result of ["accepted", "duplicate", "rejected"] as const) events.inc({ result }, 0);
 
   const timeouts = registry.counter(
-    "flight_recorder_query_timeouts_total",
+    "wayscribe_query_timeouts_total",
     "Requests whose database statement was cancelled by DATABASE_STATEMENT_TIMEOUT_MS, by route pattern.",
     ["route"]
   );
   const pool = registry.gauge(
-    "flight_recorder_db_pool_connections",
+    "wayscribe_db_pool_connections",
     "Database pool connections: used, free, and requests waiting for one.",
     ["state"]
   );
   const sweeps = registry.counter(
-    "flight_recorder_retention_sweep_runs_total",
+    "wayscribe_retention_sweep_runs_total",
     "Retention sweeps this process started, by outcome. `locked` means another replica held the lock.",
     ["outcome"]
   );
@@ -92,15 +92,15 @@ export function createApiMetrics(db: Knex): ApiMetrics {
     sweeps.inc({ outcome }, 0);
   }
   const deleted = registry.counter(
-    "flight_recorder_retention_journeys_deleted_total",
+    "wayscribe_retention_journeys_deleted_total",
     "Journeys the retention sweep deleted."
   );
   const lastSuccess = registry.gauge(
-    "flight_recorder_retention_last_success_timestamp_seconds",
+    "wayscribe_retention_last_success_timestamp_seconds",
     "Unix time of the last retention sweep this process completed. 0 until one does."
   );
   const unreadable = registry.gauge(
-    "flight_recorder_unreadable_values",
+    "wayscribe_unreadable_values",
     "Stored values and API keys the configured keys cannot read, by table, as of the boot check.",
     ["table"]
   );

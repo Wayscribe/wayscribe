@@ -50,7 +50,7 @@ async function outage(options: {
 
   const recorder = createRecorder({
     endpoint: "http://ingest.test",
-    apiKey: "fr_test",
+    apiKey: "wsk_test",
     serviceName: "svc",
     environment: "development",
     logDiagnostics: false,

@@ -1,4 +1,4 @@
-import { JOURNEY_OPERATIONS } from "@flight-recorder/protocol";
+import { JOURNEY_OPERATIONS } from "@wayscribe/protocol";
 import { describe, expect, it } from "vitest";
 import { OPERATIONS } from "./operations.js";
 

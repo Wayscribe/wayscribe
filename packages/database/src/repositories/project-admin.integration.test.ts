@@ -1,5 +1,5 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKeyring } from "@flight-recorder/payload-security";
+import { createKeyring } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";
@@ -11,7 +11,7 @@ const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 /**
  * Until this existed there was no supported way to create a project at all.
  * `key:create` requires one, and the only two that could exist came from the
- * two hardcoded seeds — so a team standing Flight Recorder up against their own
+ * two hardcoded seeds — so a team standing Wayscribe up against their own
  * database had an empty installation and nothing to point the SDK at.
  */
 describe("project administration", () => {
@@ -46,7 +46,7 @@ describe("project administration", () => {
       name: "worker"
     });
     expect(issued.projectSlug).toBe("fulfilment");
-    expect(issued.apiKey).toMatch(/^fr_/);
+    expect(issued.apiKey).toMatch(/^wsk_/);
   });
 
   it("lists what exists", async () => {
@@ -65,7 +65,7 @@ describe("project administration", () => {
   });
 
   it("refuses a slug that would not survive a URL", async () => {
-    // The slug reaches `x-flight-project-id` selection, the CLI, and the
+    // The slug reaches `x-wayscribe-project-id` selection, the CLI, and the
     // interface. Rejecting at creation is the only cheap moment.
     for (const slug of ["Acme Corp", "acme/prod", "", "UPPER", "trailing-"]) {
       await expect(createProject(db, { slug, name: "x" })).rejects.toThrow(ProjectAdminError);

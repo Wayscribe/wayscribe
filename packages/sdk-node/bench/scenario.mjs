@@ -40,7 +40,7 @@ function payloadOf(bytes) {
 function recorderFor(endpoint, extra = {}) {
   return createRecorder({
     endpoint,
-    apiKey: "fr_bench_not_a_key",
+    apiKey: "wsk_bench_not_a_key",
     serviceName: "bench",
     environment: "bench",
     ...extra

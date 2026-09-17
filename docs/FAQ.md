@@ -12,7 +12,7 @@ guarantees.
 - [What does the SDK cost my service?](#what-does-the-sdk-cost-my-service)
 - [How much disk does an event take?](#how-much-disk-does-an-event-take)
 - [How fast are search and the journey list?](#how-fast-are-search-and-the-journey-list)
-- [What happens when the Flight Recorder server is down?](#what-happens-when-the-flight-recorder-server-is-down)
+- [What happens when the Wayscribe server is down?](#what-happens-when-the-wayscribe-server-is-down)
 - [How do deletion and erasure work?](#how-do-deletion-and-erasure-work)
 - [Does it need internet access?](#does-it-need-internet-access)
 - [Which PostgreSQL versions does it support?](#which-postgresql-versions-does-it-support)
@@ -21,7 +21,7 @@ guarantees.
 ## Why not OpenTelemetry?
 
 Because they answer different questions. Tracing answers "which call was slow,
-and did it succeed?" Flight Recorder answers "what happened to this record, and
+and did it succeed?" Wayscribe answers "what happened to this record, and
 where did its data change?" The README's
 [Why this is not tracing](../README.md#why-this-is-not-tracing) has the full
 comparison. In short:
@@ -101,7 +101,7 @@ payloads at all. Treat the database as holding whatever your workflows carry.
 ## What does the SDK cost my service?
 
 Measured on 2026-09-17 with the SDK's own benchmark
-(`pnpm --filter @flight-recorder/node bench`) on an Apple M3 Pro, macOS 26.2,
+(`pnpm --filter @wayscribe/node bench`) on an Apple M3 Pro, macOS 26.2,
 Node 24.19.0, default configuration, while the machine ran other work.
 Source: [SDK README, What it costs](../packages/sdk-node/README.md#what-it-costs).
 
@@ -197,7 +197,7 @@ release ships: a batch of 100 events took 230.6 and 248.3 ms at p50 in two runs,
 and a single event 4.3 and 4.7 ms
 ([Operations §10](OPERATIONS.md#listing-journeys), *What they cost ingestion*).
 
-## What happens when the Flight Recorder server is down?
+## What happens when the Wayscribe server is down?
 
 Your service carries on. Source:
 [SDK README](../packages/sdk-node/README.md#it-cannot-break-your-application).

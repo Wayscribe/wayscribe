@@ -5,7 +5,7 @@ import {
   expand,
   expectedCaseIds,
   loadConformanceCases
-} from "@flight-recorder/protocol/conformance";
+} from "@wayscribe/protocol/conformance";
 import { beforeAll, describe, expect, it } from "vitest";
 import { captureCase, type CapturedCase } from "./conformance-harness.js";
 

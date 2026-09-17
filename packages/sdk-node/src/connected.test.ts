@@ -5,7 +5,7 @@ import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder } from "./recorder.js";
 
 const base = {
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "development"
 };
@@ -107,7 +107,7 @@ describe("delivered_first", () => {
     expect(everything).not.toContain(secret);
     expect(everything).not.toContain("ingest/");
     expect(lines).toContain(
-      `[flight-recorder] delivered_first: Connected to ${server.endpoint}; the server accepted 1 event.`
+      `[wayscribe] delivered_first: Connected to ${server.endpoint}; the server accepted 1 event.`
     );
   });
 
@@ -205,12 +205,12 @@ describe("the console", () => {
     await server.close();
 
     expect(lines).toEqual([
-      `[flight-recorder] delivered_first: Connected to ${server.endpoint}; the server accepted 1 event.`
+      `[wayscribe] delivered_first: Connected to ${server.endpoint}; the server accepted 1 event.`
     ]);
   });
 
   it("prints a refusal's code and field path, and leaves the server's message to onDiagnostic", async () => {
-    // Flight Recorder's API puts no event values in its messages, but a proxy
+    // Wayscribe's API puts no event values in its messages, but a proxy
     // or another server in front of it could, and a console line usually ends
     // up in a log store the operator does not control.
     const server = await ingestion(() => ({
@@ -243,10 +243,10 @@ describe("the console", () => {
     await server.close();
 
     expect(lines).toEqual([
-      "[flight-recorder] rejected: invalid_event at event.aliases.email (the server's message goes to onDiagnostic)"
+      "[wayscribe] rejected: invalid_event at event.aliases.email (the server's message goes to onDiagnostic)"
     ]);
     expect(lines.join()).not.toContain("cus_secret_id");
-    expect(lines.join()).not.toContain("fr_test");
+    expect(lines.join()).not.toContain("wsk_test");
     // Nothing is lost: the callback still gets the whole message.
     expect(reasons.join()).toContain("Value dana@example.com is not allowed.");
   });
@@ -273,7 +273,7 @@ describe("the console", () => {
     await server.close();
 
     expect(lines).toContain(
-      "[flight-recorder] transport_error: query_timeout (the server's message goes to onDiagnostic)"
+      "[wayscribe] transport_error: query_timeout (the server's message goes to onDiagnostic)"
     );
     expect(lines.join()).not.toContain("dana@example.com");
   });
@@ -296,7 +296,7 @@ describe("the console", () => {
     await server.close();
 
     expect(lines).toEqual([
-      "[flight-recorder] rejected: rejected (the server's message goes to onDiagnostic)"
+      "[wayscribe] rejected: rejected (the server's message goes to onDiagnostic)"
     ]);
   });
 
@@ -348,10 +348,10 @@ describe("the console", () => {
     vi.restoreAllMocks();
 
     expect(lines).toContain(
-      "[flight-recorder] dropped: The queue was full, so its oldest event was dropped."
+      "[wayscribe] dropped: The queue was full, so its oldest event was dropped."
     );
     // Three: two shed as the queue of one filled, and the event still queued
     // when shutdown gave up on the unreachable endpoint.
-    expect(lines).toContain("[flight-recorder] dropped: 3 repeats suppressed since the last line");
+    expect(lines).toContain("[wayscribe] dropped: 3 repeats suppressed since the last line");
   });
 });

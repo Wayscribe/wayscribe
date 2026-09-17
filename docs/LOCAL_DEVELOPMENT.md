@@ -15,8 +15,8 @@ One Compose command starts the platform services. Contributors may still run
 applications directly for hot reload.
 
 ```bash
-git clone https://gitlab.com/jojithedev/flight-recorder.git
-cd flight-recorder
+git clone https://gitlab.com/jojithedev/wayscribe.git
+cd wayscribe
 nvm use            # Node 24, per .nvmrc
 corepack enable
 pnpm install
@@ -33,7 +33,7 @@ build expects must not take traffic.
 
 | Service | Purpose | Profile |
 |---|---|---|
-| `postgres` | Flight Recorder metadata and events | core |
+| `postgres` | Wayscribe metadata and events | core |
 | `api` | Ingestion, query, and replay API | core |
 | `web` | Developer interface | core |
 | `elasticmq` | SQS-compatible queue | demo |
@@ -63,7 +63,7 @@ Four things are worth knowing about the demo profile:
   the demo API key, and creates the demo database and its customer table, then
   exits. Everything after it waits for it to succeed.
 - **The demo has its own `demo` database** inside the same PostgreSQL container,
-  so its customer table never mixes with Flight Recorder's own schema.
+  so its customer table never mixes with Wayscribe's own schema.
 - **The demo API key is fixed and committed.** It is a placeholder that
   authorises writing demo events to a local stack and nothing else. Keys for
   anything real come from `pnpm key:create`, which prints each one
@@ -74,7 +74,7 @@ Four things are worth knowing about the demo profile:
   prints.
 
 `demo-source` and `demo-target` are deliberately uninstrumented: they stand in
-for Salesforce and HubSpot, which a team using Flight Recorder does not own. The
+for Salesforce and HubSpot, which a team using Wayscribe does not own. The
 timeline covers `demo-integration` and `demo-worker` only.
 
 ### Running the acceptance test
@@ -93,7 +93,7 @@ shell:
 | Variable | What it must be |
 |---|---|
 | `ADMIN_TOKEN` | the token the web app and the API run with; the specs sign in with it and call the admin API |
-| `FLIGHT_API_KEY` | an unrevoked key for an environment named `development`; the specs seed their journeys through it |
+| `WAYSCRIBE_API_KEY` | an unrevoked key for an environment named `development`; the specs seed their journeys through it |
 | `API_URL` | the API as this shell reaches it; default `http://localhost:8080` |
 | `WEB_URL` | the interface; default `http://localhost:3000` |
 
@@ -104,7 +104,7 @@ secrets, the demo's own key works:
 
 ```bash
 ADMIN_TOKEN=replace-for-local-development-0000 \
-  FLIGHT_API_KEY=fr_demo00000000000000000000000000000 pnpm test:e2e
+  WAYSCRIBE_API_KEY=wsk_demo0000000000000000000000000000 pnpm test:e2e
 ```
 
 With your own `.env`, use its `ADMIN_TOKEN`, and set `API_URL` and `WEB_URL`
@@ -166,14 +166,14 @@ key as arguments:
 
 ```typescript
 const recorder = createRecorder({
-  endpoint: process.env.FLIGHT_RECORDER_URL ?? "http://localhost:8080",
-  apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? "",
+  endpoint: process.env.WAYSCRIBE_URL ?? "http://localhost:8080",
+  apiKey: process.env.WAYSCRIBE_API_KEY ?? "",
   serviceName: "checkout-api",
   environment: "development"
 });
 ```
 
-When `FLIGHT_RECORDER_API_KEY` is unset, `?? ""` hands the SDK an empty key.
+When `WAYSCRIBE_API_KEY` is unset, `?? ""` hands the SDK an empty key.
 The SDK treats an empty or blank required setting as missing: it prints one
 `configuration_error` line per process, even with `logDiagnostics` off, and the
 server refuses the events
@@ -191,7 +191,7 @@ your back is a library that behaves differently in tests.
 | `pnpm lint` · `pnpm format:check` · `pnpm typecheck` | the three verify gates; `pnpm format` rewrites what `format:check` refuses |
 | `pnpm test` | unit; starts nothing, needs nothing running |
 | `pnpm test:integration` | real PostgreSQL via Testcontainers; needs Docker |
-| `pnpm test:e2e` | Playwright browser suite; needs the API and web running, and `ADMIN_TOKEN` and `FLIGHT_API_KEY` set (§3, Running the browser suite) |
+| `pnpm test:e2e` | Playwright browser suite; needs the API and web running, and `ADMIN_TOKEN` and `WAYSCRIBE_API_KEY` set (§3, Running the browser suite) |
 | `pnpm test:demo` | the product acceptance test; needs the demo stack up |
 | `pnpm db:migrate` · `pnpm db:rollback` · `pnpm db:seed` | schema and local seed |
 | `pnpm db:reset --yes` | roll the schema back to nothing, migrate, and seed; drops every recorded journey (§8) |
@@ -232,7 +232,7 @@ stored and whoever is revoking it usually does not have it:
 
 ```bash
 pnpm key:list
-pnpm key:revoke fr_AbCdEfGhIjK
+pnpm key:revoke wsk_AbCdEfGh
 ```
 
 ### Provisioning without a source checkout
@@ -241,10 +241,10 @@ The database CLI is inside the API image, so an operator running from published
 images does not need this repository:
 
 ```bash
-docker run --rm --network flight-recorder_default \
-  -e DATABASE_URL=postgresql://flight:flight@postgres:5432/flight \
+docker run --rm --network wayscribe_default \
+  -e DATABASE_URL=postgresql://wayscribe:wayscribe@postgres:5432/wayscribe \
   -e ENCRYPTION_KEY="$ENCRYPTION_KEY" \
-  --entrypoint node flight-recorder-api packages/database/dist/cli.js migrate
+  --entrypoint node wayscribe-api packages/database/dist/cli.js migrate
 ```
 
 ## 8. Resetting local state
@@ -277,6 +277,58 @@ pnpm db:seed
 
 The demo profile needs none of this: `demo-bootstrap` migrates and seeds itself
 on every start.
+
+### Upgrading a checkout from before the rename
+
+The rename to Wayscribe (ADR-057) changed the Compose project, and with it the
+volume, and the database user, password and name, which are now all
+`wayscribe`. A stack started before the rename is not picked up: its volume
+belongs to the old project and its database has the old user. Starting the new
+stack under the old project name does not help either, because the new
+configuration connects as `wayscribe`, a user the old database does not have.
+Either copy the data across or start fresh.
+
+To keep the data, dump the old database and restore it into the new one, with
+the backup and restore commands from [OPERATIONS.md](OPERATIONS.md#2-backup)
+adjusted for the old user. Both stacks publish PostgreSQL on port 5432, so run
+one at a time. Keep `ENCRYPTION_KEY` in `.env` as it was: the restored
+identifiers are readable only under the key that wrote them. Stop the old stack
+first if it is running, then start only its database and dump it:
+
+```bash
+docker compose -p flight-recorder -f infrastructure/compose.yaml down --remove-orphans
+docker compose -p flight-recorder -f infrastructure/compose.yaml up -d --wait postgres
+docker compose -p flight-recorder -f infrastructure/compose.yaml exec -T postgres \
+  pg_dump -U flight -d flight --format=custom > before-rename.dump
+docker compose -p flight-recorder -f infrastructure/compose.yaml down --remove-orphans
+```
+
+Then start the new database and restore into it. `--no-owner` and
+`--no-privileges` are needed: the dump names the old `flight` user as owner of
+every table, and that user does not exist in the new database.
+
+```bash
+docker compose -f infrastructure/compose.yaml up -d --wait postgres
+docker compose -f infrastructure/compose.yaml exec -T postgres \
+  pg_restore -U wayscribe -d wayscribe --no-owner --no-privileges < before-rename.dump
+```
+
+Change `DATABASE_URL` in `.env` to the new user and name, then continue with
+the setup in §2 (`up -d --build`, then `pnpm db:migrate`, which applies any
+migration newer than the dump). The `down` above keeps the old volume; once the
+new stack shows your journeys, remove it with the command below, and delete
+`before-rename.dump`, which holds payloads in the clear.
+
+If you no longer need the old data, remove the old stack and its volume. This
+removes every container of the old project, the demo profile's included, so
+none keeps running or holding a port:
+
+```bash
+docker compose -p flight-recorder -f infrastructure/compose.yaml down -v --remove-orphans
+```
+
+Then copy `.env.example` to `.env` again, or change `DATABASE_URL` in your
+`.env` to the new user and name, and follow the setup in §2.
 
 ## 9. Troubleshooting principles
 
@@ -316,7 +368,7 @@ before it will search. `/projects` is that page.
 
 ### Replay cannot reach host application
 
-When Flight Recorder runs in Docker and the destination runs on the host, use the supported host gateway name for the operating system, commonly `host.docker.internal`.
+When Wayscribe runs in Docker and the destination runs on the host, use the supported host gateway name for the operating system, commonly `host.docker.internal`.
 
 `infrastructure/compose.yaml` allows it. `compose.published.yaml` and the Helm chart do not, because it reaches every service on the Docker host: add it to `REPLAY_ALLOWED_HOSTS` yourself, on a machine where that is acceptable (`OPERATIONS.md` §9).
 

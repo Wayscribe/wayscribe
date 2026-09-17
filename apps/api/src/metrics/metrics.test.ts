@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { createKeyring } from "@flight-recorder/payload-security";
+import { createKeyring } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import type { Knex } from "knex";
 import { afterEach, describe, expect, it } from "vitest";
@@ -62,14 +62,14 @@ describe("request metrics", () => {
     }
 
     const text = await api.metrics.render();
-    const requests = seriesOf(text, "flight_recorder_http_requests_total");
+    const requests = seriesOf(text, "wayscribe_http_requests_total");
     expect(requests).toEqual([
-      'flight_recorder_http_requests_total{method="GET",route="unmatched",status="404"} 1000'
+      'wayscribe_http_requests_total{method="GET",route="unmatched",status="404"} 1000'
     ]);
     // The histogram's lines per series are fixed: 12 buckets, +Inf, _sum, _count.
     const durationLines = text
       .split("\n")
-      .filter((line) => line.startsWith("flight_recorder_http_request_duration_seconds_"));
+      .filter((line) => line.startsWith("wayscribe_http_request_duration_seconds_"));
     expect(durationLines).toHaveLength(15);
     for (const path of paths.slice(0, 50)) expect(text).not.toContain(path.slice(1, 13));
   });
@@ -83,8 +83,8 @@ describe("request metrics", () => {
     }
 
     const text = await api.metrics.render();
-    expect(seriesOf(text, "flight_recorder_http_requests_total")).toEqual([
-      'flight_recorder_http_requests_total{method="GET",route="/v1/journeys/:journeyId",status="401"} 2'
+    expect(seriesOf(text, "wayscribe_http_requests_total")).toEqual([
+      'wayscribe_http_requests_total{method="GET",route="/v1/journeys/:journeyId",status="401"} 2'
     ]);
     expect(text).not.toContain("jrn_secret");
   });
@@ -98,24 +98,24 @@ describe("request metrics", () => {
   it("exposes every documented series before any traffic", async () => {
     const text = await app().metrics.render();
     for (const name of [
-      "flight_recorder_http_requests_total",
-      "flight_recorder_http_request_duration_seconds",
-      "flight_recorder_events_total",
-      "flight_recorder_query_timeouts_total",
-      "flight_recorder_db_pool_connections",
-      "flight_recorder_retention_sweep_runs_total",
-      "flight_recorder_retention_journeys_deleted_total",
-      "flight_recorder_retention_last_success_timestamp_seconds",
-      "flight_recorder_unreadable_values",
+      "wayscribe_http_requests_total",
+      "wayscribe_http_request_duration_seconds",
+      "wayscribe_events_total",
+      "wayscribe_query_timeouts_total",
+      "wayscribe_db_pool_connections",
+      "wayscribe_retention_sweep_runs_total",
+      "wayscribe_retention_journeys_deleted_total",
+      "wayscribe_retention_last_success_timestamp_seconds",
+      "wayscribe_unreadable_values",
       "process_resident_memory_bytes",
       "nodejs_eventloop_lag_seconds"
     ]) {
       expect(text, name).toContain(`# TYPE ${name} `);
     }
-    expect(text).toContain('flight_recorder_events_total{result="rejected"} 0');
-    expect(text).toContain('flight_recorder_retention_sweep_runs_total{outcome="failed"} 0');
+    expect(text).toContain('wayscribe_events_total{result="rejected"} 0');
+    expect(text).toContain('wayscribe_retention_sweep_runs_total{outcome="failed"} 0');
     // No pool on a stub database: reported as zeros rather than failing the scrape.
-    expect(text).toContain('flight_recorder_db_pool_connections{state="pending"} 0');
+    expect(text).toContain('wayscribe_db_pool_connections{state="pending"} 0');
   });
 
   it("is not served on the API port", async () => {
@@ -142,10 +142,10 @@ describe("request metrics", () => {
 
     const text = await api.metrics.render();
     expect(text).toContain(
-      'flight_recorder_http_requests_total{method="GET",route="unmatched",status="400"} 1'
+      'wayscribe_http_requests_total{method="GET",route="unmatched",status="400"} 1'
     );
     expect(text).toContain(
-      'flight_recorder_http_requests_total{method="GET",route="unmatched",status="414"} 1'
+      'wayscribe_http_requests_total{method="GET",route="unmatched",status="414"} 1'
     );
     expect(text).not.toContain("jrn_long_secret_");
   });
@@ -181,7 +181,7 @@ describe("the metrics listener", () => {
     expect(scrape.headers.get("content-type")).toBe(EXPOSITION_CONTENT_TYPE);
     const text = await scrape.text();
     expect(text).toContain(
-      'flight_recorder_http_requests_total{method="GET",route="/health",status="200"} 1'
+      'wayscribe_http_requests_total{method="GET",route="/health",status="200"} 1'
     );
     // A scrape is not an API request.
     expect(text).not.toContain('route="/metrics"');

@@ -21,7 +21,8 @@ const fake = {
   gitlab: "gl" + "pat-" + "xR7kP2mN9qL4wT6yB3vC",
   aws: "AK" + "IA" + "Q3EGUNLQ7XK4TWPM",
   google: "AI" + "za" + "SyD4xQ9mL2pK7wR3tV8nB5cF1hJ6gZ0aE_u",
-  flightRecorder: "fr_" + "q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A",
+  wayscribe: "wsk_" + "q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A",
+  wayscribeLegacy: "fr_" + "Hb6Js1Dy5Gf0Aq8Zr4LmN2pXw7Kc9Vt3",
   jwt:
     "eyJ" +
     "hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" +
@@ -188,9 +189,15 @@ const positive: Case[] = [
     keeps: ["401 Unauthorized PRIVATE-TOKEN: [REDACTED] for GET /api/v4/projects"]
   },
   {
-    name: "a Flight Recorder key",
-    text: `ingest refused key ${fake.flightRecorder} for environment production`,
-    secrets: [fake.flightRecorder],
+    name: "a Wayscribe key",
+    text: `ingest refused key ${fake.wayscribe} for environment production`,
+    secrets: [fake.wayscribe],
+    keeps: ["ingest refused key [REDACTED] for environment production"]
+  },
+  {
+    name: "a Wayscribe key issued before the rename, which starts fr_",
+    text: `ingest refused key ${fake.wayscribeLegacy} for environment production`,
+    secrets: [fake.wayscribeLegacy],
     keeps: ["ingest refused key [REDACTED] for environment production"]
   },
   {
@@ -434,6 +441,7 @@ const negative: { name: string; text: string }[] = [
     text: "TypeError: Cannot read properties of undefined (reading 'id')\n    at Object.<anonymous> (/app/src/index.js:10:5)\n    at Module._compile (node:internal/modules/cjs/loader:1554:14)"
   },
   { name: "a provider prefix without a token", text: "use an sk_live_ key, not a pk_live_ one" },
+  { name: "a Wayscribe key prefix without a full key", text: "key wsk_short was refused" },
   { name: "the redaction marker itself", text: "[REDACTED]" },
   { name: "an empty string", text: "" },
   {
@@ -637,7 +645,8 @@ describe("maskSecretsInText", () => {
     const adversarial: Record<string, (size: number) => string> = {
       "JWT-like segments with no dot": (size) => fill("eyJa-", size),
       "JWT-like segments with one dot": (size) => fill("eyJa.eyJb-", size),
-      "provider prefixes without bodies": (size) => fill("sk_live_x glpat-. xoxb-_ AKIA fr_", size),
+      "provider prefixes without bodies": (size) =>
+        fill("sk_live_x glpat-. xoxb-_ AKIA wsk_ fr_", size),
       "URL schemes with no @": (size) => fill("a://b:c:", size),
       "a scheme then a long run with no @": (size) => "x://" + fill("a:", size),
       "PEM headers with no key type": (size) => fill("-----BEGIN A ", size),

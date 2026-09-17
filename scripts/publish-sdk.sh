@@ -1,5 +1,5 @@
 #!/bin/sh
-# Publish @flight-recorder/node to npm with trusted publishing and provenance.
+# Publish @wayscribe/node to npm with trusted publishing and provenance.
 #
 # Usage: scripts/publish-sdk.sh <tag>        e.g. scripts/publish-sdk.sh v0.1.0
 #        DRY_RUN=1 scripts/publish-sdk.sh <tag>
@@ -118,7 +118,7 @@ tar -xzOf "$TARBALL" package/package.json | node -e '
     }
     if (manifest.devDependencies !== undefined) problems.push("devDependencies");
     if (manifest.scripts !== undefined) problems.push("scripts");
-    if (!/gitlab\.com\/jojithedev\/flight-recorder/.test(manifest.repository?.url ?? "")) {
+    if (!/gitlab\.com\/jojithedev\/wayscribe/.test(manifest.repository?.url ?? "")) {
       problems.push("a repository.url npm cannot match to this project for provenance");
     }
     if (problems.length > 0) {
@@ -130,9 +130,9 @@ tar -xzOf "$TARBALL" package/package.json | node -e '
 
 if [ "${DRY_RUN:-}" = "1" ]; then
   npm publish "$TARBALL" --access public --dry-run
-  echo "dry run passed for @flight-recorder/node@${VERSION}; nothing was published"
+  echo "dry run passed for @wayscribe/node@${VERSION}; nothing was published"
   exit 0
 fi
 
 npm publish "$TARBALL" --access public --provenance
-echo "published @flight-recorder/node@${VERSION} with provenance"
+echo "published @wayscribe/node@${VERSION} with provenance"

@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId } from "@wayscribe/database";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -239,7 +239,7 @@ describe("query endpoints", () => {
         url,
         headers: {
           authorization: "Bearer admin-token-for-tests-0000000000",
-          "x-flight-project-id": "not-a-uuid"
+          "x-wayscribe-project-id": "not-a-uuid"
         }
       });
       expect(response.statusCode, url).toBe(404);

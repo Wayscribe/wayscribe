@@ -96,7 +96,7 @@ export default async function JourneysPage({
     if (error instanceof ApiUnavailableError) {
       return (
         <Shell filters={filters}>
-          <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>
+          <p className="error">Cannot reach the Wayscribe API. Is it running?</p>
         </Shell>
       );
     }

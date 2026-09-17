@@ -76,6 +76,6 @@ test("the nav links the glossary where the repository hosts it", async ({ page }
   await expect(glossary).toBeVisible();
   await expect(glossary).toHaveAttribute(
     "href",
-    "https://gitlab.com/jojithedev/flight-recorder/-/blob/main/docs/GLOSSARY.md"
+    "https://gitlab.com/jojithedev/wayscribe/-/blob/main/docs/GLOSSARY.md"
   );
 });

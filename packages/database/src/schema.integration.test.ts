@@ -70,7 +70,7 @@ describe("schema constraints", () => {
         project_id: otherProjectId,
         environment_id: environmentId,
         name: "cross-project",
-        key_prefix: "fr_crossproj",
+        key_prefix: "wsk_crossprj",
         key_hash: "deadbeef"
       })
     ).rejects.toThrow();
@@ -82,7 +82,7 @@ describe("schema constraints", () => {
         project_id: projectId,
         environment_id: environmentId,
         name: "valid",
-        key_prefix: "fr_validkey1",
+        key_prefix: "wsk_validkey1",
         key_hash: "deadbeef"
       })
     ).resolves.toBeDefined();
@@ -348,7 +348,7 @@ describe("schema constraints", () => {
       await db.migrate.down({ name: MIGRATION });
       const secret = "pre-upgrade-secret-4d2e";
       const withSecret = await run({
-        "user-agent": "flight-recorder-replay",
+        "user-agent": "wayscribe-replay",
         "x-dev-token": secret,
         authorization: `Bearer ${secret}`
       });

@@ -27,7 +27,7 @@ The complete code, which this repository type-checks against the SDK, is in
 
 The propagation helpers (`injectHttpHeaders`, `extractHttpContext`,
 `injectSqsAttributes`, `extractSqsContext`) are **experimental**: the header and
-attribute names carry the product's current name, which will change.
+attribute names wait on the propagation specification and may change.
 
 ## The API
 
@@ -200,7 +200,7 @@ Salesforce access token is in a request header the recorder never sees.
 ```typescript
     onDiagnostic: (diagnostic) => {
       if (diagnostic.kind === "rejected" || diagnostic.kind === "dropped") {
-        console.warn("flight recorder", diagnostic.kind, diagnostic.code);
+        console.warn("wayscribe", diagnostic.kind, diagnostic.code);
       }
     }
 ```

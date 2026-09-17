@@ -34,7 +34,7 @@ async function collect(use: (journey: Journey) => unknown): Promise<Record<strin
 
   const recorder = createRecorder({
     endpoint: `http://127.0.0.1:${String(port)}`,
-    apiKey: "fr_test",
+    apiKey: "wsk_test",
     serviceName: "svc",
     environment: "development"
   });

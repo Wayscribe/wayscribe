@@ -1,5 +1,5 @@
-import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId } from "@wayscribe/database";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
@@ -239,7 +239,7 @@ describe("dry-run validation", () => {
     });
 
     it("is refused before the credential is checked, so a bad key cannot hide it", async () => {
-      const response = await batch([], "?dryRun=maybe", "fr_not_a_key");
+      const response = await batch([], "?dryRun=maybe", "wsk_not_a_key");
       expect(response.statusCode).toBe(400);
     });
 

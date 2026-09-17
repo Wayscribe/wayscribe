@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { findInsecureDefaults } from "./insecure-defaults.js";
+import {
+  findInsecureDefaults,
+  LEGACY_PUBLISHED_DEMO_API_KEY,
+  PUBLISHED_DEMO_API_KEY,
+  PUBLISHED_DEMO_API_KEYS
+} from "./insecure-defaults.js";
 
 describe("findInsecureDefaults", () => {
   it("flags a published default", () => {
@@ -9,6 +14,20 @@ describe("findInsecureDefaults", () => {
       ADMIN_TOKEN: "a-real-secret-that-is-long-enough-x"
     });
     expect(findings.map((f) => f.variable)).toEqual(["ENCRYPTION_KEY"]);
+  });
+
+  it("counts the demo key published before the rename as published", () => {
+    expect(LEGACY_PUBLISHED_DEMO_API_KEY).toBe("fr_demo" + "0".repeat(29));
+    expect(PUBLISHED_DEMO_API_KEY).toBe("wsk_demo" + "0".repeat(28));
+    expect(PUBLISHED_DEMO_API_KEYS).toEqual([
+      PUBLISHED_DEMO_API_KEY,
+      LEGACY_PUBLISHED_DEMO_API_KEY
+    ]);
+    for (const demoKey of PUBLISHED_DEMO_API_KEYS) {
+      expect(findInsecureDefaults({ ADMIN_TOKEN: demoKey }).map((f) => f.variable)).toEqual([
+        "ADMIN_TOKEN"
+      ]);
+    }
   });
 
   it("flags every published default at once", () => {

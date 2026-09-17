@@ -8,7 +8,7 @@
 export interface CliConfig {
   url: string;
   token: string;
-  /** Sent as `x-flight-project-id`. An admin token spans projects and must name one. */
+  /** Sent as `x-wayscribe-project-id`. An admin token spans projects and must name one. */
   projectId?: string | undefined;
   json: boolean;
 }
@@ -30,15 +30,15 @@ export function resolveConfig(
   flags: ConfigInput,
   env: Record<string, string | undefined>
 ): CliConfig {
-  const token = flags.token ?? env["FLIGHT_RECORDER_TOKEN"];
+  const token = flags.token ?? env["WAYSCRIBE_TOKEN"];
   if (token === undefined || token === "") {
     throw new ConfigError(
-      "No token. Set FLIGHT_RECORDER_TOKEN to your ADMIN_TOKEN, or pass --token.\n" +
+      "No token. Set WAYSCRIBE_TOKEN to your ADMIN_TOKEN, or pass --token.\n" +
         "It is the same value the web interface asks for."
     );
   }
 
-  const url = flags.url ?? env["FLIGHT_RECORDER_URL"] ?? DEFAULT_URL;
+  const url = flags.url ?? env["WAYSCRIBE_URL"] ?? DEFAULT_URL;
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -54,7 +54,7 @@ export function resolveConfig(
     // spot in a 404.
     url: parsed.origin + parsed.pathname.replace(/\/+$/, ""),
     token,
-    projectId: flags.project ?? env["FLIGHT_RECORDER_PROJECT"],
+    projectId: flags.project ?? env["WAYSCRIBE_PROJECT"],
     json: flags.json ?? false
   };
 }

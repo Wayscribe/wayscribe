@@ -22,7 +22,7 @@ export function apiFailure(error: unknown): NextResponse {
     // error itself, not just its message, keeps the stack and Node's `cause`
     // chain (the real ECONNREFUSED behind this error) in that log too.
     console.error(error);
-    return jsonError(502, "api_unavailable", "The Flight Recorder API is unavailable.");
+    return jsonError(502, "api_unavailable", "The Wayscribe API is unavailable.");
   }
   throw error;
 }

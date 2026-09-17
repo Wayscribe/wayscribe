@@ -1,9 +1,9 @@
-# @flight-recorder/node
+# @wayscribe/node
 
 Record what happened to one customer record as it crossed your services, and see
 where a value changed.
 
-This is the Node.js SDK for [Flight Recorder](https://gitlab.com/jojithedev/flight-recorder),
+This is the Node.js SDK for [Wayscribe](https://gitlab.com/jojithedev/wayscribe),
 a self-hosted, record-level debugging tool. You run the server yourself; nothing
 leaves your infrastructure.
 
@@ -22,13 +22,13 @@ repository and commit the tarball to your application:
 # In the clone. `pack:release` builds first and prints the tarball's path. Give
 # it an absolute directory: it runs from packages/sdk-node.
 pnpm install
-pnpm --filter @flight-recorder/node run pack:release /path/to/your-app/vendor/
+pnpm --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
 ```
 
 ```json
 {
   "dependencies": {
-    "@flight-recorder/node": "file:vendor/flight-recorder-node-0.1.0.tgz"
+    "@wayscribe/node": "file:vendor/wayscribe-node-0.1.0.tgz"
   }
 }
 ```
@@ -36,11 +36,11 @@ pnpm --filter @flight-recorder/node run pack:release /path/to/your-app/vendor/
 ```bash
 # In your application.
 npm install
-git add vendor/flight-recorder-node-0.1.0.tgz package.json package-lock.json
+git add vendor/wayscribe-node-0.1.0.tgz package.json package-lock.json
 ```
 
 **Why a tarball rather than a path into the clone.** `npm install
-/path/to/flight-recorder/packages/sdk-node` links your application to a
+/path/to/wayscribe/packages/sdk-node` links your application to a
 directory that has to stay built: its `dist` is not in git, so the day somebody
 runs `git clean`, switches branch, or deploys to a machine without that clone,
 the import fails. That matters most for a job with no build step of its own,
@@ -58,7 +58,7 @@ To take a newer SDK, pack again, replace the tarball, run `npm install`, and
 commit both. Once the package is published, all of this becomes:
 
 ```bash
-npm install @flight-recorder/node
+npm install @wayscribe/node
 ```
 
 [`examples/instrument-a-service`](../../examples/instrument-a-service/README.md)
@@ -68,11 +68,11 @@ clone.
 ## Record a journey
 
 ```typescript
-import { createRecorder } from "@flight-recorder/node";
+import { createRecorder } from "@wayscribe/node";
 
 const recorder = createRecorder({
-  endpoint: process.env.FLIGHT_RECORDER_URL ?? "http://localhost:8080",
-  apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? "",
+  endpoint: process.env.WAYSCRIBE_URL ?? "http://localhost:8080",
+  apiKey: process.env.WAYSCRIBE_API_KEY ?? "",
   serviceName: "billing-api",
   environment: "production"
 });
@@ -102,7 +102,7 @@ async function handleWebhook(account) {
 }
 ```
 
-Then search your Flight Recorder for `account.Id` and read the timeline.
+Then search Wayscribe for `account.Id` and read the timeline.
 
 **Aliases are masked when they are read**, because they are other identifiers
 for the record and a reader may not be entitled to them. An identifier that is
@@ -421,8 +421,9 @@ context, so a consumer can read old and new messages alike.
 
 **Aliases never propagate, at any level.** Not configurable.
 
-The header, attribute and envelope names carry the product's name and will
-change with it, so these helpers are experimental (see [Stability](#stability)).
+No propagation specification fixes the header, attribute and envelope names or
+their value grammar yet, so these helpers are experimental (see
+[Stability](#stability)).
 
 ## It cannot break your application
 
@@ -513,14 +514,14 @@ const recorder = createRecorder({
 The first batch the server stores anything from prints one line, once:
 
 ```text
-[flight-recorder] delivered_first: Connected to http://localhost:8080; the server accepted 3 events.
+[wayscribe] delivered_first: Connected to http://localhost:8080; the server accepted 3 events.
 ```
 
 If that line never appears, the lines that do say why:
 
 ```text
-[flight-recorder] rejected: unauthorized_environment (the server's message goes to onDiagnostic)
-[flight-recorder] transport_error: fetch failed
+[wayscribe] rejected: unauthorized_environment (the server's message goes to onDiagnostic)
+[wayscribe] transport_error: fetch failed
 ```
 
 Each diagnostic kind prints at most one line a minute, and the next line of that
@@ -533,7 +534,7 @@ formatting characters.
 **A refusal prints the server's error code and the path of the first field it
 names, and not the server's message**, as in
 `rejected: invalid_event at event.name`. The message is the server's own text,
-and masking catches only credential shapes. Flight Recorder's API puts no event
+and masking catches only credential shapes. Wayscribe's API puts no event
 values in its messages, but the SDK cannot tell that API from a proxy or another
 server that echoes what it was sent, and a console line usually ends up in a
 log store you may not control. The whole message, with the field error, still
@@ -611,7 +612,7 @@ Every request carries the API key, and payloads with it. When `endpoint` is
 diagnostic as it is created:
 
 ```text
-[flight-recorder] insecure_endpoint: The endpoint is http: to ingest.internal, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.
+[wayscribe] insecure_endpoint: The endpoint is http: to ingest.internal, so the API key and payloads travel unencrypted. Use https: for any endpoint off this machine.
 ```
 
 It reaches `onDiagnostic` as
@@ -623,7 +624,7 @@ a telemetry library that refuses to start breaks the service it observes
 network can read the key. Put TLS in front of the API, or at least terminate it
 on the same machine as the service.
 
-A single-label name with no dot, such as `api` or `flight-recorder-api`, is not
+A single-label name with no dot, such as `api` or `wayscribe-api`, is not
 reported, and neither is `localhost`. A name like that resolves only through
 container or cluster DNS, so the traffic stays on the private network Docker
 Compose or Kubernetes created, which is how the demo reaches the API. A dotted
@@ -767,7 +768,7 @@ It tells you instead, once per name per process, whether or not
 with a note saying why it was printed:
 
 ```text
-[flight-recorder] unredacted_secret_name: A field named "sessionCredential" (at input.session.sessionCredential) looks like a secret and was sent unredacted. If it holds a secret, add "**.sessionCredential" to the redact option; if it does not, add "sessionCredential" to knownSafeNames. (printed once per process and name, whether or not logDiagnostics is on, because the value is stored in plain text)
+[wayscribe] unredacted_secret_name: A field named "sessionCredential" (at input.session.sessionCredential) looks like a secret and was sent unredacted. If it holds a secret, add "**.sessionCredential" to the redact option; if it does not, add "sessionCredential" to knownSafeNames. (printed once per process and name, whether or not logDiagnostics is on, because the value is stored in plain text)
 ```
 
 With `logDiagnostics: true` the same line is printed without the note in
@@ -855,7 +856,7 @@ The masker recognises:
   are left alone.
 - JSON Web Tokens, and PEM and PGP private keys
 - provider-prefixed keys from Stripe, Slack, GitHub, GitLab, AWS, Google,
-  OpenAI, Anthropic, npm, SendGrid, Hugging Face and Flight Recorder
+  OpenAI, Anthropic, npm, SendGrid, Hugging Face and Wayscribe
 
 A message longer than the 4096 characters the server accepts is masked over its
 first 8192 characters and then cut to 4096, ending in `[TRUNCATED]`; a `stack`
@@ -971,9 +972,9 @@ maximums in particular are noisy. To reproduce, from the repository root (about
 ten minutes for everything, three for the time per call):
 
 ```bash
-pnpm --filter @flight-recorder/node bench
-pnpm --filter @flight-recorder/node bench -- --only=latency --awake
-pnpm --filter @flight-recorder/node exec node bench/capture-cpu.mjs
+pnpm --filter @wayscribe/node bench
+pnpm --filter @wayscribe/node bench -- --only=latency --awake
+pnpm --filter @wayscribe/node exec node bench/capture-cpu.mjs
 ```
 
 **Time added to each wrapped call**, in microseconds, against a local stub
@@ -1082,7 +1083,7 @@ justify a higher default for a fleet, and the default stays 4 because of what it
 leaves out. Every ingestion request holds one database connection, so a fleet of
 processes shares instances times pool size.
 
-`pnpm --filter @flight-recorder/node bench:fleet` models that case: ten SDK
+`pnpm --filter @wayscribe/node bench:fleet` models that case: ten SDK
 processes at 200 events a second each, five times that for ten seconds of a
 thirty-second run, against one API instance with a pool of ten connections and
 4 ms per event (about 2,500 events a second). The model copies the API's batch
@@ -1204,8 +1205,8 @@ marked `@experimental` in the types, and may change in a minor release:
 - **The propagation helpers** (`injectHttpHeaders`, `extractHttpContext`,
   `injectSqsAttributes`, `extractSqsContext`, `injectPayload`,
   `extractPayload`), `PropagationLevel` and the `propagation` option: the
-  header, attribute and envelope names carry the product's current name, which
-  is about to change.
+  header, attribute and envelope names and their value grammar wait on the
+  propagation specification.
 - **`across` and `JourneyGroup`**: the name, the deduplication and label
   rules, and what an empty group does came from one service instrumented with
   them.

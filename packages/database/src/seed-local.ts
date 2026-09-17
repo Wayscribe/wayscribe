@@ -1,4 +1,4 @@
-import { issueApiKey, type Keyring } from "@flight-recorder/payload-security";
+import { issueApiKey, type Keyring } from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import { insertReturningId } from "./insert.js";
 

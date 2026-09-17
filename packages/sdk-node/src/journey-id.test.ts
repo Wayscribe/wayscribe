@@ -31,7 +31,7 @@ const fixture = JSON.parse(
 
 const base: RecorderConfig = {
   endpoint: "http://127.0.0.1:1",
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "production"
 };
@@ -77,7 +77,7 @@ describe("journeyIdFor", () => {
     expect(id).toMatch(/^jrn_[0-9a-f]{32}$/);
     // The protocol's journey id limit, and the propagation grammar's.
     expect(id.length).toBeLessThanOrEqual(128);
-    expect(extractHttpContext({ "x-flight-journey-id": id })).toEqual({ journeyId: id });
+    expect(extractHttpContext({ "x-wayscribe-journey-id": id })).toEqual({ journeyId: id });
   });
 
   it("can be used to continue a journey", () => {

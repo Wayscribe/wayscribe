@@ -3,8 +3,8 @@ import {
   createKnexConfig,
   insertReturningId,
   type ApiKeyContext
-} from "@flight-recorder/database";
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+} from "@wayscribe/database";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";

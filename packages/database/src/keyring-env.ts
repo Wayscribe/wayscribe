@@ -1,5 +1,5 @@
-import { loadEncryptionKeys } from "@flight-recorder/config";
-import { createKeyring, type Keyring } from "@flight-recorder/payload-security";
+import { loadEncryptionKeys } from "@wayscribe/config";
+import { createKeyring, type Keyring } from "@wayscribe/payload-security";
 
 /**
  * The keyring for a process that reads its keys straight from the environment.

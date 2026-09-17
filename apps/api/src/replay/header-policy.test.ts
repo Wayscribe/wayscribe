@@ -57,8 +57,8 @@ describe("applyHeaderPolicy", () => {
 
   it("identifies itself and says the request is a replay", () => {
     const { headers } = applyHeaderPolicy({ "user-agent": "curl/8" }, undefined);
-    expect(headers["user-agent"]).toBe("flight-recorder-replay");
-    expect(headers["x-flight-replay"]).toBe("true");
+    expect(headers["user-agent"]).toBe("wayscribe-replay");
+    expect(headers["x-wayscribe-replay"]).toBe("true");
   });
 
   it("defaults the content type but respects an explicit one", () => {
@@ -87,23 +87,23 @@ describe("applyHeaderPolicy", () => {
     expect(Object.keys(recorded).sort()).toEqual(Object.keys(headers).sort());
   });
 
-  it("records the headers Flight Recorder sets itself as sent", () => {
+  it("records the headers Wayscribe sets itself as sent", () => {
     const { recorded } = applyHeaderPolicy({ accept: "application/json" }, undefined);
     expect(recorded).toEqual({
       accept: "application/json",
       "content-type": "application/json",
-      "user-agent": "flight-recorder-replay",
-      "x-flight-replay": "true"
+      "user-agent": "wayscribe-replay",
+      "x-wayscribe-replay": "true"
     });
   });
 
-  it("records Flight Recorder's own value where it overrode a destination header", () => {
+  it("records Wayscribe's own value where it overrode a destination header", () => {
     const { recorded } = applyHeaderPolicy(undefined, {
       "User-Agent": "configured-agent",
-      "x-flight-replay": "false"
+      "x-wayscribe-replay": "false"
     });
-    expect(recorded["user-agent"]).toBe("flight-recorder-replay");
-    expect(recorded["x-flight-replay"]).toBe("true");
+    expect(recorded["user-agent"]).toBe("wayscribe-replay");
+    expect(recorded["x-wayscribe-replay"]).toBe("true");
   });
 
   it("records a blocked name's value as redacted whatever its source", () => {

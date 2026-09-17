@@ -1,4 +1,4 @@
-// Your application's own code. Nothing here knows about Flight Recorder.
+// Your application's own code. Nothing here knows about Wayscribe.
 
 export interface Customer {
   externalId: string;

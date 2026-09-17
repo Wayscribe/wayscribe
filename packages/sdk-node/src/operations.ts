@@ -1,7 +1,7 @@
 /**
  * The operations the server accepts.
  *
- * Duplicated from `@flight-recorder/protocol` rather than imported, because
+ * Duplicated from `@wayscribe/protocol` rather than imported, because
  * that package is private and unpublished — an SDK consumer could not import
  * the union even deliberately. `operations.test.ts` asserts the two lists stay
  * identical, so the copy cannot drift silently.
@@ -12,9 +12,9 @@
  */
 // debtwatch:start
 // id: DEBT-4PM4D3
-// owner: flight-recorder
+// owner: wayscribe
 // expires: 2027-02-01
-// reason: Duplicated from @flight-recorder/protocol because that package is private and unpublishable
+// reason: Duplicated from @wayscribe/protocol because that package is private and unpublishable
 // tags: sdk, protocol
 // debtwatch:end
 export const OPERATIONS = [

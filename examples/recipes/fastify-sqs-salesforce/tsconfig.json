@@ -7,7 +7,7 @@
     "noEmit": true,
     "types": ["node"],
     "paths": {
-      "@flight-recorder/node": ["../../../packages/sdk-node/src/index.ts"]
+      "@wayscribe/node": ["../../../packages/sdk-node/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "../stubs/fastify.d.ts", "../stubs/aws-sdk-client-sqs.d.ts"]

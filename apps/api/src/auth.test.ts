@@ -1,5 +1,5 @@
-import type { ApiKeyContext } from "@flight-recorder/database";
-import { apiKeyRecordFor, createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import type { ApiKeyContext } from "@wayscribe/database";
+import { apiKeyRecordFor, createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import { describe, expect, it } from "vitest";
 import { logVerifierReplaceFailure, resolveApiKey, type ApiKeyAuthenticator } from "./auth.js";
 
@@ -99,6 +99,28 @@ describe("resolveApiKey", () => {
     const result = await resolveApiKey(bearer(generated.apiKey), authenticator);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(401);
+  });
+
+  it("accepts a key issued before the rename, which starts fr_", async () => {
+    // ADR-057: keys issued as fr_ keep working. The server looks a key up by
+    // its first 12 characters and verifies an HMAC of the whole key, so a check
+    // on which prefix a key has would lock these clients out.
+    const legacyKey = "fr_" + "q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A";
+    expect(legacyKey).toHaveLength(35);
+    const legacy = apiKeyRecordFor(keyringA, legacyKey);
+    const legacyContext: ApiKeyContext = {
+      ...baseContext,
+      keyHash: legacy.verifier,
+      keyHashKeyId: legacy.keyHashKeyId
+    };
+    const { authenticator, replacements } = harness(keyringA, legacyContext);
+    const result = await resolveApiKey(bearer(legacyKey), {
+      ...authenticator,
+      find: (prefix) => Promise.resolve(prefix === legacy.keyPrefix ? legacyContext : undefined)
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.context.projectId).toBe("proj_1");
+    expect(replacements).toEqual([]);
   });
 
   describe("during a rotation", () => {

@@ -1,13 +1,13 @@
 import {
   findInsecureDefaults,
   loadStatementTimeoutMs,
-  PUBLISHED_DEMO_API_KEY
-} from "@flight-recorder/config";
+  PUBLISHED_DEMO_API_KEYS
+} from "@wayscribe/config";
 import {
   API_KEY_PREFIX_LENGTH,
   verifyApiKeyWithKeyring,
   type Keyring
-} from "@flight-recorder/payload-security";
+} from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import { keyringFromEnvironment } from "./keyring-env.js";
 import { migrationStatusReadOnly, SchemaUsageError } from "./migration-status.js";
@@ -39,7 +39,7 @@ export interface DoctorOptions {
   apiTimeoutMs?: number;
 }
 
-/** PostgreSQL 15 is the oldest release Flight Recorder's SQL is written for. */
+/** PostgreSQL 15 is the oldest release Wayscribe's SQL is written for. */
 const MINIMUM_POSTGRES = 150_000;
 /**
  * The newest release CI runs the integration suite on. CI runs it on 15, 17
@@ -59,14 +59,14 @@ const NEWEST_TESTED_POSTGRES = 18;
  * guessing at. It still cannot reach the output, because no message doctor
  * prints includes DATABASE_URL, and PostgreSQL's own errors never repeat a
  * password. For the same reason doctor no longer prints the database's name,
- * which on the bundled stack is `flight`, the same word as its password.
+ * which on the bundled stack is `wayscribe`, the same word as its password.
  */
 const MINIMUM_SCRUBBED_LENGTH = 4;
 
 /** The fix for a check that failed with a SQLSTATE doctor recognises. */
 const SQLSTATE_FIXES: Record<string, string> = {
   "42501":
-    "GRANT the role in DATABASE_URL SELECT, INSERT, UPDATE and DELETE on Flight Recorder's tables, as the API needs them (docs/OPERATIONS.md §1).",
+    "GRANT the role in DATABASE_URL SELECT, INSERT, UPDATE and DELETE on Wayscribe's tables, as the API needs them (docs/OPERATIONS.md §1).",
   "42P01": "A table is missing: run migrate against this database (docs/OPERATIONS.md §4).",
   "57014": "A query was cancelled: check the database's load, or its own statement_timeout.",
   "53300": "PostgreSQL has no connection to spare: check max_connections and what holds them."
@@ -209,7 +209,7 @@ async function migrationsResult(db: Knex): Promise<CheckResult> {
     if (!(error instanceof SchemaUsageError)) throw error;
     return fail(
       "Migrations",
-      `This check could not run: the role ${error.role} has no USAGE on schema ${error.schema}, which holds Flight Recorder's tables.`,
+      `This check could not run: the role ${error.role} has no USAGE on schema ${error.schema}, which holds Wayscribe's tables.`,
       `GRANT USAGE ON SCHEMA ${error.schema} TO ${error.role}, then SELECT, INSERT, UPDATE and DELETE on its tables (docs/OPERATIONS.md §1).`
     );
   }
@@ -488,18 +488,26 @@ async function projectsResult(db: Knex): Promise<CheckResult> {
   // The demo's key is committed to the repository, so while it is unrevoked
   // anyone can write events here. A warning rather than a failure: on the demo
   // stack it is the point, and demo-bootstrap restores it on every start.
-  // Matched by prefix, which is unique among keys and which a generated key
-  // shares with probability 64^-9.
-  const demoPrefix = PUBLISHED_DEMO_API_KEY.slice(0, API_KEY_PREFIX_LENGTH);
-  const demo: unknown = await db("api_keys")
-    .where({ key_prefix: demoPrefix })
+  // Matched by prefix, which is unique among keys. Both the current demo key
+  // and the one published before the rename (ADR-057) count: the old one still
+  // authenticates. A generated key shares the wsk_demo0000 prefix with
+  // probability 64^-8, and cannot share the old fr_demo00000 prefix, since new
+  // keys start wsk_.
+  const demoPrefixes = PUBLISHED_DEMO_API_KEYS.map((key) => key.slice(0, API_KEY_PREFIX_LENGTH));
+  const demoRows: { key_prefix: string }[] = await db("api_keys")
+    .whereIn("key_prefix", demoPrefixes)
     .whereNull("revoked_at")
-    .first("id");
-  if (demo !== undefined) {
+    .select("key_prefix");
+  const active = demoPrefixes.filter((prefix) => demoRows.some((row) => row.key_prefix === prefix));
+  if (active.length > 0) {
+    const named =
+      active.length === 1
+        ? `${active.join("")}, the published demo key`
+        : `${active.join(" and ")}, published demo keys`;
     return warn(
       "Projects and keys",
-      `${plural(projects, "project")}, ${plural(keys, "unrevoked API key")}, including ${demoPrefix}, the published demo key anyone can write events with.`,
-      `Unless this is the demo stack, revoke it: key:revoke ${demoPrefix}.`
+      `${plural(projects, "project")}, ${plural(keys, "unrevoked API key")}, including ${named} anyone can write events with.`,
+      `Unless this is the demo stack, revoke ${active.length === 1 ? "it" : "them"}: ${active.map((prefix) => `key:revoke ${prefix}`).join(", then ")}.`
     );
   }
   return pass(
@@ -545,15 +553,28 @@ async function journeyEnvironmentsResult(db: Knex): Promise<CheckResult> {
   return pass("Journey environments", "Every event belongs to its journey's environment.");
 }
 
+/**
+ * Why a presented key cannot be a Wayscribe key, or null if it can be.
+ *
+ * New keys start `wsk_` (36 characters); keys issued before the rename
+ * (ADR-057) start `fr_` (35) and still authenticate, so both are accepted. The
+ * length test only asks for more than the stored prefix: the server itself
+ * never checks a key's length, so neither does this.
+ */
+export function apiKeyShapeProblem(presented: string): CheckResult | null {
+  const known = presented.startsWith("wsk_") || presented.startsWith("fr_");
+  if (known && presented.length > API_KEY_PREFIX_LENGTH) return null;
+  return fail(
+    "API key",
+    "The key given is not a Wayscribe API key, which starts wsk_ (or fr_ for keys issued before the rename).",
+    "Pass the key key:create printed, whole."
+  );
+}
+
 async function apiKeyResult(db: Knex, keyring: Keyring, apiKey: string): Promise<CheckResult> {
   const presented = apiKey.trim();
-  if (!presented.startsWith("fr_") || presented.length <= API_KEY_PREFIX_LENGTH) {
-    return fail(
-      "API key",
-      "The key given is not a Flight Recorder API key, which starts fr_ and is 35 characters.",
-      "Pass the key key:create printed, whole."
-    );
-  }
+  const shapeProblem = apiKeyShapeProblem(presented);
+  if (shapeProblem !== null) return shapeProblem;
 
   const prefix = presented.slice(0, API_KEY_PREFIX_LENGTH);
   const row: unknown = await db("api_keys")
@@ -674,7 +695,7 @@ async function apiReachableResult(
     "API reachable",
     `GET ${shown}/ready answered ${String(response.status)}${reason === undefined ? "" : ` ${reason}`}.`,
     (reason === undefined ? undefined : fixes[reason]) ??
-      "Check that the URL is Flight Recorder's API and read the API's log."
+      "Check that the URL is Wayscribe's API and read the API's log."
   );
 }
 

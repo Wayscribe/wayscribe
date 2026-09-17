@@ -1,5 +1,5 @@
 {
-  "name": "@flight-recorder/node",
+  "name": "@wayscribe/node",
   "version": "0.1.0",
   "description": "Record what happened to one customer record as it crossed your services, and see where a value changed.",
   "license": "Apache-2.0",
@@ -8,12 +8,12 @@
   "types": "./dist/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://gitlab.com/jojithedev/flight-recorder.git",
+    "url": "git+https://gitlab.com/jojithedev/wayscribe.git",
     "directory": "packages/sdk-node"
   },
-  "homepage": "https://gitlab.com/jojithedev/flight-recorder#readme",
+  "homepage": "https://gitlab.com/jojithedev/wayscribe#readme",
   "bugs": {
-    "url": "https://gitlab.com/jojithedev/flight-recorder/-/issues"
+    "url": "https://gitlab.com/jojithedev/wayscribe/-/issues"
   },
   "keywords": [
     "debugging",
@@ -50,8 +50,8 @@
     "prepack": "pnpm run build"
   },
   "devDependencies": {
-    "@flight-recorder/payload-security": "workspace:*",
-    "@flight-recorder/protocol": "workspace:*",
+    "@wayscribe/payload-security": "workspace:*",
+    "@wayscribe/protocol": "workspace:*",
     "@microsoft/api-extractor": "^7.59.1",
     "esbuild": "^0.25.12"
   },

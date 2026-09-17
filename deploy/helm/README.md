@@ -1,4 +1,4 @@
-# Running Flight Recorder on a local cluster
+# Running Wayscribe on a local cluster
 
 A Helm chart for **a local single-node cluster**: kind, k3s, or Docker Desktop.
 It has been installed, upgraded and used on kind; it has **not** been run on a
@@ -10,18 +10,18 @@ point it at, including images you build and load yourself.
 ## Try it
 
 ```bash
-kind create cluster --name flight-recorder
+kind create cluster --name wayscribe
 
 docker compose -f infrastructure/compose.yaml build api web
-docker tag flight-recorder-api:latest flight-recorder/api:local
-docker tag flight-recorder-web:latest flight-recorder/web:local
-kind load docker-image flight-recorder/api:local flight-recorder/web:local --name flight-recorder
+docker tag wayscribe-api:latest wayscribe/api:local
+docker tag wayscribe-web:latest wayscribe/web:local
+kind load docker-image wayscribe/api:local wayscribe/web:local --name wayscribe
 
-helm install fr deploy/helm/flight-recorder -f deploy/helm/values-local.yaml \
+helm install ws deploy/helm/wayscribe -f deploy/helm/values-local.yaml \
   --set secrets.encryptionKey=$(openssl rand -hex 32) \
   --set secrets.adminToken=$(openssl rand -hex 32)
 
-kubectl port-forward svc/fr-flight-recorder-web 3000:3000
+kubectl port-forward svc/ws-wayscribe-web 3000:3000
 ```
 
 Then open `http://localhost:3000` and sign in with the admin token you generated.
@@ -29,10 +29,10 @@ Then open `http://localhost:3000` and sign in with the admin token you generated
 A new installation has no projects. Create one, and issue it a key:
 
 ```bash
-kubectl run frcli --rm -i --restart=Never \
-  --image=flight-recorder/api:local --image-pull-policy=Never \
-  --env="DATABASE_URL=postgresql://flight:flight@fr-flight-recorder-postgresql:5432/flight" \
-  --env="ENCRYPTION_KEY=$(kubectl get secret fr-flight-recorder-secrets -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d)" \
+kubectl run wscli --rm -i --restart=Never \
+  --image=wayscribe/api:local --image-pull-policy=Never \
+  --env="DATABASE_URL=postgresql://wayscribe:wayscribe@ws-wayscribe-postgresql:5432/wayscribe" \
+  --env="ENCRYPTION_KEY=$(kubectl get secret ws-wayscribe-secrets -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d)" \
   --command -- node packages/database/dist/cli.js project:create acme "Acme Payments"
 ```
 
@@ -44,8 +44,8 @@ is backed up and monitored (ADR-037). It needs PostgreSQL 15 or later and a role
 with privileges on its own schema; `docs/OPERATIONS.md` §1 lists them:
 
 ```bash
-helm install fr deploy/helm/flight-recorder \
-  --set databaseUrl=postgresql://user:password@db.internal:5432/flight_recorder \
+helm install ws deploy/helm/wayscribe \
+  --set databaseUrl=postgresql://user:password@db.internal:5432/wayscribe \
   --set secrets.encryptionKey=… --set secrets.adminToken=…
 ```
 
@@ -125,7 +125,7 @@ Two things the policies change:
 - **Running the CLI in the cluster.** With the bundled database, a pod without
   the chart's labels cannot reach PostgreSQL, so the `kubectl run` above times
   out. Give it the migrate pod's labels:
-  `--labels=app.kubernetes.io/name=flight-recorder,app.kubernetes.io/instance=fr,app.kubernetes.io/component=migrate`.
+  `--labels=app.kubernetes.io/name=wayscribe,app.kubernetes.io/instance=ws,app.kubernetes.io/component=migrate`.
 
 ## Why migrations run *after* install
 

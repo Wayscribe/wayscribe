@@ -1,33 +1,33 @@
 # Operations
 
-Running Flight Recorder for a team. It is deliberately small (one API, one web
+Running Wayscribe for a team. It is deliberately small (one API, one web
 application, one PostgreSQL database), so most of this is short.
 
 ## 1. What holds state
 
 Everything is in PostgreSQL. There is no second datastore, no object storage, and
 no external service (ADR-012). Back up the database and you have backed up
-Flight Recorder.
+Wayscribe.
 
 The demo profile adds ElasticMQ, which holds nothing worth keeping.
 
 ### Bring your own database
 
 `DATABASE_URL` is the whole coupling. Point it at the PostgreSQL your team
-already runs, the one somebody backs up, monitors, and can restore, and Flight
-Recorder needs nothing else from you.
+already runs, the one somebody backs up, monitors, and can restore, and
+Wayscribe needs nothing else from you.
 
 ```bash
 export COMPOSE_FILE=compose.published.yaml
-export FLIGHT_RECORDER_VERSION=vX.Y.Z   # the release to run; releases are 0.x
-export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
+export WAYSCRIBE_VERSION=vX.Y.Z   # the release to run; releases are 0.x
+export DATABASE_URL=postgresql://user:password@db.internal:5432/wayscribe
 docker compose up -d
 ```
 
 `COMPOSE_FILE` names the files every `docker compose` command in the shell
 reads. The commands for the published images in this document are written
 without `-f` and rely on it, so they always see the stack you started.
-`FLIGHT_RECORDER_VERSION` names the release, as its git tag, and is required:
+`WAYSCRIBE_VERSION` names the release, as its git tag, and is required:
 `compose.published.yaml` has no `latest` fallback, because its `migrate`
 service applies the schema of whatever image it pulls, and an unpinned pull
 could move the database across a minor release, which before 1.0 may change
@@ -78,7 +78,7 @@ will not serve reads against a schema it does not recognise.
 
 ## 2. Backup
 
-On your own database, Flight Recorder's tables are ordinary tables in it: back
+On your own database, Wayscribe's tables are ordinary tables in it: back
 them up the way that database is already backed up.
 
 With the bundled overlay, the data is in the `postgres-data` volume. With
@@ -86,7 +86,7 @@ With the bundled overlay, the data is in the `postgres-data` volume. With
 
 ```bash
 docker compose exec -T postgres \
-  pg_dump -U flight -d flight --format=custom > flight-$(date +%F).dump
+  pg_dump -U wayscribe -d wayscribe --format=custom > wayscribe-$(date +%F).dump
 ```
 
 The stack built from source runs the same PostgreSQL service. Name its file
@@ -94,7 +94,7 @@ instead of relying on `COMPOSE_FILE`:
 
 ```bash
 docker compose -f infrastructure/compose.yaml exec -T postgres \
-  pg_dump -U flight -d flight --format=custom > flight-$(date +%F).dump
+  pg_dump -U wayscribe -d wayscribe --format=custom > wayscribe-$(date +%F).dump
 ```
 
 **Treat the dump as if it contained your customers' request bodies, because it
@@ -114,14 +114,14 @@ as in §1:
 
 ```bash
 docker compose exec -T postgres \
-  pg_restore -U flight -d flight --clean --if-exists < flight-2026-09-15.dump
+  pg_restore -U wayscribe -d wayscribe --clean --if-exists < wayscribe-2026-09-15.dump
 ```
 
 On the stack built from source:
 
 ```bash
 docker compose -f infrastructure/compose.yaml exec -T postgres \
-  pg_restore -U flight -d flight --clean --if-exists < flight-2026-09-15.dump
+  pg_restore -U wayscribe -d wayscribe --clean --if-exists < wayscribe-2026-09-15.dump
 ```
 
 Restore against the **same `ENCRYPTION_KEY`**. A restore under a different key
@@ -165,9 +165,9 @@ already ran it.
 From a published image, without a source checkout:
 
 ```bash
-docker run --rm --network flight-recorder_default \
-  -e DATABASE_URL=postgresql://flight:flight@postgres:5432/flight \
-  --entrypoint node flight-recorder-api packages/database/dist/cli.js migrate
+docker run --rm --network wayscribe_default \
+  -e DATABASE_URL=postgresql://wayscribe:wayscribe@postgres:5432/wayscribe \
+  --entrypoint node wayscribe-api packages/database/dist/cli.js migrate
 ```
 
 ### Migration 017 adds a column to `entity_aliases`
@@ -269,7 +269,7 @@ Replays used to store the headers they sent, including the destination's
 decrypted configured headers, in `replay_runs.request_headers`. Migration
 `015_redact_replay_run_headers.js` replaces every value in that column with
 `[REDACTED]` and keeps the header names. An old row does not say which headers
-came from the destination, so the ones Flight Recorder set itself, such as
+came from the destination, so the ones Wayscribe set itself, such as
 `user-agent`, are redacted too.
 
 It is one `UPDATE` of every `replay_runs` row that has headers, in one
@@ -318,7 +318,7 @@ where request_headers is not null
 ```
 
 Runs the new API wrote in that window are rewritten too, and lose the values
-it kept on purpose, such as `user-agent` and `x-flight-replay`. The header
+it kept on purpose, such as `user-agent` and `x-wayscribe-replay`. The header
 names stay. Nothing secret is lost, only what those rows could show about the
 non-secret headers.
 
@@ -426,7 +426,7 @@ services.
 3. Recreate every API container with the new keys: `docker compose -f
    infrastructure/compose.yaml up -d` (or `docker compose up -d` for the
    published images, with `COMPOSE_FILE` set as in §1), or
-   `kubectl rollout restart deployment/<release>-flight-recorder-api` after the
+   `kubectl rollout restart deployment/<release>-wayscribe-api` after the
    Helm upgrade, since the chart does not restart pods when its secret changes.
    **Not `docker compose restart`**: it restarts the container with the
    environment it was created with, and does not re-read `env_file`, so the new
@@ -471,7 +471,7 @@ forever on a misconfiguration; its error still reaches stderr every pass.
   authenticates, because the presented key is the only thing a verifier can be
   recomputed from. Wait for the services holding them to send events. A key that
   will not be used again should be revoked with `key:revoke` and the prefix the
-  listing shows (`key:revoke fr_AbCdEfGhIjK`), and reissued with `key:create` if
+  listing shows (`key:revoke wsk_AbCdEfGh`), and reissued with `key:create` if
   something still needs one. Revoked keys are not counted.
 - **API keys whose key id is `not recorded`.** Issued before key ids were
   stored. They record one the next time they authenticate. During a rotation
@@ -583,7 +583,7 @@ API keys rotate individually and without side effects:
 
 ```bash
 pnpm key:create local production new-worker-key
-pnpm key:revoke fr_AbCdEfGhIjK    # the old key's prefix, from key:list
+pnpm key:revoke wsk_AbCdEfGh    # the old key's prefix, from key:list
 ```
 
 ## 7. Retention
@@ -690,7 +690,7 @@ because it would delete a different window depending on the server's time zone.
 rotation, because the value is matched by its search tokens under both keys. It
 never prints the value.
 
-**The value you type is still recorded outside Flight Recorder.** It stays in
+**The value you type is still recorded outside Wayscribe.** It stays in
 your shell's history, and anyone who can list processes on that host sees it in
 `ps` while the command runs. The same is true of the API key given to
 `doctor --api-key` (§12), which is a credential rather than an identifier. In bash with `HISTCONTROL=ignorespace` (or zsh with
@@ -766,7 +766,7 @@ command again to delete the rest; that run writes a row of its own.
 - **Backups.** Every dump and every WAL archive taken before the deletion still
   holds the data. Deleting from the database does not reach them; how long they
   are kept is your backup retention, and an erasure request covers them too.
-- **What your services logged.** Deletion removes what Flight Recorder stored.
+- **What your services logged.** Deletion removes what Wayscribe stored.
 
 ## 9. Exposure
 
@@ -774,7 +774,7 @@ Every published port binds to `127.0.0.1`. A `docker compose up` on a cloud host
 does not expose the stack to the internet, and that is the only thing standing
 between the default configuration and an open admin interface.
 
-If you put Flight Recorder behind a reverse proxy, terminate TLS there and do not
+If you put Wayscribe behind a reverse proxy, terminate TLS there and do not
 republish the container ports on `0.0.0.0`. The web app sets its own
 `Content-Security-Policy`, with a fresh nonce per response, and
 `X-Frame-Options`, `Referrer-Policy` and `X-Content-Type-Options`
@@ -956,7 +956,7 @@ To measure your own shape, against a scratch database (it refuses one that
 already holds journeys, and works in schemas of its own that it drops after):
 
 ```bash
-pnpm --filter "@flight-recorder/api..." build
+pnpm --filter "@wayscribe/api..." build
 node scripts/measure-storage.mjs --database-url postgresql://… --journeys 10000
 ```
 
@@ -1186,7 +1186,7 @@ To measure your own shape, against a scratch database (it refuses one that
 already holds journeys, and works in a schema of its own that it drops after):
 
 ```bash
-pnpm --filter "@flight-recorder/api..." build
+pnpm --filter "@wayscribe/api..." build
 node scripts/measure-journey-list.mjs --database-url postgresql://… --journeys 120000
 ```
 
@@ -1246,7 +1246,7 @@ is a smaller attack surface as well as a clean scan.
 
 ### Publishing the SDK to npm
 
-`@flight-recorder/node` is published by the manual `publish-sdk` job on a
+`@wayscribe/node` is published by the manual `publish-sdk` job on a
 `vMAJOR.MINOR.PATCH` tag, with npm trusted publishing and provenance. No npm
 token exists anywhere in the project: the job's GitLab OIDC token, with the
 audience `npm:registry.npmjs.org`, is exchanged by npm for a short-lived publish
@@ -1258,15 +1258,15 @@ and Automation tokens in November 2025, and the granular tokens left expire in
 
 **Once, before the first release**, the project owner must:
 
-1. Own the `@flight-recorder` scope on npmjs.com.
+1. Own the `@wayscribe` scope on npmjs.com.
 2. Register the trusted publisher. It is set per package, and the package must
    exist first, so for the very first version publish it once by hand with
    `npm login` and `npm publish` from the packed tarball
    (`DRY_RUN=1 scripts/publish-sdk.sh vX.Y.Z` shows it builds), then open
-   *npmjs.com → @flight-recorder/node → Settings → Trusted publisher → GitLab CI/CD*
+   *npmjs.com → @wayscribe/node → Settings → Trusted publisher → GitLab CI/CD*
    and enter exactly:
    - Namespace: `jojithedev`
-   - Project name: `flight-recorder`
+   - Project name: `wayscribe`
    - Top-level CI file path: `.gitlab-ci.yml`
    - Environment: leave empty
 3. In the same settings page, under *Publishing access*, choose to require
@@ -1300,7 +1300,7 @@ then points the version tag and `latest` at it. A release whose signing failed
 has no version tag, so an unsigned image cannot be pulled by its version.
 
 The version tag is the git tag, `v` included: release `0.1.0` publishes
-`api:v0.1.0` and `web:v0.1.0`. `FLIGHT_RECORDER_VERSION` in
+`api:v0.1.0` and `web:v0.1.0`. `WAYSCRIBE_VERSION` in
 `compose.published.yaml` and `image.tag` in the Helm chart take that form, and
 the chart's default is `v` plus its `appVersion`. `scripts/check-chart-image-tag.sh`
 renders the chart in CI and fails if its default is anything else.
@@ -1329,8 +1329,8 @@ release you run; releases will be 0.x, such as `v0.1.0`.
 **The signature.** For a version you have chosen, name its tag exactly:
 
 ```bash
-cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:vX.Y.Z \
-  --certificate-identity 'https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/vX.Y.Z' \
+cosign verify registry.gitlab.com/jojithedev/wayscribe/api:vX.Y.Z \
+  --certificate-identity 'https://gitlab.com/jojithedev/wayscribe//.gitlab-ci.yml@refs/tags/vX.Y.Z' \
   --certificate-oidc-issuer https://gitlab.com
 ```
 
@@ -1339,8 +1339,8 @@ not a typo. To accept any release tag, for example in an admission policy that
 checks every image a cluster pulls:
 
 ```bash
-cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:vX.Y.Z \
-  --certificate-identity-regexp '^https://gitlab\.com/jojithedev/flight-recorder//\.gitlab-ci\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+cosign verify registry.gitlab.com/jojithedev/wayscribe/api:vX.Y.Z \
+  --certificate-identity-regexp '^https://gitlab\.com/jojithedev/wayscribe//\.gitlab-ci\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
   --certificate-oidc-issuer https://gitlab.com
 ```
 
@@ -1359,7 +1359,7 @@ platform's manifest rather than to the multi-platform tag. Find the digest for
 your platform, verify the attestation on it, and extract the document:
 
 ```bash
-IMAGE=registry.gitlab.com/jojithedev/flight-recorder/api
+IMAGE=registry.gitlab.com/jojithedev/wayscribe/api
 TAG=vX.Y.Z
 ARCH=amd64   # or arm64
 
@@ -1368,7 +1368,7 @@ DIGEST=$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{json .Manife
     '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest')
 
 cosign verify-attestation "$IMAGE@$DIGEST" --type cyclonedx \
-  --certificate-identity "https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/$TAG" \
+  --certificate-identity "https://gitlab.com/jojithedev/wayscribe//.gitlab-ci.yml@refs/tags/$TAG" \
   --certificate-oidc-issuer https://gitlab.com \
   | head -n 1 | jq -r '.payload' | base64 -d | jq '.predicate' > "api-$TAG-$ARCH.cdx.json"
 ```
@@ -1399,8 +1399,8 @@ docker buildx create --name rehearsal --driver-opt network=host \
 DRY_RUN=1 SBOM_DIR=/tmp/sboms \
   SYFT_DOCKER_ARGS='--network host -e SYFT_REGISTRY_INSECURE_USE_HTTP=true' \
   scripts/publish-image.sh v0.0.0-rehearsal \
-    apps/api/Dockerfile=127.0.0.1:5055/flight-recorder/api \
-    apps/web/Dockerfile=127.0.0.1:5055/flight-recorder/web
+    apps/api/Dockerfile=127.0.0.1:5055/wayscribe/api \
+    apps/web/Dockerfile=127.0.0.1:5055/wayscribe/web
 
 docker buildx rm rehearsal && docker rm -f rehearsal-registry
 ```
@@ -1416,10 +1416,10 @@ API image, like the other commands:
 
 ```bash
 docker compose run --rm --entrypoint node api \
-  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
+  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key wsk_…
 ```
 
-From a checkout, `pnpm run doctor --api-url http://localhost:8080 --api-key fr_…`
+From a checkout, `pnpm run doctor --api-url http://localhost:8080 --api-key wsk_…`
 reads the repository-root `.env`.
 
 Run it with the API's environment, because that is what it checks: the same
@@ -1437,7 +1437,7 @@ beneath it:
 | Migrations | any are pending, the database has one this build does not, or the role has no `USAGE` on the schema holding them (the fix names the `GRANT`) | |
 | `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
-| Projects and keys | | no project, no unrevoked API key, or the published demo key (`fr_demo00000`) is unrevoked |
+| Projects and keys | | no project, no unrevoked API key, or the published demo key (`wsk_demo0000`) is unrevoked |
 | Journey environments | an event was written by another environment's API key than its journey's own, which ingestion now refuses (ADR-038, amendment) and earlier builds did not | |
 | Secret-looking names | | a recently stored payload holds a plain value under a key name that looks like a secret, or the sample did not finish within 5 seconds or could not run |
 | API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
@@ -1589,15 +1589,15 @@ describe traffic, so keep it on a network only your monitoring reaches.
 
 | Metric | Type | Labels |
 | --- | --- | --- |
-| `flight_recorder_http_requests_total` | counter | `method`, `route`, `status` |
-| `flight_recorder_http_request_duration_seconds` | histogram | `method`, `route` |
-| `flight_recorder_events_total` | counter | `result`: `accepted`, `duplicate`, `rejected` |
-| `flight_recorder_query_timeouts_total` | counter | `route` |
-| `flight_recorder_db_pool_connections` | gauge | `state`: `used`, `free`, `pending` |
-| `flight_recorder_retention_sweep_runs_total` | counter | `outcome`: `completed`, `locked`, `stopped_early`, `failed` |
-| `flight_recorder_retention_journeys_deleted_total` | counter | |
-| `flight_recorder_retention_last_success_timestamp_seconds` | gauge | |
-| `flight_recorder_unreadable_values` | gauge | `table` |
+| `wayscribe_http_requests_total` | counter | `method`, `route`, `status` |
+| `wayscribe_http_request_duration_seconds` | histogram | `method`, `route` |
+| `wayscribe_events_total` | counter | `result`: `accepted`, `duplicate`, `rejected` |
+| `wayscribe_query_timeouts_total` | counter | `route` |
+| `wayscribe_db_pool_connections` | gauge | `state`: `used`, `free`, `pending` |
+| `wayscribe_retention_sweep_runs_total` | counter | `outcome`: `completed`, `locked`, `stopped_early`, `failed` |
+| `wayscribe_retention_journeys_deleted_total` | counter | |
+| `wayscribe_retention_last_success_timestamp_seconds` | gauge | |
+| `wayscribe_unreadable_values` | gauge | `table` |
 | `process_resident_memory_bytes` | gauge | |
 | `nodejs_eventloop_lag_seconds` | gauge | |
 
@@ -1631,7 +1631,7 @@ Every counter is per process and starts at zero when the API starts, so alert on
 replica too: the replica that holds the lock sweeps, and the others count
 `locked`.
 
-`flight_recorder_unreadable_values` is set by the boot check a moment after the
+`wayscribe_unreadable_values` is set by the boot check a moment after the
 API starts, and not afterwards. The check is skipped while migrations are
 pending, so an API started before `migrate` ran (the `infrastructure/compose.yaml`
 stack has no migrate service) has no such series at all until it is restarted
@@ -1642,25 +1642,25 @@ migrations, as `compose.published.yaml` and the Helm chart do.
 
 ```yaml
 groups:
-  - name: flight-recorder
+  - name: wayscribe
     rules:
       # Events refused. A new service with a mistyped environment shows up here
       # first, whatever the sending service does or does not report itself.
-      - alert: FlightRecorderRejectingEvents
-        expr: sum(increase(flight_recorder_events_total{result="rejected"}[15m])) > 0
+      - alert: WayscribeRejectingEvents
+        expr: sum(increase(wayscribe_events_total{result="rejected"}[15m])) > 0
         for: 15m
 
       # Retention has not completed anywhere for a day. Disk grows and data
       # outlives its retention window.
-      - alert: FlightRecorderRetentionStalled
-        expr: time() - max(flight_recorder_retention_last_success_timestamp_seconds) > 86400
+      - alert: WayscribeRetentionStalled
+        expr: time() - max(wayscribe_retention_last_success_timestamp_seconds) > 86400
         for: 2h
 
       # Queries are being cancelled, or requests are waiting for a connection.
-      - alert: FlightRecorderDatabaseStrained
+      - alert: WayscribeDatabaseStrained
         expr: >
-          sum(increase(flight_recorder_query_timeouts_total[10m])) > 0
-          or max(flight_recorder_db_pool_connections{state="pending"}) > 0
+          sum(increase(wayscribe_query_timeouts_total[10m])) > 0
+          or max(wayscribe_db_pool_connections{state="pending"}) > 0
         for: 10m
 ```
 
@@ -1689,12 +1689,12 @@ machine).
 
 The request gets 503 `query_timeout` with its request
 id; the API logs one warning naming the route and the request id, never the SQL
-or its parameters, and counts it in `flight_recorder_query_timeouts_total`.
+or its parameters, and counts it in `wayscribe_query_timeouts_total`.
 
 It is set on each connection when the pool opens it, with `SET statement_timeout`.
 Behind PgBouncer in transaction pooling mode a session setting does not stay with
 one client, so there set the timeout on the database role instead
-(`ALTER ROLE flight_recorder SET statement_timeout = '15s'`) and
+(`ALTER ROLE wayscribe SET statement_timeout = '15s'`) and
 `DATABASE_STATEMENT_TIMEOUT_MS=0`.
 
 `0` disables it, and `doctor` warns when it is. The database CLI never applies it:
@@ -1725,7 +1725,7 @@ no route writes no line of its own beyond these two.
 
 Headers are not logged. As a second guard, the logger censors `authorization`
 and `cookie` in any `headers` object a log call includes, and also `x-api-key`,
-`x-flight-api-key`, and a response's `set-cookie` under `req` and `res`.
+`x-wayscribe-api-key`, and a response's `set-cookie` under `req` and `res`.
 
 A request too malformed for Node to parse never becomes a request line. At
 `trace` it is logged as `client error`, with the parser's error code and message.
@@ -1753,7 +1753,7 @@ hold `detail` in the clear; treat their failure lines as personal data too.
 | --- | --- |
 | Not sure what is wrong | run `doctor` (§12) |
 | `/ready` 503 `migrations_pending` | run `pnpm db:migrate` |
-| Requests return 503 `query_timeout` | a statement ran past `DATABASE_STATEMENT_TIMEOUT_MS`: the route is in the API's warning log and `flight_recorder_query_timeouts_total`; check the database's load before raising the timeout (§13) |
+| Requests return 503 `query_timeout` | a statement ran past `DATABASE_STATEMENT_TIMEOUT_MS`: the route is in the API's warning log and `wayscribe_query_timeouts_total`; check the database's load before raising the timeout (§13) |
 | Every search returns nothing | which project the session selected; see `/projects` |
 | A search that worked stops working | `rotate:status`: an unknown key id means `ENCRYPTION_KEY_PREVIOUS` was removed before re-encryption finished (§6) |
 | Boot log warns of stored data the configured keys cannot read | restore the old key as `ENCRYPTION_KEY_PREVIOUS` and recreate the API (§6) |

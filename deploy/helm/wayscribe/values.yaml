@@ -4,13 +4,13 @@
 # has to reach the other.
 
 image:
-  registry: registry.gitlab.com/jojithedev/flight-recorder
+  registry: registry.gitlab.com/jojithedev/wayscribe
   tag: "" # defaults to v + .Chart.AppVersion, the tag a release publishes
   pullPolicy: IfNotPresent
   # For a private registry. Empty on a local cluster that loaded images directly.
   pullSecrets: []
 
-# Flight Recorder keeps everything in one PostgreSQL database and expects you to
+# Wayscribe keeps everything in one PostgreSQL database and expects you to
 # bring your own — the one that is already backed up and monitored (ADR-037).
 #
 # Either set `databaseUrl`, or point `existingSecret` at a secret you manage, or
@@ -140,9 +140,9 @@ migrations:
 postgresql:
   enabled: false
   image: postgres:17-alpine
-  user: flight
-  password: flight
-  database: flight
+  user: wayscribe
+  password: wayscribe
+  database: wayscribe
   storage: 2Gi
   # Empty uses the cluster default, which is what a local cluster wants.
   storageClass: ""
@@ -172,6 +172,6 @@ postgresql:
 ingress:
   enabled: false
   className: ""
-  host: flight-recorder.local
+  host: wayscribe.local
   annotations: {}
   tls: []

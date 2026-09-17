@@ -38,7 +38,7 @@ async function seed(): Promise<void> {
   const headers = {
     authorization: `Bearer ${ADMIN_TOKEN}`,
     "content-type": "application/json",
-    ...(projectId === null ? {} : { "x-flight-project-id": projectId })
+    ...(projectId === null ? {} : { "x-wayscribe-project-id": projectId })
   };
   const listed = await fetch(`${API_URL}/v1/replay-destinations`, { headers });
   if (!listed.ok) throw new Error(`Listing destinations failed with ${String(listed.status)}`);

@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { journeyEventSchema } from "@flight-recorder/protocol";
+import { journeyEventSchema } from "@wayscribe/protocol";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { Diagnostic } from "./diagnostics.js";
 import {
@@ -31,7 +31,7 @@ import type { TraceContext } from "./index.js";
  */
 
 const base = {
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "development"
 };

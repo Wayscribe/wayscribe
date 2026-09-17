@@ -8,11 +8,11 @@ FROM base AS build
 COPY . .
 RUN pnpm install --frozen-lockfile
 # The `...` suffix builds the package together with its workspace dependencies.
-RUN pnpm --filter @flight-recorder/demo... build
+RUN pnpm --filter @wayscribe/demo... build
 # See apps/api/Dockerfile for why this is a wipe-and-reinstall rather than a
 # plain `--prod` install, and why it is filtered.
 RUN find . -name node_modules -type d -prune -exec rm -rf {} + \
- && CI=true pnpm --filter @flight-recorder/demo... install --prod --ignore-scripts
+ && CI=true pnpm --filter @wayscribe/demo... install --prod --ignore-scripts
 
 FROM node:24-alpine AS runtime
 # The base image lags Alpine's own security releases by days to weeks. Upgrading
@@ -20,10 +20,10 @@ FROM node:24-alpine AS runtime
 # for CVE-2026-14456, when this was added) reaches the image on the next build
 # rather than when the upstream tag is rebuilt.
 RUN apk upgrade --no-cache
-LABEL org.opencontainers.image.title="Flight Recorder demo services"
+LABEL org.opencontainers.image.title="Wayscribe demo services"
 LABEL org.opencontainers.image.description="The four demo services that prove the reference journey."
 LABEL org.opencontainers.image.licenses="Apache-2.0"
-LABEL org.opencontainers.image.source="https://gitlab.com/jojithedev/flight-recorder"
+LABEL org.opencontainers.image.source="https://gitlab.com/jojithedev/wayscribe"
 
 ENV NODE_ENV=production
 WORKDIR /app

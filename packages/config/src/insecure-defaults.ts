@@ -13,12 +13,25 @@
  * configured secrets and had not.
  */
 /** The API key `infrastructure/compose.demo.yaml` commits for the demo services. */
-export const PUBLISHED_DEMO_API_KEY = "fr_demo00000000000000000000000000000";
+export const PUBLISHED_DEMO_API_KEY = "wsk_demo0000000000000000000000000000";
+
+/**
+ * The demo key before the rename to Wayscribe (ADR-057). A demo stack seeded
+ * then still holds it, and as an `fr_` key it still authenticates, so it is as
+ * published as the current one.
+ */
+export const LEGACY_PUBLISHED_DEMO_API_KEY = "fr_demo00000000000000000000000000000";
+
+/** Every demo key the repository has published, current first. */
+export const PUBLISHED_DEMO_API_KEYS: readonly string[] = [
+  PUBLISHED_DEMO_API_KEY,
+  LEGACY_PUBLISHED_DEMO_API_KEY
+];
 
 const PUBLISHED_DEFAULTS = new Set([
   "replace-for-local-development-0000",
   "local-admin-token-000000000000000",
-  PUBLISHED_DEMO_API_KEY
+  ...PUBLISHED_DEMO_API_KEYS
 ]);
 
 export interface InsecureDefault {

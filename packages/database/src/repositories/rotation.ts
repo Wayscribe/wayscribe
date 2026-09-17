@@ -4,7 +4,7 @@ import {
   parseEncryptedValue,
   searchTokens,
   type Keyring
-} from "@flight-recorder/payload-security";
+} from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import { lockHolderAlive } from "./advisory-lock.js";
 import { isAliasUniqueViolation } from "./aliases.js";

@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId, issueKey } from "@flight-recorder/database";
-import { createKeyring } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId, issueKey } from "@wayscribe/database";
+import { createKeyring } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -61,7 +61,7 @@ describe("failed admin authentication is throttled per source address", () => {
       remoteAddress,
       headers: {
         authorization: `Bearer ${token}`,
-        "x-flight-project-id": projectId,
+        "x-wayscribe-project-id": projectId,
         ...request.headers
       }
     });
@@ -121,7 +121,7 @@ describe("failed admin authentication is throttled per source address", () => {
       ],
       ["projects, wrong admin token", WRONG_TOKEN, { url: "/v1/projects" }],
       ["read route, wrong admin token", WRONG_TOKEN, { url: "/v1/journeys/jrn_x" }],
-      ["read route, unknown API key", `fr_${"B".repeat(32)}`, { url: "/v1/search?q=x" }]
+      ["read route, unknown API key", `wsk_${"B".repeat(32)}`, { url: "/v1/search?q=x" }]
     ];
     let source = 70;
     for (const [kind, token, route] of kinds) {
@@ -145,7 +145,7 @@ describe("failed admin authentication is throttled per source address", () => {
     const BURST = 50;
     const responses = await Promise.all(
       Array.from({ length: BURST }, (_, i) =>
-        attempt(app, `fr_${String(i).padStart(32, "C")}`, "203.0.113.60")
+        attempt(app, `wsk_${String(i).padStart(32, "C")}`, "203.0.113.60")
       )
     );
     const counts = tally(responses.map((r) => r.statusCode));
@@ -207,7 +207,7 @@ describe("failed admin authentication is throttled per source address", () => {
         method: "POST",
         url: "/v1/events",
         remoteAddress: "203.0.113.20",
-        headers: { authorization: `Bearer fr_${"x".repeat(32)}` },
+        headers: { authorization: `Bearer wsk_${"x".repeat(32)}` },
         payload: {}
       });
       expect(response.statusCode).toBe(401);

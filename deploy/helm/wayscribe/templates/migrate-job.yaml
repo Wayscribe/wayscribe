@@ -21,9 +21,9 @@ keep serving until then.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "flight-recorder.fullname" . }}-migrate
+  name: {{ include "wayscribe.fullname" . }}-migrate
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -41,7 +41,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "flight-recorder.labels" . | nindent 8 }}
+        {{- include "wayscribe.labels" . | nindent 8 }}
         app.kubernetes.io/component: migrate
     spec:
       restartPolicy: Never
@@ -56,7 +56,7 @@ spec:
           emptyDir: {}
       containers:
         - name: migrate
-          image: {{ include "flight-recorder.image" (dict "Values" .Values "Chart" .Chart "component" "api") }}
+          image: {{ include "wayscribe.image" (dict "Values" .Values "Chart" .Chart "component" "api") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
@@ -102,5 +102,5 @@ spec:
               echo "migrate did not succeed in 30 attempts; the last error is above"
               exit 1
           env:
-            {{- include "flight-recorder.databaseEnv" . | nindent 12 }}
+            {{- include "wayscribe.databaseEnv" . | nindent 12 }}
 {{- end }}

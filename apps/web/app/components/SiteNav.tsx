@@ -8,8 +8,7 @@ import { LinkPending } from "./LinkPending";
  * Next's standalone bundle (apps/web/Dockerfile), so a local link would 404 in
  * every real installation.
  */
-export const GLOSSARY_URL =
-  "https://gitlab.com/jojithedev/flight-recorder/-/blob/main/docs/GLOSSARY.md";
+export const GLOSSARY_URL = "https://gitlab.com/jojithedev/wayscribe/-/blob/main/docs/GLOSSARY.md";
 
 /**
  * The nav above every signed-in page: the two ways in, Search for an

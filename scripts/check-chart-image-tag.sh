@@ -15,8 +15,8 @@
 set -eu
 
 cd "$(dirname "$0")/.."
-CHART=deploy/helm/flight-recorder
-REGISTRY=registry.gitlab.com/jojithedev/flight-recorder
+CHART=deploy/helm/wayscribe
+REGISTRY=registry.gitlab.com/jojithedev/wayscribe
 
 VERSION=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' packages/sdk-node/package.json)
 if [ -z "$VERSION" ]; then
@@ -25,7 +25,7 @@ if [ -z "$VERSION" ]; then
 fi
 EXPECTED="v$VERSION"
 
-RENDERED=$(helm template fr "$CHART" \
+RENDERED=$(helm template ws "$CHART" \
   --set postgresql.enabled=true \
   --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
   --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111)

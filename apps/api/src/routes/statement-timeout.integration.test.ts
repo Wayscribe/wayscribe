@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId } from "@wayscribe/database";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
@@ -49,9 +49,9 @@ describe("DATABASE_STATEMENT_TIMEOUT_MS through a route", () => {
     // The container's user is a superuser, and a superuser bypasses row-level
     // security, so the API connects as an ordinary role, as it would in
     // production (docs/OPERATIONS.md §1).
-    await db.raw("create role flight_app login password 'flight_app'");
+    await db.raw("create role wayscribe_app login password 'wayscribe_app'");
     await db.raw(
-      "grant select, insert, update, delete on all tables in schema public to flight_app"
+      "grant select, insert, update, delete on all tables in schema public to wayscribe_app"
     );
 
     const { app } = boot(0);
@@ -78,8 +78,8 @@ describe("DATABASE_STATEMENT_TIMEOUT_MS through a route", () => {
   /** An API whose pool applies `timeoutMs`, as server.ts builds it, with its log captured. */
   function boot(timeoutMs: number): { app: FastifyInstance; lines: string[] } {
     const url = new URL(container.getConnectionUri());
-    url.username = "flight_app";
-    url.password = "flight_app";
+    url.username = "wayscribe_app";
+    url.password = "wayscribe_app";
     const pool = knex(createKnexConfig(url.toString(), { statementTimeoutMs: timeoutMs }));
     const lines: string[] = [];
     const app = buildApp({
@@ -175,9 +175,9 @@ describe("DATABASE_STATEMENT_TIMEOUT_MS through a route", () => {
     }
 
     const metrics = await app.metrics.render();
-    expect(metrics).toContain('flight_recorder_query_timeouts_total{route="/v1/search"} 1');
+    expect(metrics).toContain('wayscribe_query_timeouts_total{route="/v1/search"} 1');
     expect(metrics).toContain(
-      'flight_recorder_http_requests_total{method="GET",route="/v1/search",status="503"} 1'
+      'wayscribe_http_requests_total{method="GET",route="/v1/search",status="503"} 1'
     );
   });
 
@@ -208,8 +208,8 @@ describe("DATABASE_STATEMENT_TIMEOUT_MS through a route", () => {
     for (const line of lines) expect(line.toLowerCase()).not.toContain("pg_sleep");
 
     const metrics = await app.metrics.render();
-    expect(metrics).toContain('flight_recorder_query_timeouts_total{route="/v1/events/batch"} 1');
-    expect(metrics).toContain('flight_recorder_events_total{result="rejected"} 1');
+    expect(metrics).toContain('wayscribe_query_timeouts_total{route="/v1/events/batch"} 1');
+    expect(metrics).toContain('wayscribe_events_total{result="rejected"} 1');
   });
 
   it("applies the timeout to each connection the pool opens", async () => {

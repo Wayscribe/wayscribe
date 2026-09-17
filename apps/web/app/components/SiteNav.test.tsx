@@ -14,7 +14,7 @@ describe("SiteNav", () => {
     const glossary = screen.getByRole("link", { name: "Glossary" });
     expect(glossary.getAttribute("href")).toBe(GLOSSARY_URL);
     expect(GLOSSARY_URL).toBe(
-      "https://gitlab.com/jojithedev/flight-recorder/-/blob/main/docs/GLOSSARY.md"
+      "https://gitlab.com/jojithedev/wayscribe/-/blob/main/docs/GLOSSARY.md"
     );
     expect(glossary.getAttribute("target")).toBeNull();
   });

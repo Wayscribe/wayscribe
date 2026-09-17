@@ -35,11 +35,11 @@ in section 14.
 
 **The propagation specification is pending.** Every requirement in it is a name:
 header names, queue attribute names, the value grammar, the identifier prefix.
-Those names all carry the product's current name, which is about to change, so
-freezing them here would mean publishing a contract and breaking it in the same
-month. Section 10 states only the rules that survive a rename. Header names,
-queue attribute names and environment variable names are therefore **not**
-specified in this document.
+Those names carried the product's name, which changed on 2026-09-17 (ADR-057),
+so freezing them here before the rename would have meant publishing a contract
+and breaking it in the same month. Section 10 states only the rules that do not
+depend on a name. Header names, queue attribute names and environment variable
+names are therefore **not** specified in this document yet.
 
 ## 2. Host safety
 
@@ -317,8 +317,8 @@ may differ; it should be able to say why.
 
 ## 10. Propagation
 
-Only the rules that survive the rename. The names, the value grammar and the
-test vectors are the pending propagation specification.
+Only the rules that do not depend on a name. The names, the value grammar and
+the test vectors are the pending propagation specification.
 
 - **SDK-43.** There are three levels, and the default MUST be the middle one:
   the journey and the entity **type** propagate, and the entity **id** does not.

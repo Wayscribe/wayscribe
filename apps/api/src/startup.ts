@@ -1,5 +1,5 @@
-import { loadServerEnv, type ServerEnv } from "@flight-recorder/config";
-import { createKeyring, type Keyring } from "@flight-recorder/payload-security";
+import { loadServerEnv, type ServerEnv } from "@wayscribe/config";
+import { createKeyring, type Keyring } from "@wayscribe/payload-security";
 
 export type Startup =
   { ok: true; env: ServerEnv; keyring: Keyring } | { ok: false; message: string };
@@ -28,6 +28,6 @@ export function prepareStartup(source: Record<string, string | undefined>): Star
       .split("\n")
       .map((line) => `  ${line}`)
       .join("\n");
-    return { ok: false, message: `Flight Recorder API cannot start:\n${indented}` };
+    return { ok: false, message: `Wayscribe API cannot start:\n${indented}` };
   }
 }

@@ -54,7 +54,7 @@ describe("Next.js telemetry is disabled", () => {
     const build = byName.get("build");
     expect(build).toBeDefined();
     const body = build?.body ?? "";
-    const runsNext = body.indexOf("@flight-recorder/web build");
+    const runsNext = body.indexOf("@wayscribe/web build");
     expect(runsNext).toBeGreaterThan(-1);
     // Inherited from base, which comes first, or set earlier in this stage.
     const own = body.search(DISABLED);

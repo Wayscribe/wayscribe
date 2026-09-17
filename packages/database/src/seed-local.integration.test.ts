@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
-import { createKeyring, verifyApiKeyWithKeyring } from "@flight-recorder/payload-security";
+import { createKeyring, verifyApiKeyWithKeyring } from "@wayscribe/payload-security";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { createKnexConfig } from "./knex-config.js";
 import { seedLocal } from "./seed-local.js";
@@ -24,7 +24,7 @@ describe("seedLocal", () => {
 
   it("creates a project, environment, and API key", async () => {
     const result = await seedLocal(db, keyring);
-    expect(result.apiKey.startsWith("fr_")).toBe(true);
+    expect(result.apiKey.startsWith("wsk_")).toBe(true);
     expect(await db("projects").count({ n: "*" }).first()).toEqual({ n: "1" });
     expect(await db("environments").count({ n: "*" }).first()).toEqual({ n: "1" });
     expect(await db("api_keys").count({ n: "*" }).first()).toEqual({ n: "1" });

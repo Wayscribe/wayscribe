@@ -11,28 +11,28 @@
 # ADR-015 keeps this file separate from compose.yaml so PostgreSQL remains the
 # core stack's only required backing service.
 
-name: flight-recorder
+name: wayscribe
 
 x-demo: &demo
   # One image for the five demo services, named after the Compose project so two
   # checkouts started with different `-p` names do not build over each other's
   # image. The default keeps the old name where Compose does not provide it.
-  image: ${COMPOSE_PROJECT_NAME:-flight-recorder}-demo:local
+  image: ${COMPOSE_PROJECT_NAME:-wayscribe}-demo:local
   build:
     context: ..
     dockerfile: apps/demo/Dockerfile
   environment: &demo-env
-    FLIGHT_ENDPOINT: http://api:8080
+    WAYSCRIBE_ENDPOINT: http://api:8080
     # A placeholder, and safe to commit: it authorises writing demo events to a
     # local stack and nothing else. Real keys come from `pnpm db:seed`, which
     # generates them and prints each one exactly once.
-    FLIGHT_API_KEY: ${DEMO_API_KEY:-fr_demo00000000000000000000000000000}
-    FLIGHT_ENVIRONMENT: development
+    WAYSCRIBE_API_KEY: ${DEMO_API_KEY:-wsk_demo0000000000000000000000000000}
+    WAYSCRIBE_ENVIRONMENT: development
     QUEUE_ENDPOINT: http://elasticmq:9324
     QUEUE_URL: http://elasticmq:9324/000000000000/customer-updates
     DLQ_URL: http://elasticmq:9324/000000000000/customer-updates-dlq
     AWS_REGION: us-east-1
-    DEMO_DATABASE_URL: postgresql://flight:flight@postgres:5432/demo
+    DEMO_DATABASE_URL: postgresql://wayscribe:wayscribe@postgres:5432/demo
     TARGET_URL: http://demo-target:3300
     INTEGRATION_URL: http://demo-integration:3200
 
@@ -57,7 +57,7 @@ services:
         required: false
     environment:
       <<: *demo-env
-      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+      DATABASE_URL: postgresql://wayscribe:wayscribe@postgres:5432/wayscribe
       DEMO_DATABASE_NAME: demo
       DEFAULT_RETENTION_DAYS: ${DEFAULT_RETENTION_DAYS:-7}
     command: ["node", "apps/demo/dist/bootstrap.js"]

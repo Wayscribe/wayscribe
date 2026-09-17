@@ -1,4 +1,4 @@
-import type { Keyring } from "@flight-recorder/payload-security";
+import type { Keyring } from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import {
   formatBatchProgress,

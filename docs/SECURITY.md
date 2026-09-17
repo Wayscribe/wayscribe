@@ -2,7 +2,7 @@
 
 ## 1. Security posture
 
-Flight Recorder may receive customer records, API requests, errors, identifiers, and internal system metadata.
+Wayscribe may receive customer records, API requests, errors, identifiers, and internal system metadata.
 
 Security and privacy are product requirements from the first release.
 
@@ -317,7 +317,8 @@ server before storing, whoever sent the event (ADR-046). The masker replaces:
 - provider-prefixed credentials: Stripe `sk_`, `rk_` and `whsec_`, Slack
   `xox?-` and `xapp-`, GitHub `gh?_` and `github_pat_`, GitLab `glpat-`, AWS
   `AKIA` and `ASIA` key ids, Google `AIza`, OpenAI and Anthropic `sk-`, npm
-  `npm_`, SendGrid `SG.`, Hugging Face `hf_`, and Flight Recorder `fr_` keys
+  `npm_`, SendGrid `SG.`, Hugging Face `hf_`, and Wayscribe `wsk_` keys
+  (and `fr_` keys, the form issued before the rename)
 
 After an unquoted colon, a value is only read when a blank follows the colon,
 so `secret:prod/db` inside an ARN is left alone.
@@ -364,8 +365,12 @@ until they are deleted (section 14).
 
 What is built:
 
-- A key is `fr_` and 24 random bytes in base64url, 192 bits
-  (`packages/payload-security/src/api-key.ts`).
+- A key is `wsk_` and 24 random bytes in base64url, 192 bits
+  (`packages/payload-security/src/api-key.ts`), 36 characters in all. Keys
+  issued before the rename to Wayscribe start `fr_` (35 characters) and still
+  authenticate: the server looks a key up by its first 12 characters and
+  verifies an HMAC of the whole key, so it never checks which prefix a key has
+  (ADR-057).
 - `key:create` prints the full key once. Only its first 12 characters, the
   prefix, and an HMAC-SHA256 verifier under a subkey of `ENCRYPTION_KEY` are
   stored, so a database read alone cannot verify a guess.
@@ -375,7 +380,7 @@ What is built:
 - `key:revoke` revokes a key by its prefix, and a revoked key answers 401.
 - Verification compares with `timingSafeEqual`.
 - Keys are not logged: request headers are not logged at all, and the logger
-  also censors `authorization`, `x-api-key` and `x-flight-api-key`
+  also censors `authorization`, `x-api-key` and `x-wayscribe-api-key`
   (`OPERATIONS.md` §13, Logs).
 - `last_used_at` records when a key last authenticated; nothing about the
   request is kept with it.
@@ -571,8 +576,8 @@ What is built (ADR-008, ADR-019, ADR-032, ADR-033):
   destination by id and a relative path under its base URL.
 - The destination's host must be on `REPLAY_ALLOWED_HOSTS` (below).
 - A replay sends the recorded input with only these headers: the destination's
-  own configured headers, `content-type`, Flight Recorder's `user-agent`, and
-  `x-flight-replay: true`. Nothing from the recorded request's headers is sent,
+  own configured headers, `content-type`, Wayscribe's `user-agent`, and
+  `x-wayscribe-replay: true`. Nothing from the recorded request's headers is sent,
   so no authorization header, cookie or webhook signature is copied.
 - The request times out after 10 seconds, and at most 256 KiB of the response
   is read (`apps/api/src/replay/send.ts`). The request body is the recorded
@@ -774,7 +779,7 @@ Each item, and where it is checked, as of 2026-09-16:
 - Retention cleanup deletes all related data: section 14, and
   `retention.integration.test.ts`.
 - The documentation warns against capturing regulated data: the README's
-  "What Flight Recorder is not", and `../SECURITY.md`.
+  "What Wayscribe is not", and `../SECURITY.md`.
 
 The pre-release review of the same date is
 [reviews/2026-09-16-security-review.md](reviews/2026-09-16-security-review.md).

@@ -1,12 +1,12 @@
 {
-  "name": "@flight-recorder/cli",
+  "name": "@wayscribe/cli",
   "version": "0.1.0",
-  "description": "Read journeys, timelines and payload diffs from a Flight Recorder installation.",
+  "description": "Read journeys, timelines and payload diffs from a Wayscribe installation.",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "bin": {
-    "flight-recorder": "./dist/cli.js"
+    "wayscribe": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

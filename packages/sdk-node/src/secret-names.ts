@@ -1,8 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  normaliseName,
-  type UnredactedObserver
-} from "@flight-recorder/payload-security/redaction";
+import { normaliseName, type UnredactedObserver } from "@wayscribe/payload-security/redaction";
 import { printDiagnostic, type Diagnostic, type Diagnostics } from "./diagnostics.js";
 
 /**

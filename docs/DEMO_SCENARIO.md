@@ -4,7 +4,7 @@
 
 The demo is the product acceptance test.
 
-It should prove that Flight Recorder can reconstruct a complete entity journey and reveal where a data defect first appeared.
+It should prove that Wayscribe can reconstruct a complete entity journey and reveal where a data defect first appeared.
 
 ## 2. Services
 
@@ -26,7 +26,7 @@ This may initially run in the same application repository but should be a distin
 
 Simulates HubSpot and rejects customers without a phone number.
 
-### Flight Recorder services
+### Wayscribe services
 
 - API
 - web

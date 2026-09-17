@@ -1,4 +1,4 @@
-import { pendingMigrationCount } from "@flight-recorder/database";
+import { pendingMigrationCount } from "@wayscribe/database";
 import type { FastifyInstance } from "fastify";
 
 export function registerHealthRoutes(app: FastifyInstance): void {

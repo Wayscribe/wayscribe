@@ -154,7 +154,7 @@ describe("the README's Supported versions table", () => {
     const fallback = /process\.env\.TEST_POSTGRES_VERSION \?\? "(\d+)"/.exec(config)?.[1];
     expect(versions).toContain(fallback);
     expect(read("infrastructure/compose.yaml")).toContain(`postgres:${String(fallback)}-alpine`);
-    expect(read("deploy/helm/flight-recorder/values.yaml")).toContain(
+    expect(read("deploy/helm/wayscribe/values.yaml")).toContain(
       `postgres:${String(fallback)}-alpine`
     );
 

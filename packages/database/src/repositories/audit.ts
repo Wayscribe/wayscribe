@@ -1,4 +1,4 @@
-import { DEFAULT_SECRET_PATHS, redact } from "@flight-recorder/payload-security";
+import { DEFAULT_SECRET_PATHS, redact } from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import { insertReturningId } from "../insert.js";
 

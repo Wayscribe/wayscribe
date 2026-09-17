@@ -1,4 +1,4 @@
-import * as redaction from "@flight-recorder/payload-security/redaction";
+import * as redaction from "@wayscribe/payload-security/redaction";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRecorder } from "./recorder.js";
 
@@ -12,7 +12,7 @@ import { createRecorder } from "./recorder.js";
  * noise reliably. These count the calls instead, so the extra walks fail here
  * on any machine.
  */
-vi.mock("@flight-recorder/payload-security/redaction", async (importOriginal) => {
+vi.mock("@wayscribe/payload-security/redaction", async (importOriginal) => {
   const actual = await importOriginal<typeof redaction>();
   return {
     ...actual,
@@ -32,7 +32,7 @@ function recorder(settings: { maxEventBytes?: number } = {}): ReturnType<typeof 
   return createRecorder({
     // Refuses connections; nothing here depends on delivery.
     endpoint: "http://127.0.0.1:1",
-    apiKey: "fr_test",
+    apiKey: "wsk_test",
     serviceName: "svc",
     environment: "development",
     logDiagnostics: false,

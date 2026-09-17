@@ -48,7 +48,7 @@ describe("the release manifest", () => {
     // What `pnpm pack` writes: publishConfig applied, workspace ranges
     // rewritten to a version published nowhere.
     exports: manifest.publishConfig?.exports,
-    devDependencies: { "@flight-recorder/protocol": "0.0.0", esbuild: "^0.25.12" }
+    devDependencies: { "@wayscribe/protocol": "0.0.0", esbuild: "^0.25.12" }
   };
   const released = releaseManifest(packed) as Manifest;
 

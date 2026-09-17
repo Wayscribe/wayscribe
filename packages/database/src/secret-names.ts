@@ -3,7 +3,7 @@ import {
   maskSecretsInText,
   NOT_SECRET_VALUES,
   SECRET_NAME_TERMS
-} from "@flight-recorder/payload-security";
+} from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import type { CheckResult } from "./doctor.js";
 

@@ -20,7 +20,7 @@ describe("isStatementTimeout", () => {
 });
 
 describe("createKnexConfig", () => {
-  const url = "postgresql://flight:flight@localhost:5432/flight";
+  const url = "postgresql://wayscribe:wayscribe@localhost:5432/wayscribe";
 
   it("sets no afterCreate hook without a timeout, or with 0", () => {
     expect(createKnexConfig(url).pool).not.toHaveProperty("afterCreate");

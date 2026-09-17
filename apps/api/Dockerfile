@@ -8,7 +8,7 @@ FROM base AS build
 COPY . .
 RUN pnpm install --frozen-lockfile
 # The `...` suffix builds the package together with its workspace dependencies.
-RUN pnpm --filter @flight-recorder/api... build
+RUN pnpm --filter @wayscribe/api... build
 # Drop development dependencies in place. The runtime previously carried the
 # whole toolchain — vitest, playwright, typescript, eslint, testcontainers —
 # around 500 MB of node_modules for an application that needs 26 MB of it.
@@ -31,7 +31,7 @@ RUN pnpm --filter @flight-recorder/api... build
 #
 # CI=true because pnpm will not remove a modules directory without a TTY.
 RUN find . -name node_modules -type d -prune -exec rm -rf {} + \
- && CI=true pnpm --filter @flight-recorder/api... install --prod --ignore-scripts
+ && CI=true pnpm --filter @wayscribe/api... install --prod --ignore-scripts
 
 # Everything the runtime never executes. The image was carrying 61 test files
 # and 167 TypeScript sources for an application that runs `dist`, plus the whole
@@ -69,11 +69,11 @@ FROM node:24-alpine AS runtime
 # for CVE-2026-14456, when this was added) reaches the image on the next build
 # rather than when the upstream tag is rebuilt.
 RUN apk upgrade --no-cache
-LABEL org.opencontainers.image.title="Flight Recorder API"
+LABEL org.opencontainers.image.title="Wayscribe API"
 LABEL org.opencontainers.image.description="Ingestion, query, and replay API for record-level debugging of distributed workflows."
 LABEL org.opencontainers.image.licenses="Apache-2.0"
-LABEL org.opencontainers.image.source="https://gitlab.com/jojithedev/flight-recorder"
-LABEL org.opencontainers.image.documentation="https://gitlab.com/jojithedev/flight-recorder#readme"
+LABEL org.opencontainers.image.source="https://gitlab.com/jojithedev/wayscribe"
+LABEL org.opencontainers.image.documentation="https://gitlab.com/jojithedev/wayscribe#readme"
 
 ENV NODE_ENV=production
 WORKDIR /app

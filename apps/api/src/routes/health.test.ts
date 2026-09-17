@@ -1,4 +1,4 @@
-import { createKeyring } from "@flight-recorder/payload-security";
+import { createKeyring } from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";

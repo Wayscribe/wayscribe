@@ -5,7 +5,7 @@
  *
  * There was no error boundary anywhere in this application, so anything a page
  * threw — most commonly the API being unreachable while it booted — rendered a
- * blank HTTP 500 whose entire visible text was "Flight Recorder". A debugging
+ * blank HTTP 500 whose entire visible text was the product name. A debugging
  * tool that cannot explain its own failure is a poor advertisement for itself.
  *
  * Deliberately does not show the error message. A server-side message can carry
@@ -24,7 +24,7 @@ export default function Error({
     <main id="main">
       <h1>Something went wrong</h1>
       <p className="muted">
-        This page could not be loaded. The most common cause is the Flight Recorder API not being
+        This page could not be loaded. The most common cause is the Wayscribe API not being
         reachable — it may still be starting, or it may be pointed at a database that is not up yet.
       </p>
 

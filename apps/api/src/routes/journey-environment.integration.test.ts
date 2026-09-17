@@ -1,7 +1,7 @@
 import type { AddressInfo } from "node:net";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId, issueKey } from "@flight-recorder/database";
-import { createKeyring, searchTokens } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId, issueKey } from "@wayscribe/database";
+import { createKeyring, searchTokens } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -14,7 +14,7 @@ import { buildApp } from "../app.js";
  * name is not resolvable to the API's type check; the integration config's
  * alias resolves it for the test run. Only what the test calls is typed.
  */
-const SDK_PACKAGE: string = "@flight-recorder/node";
+const SDK_PACKAGE: string = "@wayscribe/node";
 interface SdkJourney {
   context(): { journeyId: string; entity: { type: string; id: string } };
   record(input: { operation: string; name: string; input?: unknown }): void;

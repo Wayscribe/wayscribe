@@ -1,7 +1,7 @@
-import { toStorableText } from "@flight-recorder/payload-security/redaction";
+import { toStorableText } from "@wayscribe/payload-security/redaction";
 // The subpath, not the package root: the root brings Zod, and the bundle
 // would carry it into every host.
-import { MAX_JOURNEY_LABEL_LENGTH } from "@flight-recorder/protocol/limits";
+import { MAX_JOURNEY_LABEL_LENGTH } from "@wayscribe/protocol/limits";
 import { firstCodePoints, fitsCodePoints } from "./code-points.js";
 import type { Diagnostics } from "./diagnostics.js";
 

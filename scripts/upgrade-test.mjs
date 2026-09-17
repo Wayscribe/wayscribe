@@ -2,7 +2,7 @@
 /* global AbortSignal */
 // Upgrade test: an older build writes data, this build must read all of it.
 //
-// Flight Recorder runs on each team's own PostgreSQL, so an upgrade is a new
+// Wayscribe runs on each team's own PostgreSQL, so an upgrade is a new
 // image started against a database an older image wrote. This builds the API
 // image at a baseline ref and at the working tree, records journeys through the
 // baseline, swaps the image while keeping the database volume, and checks that
@@ -18,7 +18,7 @@
 //   UPGRADE_BASELINE_REF   ref to upgrade from; default the newest earlier
 //                          vMAJOR.MINOR.PATCH tag, else DEFAULT_BASELINE below
 //   UPGRADE_FETCH_TAGS=1   `git fetch --tags` before choosing (CI sets this)
-//   UPGRADE_PROJECT        Compose project name (default fr-upgrade-<pid>)
+//   UPGRADE_PROJECT        Compose project name (default ws-upgrade-<pid>)
 //   UPGRADE_API_PORT       host port for the API (default a free port)
 //   UPGRADE_BIND_ADDRESS   address the port binds to (default 127.0.0.1)
 //   UPGRADE_API_HOST       host the script calls the API on (default 127.0.0.1)
@@ -54,7 +54,7 @@ const COMPOSE_FILE = join(ROOT, "scripts", "upgrade-test.compose.yaml");
 // Unique per run by default. Every run begins with `compose down -v` on its
 // project, so two runs sharing a name would delete each other's database.
 // Compose requires a lowercase project name.
-const PROJECT = (process.env.UPGRADE_PROJECT || `fr-upgrade-${String(process.pid)}`).toLowerCase();
+const PROJECT = (process.env.UPGRADE_PROJECT || `ws-upgrade-${String(process.pid)}`).toLowerCase();
 const PRINT_BASELINE = process.argv.includes("--print-baseline");
 const API_PORT = process.env.UPGRADE_API_PORT || (PRINT_BASELINE ? "0" : String(await freePort()));
 const API_HOST = process.env.UPGRADE_API_HOST || "127.0.0.1";
@@ -225,9 +225,9 @@ async function sql(image, statement) {
     "postgres",
     "psql",
     "-U",
-    "flight",
+    "wayscribe",
     "-d",
-    "flight",
+    "wayscribe",
     "-tAc",
     statement
   ]);
@@ -476,8 +476,9 @@ async function ingest(apiKey, events, label) {
   );
 }
 
+/** The baseline build prints `fr_` keys (issued before the rename, ADR-057); this one `wsk_`. */
 function apiKeyFrom(output) {
-  const match = /fr_[A-Za-z0-9_-]{16,}/.exec(output);
+  const match = /(?:wsk|fr)_[A-Za-z0-9_-]{16,}/.exec(output);
   if (match === null) throw new UpgradeTestError(`key:create printed no key:\n${output}`);
   return match[0];
 }
@@ -735,7 +736,7 @@ async function main() {
 
   const workdir = process.env.UPGRADE_WORKDIR
     ? resolve(process.env.UPGRADE_WORKDIR)
-    : mkdtempSync(join(tmpdir(), "fr-upgrade-"));
+    : mkdtempSync(join(tmpdir(), "ws-upgrade-"));
   const worktree = join(workdir, `baseline-${baseline.commit.slice(0, 10)}`);
 
   // Registered before anything is created, and run in reverse, so an early

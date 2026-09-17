@@ -1,5 +1,5 @@
 {
-  "name": "@flight-recorder/web",
+  "name": "@wayscribe/web",
   "version": "0.0.0",
   "private": true,
   "scripts": {

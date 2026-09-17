@@ -133,7 +133,7 @@ describe("logDiagnostics", () => {
       detail: {}
     });
     restore();
-    expect(lines).toEqual(["[flight-recorder] transport_error: fetch failed"]);
+    expect(lines).toEqual(["[wayscribe] transport_error: fetch failed"]);
   });
 
   it("prints one line per kind per minute and counts what it suppressed", () => {
@@ -166,7 +166,7 @@ describe("logDiagnostics", () => {
 
     expect(lines).toHaveLength(3);
     expect(lines[2]).toBe(
-      "[flight-recorder] transport_error: fetch failed (5 repeats suppressed since the last line)"
+      "[wayscribe] transport_error: fetch failed (5 repeats suppressed since the last line)"
     );
     // Printing is rate-limited; counting is not.
     expect(diagnostics.counters().transportErrors).toBe(7);
@@ -183,8 +183,8 @@ describe("logDiagnostics", () => {
     diagnostics.flushLog();
     restore();
     expect(lines).toEqual([
-      "[flight-recorder] dropped: The queue was full.",
-      "[flight-recorder] dropped: 2 repeats suppressed since the last line"
+      "[wayscribe] dropped: The queue was full.",
+      "[wayscribe] dropped: 2 repeats suppressed since the last line"
     ]);
   });
 
@@ -199,7 +199,7 @@ describe("logDiagnostics", () => {
     });
     restore();
     expect(lines).toEqual([
-      "[flight-recorder] delivered_first: Connected: http://localhost:8080 accepted 3 events."
+      "[wayscribe] delivered_first: Connected: http://localhost:8080 accepted 3 events."
     ]);
   });
 
@@ -262,7 +262,7 @@ describe("logDiagnostics", () => {
     );
     restore();
     expect(lines).toEqual([
-      "[flight-recorder] rejected: invalid_event (the server's message goes to onDiagnostic)"
+      "[wayscribe] rejected: invalid_event (the server's message goes to onDiagnostic)"
     ]);
     expect(seen).toEqual(["invalid_event: Value dana@example.com is not allowed."]);
   });

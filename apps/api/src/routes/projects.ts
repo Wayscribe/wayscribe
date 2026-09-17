@@ -1,4 +1,4 @@
-import { listProjects } from "@flight-recorder/database";
+import { listProjects } from "@wayscribe/database";
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { bearerToken } from "../auth.js";

@@ -1,5 +1,5 @@
 {
-  "name": "@flight-recorder/database",
+  "name": "@wayscribe/database",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -36,8 +36,8 @@
     "doctor": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts doctor"
   },
   "dependencies": {
-    "@flight-recorder/config": "workspace:*",
-    "@flight-recorder/payload-security": "workspace:*",
+    "@wayscribe/config": "workspace:*",
+    "@wayscribe/payload-security": "workspace:*",
     "knex": "^3.3.0",
     "pg": "^8.23.0"
   },

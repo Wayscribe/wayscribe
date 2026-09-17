@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expand, type ConformanceCase } from "@flight-recorder/protocol/conformance";
+import { expand, type ConformanceCase } from "@wayscribe/protocol/conformance";
 import {
   createRecorder,
   type FailOptions,
@@ -76,7 +76,7 @@ export async function captureCase(one: ConformanceCase, run: string): Promise<Ca
   const diagnostics: CapturedCase["diagnostics"] = [];
   const recorder = createRecorder({
     endpoint: `http://127.0.0.1:${String(port)}`,
-    apiKey: "fr_test_conformance",
+    apiKey: "wsk_test_conformance",
     serviceName: "customer-integration",
     environment: "conformance",
     onDiagnostic: ({ kind, code, reason, detail }) => {

@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId, searchJourneys } from "@flight-recorder/database";
-import { createKeyring, issueApiKey, searchTokens } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId, searchJourneys } from "@wayscribe/database";
+import { createKeyring, issueApiKey, searchTokens } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { databaseApiKeys } from "./auth.js";
@@ -97,7 +97,7 @@ describe("principal resolution", () => {
   });
 
   it("rejects an unknown token with the same message as a revoked one", async () => {
-    const unknown = await resolve("Bearer fr_totallyunknownkey");
+    const unknown = await resolve("Bearer wsk_totallyunknownkey");
     expect(unknown.ok).toBe(false);
     if (!unknown.ok) expect(unknown.status).toBe(401);
   });

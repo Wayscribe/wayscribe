@@ -1,4 +1,4 @@
-import { createKeyring, verifyApiKeyWithKeyring } from "@flight-recorder/payload-security";
+import { createKeyring, verifyApiKeyWithKeyring } from "@wayscribe/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -15,14 +15,14 @@ interface KeyRow {
 }
 
 const demoKeyRow = async (db: Knex): Promise<KeyRow> =>
-  (await db("api_keys").where({ key_prefix: "fr_demo00000" }).first()) as KeyRow;
+  (await db("api_keys").where({ key_prefix: "wsk_demo0000" }).first()) as KeyRow;
 
 const verifies = (ring: ReturnType<typeof createKeyring>, row: KeyRow): unknown =>
   verifyApiKeyWithKeyring(ring, DEMO_KEY, {
     keyHash: row.key_hash,
     keyHashKeyId: row.key_hash_key_id
   });
-const DEMO_KEY = "fr_demo00000000000000000000000000000";
+const DEMO_KEY = "wsk_demo0000000000000000000000000000";
 
 describe("seedDemo", () => {
   let container: StartedPostgreSqlContainer;
@@ -55,7 +55,7 @@ describe("seedDemo", () => {
     // would make lookup by prefix ambiguous, and authentication resolves a key
     // by its prefix before it verifies anything.
     expect(
-      await db("api_keys").where({ key_prefix: "fr_demo00000" }).count({ n: "*" }).first()
+      await db("api_keys").where({ key_prefix: "wsk_demo0000" }).count({ n: "*" }).first()
     ).toEqual({ n: "1" });
   });
 

@@ -22,7 +22,7 @@ docs/
 deploy/helm/*/templates/
 
 # The generator owns this formatting. Prettier reflows a JSON array that fits
-# on one line, so `pnpm format` and `pnpm --filter @flight-recorder/protocol run
+# on one line, so `pnpm format` and `pnpm --filter @wayscribe/protocol run
 # schemas` would rewrite each other forever, and the drift test would fail after
 # whichever ran second.
 packages/protocol/schemas/

@@ -81,7 +81,7 @@ describe("the cost of a wrapped call", () => {
     const recorder = createRecorder({
       // Refuses connections; what is timed is capture, not the network.
       endpoint: "http://127.0.0.1:1",
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "svc",
       environment: "development",
       logDiagnostics: false,

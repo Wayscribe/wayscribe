@@ -1,4 +1,4 @@
-# A PostgreSQL container, for trying Flight Recorder without standing a database
+# A PostgreSQL container, for trying Wayscribe without standing a database
 # up first. Overlay it on the quick start:
 #
 #   export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
@@ -21,29 +21,29 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: flight
-      POSTGRES_PASSWORD: flight
-      POSTGRES_DB: flight
+      POSTGRES_USER: wayscribe
+      POSTGRES_PASSWORD: wayscribe
+      POSTGRES_DB: wayscribe
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flight -d flight"]
+      test: ["CMD-SHELL", "pg_isready -U wayscribe -d wayscribe"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   migrate:
     environment:
-      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+      DATABASE_URL: postgresql://wayscribe:wayscribe@postgres:5432/wayscribe
     depends_on:
       postgres:
         condition: service_healthy
 
   api:
     environment:
-      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+      DATABASE_URL: postgresql://wayscribe:wayscribe@postgres:5432/wayscribe
     depends_on:
       postgres:
         condition: service_healthy

@@ -4,8 +4,8 @@ import {
   updateJourneySummary,
   upsertAliases,
   type ApiKeyContext
-} from "@flight-recorder/database";
-import { diffPayloads } from "@flight-recorder/payload-diff";
+} from "@wayscribe/database";
+import { diffPayloads } from "@wayscribe/payload-diff";
 import {
   DEFAULT_LIMITS,
   applyCapture,
@@ -20,9 +20,9 @@ import {
   type CaptureMode,
   type CapturePolicy,
   type Keyring
-} from "@flight-recorder/payload-security";
-import { PROTOCOL_ERROR_CODES, parseEnvelope } from "@flight-recorder/protocol";
-import type { JourneyEvent, ParseDetail } from "@flight-recorder/protocol";
+} from "@wayscribe/payload-security";
+import { PROTOCOL_ERROR_CODES, parseEnvelope } from "@wayscribe/protocol";
+import type { JourneyEvent, ParseDetail } from "@wayscribe/protocol";
 import type { Knex } from "knex";
 import { authorizeEnvironment } from "../auth.js";
 

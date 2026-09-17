@@ -31,7 +31,7 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT"
 
 # 1. The release tarball, packed with the repository's Node and pnpm.
-TARBALL=$(pnpm --silent --filter @flight-recorder/node run pack:release "$WORK")
+TARBALL=$(pnpm --silent --filter @wayscribe/node run pack:release "$WORK")
 TARBALL=$(printf '%s\n' "$TARBALL" | tail -n 1)
 [ -f "$TARBALL" ] || { echo "FAIL: pack:release did not write a tarball ($TARBALL)" >&2; exit 1; }
 
@@ -86,11 +86,11 @@ check() {
 }
 
 check module check.mjs <<'EOF'
-import { createRecorder } from "@flight-recorder/node";
+import { createRecorder } from "@wayscribe/node";
 
 const recorder = createRecorder({
   endpoint: "http://127.0.0.1:9",
-  apiKey: "fr_consumer_check",
+  apiKey: "wsk_consumer_check",
   serviceName: "consumer-check",
   environment: "test",
   logDiagnostics: false
@@ -104,12 +104,12 @@ console.log(`import: ok on Node ${process.version}`);
 EOF
 
 check commonjs check.cjs <<'EOF'
-const { createRecorder } = require("@flight-recorder/node");
+const { createRecorder } = require("@wayscribe/node");
 
 async function main() {
   const recorder = createRecorder({
     endpoint: "http://127.0.0.1:9",
-    apiKey: "fr_consumer_check",
+    apiKey: "wsk_consumer_check",
     serviceName: "consumer-check",
     environment: "test",
     logDiagnostics: false

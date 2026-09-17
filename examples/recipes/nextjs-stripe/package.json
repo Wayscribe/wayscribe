@@ -1,14 +1,14 @@
 {
-  "name": "flight-recorder-recipe-nextjs-stripe",
+  "name": "wayscribe-recipe-nextjs-stripe",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "A Next.js route handler receiving Stripe webhooks, instrumented with Flight Recorder.",
+  "description": "A Next.js route handler receiving Stripe webhooks, instrumented with Wayscribe.",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@flight-recorder/node": "file:../../../packages/sdk-node",
+    "@wayscribe/node": "file:../../../packages/sdk-node",
     "next": "^16.0.0",
     "stripe": "^22.0.0"
   },

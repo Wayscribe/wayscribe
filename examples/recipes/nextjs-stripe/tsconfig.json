@@ -11,7 +11,7 @@
     "types": ["node"],
     "paths": {
       "@/*": ["./*"],
-      "@flight-recorder/node": ["../../../packages/sdk-node/src/index.ts"]
+      "@wayscribe/node": ["../../../packages/sdk-node/src/index.ts"]
     }
   },
   "include": ["app/**/*.ts", "lib/**/*.ts", "../stubs/stripe.d.ts", "../stubs/next-server.d.ts"]

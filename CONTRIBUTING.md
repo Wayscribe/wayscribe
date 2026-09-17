@@ -1,13 +1,13 @@
 # Contributing
 
 > **Where to contribute.** Development happens on
-> [GitLab](https://gitlab.com/jojithedev/flight-recorder). If you found this on
+> [GitLab](https://gitlab.com/jojithedev/wayscribe). If you found this on
 > GitHub, that is a read-only mirror: GitLab's `main` and tags are force-pushed
 > to it once their pipeline has passed, so a pull request opened there cannot be
 > merged and would be overwritten. Please open a merge request on GitLab instead.
 
 
-Flight Recorder is in early development. Contributions should protect the narrow V0 scope and the reliability of applications being observed.
+Wayscribe is in early development. Contributions should protect the narrow V0 scope and the reliability of applications being observed.
 
 Participation in this project is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 

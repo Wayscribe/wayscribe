@@ -1,4 +1,4 @@
-import { createKeyring, encryptValue } from "@flight-recorder/payload-security";
+import { createKeyring, encryptValue } from "@wayscribe/payload-security";
 import { describe, expect, it } from "vitest";
 import { presentAliases, presentEntityId } from "./present.js";
 

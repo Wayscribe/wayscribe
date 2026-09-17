@@ -1,4 +1,4 @@
-import { sweepExpiredJourneys } from "@flight-recorder/database";
+import { sweepExpiredJourneys } from "@wayscribe/database";
 import type { FastifyInstance } from "fastify";
 
 export interface RetentionJobOptions {

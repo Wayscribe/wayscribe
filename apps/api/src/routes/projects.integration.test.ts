@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId } from "@wayscribe/database";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -146,7 +146,7 @@ describe("reads with two projects present", () => {
       url: "/v1/search?q=anything",
       headers: {
         authorization: `Bearer ${ADMIN_TOKEN}`,
-        "x-flight-project-id": projectA
+        "x-wayscribe-project-id": projectA
       }
     });
     expect(response.statusCode).toBe(200);

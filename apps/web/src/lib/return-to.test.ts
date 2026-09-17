@@ -48,8 +48,8 @@ describe("safeReturnTo", () => {
     ]) {
       const kept = safeReturnTo(hostile);
       expect(kept, hostile).toBe("/");
-      expect(new URL(kept, "https://flight.example").origin, hostile).toBe(
-        "https://flight.example"
+      expect(new URL(kept, "https://wayscribe.example").origin, hostile).toBe(
+        "https://wayscribe.example"
       );
     }
   });

@@ -8,7 +8,7 @@ Example: Salesforce account ID, internal customer ID, and HubSpot contact ID.
 
 ## Capture mode
 
-The environment policy controlling whether Flight Recorder stores metadata only, allowlisted fields, redacted payloads, or full payloads.
+The environment policy controlling whether Wayscribe stores metadata only, allowlisted fields, redacted payloads, or full payloads.
 
 ## Correlation
 
@@ -29,10 +29,6 @@ Examples: received, transformed, persisted, published, consumed, delivered, fail
 ## Event ID
 
 A client-generated unique identifier used for ingestion idempotency.
-
-## Flight Recorder
-
-The product as a whole.
 
 ## Journey
 
@@ -83,6 +79,10 @@ A processing step that intentionally changes the shape or values of data.
 ## V0
 
 The first tightly scoped implementation described by the product specification.
+
+## Wayscribe
+
+The product as a whole.
 
 ## BYOK
 

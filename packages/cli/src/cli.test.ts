@@ -69,7 +69,7 @@ describe("the command line", () => {
     respond = () => ({ status: 200, body: { data: { items: [] } } });
     server = createServer((request, response) => {
       seen.push(`${request.headers.authorization ?? "none"} ${request.url ?? ""}`);
-      seenProject.push(request.headers["x-flight-project-id"] as string | undefined);
+      seenProject.push(request.headers["x-wayscribe-project-id"] as string | undefined);
       const { status, body } = respond(request.url ?? "");
       response.writeHead(status, { "content-type": "application/json" });
       response.end(JSON.stringify(body));
@@ -89,14 +89,14 @@ describe("the command line", () => {
   });
 
   const env = (): Record<string, string | undefined> => ({
-    FLIGHT_RECORDER_URL: url,
-    FLIGHT_RECORDER_TOKEN: "admin-token"
+    WAYSCRIBE_URL: url,
+    WAYSCRIBE_TOKEN: "admin-token"
   });
 
   it("prints usage and fails when given no command", async () => {
     const { out, io } = capture({});
     expect(await run([], io)).toBe(2);
-    expect(out.join("\n")).toContain("flight-recorder search");
+    expect(out.join("\n")).toContain("wayscribe search");
   });
 
   it("succeeds for an explicit --help", async () => {
@@ -125,9 +125,9 @@ describe("the command line", () => {
   });
 
   it("says what to do when no token is configured", async () => {
-    const { err, io } = capture({ FLIGHT_RECORDER_URL: url });
+    const { err, io } = capture({ WAYSCRIBE_URL: url });
     expect(await run(["projects"], io)).toBe(1);
-    expect(err.join("\n")).toContain("FLIGHT_RECORDER_TOKEN");
+    expect(err.join("\n")).toContain("WAYSCRIBE_TOKEN");
   });
 
   it("renders a journey timeline in order, across services", async () => {
@@ -208,7 +208,7 @@ describe("the command line", () => {
   });
 
   it("sends the project header when one is configured", async () => {
-    const { io } = capture({ ...env(), FLIGHT_RECORDER_PROJECT: "proj-1" });
+    const { io } = capture({ ...env(), WAYSCRIBE_PROJECT: "proj-1" });
     await run(["projects"], io);
     expect(seenProject[0]).toBe("proj-1");
   });
@@ -229,13 +229,13 @@ describe("the command line", () => {
 
     const { err, io } = capture(env());
     expect(await run(["projects"], io)).toBe(1);
-    expect(err.join("\n")).toContain("FLIGHT_RECORDER_TOKEN");
+    expect(err.join("\n")).toContain("WAYSCRIBE_TOKEN");
   });
 
   it("names the fix when an admin token has not chosen a project", async () => {
     respond = () => ({
       status: 400,
-      body: { error: { code: "project_required", message: "x-flight-project-id is required." } }
+      body: { error: { code: "project_required", message: "x-wayscribe-project-id is required." } }
     });
 
     const { err, io } = capture(env());
@@ -246,8 +246,8 @@ describe("the command line", () => {
   it("says the server is unreachable rather than 'fetch failed'", async () => {
     // Port 1 refuses connections everywhere we care about.
     const { err, io } = capture({
-      FLIGHT_RECORDER_URL: "http://127.0.0.1:1",
-      FLIGHT_RECORDER_TOKEN: "t"
+      WAYSCRIBE_URL: "http://127.0.0.1:1",
+      WAYSCRIBE_TOKEN: "t"
     });
     expect(await run(["projects"], io)).toBe(1);
     expect(err.join("\n")).toContain("Cannot reach");

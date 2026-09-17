@@ -1,6 +1,6 @@
 import { createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 
-export const SESSION_COOKIE_NAME = "flight_session";
+export const SESSION_COOKIE_NAME = "wayscribe_session";
 
 export interface SessionPayload {
   projectId: string;
@@ -17,6 +17,8 @@ export interface SessionPayload {
  * inconvenience (ADR-029).
  */
 function signingKey(adminToken: string): Buffer {
+  // The label predates the rename to Wayscribe and must not change: it
+  // determines the signing key, so renaming it ends every session (ADR-057).
   return Buffer.from(hkdfSync("sha256", adminToken, "", "flight-recorder/web-session", 32));
 }
 

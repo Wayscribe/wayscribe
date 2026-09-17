@@ -1,4 +1,4 @@
-import { REDACTED } from "@flight-recorder/payload-security";
+import { REDACTED } from "@wayscribe/payload-security";
 
 /**
  * Values shorter than this are not replaced.
