@@ -333,6 +333,25 @@ describe("fitting an event to the server's limits", () => {
     }
   });
 
+  it("returns promptly from a payload of shared references that expands past the budget", async () => {
+    // 26 objects, each holding the next twice, 24 deep: 16 million leaves once
+    // serialised. record() used to spend about 2 seconds and 245 MB on it.
+    let dag: unknown = "x";
+    for (let level = 0; level < 24; level += 1) dag = { l: dag, r: dag };
+    let elapsed = Number.POSITIVE_INFINITY;
+    const { events, diagnostics } = await capture((journey) => {
+      const started = performance.now();
+      journey.record({ operation: "received", name: "dag", input: dag });
+      elapsed = performance.now() - started;
+    });
+    expect(elapsed).toBeLessThan(250);
+    expect(events[0]?.["input"]).toBe("[PAYLOAD_TOO_LARGE]");
+    expect(diagnostics.find((d) => d.kind === "payload_omitted")).toMatchObject({
+      code: "too_large",
+      detail: { field: "input" }
+    });
+  });
+
   it("reports no cut for a long string whose key another key replaced", async () => {
     // `note ` and `note` are one key once stored, and the later value wins.
     const input = JSON.parse(`{"note\\u0000": "${"x".repeat(70_000)}", "note": "short"}`) as Record<

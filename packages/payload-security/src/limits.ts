@@ -86,10 +86,16 @@ export function checkLimits(value: unknown, limits: Limits): LimitResult {
     // JSON.stringify is typed as returning string, but returns undefined for
     // `undefined` input. The cast acknowledges the lie in the lib types rather
     // than letting a runtime undefined reach Buffer.byteLength.
-    const serialized = JSON.stringify(value, asStored(limits.truncateStringsTo)) as
-      string | undefined;
+    const serialized = JSON.stringify(
+      value,
+      asStored(limits.truncateStringsTo, limits.maxBytes)
+    ) as string | undefined;
     bytes = Buffer.byteLength(serialized ?? "", "utf8");
-  } catch {
+  } catch (error) {
+    // Stopped part way, certainly too large. A toJSON further on that would
+    // have thrown is not reached, so such a payload is reported as too large
+    // rather than as unserialisable; either way it is not stored.
+    if (error === OVER_LIMIT) return { ok: false, reason: "payload_too_large" };
     // A getter or a toJSON that throws. Not a size problem, and calling it one
     // sent the operator to raise maxEventBytes, which cannot help.
     return { ok: false, reason: "unserialisable_payload" };
@@ -115,11 +121,18 @@ export function checkLimits(value: unknown, limits: Limits): LimitResult {
  * With `truncateTo`, a string is measured as `truncateText` will leave it.
  */
 function asStored(
-  truncateTo: number | undefined
+  truncateTo: number | undefined,
+  maxBytes: number
 ): (this: unknown, key: string, value: unknown) => unknown {
   const text = (value: string): string =>
     truncateTo === undefined ? value : truncateText(value, truncateTo);
   const ancestors: object[] = [];
+  // At least this many bytes have been written so far: a string is at least
+  // one byte a code unit, and two quotes, and any other value written at least
+  // one byte. Once that passes the limit the answer cannot change, so the walk
+  // stops: shared references expand on the way out, and 26 objects nested 24
+  // deep, each holding the next twice, serialise to 16 million leaves.
+  let atLeast = 0;
   // One rendering per value, reused. Not an optimisation: the cycle check below
   // compares by identity, and rendering the same Map twice would produce two
   // objects, so a loop through a Map would never close and the measurement
@@ -127,6 +140,22 @@ function asStored(
   const renders = new WeakMap<object, object>();
 
   return function replace(this: unknown, _key: string, value: unknown): unknown {
+    const written = stored(this, value);
+    if (typeof written === "string") {
+      atLeast += written.length + 2;
+    } else if (
+      // Left out of an object altogether, so nothing is counted for them.
+      written !== undefined &&
+      typeof written !== "function" &&
+      typeof written !== "symbol"
+    ) {
+      atLeast += 1;
+    }
+    if (atLeast > maxBytes) throw OVER_LIMIT;
+    return written;
+  };
+
+  function stored(holder: unknown, value: unknown): unknown {
     if (typeof value === "bigint") return value.toString();
     if (typeof value === "string") return text(value);
     if (value === null || typeof value !== "object") return value;
@@ -148,12 +177,15 @@ function asStored(
       }
     }
 
-    while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) ancestors.pop();
+    while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== holder) ancestors.pop();
     if (ancestors.includes(target)) return CIRCULAR;
     ancestors.push(target);
     return target;
-  };
+  }
 }
+
+/** Thrown out of the measurement once the payload is certainly too large. */
+const OVER_LIMIT = new Error("over the byte limit");
 
 function checkStructure(
   value: unknown,

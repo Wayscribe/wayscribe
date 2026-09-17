@@ -97,14 +97,12 @@ function walk(value: unknown, seen: Set<object>, finish: (text: string) => strin
     const entries = Object.entries(value);
     // Keys too: a NUL in a key is as unstorable as one in a value, and jsonb
     // rejects the whole document either way.
-    const keys = entries.map(([key]) => toStorableText(key));
     const result: Record<string, unknown> = {};
-    if (keys.every((key, index) => key === entries[index]?.[0])) {
-      entries.forEach(([key, child]) => {
-        defineKey(result, key, walk(child, seen, finish));
-      });
+    if (entries.every(([key]) => toStorableText(key) === key)) {
+      for (const [key, child] of entries) defineKey(result, key, walk(child, seen, finish));
       return result;
     }
+    const keys = entries.map(([key]) => toStorableText(key));
 
     // Two keys that differ only by a NUL or a lone surrogate become one key.
     // The last value written wins, in the place the first one took, as
