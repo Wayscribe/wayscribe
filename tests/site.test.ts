@@ -2,7 +2,7 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { findSection, read, root } from "./docs-helpers.js";
+import { findSection, GENERATED_DIRECTORIES, read, root } from "./docs-helpers.js";
 
 /**
  * The website (ADR-058). Its docs are generated from the repository on every
@@ -48,12 +48,22 @@ const lines = (text: string): string =>
     .map((line) => line.trim())
     .join("\n");
 
+/**
+ * What the site's install and build write, none of it committed: the generated
+ * docs, partial and images, and the site's dependencies, output and Astro cache.
+ */
+const SITE_OUTPUT: ReadonlySet<string> = new Set([
+  ...GENERATED_DIRECTORIES,
+  "site/node_modules",
+  "site/dist",
+  "site/.astro"
+]);
+
 /** Every file under a directory of the site, skipping what the build writes. */
 function siteFiles(directory: string, found: string[] = []): string[] {
   for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
     const relative = `${directory}/${entry.name}`;
-    if (["node_modules", "dist", ".astro", "generated", "images"].includes(entry.name)) continue;
-    if (relative === "site/src/content/docs/docs") continue;
+    if (SITE_OUTPUT.has(relative)) continue;
     if (entry.isDirectory()) siteFiles(relative, found);
     else found.push(relative);
   }
@@ -113,6 +123,35 @@ describe("the documents the site publishes", () => {
     }
     // The landing page's code comes from a recipe.
     expect(covered("examples/recipes/express-bullmq-hubspot/src/webhook.ts")).toBe(true);
+  });
+
+  it("never runs the site's jobs on a tag, nor lets them hold back the mirror", () => {
+    interface Job {
+      stage?: string;
+      needs?: unknown[];
+      rules?: { if?: string; when?: string }[];
+    }
+    const ci = parse(read(".gitlab-ci.yml"), { merge: true }) as Record<string, Job> & {
+      stages: string[];
+    };
+    for (const name of ["site", "pages"]) {
+      const rules = ci[name]?.rules ?? [];
+      // Rules are read in order, so the exclusion has to come before any rule
+      // that could match a tag pipeline.
+      const tag = rules.findIndex((rule) => rule.if === "$CI_COMMIT_TAG" && rule.when === "never");
+      expect(tag, `${name} has no tag exclusion`).toBeGreaterThanOrEqual(0);
+      const firstMatching = rules.findIndex((rule) => rule.when !== "never");
+      expect(tag, `${name} can match a tag before it excludes one`).toBeLessThan(firstMatching);
+    }
+    // mirror-to-github has no `needs`, so it waits for every stage before its
+    // own; the site's stage must come after it.
+    expect(ci["mirror-to-github"]?.needs).toBeUndefined();
+    const stage = (name: string): number => ci.stages.indexOf(ci[name]?.stage ?? "");
+    expect(stage("mirror-to-github")).toBeGreaterThanOrEqual(0);
+    expect(stage("site")).toBeGreaterThan(stage("mirror-to-github"));
+    expect(stage("pages")).toBeGreaterThan(stage("site"));
+    // Started at once regardless of its stage.
+    expect(ci.site?.needs).toEqual([]);
   });
 });
 
@@ -248,5 +287,17 @@ describe("the landing page", () => {
     // The mirror may be empty until its token is configured: nothing may say
     // the code is on GitHub.
     expect(prose).not.toMatch(/(code|source) (is|lives) on GitHub/i);
+  });
+
+  it("sends vulnerability reports where SECURITY.md does, and to no address it does not list", () => {
+    // MDX comments are not rendered; the TODO about the mailbox lives in one.
+    const rendered = landing.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+    const policy = read("SECURITY.md");
+    for (const address of rendered.match(/[\w.+-]+@[\w-]+\.[\w.]+/g) ?? []) {
+      expect(policy, `${address} is not in SECURITY.md`).toContain(address);
+    }
+    expect(rendered).toContain(
+      "[confidential issue on GitLab](https://gitlab.com/jojithedev/wayscribe/-/issues/new)"
+    );
   });
 });

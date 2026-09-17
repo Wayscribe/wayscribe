@@ -6,7 +6,9 @@ software there can find it.
 
 The mirror is **gated on a green pipeline**: it runs only after format, lint,
 typecheck, unit tests, integration tests, and the build have all passed on
-`main`. A broken commit never reaches GitHub.
+`main`. A broken commit never reaches GitHub. The website's `site` job is in a
+later stage than the mirror (ADR-058), so a site that fails to build does not
+hold the mirror back.
 
 ## Why this is a CI job and not GitLab's mirroring feature
 

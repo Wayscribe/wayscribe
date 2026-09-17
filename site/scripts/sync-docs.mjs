@@ -233,6 +233,17 @@ for (const partial of manifest.landing.partials) {
 }
 
 mkdirSync(IMAGES_OUT, { recursive: true });
+// Images are served flat, by file name, so two with the same name in different
+// directories would overwrite each other.
+const byName = new Map();
+for (const image of images) {
+  const name = posix.basename(image);
+  const other = byName.get(name);
+  if (other !== undefined) {
+    throw new Error(`two published images are named ${name}: ${other} and ${image}`);
+  }
+  byName.set(name, image);
+}
 for (const image of images) {
   cpSync(join(repository, image), join(IMAGES_OUT, posix.basename(image)));
 }

@@ -31,6 +31,7 @@ stages:
   - browser
   - demo
   - mirror
+  - site
   - pages
   - release
 
@@ -274,7 +275,14 @@ build:
 # reading the built pages, offline. The audit is the site's counterpart of the
 # `audit` job, which reads the root lockfile only.
 #
-# Not in merge request pipelines, which hold sdk-publish-dry-run alone.
+# Not in merge request pipelines, which hold sdk-publish-dry-run alone, and not
+# in tag pipelines: a release tag publishes the product, and the site has no
+# part in that.
+#
+# Its stage comes after `mirror`, so a site failure never holds back
+# mirror-to-github, which waits for every stage before its own. `needs: []`
+# starts it at the beginning of the pipeline anyway, so its result is not
+# delayed by the stages in between.
 .site-changes: &site-changes
   - site/**/*
   - docs/**/*
@@ -287,7 +295,8 @@ build:
   - .gitlab-ci.yml
 
 site:
-  stage: build
+  stage: site
+  needs: []
   variables:
     # Astro otherwise reports anonymous usage.
     ASTRO_TELEMETRY_DISABLED: "1"
@@ -305,6 +314,8 @@ site:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: never
+    - if: $CI_COMMIT_TAG
+      when: never
     - changes: *site-changes
   script:
     - pnpm --dir site audit --audit-level=high
@@ -315,10 +326,11 @@ site:
     expire_in: 7 days
 
 # GitLab Pages, from main only. `dependencies` rather than `needs`, so the site
-# is published only after every earlier stage has passed, not as soon as it is
-# built. The rules match `site` on main, so the job it takes the build from is
-# always in the pipeline. The custom domain and its DNS are configured by hand
-# (site/README.md).
+# is published only after every earlier stage has passed, `site` included, not
+# as soon as it is built. The rules match `site` on main, so the job it takes
+# the build from is always in the pipeline. Its branch rule cannot match a tag;
+# the tag rule says so anyway. The custom domain and its DNS are configured by
+# hand (site/README.md).
 pages:
   stage: pages
   image: alpine:3
@@ -327,6 +339,8 @@ pages:
   dependencies: ["site"]
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_COMMIT_TAG
       when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *site-changes

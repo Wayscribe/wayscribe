@@ -57,6 +57,24 @@ where the site or a published document changed, after every earlier stage has
 passed. Until the custom domain is set up, the site is at the project's GitLab
 Pages address (Deploy, Pages).
 
+### The unique domain must stay on
+
+The project uses a Pages *unique domain*, a hashed host of its own. It was
+created before the rename, so it still carries the old name:
+
+https://flight-recorder-6c0d23.gitlab.io
+
+Leave *Use unique domain* on (Deploy, Pages). The site is built to be served
+from the root of a host: every internal link, script and image is
+root-absolute (`/docs/...`, `/_astro/...`, `/images/...`). With the unique
+domain off, GitLab serves the site under a path instead,
+`https://jojithedev.gitlab.io/wayscribe/`, and every one of those links
+breaks. Turning it off would first need `base: "/wayscribe"` in
+`astro.config.mjs` and links written to respect it.
+
+Once wayscribe.dev is verified, make it the **primary domain** (Deploy, Pages),
+so the unique-domain address redirects to it rather than serving a second copy.
+
 ### Setting up wayscribe.dev
 
 Done once, by the maintainer, by hand. The domain is registered at Cloudflare.
@@ -86,9 +104,13 @@ Done once, by the maintainer, by hand. The domain is registered at Cloudflare.
 4. **Verify.** Back on the domain page, *Retry verification* until it says
    *Verified*. DNS usually takes minutes.
 5. **Turn on Let's Encrypt.** Edit the domain, enable automatic certificate
-   management, and save. Issuing can take up to an hour.
-6. **Force HTTPS.** Deploy, Pages, *Force HTTPS*, once the certificate is
-   issued.
+   management, and save. Issuing can take up to an hour. **Until it is issued,
+   wayscribe.dev is unreachable in a browser:** `.dev` is on the HSTS preload
+   list, so browsers only ever request it over HTTPS, and there is no
+   certificate to answer with. Plain HTTP is not a fallback.
+6. **Force HTTPS, and make it primary.** Deploy, Pages: *Force HTTPS*, once
+   the certificate is issued, and wayscribe.dev as the primary domain, so the
+   unique-domain address redirects to it (above). Keep *Use unique domain* on.
 7. **Optional.** Add `www.wayscribe.dev` the same way (its own verification
    `TXT`, and a `CNAME` to the same target) if it should work too.
 

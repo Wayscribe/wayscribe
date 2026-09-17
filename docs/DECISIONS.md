@@ -2823,6 +2823,9 @@ does not execute out of the images.
 
 - Two lockfiles to keep current, and the site's advisories are gated in the
   `site` job rather than in `audit`.
+- The site cannot hold back the product. `site` runs in a stage after `mirror`
+  (started at once with `needs: []`), so a failure there does not stop the
+  GitHub mirror, and it does not run on tags, so it cannot stop a release.
 - A published page must have a heading, link and image the generator
   understands; a broken one fails the `site` job rather than reaching the site.
 - `tests/rename-guard.test.ts` and `tests/docs-helpers.ts` skip the generated

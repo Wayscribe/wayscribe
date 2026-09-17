@@ -58,6 +58,13 @@ const ALLOWED_LINES: { file: string; line: RegExp }[] = [
   {
     file: "README.md",
     line: /^Wayscribe was called Flight Recorder until September 2026\.$/
+  },
+  // The project's GitLab Pages unique domain, generated before the rename. It
+  // is an address GitLab assigned, not a name this repository chose, and the
+  // site's README has to give it as it is.
+  {
+    file: "site/README.md",
+    line: /^https:\/\/flight-recorder-6c0d23\.gitlab\.io$/
   }
 ];
 
