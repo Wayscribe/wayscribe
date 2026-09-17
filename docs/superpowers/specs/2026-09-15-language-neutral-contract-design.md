@@ -19,7 +19,7 @@ schemas, `apps/api` holds the ingestion rules in code, and
 person writing a Python recorder, or a mapping from OTLP log records, has nothing
 to build against and no way to check the result.
 
-The product is also about to be renamed (probably Clewline), so every wire
+The product is also about to be renamed (to Wayscribe, decided 2026-09-17), so every wire
 identifier that carries the product name is going to change: the `x-flight-*`
 headers, the `flight*` queue attributes, the `FLIGHT_RECORDER_*` environment
 variables, the `fr_` key prefix, and the `flight_recorder_*` metric names. This
