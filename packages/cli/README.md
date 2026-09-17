@@ -73,6 +73,9 @@ flight-recorder search 0018Z00002ABC --json | jq -r '.[0].journeyId'
 
 Colour is off automatically when output is piped, and `NO_COLOR` is honoured.
 
+`flight-recorder --version` prints the CLI's version, from its own
+`package.json`, and nothing else.
+
 Exit codes: `0` success, `1` the request failed or the configuration is wrong,
 `2` the command line itself was wrong.
 

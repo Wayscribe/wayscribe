@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { ApiError, Client } from "./client.js";
 import { ConfigError, resolveConfig } from "./config.js";
@@ -26,6 +27,7 @@ Options
   --diff             event only, show the field-level diff instead of payloads
   --json             raw JSON, for scripts
   --help             this
+  --version          the version of this CLI
 
 Everything reads. Nothing here writes or deletes.`;
 
@@ -53,7 +55,8 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
         limit: { type: "string" },
         diff: { type: "boolean" },
         json: { type: "boolean" },
-        help: { type: "boolean", short: "h" }
+        help: { type: "boolean", short: "h" },
+        version: { type: "boolean" }
       }
     });
   } catch (error) {
@@ -63,6 +66,11 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
   }
 
   const [command, argument] = parsed.positionals;
+
+  if (parsed.values.version === true) {
+    io.out(version());
+    return 0;
+  }
 
   if (parsed.values.help === true || command === undefined) {
     io.out(USAGE);
@@ -129,6 +137,24 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     }
     throw error;
   }
+}
+
+/**
+ * The version in this package's own package.json.
+ *
+ * Read at run time rather than imported: the file sits outside `rootDir`, so
+ * tsc will not compile an import of it. `../package.json` is the package root
+ * from both `src/cli.ts`, under tsx and Vitest, and `dist/cli.js`, where the
+ * build puts this module, and npm packs package.json whatever `files` says.
+ */
+export function version(): string {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8")
+  ) as { version?: unknown };
+  if (typeof manifest.version !== "string") {
+    throw new Error("package.json has no version.");
+  }
+  return manifest.version;
 }
 
 function missing(shape: string, io: Io): number {
