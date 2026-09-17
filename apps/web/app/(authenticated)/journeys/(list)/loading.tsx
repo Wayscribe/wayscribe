@@ -14,7 +14,7 @@
  */
 export default function Loading() {
   return (
-    <main>
+    <main id="main">
       <p className="muted" role="status">
         Loading journeys…
       </p>

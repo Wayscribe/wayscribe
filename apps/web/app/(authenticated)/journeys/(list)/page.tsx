@@ -167,7 +167,7 @@ function Shell({
   children: ReactNode;
 }): ReactElement {
   return (
-    <main>
+    <main id="main">
       <header className="page-heading">
         <h1>Journeys</h1>
         <nav className="shortcuts" aria-label="Status shortcuts">

@@ -13,7 +13,7 @@ export default async function SearchPage({
   const query = q?.trim() ?? "";
 
   return (
-    <main>
+    <main id="main">
       {deleted === undefined ? null : (
         // Set by the delete route handler, which only ever puts an entity type
         // here. React escapes it either way.

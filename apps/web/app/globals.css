@@ -193,6 +193,21 @@ button {
   border: 0;
 }
 
+/* The first Tab on any page: above the top edge until it has focus. */
+.skip-link {
+  position: absolute;
+  top: -10rem;
+  left: 1rem;
+  z-index: 10;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.skip-link:focus {
+  top: 0.5rem;
+}
+
 /* Journeys: a plain GET form of filters, wrapping on a narrow screen. */
 .journey-filters {
   display: flex;

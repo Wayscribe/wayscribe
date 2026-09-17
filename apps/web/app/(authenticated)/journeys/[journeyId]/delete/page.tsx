@@ -35,7 +35,7 @@ export default async function DeleteJourneyPage({
     if (journey === null) notFound();
 
     return (
-      <main>
+      <main id="main">
         <p className="muted">
           <Link href={`/journeys/${encodeURIComponent(journeyId)}`}>← Back to the journey</Link>
         </p>
@@ -80,7 +80,11 @@ export default async function DeleteJourneyPage({
     );
   } catch (error) {
     if (error instanceof ApiUnavailableError) {
-      return <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>;
+      return (
+        <main id="main">
+          <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>
+        </main>
+      );
     }
     throw error;
   }

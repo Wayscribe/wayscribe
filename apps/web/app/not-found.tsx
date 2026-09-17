@@ -14,7 +14,7 @@ import { connection } from "next/server";
 export default async function NotFound() {
   await connection();
   return (
-    <main>
+    <main id="main">
       <h1>Not found</h1>
       <p className="muted">
         Nothing is recorded here. The journey or event may have been deleted, may belong to another

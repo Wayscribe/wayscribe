@@ -7,6 +7,6 @@ describe("the Journeys loading state", () => {
     render(<Loading />);
     const status = screen.getByRole("status");
     expect(status.textContent).toBe("Loading journeys…");
-    expect(status.closest("main")).not.toBeNull();
+    expect(status.closest("main")?.id).toBe("main");
   });
 });
