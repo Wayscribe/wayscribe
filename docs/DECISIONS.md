@@ -2754,8 +2754,8 @@ the rename could be a clean break.
   authenticating, because the labels and the schema did not change.
 - Everyone signed in to the interface signs in once more: the session cookie's
   name changed, and the old name is not read.
-- The GitLab project path moves to `jojithedev/wayscribe` after this change is
-  merged. GitLab redirects the old repository URL; the old registry path does
-  not redirect, so an image reference must use the new path.
+- The GitLab project path moved to `jojithedev/wayscribe` on 2026-09-17, after
+  this change was merged. GitLab redirects the old repository URL; the old
+  registry path does not redirect, so an image reference must use the new path.
 - Leadline and the other repositories that name the product, its package, its
   environment variables or its headers update to the new names.

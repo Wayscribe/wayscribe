@@ -47,7 +47,7 @@ the new one for each. There are no aliases: the old names are not read.
 | Helm chart | `deploy/helm/flight-recorder`, example release `fr` | `deploy/helm/wayscribe`, example release `ws` |
 | Compose project and network | `flight-recorder`, `flight-recorder_default` | `wayscribe`, `wayscribe_default` |
 | Local database user, password and name | `flight` | `wayscribe` |
-| GitLab project, after merge | `jojithedev/flight-recorder` | `jojithedev/wayscribe` |
+| GitLab project (moved 2026-09-17) | `jojithedev/flight-recorder` | `jojithedev/wayscribe` |
 
 What keeps working:
 
