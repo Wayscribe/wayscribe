@@ -9,7 +9,7 @@ import {
 } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
 import { buildApp } from "./app.js";
 import { checkKeysAtBoot } from "./key-warnings.js";
 
@@ -37,7 +37,7 @@ describe("key warnings", () => {
   const apps: FastifyInstance[] = [];
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectId = await insertReturningId(db, "projects", { name: "P", slug: "p" });

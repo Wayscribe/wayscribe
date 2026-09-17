@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { formatDoctor } from "./doctor.js";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig } from "./knex-config.js";
@@ -28,7 +28,7 @@ describe("doctor's secret-name sample", () => {
   let db: Knex;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 
@@ -210,7 +210,7 @@ describe("doctor's secret-name sample across a large installation", () => {
   const environmentNames: string[] = [];
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

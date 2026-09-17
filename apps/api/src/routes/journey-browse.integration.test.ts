@@ -3,7 +3,7 @@ import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
 import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { buildApp } from "../app.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -38,7 +38,7 @@ describe("GET /v1/journeys browse filters", () => {
   let since: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

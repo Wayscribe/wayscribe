@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { createKeyring, searchTokens } from "@flight-recorder/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig } from "./knex-config.js";
 import { createDestination } from "./repositories/replay.js";
@@ -60,7 +60,7 @@ describe("deletion CLI", () => {
     });
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectId = await insertReturningId(db, "projects", { name: "Acme", slug: "acme" });

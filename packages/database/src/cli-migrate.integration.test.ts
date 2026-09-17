@@ -2,7 +2,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { createKnexConfig } from "./knex-config.js";
 import { pendingMigrationCount } from "./migration-status.js";
 
@@ -39,7 +39,7 @@ describe("the migrate commands", () => {
     });
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
   });

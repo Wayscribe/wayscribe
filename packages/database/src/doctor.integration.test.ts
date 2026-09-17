@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { createKeyring, encryptValue, searchTokens } from "@flight-recorder/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig } from "./knex-config.js";
 import { issueKey, revokeKey } from "./repositories/key-admin.js";
@@ -109,7 +109,7 @@ describe("doctor", () => {
   let revokedKey = "";
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine")
+    container = await new PostgreSqlContainer(inject("postgresImage"))
       .withPassword(DB_PASSWORD)
       .start();
 

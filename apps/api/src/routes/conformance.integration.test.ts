@@ -11,7 +11,7 @@ import {
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { buildApp } from "../app.js";
 
 /**
@@ -54,7 +54,7 @@ describe("wire conformance cases", () => {
   const cases = loadConformanceCases(wireDirectory);
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     const options = { db, keyring, adminToken: "admin-token-for-tests-0000000000" } as const;

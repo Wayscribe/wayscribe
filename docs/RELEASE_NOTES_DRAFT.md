@@ -136,8 +136,9 @@ release will not.
 ## Requirements
 
 - **Node 22.12 or later** for the SDK. The package is ESM, and `require()` works
-  on those versions.
-- **PostgreSQL 15 or later.** CI tests 17, and `doctor` warns below it.
+  on those versions; CI checks both on 22.12.0 and 24.
+- **PostgreSQL 15 or later.** CI runs the integration suite on 15, 17 and 18,
+  and `doctor` warns only on a release newer than 18.
 - **Docker with Compose** to run the stack. Images are built for `linux/amd64`
   and `linux/arm64`.
 - **The Helm chart** has been installed, upgraded and used on kind. It is meant

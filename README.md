@@ -167,6 +167,23 @@ read; start from an empty database with `down -v` first if that matters. The
 API logs a warning at every boot while the published development defaults are
 still in use.
 
+## Supported versions
+
+Each row says what is supported and what CI actually runs, which are not always
+the same thing. `tests/supported-versions.test.ts` fails when this table
+disagrees with `.gitlab-ci.yml` or with the `engines` fields.
+
+| Component | Supported | What CI tests |
+| --- | --- | --- |
+| Node.js for the SDK and the CLI | 22.12 or later | 22.12.0 and 24: the SDK's build and unit tests, the CLI's unit tests, and `import` and `require()` of the packed SDK tarball in fresh projects (`sdk-node`) |
+| Node.js for running from a clone | 24 | 24: every other job runs on `node:24` or `node:24-alpine` |
+| PostgreSQL | 15 or later | 15, 17 and 18: the whole integration suite, migrations included (`database`). 16 is not run; it lies between two releases that are |
+| Docker Compose | 2.24 or later | not pinned: the manual `demo` job and the release gate use Alpine's current `docker-cli-compose`. 2.24 is the oldest Compose that reads `env_file` with `required: false`, which the Compose files use |
+| Container images | linux/amd64, linux/arm64 | the runner's own architecture only: `container-scan` builds and scans both images on default-branch pipelines. Releases build both platforms; the arm64 images are not run in CI |
+
+`doctor` fails on PostgreSQL older than 15 and warns on a release newer than
+the newest one CI tests.
+
 ---
 
 ## Instrument your own service

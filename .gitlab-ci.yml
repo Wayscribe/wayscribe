@@ -204,6 +204,37 @@ unit:
   script:
     - pnpm test
 
+# The SDK on every Node it claims. packages/sdk-node declares
+# `engines.node >=22.12.0` and says both `import` and `require()` work there,
+# while the rest of this pipeline runs Node 24 alone. For each version this
+# builds the SDK, runs its and the CLI's unit tests, and installs the packed
+# release tarball into an ESM project and a CommonJS project that each create a
+# recorder and call a wrapper (scripts/sdk-node-versions.sh).
+#
+# 22.12.0 exactly, the floor, rather than the newest 22: a `require()` of an ES
+# module first works unflagged in 22.12. It is not the job's image, because
+# pnpm 11 needs 22.13 and the dependencies could not be installed on 22.12. The
+# job installs on Node 24 and the script runs the SDK on the official 22.12.0
+# build, checked against nodejs.org's SHA-256. Debian rather than Alpine for
+# that reason too: nodejs.org's Linux builds are for glibc.
+#
+# `SDK_NODE_VERSION` and the README's "Supported versions" table are checked
+# against each other by tests/supported-versions.test.ts.
+sdk-node:
+  stage: test
+  image: node:24
+  timeout: 15m
+  parallel:
+    matrix:
+      - SDK_NODE_VERSION: ["22.12.0", "24"]
+  script:
+    - scripts/sdk-node-versions.sh "$SDK_NODE_VERSION"
+
+# Once per PostgreSQL release docs/OPERATIONS.md supports and CI tests: 15, the
+# oldest, 17, which Compose and the Helm chart run, and 18, the newest. 16 is
+# between two tested releases and is not run. vitest.integration.config.ts reads
+# TEST_POSTGRES_VERSION and nothing else does; a schema test fails if the
+# server that started is not that version.
 database:
   stage: integration
   # Full node image, not Alpine: Testcontainers needs a Docker client, and this
@@ -215,6 +246,9 @@ database:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
     TESTCONTAINERS_HOST_OVERRIDE: docker
+  parallel:
+    matrix:
+      - TEST_POSTGRES_VERSION: ["15", "17", "18"]
   script:
     - pnpm test:integration
 
@@ -311,6 +345,9 @@ container-scan:
     # built image, and adding a docker build to every push is a worse trade than
     # catching a regression at merge.
     - ./scripts/verify-image-contents.sh scan/api:$CI_COMMIT_SHA
+    # The web image gets the checks that apply to a Next standalone bundle:
+    # the legal files and its entry point.
+    - ./scripts/verify-image-contents.sh scan/web:$CI_COMMIT_SHA web
     - |
       for image in scan/api:$CI_COMMIT_SHA scan/web:$CI_COMMIT_SHA; do
         echo "=== $image ==="

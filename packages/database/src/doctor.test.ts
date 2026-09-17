@@ -120,11 +120,26 @@ describe("scrubbing secrets from results", () => {
 });
 
 describe("versionResult", () => {
-  it("fails below 15, warns below 17, and passes on 17 and later", () => {
+  it("fails below 15, passes from 15 to 18, and warns above 18, the newest CI tests", () => {
     expect(versionResult({ num: 140_011, text: "14.11" }).status).toBe("FAIL");
-    expect(versionResult({ num: 150_000, text: "15.0" }).status).toBe("WARN");
-    expect(versionResult({ num: 160_004, text: "16.4" }).status).toBe("WARN");
+    expect(versionResult({ num: 150_000, text: "15.0" }).status).toBe("PASS");
+    expect(versionResult({ num: 160_004, text: "16.4" }).status).toBe("PASS");
     expect(versionResult({ num: 170_006, text: "17.6" }).status).toBe("PASS");
     expect(versionResult({ num: 180_000, text: "18.0" }).status).toBe("PASS");
+    expect(versionResult({ num: 180_099, text: "18.99" }).status).toBe("PASS");
+    expect(versionResult({ num: 190_000, text: "19beta1" }).status).toBe("WARN");
+  });
+
+  it("names the tested releases in its advice", () => {
+    expect(versionResult({ num: 140_011, text: "14.11" })).toMatchObject({
+      detail: "PostgreSQL 14.11 is older than 15, the oldest supported.",
+      fix: "Upgrade PostgreSQL to 15 or later; CI tests 15, 17 and 18."
+    });
+    expect(versionResult({ num: 190_001, text: "19.1" })).toMatchObject({
+      detail: "PostgreSQL 19.1 is newer than 18, the newest release CI tests."
+    });
+    expect(versionResult({ num: 160_004, text: "16.4" })).toMatchObject({
+      detail: "PostgreSQL 16.4."
+    });
   });
 });
