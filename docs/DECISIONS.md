@@ -1880,6 +1880,11 @@ is of the event as received, which is not stored.
 ## ADR-049: The contract is the deliverable, and a second SDK waits for a team that needs one
 
 **Status:** Accepted. Amends the wording of ADR-010 on OTLP ingestion, not its principle.
+ADR-059 supersedes one condition of this one: a second native SDK no longer waits for a team
+that needs one, because Python is next after the first release. The condition was waiting for
+the contract this decision published, and the rest of this decision stands, including that any
+second SDK is built against `docs/SDK_SPEC.md` and passes the conformance fixtures. The title
+is left as it was written.
 
 ### Context
 
@@ -2831,3 +2836,90 @@ does not execute out of the images.
 - `tests/rename-guard.test.ts` and `tests/docs-helpers.ts` skip the generated
   directories, since they hold copies of files the tests already read at their
   source.
+
+---
+
+## ADR-059: Python is the next SDK
+
+**Status:** Accepted, 2026-09-17. Supersedes one condition of ADR-049, that a
+second native SDK waits for a team that needs one. The rest of ADR-049, which
+makes the contract the deliverable, stands and is what makes this decision a
+cheap one.
+
+### Context
+
+ADR-049 said a second native SDK waits for a pilot team that needs one, and it
+said why. At the time the contract existed only as TypeScript, so a second
+recorder would have meant designing the contract and building the recorder in
+the same breath. That decision named what had to come first, and all of it now
+exists: `docs/SDK_SPEC.md` states the requirements in a language-neutral form,
+JSON Schema is generated from the Zod schemas and checked for drift,
+`docs/INGESTION_CONTRACT.md` is normative for the wire, the conformance
+fixtures under `packages/protocol/conformance/` are runnable by any
+implementation, and the dry run (ADR-050) lets them run against a real server
+without leaving rows behind. The condition ADR-049 set has been met.
+
+Waiting for a request also has a cost that is easy to miss. This tool is for
+integration and pipeline code, and most of that is written in Python. A team
+evaluating Wayscribe for a Python worker finds an HTTP contract and no
+recorder, which is a harder first fifteen minutes than
+`docs/PRODUCT_PRINCIPLES.md` promises. "Wait for a team to ask" is a reasonable
+rule while a second SDK means a second design, and a poor one once the design
+is published.
+
+### Decision
+
+After the first release, the order of recorder work is:
+
+1. **A Python SDK.** Built against `docs/SDK_SPEC.md` rather than against the
+   Node SDK's source, and not done until it passes the conformance fixtures
+   through the dry run. Python is where most of the pipelines, workers and
+   integrations this tool is for are written, which makes it the highest-value
+   second recorder rather than the one that happened to be asked for first.
+2. **OpenTelemetry log records over OTLP HTTP**, the optional ingestion path
+   ADR-049 planned and ADR-010 permits. It covers the languages that have no
+   native recorder.
+3. **Further languages, by pilot demand.** Past Python there is no ranking
+   worth guessing at, so ADR-049's rule stays in force for them.
+
+The Python SDK is dogfooded rather than demonstrated: a Python service is added
+to the Leadline project and recorded with it, the way the Node SDK was.
+
+This work comes after the first release, not before it. Nothing here adds a
+package to the first published set or moves a release date.
+
+### Alternatives rejected
+
+- **Leaving ADR-049's condition in force.** It was written when the contract
+  was the expensive part, and the expensive part is now done. Leaving it would
+  tell the next reader of `AGENTS.md` that a Python SDK needs a pilot team
+  first, which is the contradiction this decision exists to remove.
+- **Python before the first release.** A second recorder is a second thing that
+  can be wrong in public. ADR-056 settled the Node SDK's surface for release
+  and ADR-057 renamed the product; adding an unproven SDK to that release buys
+  nothing and risks it.
+- **OTLP ingest first.** It reaches more languages for the same work, but it
+  hands a Python team a mapping rather than a recorder, and the pairing of
+  input and output that the payload diff depends on is a convention in OTLP
+  rather than something an SDK enforces. Python first, OTLP second.
+- **Generating a Python SDK from the Node one.** The two languages do not line
+  up, and a generated recorder would follow the Node SDK's shape rather than
+  `docs/SDK_SPEC.md`, which is the document a third implementation has to be
+  able to trust.
+
+### Consequences
+
+- `AGENTS.md`'s do-not-add list no longer bans a Python SDK. A native SDK in
+  another language still needs a decision of its own; Python's is this one.
+- `docs/ROADMAP.md` and `docs/FAQ.md` already said Python is next (dca7012).
+  They now have an accepted decision behind them, which is what the
+  source-of-truth order in `AGENTS.md` requires of them.
+- ADR-049's other rulings are untouched. The contract is still the deliverable,
+  a second SDK is still built against `docs/SDK_SPEC.md`, and it is still not
+  done until the conformance fixtures pass through the dry run.
+- `docs/SDK_SPEC.md` gains a second reader, so a requirement that is ambiguous
+  will be found rather than guessed at. Anything the specification cannot
+  answer is a defect in the specification and is fixed there, not worked around
+  in the Python package.
+- The recorder surface to maintain doubles: two packages to release, two
+  conformance runs, and two README pages that can drift from the specification.

@@ -506,6 +506,14 @@ input is `409 no_captured_input`, and a disabled destination is
 A missing body, a field that is not a string, a `destinationId` that is not a
 uuid, or a null byte in `eventId` or `path` is `400` `invalid_request`.
 
+Unknown keys in the body are ignored, not refused. The parser reads `eventId`,
+`destinationId`, `method` and `path`, and any other key is dropped without a
+warning, so a body carrying `payload` or `headers` gets an ordinary replay of
+the recorded input and no sign that those fields meant nothing. This is not a
+promise of symmetry with ingestion. Ingestion also accepts and drops an unknown
+field, but there it is a decided rule that makes an additive optional field a
+compatible change (ADR-049), and here it is only what this parser does today.
+
 ## 13. Get replay
 
 ```http

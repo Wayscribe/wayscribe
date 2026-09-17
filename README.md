@@ -343,8 +343,9 @@ Several open-source tools do part of it:
 
 Convoy, Bemi and n8n come close to parts of this and are source-available
 rather than OSI open source. Commercial tools such as Nodinite, Turbo360,
-Particular ServicePulse and Dynatrace Business Flow do this job on their own
-platforms, which shows teams pay for it.
+Particular ServicePulse, Dynatrace Business Flow and the hosted tracing
+backends, Honeycomb among them, do this job on their own platforms, which shows
+teams pay for it.
 
 [docs/ALTERNATIVES.md](docs/ALTERNATIVES.md) has the licence, the overlap and
 the gap for each, with a source and the date it was checked. If a tool does all
@@ -389,7 +390,7 @@ service**: no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md): 58 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md): 59 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -626,7 +627,7 @@ site/                   wayscribe.dev: the landing page, and these docs rendered
 
 AI agents write most of the code in this repository. Jorge, the owner, makes the
 decisions, and each one is recorded with its reasoning in
-[the decision log](docs/DECISIONS.md), which holds 58 ADRs.
+[the decision log](docs/DECISIONS.md), which holds 59 ADRs.
 [What running it found](docs/WHAT_RUNNING_IT_FOUND.md) lists the defects the
 agents' tests missed and running the software found, and what changed in the
 testing because of them.

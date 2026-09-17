@@ -222,16 +222,45 @@ describe("the documentation's checkable claims", () => {
   it("keeps the pre-implementation documents marked as such", () => {
     // They predate every ADR and describe an install premise ADR-037 inverted.
     // They are kept for provenance, which only works if a reader is told.
+    //
+    // REPLAY_SPEC is here because its section 6 specified a request shape the
+    // server never accepted: `payload` and `headers` the caller supplies. A
+    // reader took it for a contract, which is what an unmarked plan invites.
     for (const file of [
       "docs/PRODUCT_SPEC.md",
       "docs/ARCHITECTURE.md",
       "docs/IMPLEMENTATION_PLAN.md",
-      "docs/PRODUCT_PRINCIPLES.md"
+      "docs/PRODUCT_PRINCIPLES.md",
+      "docs/REPLAY_SPEC.md"
     ]) {
       expect(read(file), `${file} lost its provenance note`).toContain(
         "Written before implementation"
       );
     }
+  });
+
+  it("specifies the replay request with the fields the route actually reads", () => {
+    // REPLAY_SPEC section 6 specified `payload` and `headers` the caller
+    // supplies. The route has never read either: it sends the stored input of
+    // the event, with the destination's headers. A reader who built to the
+    // document would have written fields the server silently drops, because
+    // parseReplayRequest ignores unknown keys.
+    const declared = [
+      ...read("apps/api/src/routes/replays.ts").matchAll(
+        /interface ReplayRequest \{([\s\S]*?)\n\}/g
+      )
+    ].flatMap((match) => [...(match[1] ?? "").matchAll(/^\s*(\w+)[?:]/gm)].map((f) => f[1]));
+    expect(declared, "replays.ts no longer declares a ReplayRequest interface").toEqual([
+      "eventId",
+      "destinationId",
+      "method",
+      "path"
+    ]);
+
+    const documented = [
+      ...section(read("docs/REPLAY_SPEC.md"), "6. Replay request").matchAll(/^\s*(\w+)\??: /gm)
+    ].map((match) => match[1]);
+    expect(documented, "REPLAY_SPEC section 6 does not list the route's fields").toEqual(declared);
   });
 
   describe("GET /v1/journeys in API_SPEC.md", () => {
