@@ -6,8 +6,10 @@ import { afterEach, vi } from "vitest";
 afterEach(cleanup);
 
 // `next/link` wants the app router context and warns without it. The components
-// under test only need an anchor with the right href.
+// under test only need an anchor with the right href. `useLinkStatus` is idle
+// unless a test says otherwise with `vi.mocked(useLinkStatus)`.
 vi.mock("next/link", () => ({
+  useLinkStatus: vi.fn(() => ({ pending: false })),
   default: ({
     href,
     children,

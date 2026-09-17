@@ -1,0 +1,150 @@
+import { expect, test, type Page, type Route } from "@playwright/test";
+import { API_KEY, API_URL, signIn } from "./session";
+
+/**
+ * Search and the Journeys list work with JavaScript off, and answer with real
+ * status codes; with JavaScript on, they say when they are loading.
+ *
+ * The pages are rendered in full before they are sent. A loading.tsx or a
+ * Suspense boundary around their data would stream them instead: the content
+ * then arrives in a hidden container that only a script reveals, so with
+ * JavaScript off the page says "Loading" forever, and the status is committed
+ * as 200 before a redirect or a not-found is decided. Loading feedback comes
+ * from client components instead (PendingForm, LinkPending).
+ *
+ * Stamped per run rather than versioned, because the list only shows recent
+ * activity, so the event must be new each time.
+ */
+const RUN = Date.now().toString(36);
+const SERVICE = `e2e-nojs-${RUN}`;
+const JOURNEY_ID = `jrn_e2e_nojs_${RUN}`;
+const ENTITY_ID = `E2E-NOJS-${RUN}`;
+const LABEL = `No-JS journey ${RUN}`;
+
+async function seed(): Promise<void> {
+  const id = `evt_nojs_${RUN}`;
+  const response = await fetch(`${API_URL}/v1/events`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      protocolVersion: "0.1",
+      event: {
+        id,
+        journeyId: JOURNEY_ID,
+        environment: "development",
+        service: SERVICE,
+        entity: { type: "customer", id: ENTITY_ID },
+        operation: "failed",
+        name: "sync-customer",
+        timestamp: new Date().toISOString(),
+        journeyLabel: LABEL
+      }
+    })
+  });
+  expect(response.ok, `seeding ${id} answered ${String(response.status)}`).toBe(true);
+}
+
+test.beforeAll(seed);
+
+test.describe("with JavaScript disabled", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("the Journeys filters submit and list the journey", async ({ page }) => {
+    await signIn(page, JOURNEY_ID);
+    await page.goto("/journeys");
+    await page.getByLabel("Service").fill(SERVICE);
+    await page.getByRole("button", { name: "Show" }).click();
+
+    await expect(page).toHaveURL(new RegExp(`[?&]service=${SERVICE}(&|$)`));
+    await expect(page.getByRole("link", { name: LABEL })).toBeVisible();
+    await expect(page.locator("main")).toHaveCount(1);
+    await expect(page.getByText("Loading journeys…")).toHaveCount(0);
+  });
+
+  test("search submits and finds the journey", async ({ page }) => {
+    await signIn(page, JOURNEY_ID);
+    await page.getByRole("textbox", { name: "Search" }).fill(ENTITY_ID);
+    await page.getByRole("button", { name: "Search" }).click();
+
+    await expect(page).toHaveURL(`/?q=${ENTITY_ID}`);
+    await expect(page.getByRole("link", { name: `customer: ${ENTITY_ID}` })).toBeVisible();
+    await expect(page.locator("main")).toHaveCount(1);
+    await expect(page.getByText("Searching…")).toHaveCount(0);
+  });
+
+  test("a missing journey still answers 404", async ({ page }) => {
+    await signIn(page, JOURNEY_ID);
+    const response = await page.goto(`/journeys/jrn_nojs_missing_${RUN}`);
+    expect(response?.status()).toBe(404);
+    // The status only. The not-found page awaits `connection()` for its nonce,
+    // so Next streams its body, and without JavaScript the body stays hidden.
+    // That predates the loading work.
+  });
+});
+
+test("the Journeys page drops empty filters with a real 307", async ({ page }) => {
+  await signIn(page, JOURNEY_ID);
+  const response = await page.request.get("/journeys?status=&service=", { maxRedirects: 0 });
+  expect(response.status()).toBe(307);
+  expect(response.headers()["location"]).toBe("/journeys");
+});
+
+/**
+ * With JavaScript, the same pages say they are loading. The next response is
+ * held back so the feedback has time to be seen.
+ */
+test.describe("with JavaScript", () => {
+  const HOLD_MS = 1500;
+  const hold = async (route: Route): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, HOLD_MS));
+    await route.continue();
+  };
+  /** Before hydration an element is only HTML and gives no feedback, correctly. */
+  const hydrated = async (page: Page, selector: string): Promise<void> => {
+    await expect
+      .poll(() =>
+        page.evaluate((css) => {
+          const element = document.querySelector(css);
+          return (
+            element !== null && Object.keys(element).some((key) => key.startsWith("__reactProps"))
+          );
+        }, selector)
+      )
+      .toBe(true);
+  };
+
+  test("a sent search says so and marks its button busy", async ({ page }) => {
+    await signIn(page, JOURNEY_ID);
+    await page.route((url) => url.pathname === "/" && url.searchParams.has("q"), hold);
+    await page.getByRole("textbox", { name: "Search" }).fill(ENTITY_ID);
+    await hydrated(page, "form.search-row");
+
+    // Clicked and read in one step: Playwright's own actions and assertions
+    // wait for the held navigation to finish, by which time the old page, and
+    // its feedback, are gone. The held response keeps the old page up here.
+    const sent = await page.evaluate(async () => {
+      document.querySelector<HTMLButtonElement>("form.search-row button")?.click();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return {
+        status: document.querySelector("[role=status].pending-status")?.textContent,
+        busy: document.querySelector("form.search-row button")?.getAttribute("aria-busy")
+      };
+    });
+    expect(sent).toEqual({ status: "Searching…", busy: "true" });
+
+    await expect(page).toHaveURL(`/?q=${ENTITY_ID}`);
+    await expect(page.getByRole("link", { name: `customer: ${ENTITY_ID}` })).toBeVisible();
+  });
+
+  test("a followed nav link shows a marker until the page arrives", async ({ page }) => {
+    await signIn(page, JOURNEY_ID);
+    await page.route((url) => url.pathname === "/journeys", hold);
+    await hydrated(page, '.site-nav a[href="/journeys"]');
+    const nav = page.getByRole("navigation", { name: "Main" });
+    await nav.getByRole("link", { name: "Journeys" }).click();
+
+    await expect(nav.locator(".link-pending")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Journeys" })).toBeVisible();
+    await expect(nav.locator(".link-pending")).toHaveCount(0);
+  });
+});

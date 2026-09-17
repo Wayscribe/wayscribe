@@ -12,7 +12,7 @@ export default async function LoginPage({
         : null;
 
   return (
-    <main className="centered">
+    <main id="main" className="centered">
       <h1>Flight Recorder</h1>
       <p className="muted">
         Sign in with the <code>ADMIN_TOKEN</code> this installation was started with.

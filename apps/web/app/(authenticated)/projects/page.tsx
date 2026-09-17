@@ -22,7 +22,7 @@ export default async function ProjectsPage({
   } catch (error) {
     if (error instanceof ApiUnavailableError) {
       return (
-        <main>
+        <main id="main">
           <h1>Choose a project</h1>
           <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>
         </main>
@@ -33,7 +33,7 @@ export default async function ProjectsPage({
 
   if (projects.length === 0) {
     return (
-      <main>
+      <main id="main">
         <h1>No projects yet</h1>
         <p className="muted">
           Nothing has been created in this installation. Create a project, then issue it an API key,
@@ -50,7 +50,7 @@ export default async function ProjectsPage({
   }
 
   return (
-    <main>
+    <main id="main">
       <h1>Choose a project</h1>
       <p className="muted">
         This installation has more than one project. Pick the one you want to search; you can change

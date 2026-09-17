@@ -21,7 +21,7 @@ export default function Error({
   reset: () => void;
 }) {
   return (
-    <main>
+    <main id="main">
       <h1>Something went wrong</h1>
       <p className="muted">
         This page could not be loaded. The most common cause is the Flight Recorder API not being

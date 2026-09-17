@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactElement } from "react";
 import type { SearchItem } from "../../src/lib/api";
+import { LinkPending } from "./LinkPending";
 
 /**
  * One search result.
@@ -12,6 +13,7 @@ export function JourneyListItem({ item }: { item: SearchItem }): ReactElement {
   return (
     <li>
       <Link href={`/journeys/${encodeURIComponent(item.journeyId)}`} className="mono">
+        <LinkPending />
         {item.entity.type}: {item.entity.id ?? "—"}
       </Link>
       <span className={item.status === "failed" ? "status failed" : "status"}>{item.status}</span>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ApiUnavailableError, ProjectNotSelectedError, search } from "../../src/lib/api";
 import { requireProjectId } from "../../src/lib/current-project";
 import { JourneyListItem } from "../components/JourneyListItem";
+import { PendingForm, PendingSubmit } from "../components/PendingForm";
 
 export default async function SearchPage({
   searchParams
@@ -12,7 +13,7 @@ export default async function SearchPage({
   const query = q?.trim() ?? "";
 
   return (
-    <main>
+    <main id="main">
       {deleted === undefined ? null : (
         // Set by the delete route handler, which only ever puts an entity type
         // here. React escapes it either way.
@@ -30,10 +31,11 @@ export default async function SearchPage({
         ID. You do not need to know which system it came from.
       </p>
 
-      <form method="get" className="search-row">
+      {/* A plain GET form; with JavaScript it also says a search is under way. */}
+      <PendingForm method="get" className="search-row" pendingMessage="Searching…">
         <input name="q" defaultValue={query} placeholder="0018Z00002ABC" aria-label="Search" />
-        <button type="submit">Search</button>
-      </form>
+        <PendingSubmit>Search</PendingSubmit>
+      </PendingForm>
 
       {query === "" ? (
         <p className="muted">Enter an identifier above to begin.</p>

@@ -24,6 +24,7 @@ import {
   type JourneyFilters
 } from "../../../src/lib/journey-filters";
 import { JourneyFilterBar } from "../../components/JourneyFilterBar";
+import { LinkPending } from "../../components/LinkPending";
 import { JourneyTable } from "../../components/JourneyTable";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -34,6 +35,12 @@ type SearchParams = Record<string, string | string[] | undefined>;
  * The Recent page grew into this one; `/recent` redirects here.
  *
  * Rendered on the server from the URL alone, so a filtered view is a link.
+ *
+ * Deliberately not streamed: no loading.tsx and no Suspense around the data.
+ * The page has to work without JavaScript, and a streamed page reveals its
+ * content with a script; streaming also turns this page's redirects into a
+ * 200 and a meta refresh. Pending feedback comes from the form and the row
+ * links instead (`PendingForm`, `LinkPending`), and only with JavaScript.
  */
 export default async function JourneysPage({
   searchParams
@@ -144,7 +151,10 @@ export default async function JourneysPage({
           {page.nextCursor === null ? null : (
             <>
               Showing {page.items.length} journeys.{" "}
-              <Link href={nextPageHref(filters, page.nextCursor)}>Next page</Link>
+              <Link href={nextPageHref(filters, page.nextCursor)}>
+                Next page
+                <LinkPending />
+              </Link>
             </>
           )}{" "}
           {filters.cursor === "" ? null : (
@@ -164,7 +174,7 @@ function Shell({
   children: ReactNode;
 }): ReactElement {
   return (
-    <main>
+    <main id="main">
       <header className="page-heading">
         <h1>Journeys</h1>
         <nav className="shortcuts" aria-label="Status shortcuts">

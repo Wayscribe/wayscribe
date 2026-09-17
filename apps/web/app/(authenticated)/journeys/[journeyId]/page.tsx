@@ -40,7 +40,7 @@ export default async function JourneyPage({
     const active = activeId === null ? null : await getEvent(activeId, projectId);
 
     return (
-      <main>
+      <main id="main">
         <p className="muted">
           <Link href={back.href}>← {back.label}</Link>
         </p>
@@ -73,7 +73,11 @@ export default async function JourneyPage({
     );
   } catch (error) {
     if (error instanceof ApiUnavailableError) {
-      return <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>;
+      return (
+        <main id="main">
+          <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>
+        </main>
+      );
     }
     throw error;
   }
