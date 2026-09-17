@@ -1,0 +1,234 @@
+---
+title: Follow one record across your services
+description: Self-hosted, record-level debugging. Follow one customer record across your services and see which step changed its data.
+template: splash
+editUrl: false
+banner:
+  content: |
+    0.x preview. It runs from a clone today; the npm package and the container images are not published yet.
+hero:
+  title: A customer's record is wrong, and you can't tell which service changed it.
+  tagline: Wayscribe follows one record across your services, shows what each step received and what it produced, and points at the field that changed. It is free, self-hosted, and runs on your own PostgreSQL.
+  actions:
+    - text: Try it in a minute
+      link: "#try-it-in-a-minute"
+      icon: right-arrow
+    - text: Read the docs
+      link: /docs/quick-start/
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+import { Content as Alternatives } from "../../generated/alternatives.md";
+
+## What it does
+
+Search a customer, order or invoice ID, or any other identifier the record
+answers to, and get that record's history in order, across every service that
+touched it. Open a step and see what it received next to what it produced, field
+by field.
+
+<figure class="shot">
+  <img
+    src="/images/timeline.png"
+    width="2560"
+    height="1800"
+    loading="lazy"
+    alt="The journey of customer 0018Z00002ABC: ten events across demo-integration and demo-worker, from receive-salesforce-webhook to move-message-to-dead-letter, with the first step's recorded input open beside the timeline."
+  />
+  <figcaption>
+    One record's journey in the demo: ten steps across two services, ending in
+    the dead-letter queue.
+  </figcaption>
+</figure>
+
+<figure class="shot">
+  <img
+    src="/images/diff.png"
+    width="2560"
+    height="1800"
+    loading="lazy"
+    alt="The transform-salesforce-account step open, with a What changed table: Phone went in as +1 919 555 1234 and phone came out null, while the other fields arrived with their values."
+  />
+  <figcaption>
+    The transformation step: `Phone` went in with a value and `phone` came out
+    `null`. That pair is the bug, a mapping that reads `Phone__c`.
+  </figcaption>
+</figure>
+
+Then replay that step's recorded input against your corrected code in
+development, and compare the result with the original.
+
+## How it differs
+
+<CardGrid>
+  <Card title="Follows records, not requests" icon="magnifier">
+    You search by a business ID. One record is a Salesforce ID in one service,
+    an internal ID in another and a queue message ID in between; search any of
+    them and you get the same journey. Tracing finds a request by its trace ID.
+  </Card>
+  <Card title="Shows the field that changed" icon="document">
+    Each step records what it received and what it produced. The diff is
+    structural, a path with its value before and after, so a renamed field and a
+    lost value both show.
+  </Card>
+  <Card title="Replays a step against development" icon="random">
+    Rerun a step's recorded input against a development destination on an
+    allowlist, and compare the new result with the recorded one. Replay to
+    production is not supported.
+  </Card>
+  <Card title="Runs on your own PostgreSQL" icon="database">
+    PostgreSQL is the only required backing service. No Kafka, no
+    Elasticsearch, no agent, no workflow engine to move your code onto. The SDK
+    wraps the code you already have.
+  </Card>
+</CardGrid>
+
+It is not a replacement for OpenTelemetry. When OpenTelemetry is present, the
+SDK reads the active trace and span IDs onto each event, so you can move
+between the two.
+
+### The claim, and the neighbours
+
+<Alternatives />
+
+<LinkCard
+  title="Alternatives, in full"
+  description="Each tool's licence, overlap and gap, with a source and the date it was checked (16 September 2026)."
+  href="/docs/alternatives/"
+/>
+
+## Try it in a minute
+
+You need Docker with Compose. Nothing else: no Node, no database, no account.
+
+```bash
+git clone https://gitlab.com/jojithedev/wayscribe.git && cd wayscribe
+```
+
+```bash
+docker compose -f infrastructure/compose.yaml \
+               -f infrastructure/compose.demo.yaml up --build
+```
+
+That builds the images and starts the API, the interface, PostgreSQL, a queue,
+and four demo services with a broken integration to investigate. Measured on
+2026-09-14 from a fresh clone on a laptop with no Docker layer cache, the build
+took 38 seconds and the boot 12; the first run also downloads the base images.
+
+Then start a journey:
+
+```bash
+curl -X POST http://localhost:3100/trigger
+```
+
+Open `http://localhost:3000`, sign in with the development admin token,
+`replace-for-local-development-0000`, and search `0018Z00002ABC`. Set your own
+token and encryption key before the stack holds anything real; the
+[quick start](/docs/quick-start/#try-it) shows how.
+
+## Instrument a service
+
+The Node SDK, `@wayscribe/node`, is **not published on npm yet**. Until it is,
+pack it from a clone of the repository, commit the tarball to your application,
+and install it by path:
+
+```bash
+pnpm install
+pnpm --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
+cd /path/to/your-app
+npm install ./vendor/wayscribe-node-0.1.0.tgz
+```
+
+One recorder per process:
+
+```typescript
+return createRecorder({
+  endpoint: process.env.WAYSCRIBE_URL ?? "http://localhost:8080",
+  apiKey: process.env.WAYSCRIBE_API_KEY ?? "",
+  serviceName,
+  // Must be the environment the API key was issued for.
+  environment: process.env.WAYSCRIBE_ENVIRONMENT ?? "development",
+  // Leads carry personal data. Keep the fields, replace their values.
+  redact: ["**.email", "**.phone"],
+  // Prints `delivered_first`, or why nothing arrives. Off once it sends.
+  logDiagnostics: process.env.NODE_ENV !== "production"
+});
+```
+
+Then, in a webhook handler, a journey per record and a wrapper per step:
+
+```typescript
+// The entity is what someone will search for: the form provider's lead id.
+const journey = recorder.startJourney({ entity: { type: "lead", id: leadId } });
+journey.record({ operation: "received", name: "receive-lead-webhook", input: request.body });
+
+let lead: Lead;
+try {
+  // Records the body going in and the lead coming out, and the diff between.
+  lead = journey.transform("normalize-lead", request.body, () => parseLead(request.body));
+} catch (error) {
+  journey.fail("reject-malformed-lead", error);
+  response.status(422).json({ error: "malformed lead" });
+  return;
+}
+```
+
+Both excerpts come from the
+[Express, BullMQ and HubSpot recipe](/docs/recipes/express-bullmq-hubspot/),
+whose code the repository type-checks against the SDK on every pipeline. The SDK
+needs Node.js 22.12 or later and has no runtime dependencies.
+
+<CardGrid>
+  <LinkCard title="Node SDK" description="The full surface, configuration and guarantees." href="/docs/sdk/" />
+  <LinkCard title="Recipes" description="Express and BullMQ, Fastify and SQS, Next.js and Stripe." href="/docs/recipes/" />
+</CardGrid>
+
+## Trust
+
+- **Self-hosted.** No account and no hosted service. Everything is kept in your
+  own PostgreSQL, 15 or later.
+- **No telemetry.** The running services send no telemetry and no analytics,
+  and make no outbound connection other than the ones your configuration
+  creates, such as replays to the development hosts you allow. This site has no
+  analytics, no trackers and no cookies either.
+- **Apache-2.0**, for every package, the SDK included.
+- **Redaction by field name**, at any depth: in the SDK before a payload leaves
+  your process, and again on the server before it is stored. A credential under
+  a name no rule knows is warned about, not redacted. Entity identifiers and
+  alias values are encrypted at rest; payloads are stored as plain `jsonb` after
+  redaction.
+- **A security review packet** for the engineer deciding on a pilot: data,
+  authentication, deletion, supply chain and known gaps, each linked to its
+  source. The pre-release security review it cites (2026-09-16) was done by an
+  AI review agent at the maintainer's direction. It is not an independent audit,
+  and no outside party has reviewed the code.
+- **A 0.x preview.** Nothing is published yet: no npm package and no container
+  images. Releases will be 0.x, where a minor release may change the API.
+- **How it is built.** AI agents write most of the code; the maintainer makes
+  the decisions, and each is recorded with its reasoning in the decision log.
+
+<CardGrid>
+  <LinkCard title="Security review packet" href="/docs/security-review/" />
+  <LinkCard title="Security model" href="/docs/security/" />
+</CardGrid>
+
+## Links
+
+- **Source, issues and merge requests:**
+  [gitlab.com/jojithedev/wayscribe](https://gitlab.com/jojithedev/wayscribe).
+  Development happens there.
+- **GitHub:** [github.com/wayscribe/wayscribe](https://github.com/wayscribe/wayscribe)
+  is the read-only mirror. Pull requests opened there cannot be merged.
+- **Documentation:** [quick start](/docs/quick-start/),
+  [roadmap](/docs/roadmap/), [changelog](/docs/changelog/),
+  [decision log](/docs/decisions/).
+- **Reporting a vulnerability:** open a
+  [confidential issue on GitLab](https://gitlab.com/jojithedev/wayscribe/-/issues/new),
+  as the [security policy](/docs/security-policy/) describes.
+
+{/* TODO: add security@wayscribe.dev here once Cloudflare Email Routing delivers
+    it and SECURITY.md lists it. Until then the address has no MX record. */}
+
+If a tool already does all four things above, or something on this page is
+wrong, please [open an issue](https://gitlab.com/jojithedev/wayscribe/-/issues).

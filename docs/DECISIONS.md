@@ -2759,3 +2759,75 @@ the rename could be a clean break.
   registry path does not redirect, so an image reference must use the new path.
 - Leadline and the other repositories that name the product, its package, its
   environment variables or its headers update to the new names.
+
+## ADR-058: The website is built from the repository's documentation, as a package of its own
+
+**Status:** Accepted, 2026-09-17.
+
+### Context
+
+Wayscribe needs a public page at wayscribe.dev: what the problem is, what the
+tool does, how to try it, and the documentation. The documentation already
+exists as Markdown in this repository and is held to the code by tests
+(ADR-040). A second copy written for a website would drift from it the first
+time either changed.
+
+A site generator is also a dependency tree, and a large one. The product's
+images are built from the whole repository (`COPY . .` in both Dockerfiles),
+`pnpm audit` gates the root lockfile, and ADR-043 keeps anything the runtime
+does not execute out of the images.
+
+### Decision
+
+- **Astro Starlight, in `site/`.** It renders Markdown into a documentation site
+  with search built at build time (Pagefind), system fonts, and no script or
+  font from another host. Versions are pinned exactly.
+- **Its own package and lockfile, not a workspace member.** `site/` has its own
+  `package.json`, `pnpm-lock.yaml` and `pnpm-workspace.yaml`, and the root
+  `pnpm-workspace.yaml` does not list it. The root install, the root lockfile,
+  `pnpm -r` commands and the SDK never see its dependencies. `.dockerignore`
+  excludes `site`, so the product images never receive its files, and
+  `scripts/verify-image-contents.sh` fails an API image that contains it.
+- **The docs are generated, not copied by hand.** `site/scripts/sync-docs.mjs`
+  reads the pages `site/docs-manifest.json` lists, from the repository, on every
+  build: it writes the title as frontmatter, rewrites relative links to the
+  published page or to the file on GitLab at `main`, maps GitLab's heading
+  anchors to the ones the site renders, and copies the images. The output is
+  ignored by git. The landing page's comparison is the README's Alternatives
+  section, read the same way.
+- **Checked like the rest.** The `site` job builds the site whenever the site or
+  a published document changes; `starlight-links-validator` fails the build on a
+  broken internal link or anchor, offline, and `pnpm audit --audit-level=high`
+  runs against the site's own lockfile. `tests/site.test.ts`, part of
+  `pnpm test`, fails when a published page has an em or en dash, when the
+  manifest names a missing file, and when the landing page's commands or code
+  stop matching the README and the type-checked recipe.
+- **No analytics, trackers or cookies.** The same stance as the product's.
+- **GitLab Pages on `main`.** The `pages` job publishes the build. The custom
+  domain and DNS are set by the maintainer by hand (`site/README.md`).
+- **Astro telemetry is off** (`ASTRO_TELEMETRY_DISABLED=1`) in the site's
+  scripts and in CI, as Next.js's is for the web app.
+
+### Alternatives rejected
+
+- **A workspace member.** Simpler to install, but Astro's tree would enter the
+  root lockfile, the root audit and the build context every product image
+  copies, for a package no product code uses.
+- **Hand-written pages.** They would say something different from the
+  repository within a week, and nothing would notice.
+- **Leaving the docs on GitLab only.** GitLab renders them well, but a reader
+  who arrives at wayscribe.dev should not need to know where the repository is
+  to read the quick start.
+
+### Consequences
+
+- Two lockfiles to keep current, and the site's advisories are gated in the
+  `site` job rather than in `audit`.
+- The site cannot hold back the product. `site` runs in a stage after `mirror`
+  (started at once with `needs: []`), so a failure there does not stop the
+  GitHub mirror, and it does not run on tags, so it cannot stop a release.
+- A published page must have a heading, link and image the generator
+  understands; a broken one fails the `site` job rather than reaching the site.
+- `tests/rename-guard.test.ts` and `tests/docs-helpers.ts` skip the generated
+  directories, since they hold copies of files the tests already read at their
+  source.

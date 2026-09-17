@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { root } from "./docs-helpers.js";
+import { GENERATED_DIRECTORIES, root } from "./docs-helpers.js";
 
 /**
  * The product was renamed from Flight Recorder to Wayscribe (ADR-057). Any old
@@ -58,6 +58,13 @@ const ALLOWED_LINES: { file: string; line: RegExp }[] = [
   {
     file: "README.md",
     line: /^Wayscribe was called Flight Recorder until September 2026\.$/
+  },
+  // The project's GitLab Pages unique domain, generated before the rename. It
+  // is an address GitLab assigned, not a name this repository chose, and the
+  // site's README has to give it as it is.
+  {
+    file: "site/README.md",
+    line: /^https:\/\/flight-recorder-6c0d23\.gitlab\.io$/
   }
 ];
 
@@ -89,7 +96,9 @@ const SKIP_DIRECTORIES = new Set([
   "test-results",
   ".claude",
   ".superpowers",
-  "sboms"
+  "sboms",
+  // Astro's type and content cache for the website.
+  ".astro"
 ]);
 
 /**
@@ -111,6 +120,9 @@ function repositoryFiles(directory = "", found: string[] = []): string[] {
   for (const entry of readdirSync(`${root}${directory}`, { withFileTypes: true })) {
     if (SKIP_DIRECTORIES.has(entry.name)) continue;
     const relative = directory === "" ? entry.name : `${directory}/${entry.name}`;
+    // The website's copies of documents scanned here at their source, the
+    // decision log's history among them.
+    if (GENERATED_DIRECTORIES.has(relative)) continue;
     if (entry.isDirectory()) repositoryFiles(relative, found);
     else if (entry.isFile() && !isSkippedFile(relative, entry.name)) found.push(relative);
   }

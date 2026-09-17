@@ -1,0 +1,134 @@
+{
+  "repository": "https://gitlab.com/jojithedev/wayscribe",
+  "branch": "main",
+  "groups": [
+    {
+      "label": "Get started",
+      "pages": [
+        {
+          "source": "README.md",
+          "slug": "overview",
+          "label": "Overview",
+          "title": "Overview",
+          "description": "What Wayscribe is, what it shows you, and how it differs from tracing."
+        },
+        {
+          "source": "README.md",
+          "sections": ["Try it", "Supported versions", "Instrument your own service"],
+          "slug": "quick-start",
+          "label": "Quick start",
+          "title": "Quick start",
+          "description": "Run the demo from a clone with Docker Compose, then instrument a service."
+        },
+        {
+          "source": "docs/LOCAL_DEVELOPMENT.md",
+          "slug": "local-development",
+          "label": "Local development"
+        },
+        { "source": "docs/DEMO_SCENARIO.md", "slug": "demo-scenario", "label": "Demo scenario" }
+      ]
+    },
+    {
+      "label": "Instrument",
+      "pages": [
+        {
+          "source": "packages/sdk-node/README.md",
+          "slug": "sdk",
+          "label": "Node SDK",
+          "title": "Node SDK (@wayscribe/node)"
+        },
+        { "source": "docs/recipes/README.md", "slug": "recipes", "label": "Recipes" },
+        {
+          "source": "docs/recipes/express-bullmq-hubspot.md",
+          "slug": "recipes/express-bullmq-hubspot",
+          "label": "Express, BullMQ, HubSpot"
+        },
+        {
+          "source": "docs/recipes/fastify-sqs-salesforce.md",
+          "slug": "recipes/fastify-sqs-salesforce",
+          "label": "Fastify, SQS, Salesforce"
+        },
+        {
+          "source": "docs/recipes/nextjs-stripe.md",
+          "slug": "recipes/nextjs-stripe",
+          "label": "Next.js and Stripe"
+        },
+        { "source": "docs/SDK_SPEC.md", "slug": "sdk-spec", "label": "SDK specification" },
+        {
+          "source": "docs/INGESTION_CONTRACT.md",
+          "slug": "ingestion-contract",
+          "label": "Ingestion contract"
+        },
+        { "source": "docs/EVENT_PROTOCOL.md", "slug": "event-protocol", "label": "Event protocol" }
+      ]
+    },
+    {
+      "label": "Operate",
+      "pages": [
+        { "source": "docs/OPERATIONS.md", "slug": "operations", "label": "Operations" },
+        {
+          "source": "docs/TROUBLESHOOTING.md",
+          "slug": "troubleshooting",
+          "label": "Troubleshooting"
+        },
+        { "source": "deploy/helm/README.md", "slug": "helm", "label": "Helm chart" },
+        {
+          "source": "docs/SECURITY.md",
+          "slug": "security",
+          "label": "Security model",
+          "title": "Security model"
+        },
+        { "source": "SECURITY.md", "slug": "security-policy", "label": "Security policy" },
+        {
+          "source": "docs/SECURITY_REVIEW.md",
+          "slug": "security-review",
+          "label": "Security review packet"
+        }
+      ]
+    },
+    {
+      "label": "Reference",
+      "pages": [
+        { "source": "docs/API_SPEC.md", "slug": "api", "label": "HTTP API" },
+        { "source": "docs/REPLAY_SPEC.md", "slug": "replay", "label": "Replay" },
+        {
+          "source": "docs/DATABASE_SCHEMA.md",
+          "slug": "database-schema",
+          "label": "Database schema"
+        }
+      ]
+    },
+    {
+      "label": "Understand",
+      "pages": [
+        { "source": "docs/ARCHITECTURE.md", "slug": "architecture", "label": "Architecture" },
+        { "source": "docs/GLOSSARY.md", "slug": "glossary", "label": "Glossary" },
+        { "source": "docs/FAQ.md", "slug": "faq", "label": "FAQ" },
+        { "source": "docs/ALTERNATIVES.md", "slug": "alternatives", "label": "Alternatives" },
+        {
+          "source": "docs/WHAT_RUNNING_IT_FOUND.md",
+          "slug": "what-running-it-found",
+          "label": "What running it found"
+        },
+        {
+          "source": "docs/PRODUCT_PRINCIPLES.md",
+          "slug": "product-principles",
+          "label": "Product principles"
+        },
+        { "source": "docs/DECISIONS.md", "slug": "decisions", "label": "Decision log" },
+        { "source": "docs/ROADMAP.md", "slug": "roadmap", "label": "Roadmap" },
+        { "source": "CHANGELOG.md", "slug": "changelog", "label": "Changelog" }
+      ]
+    }
+  ],
+  "landing": {
+    "partials": [
+      {
+        "source": "README.md",
+        "sections": ["Alternatives"],
+        "output": "alternatives.md"
+      }
+    ],
+    "images": ["docs/images/timeline.png", "docs/images/diff.png"]
+  }
+}

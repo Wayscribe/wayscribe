@@ -37,6 +37,17 @@ const SKIP = new Set([
 ]);
 
 /**
+ * Directories the website's build writes from files that are read here at their
+ * source (ADR-058), ignored by git. Walking them would test each document twice,
+ * and a local build could make a test disagree with CI.
+ */
+export const GENERATED_DIRECTORIES: ReadonlySet<string> = new Set([
+  "site/src/content/docs/docs",
+  "site/src/generated",
+  "site/public/images"
+]);
+
+/**
  * Every markdown file in the repository, so a claim cannot reappear in one that
  * nobody thought to list.
  *
@@ -55,6 +66,7 @@ export function filesEndingWith(suffix: string, directory = "", found: string[] 
     if (SKIP.has(entry.name)) continue;
 
     const relative = directory === "" ? entry.name : `${directory}/${entry.name}`;
+    if (GENERATED_DIRECTORIES.has(relative)) continue;
     if (entry.isDirectory()) filesEndingWith(suffix, relative, found);
     else if (entry.name.endsWith(suffix)) found.push(relative);
   }

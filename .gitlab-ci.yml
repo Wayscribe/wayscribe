@@ -31,6 +31,8 @@ stages:
   - browser
   - demo
   - mirror
+  - site
+  - pages
   - release
 
 format:
@@ -262,6 +264,92 @@ build:
   stage: build
   script:
     - pnpm build
+
+# The website, wayscribe.dev (ADR-058). site/ is a package of its own with its
+# own lockfile, so this job installs only the site's dependencies and the root
+# install in `default` is skipped. The build generates the docs from the files
+# below, so a change to any of them rebuilds the site; a published page added to
+# site/docs-manifest.json must be added here too (tests/site.test.ts checks).
+#
+# starlight-links-validator fails the build on a broken internal link or anchor,
+# reading the built pages, offline. The audit is the site's counterpart of the
+# `audit` job, which reads the root lockfile only.
+#
+# Not in merge request pipelines, which hold sdk-publish-dry-run alone, and not
+# in tag pipelines: a release tag publishes the product, and the site has no
+# part in that.
+#
+# Its stage comes after `mirror`, so a site failure never holds back
+# mirror-to-github, which waits for every stage before its own. `needs: []`
+# starts it at the beginning of the pipeline anyway, so its result is not
+# delayed by the stages in between.
+.site-changes: &site-changes
+  - site/**/*
+  - docs/**/*
+  - README.md
+  - CHANGELOG.md
+  - SECURITY.md
+  - packages/sdk-node/README.md
+  - deploy/helm/README.md
+  - examples/recipes/**/*
+  - .gitlab-ci.yml
+
+site:
+  stage: site
+  needs: []
+  variables:
+    # Astro otherwise reports anonymous usage.
+    ASTRO_TELEMETRY_DISABLED: "1"
+  cache:
+    key:
+      files:
+        - site/pnpm-lock.yaml
+      prefix: site
+    paths:
+      - .pnpm-store
+  before_script:
+    - corepack enable
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
+    - pnpm --dir site install --frozen-lockfile
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_COMMIT_TAG
+      when: never
+    - changes: *site-changes
+  script:
+    - pnpm --dir site audit --audit-level=high
+    - pnpm --dir site run build
+  artifacts:
+    paths:
+      - site/dist/
+    expire_in: 7 days
+
+# GitLab Pages, from main only. `dependencies` rather than `needs`, so the site
+# is published only after every earlier stage has passed, `site` included, not
+# as soon as it is built. The rules match `site` on main, so the job it takes
+# the build from is always in the pipeline. Its branch rule cannot match a tag;
+# the tag rule says so anyway. The custom domain and its DNS are configured by
+# hand (site/README.md).
+pages:
+  stage: pages
+  image: alpine:3
+  before_script: []
+  cache: {}
+  dependencies: ["site"]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *site-changes
+  script:
+    - rm -rf public
+    - cp -R site/dist public
+  artifacts:
+    paths:
+      - public
 
 # Browser coverage. TESTING_STRATEGY.md section 8 puts these on protected branches
 # or the release workflow rather than every push, and this job builds and boots two

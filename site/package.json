@@ -1,0 +1,24 @@
+{
+  "name": "wayscribe-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "wayscribe.dev: the landing page, and the documentation generated from this repository's Markdown.",
+  "engines": {
+    "node": ">=24.0.0 <25.0.0"
+  },
+  "scripts": {
+    "sync": "node scripts/sync-docs.mjs",
+    "dev": "node scripts/sync-docs.mjs && ASTRO_TELEMETRY_DISABLED=1 astro dev --port 4321 --host 127.0.0.1",
+    "build": "node scripts/sync-docs.mjs && ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview --port 4321 --host 127.0.0.1"
+  },
+  "packageManager": "pnpm@11.20.0+sha512.9a6f330a95b66446ea088faf1521405a8a01f07fde7124cc9958dfed52d4bb436737e65b08f85f37b46fcba375092558ac51262b816844b22f63406ed166bfee",
+  "dependencies": {
+    "@astrojs/starlight": "0.42.1",
+    "astro": "7.3.2",
+    "github-slugger": "2.0.0",
+    "starlight-links-validator": "0.26.0"
+  }
+}
