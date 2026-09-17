@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { EventDetailData } from "../../src/lib/api";
 import { DiffTable } from "./DiffTable";
+import { EXPLANATIONS } from "./explanations";
 
 /** A line about the event being shown: that its replacement is loading, or failed to. */
 export interface DetailNotice {
@@ -30,7 +31,8 @@ export function EventDetail({
         <>
           <h3>What changed</h3>
           <p className="muted">
-            The difference between what this step received and what it produced.
+            The difference between what this step received and what it produced.{" "}
+            {EXPLANATIONS.transformation}
           </p>
           <DiffTable
             key={event.id}
@@ -45,14 +47,17 @@ export function EventDetail({
       )}
 
       {!event.hasInput ? null : (
-        <p>
-          {/* A link, not a button. REPLAY_SPEC section 13 prohibits one-click
-              replay from the timeline: sending a recorded request is a
-              deliberate act and gets its own screen. */}
-          <Link href={`/journeys/${event.journeyId}/replay?event=${event.id}`}>
-            Replay this input →
-          </Link>
-        </p>
+        <>
+          <p>
+            {/* A link, not a button. REPLAY_SPEC section 13 prohibits one-click
+                replay from the timeline: sending a recorded request is a
+                deliberate act and gets its own screen. */}
+            <Link href={`/journeys/${event.journeyId}/replay?event=${event.id}`}>
+              Replay this input →
+            </Link>
+          </p>
+          <p className="muted">{EXPLANATIONS.replay}</p>
+        </>
       )}
 
       {event.error === null ? null : (

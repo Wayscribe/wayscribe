@@ -156,7 +156,7 @@ ever finished.
 - [x] Add alias display and identity-map summary.
 - [x] Add empty states.
 - [x] Add loading feedback for sent forms and followed links (needs JavaScript; pages are not streamed, so they work without it).
-- [ ] Add plain-language explanations for journey, alias, transformation, and replay.
+- [x] Add plain-language explanations for journey, alias, transformation, and replay.
 - [x] Add browser tests.
 
 ## Epic 8: Node SDK foundation
