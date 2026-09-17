@@ -22,6 +22,14 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 
 const read = (relative: string): string => readFileSync(`${root}${relative}`, "utf8");
 
+/** The text of a `## ` section of a markdown document, up to the next one. */
+const section = (markdown: string, heading: string): string => {
+  const start = markdown.indexOf(`\n## ${heading}\n`);
+  expect(start, `no section "${heading}"`).toBeGreaterThanOrEqual(0);
+  const end = markdown.indexOf("\n## ", start + 1);
+  return markdown.slice(start, end === -1 ? undefined : end);
+};
+
 /** Directories with nothing authored in them. */
 const SKIP = new Set([
   "node_modules",
@@ -79,6 +87,59 @@ describe("the documentation's checkable claims", () => {
 
     expect(claimed, "README no longer states an ADR count in the expected shape").not.toBeNull();
     expect(Number(claimed?.[1])).toBe(actual);
+  });
+
+  it("states the ADR count correctly wherever the README states one", () => {
+    // "How this is built" repeats the count in its own sentence shape, and a
+    // second copy is where a stale number hides.
+    const actual = (read("docs/DECISIONS.md").match(/^## ADR-/gm) ?? []).length;
+    const readme = read("README.md");
+    const claims = [...readme.matchAll(/(\d+) ADRs/g)].map((m) => Number(m[1]));
+
+    expect(section(readme, "How this is built")).toMatch(/holds (\d+) ADRs/);
+    expect(claims.length).toBeGreaterThanOrEqual(2);
+    for (const claimed of claims) expect(claimed).toBe(actual);
+  });
+
+  it("keeps Alternatives straight after the tracing comparison", () => {
+    const headings = [...read("README.md").matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+    const tracing = headings.indexOf("Why this is not tracing");
+    expect(tracing, "README has no 'Why this is not tracing' section").toBeGreaterThanOrEqual(0);
+    expect(headings[tracing + 1]).toBe("Alternatives");
+  });
+
+  it("dates the no-open-source-alternative claim, in the README and on its page", () => {
+    // The claim is only defensible as "as of" a date; an undated one reads as
+    // permanent and goes stale silently.
+    const month =
+      "(January|February|March|April|May|June|July|August|September|October|November|December)";
+    const alternatives = section(read("README.md"), "Alternatives");
+    expect(alternatives).toMatch(new RegExp(`As of ${month} \\d{4}, I have not found`));
+    expect(alternatives).toContain("docs/ALTERNATIVES.md");
+
+    const page = read("docs/ALTERNATIVES.md");
+    expect(page).toMatch(
+      new RegExp(`^\\*\\*Last checked: \\d{1,2} ${month} \\d{4}\\.\\*\\*$`, "m")
+    );
+    expect(page).toMatch(new RegExp(`As of ${month} \\d{4}, I have not found`));
+    const claimed = (text: string): string | undefined =>
+      new RegExp(`As of (${month} \\d{4}), I have not found`).exec(text)?.[1];
+    expect(claimed(alternatives), "the README and the page date the claim differently").toBe(
+      claimed(page)
+    );
+
+    // Every source list carries the date each source was checked.
+    const lines = page.split("\n");
+    const sourceLists = lines.flatMap((line, i) => {
+      if (!/^- \*\*Sources?:\*\*/.test(line)) return [];
+      const rest = lines.slice(i + 1);
+      const end = rest.findIndex((next) => !next.startsWith("  "));
+      return [[line, ...rest.slice(0, end === -1 ? undefined : end)].join("\n")];
+    });
+    expect(sourceLists.length).toBeGreaterThan(10);
+    for (const list of sourceLists) {
+      expect(list, `a source list without a date:\n${list}`).toMatch(/checked\s+\d{4}-\d{2}-\d{2}/);
+    }
   });
 
   it("numbers the ADRs without gaps or repeats", () => {
