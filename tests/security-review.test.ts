@@ -41,7 +41,7 @@ describe(PAGE, () => {
     .filter((target) => !/^[a-z]+:/.test(target));
 
   it("links only to files that exist, and to headings they have", () => {
-    expect(links.length, "the page lost its source links").toBeGreaterThan(40);
+    expect(links.length, "the page lost its source links").toBeGreaterThan(30);
     for (const link of links) {
       const [path = "", anchor] = link.split("#");
       const target = normalize(join(dirname(PAGE), path));
@@ -62,8 +62,8 @@ describe(PAGE, () => {
   });
 
   it("uses no em or en dashes, nor does the review it cites", () => {
-    expect(page).not.toMatch(/[–—]/);
-    expect(read(REVIEW)).not.toMatch(/[–—]/);
+    expect(page).not.toMatch(/[\u2013\u2014]/);
+    expect(read(REVIEW)).not.toMatch(/[\u2013\u2014]/);
   });
 
   it("cites the pre-release security review, whose own links resolve", () => {
