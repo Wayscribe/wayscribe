@@ -78,21 +78,48 @@ describe("LoginLimiter under many addresses", () => {
   });
 
   it("takes flat time per failure as addresses accumulate", () => {
-    const limiter = new LoginLimiter(options);
-    const BATCH = 40_000;
-    const batches: number[] = [];
-    let i = 0;
-    for (let batch = 0; batch < 5; batch += 1) {
+    // Eviction once walked a fresh `keys()` iterator over the deleted slots,
+    // so it slowed the more it evicted, and a sweep on every failure would
+    // cost the same at the cap. The same number of failures, each from a new
+    // address and each evicting the oldest, is timed on a LoginLimiter holding 1,000 addresses
+    // and on one holding the cap. Work proportional to the addresses held makes
+    // the second about fifty times slower; constant work keeps them close.
+    //
+    // Timing consecutive batches of one run compared two wall-clock samples, so
+    // one batch slowed by an unrelated process failed the test. The fastest of
+    // several runs of each is the least noisy estimate of the work, and a
+    // difference under the noise floor is not complexity.
+    const SMALL = 1_000;
+    const CALLS = 5_000;
+    const RUNS = 5;
+    const RATIO = 5;
+    const NOISE_FLOOR_MS = 2;
+    let next = 0;
+    const filled = (held: number): LoginLimiter => {
+      const limiter = new LoginLimiter(options, held);
+      for (let n = 0; n < held; n += 1, next += 1) limiter.recordFailure(address(next), NOW);
+      return limiter;
+    };
+    const timed = (limiter: LoginLimiter): number => {
       const started = performance.now();
-      for (let n = 0; n < BATCH; n += 1, i += 1) {
-        limiter.recordFailure(address(i), NOW + Math.floor(i / 10));
-      }
-      batches.push(performance.now() - started);
+      for (let n = 0; n < CALLS; n += 1, next += 1) limiter.recordFailure(address(next), NOW);
+      return performance.now() - started;
+    };
+    const small = filled(SMALL);
+    const large = filled(MAX_TRACKED_ADDRESSES);
+    let fastestSmall = Number.POSITIVE_INFINITY;
+    let fastestLarge = Number.POSITIVE_INFINITY;
+    for (let run = 0; run < RUNS; run += 1) {
+      fastestSmall = Math.min(fastestSmall, timed(small));
+      fastestLarge = Math.min(fastestLarge, timed(large));
     }
-    const first = Math.max(batches[0] ?? 0, 5);
-    const last = batches[batches.length - 1] ?? 0;
-    expect(last, batches.map((ms) => ms.toFixed(1)).join(", ")).toBeLessThan(first * 4);
-  });
+    expect(small.size).toBe(SMALL);
+    expect(large.size).toBe(MAX_TRACKED_ADDRESSES);
+    expect(
+      fastestLarge,
+      `${fastestSmall.toFixed(2)} ms at ${String(SMALL)}, ${fastestLarge.toFixed(2)} ms at the cap`
+    ).toBeLessThan(Math.max(fastestSmall, NOISE_FLOOR_MS) * RATIO);
+  }, 60_000);
 
   it("forgets addresses whose failures and locks have expired", () => {
     const limiter = new LoginLimiter(options);

@@ -253,11 +253,34 @@ describe("recorded events", () => {
     const head = "x".repeat(4063) + " postgres://app:";
     const message = `${head}${password}@db.internal:5432/orders ${"y".repeat(1024 * 1024)}`;
 
-    let elapsed = 0;
+    // Timed against a message of the same shape with only 4 KiB after the
+    // credential, rather than against a fixed limit. Masking all of 1 MiB took
+    // about 11 ms on the machine this was written on, so the 50 ms limit this
+    // test once had passed an SDK that masked the whole message, and a single
+    // wall-clock sample can fail whenever the machine is busy. The fastest of
+    // several calls is the least noisy estimate of the work. Bounded, both
+    // calls mask the same window and take about 0.2 ms; masking the whole
+    // message made the large one about fifty times slower.
+    const short = `${head}${password}@db.internal:5432/orders ${"y".repeat(4 * 1024)}`;
+    const RUNS = 7;
+    const RATIO = 5;
+    const NOISE_FLOOR_MS = 0.5;
+    const fastest = (journey: Journey, text: string): number => {
+      let best = Number.POSITIVE_INFINITY;
+      for (let run = 0; run < RUNS; run += 1) {
+        const error = new Error(text);
+        const started = performance.now();
+        journey.fail("timed", error);
+        best = Math.min(best, performance.now() - started);
+      }
+      return best;
+    };
+    let small = 0;
+    let large = 0;
     const events = await recordAnd((journey) => {
-      const started = performance.now();
       journey.fail("load", new Error(message));
-      elapsed = performance.now() - started;
+      small = fastest(journey, short);
+      large = fastest(journey, message);
     });
 
     const stored = (events.find((e) => e["name"] === "load")?.["error"] as { message: string })
@@ -266,7 +289,10 @@ describe("recorded events", () => {
     expect(stored.endsWith("[TRUNCATED]")).toBe(true);
     expect(stored).not.toContain("hunter");
     expect(stored.startsWith("x".repeat(4063) + " postgres://")).toBe(true);
-    expect(elapsed).toBeLessThan(50);
+    expect(
+      large,
+      `${small.toFixed(2)} ms for 4 KiB, ${large.toFixed(2)} ms for 1 MiB`
+    ).toBeLessThan(Math.max(small, NOISE_FLOOR_MS) * RATIO);
   });
 
   it("bounds a string stack to the protocol's limit", async () => {

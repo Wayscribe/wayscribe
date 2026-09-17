@@ -49,8 +49,10 @@ export function createAppRecorder(serviceName: string): Recorder {
 }
 ```
 
-If `FLIGHT_RECORDER_API_KEY` is unset, `?? ""` sends an empty key, and the only
-sign is `rejected: Ingestion responded 401.`
+If `FLIGHT_RECORDER_API_KEY` is unset, `?? ""` gives the SDK an empty key, which
+it reports like a missing one: `configuration_error: apiKey is empty`, printed
+once per process even with `logDiagnostics` off, then
+`rejected: Ingestion responded 401.`
 ([Troubleshooting](../TROUBLESHOOTING.md#3-did-the-sdk-reach-the-api)).
 
 ## The webhook

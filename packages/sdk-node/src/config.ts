@@ -229,12 +229,17 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
   };
   const text = (key: RequiredSetting): string => {
     const value = read(key);
-    if (typeof value === "string") return value;
+    // Blank is missing: `process.env.X ?? ""`, the way these settings are
+    // usually written, turns an unset variable into "", which used to pass
+    // unreported and surface only as a 401.
+    if (typeof value === "string" && value.trim() !== "") return value;
     problem(
       key,
       value === UNREADABLE
         ? `${key} could not be read, so ${WITHOUT[key]}.`
-        : `${key} is not a string, so ${WITHOUT[key]}.`
+        : typeof value === "string"
+          ? `${key} is empty, so ${WITHOUT[key]}.`
+          : `${key} is not a string, so ${WITHOUT[key]}.`
     );
     return "";
   };

@@ -143,6 +143,28 @@ describe("settings that cannot be used", () => {
     expect(JSON.stringify(resolved.problems)).not.toContain("7");
   });
 
+  // `apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? ""` is how the docs write
+  // it, so an unset variable arrives as "". It used to pass as a usable key and
+  // the only sign was a 401.
+  it.each(["endpoint", "apiKey", "serviceName", "environment"] as const)(
+    "treats an empty or blank %s as missing",
+    (setting) => {
+      for (const value of ["", "   ", "\t\n"]) {
+        const resolved = resolveConfig({ ...base, [setting]: value });
+        expect(resolved[setting]).toBe("");
+        expect(resolved.problems).toEqual([
+          {
+            setting,
+            code: "required_setting_unusable",
+            reason: expect.stringMatching(new RegExp(`^${setting} is empty, so `)) as string,
+            required: true,
+            printed: true
+          }
+        ]);
+      }
+    }
+  );
+
   it("says a setting could not be read, and only that, when the configuration is null", () => {
     const resolved = resolveConfig(null as never);
     const reasons = resolved.problems.map((one) => one.reason);

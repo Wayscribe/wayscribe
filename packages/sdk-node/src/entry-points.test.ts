@@ -391,6 +391,38 @@ describe("what configuration problems print", () => {
     expect(lines.join("\n")).not.toContain("captureMode");
   });
 
+  it("prints an empty required setting once per process with logDiagnostics off, as it prints a missing one", async () => {
+    const { lines, restore } = printed();
+    const diagnostics: Diagnostic[] = [];
+    try {
+      for (let recorders = 0; recorders < 2; recorders += 1) {
+        const recorder = createRecorder({
+          ...base,
+          apiKey: "",
+          serviceName: "   ",
+          onDiagnostic: (diagnostic) => diagnostics.push(diagnostic)
+        });
+        await recorder.shutdown({ timeoutMs: 100 });
+      }
+    } finally {
+      restore();
+    }
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("configuration_error: apiKey is empty");
+    expect(lines[0]).toContain("once per process");
+    expect(lines[1]).toContain("configuration_error: serviceName is empty");
+    expect(
+      diagnostics.flatMap((one) =>
+        one.kind === "configuration_error" ? [[one.code, one.detail]] : []
+      )
+    ).toEqual([
+      ["required_setting_unusable", { setting: "apiKey" }],
+      ["required_setting_unusable", { setting: "serviceName" }],
+      ["required_setting_unusable", { setting: "apiKey" }],
+      ["required_setting_unusable", { setting: "serviceName" }]
+    ]);
+  });
+
   it("prints an option under its old name once per process with logDiagnostics off, naming the new one", async () => {
     const { lines, restore } = printed();
     try {

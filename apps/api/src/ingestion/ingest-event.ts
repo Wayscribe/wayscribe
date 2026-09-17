@@ -114,10 +114,21 @@ export async function ingestEvent(
     label: event.journeyLabel ?? null
   };
 
-  return db.transaction(async (trx) => {
-    // The journey must exist before the event: journey_events carries a
-    // composite foreign key to journeys. A conflict below rolls the whole
-    // transaction back, so this never leaves an orphan journey behind.
+  // The journey must exist before the event: journey_events carries a composite
+  // foreign key to journeys. So every refusal inside the transaction is thrown
+  // as Refused rather than returned, and knex rolls back (to a savepoint, inside
+  // a dry run's outer transaction) whatever this event wrote by then, the
+  // journey it may have just created included. A refusal returned from the
+  // callback committed: an `event_id_conflict` sent with a new journey id left
+  // an empty journey behind that the list route showed.
+  try {
+    return await db.transaction((trx) => storeEvent(trx));
+  } catch (error) {
+    if (error instanceof Refused) return error.result;
+    throw error;
+  }
+
+  async function storeEvent(trx: Knex.Transaction): Promise<IngestResult> {
     const journeyEnvironmentId = await ensureJourney(trx, context.projectId, journeyFacts);
     if (journeyEnvironmentId === undefined) {
       // Deleted by a concurrent deletion after the insert found it present.
@@ -127,11 +138,11 @@ export async function ingestEvent(
     }
 
     // A journey belongs to the environment that created it. Refused before
-    // anything is written for this event: no event row, no alias, no status
-    // change. The message does not name the other environment, which this key
+    // anything else is written for this event, and rolled back like every
+    // refusal: no event row, no alias, no status change. The message does not name the other environment, which this key
     // cannot read and has no business learning exists.
     if (journeyEnvironmentId !== context.environmentId) {
-      return reject(
+      throw refuse(
         409,
         PROTOCOL_ERROR_CODES.journeyEnvironmentMismatch,
         "This journey id is already in use by another environment of this project, and a journey cannot span environments. Use a journey id unique to this environment."
@@ -169,7 +180,7 @@ export async function ingestEvent(
     );
 
     if (outcome.kind === "conflict") {
-      return reject(
+      throw refuse(
         409,
         PROTOCOL_ERROR_CODES.eventIdConflict,
         "This event ID already exists with different content."
@@ -222,7 +233,22 @@ export async function ingestEvent(
       duplicate: false,
       httpStatus: 202
     };
-  });
+  }
+}
+
+/**
+ * A refusal found inside the storage transaction, carried out through a throw
+ * so that knex rolls back everything this event wrote before it was found.
+ */
+class Refused extends Error {
+  constructor(readonly result: IngestResult) {
+    super(result.message ?? "refused");
+    this.name = "Refused";
+  }
+}
+
+function refuse(httpStatus: number, code: string, message: string): Refused {
+  return new Refused(reject(httpStatus, code, message));
 }
 
 /**
