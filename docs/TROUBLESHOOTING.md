@@ -113,17 +113,19 @@ produced against a local stack:
 
 | First line you see | Cause | Fix |
 | --- | --- | --- |
-| `rejected: Ingestion responded 401.` | the API key is wrong, revoked, empty, or is the admin token | see [401](#401-unauthorized) |
+| `rejected: Ingestion responded 401.` | the API key is wrong, revoked, or is the admin token | see [401](#401-unauthorized) |
 | `rejected: unauthorized_environment (the server's message goes to onDiagnostic)` | `environment` is not the key's environment | see [403](#403-unauthorized_environment) |
 | `transport_error: fetch failed`, then `dropped: The recorder shut down before this event was delivered.` | nothing answered at `endpoint`: wrong host or port, or the API is down | check `endpoint` against step 1; inside Compose the API is `http://api:8080`, from the host it is `http://localhost:8080` |
 | `configuration_error: apiKey is not a string, so the server refuses every request, and the events are counted as rejected.` | `apiKey` was `undefined`, usually an unset environment variable | set the variable; this line prints even with `logDiagnostics` off |
+| `configuration_error: apiKey is empty, so the server refuses every request, and the events are counted as rejected.` | `apiKey` was `""` or blank, usually `process.env.FLIGHT_RECORDER_API_KEY ?? ""` with the variable unset | set the variable; this line prints even with `logDiagnostics` off |
 | `insecure_endpoint: The endpoint is http: to ingest.internal, ...` | a warning, not a failure: the key travels unencrypted | put TLS in front of the API |
 | nothing at all | the process exited before the first send, or no event was recorded | call `await recorder.shutdown()` before exit, then read the counters (step 4) |
 
-**An empty key does not warn.** `apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? ""`
-compiles, and when the variable is unset the SDK sends an empty key: there is no
-`configuration_error` line, only `rejected: Ingestion responded 401.` If you see
-a 401 on a fresh deploy, check that the variable is set in that process.
+**An empty setting counts as missing.** `apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? ""`
+compiles, and when the variable is unset the SDK gets `""`. An empty or blank
+`endpoint`, `apiKey`, `serviceName` or `environment` is reported like a missing
+one: the `configuration_error` line above, printed once per process, and then
+`rejected: Ingestion responded 401.` for the events.
 
 A refusal's console line carries the server's code and never its message. The
 message reaches `onDiagnostic`:

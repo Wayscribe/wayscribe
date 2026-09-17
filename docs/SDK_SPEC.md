@@ -513,7 +513,10 @@ A label is the journey's name on the Journeys page, where partial text finds it
   setting SHOULD take its default, or be clamped into range. A required
   setting (section 12) has no default, so nothing recorded reaches the server
   until it is fixed; an SDK SHOULD therefore print one warning for it per
-  process even when debug output is off. A setting given under a name the SDK
+  process even when debug output is off. A required string setting that is
+  empty, or holds only whitespace, MUST be treated as missing, reported and
+  printed the same way, since an unset environment variable often arrives as
+  `""`. A setting given under a name the SDK
   no longer reads SHOULD be reported the same way, naming the setting that
   replaced it, and printed like a required one, because its value is otherwise
   lost without a sign. When debug output is on, every problem found at
@@ -632,5 +635,5 @@ either.
 | SDK-56 | Derive without a secret, with a short one, for each entity the fixture's `refused` list names, and for an entity that is not a pair of strings; assert nothing throws, each is reported, the ids differ call to call, a short secret is reported at creation, and a missing or short secret prints one warning per process with debug output off. |
 | SDK-58 | Set a label that is not a string, including one whose conversion to text throws, and assert nothing throws, it is reported, and the event is sent without it. |
 | SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
-| SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. |
+| SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. Repeat with a required setting that is `""` and one that is only whitespace, and assert each is reported and printed as missing. |
 | SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a string is reported; assert a payload the event budget omits reports nothing; record many distinct very long names and assert the memory kept is bounded. |
