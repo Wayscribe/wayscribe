@@ -171,6 +171,8 @@ still in use.
 
 ## Instrument your own service
 
+For a common stack, start from a [recipe](docs/recipes/README.md).
+
 The SDK is not published to npm yet. Until it is, pack it from a clone of this
 repository, commit the tarball to your application, and depend on it by path:
 
@@ -539,6 +541,9 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Replay specification](docs/REPLAY_SPEC.md) | Replay rules and safeguards |
 | [Security](docs/SECURITY.md) | Threat model and data handling |
 | [Security policy](SECURITY.md) | Reporting a vulnerability, and what is in scope |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | No journeys appear: `/ready`, `doctor`, `delivered_first`, diagnostic and refusal codes, key and environment mismatches |
+| [FAQ](docs/FAQ.md) | OpenTelemetry, overhead, storage, search speed, outages, erasure, PostgreSQL versions, license; measured numbers with sources |
+| [Recipes](docs/recipes/README.md) | Express + BullMQ + HubSpot, Fastify + SQS + Salesforce, Next.js + Stripe webhooks; type-checked against the SDK |
 | [Security review packet](docs/SECURITY_REVIEW.md) | One page for a pilot team's security reviewer: data, auth, deletion, supply chain, known gaps |
 | [Decision log](docs/DECISIONS.md) | Every architectural decision, and why |
 | [Product principles](docs/PRODUCT_PRINCIPLES.md) | The non-negotiables |
