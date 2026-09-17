@@ -327,6 +327,13 @@ shorter overview is in
 
 ### Changed
 
+- **CI tests the versions the project claims.** The SDK and CLI run on Node
+  22.12.0 and 24, including `import` and `require()` of the packed tarball in
+  fresh projects, and the integration suite runs on PostgreSQL 15, 17 and 18.
+  `doctor` no longer warns on PostgreSQL 15 or 16 and warns instead on a release
+  newer than 18. The CLI's `engines` floor is Node 22.12, matching the SDK. The
+  README has a Supported versions table, checked against the CI configuration.
+
 - **The Node SDK's public API is settled for its first release** (ADR-056).
   The wire format is unchanged, but a host that installed the SDK from an
   earlier tarball has to follow these renames:
