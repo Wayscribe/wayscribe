@@ -16,7 +16,7 @@ describe("replayFailureMessage", () => {
     ["too_many_attempts", /too many failed authentication attempts/],
     ["query_timeout", /database took too long/],
     ["internal_error", /API's log has the details/],
-    ["api_unavailable", /could not be reached/]
+    ["api_unavailable", /could not be reached, so the replay may or may not have been sent/]
   ])("says what %s means", (code, message) => {
     expect(replayFailureMessage(code)).toMatch(message);
     expect(replayFailureMessage(code)).not.toBe(UNEXPECTED);

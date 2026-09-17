@@ -16,8 +16,8 @@ community edition.
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
 the step against a development destination. Counted on 2026-09-16: 2,314 unit
-tests, 741 integration tests against a real PostgreSQL, 29 browser tests
-and 7 acceptance tests against a running stack.
+tests, 741 integration tests against a real PostgreSQL and 7 acceptance tests
+against a running stack; on 2026-09-17, 40 browser tests.
 
 Nothing is published. There is no npm package and no image in any registry, so
 every install today is `git clone` and `docker compose up`. That is deliberate

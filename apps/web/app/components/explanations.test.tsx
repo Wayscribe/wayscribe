@@ -93,7 +93,7 @@ describe("plain-language explanations", () => {
     expect(screen.queryByText(EXPLANATIONS.replay, { exact: false })).toBeNull();
   });
 
-  it("covers each term the glossary defines, and nothing it does not", () => {
+  it("finds all four terms still defined in the glossary, and exactly those four keys", () => {
     // From the workspace root, where Vitest runs: under jsdom, import.meta.url
     // is not a file URL.
     const glossary = readFileSync(join(process.cwd(), "docs", "GLOSSARY.md"), "utf8");

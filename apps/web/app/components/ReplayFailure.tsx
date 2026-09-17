@@ -3,11 +3,13 @@ const UNEXPECTED = "Something went wrong, so the replay may not have been sent. 
 /**
  * What `/api/replay`'s `error` values mean to the operator.
  *
- * The keys are the codes `POST /v1/replays` answers with when no run was
- * created (apps/api/src/routes/replays.ts and the admin guard and error
- * handler it runs behind), plus the ones the route handler adds itself. A
- * refused or failed run is not here: it has an id, and the replay page reads
- * its reason from the run.
+ * The keys are the codes this route can realistically get: the ones
+ * `POST /v1/replays` answers with when no run was created
+ * (apps/api/src/routes/replays.ts and the admin guard, throttle and error
+ * handler it runs behind), plus the ones the route handler adds itself.
+ * Anything else, such as a code a later API adds, falls back to the generic
+ * message. A refused or failed run is not here: it has an id, and the replay
+ * page reads its reason from the run.
  *
  * The text is fixed. The code arrives in the query string, which anyone can
  * write, so it only ever selects a message and is never shown.
@@ -33,7 +35,10 @@ const FAILURES: Record<string, string> = {
     "The database took too long to answer, so the replay may not have finished. Try again in a moment.",
   internal_error:
     "The API failed unexpectedly, so the replay may not have been sent. The API's log has the details.",
-  api_unavailable: "The Flight Recorder API could not be reached, so nothing was sent. Try again.",
+  // Also thrown when the answer is lost after the API has already sent the
+  // replay, so this cannot promise that nothing went out.
+  api_unavailable:
+    "The Flight Recorder API could not be reached, so the replay may or may not have been sent. Check whether the destination received it before trying again.",
   unexpected: UNEXPECTED
 };
 
