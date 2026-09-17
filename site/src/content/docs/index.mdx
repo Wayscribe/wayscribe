@@ -59,6 +59,22 @@ by field.
 Then replay that step's recorded input against your corrected code in
 development, and compare the result with the original.
 
+<figure class="shot">
+  <img
+    src="/images/replay.png"
+    width="2560"
+    height="2224"
+    loading="lazy"
+    alt="The replay page for transform-salesforce-account: the recorded Salesforce payload about to be sent to a development destination, the corrected handler's 200 response carrying the phone number, and an Original versus replay table where phone goes from null to +1 919 555 1234."
+  />
+  <figcaption>
+    The same recorded input, sent to a corrected handler in development.
+    `phone` came back with its value, and the comparison names the one field
+    that changed. Nothing is sent until you have read what will be sent, and
+    the destination has to be on an allowlist.
+  </figcaption>
+</figure>
+
 ## How it differs
 
 <CardGrid>
