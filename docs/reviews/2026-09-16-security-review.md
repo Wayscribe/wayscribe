@@ -3,6 +3,11 @@
 A record of the security review done before the first release, kept so that
 [the security review packet](../SECURITY_REVIEW.md) can cite it.
 
+**Who reviewed it:** an AI code-review agent (Claude), directed by the project's
+maintainer, the same way the code is written (see the README, "How this is
+built"). It is not an independent third-party audit, and no outside party has
+reviewed the code.
+
 ## Scope
 
 Every change from `2de5d00` to `4a68a1e`, 149 commits:

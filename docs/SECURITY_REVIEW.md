@@ -122,8 +122,10 @@ cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:vX.Y.Z \
   ([ROADMAP](ROADMAP.md#known-open-and-honest-about-it)). The development
   secrets are published, and propagated context is not authenticated
   ([../SECURITY.md](../SECURITY.md#scope)).
-- The [pre-release security review of 2026-09-16](reviews/2026-09-16-security-review.md)
-  found no Critical, High or Medium issues. Among its low notes: a dry run
+- The [pre-release security review of 2026-09-16](reviews/2026-09-16-security-review.md),
+  done by an AI review agent at the maintainer's direction and not an
+  independent audit, found no Critical, High or Medium issues. No outside
+  party has reviewed the code. Among its low notes: a dry run
   holds row locks for the whole batch
   ([INGESTION_CONTRACT §8](INGESTION_CONTRACT.md#8-validating-without-storing)),
   and a text search that matches nothing scans its whole window, bounded only
