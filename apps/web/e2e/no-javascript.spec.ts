@@ -76,9 +76,22 @@ test.describe("with JavaScript disabled", () => {
     await signIn(page, JOURNEY_ID);
     const response = await page.goto(`/journeys/jrn_nojs_missing_${RUN}`);
     expect(response?.status()).toBe(404);
-    // The status only. The not-found page awaits `connection()` for its nonce,
-    // so Next streams its body, and without JavaScript the body stays hidden.
-    // That predates the loading work.
+    // The status only. When a page calls notFound(), Next 15 abandons the
+    // server render and sends its own empty error document
+    // (`<html id="__next_error__">`, built in next's app-render.js
+    // getErrorRSCPayload); the not-found body is only in the RSC payload, which
+    // a script renders. Neither this app's layout nor not-found.tsx is in that
+    // HTML, so nothing here can put the text there. It is not `connection()` in
+    // not-found.tsx: without it the document is the same.
+  });
+
+  test("a path nothing matches answers 404 with the not-found page", async ({ page }) => {
+    // Rendered as a page of its own, not as a caught notFound(), so the body is
+    // in the HTML. No sign-in: this path is outside the authenticated group.
+    const response = await page.goto(`/no-such-page-${RUN}`);
+    expect(response?.status()).toBe(404);
+    await expect(page.getByRole("heading", { level: 1, name: "Not found" })).toBeVisible();
+    await expect(page.getByText("Nothing is recorded here.")).toBeVisible();
   });
 });
 
