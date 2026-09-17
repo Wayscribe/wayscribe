@@ -186,6 +186,17 @@ That table is checked row by row against the registry in
 `packages/protocol/src/errors.ts` by `tests/docs-truth.test.ts`, including the
 status and the retry column.
 
+**A refused event leaves no trace**, whatever the code. Nothing is stored for
+it: no event row, no journey, no alias, and no change to an existing journey's
+summary, status, label or last step. That holds for the refusals found only
+after the journey has been looked up or created (`event_id_conflict`,
+`journey_environment_mismatch`, `unstorable_payload`, `storage_error`,
+`query_timeout`) as much as for the ones found before: the event is stored in
+one transaction, and a refusal rolls it back. Inside a batch, a refused event
+has no effect on the events after it, so a later event for the same new journey
+creates that journey as if the refused one had never been sent. A dry run
+answers the same way, because it is the same ingestion rolled back.
+
 **The rule a client implements**, which is the rule the Node SDK implements:
 
 - A per-event status **below 500 is permanent**. That event is never sent again.
@@ -240,7 +251,9 @@ refused rather than merged, so a staging worker consuming a production message
 does not append to that journey (`EVENT_PROTOCOL.md` section 4).
 
 **`event_id_conflict`.** The id exists in this project with different content.
-See section 6 for what "different" means.
+See section 6 for what "different" means. As with every refusal, nothing is
+stored for it: sent with a journey id that does not exist yet, it does not
+create that journey.
 
 ---
 
