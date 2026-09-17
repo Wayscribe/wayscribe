@@ -66,6 +66,16 @@ Presenting the work, and closing what the last review opened.
   rename because the attribute names it reads carry the product prefix, which is
   now `wayscribe` (ADR-057).
 
+- **A Python SDK, after the first release.** Python is where most of the
+  pipelines, workers and integrations this tool is for are written, so it is the
+  next recorder rather than one that waits for a request. It is built against
+  `docs/SDK_SPEC.md`, checked with the conformance fixtures through the dry run,
+  and dogfooded by adding a Python service to the Leadline project. ADR-049 said
+  a second SDK waits for a team that needs one; that was written before the
+  contract, the fixtures and the dry run existed, and they are what make a second
+  SDK a normal piece of work instead of a second product. The order after it is
+  OpenTelemetry log ingest, then further languages by what pilot teams ask for.
+
 - **Per-record timing and context, before the first release.**
   Wayscribe already stores when each step started and how long it took, so most
   of this is presentation. All of it answers a question about one record;
@@ -136,7 +146,7 @@ all of it is cheap to add once there is a reason.
 
 - Fastify, Express, and fetch/Axios adapters for the stacks pilot teams actually
   run, as separate packages over the SDK's public API (ADR-049)
-- a second native SDK when a pilot team needs one, built against
+- SDKs in languages beyond Python, by what pilot teams ask for, built against
   `docs/SDK_SPEC.md` and checked with the conformance fixtures
 - S3-compatible payload storage, backup and restore tooling
 - an audit-log interface, retention and legal-hold controls
