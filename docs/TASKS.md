@@ -77,7 +77,7 @@ ever finished.
 - [x] Add indexes.
 - [x] Add local project and environment seed.
 - [x] Add migration integration tests.
-- [ ] Add reset script.
+- [x] Add reset script.
 
 ## Epic 3: Security primitives
 

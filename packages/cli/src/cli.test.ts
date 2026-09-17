@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -102,6 +103,25 @@ describe("the command line", () => {
     // The control on the case above: usage on request is not an error.
     const { io } = capture({});
     expect(await run(["--help"], io)).toBe(0);
+  });
+
+  it("prints the version from its own package.json for --version", async () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8")
+    ) as { version: string };
+    for (const argv of [["--version"], ["projects", "--version"]]) {
+      const { out, err, io } = capture({});
+      expect(await run(argv, io)).toBe(0);
+      expect(out).toEqual([manifest.version]);
+      expect(err).toEqual([]);
+    }
+    expect(manifest.version).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it("lists --version in its usage", async () => {
+    const { out, io } = capture({});
+    await run(["--help"], io);
+    expect(out.join("\n")).toContain("--version");
   });
 
   it("says what to do when no token is configured", async () => {

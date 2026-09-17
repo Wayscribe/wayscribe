@@ -18,6 +18,7 @@
     "db:migrate": "pnpm --filter @flight-recorder/database run migrate",
     "db:migrate:unlock": "pnpm --filter @flight-recorder/database run \"migrate:unlock\"",
     "db:rollback": "pnpm --filter @flight-recorder/database run rollback",
+    "db:reset": "pnpm --filter @flight-recorder/database run reset --",
     "db:seed": "pnpm --filter @flight-recorder/database run seed",
     "db:seed-demo": "pnpm --filter @flight-recorder/database run seed-demo",
     "test:e2e": "playwright test",

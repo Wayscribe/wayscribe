@@ -194,6 +194,7 @@ your back is a library that behaves differently in tests.
 | `pnpm test:e2e` | Playwright browser suite; needs the API and web running, and `ADMIN_TOKEN` and `FLIGHT_API_KEY` set (§3, Running the browser suite) |
 | `pnpm test:demo` | the product acceptance test; needs the demo stack up |
 | `pnpm db:migrate` · `pnpm db:rollback` · `pnpm db:seed` | schema and local seed |
+| `pnpm db:reset --yes` | roll the schema back to nothing, migrate, and seed; drops every recorded journey (§8) |
 | `pnpm db:migrate:unlock` | release a migration lock a killed `migrate` left behind; only when no migrate is running |
 | `pnpm key:create <project> <environment> [name]` | issue an API key |
 | `pnpm key:revoke <prefix>` | revoke one; `key:list` shows prefixes |
@@ -248,7 +249,24 @@ docker run --rm --network flight-recorder_default \
 
 ## 8. Resetting local state
 
-`down -v` removes the volume, so this discards every recorded event.
+`pnpm db:reset --yes` empties the database `DATABASE_URL` names and rebuilds
+it: it rolls back every migration, which drops every table and every recorded
+journey, then migrates and runs the local seed, which prints a new API key. The
+container and its volume stay.
+
+```bash
+pnpm db:reset --yes
+```
+
+Without `--yes` it changes nothing and says which server it would have
+wiped: nothing in `DATABASE_URL` says whether a database is a local one, so the
+flag is how you say so. It also checks `ENCRYPTION_KEY` before dropping
+anything, and it refuses under `NODE_ENV=production` even with the flag, which
+is what the published API image sets, so the copy of this CLI inside that image
+cannot reset an installation.
+
+To start over from an empty volume instead, `down -v` removes it, so this
+also discards every recorded event.
 
 ```bash
 docker compose -f infrastructure/compose.yaml down -v
