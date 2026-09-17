@@ -29,8 +29,8 @@ before you do this, and nothing is mirrored.
 ### 1. Create the GitHub repository
 
 The mirror is `github.com/wayscribe/wayscribe`, in the `wayscribe` organization.
-Create it empty. No README, no license, no `.gitignore` — the first mirror push force-writes
-history, and an initial commit would just be overwritten.
+Create it empty. No README, no license, no `.gitignore`: the first mirror push
+force-writes history, and an initial commit would just be overwritten.
 
 ### 2. Turn off everything that collects contributions
 
@@ -62,7 +62,7 @@ tokens**.
 - **Permissions:** `Contents: Read and write`. That covers pushing refs and
   creating releases. Nothing else is needed.
 - **Expiry:** whatever you are willing to rotate. The failure mode is a red
-  `mirror-to-github` job, which is loud and harmless — the mirror goes stale,
+  `mirror-to-github` job, which is loud and harmless: the mirror goes stale,
   nothing else breaks.
 
 ### 4. Add two CI/CD variables on GitLab
@@ -98,7 +98,7 @@ Both are skipped entirely when `GITHUB_TOKEN` is unset.
 
 `GIT_DEPTH: 0` on the mirror job is load-bearing. GitLab CI clones shallow by
 default, and pushing a shallow clone produces a mirror with about twenty commits
-of history — which looks perfectly normal until somebody runs `git log` and finds
+of history, which looks perfectly normal until somebody runs `git log` and finds
 the project apparently started last week.
 
 ## The force-push, and what it costs
@@ -117,5 +117,5 @@ you ever want to accept a GitHub contribution, port the commits to GitLab
 ## Rotating or revoking the token
 
 Revoke it on GitHub and delete the CI variable. Both jobs stop existing on the
-next pipeline; nothing else changes. Add a new one whenever you like — the next
+next pipeline; nothing else changes. Add a new one whenever you like; the next
 green `main` pipeline catches GitHub up in one push.
