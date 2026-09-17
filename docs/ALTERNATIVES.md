@@ -2,6 +2,10 @@
 
 **Last checked: 16 September 2026.**
 
+The Honeycomb entry was added on 17 September 2026 and its sources were checked
+that day. Every other entry still carries the date above: adding one did not
+re-check the rest.
+
 This page backs the claim in the README's
 [Alternatives](../README.md#alternatives) section:
 
@@ -42,8 +46,10 @@ a proof that the capability is absent.
 
 Commercial tools do this job for teams on their platforms, which shows teams
 pay for it: [Nodinite](#nodinite), [Turbo360 BAM](#turbo360-business-activity-monitoring),
-[Particular ServicePulse](#particular-servicepulse) and
-[Dynatrace Business Flow](#dynatrace-business-flow).
+[Particular ServicePulse](#particular-servicepulse),
+[Dynatrace Business Flow](#dynatrace-business-flow) and
+[Honeycomb](#hosted-tracing-backends-for-example-honeycomb). The table above
+lists only the tools you can run yourself, so those five are not in it.
 
 ## Open-source neighbours
 
@@ -112,6 +118,11 @@ pay for it: [Nodinite](#nodinite), [Turbo360 BAM](#turbo360-business-activity-mo
   [licence, jaegertracing/jaeger](https://github.com/jaegertracing/jaeger/blob/main/LICENSE),
   [licence, grafana/tempo](https://github.com/grafana/tempo/blob/main/LICENSE)
   (both checked 2026-09-16).
+
+Hosted tracing backends are the same shape as these two, and are bought rather
+than run, so they sit under commercial tools below:
+[Honeycomb](#hosted-tracing-backends-for-example-honeycomb) is the one teams
+reach for when they want to query a business id on a span.
 
 ### Webhook servers, for example Svix
 
@@ -276,6 +287,29 @@ to a vendor, a platform or both.
 - **Sources:** [ServicePulse](https://docs.particular.net/servicepulse/),
   [Particular pricing](https://particular.net/pricing) (both checked
   2026-09-16).
+
+### Hosted tracing backends, for example Honeycomb
+
+- **What it is:** a hosted service that applications send OpenTelemetry data to.
+  Its documentation opens by telling you to instrument your applications and
+  "send telemetry to Honeycomb", and describes no self-hosted edition.
+- **Overlap:** it is built for the field this job turns on. Its documentation
+  defines a high-cardinality field as one that "can have many possible values"
+  and gives `userId`, `shoppingCartId` and `orderId` as the examples, then says
+  Honeycomb lets you query on those fields and look only at the events that
+  served one user's requests. A team that already puts an order id on its spans
+  can therefore pull up that order, which is the search half of this job, and
+  Honeycomb does that half better than Wayscribe does.
+- **What it lacks for this job:** what the open-source tracing backends lack. A
+  span carries the attributes you set on it, and the documentation does not
+  describe capturing the payload a step received and produced, comparing the
+  two field by field, or replaying a recorded input against development. It is
+  also the platform the fourth part of the claim is about: the data lives in
+  the vendor's service.
+- **Sources:**
+  [High cardinality](https://docs.honeycomb.io/get-started/observability/concepts/high-cardinality/),
+  [Send data to Honeycomb](https://docs.honeycomb.io/send-data/) (both checked
+  2026-09-17).
 
 ### Dynatrace Business Flow
 

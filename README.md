@@ -343,8 +343,9 @@ Several open-source tools do part of it:
 
 Convoy, Bemi and n8n come close to parts of this and are source-available
 rather than OSI open source. Commercial tools such as Nodinite, Turbo360,
-Particular ServicePulse and Dynatrace Business Flow do this job on their own
-platforms, which shows teams pay for it.
+Particular ServicePulse, Dynatrace Business Flow and the hosted tracing
+backends, Honeycomb among them, do this job on their own platforms, which shows
+teams pay for it.
 
 [docs/ALTERNATIVES.md](docs/ALTERNATIVES.md) has the licence, the overlap and
 the gap for each, with a source and the date it was checked. If a tool does all
