@@ -162,6 +162,10 @@ button {
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--line);
 }
+/* The glossary: to the side, quieter than the two ways in. */
+.site-nav-aside {
+  margin-left: auto;
+}
 
 /* A heading with the other ways in: search, or a status shortcut. */
 .page-heading {

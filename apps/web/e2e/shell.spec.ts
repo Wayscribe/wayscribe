@@ -2,7 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { API_KEY, API_URL, signIn } from "./session";
 
 /**
- * What every page carries around its content: the skip link, for now.
+ * What every page carries around its content: the skip link, and on a
+ * signed-in page the glossary link in the nav.
  *
  * Signing in needs a journey to find the right project by (session.ts), so this
  * spec seeds one of its own. Versioned for the reason journey.spec.ts gives: an
@@ -65,4 +66,16 @@ test("the first Tab on a signed-in page lands on the skip link, ahead of the nav
   await signIn(page, JOURNEY_ID);
   await page.goto("/journeys");
   await expectSkipLink(page);
+});
+
+test("the nav links the glossary where the repository hosts it", async ({ page }) => {
+  await signIn(page, JOURNEY_ID);
+  const glossary = page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Glossary" });
+  await expect(glossary).toBeVisible();
+  await expect(glossary).toHaveAttribute(
+    "href",
+    "https://gitlab.com/jojithedev/flight-recorder/-/blob/main/docs/GLOSSARY.md"
+  );
 });

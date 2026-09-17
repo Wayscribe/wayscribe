@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactElement, ReactNode } from "react";
 import { SESSION_COOKIE_NAME, verifySession } from "../../src/lib/session";
+import { SiteNav } from "../components/SiteNav";
 
 /**
  * The auth gate for every page in this route group.
@@ -14,8 +14,7 @@ import { SESSION_COOKIE_NAME, verifySession } from "../../src/lib/session";
  *
  * The login page sits outside this group, so it stays reachable.
  *
- * It also carries the two ways in: Search, for an identifier, and Journeys,
- * for browsing without one.
+ * It also carries the nav: the two ways in, and the glossary.
  */
 export default async function AuthenticatedLayout({
   children
@@ -30,10 +29,7 @@ export default async function AuthenticatedLayout({
 
   return (
     <>
-      <nav className="site-nav" aria-label="Main">
-        <Link href="/">Search</Link>
-        <Link href="/journeys">Journeys</Link>
-      </nav>
+      <SiteNav />
       {children}
     </>
   );
