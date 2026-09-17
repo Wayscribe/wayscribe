@@ -29,7 +29,7 @@ Results:
 ## The most important corrections
 
 - SECURITY section 13 claimed audit rows that nothing wrote (above).
-- The SDK's measured cost was stale, and part of the change was a regression. Re-measured on the same Apple M3 Pro on 2026-09-16, a `transform` of 1 KiB first read 112 µs at p50 where the documents said 30. Most of that was the processor: the benchmark sleeps between calls, and the build measured on 2026-09-15 reads 84 µs with the cores idle and 27 µs with a core kept awake. The rest was the event budget check of ADR-051 (commit `bf92801`), which walked and serialised every event a second time and made capture about 40 percent slower; the check for secret-looking names (`7cce070`) was not the cause. The check now uses plain serialisation when the event is certainly within budget, and strings are cut in the walk that makes a payload storable, with identical results. The recorder no longer starts a send for every event while its breaker is open, which is why a refusing endpoint had cost about 6 µs more a call. After the fix a 1 KiB `transform` adds 86 µs at p50 with the cores idle and 30 µs with a core awake; the SDK README, the FAQ and the release notes carry both, and `packages/sdk-node/src/capture-walks.test.ts` fails if capture walks a payload more than once again.
+- The SDK's measured cost was stale, and part of the change was a regression. Re-measured on the same Apple M3 Pro on 2026-09-16, a `transform` of 1 KiB first read 112 µs at p50 where the documents said 30. Most of that was the processor: the benchmark sleeps between calls, and the build measured on 2026-09-15 reads 84 µs with the cores idle and 27 µs with a core kept awake. The rest was the event budget check of ADR-051 (commit `bf92801`), which walked and serialised every event a second time and made capture about 40 percent slower; the check for secret-looking names (`7cce070`) was not the cause. The check now uses plain serialisation when the event is certainly within budget, and strings are cut in the walk that makes a payload storable, with identical results. The recorder no longer starts a send for every event while its breaker is open, which is why a refusing endpoint had cost about 6 µs more a call. After the fixes, measured on 2026-09-17, a 1 KiB `transform` adds 89 µs at p50 with the cores idle and 31 µs with a core awake; the SDK README, the FAQ and the release notes carry both, and `packages/sdk-node/src/capture-walks.test.ts` fails if capture walks a payload more than once again.
 - `docs/API_SPEC.md` section 12 documented a replay request with `payload` and `headers` and a response with `replayId`. The route reads neither field and answers the stored run.
 - The FAQ said CI ran PostgreSQL 17 alone and that `doctor` warned on anything older. CI runs 15, 17 and 18, and `doctor` warns on a release newer than 18.
 - The SDK README described a name-value redaction object as needing exactly two keys, which the code stopped requiring when a third key was found to defeat the rule.
@@ -258,15 +258,15 @@ Results:
 | --- | --- | --- | --- | --- |
 | 3 | Nothing published | As the README | true, dated | 2026-09-16 |
 | 40 | At most one line per kind a minute; four unasked warnings | `diagnostics.ts` `LOG_WINDOW_MS = 60_000`; `tests/docs-claims.test.ts` | true | 2026-09-16 |
-| 45 | SDK cost: 30 µs and 513 µs for `transform` at 1 KiB, 219 MiB resident | Re-measured 2026-09-16, first as 112 µs and 1,462 µs, then after the capture fix of the same day as 86 µs and 1,859 µs with the processor idle between calls and 30 µs with a core awake; 219 MiB. The difference from 2026-09-15 was mostly the processor's idle state, and partly the event budget check (below) | corrected | 2026-09-16 |
-| 74 | 1,049 and 1,494 bytes per event; 63 GiB | OPERATIONS §10; date and machine added | true, dated | 2026-09-16 |
-| 86 | Search 0.1 ms and 64 ms | OPERATIONS §10; date added | true, dated | 2026-09-16 |
-| 91 | Journey list under 12 ms at 24 hours; 262 and 316 ms worst case | OPERATIONS §10, *Listing journeys*; date added | true, dated | 2026-09-16 |
-| 77 | Compose install | Now names the required version variable | corrected | 2026-09-16 |
-| 118 | Key audit rows (new) | `key-admin.integration.test.ts` | true | 2026-09-16 |
-| 146 | Node 22.12; PostgreSQL 15, CI on 15, 17 and 18; doctor warns above 18 | `tests/supported-versions.test.ts` | true | 2026-09-16 |
-| 152 | The chart was used on kind, never on a managed cluster | ADR-042; `deploy/helm/README.md`. The kind run was by hand and is not repeatable here | not verifiable here | 2026-09-16 |
-| 179 | The experimental parts | `@experimental` tags in `packages/sdk-node/src/types.ts` and `config.ts`; SDK README, Stability | true | 2026-09-16 |
+| 45 | SDK cost: 30 µs and 513 µs for `transform` at 1 KiB, 219 MiB resident | Re-measured 2026-09-16 as 112 µs and 1,462 µs; after the capture fixes, on 2026-09-17, 89 µs and 1,341 µs with the processor idle between calls and 31 µs with a core awake; 219 MiB. The difference from 2026-09-15 was mostly the processor's idle state, and partly the event budget check | corrected | 2026-09-17 |
+| 73 | 1,049 and 1,494 bytes per event; 63 GiB | OPERATIONS §10; date and machine added | true, dated | 2026-09-16 |
+| 85 | Search 0.1 ms and 64 ms | OPERATIONS §10; date added | true, dated | 2026-09-16 |
+| 90 | Journey list under 12 ms at 24 hours; 262 and 316 ms worst case | OPERATIONS §10, *Listing journeys*; date added | true, dated | 2026-09-16 |
+| 76 | Compose install | Now names the required version variable | corrected | 2026-09-16 |
+| 117 | Key audit rows (new) | `key-admin.integration.test.ts` | true | 2026-09-16 |
+| 145 | Node 22.12; PostgreSQL 15, CI on 15, 17 and 18; doctor warns above 18 | `tests/supported-versions.test.ts` | true | 2026-09-16 |
+| 151 | The chart was used on kind, never on a managed cluster | ADR-042; `deploy/helm/README.md`. The kind run was by hand and is not repeatable here | not verifiable here | 2026-09-16 |
+| 178 | The experimental parts | `@experimental` tags in `packages/sdk-node/src/types.ts` and `config.ts`; SDK README, Stability | true | 2026-09-16 |
 
 ### `docs/FAQ.md`
 
@@ -275,12 +275,12 @@ Results:
 | 4 | Every number names its source and machine | The search figures had no machine; the sentence now allows for that, and every table is dated. `tests/docs-claims.test.ts` ("dates the counts and measurements it states") | corrected | 2026-09-16 |
 | 48 | OTLP is not built | No `/v1/logs` route in `apps/api/src/routes` | true | 2026-09-16 |
 | 83 | The storage table | As SECURITY §6 and §7 | true | 2026-09-16 |
-| 103 | SDK cost tables (30 / 513, 75 / 1,146, 1,420 / 19,555, 1,079 / 10,337 µs; 219 MiB) | Re-measured on 2026-09-16 on the same M3 Pro after the capture fix, two runs each with the cores idle and with a core awake: 86 / 1,859, 64 / 1,396, 1,759 / 14,641, 1,383 / 12,974 idle; 30 / 318, 18 / 203, 1,496 / 11,665, 724 / 5,925 awake; 219 MiB | corrected | 2026-09-16 |
+| 103 | SDK cost tables (30 / 513, 75 / 1,146, 1,420 / 19,555, 1,079 / 10,337 µs; 219 MiB) | Re-measured on 2026-09-17 on the same M3 Pro after the capture fixes, two runs each with the cores idle and with a core awake: 89 / 1,341, 67 / 1,507, 1,816 / 14,424, 1,541 / 12,875 idle; 31 / 324, 18 / 205, 1,563 / 12,336, 757 / 6,477 awake; 219 MiB | corrected | 2026-09-17 |
 | 138 | Disk per event table | OPERATIONS §10; date added | true, dated | 2026-09-16 |
 | 165 | Search table | OPERATIONS §10; date added, machine unrecorded | true, dated | 2026-09-16 |
 | 177 | Journey list table | OPERATIONS §10; date added | true, dated | 2026-09-16 |
 | 196 | Ingestion 230.6 and 248.3 ms per batch | OPERATIONS §10, *What they cost ingestion* (2026-09-16) | true, dated | 2026-09-16 |
-| 205 | Unreachable endpoint added 20 to 116 µs, within the working range | On 2026-09-16, after the capture fix: the same as a working endpoint with a core awake (30 to 31 µs), higher with the cores idle (98 and 135 against 86 and 88 µs); corrected with the reason | corrected | 2026-09-16 |
+| 205 | Unreachable endpoint added 20 to 116 µs, within the working range | On 2026-09-17: the same as a working endpoint with a core awake (31 to 34 µs); with the cores idle 90 and 125 against 89 and 114 µs, and on 2026-09-16 higher in both runs; corrected with the reason | corrected | 2026-09-17 |
 | 214 | Queue 1,000; breaker five failures, 30 s; shutdown 2,000 ms | `resolveConfig`, `recorder.ts`; `tests/docs-claims.test.ts` ("states the transport's bounds") | true | 2026-09-16 |
 | 238 | Deletion routes | `apps/api/src/routes/deletions.ts` | true | 2026-09-16 |
 | 266 | The SDK reads no environment variables | No `process.env` read in `packages/sdk-node/src` outside comments | true | 2026-09-16 |
@@ -410,20 +410,20 @@ Results:
 | 902 | What happens to values | `packages/payload-security/src/exotic.test.ts` and `truncate.test.ts` | true | 2026-09-16 |
 | 949 | 256 characters | `recorder.ts` `MAX_ERROR_FIELD_LENGTH`; `error-limits.test.ts` | true | 2026-09-16 |
 | 966 | Cost measured on the M3 Pro, undated | Machine stated; dated now | true, dated | 2026-09-16 |
-| 993 | Added time: 30 / 513, 75 / 1,146, 1,420 / 19,555, 1,079 / 10,337 µs | Re-measured on 2026-09-16, two runs with the cores idle and two with a core awake (`--awake`, new), after the capture fix; the old run is kept for comparison | corrected | 2026-09-16 |
-| 1003 | What changed: most of 30 against 112 µs was the processor, the rest the event budget check | The 2026-09-15 build (`ab90096`) measured 84 µs idle and 27 µs awake on 2026-09-16; `bench/capture-cpu.mjs` on it, on `eac66cb` and after the fix: 28, 41 and 31 µs; commits either side of `bf92801`: 29 and 41 µs; the secret-name merge `56a199b` within 4 percent | true | 2026-09-16 |
-| 1026 | Unreachable and slow endpoints stayed in the stub's range, 20 to 116 µs | On 2026-09-16 the unreachable endpoint read higher with the cores idle and the same with a core awake; the cause is the processor's idle state, and a real 6 µs, a send started for every event while the breaker was open, was removed (`transport.ts` `isOpen`) | corrected | 2026-09-16 |
-| 1049 | `capture-walks.test.ts` holds the walks; `overhead.test.ts` trips at 11, 7.2 to 8.0 now and 9.31 to 10.05 before | The walk test fails on `eac66cb` (three of three); the ratio was run on 2026-09-16 on Node 24.19.0 and 22.23.1, quiet and with eleven cores busy, and in review on `eac66cb` | true | 2026-09-16 |
-| 1060 | Sustained load table | Re-measured 2026-09-16, again after the capture fix; within noise of the old figures | corrected | 2026-09-16 |
-| 1066 | 124,000 stored | 2,000 a second for 62 s; the 2026-09-16 run stored 124,000 again | true | 2026-09-16 |
-| 1069 | "The heap after collection does not grow" | It grew 0.1 MiB wrapped and 0.9 MiB unwrapped in the run after the fix; stated | corrected | 2026-09-16 |
-| 1076 | Send concurrency table | Commits `2434357` and `ab90096` (2026-09-15); not re-run; dated | true, dated | 2026-09-16 |
-| 1089 | Fleet model table | Commit `d1729e7` (2026-09-15); not re-run; dated | true, dated | 2026-09-16 |
-| 1127 | The API's pool is 10 | `packages/database/src/knex-config.ts` `max: 10` | true | 2026-09-16 |
-| 1139 | Clamped to 1-16 | `config.ts` `MAX_CONCURRENT_SENDS_LIMIT = 16` | true | 2026-09-16 |
-| 1152 | The configuration table | `tests/docs-claims.test.ts` ("lists the defaults resolveConfig applies") | true | 2026-09-16 |
-| 1149 | SDK capture modes | `config.ts` `CAPTURE_MODES` | true | 2026-09-16 |
-| 1184 | Node 22.12; CI checks 22.12.0 and 24 | `tests/supported-versions.test.ts` | true | 2026-09-16 |
+| 993 | Added time: 30 / 513, 75 / 1,146, 1,420 / 19,555, 1,079 / 10,337 µs | Re-measured on 2026-09-17, two runs with the cores idle and two with a core awake (`--awake`, new), after the capture fixes; the old run is kept for comparison | corrected | 2026-09-17 |
+| 1003 | What changed: most of 30 against 112 µs was the processor, the rest the event budget check | The 2026-09-15 build (`ab90096`) measured 84 µs idle and 27 µs awake on 2026-09-16; `bench/capture-cpu.mjs` on it, on `eac66cb` and after the fix: 28, 41 and 31 µs, and 32 µs on 2026-09-17 with the early size stop; commits either side of `bf92801`: 29 and 41 µs; the secret-name merge `56a199b` within 4 percent | true | 2026-09-17 |
+| 1027 | Unreachable and slow endpoints stayed in the stub's range, 20 to 116 µs | With a core awake the same as the local stub on 2026-09-17; with the cores idle higher in both runs on 2026-09-16 and mixed on 2026-09-17, which is the processor's idle state; a real 6 µs, a send started for every event while the breaker was open, was removed (`transport.ts` `isOpen`) | corrected | 2026-09-17 |
+| 1050 | `capture-walks.test.ts` holds the walks; `overhead.test.ts` trips at 11, 7.2 to 8.0 now and 9.31 to 10.05 before | The walk test fails on `eac66cb` (three of three); the ratio was run on 2026-09-16 on Node 24.19.0 and 22.23.1, quiet and with eleven cores busy, and in review on `eac66cb` | true | 2026-09-16 |
+| 1061 | Sustained load table | Re-measured 2026-09-17 after the capture fixes; within noise of the old figures | corrected | 2026-09-17 |
+| 1067 | 124,000 stored | 2,000 a second for 62 s; the 2026-09-16 run stored 124,000 again | true | 2026-09-16 |
+| 1070 | "The heap after collection does not grow" | It grew 0.2 MiB wrapped and 1.0 MiB unwrapped on 2026-09-17; stated | corrected | 2026-09-17 |
+| 1077 | Send concurrency table | Commits `2434357` and `ab90096` (2026-09-15); not re-run; dated | true, dated | 2026-09-16 |
+| 1090 | Fleet model table | Commit `d1729e7` (2026-09-15); not re-run; dated | true, dated | 2026-09-16 |
+| 1128 | The API's pool is 10 | `packages/database/src/knex-config.ts` `max: 10` | true | 2026-09-16 |
+| 1140 | Clamped to 1-16 | `config.ts` `MAX_CONCURRENT_SENDS_LIMIT = 16` | true | 2026-09-16 |
+| 1153 | The configuration table | `tests/docs-claims.test.ts` ("lists the defaults resolveConfig applies") | true | 2026-09-16 |
+| 1150 | SDK capture modes | `config.ts` `CAPTURE_MODES` | true | 2026-09-16 |
+| 1185 | Node 22.12; CI checks 22.12.0 and 24 | `tests/supported-versions.test.ts` | true | 2026-09-16 |
 
 ### `docs/recipes/README.md`
 

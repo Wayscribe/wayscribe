@@ -342,7 +342,7 @@ shorter overview is in
   event is now measured with plain serialisation when it is certainly within
   its budget, and strings are cut in the walk that makes a payload storable,
   with the same results. In a tight loop on an Apple M3 Pro, a 1 KiB `transform`
-  went from 41 to 31 µs and a 64 KiB one from 2,122 to 1,781 µs. While the
+  went from 41 to 32 µs and a 64 KiB one from 2,122 to 1,769 µs. While the
   circuit breaker is open the recorder no longer starts a send for every event
   recorded, which cost about 6 µs a call against a refusing endpoint.
 
@@ -351,6 +351,20 @@ shorter overview is in
   batches arrived out of order, and with the queue full a batch from the middle
   of the outage could arrive after thousands of newer events had been dropped.
   The events kept are now the newest, and they arrive in the order recorded.
+
+- **A payload far over budget is refused quickly.** The size check serialised
+  a payload in full before comparing it with the budget, and shared references
+  expand when serialised: an object 24 levels deep holding the next level twice
+  took `record()` about 2 seconds and 245 MB. The check now stops once the
+  payload is certainly too large.
+
+- **A long string replaced by a colliding key is not reported as cut.** Two
+  keys that differ only by a NUL or a broken character are stored as one, and
+  a long value the later one replaced no longer counts in `payloadsTruncated`.
+
+- **An event whose payload is a function or a Symbol is sent.** When another
+  payload pushed such an event over budget, weighing it threw and the event was
+  lost as a capture error.
 
 - **A blank required setting is reported as missing (SDK-60).** An empty or
   whitespace-only `endpoint`, `apiKey`, `serviceName` or `environment`, such as
