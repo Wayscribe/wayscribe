@@ -3,7 +3,7 @@ import {
   encryptValue,
   UnknownKeyError,
   type Keyring
-} from "@flight-recorder/payload-security";
+} from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import { insertReturningId } from "../insert.js";
 

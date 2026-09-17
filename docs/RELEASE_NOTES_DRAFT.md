@@ -1,4 +1,4 @@
-# Flight Recorder 0.x preview: release notes
+# Wayscribe 0.x preview: release notes
 
 **Draft, 2026-09-16.** Nothing described here is published yet. The version
 number, the product name and the install commands will be filled in when the
@@ -6,7 +6,7 @@ release is cut. The full list of changes is in [CHANGELOG.md](../CHANGELOG.md).
 
 ## What it is
 
-Flight Recorder records what happened to one business record, such as a
+Wayscribe records what happened to one business record, such as a
 customer, an order or an invoice, as it moves through your services, and shows
 the step where its data changed. It is self-hosted, stores everything in a
 PostgreSQL database you run, and needs no account or hosted service.
@@ -18,7 +18,7 @@ release will not.
 
 ### Recording and the SDK
 
-- **`@flight-recorder/node`**, a Node SDK with no runtime dependencies. The
+- **`@wayscribe/node`**, a Node SDK with no runtime dependencies. The
   wrappers (`transform`, `persist`, `publish`, `deliver`) run your code, return
   its value unchanged, rethrow its exact error, and record what went in and what
   came out. A synchronous callback stays synchronous.
@@ -74,7 +74,7 @@ release will not.
   in `redacted-payload` needs about 63 GiB (OPERATIONS section 10, "Measured disk
   per event" and "A formula").
 - **Installs** as a Compose stack, which runs the release you name in
-  `FLIGHT_RECORDER_VERSION`, or with a Helm chart for a local single-node
+  `WAYSCRIBE_VERSION`, or with a Helm chart for a local single-node
   cluster.
 
 ### Finding a record

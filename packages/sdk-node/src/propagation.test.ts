@@ -21,13 +21,13 @@ describe("HTTP propagation", () => {
   it("omits the entity id at the default level", () => {
     // SECURITY.md section 10: the primary entity ID propagates only when allowed.
     const headers = injectHttpHeaders({}, context, "journey-and-type");
-    expect(headers["x-flight-entity-id"]).toBeUndefined();
-    expect(headers["x-flight-entity-type"]).toBe("customer");
+    expect(headers["x-wayscribe-entity-id"]).toBeUndefined();
+    expect(headers["x-wayscribe-entity-type"]).toBe("customer");
   });
 
   it("emits only the journey id at journey-only", () => {
     expect(Object.keys(injectHttpHeaders({}, context, "journey-only"))).toEqual([
-      "x-flight-journey-id"
+      "x-wayscribe-journey-id"
     ]);
   });
 
@@ -45,15 +45,15 @@ describe("HTTP propagation", () => {
     // Forwarding an inbound request's headers must not pair an old entity id
     // with the new journey.
     const stale = {
-      "X-Flight-Journey-Id": "jrn_old",
-      "x-flight-entity-type": "order",
-      "X-FLIGHT-ENTITY-ID": "old-id",
+      "X-Wayscribe-Journey-Id": "jrn_old",
+      "x-wayscribe-entity-type": "order",
+      "X-WAYSCRIBE-ENTITY-ID": "old-id",
       accept: "application/json"
     };
     expect(injectHttpHeaders(stale, context, "journey-and-type")).toEqual({
       accept: "application/json",
-      "x-flight-journey-id": context.journeyId,
-      "x-flight-entity-type": "customer"
+      "x-wayscribe-journey-id": context.journeyId,
+      "x-wayscribe-entity-type": "customer"
     });
   });
 
@@ -75,14 +75,14 @@ describe("HTTP propagation", () => {
   ])("rejects %s", (_label, journeyId) => {
     // Inbound context is attacker-controlled. Rejecting means the consumer
     // starts a fresh journey rather than joining a malformed one.
-    expect(extractHttpContext({ "x-flight-journey-id": journeyId })).toBeUndefined();
+    expect(extractHttpContext({ "x-wayscribe-journey-id": journeyId })).toBeUndefined();
   });
 
   it("reads a fetch Headers object, whatever the case of the names", () => {
     const headers = new Headers({
-      "X-Flight-Journey-Id": context.journeyId,
-      "X-Flight-Entity-Type": "customer",
-      "X-Flight-Entity-Id": context.entity.id
+      "X-Wayscribe-Journey-Id": context.journeyId,
+      "X-Wayscribe-Entity-Type": "customer",
+      "X-Wayscribe-Entity-Id": context.entity.id
     });
     expect(extractHttpContext(headers)).toEqual(context);
   });
@@ -90,11 +90,11 @@ describe("HTTP propagation", () => {
   it("reads Node's incoming headers, ignoring values that are not strings", () => {
     const incoming: Record<string, string | string[] | number | undefined> = {
       "content-length": 12,
-      "x-flight-journey-id": [context.journeyId, "jrn_second"],
-      "x-flight-entity-type": undefined
+      "x-wayscribe-journey-id": [context.journeyId, "jrn_second"],
+      "x-wayscribe-entity-type": undefined
     };
     expect(extractHttpContext(incoming)).toEqual({ journeyId: context.journeyId });
-    expect(extractHttpContext({ "x-flight-journey-id": 7 })).toBeUndefined();
+    expect(extractHttpContext({ "x-wayscribe-journey-id": 7 })).toBeUndefined();
   });
 
   it("extracts a journey without an entity when only the id was sent", () => {
@@ -110,7 +110,7 @@ describe("SQS propagation", () => {
   });
 
   it("emits the SQS attribute shape", () => {
-    expect(injectSqsAttributes({}, context, "journey-only")["flightJourneyId"]).toEqual({
+    expect(injectSqsAttributes({}, context, "journey-only")["wayscribeJourneyId"]).toEqual({
       DataType: "String",
       StringValue: context.journeyId
     });
@@ -118,14 +118,14 @@ describe("SQS propagation", () => {
 
   it("replaces a journey's attributes already present", () => {
     const stale = {
-      flightJourneyId: { DataType: "String", StringValue: "jrn_old" },
-      flightEntityType: { DataType: "String", StringValue: "order" },
-      flightEntityId: { DataType: "String", StringValue: "old-id" },
+      wayscribeJourneyId: { DataType: "String", StringValue: "jrn_old" },
+      wayscribeEntityType: { DataType: "String", StringValue: "order" },
+      wayscribeEntityId: { DataType: "String", StringValue: "old-id" },
       tenant: { DataType: "String", StringValue: "acme" }
     };
     expect(injectSqsAttributes(stale, context, "journey-only")).toEqual({
       tenant: { DataType: "String", StringValue: "acme" },
-      flightJourneyId: { DataType: "String", StringValue: context.journeyId }
+      wayscribeJourneyId: { DataType: "String", StringValue: context.journeyId }
     });
   });
 
@@ -134,7 +134,7 @@ describe("SQS propagation", () => {
     const injected = injectSqsAttributes(original, context, "journey-only");
     expect(injected).toEqual({
       tenant: { DataType: "String", StringValue: "acme" },
-      flightJourneyId: { DataType: "String", StringValue: context.journeyId }
+      wayscribeJourneyId: { DataType: "String", StringValue: context.journeyId }
     });
     expect(original).toEqual({ tenant: { DataType: "String", StringValue: "acme" } });
   });
@@ -142,7 +142,7 @@ describe("SQS propagation", () => {
   it("accepts a plain name-to-value map", () => {
     // ElasticMQ and other brokers differ; a consumer should not have to
     // normalise before calling us.
-    const plain = { flightJourneyId: context.journeyId, flightEntityType: "customer" };
+    const plain = { wayscribeJourneyId: context.journeyId, wayscribeEntityType: "customer" };
     expect(extractSqsContext(plain)?.journeyId).toBe(context.journeyId);
   });
 
@@ -152,7 +152,7 @@ describe("SQS propagation", () => {
   });
 
   it("rejects a malformed journey id", () => {
-    expect(extractSqsContext({ flightJourneyId: "nope" })).toBeUndefined();
+    expect(extractSqsContext({ wayscribeJourneyId: "nope" })).toBeUndefined();
   });
 });
 
@@ -173,7 +173,10 @@ describe("payload envelope", () => {
   });
 
   it("ignores a malformed envelope but keeps the data", () => {
-    const { context: extracted, data } = extractPayload({ _flight: { journeyId: "bad" }, data: 1 });
+    const { context: extracted, data } = extractPayload({
+      _wayscribe: { journeyId: "bad" },
+      data: 1
+    });
     expect(extracted).toBeUndefined();
     expect(data).toBe(1);
   });

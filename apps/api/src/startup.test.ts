@@ -29,7 +29,7 @@ describe("prepareStartup", () => {
     expect(startup).toEqual({
       ok: false,
       message:
-        "Flight Recorder API cannot start:\n" +
+        "Wayscribe API cannot start:\n" +
         "  ENCRYPTION_KEY_PREVIOUS is the same key as ENCRYPTION_KEY; set it to the key being rotated out."
     });
   });
@@ -40,7 +40,7 @@ describe("prepareStartup", () => {
     if (startup.ok) return;
     // Each invalid variable sits under the configuration header, not beside it.
     expect(startup.message).toMatch(
-      /^Flight Recorder API cannot start:\n {2}Invalid environment configuration:\n {4}ENCRYPTION_KEY: /
+      /^Wayscribe API cannot start:\n {2}Invalid environment configuration:\n {4}ENCRYPTION_KEY: /
     );
   });
 });

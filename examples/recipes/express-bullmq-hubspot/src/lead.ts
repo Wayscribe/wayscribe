@@ -1,5 +1,5 @@
 // Your application's own code: what a lead is, and how a webhook body becomes
-// one. Nothing here knows about Flight Recorder.
+// one. Nothing here knows about Wayscribe.
 
 export interface Lead {
   id: string;

@@ -1,8 +1,8 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId, listAudit } from "@flight-recorder/database";
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId, listAudit } from "@wayscribe/database";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -148,7 +148,7 @@ describe("replay routes", () => {
   // interface hit in production and the reason it now names one too.
   const admin = (): Record<string, string> => ({
     authorization: `Bearer ${ADMIN_TOKEN}`,
-    "x-flight-project-id": projectId
+    "x-wayscribe-project-id": projectId
   });
 
   async function makeDestination(baseUrl: string, name: string): Promise<string> {
@@ -370,8 +370,8 @@ describe("replay routes", () => {
     expect(stored).toMatchObject({
       "x-dev-token": "[REDACTED]",
       authorization: "[REDACTED]",
-      "x-flight-replay": "true",
-      "user-agent": "flight-recorder-replay"
+      "x-wayscribe-replay": "true",
+      "user-agent": "wayscribe-replay"
     });
 
     const read = await app.inject({
@@ -583,7 +583,7 @@ describe("replay routes", () => {
     const response = await app.inject({
       method: "GET",
       url: `/v1/replays/${runId}`,
-      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "x-flight-project-id": otherProject }
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "x-wayscribe-project-id": otherProject }
     });
     expect(response.statusCode).toBe(404);
   });

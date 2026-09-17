@@ -1,4 +1,4 @@
-import { DEFAULT_SECRET_PATHS } from "@flight-recorder/payload-security/redaction";
+import { DEFAULT_SECRET_PATHS } from "@wayscribe/payload-security/redaction";
 import type { Diagnostic } from "./diagnostics.js";
 import type { PropagationLevel } from "./propagation.js";
 import { readKnownSafeNames } from "./secret-names.js";
@@ -18,7 +18,7 @@ export type CaptureMode = "metadata-only" | "redacted-payload" | "full-payload";
  * Nothing is converted: `"5000"` read from `process.env` is not a number.
  */
 export interface RecorderConfig {
-  /** Where the API is, such as `https://flight-recorder.internal`. */
+  /** Where the API is, such as `https://wayscribe.internal`. */
   endpoint: string;
   /** An API key for one project and one environment. */
   apiKey: string;
@@ -75,7 +75,7 @@ export interface RecorderConfig {
    */
   onDiagnostic?: ((diagnostic: Diagnostic) => void) | undefined;
   /**
-   * Write each diagnostic to `console.error` as one `[flight-recorder]` line, at
+   * Write each diagnostic to `console.error` as one `[wayscribe]` line, at
    * most one per kind per minute. Meant for setting up: turn it on until
    * `delivered_first` appears, then off.
    *

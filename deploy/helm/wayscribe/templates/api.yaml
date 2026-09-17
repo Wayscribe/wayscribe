@@ -9,21 +9,21 @@ before a pod crash-loops. */}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "flight-recorder.fullname" . }}-api
+  name: {{ include "wayscribe.fullname" . }}-api
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
 spec:
   replicas: {{ .Values.api.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+      app.kubernetes.io/name: {{ include "wayscribe.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: api
   template:
     metadata:
       labels:
-        {{- include "flight-recorder.labels" . | nindent 8 }}
+        {{- include "wayscribe.labels" . | nindent 8 }}
         app.kubernetes.io/component: api
     spec:
       {{- with .Values.image.pullSecrets }}
@@ -37,7 +37,7 @@ spec:
           emptyDir: {}
       containers:
         - name: api
-          image: {{ include "flight-recorder.image" (dict "Values" .Values "Chart" .Chart "component" "api") }}
+          image: {{ include "wayscribe.image" (dict "Values" .Values "Chart" .Chart "component" "api") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
@@ -52,31 +52,31 @@ spec:
               containerPort: {{ . }}
             {{- end }}
           env:
-            {{- include "flight-recorder.databaseEnv" . | nindent 12 }}
+            {{- include "wayscribe.databaseEnv" . | nindent 12 }}
             - name: ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "flight-recorder.secretName" . }}
+                  name: {{ include "wayscribe.secretName" . }}
                   key: ENCRYPTION_KEY
             # Present only during a key rotation. Optional, so a secret without
             # the key starts the pod with no previous key rather than failing.
             - name: ENCRYPTION_KEY_PREVIOUS
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "flight-recorder.secretName" . }}
+                  name: {{ include "wayscribe.secretName" . }}
                   key: ENCRYPTION_KEY_PREVIOUS
                   optional: true
             - name: ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "flight-recorder.secretName" . }}
+                  name: {{ include "wayscribe.secretName" . }}
                   key: ADMIN_TOKEN
             - name: PORT
               value: "8080"
             - name: APP_URL
-              value: "http://{{ include "flight-recorder.fullname" . }}-web:{{ .Values.web.service.port }}"
+              value: "http://{{ include "wayscribe.fullname" . }}-web:{{ .Values.web.service.port }}"
             - name: API_URL
-              value: "http://{{ include "flight-recorder.fullname" . }}-api:{{ .Values.api.service.port }}"
+              value: "http://{{ include "wayscribe.fullname" . }}-api:{{ .Values.api.service.port }}"
             - name: LOG_LEVEL
               value: {{ .Values.api.logLevel | quote }}
             - name: DEFAULT_RETENTION_DAYS
@@ -115,9 +115,9 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "flight-recorder.fullname" . }}-api
+  name: {{ include "wayscribe.fullname" . }}-api
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
 spec:
   type: {{ .Values.api.service.type }}
@@ -127,6 +127,6 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+    app.kubernetes.io/name: {{ include "wayscribe.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: api

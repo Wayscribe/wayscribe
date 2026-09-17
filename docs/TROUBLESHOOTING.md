@@ -105,7 +105,7 @@ const recorder = createRecorder({
 When the server stores the first batch, the SDK prints one line:
 
 ```text
-[flight-recorder] delivered_first: Connected to http://localhost:8080; the server accepted 3 events.
+[wayscribe] delivered_first: Connected to http://localhost:8080; the server accepted 3 events.
 ```
 
 If that line never appears, the lines that do appear say why. These were all
@@ -119,11 +119,11 @@ saying why they were printed unasked:
 | `rejected: unauthorized_environment (the server's message goes to onDiagnostic)` | `environment` is not the key's environment | see [403](#403-unauthorized_environment) |
 | `transport_error: fetch failed`, then `dropped: The recorder shut down before this event was delivered.` | nothing answered at `endpoint`: wrong host or port, or the API is down | check `endpoint` against step 1; inside Compose the API is `http://api:8080`, from the host it is `http://localhost:8080` |
 | `configuration_error: apiKey is not a string, so the server refuses every request, and the events are counted as rejected.` | `apiKey` was `undefined`, usually an unset environment variable | set the variable; this line prints even with `logDiagnostics` off |
-| `configuration_error: apiKey is empty, so the server refuses every request, and the events are counted as rejected.` | `apiKey` was `""` or blank, usually `process.env.FLIGHT_RECORDER_API_KEY ?? ""` with the variable unset | set the variable; this line prints even with `logDiagnostics` off |
+| `configuration_error: apiKey is empty, so the server refuses every request, and the events are counted as rejected.` | `apiKey` was `""` or blank, usually `process.env.WAYSCRIBE_API_KEY ?? ""` with the variable unset | set the variable; this line prints even with `logDiagnostics` off |
 | `insecure_endpoint: The endpoint is http: to ingest.internal, ...` | a warning, not a failure: the key travels unencrypted | put TLS in front of the API |
 | nothing at all | the process exited before the first send, or no event was recorded | call `await recorder.shutdown()` before exit, then read the counters (step 4) |
 
-**An empty setting counts as missing.** `apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? ""`
+**An empty setting counts as missing.** `apiKey: process.env.WAYSCRIBE_API_KEY ?? ""`
 compiles, and when the variable is unset the SDK gets `""`. An empty or blank
 `endpoint`, `apiKey`, `serviceName` or `environment` is reported like a missing
 one: the `configuration_error` line above, printed once per process, and then
@@ -350,7 +350,7 @@ Send a full instant with a time zone. For the last 24 hours, compute it once:
 ```bash
 SINCE=$(node -e 'console.log(new Date(Date.now() - 864e5).toISOString())')
 curl -s "http://localhost:8080/v1/journeys?since=$SINCE" \
-  -H "authorization: Bearer $FLIGHT_RECORDER_API_KEY"
+  -H "authorization: Bearer $WAYSCRIBE_API_KEY"
 ```
 
 The other refusals of `since`:
@@ -374,7 +374,7 @@ its steps before the steps that caused them.
 The marker has three usual causes:
 
 - **The service's clock is behind.** Check NTP on that host or container. Fix
-  the clock; nothing needs to change in Flight Recorder.
+  the clock; nothing needs to change in Wayscribe.
 - **The event waited to be sent.** The SDK keeps events while the API is
   unreachable, within its queue of `maxBufferedEvents`, and retries a refused
   event for up to 30 seconds. A step recorded during an outage is received late,
@@ -413,7 +413,7 @@ on. This is the form printed with `logDiagnostics: true`; with it off, the line
 ends with a note in parentheses saying why it was printed:
 
 ```text
-[flight-recorder] unredacted_secret_name: A field named "sessionCredential" (at input.sessionCredential) looks like a secret and was sent unredacted. If it holds a secret, add "**.sessionCredential" to the redact option; if it does not, add "sessionCredential" to knownSafeNames.
+[wayscribe] unredacted_secret_name: A field named "sessionCredential" (at input.sessionCredential) looks like a secret and was sent unredacted. If it holds a secret, add "**.sessionCredential" to the redact option; if it does not, add "sessionCredential" to knownSafeNames.
 ```
 
 Redaction goes by name, and no rule covers this one, so its value was stored in

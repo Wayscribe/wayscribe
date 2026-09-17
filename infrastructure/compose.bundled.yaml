@@ -1,4 +1,4 @@
-# A PostgreSQL container, for trying Flight Recorder without standing a database
+# A PostgreSQL container, for trying Wayscribe without standing a database
 # up first. Overlay it on the quick start:
 #
 #   export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml

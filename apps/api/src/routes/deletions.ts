@@ -4,8 +4,8 @@ import {
   eraseIdentifier,
   findJourneysByIdentifier,
   type BatchProgress
-} from "@flight-recorder/database";
-import type { Keyring } from "@flight-recorder/payload-security";
+} from "@wayscribe/database";
+import type { Keyring } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import { adminGuard, errorBody } from "../admin.js";
 

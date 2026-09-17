@@ -36,7 +36,7 @@ describe("loadServerEnv", () => {
   });
 
   it("tells an operator what to do when DATABASE_URL is unset", () => {
-    // Flight Recorder expects you to bring your own database, so an unset
+    // Wayscribe expects you to bring your own database, so an unset
     // DATABASE_URL is the most likely first-run mistake. `Invalid URL` is
     // accurate and useless; it does not say the variable is the problem, and it
     // does not mention the overlay that runs one for you.

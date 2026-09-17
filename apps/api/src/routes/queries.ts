@@ -6,8 +6,8 @@ import {
   listJourneys,
   searchJourneys,
   type ReadScope
-} from "@flight-recorder/database";
-import { searchTokens, type Keyring } from "@flight-recorder/payload-security";
+} from "@wayscribe/database";
+import { searchTokens, type Keyring } from "@wayscribe/payload-security";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { databaseApiKeys, logVerifierReplaceFailure } from "../auth.js";
 import {
@@ -43,7 +43,7 @@ export function registerQueryRoutes(
       adminToken,
       authorizationHeader: request.headers.authorization,
       requestedProjectId:
-        (request.headers["x-flight-project-id"] as string | undefined) ?? undefined
+        (request.headers["x-wayscribe-project-id"] as string | undefined) ?? undefined
     });
     // Only a 401 is a refused credential: a 404 is an admin naming a project
     // that does not exist, and a failed lookup throws before reaching here.

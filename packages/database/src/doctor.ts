@@ -2,12 +2,12 @@ import {
   findInsecureDefaults,
   loadStatementTimeoutMs,
   PUBLISHED_DEMO_API_KEY
-} from "@flight-recorder/config";
+} from "@wayscribe/config";
 import {
   API_KEY_PREFIX_LENGTH,
   verifyApiKeyWithKeyring,
   type Keyring
-} from "@flight-recorder/payload-security";
+} from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import { keyringFromEnvironment } from "./keyring-env.js";
 import { migrationStatusReadOnly, SchemaUsageError } from "./migration-status.js";
@@ -39,7 +39,7 @@ export interface DoctorOptions {
   apiTimeoutMs?: number;
 }
 
-/** PostgreSQL 15 is the oldest release Flight Recorder's SQL is written for. */
+/** PostgreSQL 15 is the oldest release Wayscribe's SQL is written for. */
 const MINIMUM_POSTGRES = 150_000;
 /**
  * The newest release CI runs the integration suite on. CI runs it on 15, 17
@@ -66,7 +66,7 @@ const MINIMUM_SCRUBBED_LENGTH = 4;
 /** The fix for a check that failed with a SQLSTATE doctor recognises. */
 const SQLSTATE_FIXES: Record<string, string> = {
   "42501":
-    "GRANT the role in DATABASE_URL SELECT, INSERT, UPDATE and DELETE on Flight Recorder's tables, as the API needs them (docs/OPERATIONS.md §1).",
+    "GRANT the role in DATABASE_URL SELECT, INSERT, UPDATE and DELETE on Wayscribe's tables, as the API needs them (docs/OPERATIONS.md §1).",
   "42P01": "A table is missing: run migrate against this database (docs/OPERATIONS.md §4).",
   "57014": "A query was cancelled: check the database's load, or its own statement_timeout.",
   "53300": "PostgreSQL has no connection to spare: check max_connections and what holds them."
@@ -209,7 +209,7 @@ async function migrationsResult(db: Knex): Promise<CheckResult> {
     if (!(error instanceof SchemaUsageError)) throw error;
     return fail(
       "Migrations",
-      `This check could not run: the role ${error.role} has no USAGE on schema ${error.schema}, which holds Flight Recorder's tables.`,
+      `This check could not run: the role ${error.role} has no USAGE on schema ${error.schema}, which holds Wayscribe's tables.`,
       `GRANT USAGE ON SCHEMA ${error.schema} TO ${error.role}, then SELECT, INSERT, UPDATE and DELETE on its tables (docs/OPERATIONS.md §1).`
     );
   }
@@ -550,7 +550,7 @@ async function apiKeyResult(db: Knex, keyring: Keyring, apiKey: string): Promise
   if (!presented.startsWith("fr_") || presented.length <= API_KEY_PREFIX_LENGTH) {
     return fail(
       "API key",
-      "The key given is not a Flight Recorder API key, which starts fr_ and is 35 characters.",
+      "The key given is not a Wayscribe API key, which starts fr_ and is 35 characters.",
       "Pass the key key:create printed, whole."
     );
   }
@@ -674,7 +674,7 @@ async function apiReachableResult(
     "API reachable",
     `GET ${shown}/ready answered ${String(response.status)}${reason === undefined ? "" : ` ${reason}`}.`,
     (reason === undefined ? undefined : fixes[reason]) ??
-      "Check that the URL is Flight Recorder's API and read the API's log."
+      "Check that the URL is Wayscribe's API and read the API's log."
   );
 }
 

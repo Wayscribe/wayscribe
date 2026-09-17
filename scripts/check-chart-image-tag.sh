@@ -15,8 +15,8 @@
 set -eu
 
 cd "$(dirname "$0")/.."
-CHART=deploy/helm/flight-recorder
-REGISTRY=registry.gitlab.com/jojithedev/flight-recorder
+CHART=deploy/helm/wayscribe
+REGISTRY=registry.gitlab.com/jojithedev/wayscribe
 
 VERSION=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' packages/sdk-node/package.json)
 if [ -z "$VERSION" ]; then

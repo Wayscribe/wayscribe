@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-The event protocol is the stable wire contract between instrumented applications and Flight Recorder.
+The event protocol is the stable wire contract between instrumented applications and Wayscribe.
 
 It must remain separate from:
 
@@ -349,9 +349,9 @@ Metadata keys should not replace first-class protocol fields.
 ### HTTP headers
 
 ```text
-x-flight-journey-id
-x-flight-entity-type
-x-flight-entity-id
+x-wayscribe-journey-id
+x-wayscribe-entity-type
+x-wayscribe-entity-id
 traceparent
 ```
 
@@ -363,9 +363,9 @@ Preferred:
 
 ```json
 {
-  "flightJourneyId": "jrn_123",
-  "flightEntityType": "customer",
-  "flightEntityId": "18492"
+  "wayscribeJourneyId": "jrn_123",
+  "wayscribeEntityType": "customer",
+  "wayscribeEntityId": "18492"
 }
 ```
 
@@ -373,7 +373,7 @@ Fallback reserved envelope:
 
 ```json
 {
-  "_flight": {
+  "_wayscribe": {
     "journeyId": "jrn_123",
     "entityType": "customer",
     "entityId": "18492"

@@ -12,8 +12,7 @@ import { requireProjectId } from "../../../../../src/lib/current-project";
  */
 /** What the route handler's `error` values mean to the operator. Anything else reads as the last. */
 const FAILURES: Record<string, string> = {
-  api_unavailable:
-    "The Flight Recorder API could not be reached, so nothing was deleted. Try again.",
+  api_unavailable: "The Wayscribe API could not be reached, so nothing was deleted. Try again.",
   project_not_selected:
     "No project is selected, so nothing was deleted. Choose a project and try again.",
   unexpected: "Something went wrong and the journey was not deleted. Try again."
@@ -82,7 +81,7 @@ export default async function DeleteJourneyPage({
     if (error instanceof ApiUnavailableError) {
       return (
         <main id="main">
-          <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>
+          <p className="error">Cannot reach the Wayscribe API. Is it running?</p>
         </main>
       );
     }

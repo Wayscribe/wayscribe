@@ -51,7 +51,7 @@ function refusal(): NextResponse {
   // otherwise show a raw error object.
   return new NextResponse(
     '<!doctype html><meta charset="utf-8"><title>Refused</title>' +
-      "<p>This request came from another site, so Flight Recorder refused it.</p>",
+      "<p>This request came from another site, so Wayscribe refused it.</p>",
     {
       status: 403,
       headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }

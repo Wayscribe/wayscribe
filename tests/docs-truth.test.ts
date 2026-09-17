@@ -573,7 +573,7 @@ describe("docs/SDK_SPEC.md", () => {
     // Section 10 states the propagation rules that survive a rename and no
     // names at all; a header or variable name here would have to be rewritten
     // in the same month it was published (ADR-049).
-    for (const name of ["x-flight-", "FLIGHT_RECORDER_", "flightJourney", "jrn_"]) {
+    for (const name of ["x-wayscribe-", "WAYSCRIBE_", "wayscribeJourney", "jrn_"]) {
       expect(spec(), `SDK_SPEC.md names ${name}, which the rename changes`).not.toContain(name);
     }
   });

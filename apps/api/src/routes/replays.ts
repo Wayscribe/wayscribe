@@ -10,9 +10,9 @@ import {
   startRun,
   type DestinationHeaders,
   type EnvironmentType
-} from "@flight-recorder/database";
-import { diffPayloads } from "@flight-recorder/payload-diff";
-import type { Keyring } from "@flight-recorder/payload-security";
+} from "@wayscribe/database";
+import { diffPayloads } from "@wayscribe/payload-diff";
+import type { Keyring } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import { adminGuard, errorBody as error } from "../admin.js";
 import { echoScrubber } from "../replay/echo-scrub.js";
@@ -34,7 +34,7 @@ export interface ReplayRouteOptions {
  * Replay is admin-only (ADR-032).
  *
  * An API key lives in application configuration on servers many people can
- * reach, and it exists to write events. Letting it also make Flight Recorder
+ * reach, and it exists to write events. Letting it also make Wayscribe
  * issue outbound requests to configured destinations would turn a leaked
  * telemetry key into a request-forgery primitive aimed at the operator's own
  * development network.

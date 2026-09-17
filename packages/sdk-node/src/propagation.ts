@@ -66,7 +66,7 @@ export type SqsMessageAttributes = Record<string, SqsMessageAttributeValue>;
  * @experimental As `PropagationLevel`.
  */
 export interface ContextEnvelope<T> {
-  _flight: { journeyId: string; entityType?: string; entityId?: string };
+  _wayscribe: { journeyId: string; entityType?: string; entityId?: string };
   data: T;
 }
 
@@ -81,13 +81,13 @@ export interface ExtractedPayload {
   data: unknown;
 }
 
-const HEADER_JOURNEY = "x-flight-journey-id";
-const HEADER_ENTITY_TYPE = "x-flight-entity-type";
-const HEADER_ENTITY_ID = "x-flight-entity-id";
+const HEADER_JOURNEY = "x-wayscribe-journey-id";
+const HEADER_ENTITY_TYPE = "x-wayscribe-entity-type";
+const HEADER_ENTITY_ID = "x-wayscribe-entity-id";
 
-const ATTR_JOURNEY = "flightJourneyId";
-const ATTR_ENTITY_TYPE = "flightEntityType";
-const ATTR_ENTITY_ID = "flightEntityId";
+const ATTR_JOURNEY = "wayscribeJourneyId";
+const ATTR_ENTITY_TYPE = "wayscribeEntityType";
+const ATTR_ENTITY_ID = "wayscribeEntityId";
 
 const HEADERS: ReadonlySet<string> = new Set([
   HEADER_JOURNEY,
@@ -246,18 +246,18 @@ export function injectPayload<T>(
   context: PropagatedContext,
   level: PropagationLevel = "journey-and-type"
 ): ContextEnvelope<T> {
-  return { _flight: fieldsFor(context, level), data: payload };
+  return { _wayscribe: fieldsFor(context, level), data: payload };
 }
 
 export function extractPayload(body: unknown): ExtractedPayload {
-  if (typeof body !== "object" || body === null || !("_flight" in body)) {
+  if (typeof body !== "object" || body === null || !("_wayscribe" in body)) {
     return { data: body };
   }
 
-  // Read through a record: narrowing on `"_flight" in body` gives an intersection
+  // Read through a record: narrowing on `"_wayscribe" in body` gives an intersection
   // that will not accept a cast to a shape with a `data` field.
   const record = body as Record<string, unknown>;
-  const envelope = record["_flight"];
+  const envelope = record["_wayscribe"];
   const data = record["data"];
   if (typeof envelope !== "object" || envelope === null) return { data };
 

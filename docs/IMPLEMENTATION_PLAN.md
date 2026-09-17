@@ -11,7 +11,7 @@
 
 ## Objective
 
-Build the smallest complete version of Flight Recorder that proves record-level debugging is useful.
+Build the smallest complete version of Wayscribe that proves record-level debugging is useful.
 
 The implementation should progress vertically:
 
@@ -69,7 +69,7 @@ Features that add operational complexity must remain optional and must not appea
 ### Planned repository layout
 
 ```text
-flight-recorder/
+wayscribe/
 ├── apps/
 │   ├── api/
 │   ├── web/

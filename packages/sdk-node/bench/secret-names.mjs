@@ -5,7 +5,7 @@ import { buildRecorder } from "./build.mjs";
 /**
  * What capture costs per recorded event, for the secret-name warning (ADR-055).
  *
- *   pnpm --filter @flight-recorder/node exec node bench/secret-names.mjs
+ *   pnpm --filter @wayscribe/node exec node bench/secret-names.mjs
  *
  * Times `journey.record()`, which is where capture runs, synchronously, on a
  * realistic webhook: a Stripe-shaped event of about 5.6 KB with its request

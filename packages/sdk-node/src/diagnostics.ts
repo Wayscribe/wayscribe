@@ -1,4 +1,4 @@
-import { maskSecretsInText } from "@flight-recorder/payload-security/redaction";
+import { maskSecretsInText } from "@wayscribe/payload-security/redaction";
 import type { Operation } from "./operations.js";
 
 /**
@@ -395,7 +395,7 @@ export interface DiagnosticsOptions {
   log?: boolean;
 }
 
-const PREFIX = "[flight-recorder]";
+const PREFIX = "[wayscribe]";
 const LOG_WINDOW_MS = 60_000;
 /**
  * Long enough for any reason the SDK writes itself; short enough that a

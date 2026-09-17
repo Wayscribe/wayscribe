@@ -1,7 +1,7 @@
 // Measure how long the journey list (GET /v1/journeys) takes on a large
 // installation.
 //
-//   pnpm --filter "@flight-recorder/api..." build
+//   pnpm --filter "@wayscribe/api..." build
 //   node scripts/measure-journey-list.mjs --database-url postgresql://… --journeys 120000
 //
 // It records journeys through the real ingestion code, as
@@ -508,7 +508,7 @@ function cases(setup) {
     ...entry,
     headers: entry.key
       ? { authorization: `Bearer ${setup.apiKey}` }
-      : { authorization: `Bearer ${ADMIN_TOKEN}`, "x-flight-project-id": setup.projectId }
+      : { authorization: `Bearer ${ADMIN_TOKEN}`, "x-wayscribe-project-id": setup.projectId }
   }));
 }
 
@@ -806,7 +806,7 @@ async function loadBuilt(path) {
     return await import(new URL(path, root).href);
   } catch (error) {
     if (error?.code === "ERR_MODULE_NOT_FOUND") {
-      fail(`${path} is missing. Build first: pnpm --filter "@flight-recorder/api..." build`);
+      fail(`${path} is missing. Build first: pnpm --filter "@wayscribe/api..." build`);
     }
     throw error;
   }

@@ -1,20 +1,20 @@
-{{- define "flight-recorder.name" -}}
+{{- define "wayscribe.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "flight-recorder.fullname" -}}
-{{- printf "%s-%s" .Release.Name (include "flight-recorder.name" .) | trunc 63 | trimSuffix "-" -}}
+{{- define "wayscribe.fullname" -}}
+{{- printf "%s-%s" .Release.Name (include "wayscribe.name" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "flight-recorder.labels" -}}
-app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+{{- define "wayscribe.labels" -}}
+app.kubernetes.io/name: {{ include "wayscribe.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}
 
-{{- define "flight-recorder.image" -}}
+{{- define "wayscribe.image" -}}
 {{- /* Release tags are v-prefixed (scripts/publish-image.sh is given the git tag), so the default is too. */ -}}
 {{- $tag := .Values.image.tag | default (printf "v%s" .Chart.AppVersion) -}}
 {{- printf "%s/%s:%s" .Values.image.registry .component $tag -}}
@@ -24,8 +24,8 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 The secret holding DATABASE_URL, ENCRYPTION_KEY and ADMIN_TOKEN — either one the
 operator manages, or the one this chart creates.
 */}}
-{{- define "flight-recorder.secretName" -}}
-{{- .Values.secrets.existingSecret | default (printf "%s-secrets" (include "flight-recorder.fullname" .)) -}}
+{{- define "wayscribe.secretName" -}}
+{{- .Values.secrets.existingSecret | default (printf "%s-secrets" (include "wayscribe.fullname" .)) -}}
 {{- end -}}
 
 {{/*
@@ -35,9 +35,9 @@ The in-cluster database wins when it is enabled, because leaving `databaseUrl`
 pointing somewhere else while running one here is a configuration that looks
 like it works and writes to the wrong place.
 */}}
-{{- define "flight-recorder.databaseUrl" -}}
+{{- define "wayscribe.databaseUrl" -}}
 {{- if .Values.postgresql.enabled -}}
-{{- printf "postgresql://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.user .Values.postgresql.password (include "flight-recorder.fullname" .) .Values.postgresql.database -}}
+{{- printf "postgresql://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.user .Values.postgresql.password (include "wayscribe.fullname" .) .Values.postgresql.database -}}
 {{- else -}}
 {{- .Values.databaseUrl -}}
 {{- end -}}
@@ -46,30 +46,30 @@ like it works and writes to the wrong place.
 {{/*
 Environment shared by everything that talks to the database.
 */}}
-{{- define "flight-recorder.databaseEnv" -}}
+{{- define "wayscribe.databaseEnv" -}}
 - name: DATABASE_URL
   valueFrom:
     secretKeyRef:
-      name: {{ include "flight-recorder.secretName" . }}
+      name: {{ include "wayscribe.secretName" . }}
       key: DATABASE_URL
 {{- end -}}
 
 {{/*
 NetworkPolicy egress rules shared by the API and migrate pods.
 */}}
-{{- define "flight-recorder.dnsEgress" -}}
+{{- define "wayscribe.dnsEgress" -}}
 - ports:
     - port: 53
       protocol: UDP
     - port: 53
       protocol: TCP
 {{- end }}
-{{- define "flight-recorder.databaseEgress" -}}
+{{- define "wayscribe.databaseEgress" -}}
 {{- if .Values.postgresql.enabled -}}
 - to:
     - podSelector:
         matchLabels:
-          app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+          app.kubernetes.io/name: {{ include "wayscribe.name" . }}
           app.kubernetes.io/instance: {{ .Release.Name }}
           app.kubernetes.io/component: postgresql
   ports:

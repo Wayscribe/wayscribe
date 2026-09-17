@@ -217,33 +217,33 @@ sign-off before merging, rather than being decided unilaterally in the PR.
 All of these have been run (the labels with the longer descriptions from the
 table, the issues through the API with the text above); they are kept for
 reference. `glab` must be authenticated against
-`gitlab.com` and pointed at the project, or run with `-R jojithedev/flight-recorder`
+`gitlab.com` and pointed at the project, or run with `-R jojithedev/wayscribe`
 as shown.
 
 ### Create the labels
 
 ```bash
-glab label create -R jojithedev/flight-recorder -n "good first issue" -c "#7057FF" \
+glab label create -R jojithedev/wayscribe -n "good first issue" -c "#7057FF" \
   -d "Small, self-contained, and scoped for a first contribution."
-glab label create -R jojithedev/flight-recorder -n "help wanted" -c "#008672" \
+glab label create -R jojithedev/wayscribe -n "help wanted" -c "#008672" \
   -d "The maintainer would welcome outside help on this."
-glab label create -R jojithedev/flight-recorder -n "needs info" -c "#D876E3" \
+glab label create -R jojithedev/wayscribe -n "needs info" -c "#D876E3" \
   -d "Waiting on more information before it can be worked."
-glab label create -R jojithedev/flight-recorder -n "bug" -c "#D73A4A" \
+glab label create -R jojithedev/wayscribe -n "bug" -c "#D73A4A" \
   -d "Something isn't working as documented or intended."
-glab label create -R jojithedev/flight-recorder -n "docs" -c "#0075CA" \
+glab label create -R jojithedev/wayscribe -n "docs" -c "#0075CA" \
   -d "Documentation-only changes."
-glab label create -R jojithedev/flight-recorder -n "sdk" -c "#5319E7" \
+glab label create -R jojithedev/wayscribe -n "sdk" -c "#5319E7" \
   -d "The Node SDK, packages/sdk-node."
-glab label create -R jojithedev/flight-recorder -n "web" -c "#1D76DB" \
+glab label create -R jojithedev/wayscribe -n "web" -c "#1D76DB" \
   -d "The web app, apps/web."
-glab label create -R jojithedev/flight-recorder -n "api" -c "#B60205" \
+glab label create -R jojithedev/wayscribe -n "api" -c "#B60205" \
   -d "The API service, apps/api."
-glab label create -R jojithedev/flight-recorder -n "database" -c "#FBCA04" \
+glab label create -R jojithedev/wayscribe -n "database" -c "#FBCA04" \
   -d "Migrations, retention, or the packages/database CLI."
-glab label create -R jojithedev/flight-recorder -n "cli" -c "#C5DEF5" \
+glab label create -R jojithedev/wayscribe -n "cli" -c "#C5DEF5" \
   -d "The read-only query CLI, packages/cli."
-glab label create -R jojithedev/flight-recorder -n "testing" -c "#BFD4F2" \
+glab label create -R jojithedev/wayscribe -n "testing" -c "#BFD4F2" \
   -d "Test coverage, fixtures, or CI."
 ```
 
@@ -254,31 +254,31 @@ section above, or `-d` can be given the text directly with a heredoc if
 scripting this.
 
 ```bash
-glab issue create -R jojithedev/flight-recorder \
+glab issue create -R jojithedev/wayscribe \
   -t "Add loading states for the web app's route segments" \
   -l "good first issue,web" -d -
 
-glab issue create -R jojithedev/flight-recorder \
+glab issue create -R jojithedev/wayscribe \
   -t 'Add a "skip to main content" link' \
   -l "good first issue,web" -d -
 
-glab issue create -R jojithedev/flight-recorder \
+glab issue create -R jojithedev/wayscribe \
   -t "Link the glossary from the running app, not just the README" \
   -l "good first issue,web,docs" -d -
 
-glab issue create -R jojithedev/flight-recorder \
+glab issue create -R jojithedev/wayscribe \
   -t "Add a db:reset script for local development" \
   -l "good first issue,database" -d -
 
-glab issue create -R jojithedev/flight-recorder \
+glab issue create -R jojithedev/wayscribe \
   -t "Add unit tests for the replay API route handler" \
   -l "good first issue,web,testing" -d -
 
-glab issue create -R jojithedev/flight-recorder \
+glab issue create -R jojithedev/wayscribe \
   -t "Add a --version flag to the CLI" \
   -l "good first issue,cli" -d -
 
-glab issue create -R jojithedev/flight-recorder \
+glab issue create -R jojithedev/wayscribe \
   -t "Add plain-language explanations for journey, alias, transformation, and replay in the UI" \
   -l "help wanted,web,docs" -d -
 ```

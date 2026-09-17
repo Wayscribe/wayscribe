@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
-import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
-import { captureCase, type CapturedCase } from "@flight-recorder/node/conformance-harness";
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId } from "@wayscribe/database";
+import { captureCase, type CapturedCase } from "@wayscribe/node/conformance-harness";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import {
   appliesTo,
   compareExpectation,
@@ -9,7 +9,7 @@ import {
   expectedCaseIds,
   loadConformanceCases,
   type ConformanceCase
-} from "@flight-recorder/protocol/conformance";
+} from "@wayscribe/protocol/conformance";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";

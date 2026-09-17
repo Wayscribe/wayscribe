@@ -7,7 +7,7 @@ import { bundleOptions } from "../scripts/bundle-options.mjs";
  * registry package. Built with `scripts/bundle-options.mjs`, the options
  * `scripts/bundle.mjs` builds the published bundle with.
  *
- * The SDK takes constants from `@flight-recorder/protocol`, whose root imports
+ * The SDK takes constants from `@wayscribe/protocol`, whose root imports
  * Zod at module level. Importing from that root rather than a Zod-free subpath
  * still builds and still passes every other test, and adds some 700 KB to every
  * host. This is what notices.

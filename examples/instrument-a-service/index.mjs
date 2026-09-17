@@ -1,11 +1,11 @@
-import { createRecorder } from "@flight-recorder/node";
+import { createRecorder } from "@wayscribe/node";
 
-const ENDPOINT = process.env.FLIGHT_RECORDER_URL ?? "http://localhost:8080";
-const WEB = process.env.FLIGHT_RECORDER_WEB ?? "http://localhost:3000";
-const API_KEY = process.env.FLIGHT_RECORDER_API_KEY;
+const ENDPOINT = process.env.WAYSCRIBE_URL ?? "http://localhost:8080";
+const WEB = process.env.WAYSCRIBE_WEB ?? "http://localhost:3000";
+const API_KEY = process.env.WAYSCRIBE_API_KEY;
 
 if (!API_KEY) {
-  console.error("Set FLIGHT_RECORDER_API_KEY. Issue one with:");
+  console.error("Set WAYSCRIBE_API_KEY. Issue one with:");
   console.error('  pnpm project:create local "Local"   (once)');
   console.error("  pnpm key:create local development my-service");
   process.exit(1);

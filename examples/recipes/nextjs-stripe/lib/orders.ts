@@ -1,4 +1,4 @@
-// Your application's own code. Nothing here knows about Flight Recorder.
+// Your application's own code. Nothing here knows about Wayscribe.
 
 const paid = new Map<string, string>();
 

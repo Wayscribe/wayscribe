@@ -55,7 +55,7 @@ async function Results({ query }: { query: string }) {
     items = await search(query, projectId);
   } catch (error) {
     if (error instanceof ApiUnavailableError) {
-      return <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>;
+      return <p className="error">Cannot reach the Wayscribe API. Is it running?</p>;
     }
     if (error instanceof ProjectNotSelectedError) {
       // The session names a project that no longer exists. Say so, rather

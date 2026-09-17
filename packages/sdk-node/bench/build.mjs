@@ -15,7 +15,7 @@ import { bundleOptions } from "../scripts/bundle-options.mjs";
  * other's bundle.
  */
 export async function buildRecorder() {
-  const directory = mkdtempSync(join(tmpdir(), "flight-recorder-bench-"));
+  const directory = mkdtempSync(join(tmpdir(), "wayscribe-bench-"));
   const outfile = join(directory, "recorder.mjs");
 
   await build({ ...bundleOptions(), outfile, logLevel: "error" });

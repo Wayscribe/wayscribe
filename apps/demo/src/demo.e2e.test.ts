@@ -8,7 +8,7 @@ import { beforeAll, describe, expect, it } from "vitest";
  * assert that the journey a developer would actually look at is the one the
  * documentation promises.
  */
-const API = process.env["FLIGHT_API_URL"] ?? "http://localhost:8080";
+const API = process.env["WAYSCRIBE_API_URL"] ?? "http://localhost:8080";
 const SOURCE = process.env["DEMO_SOURCE_URL"] ?? "http://localhost:3100";
 const ADMIN = process.env["ADMIN_TOKEN"] ?? "replace-for-local-development-0000";
 
@@ -53,7 +53,7 @@ async function get(path: string): Promise<Record<string, unknown>> {
   const response = await fetch(`${API}${path}`, {
     headers: {
       authorization: `Bearer ${ADMIN}`,
-      ...(projectId === "" ? {} : { "x-flight-project-id": projectId })
+      ...(projectId === "" ? {} : { "x-wayscribe-project-id": projectId })
     }
   });
   if (!response.ok) {
@@ -72,7 +72,7 @@ async function post(
     headers: {
       authorization: `Bearer ${ADMIN}`,
       "content-type": "application/json",
-      ...(projectId === "" ? {} : { "x-flight-project-id": projectId })
+      ...(projectId === "" ? {} : { "x-wayscribe-project-id": projectId })
     },
     body: JSON.stringify(body)
   });

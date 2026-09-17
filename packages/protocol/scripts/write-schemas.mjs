@@ -2,7 +2,7 @@
 /**
  * Write the generated JSON Schema files.
  *
- * Run through `pnpm --filter @flight-recorder/protocol run schemas`, which
+ * Run through `pnpm --filter @wayscribe/protocol run schemas`, which
  * builds the package first: this reads `dist`, so that the files it writes come
  * from the same code the drift test imports.
  *

@@ -49,7 +49,7 @@ ever re-enabled by accident. Neither file is visible on GitLab.
 Set the repository description to something that says it plainly:
 
 ```text
-Read-only mirror. Development happens at https://gitlab.com/jojithedev/flight-recorder
+Read-only mirror. Development happens at https://gitlab.com/jojithedev/wayscribe
 ```
 
 ### 3. Create a fine-grained personal access token
@@ -71,7 +71,7 @@ tokens**.
 | Variable | Value | Flags |
 | --- | --- | --- |
 | `GITHUB_TOKEN` | the token from step 3 | **Masked**, **Protected** |
-| `GITHUB_REPOSITORY` | `your-username/flight-recorder` | Protected |
+| `GITHUB_REPOSITORY` | `your-username/wayscribe` | Protected |
 
 **Protected matters.** It restricts the variable to protected branches and tags,
 so a job on an unmerged feature branch cannot read a token that can write to your

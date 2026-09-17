@@ -21,10 +21,10 @@ The SDK is not published to npm yet, so this example installs it from
 
 ```bash
 pnpm install
-pnpm --filter @flight-recorder/node build
+pnpm --filter @wayscribe/node build
 ```
 
-Start Flight Recorder and apply its migrations. The `pnpm` commands read the
+Start Wayscribe and apply its migrations. The `pnpm` commands read the
 repository-root `.env`, so create it if you have not; its keys match the ones
 the stack uses by default.
 
@@ -49,7 +49,7 @@ npm install
 ```
 
 ```bash
-FLIGHT_RECORDER_API_KEY=fr_the_key_you_just_issued node index.mjs
+WAYSCRIBE_API_KEY=fr_the_key_you_just_issued node index.mjs
 ```
 
 It prints a link. Open it, sign in with your `ADMIN_TOKEN`, and read the
@@ -60,8 +60,8 @@ tell the example where they went, or it sends to `localhost:8080` and prints a
 link to `localhost:3000`:
 
 ```bash
-FLIGHT_RECORDER_URL=http://localhost:8081 FLIGHT_RECORDER_WEB=http://localhost:3001 \
-  FLIGHT_RECORDER_API_KEY=fr_the_key_you_just_issued node index.mjs
+WAYSCRIBE_URL=http://localhost:8081 WAYSCRIBE_WEB=http://localhost:3001 \
+  WAYSCRIBE_API_KEY=fr_the_key_you_just_issued node index.mjs
 ```
 
 ## Installing from npm instead
@@ -70,5 +70,5 @@ This example installs the SDK from the repository so it works before the package
 is published. Once it is, in your own project:
 
 ```bash
-npm install @flight-recorder/node
+npm install @wayscribe/node
 ```

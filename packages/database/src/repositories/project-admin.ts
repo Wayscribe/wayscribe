@@ -26,7 +26,7 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  *
  * Until this existed there was no supported way to make one. `key:create`
  * requires a project, and the only two that could exist came from the two
- * hardcoded seeds — so a team pointing Flight Recorder at their own database
+ * hardcoded seeds — so a team pointing Wayscribe at their own database
  * had an installation with nothing to instrument and no way to add anything.
  */
 export async function createProject(

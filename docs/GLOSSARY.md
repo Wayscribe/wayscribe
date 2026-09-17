@@ -8,7 +8,7 @@ Example: Salesforce account ID, internal customer ID, and HubSpot contact ID.
 
 ## Capture mode
 
-The environment policy controlling whether Flight Recorder stores metadata only, allowlisted fields, redacted payloads, or full payloads.
+The environment policy controlling whether Wayscribe stores metadata only, allowlisted fields, redacted payloads, or full payloads.
 
 ## Correlation
 
@@ -30,7 +30,7 @@ Examples: received, transformed, persisted, published, consumed, delivered, fail
 
 A client-generated unique identifier used for ingestion idempotency.
 
-## Flight Recorder
+## Wayscribe
 
 The product as a whole.
 

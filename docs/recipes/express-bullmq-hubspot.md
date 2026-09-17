@@ -36,11 +36,11 @@ appear, in the webhook body, the lead, and the HubSpot contact alike.
 ```typescript
 export function createAppRecorder(serviceName: string): Recorder {
   return createRecorder({
-    endpoint: process.env.FLIGHT_RECORDER_URL ?? "http://localhost:8080",
-    apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? "",
+    endpoint: process.env.WAYSCRIBE_URL ?? "http://localhost:8080",
+    apiKey: process.env.WAYSCRIBE_API_KEY ?? "",
     serviceName,
     // Must be the environment the API key was issued for.
-    environment: process.env.FLIGHT_RECORDER_ENVIRONMENT ?? "development",
+    environment: process.env.WAYSCRIBE_ENVIRONMENT ?? "development",
     // Leads carry personal data. Keep the fields, replace their values.
     redact: ["**.email", "**.phone"],
     // Prints `delivered_first`, or why nothing arrives. Off once it sends.
@@ -49,7 +49,7 @@ export function createAppRecorder(serviceName: string): Recorder {
 }
 ```
 
-If `FLIGHT_RECORDER_API_KEY` is unset, `?? ""` gives the SDK an empty key, which
+If `WAYSCRIBE_API_KEY` is unset, `?? ""` gives the SDK an empty key, which
 it reports like a missing one: `configuration_error: apiKey is empty`, printed
 once per process even with `logDiagnostics` off, then
 `rejected: Ingestion responded 401.`

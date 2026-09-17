@@ -50,7 +50,7 @@ describe("POST /api/select-project", () => {
     // from them named http://, and the form's redirect broke under
     // `form-action 'self'` on the https page.
     const request = requestFor({ projectId: PROJECT_ID, next: "/recent" });
-    request.headers.set("host", "flight.example.com");
+    request.headers.set("host", "wayscribe.example.com");
     const response = await POST(request);
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("/recent");

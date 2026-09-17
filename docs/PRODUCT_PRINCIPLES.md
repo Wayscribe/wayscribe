@@ -11,7 +11,7 @@
 
 This document is a source of truth for product and implementation decisions.
 
-Flight Recorder should be useful to an individual developer, a small team, or a larger engineering organization without requiring a paid service, an existing observability platform, or a large infrastructure commitment.
+Wayscribe should be useful to an individual developer, a small team, or a larger engineering organization without requiring a paid service, an existing observability platform, or a large infrastructure commitment.
 
 When a proposed feature, dependency, or architecture decision conflicts with these principles, preserve the principles unless an explicit architecture decision explains why the product can no longer meet them.
 
@@ -41,7 +41,7 @@ The project should use an established open-source license. The exact license mus
 A useful local installation must require only:
 
 - Docker with Docker Compose
-- the Flight Recorder SDK in the observed application
+- the Wayscribe SDK in the observed application
 - network access to the recorder
 
 PostgreSQL may be bundled. No other database, message broker, telemetry platform, cloud account, or model provider is required.
@@ -57,7 +57,7 @@ Do not require:
 - Datadog
 - an OpenTelemetry deployment
 - an AI provider
-- a Flight Recorder cloud account
+- a Wayscribe cloud account
 
 Additional infrastructure may be supported later as optional integrations.
 
@@ -67,7 +67,7 @@ A developer should be able to record a first useful journey within approximately
 
 The default path should be:
 
-1. Start Flight Recorder with Docker Compose.
+1. Start Wayscribe with Docker Compose.
 2. Install one SDK package.
 3. Configure the recorder URL and API key.
 4. Wrap or record one meaningful operation.
@@ -142,13 +142,13 @@ The product must show what changed between meaningful processing steps.
 + phone: null
 ```
 
-A timeline without transformation evidence is not sufficient to differentiate Flight Recorder from conventional tracing or business-flow monitoring.
+A timeline without transformation evidence is not sufficient to differentiate Wayscribe from conventional tracing or business-flow monitoring.
 
 ### Existing-architecture support
 
-Flight Recorder observes workflows that already exist.
+Wayscribe observes workflows that already exist.
 
-Developers must not need to rebuild their workflows inside Flight Recorder or adopt a specific workflow engine, integration platform, message broker, cloud provider, tracing vendor, or gateway.
+Developers must not need to rebuild their workflows inside Wayscribe or adopt a specific workflow engine, integration platform, message broker, cloud provider, tracing vendor, or gateway.
 
 ### Journey-linked safe replay
 
@@ -185,7 +185,7 @@ V0 should not be considered complete unless all of the following are true:
 - The interface identifies the exact transformation where a field changed.
 - The same entity can be found through multiple identifiers.
 - A historical input can be replayed only to an approved development destination.
-- The host application continues working when Flight Recorder is unavailable.
+- The host application continues working when Wayscribe is unavailable.
 - The documentation explains the happy path without assuming observability expertise.
 
 ## 5. Decision test

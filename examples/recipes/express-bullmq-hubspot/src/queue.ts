@@ -1,4 +1,4 @@
-import type { ContextEnvelope } from "@flight-recorder/node";
+import type { ContextEnvelope } from "@wayscribe/node";
 import { Queue, type ConnectionOptions } from "bullmq";
 import type { Lead } from "./lead.js";
 

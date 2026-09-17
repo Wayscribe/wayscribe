@@ -1,12 +1,12 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
+import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import {
   createKeyring,
   encryptValue,
   issueApiKey,
   searchTokens,
   type Keyring
-} from "@flight-recorder/payload-security";
+} from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";

@@ -1,4 +1,4 @@
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import type { Knex } from "knex";
@@ -256,7 +256,7 @@ describe("log redaction", () => {
     await app.inject({
       method: "GET",
       url: "/health",
-      headers: { authorization: "Bearer fr_secret_value_here", cookie: "flight_session=abc.def" }
+      headers: { authorization: "Bearer fr_secret_value_here", cookie: "wayscribe_session=abc.def" }
     });
 
     const written = lines.join("");

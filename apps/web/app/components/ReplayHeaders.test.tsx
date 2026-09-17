@@ -7,16 +7,16 @@ describe("ReplayHeaders", () => {
     render(
       <ReplayHeaders
         headers={{
-          "x-flight-replay": "true",
+          "x-wayscribe-replay": "true",
           authorization: "[REDACTED]",
-          "user-agent": "flight-recorder-replay"
+          "user-agent": "wayscribe-replay"
         }}
       />
     );
 
     expect(screen.getByRole("heading", { name: "Headers sent" })).toBeInTheDocument();
     expect(screen.getByText("authorization")).toBeInTheDocument();
-    expect(screen.getByText("flight-recorder-replay")).toBeInTheDocument();
+    expect(screen.getByText("wayscribe-replay")).toBeInTheDocument();
     // A bare marker would read as the value that went out. It must not.
     expect(screen.getByText("(real value used, not stored)")).toBeInTheDocument();
     expect(screen.getByText(/were sent with their real values/)).toBeInTheDocument();
@@ -37,7 +37,7 @@ describe("ReplayHeaders", () => {
   });
 
   it("says nothing about redaction when nothing was redacted", () => {
-    render(<ReplayHeaders headers={{ "user-agent": "flight-recorder-replay" }} />);
+    render(<ReplayHeaders headers={{ "user-agent": "wayscribe-replay" }} />);
     expect(screen.queryByText(/real value/)).not.toBeInTheDocument();
   });
 

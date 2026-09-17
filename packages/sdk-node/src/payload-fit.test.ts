@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { checkLimits, eventLimits } from "@flight-recorder/payload-security/redaction";
+import { checkLimits, eventLimits } from "@wayscribe/payload-security/redaction";
 import { describe, expect, it } from "vitest";
 import type { Counters, Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Journey, type RecorderConfig } from "./index.js";

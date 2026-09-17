@@ -348,7 +348,7 @@ describe("schema constraints", () => {
       await db.migrate.down({ name: MIGRATION });
       const secret = "pre-upgrade-secret-4d2e";
       const withSecret = await run({
-        "user-agent": "flight-recorder-replay",
+        "user-agent": "wayscribe-replay",
         "x-dev-token": secret,
         authorization: `Bearer ${secret}`
       });

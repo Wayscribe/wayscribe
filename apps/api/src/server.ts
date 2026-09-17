@@ -1,5 +1,5 @@
-import { findInsecureDefaults } from "@flight-recorder/config";
-import { createKnexConfig } from "@flight-recorder/database";
+import { findInsecureDefaults } from "@wayscribe/config";
+import { createKnexConfig } from "@wayscribe/database";
 import knex from "knex";
 import { buildApp } from "./app.js";
 import { checkKeysAtBoot } from "./key-warnings.js";

@@ -1,6 +1,6 @@
-import { isStatementTimeout } from "@flight-recorder/database";
-import { MAX_BATCH_EVENTS } from "@flight-recorder/protocol";
-import type { Keyring } from "@flight-recorder/payload-security";
+import { isStatementTimeout } from "@wayscribe/database";
+import { MAX_BATCH_EVENTS } from "@wayscribe/protocol";
+import type { Keyring } from "@wayscribe/payload-security";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import type { Knex } from "knex";
 import { unknownKeyWarning } from "./key-warnings.js";
@@ -102,7 +102,7 @@ const LOG_REDACT_PATHS = [
   "req.headers.authorization",
   "req.headers.cookie",
   "req.headers['x-api-key']",
-  "req.headers['x-flight-api-key']",
+  "req.headers['x-wayscribe-api-key']",
   "res.headers['set-cookie']",
   "headers.authorization",
   "headers.cookie"

@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expand, type ConformanceCase } from "@flight-recorder/protocol/conformance";
+import { expand, type ConformanceCase } from "@wayscribe/protocol/conformance";
 import {
   createRecorder,
   type FailOptions,

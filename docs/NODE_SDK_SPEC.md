@@ -11,7 +11,7 @@
 ## 1. Package
 
 ```text
-@flight-recorder/node
+@wayscribe/node
 ```
 
 The first SDK targets Node.js active LTS and TypeScript applications.
@@ -36,11 +36,11 @@ It should support:
 ## 3. Initialization
 
 ```typescript
-import { createRecorder } from "@flight-recorder/node";
+import { createRecorder } from "@wayscribe/node";
 
 export const recorder = createRecorder({
-  endpoint: process.env.FLIGHT_RECORDER_URL!,
-  apiKey: process.env.FLIGHT_RECORDER_API_KEY!,
+  endpoint: process.env.WAYSCRIBE_URL!,
+  apiKey: process.env.WAYSCRIBE_API_KEY!,
   serviceName: "customer-integration",
   environment: process.env.NODE_ENV ?? "development",
 

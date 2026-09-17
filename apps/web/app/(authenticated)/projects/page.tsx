@@ -24,7 +24,7 @@ export default async function ProjectsPage({
       return (
         <main id="main">
           <h1>Choose a project</h1>
-          <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>
+          <p className="error">Cannot reach the Wayscribe API. Is it running?</p>
         </main>
       );
     }

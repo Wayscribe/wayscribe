@@ -13,16 +13,16 @@ import { bundleOptions } from "./bundle-options.mjs";
  * This is the package's only build. An earlier version left `build` as plain
  * tsc and bundled only at pack time, which meant the artifact running in a
  * container was not the artifact published to npm. That difference bit
- * immediately: tsc's output keeps `import "@flight-recorder/payload-security"`,
+ * immediately: tsc's output keeps `import "@wayscribe/payload-security"`,
  * and the moment that dependency became dev-only so it would not appear in the
  * published manifest, every demo container failed to start.
  *
  * The SDK is embedded in other companies' applications, so every dependency it
  * declares becomes a dependency they carry and a version they may have to
- * reconcile. It needs a handful of pure functions from `@flight-recorder/payload-security`,
+ * reconcile. It needs a handful of pure functions from `@wayscribe/payload-security`,
  * namely `redact`, `toStorable`, `checkLimits`, `DEFAULT_LIMITS`, `DEFAULT_SECRET_PATHS`
  * and `maskSecretsInText`, and nothing else, so those are bundled in. It takes
- * constants from `@flight-recorder/protocol/limits`, a subpath that imports
+ * constants from `@wayscribe/protocol/limits`, a subpath that imports
  * nothing; the package root would bring Zod. `src/bundle.test.ts` fails if
  * anything from `node_modules` is inlined.
  *

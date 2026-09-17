@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { MAX_JOURNEY_LABEL_LENGTH, journeyEventSchema } from "@flight-recorder/protocol";
+import { MAX_JOURNEY_LABEL_LENGTH, journeyEventSchema } from "@wayscribe/protocol";
 import { describe, expect, it } from "vitest";
 import type { Counters, Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Journey, type Recorder } from "./index.js";

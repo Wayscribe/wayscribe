@@ -64,8 +64,8 @@ export default async function ReplayPage({
           <>
             <h2>No destinations yet</h2>
             <p className="muted">
-              A destination is a development, test, or local base URL that Flight Recorder is
-              allowed to send to. Add one with:
+              A destination is a development, test, or local base URL that Wayscribe is allowed to
+              send to. Add one with:
             </p>
             <pre className="mono block">
               {`curl -X POST http://localhost:8080/v1/replay-destinations \\
@@ -103,7 +103,7 @@ export default async function ReplayPage({
 
             {/* debtwatch:start
                 id: DEBT-GW41YJ
-                owner: flight-recorder
+                owner: wayscribe
                 expires: 2027-02-01
                 reason: ADR-032 defers payload editing to V1; this screen reviews but cannot change it
                 tags: web, replay
@@ -111,8 +111,8 @@ export default async function ReplayPage({
             <h2>What will be sent</h2>
             <pre className="mono block">{JSON.stringify(event.inputPayload, null, 2)}</pre>
             <p className="muted">
-              Credentials recorded with the original request are never replayed. Flight Recorder
-              sends its own user agent and any header the destination has configured.
+              Credentials recorded with the original request are never replayed. Wayscribe sends its
+              own user agent and any header the destination has configured.
             </p>
 
             <button type="submit">Send replay</button>
@@ -126,7 +126,7 @@ export default async function ReplayPage({
     if (error instanceof ApiUnavailableError) {
       return (
         <main id="main">
-          <p className="error">Cannot reach the Flight Recorder API. Is it running?</p>
+          <p className="error">Cannot reach the Wayscribe API. Is it running?</p>
         </main>
       );
     }

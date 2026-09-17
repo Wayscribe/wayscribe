@@ -122,7 +122,7 @@ export class Client {
   private async get<T>(path: string): Promise<T> {
     const headers: Record<string, string> = { authorization: `Bearer ${this.config.token}` };
     if (this.config.projectId !== undefined) {
-      headers["x-flight-project-id"] = this.config.projectId;
+      headers["x-wayscribe-project-id"] = this.config.projectId;
     }
 
     let response: Response;
@@ -158,10 +158,10 @@ function explain(status: number, code: string | undefined, message: string | und
   const said = message ?? `Request failed with ${String(status)}.`;
 
   if (code === "unauthorized") {
-    return `${said}\nCheck FLIGHT_RECORDER_TOKEN — it is the same value the web interface asks for.`;
+    return `${said}\nCheck WAYSCRIBE_TOKEN — it is the same value the web interface asks for.`;
   }
   if (code === "project_required" || code === "project_not_found") {
-    return `${said}\nAn admin token spans projects, so name one: --project <id>, or FLIGHT_RECORDER_PROJECT.\nRun \`flight-recorder projects\` to list them.`;
+    return `${said}\nAn admin token spans projects, so name one: --project <id>, or WAYSCRIBE_PROJECT.\nRun \`wayscribe projects\` to list them.`;
   }
   if (status === 404) {
     return `${said}\nA record outside your key's project or environment reads as absent, which is deliberate.`;

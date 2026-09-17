@@ -1,9 +1,5 @@
-import {
-  JOURNEY_STATUSES,
-  type JourneyStatus,
-  type JourneyListFilters
-} from "@flight-recorder/database";
-import { MAX_ENTITY_TYPE_LENGTH, MAX_JOURNEY_LABEL_LENGTH } from "@flight-recorder/protocol";
+import { JOURNEY_STATUSES, type JourneyStatus, type JourneyListFilters } from "@wayscribe/database";
+import { MAX_ENTITY_TYPE_LENGTH, MAX_JOURNEY_LABEL_LENGTH } from "@wayscribe/protocol";
 
 export type ParsedJourneyListQuery =
   { ok: true; filters: JourneyListFilters } | { ok: false; message: string };

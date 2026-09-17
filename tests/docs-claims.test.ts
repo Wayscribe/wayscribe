@@ -323,9 +323,9 @@ describe("the server's documented numbers", () => {
 
   it("names the metrics the API exposes, and their buckets", () => {
     const source = read("apps/api/src/metrics/api-metrics.ts");
-    const declared = [
-      ...source.matchAll(/^\s+"((?:flight_recorder|process|nodejs)_[a-z_]+)",$/gm)
-    ].map((match) => match[1]);
+    const declared = [...source.matchAll(/^\s+"((?:wayscribe|process|nodejs)_[a-z_]+)",$/gm)].map(
+      (match) => match[1]
+    );
     const rows = tableRows(subsection("docs/OPERATIONS.md", "Metrics"));
     expect(rows.map((row) => codeWords(row[0] ?? "")[0])).toEqual(declared);
 
@@ -349,12 +349,10 @@ describe("the server's documented numbers", () => {
     expect(read(`${migrations}/019_journey_browse_indexes.js`)).toContain(
       'export const LOCK_TIMEOUT = "10min";'
     );
-    const job = read("deploy/helm/flight-recorder/templates/migrate-job.yaml");
+    const job = read("deploy/helm/wayscribe/templates/migrate-job.yaml");
     expect(job).toContain("for attempt in $(seq 1 30); do");
     expect(job).toContain("sleep 2");
-    expect(read("deploy/helm/flight-recorder/values.yaml")).toContain(
-      "activeDeadlineSeconds: 1800"
-    );
+    expect(read("deploy/helm/wayscribe/values.yaml")).toContain("activeDeadlineSeconds: 1800");
 
     const operations = prose(read("docs/OPERATIONS.md"));
     expect(operations).toContain("sets `lock_timeout` to five seconds");
@@ -461,11 +459,11 @@ describe("deployment claims", () => {
     const images = [...published.matchAll(/^\s+image: (.+)$/gm)].map((match) => match[1] ?? "");
     expect(images).toHaveLength(3);
     for (const image of images) {
-      expect(image).toContain("${FLIGHT_RECORDER_VERSION:?");
+      expect(image).toContain("${WAYSCRIBE_VERSION:?");
       expect(image).not.toContain("latest");
     }
     for (const document of ["README.md", "docs/OPERATIONS.md"]) {
-      expect(read(document), document).toContain("export FLIGHT_RECORDER_VERSION=vX.Y.Z");
+      expect(read(document), document).toContain("export WAYSCRIBE_VERSION=vX.Y.Z");
     }
   });
 
@@ -505,11 +503,9 @@ describe("deployment claims", () => {
   it("names the tarball the SDK's version packs", () => {
     const version = (JSON.parse(read("packages/sdk-node/package.json")) as { version: string })
       .version;
-    const tarball = `flight-recorder-node-${version}.tgz`;
+    const tarball = `wayscribe-node-${version}.tgz`;
     for (const document of ["README.md", "packages/sdk-node/README.md"]) {
-      const named = [...read(document).matchAll(/flight-recorder-node-[\d.]+\.tgz/g)].map(
-        (m) => m[0]
-      );
+      const named = [...read(document).matchAll(/wayscribe-node-[\d.]+\.tgz/g)].map((m) => m[0]);
       expect(named.length, document).toBeGreaterThan(0);
       for (const name of named) expect(name, document).toBe(tarball);
     }

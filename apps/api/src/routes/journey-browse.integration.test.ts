@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId } from "@wayscribe/database";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -189,7 +189,7 @@ describe("GET /v1/journeys browse filters", () => {
     app.inject({
       method: "GET",
       url,
-      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "x-flight-project-id": projectId }
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "x-wayscribe-project-id": projectId }
     });
 
   const list = (query: string): string =>

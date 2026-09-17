@@ -1,4 +1,4 @@
-name: flight-recorder
+name: wayscribe
 
 services:
   postgres:

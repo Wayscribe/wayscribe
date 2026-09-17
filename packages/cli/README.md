@@ -1,6 +1,6 @@
-# @flight-recorder/cli
+# @wayscribe/cli
 
-Read journeys, timelines and payload diffs from a Flight Recorder installation,
+Read journeys, timelines and payload diffs from a Wayscribe installation,
 without opening a browser.
 
 It talks to the REST API over HTTP, so it works from a laptop against a remote
@@ -10,20 +10,20 @@ or deletes.
 ## Configure
 
 ```bash
-export FLIGHT_RECORDER_URL=http://localhost:8080    # default
-export FLIGHT_RECORDER_TOKEN=…                      # your ADMIN_TOKEN
-export FLIGHT_RECORDER_PROJECT=…                    # an admin token spans projects
+export WAYSCRIBE_URL=http://localhost:8080    # default
+export WAYSCRIBE_TOKEN=…                      # your ADMIN_TOKEN
+export WAYSCRIBE_PROJECT=…                    # an admin token spans projects
 ```
 
-`flight-recorder projects` lists the ids. An API key names its own project, so
-it needs no `FLIGHT_RECORDER_PROJECT`; an admin token does.
+`wayscribe projects` lists the ids. An API key names its own project, so
+it needs no `WAYSCRIBE_PROJECT`; an admin token does.
 
 Every variable has a flag — `--url`, `--token`, `--project` — and the flag wins.
 
 ## Use
 
 ```bash
-flight-recorder search 0018Z00002ABC
+wayscribe search 0018Z00002ABC
 ```
 
 ```text
@@ -32,7 +32,7 @@ jrn_d0896441-25b9-4bd0-be9e-3a009e4d831b    customer:0018Z00002ABC    failed    
 ```
 
 ```bash
-flight-recorder journey jrn_d0896441-25b9-4bd0-be9e-3a009e4d831b
+wayscribe journey jrn_d0896441-25b9-4bd0-be9e-3a009e4d831b
 ```
 
 ```text
@@ -51,7 +51,7 @@ also known as  salesforceAccountId=0018…ABC
 ```
 
 ```bash
-flight-recorder event evt_14babbcc-… --diff
+wayscribe event evt_14babbcc-… --diff
 ```
 
 ```text
@@ -68,12 +68,12 @@ There it is.
 terminal is attached:
 
 ```bash
-flight-recorder search 0018Z00002ABC --json | jq -r '.[0].journeyId'
+wayscribe search 0018Z00002ABC --json | jq -r '.[0].journeyId'
 ```
 
 Colour is off automatically when output is piped, and `NO_COLOR` is honoured.
 
-`flight-recorder --version` prints the CLI's version, from its own
+`wayscribe --version` prints the CLI's version, from its own
 `package.json`, and nothing else.
 
 Exit codes: `0` success, `1` the request failed or the configuration is wrong,

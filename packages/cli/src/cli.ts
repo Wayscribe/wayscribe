@@ -12,17 +12,17 @@ import {
   type Style
 } from "./format.js";
 
-const USAGE = `flight-recorder — read journeys from a Flight Recorder installation
+const USAGE = `wayscribe — read journeys from a Wayscribe installation
 
-  flight-recorder search <value>        journeys for an entity id or alias value
-  flight-recorder journey <id>          the timeline, across every service
-  flight-recorder event <id> [--diff]   one step's payloads, or what changed
-  flight-recorder projects              projects this token can read
+  wayscribe search <value>        journeys for an entity id or alias value
+  wayscribe journey <id>          the timeline, across every service
+  wayscribe event <id> [--diff]   one step's payloads, or what changed
+  wayscribe projects              projects this token can read
 
 Options
-  --url <url>        default $FLIGHT_RECORDER_URL, then http://localhost:8080
-  --token <token>    default $FLIGHT_RECORDER_TOKEN; the admin token
-  --project <id>     default $FLIGHT_RECORDER_PROJECT; an admin token must name one
+  --url <url>        default $WAYSCRIBE_URL, then http://localhost:8080
+  --token <token>    default $WAYSCRIBE_TOKEN; the admin token
+  --project <id>     default $WAYSCRIBE_PROJECT; an admin token must name one
   --limit <n>        search only, default 20
   --diff             event only, show the field-level diff instead of payloads
   --json             raw JSON, for scripts
@@ -158,7 +158,7 @@ export function version(): string {
 }
 
 function missing(shape: string, io: Io): number {
-  io.err(`Usage: flight-recorder ${shape}`);
+  io.err(`Usage: wayscribe ${shape}`);
   return 2;
 }
 

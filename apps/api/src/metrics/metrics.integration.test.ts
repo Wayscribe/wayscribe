@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId } from "@flight-recorder/database";
-import { createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId } from "@wayscribe/database";
+import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -148,11 +148,11 @@ describe("metrics, scraped from METRICS_PORT after real traffic", () => {
     expect(response.status).toBe(200);
     const text = await response.text();
 
-    expect(valueOf(text, "flight_recorder_events_total", { result: "accepted" })).toBe(2);
-    expect(valueOf(text, "flight_recorder_events_total", { result: "duplicate" })).toBe(1);
-    expect(valueOf(text, "flight_recorder_events_total", { result: "rejected" })).toBe(2);
+    expect(valueOf(text, "wayscribe_events_total", { result: "accepted" })).toBe(2);
+    expect(valueOf(text, "wayscribe_events_total", { result: "duplicate" })).toBe(1);
+    expect(valueOf(text, "wayscribe_events_total", { result: "rejected" })).toBe(2);
 
-    const requests = { name: "flight_recorder_http_requests_total" };
+    const requests = { name: "wayscribe_http_requests_total" };
     expect(
       valueOf(text, requests.name, { method: "POST", route: "/v1/events", status: "202" })
     ).toBe(2);
@@ -170,14 +170,14 @@ describe("metrics, scraped from METRICS_PORT after real traffic", () => {
       })
     ).toBe(1);
     expect(
-      valueOf(text, "flight_recorder_http_request_duration_seconds_count", {
+      valueOf(text, "wayscribe_http_request_duration_seconds_count", {
         method: "POST",
         route: "/v1/events"
       })
     ).toBe(3);
     const buckets = samples(text).filter(
       (sample) =>
-        sample.name === "flight_recorder_http_request_duration_seconds_bucket" &&
+        sample.name === "wayscribe_http_request_duration_seconds_bucket" &&
         sample.labels["route"] === "/v1/search"
     );
     expect(buckets.map((sample) => sample.labels["le"])).toEqual([
@@ -185,22 +185,20 @@ describe("metrics, scraped from METRICS_PORT after real traffic", () => {
       "+Inf"
     ]);
 
-    expect(
-      valueOf(text, "flight_recorder_retention_sweep_runs_total", { outcome: "completed" })
-    ).toBe(1);
-    expect(valueOf(text, "flight_recorder_retention_journeys_deleted_total")).toBe(1);
-    const lastSuccess = valueOf(text, "flight_recorder_retention_last_success_timestamp_seconds");
+    expect(valueOf(text, "wayscribe_retention_sweep_runs_total", { outcome: "completed" })).toBe(1);
+    expect(valueOf(text, "wayscribe_retention_journeys_deleted_total")).toBe(1);
+    const lastSuccess = valueOf(text, "wayscribe_retention_last_success_timestamp_seconds");
     expect(Math.abs(lastSuccess - Date.now() / 1000)).toBeLessThan(60);
 
     for (const table of ["journeys", "entity_aliases", "replay_destinations", "api_keys"]) {
-      expect(valueOf(text, "flight_recorder_unreadable_values", { table })).toBe(0);
+      expect(valueOf(text, "wayscribe_unreadable_values", { table })).toBe(0);
     }
 
     // The pool served every query above and is idle now.
-    const used = valueOf(text, "flight_recorder_db_pool_connections", { state: "used" });
-    const free = valueOf(text, "flight_recorder_db_pool_connections", { state: "free" });
+    const used = valueOf(text, "wayscribe_db_pool_connections", { state: "used" });
+    const free = valueOf(text, "wayscribe_db_pool_connections", { state: "free" });
     expect(used + free).toBeGreaterThan(0);
-    expect(valueOf(text, "flight_recorder_db_pool_connections", { state: "pending" })).toBe(0);
+    expect(valueOf(text, "wayscribe_db_pool_connections", { state: "pending" })).toBe(0);
     expect(valueOf(text, "process_resident_memory_bytes")).toBeGreaterThan(1_000_000);
     expect(valueOf(text, "nodejs_eventloop_lag_seconds")).toBeGreaterThanOrEqual(0);
   });

@@ -5,8 +5,8 @@ import { buildRecorder } from "./build.mjs";
 /**
  * The processor time a wrapped call spends, with no pacing and no network.
  *
- *   pnpm --filter @flight-recorder/node exec node bench/capture-cpu.mjs
- *   pnpm --filter @flight-recorder/node exec node bench/capture-cpu.mjs --module=/path/to/other-build.mjs
+ *   pnpm --filter @wayscribe/node exec node bench/capture-cpu.mjs
+ *   pnpm --filter @wayscribe/node exec node bench/capture-cpu.mjs --module=/path/to/other-build.mjs
  *
  * `overhead.mjs` paces its calls, so what it reports depends on whether the
  * cores were idle before each call (see awake.mjs). This calls the wrappers in

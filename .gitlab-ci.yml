@@ -76,20 +76,20 @@ helm:
   before_script: []
   cache: {}
   script:
-    - helm lint deploy/helm/flight-recorder
+    - helm lint deploy/helm/wayscribe
     # The default image tag must be the one a release publishes: v plus the
     # SDK's version, the only tag publish-sdk accepts and the one
     # publish-images pushes. The chart defaulted to its bare appVersion, a tag
     # nothing pushes.
     - scripts/check-chart-image-tag.sh
-    - helm template fr deploy/helm/flight-recorder
+    - helm template fr deploy/helm/wayscribe
       --set postgresql.enabled=true
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
       > /dev/null
     # The metrics port is off by default, so its template branch renders only
     # when asked for.
-    - helm template fr deploy/helm/flight-recorder
+    - helm template fr deploy/helm/wayscribe
       --set postgresql.enabled=true
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
@@ -97,13 +97,13 @@ helm:
       > /dev/null
     # NetworkPolicies are off by default too, and have a branch for the bundled
     # database and one for an external one.
-    - helm template fr deploy/helm/flight-recorder
+    - helm template fr deploy/helm/wayscribe
       --set postgresql.enabled=true
       --set networkPolicy.enabled=true
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
       > /dev/null
-    - helm template fr deploy/helm/flight-recorder
+    - helm template fr deploy/helm/wayscribe
       --set databaseUrl=postgresql://u:p@db.internal:5432/fr
       --set networkPolicy.enabled=true
       --set networkPolicy.database.to[0].ipBlock.cidr=10.0.0.0/24
@@ -114,14 +114,14 @@ helm:
     # server calls the API for every page. The API's policy is read out of the
     # render and must name both the configured peer and the web pod.
     - |
-      helm template fr deploy/helm/flight-recorder \
+      helm template fr deploy/helm/wayscribe \
         --set postgresql.enabled=true \
         --set networkPolicy.enabled=true \
         --set networkPolicy.ingressFrom[0].namespaceSelector.matchLabels.team=ingress \
         --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
         --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111 \
         --show-only templates/networkpolicy.yaml > networkpolicy.yaml
-      sed -n '/^  name: fr-flight-recorder-api$/,/^---$/p' networkpolicy.yaml > api-policy.yaml
+      sed -n '/^  name: ws-wayscribe-api$/,/^---$/p' networkpolicy.yaml > api-policy.yaml
       if ! grep -q "team: ingress" api-policy.yaml; then
         echo "the API policy lost networkPolicy.ingressFrom"; cat api-policy.yaml; exit 1
       fi
@@ -130,7 +130,7 @@ helm:
       fi
     # The migrate Job is bounded by default, and the bound can be removed.
     - |
-      helm template fr deploy/helm/flight-recorder \
+      helm template fr deploy/helm/wayscribe \
         --set postgresql.enabled=true \
         --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
         --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111 \
@@ -138,7 +138,7 @@ helm:
       if ! grep -q "activeDeadlineSeconds: 1800" migrate-job.yaml; then
         echo "the migrate Job lost its deadline"; cat migrate-job.yaml; exit 1
       fi
-      helm template fr deploy/helm/flight-recorder \
+      helm template fr deploy/helm/wayscribe \
         --set postgresql.enabled=true \
         --set migrations.activeDeadlineSeconds=null \
         --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
@@ -149,7 +149,7 @@ helm:
       fi
     # And refuses a metrics port equal to the API's. An `if`, not `!`: a
     # negated command does not fail a job under `set -e`.
-    - if helm template fr deploy/helm/flight-recorder
+    - if helm template fr deploy/helm/wayscribe
       --set postgresql.enabled=true
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
@@ -294,10 +294,10 @@ e2e:
     - pnpm db:migrate
     - pnpm build
     - node apps/api/dist/server.js &
-    - pnpm --filter @flight-recorder/web start &
+    - pnpm --filter @wayscribe/web start &
     # A bounded wait: a server that dies at boot must fail the job, not hang it.
     - npx wait-on --timeout 120000 http://localhost:8080/health http://localhost:3000/login
-    - export FLIGHT_API_KEY=$(pnpm db:seed | grep -oE 'fr_[A-Za-z0-9_-]+' | tail -1)
+    - export WAYSCRIBE_API_KEY=$(pnpm db:seed | grep -oE 'fr_[A-Za-z0-9_-]+' | tail -1)
     - pnpm test:e2e
 
 # The demo is the product acceptance test (DEMO_SCENARIO.md section 1). It needs
@@ -404,7 +404,7 @@ sbom:
       - sboms/
     expire_in: 30 days
 
-# An older build writes data; this build must read all of it. Flight Recorder
+# An older build writes data; this build must read all of it. Wayscribe
 # runs on each team's own PostgreSQL, so an upgrade is a new image started
 # against a database an old image wrote. scripts/upgrade-test.mjs builds the API
 # at the newest earlier release tag (or, before there is one, main just before
@@ -465,7 +465,7 @@ demo:
     # Ports are published by containers under the dind daemon, so they are
     # reachable at the `docker` host rather than at localhost. See
     # infrastructure/compose.ci.yaml.
-    FLIGHT_API_URL: http://docker:8080
+    WAYSCRIBE_API_URL: http://docker:8080
     DEMO_SOURCE_URL: http://docker:3100
   before_script:
     - apk add --no-cache docker-cli docker-cli-compose
@@ -479,7 +479,7 @@ demo:
       docker compose -f infrastructure/compose.yaml
       -f infrastructure/compose.demo.yaml
       -f infrastructure/compose.ci.yaml up --build -d
-    - npx wait-on --timeout 300000 "$FLIGHT_API_URL/health" "$DEMO_SOURCE_URL/health"
+    - npx wait-on --timeout 300000 "$WAYSCRIBE_API_URL/health" "$DEMO_SOURCE_URL/health"
     - pnpm test:demo
   after_script:
     - >-
@@ -519,7 +519,7 @@ release-verify:
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
-    FLIGHT_API_URL: http://docker:8080
+    WAYSCRIBE_API_URL: http://docker:8080
     DEMO_SOURCE_URL: http://docker:3100
   before_script:
     - apk add --no-cache docker-cli docker-cli-compose
@@ -532,7 +532,7 @@ release-verify:
       docker compose -f infrastructure/compose.yaml
       -f infrastructure/compose.demo.yaml
       -f infrastructure/compose.ci.yaml up --build -d
-    - npx wait-on --timeout 300000 "$FLIGHT_API_URL/health" "$DEMO_SOURCE_URL/health"
+    - npx wait-on --timeout 300000 "$WAYSCRIBE_API_URL/health" "$DEMO_SOURCE_URL/health"
     - pnpm test:demo
   after_script:
     - >-
@@ -565,7 +565,7 @@ publish-images:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     # buildx for multi-arch: the images are built on x86 runners and a great
     # many developers are on arm64 laptops.
-    - docker buildx create --use --name flight-builder
+    - docker buildx create --use --name wayscribe-builder
   script:
     # Both images are pushed by digest with no tag, an SBOM per platform is
     # attached, each digest is signed and verified the way an operator will

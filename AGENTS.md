@@ -4,7 +4,7 @@ This file contains repository-level instructions for coding agents and LLM-assis
 
 ## Product
 
-Flight Recorder is a self-hosted, record-level debugging tool for distributed workflows.
+Wayscribe is a self-hosted, record-level debugging tool for distributed workflows.
 
 It records deterministic journey events so developers can reconstruct how one business entity moved across APIs, services, databases, queues, workers, and external systems.
 

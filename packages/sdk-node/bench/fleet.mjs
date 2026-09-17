@@ -7,7 +7,7 @@ import { buildRecorder } from "./build.mjs";
  * A fleet of SDK processes against one API instance with a bounded database
  * pool, at two values of maxConcurrentSends.
  *
- *   pnpm --filter @flight-recorder/node bench:fleet
+ *   pnpm --filter @wayscribe/node bench:fleet
  *
  * `overhead.mjs` sends from one process to a stub that serves any number of
  * requests at once, which is why it favours more concurrency. This is the

@@ -10,8 +10,8 @@
 #
 # Usage: scripts/publish-image.sh <tag> <dockerfile>=<repository> [...]
 #   e.g. scripts/publish-image.sh v1.0.0 \
-#          apps/api/Dockerfile=registry.gitlab.com/jojithedev/flight-recorder/api \
-#          apps/web/Dockerfile=registry.gitlab.com/jojithedev/flight-recorder/web
+#          apps/api/Dockerfile=registry.gitlab.com/jojithedev/wayscribe/api \
+#          apps/web/Dockerfile=registry.gitlab.com/jojithedev/wayscribe/web
 #
 # DRY_RUN=1 does everything except the cosign calls, which it prints: the builds,
 # the pushes by digest, the SBOMs, and the tags. Point it at a throwaway registry

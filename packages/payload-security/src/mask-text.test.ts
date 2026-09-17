@@ -21,7 +21,7 @@ const fake = {
   gitlab: "gl" + "pat-" + "xR7kP2mN9qL4wT6yB3vC",
   aws: "AK" + "IA" + "Q3EGUNLQ7XK4TWPM",
   google: "AI" + "za" + "SyD4xQ9mL2pK7wR3tV8nB5cF1hJ6gZ0aE_u",
-  flightRecorder: "fr_" + "q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A",
+  wayscribe: "fr_" + "q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A",
   jwt:
     "eyJ" +
     "hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" +
@@ -188,9 +188,9 @@ const positive: Case[] = [
     keeps: ["401 Unauthorized PRIVATE-TOKEN: [REDACTED] for GET /api/v4/projects"]
   },
   {
-    name: "a Flight Recorder key",
-    text: `ingest refused key ${fake.flightRecorder} for environment production`,
-    secrets: [fake.flightRecorder],
+    name: "a Wayscribe key",
+    text: `ingest refused key ${fake.wayscribe} for environment production`,
+    secrets: [fake.wayscribe],
     keeps: ["ingest refused key [REDACTED] for environment production"]
   },
   {

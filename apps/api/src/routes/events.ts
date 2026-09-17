@@ -4,13 +4,13 @@ import {
   isStatementTimeout,
   touchApiKey,
   type ApiKeyContext
-} from "@flight-recorder/database";
-import type { Keyring } from "@flight-recorder/payload-security";
+} from "@wayscribe/database";
+import type { Keyring } from "@wayscribe/payload-security";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Knex } from "knex";
 import { databaseApiKeys, logVerifierReplaceFailure, resolveApiKey } from "../auth.js";
 import { ingestEvent, type IngestResult } from "../ingestion/ingest-event.js";
-import { MAX_BATCH_EVENTS } from "@flight-recorder/protocol";
+import { MAX_BATCH_EVENTS } from "@wayscribe/protocol";
 import type { EventResult } from "../metrics/api-metrics.js";
 import { presentEvent, presentJourneyDetail } from "./present.js";
 

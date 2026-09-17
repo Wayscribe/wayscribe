@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKnexConfig, insertReturningId, searchJourneys } from "@flight-recorder/database";
-import { createKeyring, issueApiKey, searchTokens } from "@flight-recorder/payload-security";
+import { createKnexConfig, insertReturningId, searchJourneys } from "@wayscribe/database";
+import { createKeyring, issueApiKey, searchTokens } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { databaseApiKeys } from "./auth.js";

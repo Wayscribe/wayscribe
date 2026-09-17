@@ -7,14 +7,14 @@ whatever its policy does not list. DNS is allowed to any destination on port 53:
 where the cluster DNS runs differs between distributions, and naming it wrongly
 fails every lookup, which is every connection.
 */}}
-{{- $fullname := include "flight-recorder.fullname" . }}
-{{- $name := include "flight-recorder.name" . }}
+{{- $fullname := include "wayscribe.fullname" . }}
+{{- $name := include "wayscribe.name" . }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: {{ $fullname }}-api
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
 spec:
   podSelector:
@@ -46,8 +46,8 @@ spec:
           protocol: TCP
     {{- end }}
   egress:
-    {{- include "flight-recorder.dnsEgress" . | nindent 4 }}
-    {{- include "flight-recorder.databaseEgress" . | nindent 4 }}
+    {{- include "wayscribe.dnsEgress" . | nindent 4 }}
+    {{- include "wayscribe.databaseEgress" . | nindent 4 }}
     {{- with .Values.networkPolicy.apiExtraEgress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -57,7 +57,7 @@ kind: NetworkPolicy
 metadata:
   name: {{ $fullname }}-web
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
   podSelector:
@@ -75,7 +75,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
   egress:
-    {{- include "flight-recorder.dnsEgress" . | nindent 4 }}
+    {{- include "wayscribe.dnsEgress" . | nindent 4 }}
     - to:
         - podSelector:
             matchLabels:
@@ -92,7 +92,7 @@ kind: NetworkPolicy
 metadata:
   name: {{ $fullname }}-migrate
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
 spec:
   podSelector:
@@ -102,8 +102,8 @@ spec:
       app.kubernetes.io/component: migrate
   policyTypes: ["Ingress", "Egress"]
   egress:
-    {{- include "flight-recorder.dnsEgress" . | nindent 4 }}
-    {{- include "flight-recorder.databaseEgress" . | nindent 4 }}
+    {{- include "wayscribe.dnsEgress" . | nindent 4 }}
+    {{- include "wayscribe.databaseEgress" . | nindent 4 }}
 {{- end }}
 {{- if .Values.postgresql.enabled }}
 ---
@@ -112,7 +112,7 @@ kind: NetworkPolicy
 metadata:
   name: {{ $fullname }}-postgresql
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgresql
 spec:
   podSelector:

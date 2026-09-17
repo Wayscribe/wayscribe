@@ -170,7 +170,7 @@ describe("the unredacted secret-name warning", () => {
     });
     expect(first.printed).toHaveLength(2);
     expect(first.printed[0]).toMatch(
-      /^\[flight-recorder\] unredacted_secret_name: A field named "authToken" .*printed once per process/
+      /^\[wayscribe\] unredacted_secret_name: A field named "authToken" .*printed once per process/
     );
     expect(first.printed.join("\n")).not.toContain(VALUE);
 

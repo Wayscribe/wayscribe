@@ -36,7 +36,7 @@ COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407
 # subject is the pipeline file at the ref it ran for; the double slash before
 # .gitlab-ci.yml is part of the format.
 ISSUER="${CI_SERVER_URL:-https://gitlab.com}"
-IDENTITY="${ISSUER}/${CI_PROJECT_PATH:-jojithedev/flight-recorder}//.gitlab-ci.yml@refs/tags/${TAG}"
+IDENTITY="${ISSUER}/${CI_PROJECT_PATH:-jojithedev/wayscribe}//.gitlab-ci.yml@refs/tags/${TAG}"
 
 HERE=$(dirname "$0")
 COSIGN=""

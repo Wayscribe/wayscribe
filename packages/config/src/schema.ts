@@ -52,7 +52,7 @@ export type EncryptionKeys = z.infer<typeof encryptionKeysSchema>;
 
 export const serverEnvSchema = z
   .object({
-    // Named rather than left to "Invalid URL": Flight Recorder expects you to
+    // Named rather than left to "Invalid URL": Wayscribe expects you to
     // bring your own database, so an unset value is the most likely mistake and
     // the message has to say what to do about it.
     DATABASE_URL: z.url({

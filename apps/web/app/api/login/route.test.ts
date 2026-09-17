@@ -56,13 +56,13 @@ describe("POST /api/login throttling", () => {
 
   it("answers with path-only Locations, so a TLS proxy without X-Forwarded-Proto works", async () => {
     const request = loginRequest(ADMIN_TOKEN);
-    request.headers.set("host", "flight.example.com");
+    request.headers.set("host", "wayscribe.example.com");
     const response = await socketAddressStorage().run("203.0.113.53", () => POST(request));
     expect(response303(response)).toBe("/");
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
 
     const wrong = loginRequest(WRONG);
-    wrong.headers.set("host", "flight.example.com");
+    wrong.headers.set("host", "wayscribe.example.com");
     const refused = await socketAddressStorage().run("203.0.113.54", () => POST(wrong));
     expect(response303(refused)).toBe("/login?error=invalid");
   });

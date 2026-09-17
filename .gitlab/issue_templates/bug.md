@@ -8,7 +8,7 @@
 
 ## Environment
 
-- Flight Recorder version:
+- Wayscribe version:
 - Node.js version:
 - Deployment: Docker Compose / other
 

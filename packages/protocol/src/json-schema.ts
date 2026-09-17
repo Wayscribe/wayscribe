@@ -28,7 +28,7 @@ const DIALECT = "https://json-schema.org/draft/2020-12/schema";
  *
  * One module builds them and one function serializes them, so the generator
  * script and the drift test cannot disagree about formatting. Nothing here is
- * hand-edited: `pnpm --filter @flight-recorder/protocol run schemas` rewrites
+ * hand-edited: `pnpm --filter @wayscribe/protocol run schemas` rewrites
  * the committed files and `json-schema.test.ts` fails when they differ.
  */
 export function buildJsonSchemas(): Record<string, JsonSchema> {
@@ -142,7 +142,7 @@ export function serializeSchema(schema: JsonSchema): string {
 }
 
 /** The command that rewrites the committed files, quoted by the drift test. */
-export const REGENERATE_COMMAND = "pnpm --filter @flight-recorder/protocol run schemas";
+export const REGENERATE_COMMAND = "pnpm --filter @wayscribe/protocol run schemas";
 
 /**
  * The envelope is composed rather than emitted.

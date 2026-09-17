@@ -2,13 +2,13 @@ import { expect, type Page } from "@playwright/test";
 
 export const ADMIN_TOKEN = process.env["ADMIN_TOKEN"] ?? "";
 export const API_URL = process.env["API_URL"] ?? "http://localhost:8080";
-export const API_KEY = process.env["FLIGHT_API_KEY"] ?? "";
+export const API_KEY = process.env["WAYSCRIBE_API_KEY"] ?? "";
 
 /**
  * The id of the project a seeded journey was written into, or null when the
  * installation has at most one project and nothing has to be chosen.
  *
- * The specs seed through FLIGHT_API_KEY, which belongs to one project, and the
+ * The specs seed through WAYSCRIBE_API_KEY, which belongs to one project, and the
  * interface reads another project's data only after the picker chooses it. On a
  * database with one project the picker never appears. On the demo stack after
  * the README's `project:create` there are two, and every signed-in page used to
@@ -24,11 +24,11 @@ export async function projectHolding(journeyId: string): Promise<string | null> 
 
   for (const project of projects) {
     const found = await fetch(`${API_URL}/v1/journeys/${encodeURIComponent(journeyId)}`, {
-      headers: { ...headers, "x-flight-project-id": project.id }
+      headers: { ...headers, "x-wayscribe-project-id": project.id }
     });
     if (found.ok) return project.id;
   }
-  throw new Error(`No project holds ${journeyId}; did seeding with FLIGHT_API_KEY succeed?`);
+  throw new Error(`No project holds ${journeyId}; did seeding with WAYSCRIBE_API_KEY succeed?`);
 }
 
 /**

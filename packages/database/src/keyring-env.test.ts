@@ -1,5 +1,5 @@
-import { ConfigError } from "@flight-recorder/config";
-import { createKeyring } from "@flight-recorder/payload-security";
+import { ConfigError } from "@wayscribe/config";
+import { createKeyring } from "@wayscribe/payload-security";
 import { describe, expect, it } from "vitest";
 import { keyringFromEnvironment } from "./keyring-env.js";
 

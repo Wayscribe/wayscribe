@@ -10,22 +10,22 @@ data — no backup schedule, no monitoring, and one `helm uninstall` from gone.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "flight-recorder.fullname" . }}-postgresql
+  name: {{ include "wayscribe.fullname" . }}-postgresql
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgresql
 spec:
-  serviceName: {{ include "flight-recorder.fullname" . }}-postgresql
+  serviceName: {{ include "wayscribe.fullname" . }}-postgresql
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+      app.kubernetes.io/name: {{ include "wayscribe.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: postgresql
   template:
     metadata:
       labels:
-        {{- include "flight-recorder.labels" . | nindent 8 }}
+        {{- include "wayscribe.labels" . | nindent 8 }}
         app.kubernetes.io/component: postgresql
     spec:
       securityContext:
@@ -81,9 +81,9 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "flight-recorder.fullname" . }}-postgresql
+  name: {{ include "wayscribe.fullname" . }}-postgresql
   labels:
-    {{- include "flight-recorder.labels" . | nindent 4 }}
+    {{- include "wayscribe.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgresql
 spec:
   ports:
@@ -91,7 +91,7 @@ spec:
       targetPort: postgresql
       name: postgresql
   selector:
-    app.kubernetes.io/name: {{ include "flight-recorder.name" . }}
+    app.kubernetes.io/name: {{ include "wayscribe.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: postgresql
 {{- end }}

@@ -1,8 +1,4 @@
-import {
-  normalizeSearchValue,
-  searchTokens,
-  type Keyring
-} from "@flight-recorder/payload-security";
+import { normalizeSearchValue, searchTokens, type Keyring } from "@wayscribe/payload-security";
 import type { Knex } from "knex";
 import { withoutStatementTimeout } from "../statement-timeout.js";
 import { lockHolderAlive, withTransactionLock } from "./advisory-lock.js";

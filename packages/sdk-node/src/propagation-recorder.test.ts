@@ -13,13 +13,15 @@ describe("recorder propagation", () => {
   it("uses the configured level", () => {
     const recorder = createRecorder({ ...base, propagation: "full" });
     const journey = recorder.startJourney({ entity: { type: "customer", id: "42" } });
-    expect(recorder.injectHttpHeaders({}, journey.context())["x-flight-entity-id"]).toBe("42");
+    expect(recorder.injectHttpHeaders({}, journey.context())["x-wayscribe-entity-id"]).toBe("42");
   });
 
   it("defaults to omitting the entity id", () => {
     const recorder = createRecorder(base);
     const journey = recorder.startJourney({ entity: { type: "customer", id: "42" } });
-    expect(recorder.injectHttpHeaders({}, journey.context())["x-flight-entity-id"]).toBeUndefined();
+    expect(
+      recorder.injectHttpHeaders({}, journey.context())["x-wayscribe-entity-id"]
+    ).toBeUndefined();
   });
 
   it("continues a journey across a simulated process boundary", () => {
@@ -57,7 +59,7 @@ describe("recorder propagation", () => {
   it("starts a new journey when the inbound context is malformed", () => {
     const consumer = createRecorder(base);
     const continued = consumer.continueJourney({
-      context: consumer.extractSqsContext({ flightJourneyId: "forged" }),
+      context: consumer.extractSqsContext({ wayscribeJourneyId: "forged" }),
       entity: { type: "customer", id: "42" }
     });
     expect(continued.context().journeyId).toMatch(/^jrn_/);
@@ -158,7 +160,7 @@ describe("propagation cannot break the host", () => {
   it("still propagates properly when the context is real", () => {
     // The control: fallbacks that always fired would pass every test above.
     const context = { journeyId: "jrn_1111", entity: { type: "customer", id: "C1" } };
-    expect(recorder.injectHttpHeaders({}, context)["x-flight-journey-id"]).toBe("jrn_1111");
+    expect(recorder.injectHttpHeaders({}, context)["x-wayscribe-journey-id"]).toBe("jrn_1111");
   });
 });
 
@@ -187,8 +189,8 @@ describe("an entity id that cannot be a header value", () => {
         entity: { type: "customer", id }
       }
     );
-    expect(headers["x-flight-entity-id"]).toBeUndefined();
-    expect(headers["x-flight-journey-id"]).toBe("jrn_2222");
+    expect(headers["x-wayscribe-entity-id"]).toBeUndefined();
+    expect(headers["x-wayscribe-journey-id"]).toBe("jrn_2222");
   });
 
   it("still emits an ordinary id", () => {
@@ -199,6 +201,6 @@ describe("an entity id that cannot be a header value", () => {
         entity: { type: "customer", id: "0018Z00002ABC" }
       }
     );
-    expect(headers["x-flight-entity-id"]).toBe("0018Z00002ABC");
+    expect(headers["x-wayscribe-entity-id"]).toBe("0018Z00002ABC");
   });
 });

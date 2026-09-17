@@ -1,6 +1,6 @@
 # Security review packet
 
-For a security engineer deciding whether a Flight Recorder pilot may run in
+For a security engineer deciding whether a Wayscribe pilot may run in
 their environment. Every statement links to its source; the threat model is
 [SECURITY.md](SECURITY.md).
 
@@ -99,8 +99,8 @@ GitLab OIDC with provenance ([OPERATIONS §11](OPERATIONS.md#11-security-scannin
 ([full steps](OPERATIONS.md#verifying-a-published-image)):
 
 ```bash
-cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:vX.Y.Z \
-  --certificate-identity 'https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/vX.Y.Z' \
+cosign verify registry.gitlab.com/jojithedev/wayscribe/api:vX.Y.Z \
+  --certificate-identity 'https://gitlab.com/jojithedev/wayscribe//.gitlab-ci.yml@refs/tags/vX.Y.Z' \
   --certificate-oidc-issuer https://gitlab.com
 ```
 
@@ -134,6 +134,6 @@ cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:vX.Y.Z \
 ## Reporting a vulnerability
 
 Open a confidential issue at
-<https://gitlab.com/jojithedev/flight-recorder/-/issues/new>. Expect an
+<https://gitlab.com/jojithedev/wayscribe/-/issues/new>. Expect an
 acknowledgement within a week
 ([../SECURITY.md](../SECURITY.md#reporting-a-vulnerability)).

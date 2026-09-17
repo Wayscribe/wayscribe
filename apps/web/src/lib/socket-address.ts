@@ -19,8 +19,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
  * instrumentation file and each route are bundled separately and a module-level
  * instance would be a different object in each.
  */
-const STORAGE = Symbol.for("flight-recorder.web.socket-address");
-const INSTALLED = Symbol.for("flight-recorder.web.socket-address.installed");
+const STORAGE = Symbol.for("wayscribe.web.socket-address");
+const INSTALLED = Symbol.for("wayscribe.web.socket-address.installed");
 
 type Registry = typeof globalThis & {
   [STORAGE]?: AsyncLocalStorage<string>;

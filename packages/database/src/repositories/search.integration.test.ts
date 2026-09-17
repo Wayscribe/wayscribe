@@ -1,5 +1,5 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createKeyring, searchTokens } from "@flight-recorder/payload-security";
+import { createKeyring, searchTokens } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
 import { insertReturningId } from "../insert.js";

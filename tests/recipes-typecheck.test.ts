@@ -121,7 +121,7 @@ describe("the stack recipes", () => {
     const probe = join(recipesDir, "express-bullmq-hubspot", "src", "drift-probe.ts");
     const checked = program(configPath, {
       [probe]: [
-        'import { createRecorder } from "@flight-recorder/node";',
+        'import { createRecorder } from "@wayscribe/node";',
         'const recorder = createRecorder({ endpoint: "http://localhost:8080" });',
         'const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });',
         "// fail() once took metadata as its third argument.",

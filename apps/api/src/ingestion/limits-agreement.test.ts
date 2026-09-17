@@ -1,7 +1,7 @@
-import type { ApiKeyContext } from "@flight-recorder/database";
-import { captureCase } from "@flight-recorder/node/conformance-harness";
-import { createKeyring } from "@flight-recorder/payload-security";
-import type { ConformanceCase } from "@flight-recorder/protocol/conformance";
+import type { ApiKeyContext } from "@wayscribe/database";
+import { captureCase } from "@wayscribe/node/conformance-harness";
+import { createKeyring } from "@wayscribe/payload-security";
+import type { ConformanceCase } from "@wayscribe/protocol/conformance";
 import type { Knex } from "knex";
 import { describe, expect, it } from "vitest";
 import { ingestEvent } from "./ingest-event.js";

@@ -11,7 +11,7 @@
 
 ## 1. System context
 
-Flight Recorder observes applications that already exist.
+Wayscribe observes applications that already exist.
 
 ```text
 External system
@@ -19,7 +19,7 @@ External system
       ▼
 Application / integration services
       │
-      ├── Flight Recorder Node SDK
+      ├── Wayscribe Node SDK
       │         │
       │         ▼
       │   Ingestion API
@@ -35,11 +35,11 @@ Application / integration services
       └─ Web UI    Development endpoint
 ```
 
-The host application should continue functioning if every Flight Recorder service is unavailable.
+The host application should continue functioning if every Wayscribe service is unavailable.
 
 ## 2. Core architectural idea
 
-A distributed trace usually follows a request. Flight Recorder follows a **journey**, which may span multiple independent traces, processes, queues, retries, scheduled jobs, and external systems.
+A distributed trace usually follows a request. Wayscribe follows a **journey**, which may span multiple independent traces, processes, queues, retries, scheduled jobs, and external systems.
 
 ```text
 Webhook trace
@@ -274,7 +274,7 @@ The UI should visually indicate when event timestamps appear inconsistent or arr
 
 ## 10. OpenTelemetry relationship
 
-Flight Recorder should read active trace and span IDs when OpenTelemetry is already present.
+Wayscribe should read active trace and span IDs when OpenTelemetry is already present.
 
 It should not require OpenTelemetry in V0 and should not implement a full OTLP receiver initially.
 
@@ -285,10 +285,10 @@ Existing application telemetry
       ↓ OTLP
 OpenTelemetry Collector
       ↓ adapter
-Flight Recorder
+Wayscribe
 ```
 
-Journey identity remains a Flight Recorder concept even when trace context comes from OpenTelemetry.
+Journey identity remains a Wayscribe concept even when trace context comes from OpenTelemetry.
 
 ## 11. Deployment profiles
 

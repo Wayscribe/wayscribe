@@ -6,7 +6,7 @@ import {
   rotationStatus,
   type ReencryptResult,
   type RotationStatus
-} from "@flight-recorder/database";
+} from "@wayscribe/database";
 import {
   API_KEY_PREFIX_LENGTH,
   createKeyring,
@@ -15,7 +15,7 @@ import {
   parseEncryptedValue,
   searchTokens,
   type Keyring
-} from "@flight-recorder/payload-security";
+} from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";

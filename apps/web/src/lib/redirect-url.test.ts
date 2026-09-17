@@ -26,8 +26,8 @@ describe("seeOther", () => {
     ]) {
       const location = seeOther(path).headers.get("location") ?? "";
       expect(location, path).toBe("/");
-      expect(new URL(location, "https://flight.example").origin, path).toBe(
-        "https://flight.example"
+      expect(new URL(location, "https://wayscribe.example").origin, path).toBe(
+        "https://wayscribe.example"
       );
     }
   });

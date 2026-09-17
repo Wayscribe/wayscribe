@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
-import { createKeyring, verifyApiKeyWithKeyring } from "@flight-recorder/payload-security";
+import { createKeyring, verifyApiKeyWithKeyring } from "@wayscribe/payload-security";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { createKnexConfig } from "./knex-config.js";
 import { seedLocal } from "./seed-local.js";

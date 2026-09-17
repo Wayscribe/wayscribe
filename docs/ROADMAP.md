@@ -110,9 +110,9 @@ pipeline checks that each declaration is still valid.
 Deferred on purpose. None of it is visible to somebody evaluating the code, and
 all of it is cheap to add once there is a reason.
 
-- publish `@flight-recorder/node` and the images, with the pushed tag booted on
+- publish `@wayscribe/node` and the images, with the pushed tag booted on
   both architectures before it moves. (`compose.published.yaml` already
-  requires `FLIGHT_RECORDER_VERSION` rather than falling back to `latest`.)
+  requires `WAYSCRIBE_VERSION` rather than falling back to `latest`.)
 - a private-registry rehearsal of the documented install before the public tag
 - ~~a `doctor` preflight~~ **Built:** `pnpm run doctor`, or `doctor` in the API
   image: migrations applied, secrets not the published defaults, an issued key

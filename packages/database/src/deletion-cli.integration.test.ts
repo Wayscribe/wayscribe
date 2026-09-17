@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { createKeyring, searchTokens } from "@flight-recorder/payload-security";
+import { createKeyring, searchTokens } from "@wayscribe/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";

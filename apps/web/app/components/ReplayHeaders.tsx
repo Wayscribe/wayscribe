@@ -54,7 +54,7 @@ export function ReplayHeaders({
       {anyRedacted ? (
         <p className="muted">
           Values shown as {REDACTED} {attempted ? "were in the attempt" : "were sent"} with their
-          real values. Flight Recorder does not keep them with the replay record, because a
+          real values. Wayscribe does not keep them with the replay record, because a
           destination&rsquo;s configured headers are credentials. Runs recorded before the upgrade
           that introduced this have every header value redacted, including ones that were never
           secret, such as <span className="mono">user-agent</span>.

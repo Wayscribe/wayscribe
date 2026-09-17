@@ -144,12 +144,14 @@ async function get<T>(path: string, projectId?: string): Promise<T | null> {
         authorization: `Bearer ${config.ADMIN_TOKEN}`,
         // An admin token reads one named project. Omitted, the API falls back to
         // "the only project", which stops resolving the moment a second exists.
-        ...(projectId === undefined || projectId === "" ? {} : { "x-flight-project-id": projectId })
+        ...(projectId === undefined || projectId === ""
+          ? {}
+          : { "x-wayscribe-project-id": projectId })
       },
       cache: "no-store"
     });
   } catch (cause) {
-    throw new ApiUnavailableError("The Flight Recorder API is unreachable.", { cause });
+    throw new ApiUnavailableError("The Wayscribe API is unreachable.", { cause });
   }
 
   if (response.status === 404) {
@@ -274,13 +276,13 @@ async function post(path: string, body: unknown, projectId: string): Promise<Pos
       headers: {
         authorization: `Bearer ${config.ADMIN_TOKEN}`,
         "content-type": "application/json",
-        ...(projectId === "" ? {} : { "x-flight-project-id": projectId })
+        ...(projectId === "" ? {} : { "x-wayscribe-project-id": projectId })
       },
       body: JSON.stringify(body),
       cache: "no-store"
     });
   } catch (cause) {
-    throw new ApiUnavailableError("The Flight Recorder API is unreachable.", { cause });
+    throw new ApiUnavailableError("The Wayscribe API is unreachable.", { cause });
   }
 
   const parsed = (await response.json().catch(() => ({}))) as {
@@ -331,12 +333,12 @@ export async function deleteJourney(
       method: "DELETE",
       headers: {
         authorization: `Bearer ${config.ADMIN_TOKEN}`,
-        ...(projectId === "" ? {} : { "x-flight-project-id": projectId })
+        ...(projectId === "" ? {} : { "x-wayscribe-project-id": projectId })
       },
       cache: "no-store"
     });
   } catch (cause) {
-    throw new ApiUnavailableError("The Flight Recorder API is unreachable.", { cause });
+    throw new ApiUnavailableError("The Wayscribe API is unreachable.", { cause });
   }
 
   if (response.status === 204) return "deleted";

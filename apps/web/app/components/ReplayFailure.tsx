@@ -38,7 +38,7 @@ const FAILURES: Record<string, string> = {
   // Also thrown when the answer is lost after the API has already sent the
   // replay, so this cannot promise that nothing went out.
   api_unavailable:
-    "The Flight Recorder API could not be reached, so the replay may or may not have been sent. Check whether the destination received it before trying again.",
+    "The Wayscribe API could not be reached, so the replay may or may not have been sent. Check whether the destination received it before trying again.",
   unexpected: UNEXPECTED
 };
 

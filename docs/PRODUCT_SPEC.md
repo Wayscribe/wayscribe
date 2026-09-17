@@ -11,7 +11,7 @@
 
 ## 1. Product summary
 
-Flight Recorder is a free, lightweight, self-hosted developer tool that reconstructs the history of a business entity across a distributed workflow.
+Wayscribe is a free, lightweight, self-hosted developer tool that reconstructs the history of a business entity across a distributed workflow.
 
 It records explicit, versioned journey events emitted by instrumented applications. Those events are correlated into a chronological timeline with payload diffs, errors, deployment metadata, aliases, queue identifiers, and trace identifiers.
 
@@ -70,7 +70,7 @@ The detailed source of truth is [Product Principles and Non-Negotiables](PRODUCT
 
 ### Free core product
 
-The self-hosted community edition must provide the complete core debugging workflow without payment or a hosted Flight Recorder account.
+The self-hosted community edition must provide the complete core debugging workflow without payment or a hosted Wayscribe account.
 
 ### Lightweight
 
@@ -100,7 +100,7 @@ Users control the deployment and captured data.
 
 ### Safe observer
 
-Flight Recorder must never become a reason the host application fails.
+Wayscribe must never become a reason the host application fails.
 
 ### Useful with a small stack
 
@@ -117,7 +117,7 @@ V0 must include the following as a coherent product experience:
 1. **Record-first navigation:** search and investigation begin with an entity or workflow instance.
 2. **Entity identity mapping:** multiple internal and external identifiers map to the same logical entity.
 3. **Transformation diffs:** the interface shows exactly where meaningful fields changed.
-4. **Existing-architecture support:** teams instrument workflows they already have instead of rebuilding them inside Flight Recorder.
+4. **Existing-architecture support:** teams instrument workflows they already have instead of rebuilding them inside Wayscribe.
 5. **Journey-linked safe replay:** historical inputs can be tested against approved development code and compared with original results.
 
 A release containing only SDK events and a timeline is not sufficient.

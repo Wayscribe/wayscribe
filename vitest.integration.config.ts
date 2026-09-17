@@ -23,21 +23,21 @@ export default defineConfig({
     alias: {
       // Subpath first: Vite matches aliases in order, and the bare
       // specifier would otherwise shadow it.
-      "@flight-recorder/payload-security/redaction": fileURLToPath(
+      "@wayscribe/payload-security/redaction": fileURLToPath(
         new URL("./packages/payload-security/src/redaction.ts", import.meta.url)
       ),
-      "@flight-recorder/protocol/limits": fileURLToPath(
+      "@wayscribe/protocol/limits": fileURLToPath(
         new URL("./packages/protocol/src/limits.ts", import.meta.url)
       ),
-      "@flight-recorder/protocol/conformance": fileURLToPath(
+      "@wayscribe/protocol/conformance": fileURLToPath(
         new URL("./packages/protocol/src/conformance.ts", import.meta.url)
       ),
-      "@flight-recorder/node/conformance-harness": fileURLToPath(
+      "@wayscribe/node/conformance-harness": fileURLToPath(
         new URL("./packages/sdk-node/src/conformance-harness.ts", import.meta.url)
       ),
-      "@flight-recorder/config": packageSource("config"),
-      "@flight-recorder/database": packageSource("database"),
-      "@flight-recorder/node": packageSource("sdk-node")
+      "@wayscribe/config": packageSource("config"),
+      "@wayscribe/database": packageSource("database"),
+      "@wayscribe/node": packageSource("sdk-node")
     }
   },
   test: {

@@ -4,7 +4,7 @@ import { z } from "zod";
 /**
  * The conformance case format, its expansion, and its comparison.
  *
- * One module, exported as `@flight-recorder/protocol/conformance`, because
+ * One module, exported as `@wayscribe/protocol/conformance`, because
  * three consumers read these files: the API's integration tests, the Node SDK's
  * unit tests, and the SDK-through-the-dry-run tests. Three implementations of
  * the matcher would be three subtly different contracts.
@@ -206,7 +206,7 @@ export function loadConformanceCases(directory: string): ConformanceCase[] {
  * with this list fails by name instead, and a case file is the contract, so its
  * removal is a contract change (ADR-049).
  *
- * Regenerate with `pnpm --filter @flight-recorder/protocol run conformance:manifest`.
+ * Regenerate with `pnpm --filter @wayscribe/protocol run conformance:manifest`.
  */
 export function expectedCaseIds(directory: string, layer: "wire" | "sdk"): string[] {
   const manifest = JSON.parse(readFileSync(`${directory}/../manifest.json`, "utf8")) as Record<

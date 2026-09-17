@@ -9,7 +9,7 @@ import {
   toStorable,
   type LimitViolation,
   type TruncationStats
-} from "@flight-recorder/payload-security/redaction";
+} from "@wayscribe/payload-security/redaction";
 import { fitsCodePoints } from "./code-points.js";
 import { firstRequiredSettingWarning, resolveConfig, type RecorderConfig } from "./config.js";
 import {
@@ -380,7 +380,7 @@ const FIELD_PATH = /^[A-Za-z0-9_.$[\]-]{1,256}$/;
  * A refusal as the console prints it: the server's error code and the path of
  * the first field it names, and never its message.
  *
- * Flight Recorder's API puts no event values in its messages, but the SDK
+ * Wayscribe's API puts no event values in its messages, but the SDK
  * cannot know it is talking to that API rather than a proxy or another
  * server that echoes what it was sent, and a console line usually ends up in a
  * log store the operator does not control. The code and path say where to
@@ -1152,7 +1152,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
 
   // debtwatch:start
   // id: DEBT-WGN0N4
-  // owner: flight-recorder
+  // owner: wayscribe
   // expires: 2027-03-01
   // reason: A fixed cap cannot fit both one process in front of a scaled-out API and a fleet sharing one pool; adaptive concurrency, lowering the cap on timeouts and 5xx and raising it while sends succeed, is the long-term fix
   // tags: sdk, performance
@@ -1873,7 +1873,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         hasContext(context, "injectPayload")
           ? injectPayload(payload, context, resolved.propagation)
           : undefined
-      ) ?? ({ _flight: {}, data: payload } as unknown as ContextEnvelope<typeof payload>),
+      ) ?? ({ _wayscribe: {}, data: payload } as unknown as ContextEnvelope<typeof payload>),
     extractPayload: (body) =>
       safely(diagnostics, "capture_error", () => extractPayload(body)) ?? { data: body },
     async flush() {

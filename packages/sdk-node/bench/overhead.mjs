@@ -7,10 +7,10 @@ import { buildRecorder, defaultMaxConcurrentSends } from "./build.mjs";
 /**
  * What the SDK costs the process it is embedded in.
  *
- *   pnpm --filter @flight-recorder/node bench            full run, about ten minutes
- *   pnpm --filter @flight-recorder/node bench -- --quick  shorter windows, for checking the harness
- *   pnpm --filter @flight-recorder/node bench -- --only=latency,sustained,concurrency
- *   pnpm --filter @flight-recorder/node bench -- --only=latency --awake
+ *   pnpm --filter @wayscribe/node bench            full run, about ten minutes
+ *   pnpm --filter @wayscribe/node bench -- --quick  shorter windows, for checking the harness
+ *   pnpm --filter @wayscribe/node bench -- --only=latency,sustained,concurrency
+ *   pnpm --filter @wayscribe/node bench -- --only=latency --awake
  *                                                         with a core kept awake (see awake.mjs)
  *
  * Every measurement runs in its own child process against an ingestion stub
@@ -99,9 +99,7 @@ const log = (text = "") => {
 };
 
 const cpu = cpus()[0]?.model ?? "unknown CPU";
-log(
-  `# Flight Recorder SDK overhead${quick ? " (quick)" : ""}${awake ? " (a core kept awake)" : ""}`
-);
+log(`# Wayscribe SDK overhead${quick ? " (quick)" : ""}${awake ? " (a core kept awake)" : ""}`);
 log();
 log(
   `${cpu}, ${String(cpus().length)} cores, ${fixed(totalmem() / 2 ** 30, 0)} GiB; ` +

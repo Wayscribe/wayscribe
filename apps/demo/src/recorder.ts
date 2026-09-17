@@ -1,4 +1,4 @@
-import { createRecorder, type Recorder } from "@flight-recorder/node";
+import { createRecorder, type Recorder } from "@wayscribe/node";
 import { optionalEnv, requiredEnv } from "./env.js";
 
 /**
@@ -11,17 +11,17 @@ import { optionalEnv, requiredEnv } from "./env.js";
  */
 export function demoRecorder(serviceName: string): Recorder {
   return createRecorder({
-    endpoint: optionalEnv("FLIGHT_ENDPOINT", "http://api:8080"),
-    apiKey: requiredEnv("FLIGHT_API_KEY"),
+    endpoint: optionalEnv("WAYSCRIBE_ENDPOINT", "http://api:8080"),
+    apiKey: requiredEnv("WAYSCRIBE_API_KEY"),
     serviceName,
-    environment: optionalEnv("FLIGHT_ENVIRONMENT", "development"),
+    environment: optionalEnv("WAYSCRIBE_ENVIRONMENT", "development"),
     batchSize: 1,
     flushIntervalMs: 250,
     // The SDK never writes to the console itself (SECURITY.md section 12). The
     // demo opts in, because a silent recorder in a demo looks like a working
     // one right up until the timeline is empty.
     onDiagnostic: (diagnostic) => {
-      console.warn(`[flight-recorder] ${diagnostic.kind}: ${diagnostic.reason}`);
+      console.warn(`[wayscribe] ${diagnostic.kind}: ${diagnostic.reason}`);
     }
   });
 }

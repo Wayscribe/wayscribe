@@ -170,7 +170,7 @@ describe("POST /api/replay", () => {
   });
 
   it("returns to the replay page with api_unavailable when the API cannot be reached, and logs why", async () => {
-    const unreachable = new ApiUnavailableError("The Flight Recorder API is unreachable.", {
+    const unreachable = new ApiUnavailableError("The Wayscribe API is unreachable.", {
       cause: new Error("connect ECONNREFUSED 10.0.0.1:8080")
     });
     createReplayMock.mockRejectedValue(unreachable);

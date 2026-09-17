@@ -1,6 +1,6 @@
-// Measure how much disk Flight Recorder uses per event, in each capture mode.
+// Measure how much disk Wayscribe uses per event, in each capture mode.
 //
-//   pnpm --filter "@flight-recorder/api..." build
+//   pnpm --filter "@wayscribe/api..." build
 //   node scripts/measure-storage.mjs --database-url postgresql://… --journeys 10000
 //
 // For each capture mode it records N journeys of the demo's shape through the
@@ -58,7 +58,7 @@ const TABLES = ["journeys", "journey_events", "entity_aliases"];
  * them: an in-flight ingest or VACUUM FULL holds locks that would otherwise
  * make dropping the schema wait for it.
  */
-const APPLICATION_NAME = "flight-recorder-measure-storage";
+const APPLICATION_NAME = "wayscribe-measure-storage";
 
 // Days old of the expiring half and of the kept half, against a retention of
 // RETENTION_DAYS. Far from the boundary on both sides so the sweep deletes
@@ -582,7 +582,7 @@ async function loadBuilt(path) {
     return await import(new URL(path, root).href);
   } catch (error) {
     if (error?.code === "ERR_MODULE_NOT_FOUND") {
-      fail(`${path} is missing. Build first: pnpm --filter "@flight-recorder/api..." build`);
+      fail(`${path} is missing. Build first: pnpm --filter "@wayscribe/api..." build`);
     }
     throw error;
   }

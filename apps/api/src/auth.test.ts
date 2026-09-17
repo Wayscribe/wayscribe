@@ -1,5 +1,5 @@
-import type { ApiKeyContext } from "@flight-recorder/database";
-import { apiKeyRecordFor, createKeyring, issueApiKey } from "@flight-recorder/payload-security";
+import type { ApiKeyContext } from "@wayscribe/database";
+import { apiKeyRecordFor, createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import { describe, expect, it } from "vitest";
 import { logVerifierReplaceFailure, resolveApiKey, type ApiKeyAuthenticator } from "./auth.js";
 

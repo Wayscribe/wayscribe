@@ -42,8 +42,8 @@ Instances of abusive, harassing, or otherwise unacceptable behavior may be repor
 > yet chosen a dedicated conduct-reporting address or channel (tracked
 > alongside the open support-channel and security-contact decisions). Until
 > one exists, report an incident through GitLab by opening a
-> [confidential issue](https://gitlab.com/jojithedev/flight-recorder/-/issues/new)
-> on `jojithedev/flight-recorder` with the **Confidential** box ticked, which
+> [confidential issue](https://gitlab.com/jojithedev/wayscribe/-/issues/new)
+> on `jojithedev/wayscribe` with the **Confidential** box ticked, which
 > restricts visibility to project members, the same mechanism
 > [SECURITY.md](SECURITY.md) uses for vulnerability reports. If GitLab issues
 > are unsuitable for a given report (for example, a report about a project

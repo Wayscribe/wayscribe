@@ -2,7 +2,7 @@
 /* global AbortSignal */
 // Upgrade test: an older build writes data, this build must read all of it.
 //
-// Flight Recorder runs on each team's own PostgreSQL, so an upgrade is a new
+// Wayscribe runs on each team's own PostgreSQL, so an upgrade is a new
 // image started against a database an older image wrote. This builds the API
 // image at a baseline ref and at the working tree, records journeys through the
 // baseline, swaps the image while keeping the database volume, and checks that

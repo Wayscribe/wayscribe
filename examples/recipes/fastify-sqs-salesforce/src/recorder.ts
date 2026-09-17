@@ -1,11 +1,11 @@
-import { createRecorder, type Recorder } from "@flight-recorder/node";
+import { createRecorder, type Recorder } from "@wayscribe/node";
 
 export function createAppRecorder(serviceName: string): Recorder {
   return createRecorder({
-    endpoint: process.env.FLIGHT_RECORDER_URL ?? "http://localhost:8080",
-    apiKey: process.env.FLIGHT_RECORDER_API_KEY ?? "",
+    endpoint: process.env.WAYSCRIBE_URL ?? "http://localhost:8080",
+    apiKey: process.env.WAYSCRIBE_API_KEY ?? "",
     serviceName,
-    environment: process.env.FLIGHT_RECORDER_ENVIRONMENT ?? "development",
+    environment: process.env.WAYSCRIBE_ENVIRONMENT ?? "development",
     redact: ["**.email", "**.phone", "**.taxId"],
     logDiagnostics: process.env.NODE_ENV !== "production",
     // Your logger, not the console, once the service is known to send.
