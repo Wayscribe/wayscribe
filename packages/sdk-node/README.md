@@ -968,68 +968,106 @@ measured on 2026-09-16, with the SDK as it is now, including the check for
 secret-looking names; the send concurrency tables are from 2026-09-15. The
 machine was running other work, so read the numbers as orders of magnitude; the
 maximums in particular are noisy. To reproduce, from the repository root (about
-ten minutes):
+ten minutes for everything, three for the time per call):
 
 ```bash
 pnpm --filter @flight-recorder/node bench
+pnpm --filter @flight-recorder/node bench -- --only=latency --awake
+pnpm --filter @flight-recorder/node exec node bench/capture-cpu.mjs
 ```
 
 **Time added to each wrapped call**, in microseconds, against a local stub
 answering like ingestion. A `transform` records its input and its output, so it
 captures the payload twice; the `persist` here returns a small object. Each 1 KiB
-row is 10,000 calls; each 64 KiB row is 2,500, so its p99 is the 25th slowest
-call and moves a lot between runs.
+row is 10,000 calls at 2,000 a second; each 64 KiB row is 2,500 calls at 250 a
+second, so its p99 is the 25th slowest call and moves a lot between runs.
 
-| Wrapper | Payload | Added p50 | Added p99 |
-| --- | --- | --- | --- |
-| `transform` (sync) | 1 KiB | 112 | 1,462 |
-| `persist` (async) | 1 KiB | 93 | 1,504 |
-| `transform` (sync) | 64 KiB | 2,172 | 12,526 |
-| `persist` (async) | 64 KiB | 1,717 | 10,917 |
+The benchmark sleeps between calls, and how long a call takes depends on whether
+the processor was idle before it. The first two columns are the default run, in
+which the cores go idle between calls, like a service that is mostly waiting.
+The last two are the same run with a thread in the process that wakes every
+100 µs (`--awake`), which keeps a core awake the way a busy service does.
 
-A second run the same day gave 112, 69, 2,165 and 1,625 µs at p50. The run of
-2026-09-15, before the secret-name check was added, gave 30, 75, 1,420 and
-1,079: a `transform` at 1 KiB now costs several times what it did, and the
-larger payloads about half as much again.
+| Wrapper | Payload | Cores idle, p50 | Cores idle, p99 | Core awake, p50 | Core awake, p99 |
+| --- | --- | --- | --- | --- | --- |
+| `transform` (sync) | 1 KiB | 86 | 1,859 | 30 | 318 |
+| `persist` (async) | 1 KiB | 64 | 1,396 | 18 | 203 |
+| `transform` (sync) | 64 KiB | 1,759 | 14,641 | 1,496 | 11,665 |
+| `persist` (async) | 64 KiB | 1,383 | 12,974 | 724 | 5,925 |
 
-Most of that is redaction and the copy that makes a payload safe to store, and
-it grows with the payload. The p99 is dominated by one call in every batch of
-50: the call that fills a batch starts its send, and serialising the batch
-happens inside that call. At 64 KiB a separate one-off measurement, timing
+A second run of each gave 88, 53, 1,814 and 1,503 µs at p50 with the cores idle,
+and 30, 18, 1,503 and 725 with a core awake. `bench/capture-cpu.mjs`, which
+calls the wrappers in a tight loop with no network, measured 31, 18, 1,781 and
+871 µs per call.
+
+**What changed on 2026-09-16.** The run of 2026-09-15 gave 30, 75, 1,420 and
+1,079 µs at p50, and one earlier on 2026-09-16 gave 112, 93, 2,172 and 1,717. Most
+of that difference was the machine, not the SDK: the build measured on
+2026-09-15 gives 84 µs for a 1 KiB `transform` with the cores idle and 27 µs
+with a core awake, measured the same day as the rest of this section. The rest
+was real. Fitting every event to the server's limits (ADR-051) had added a
+second check of the whole event and a second walk to cut long strings, which
+on its own made a 1 KiB `transform` about 40 percent slower (29 to 41 µs in the
+tight loop, on the commits either side of it). From the 2026-09-15 build to the
+one before this change, 28 µs became 41 µs, and 1,375 µs became 2,122 µs at
+64 KiB. The check for secret-looking names (ADR-055) moved the tight loop by
+less than 4 percent. The event is now
+measured with plain `JSON.stringify` when it is certainly within its budget,
+and long strings are cut in the same walk that makes the payload storable,
+with the same result: 31 and 1,781 µs.
+
+Most of what remains is redaction and the copy that makes a payload safe to
+store, and it grows with the payload. The p99 is dominated by one call in every
+batch of 50: the call that fills a batch starts its send, and serialising the
+batch happens inside that call. At 64 KiB a separate one-off measurement, timing
 `JSON.stringify` inside those calls on 2026-09-15, put it at about 8 ms of an
-11 ms call. The
-event loop spends that time whichever call it lands in.
+11 ms call. The event loop spends that time whichever call it lands in.
 
-**Capture never waits on the network.** Against a stub that answers after
-200 ms, the added p50 matched the local stub's: 111 to 125 µs for `transform`
-at 1 KiB and 60 to 64 µs for `persist`, in two runs on 2026-09-16. With the
-endpoint refusing connections it was higher, 139 to 161 µs and 96 to 102 µs,
-and 10 to 23 percent higher at 64 KiB, in both runs, while the p99 was lower
-(412 against 1,462 µs for `transform` at 1 KiB): once the queue is full every
-new event drops the oldest and reports it, which is work in the calling
-process, and no batch is ever serialised. Neither comes near the 200 ms a call
-would add if it waited on the request. Unreachable, every event is dropped and counted:
-those beyond the queue's 1,000 as it fills, and the rest when `shutdown()`
-finishes. Against the 200 ms stub at 2,000 calls a second,
-one process sending 4 batches at a time stores about 1,000 events a second and
-drops the rest, which the concurrency table below shows in detail.
+**Capture never waits on the network.** With a core awake, the added p50 was the
+same against a stub that answers after 200 ms, against one that refuses
+connections, and against the local stub: 30 to 31 µs for `transform` at 1 KiB
+and 17 to 18 µs for `persist`, in two runs on 2026-09-16, and within 2 percent
+of the local stub at 64 KiB. Neither comes near the 200 ms a call would add if
+it waited on the request. The p99 was lower against the refusing endpoint (46
+against 318 µs for `transform` at 1 KiB), because no batch is ever serialised.
+
+With the cores idle, the refusing endpoint read higher: 98 and 135 µs for
+`transform` at 1 KiB in two runs, against 86 and 88 µs for the local stub. That
+is the processor, not the SDK. A process whose sends fail at once does less
+between calls, so its cores sit idle longer; with a core awake the difference
+is gone. Before 2026-09-16 there was also a real difference, about 6 µs a call:
+while the circuit breaker was open, every recorded event started a send that
+failed at once and put its batch back. The recorder no longer starts a send
+while the breaker is open; the interval tries again after the cooldown.
+
+Unreachable, every event is dropped and counted: those beyond the queue's 1,000
+as it fills, and the rest when `shutdown()` finishes. Against the 200 ms stub
+at 2,000 calls a second, one process sending 4 batches at a time stores about
+1,000 events a second and drops the rest, which the concurrency table below
+shows in detail.
+
+`src/overhead.test.ts`, part of `pnpm test`, holds a wrapped 1 KiB `transform` to
+a fixed multiple of a plain copy of its input and output, timed in the same
+process. It measured 7.2 to 8.0 after the change and 9.55 to 9.99 before it, and
+fails above 9.5. Run the benchmark above before a release all the same: the
+test catches a regression the size of this one, not a smaller one.
 
 **Sustained load:** 2,000 wrapped calls a second for 60 seconds, 1 KiB,
-alternating `transform` and `persist`.
+alternating `transform` and `persist`, with the cores idle between calls.
 
 | | Unwrapped | Wrapped |
 | --- | --- | --- |
-| Heap after GC, start to end | 7.0 to 8.0 MiB | 9.2 to 9.4 MiB |
-| Heap, highest of one sample a second | 8.7 MiB | 57.7 MiB |
-| Resident set size at the end | 77 MiB | 220 MiB |
-| Event-loop delay beyond its 10 ms timer, p50 / p99 | 0.40 / 1.01 ms | 0.20 / 1.79 ms |
+| Heap after GC, start to end | 7.1 to 8.0 MiB | 9.3 to 9.4 MiB |
+| Heap, highest of one sample a second | 8.8 MiB | 59.2 MiB |
+| Resident set size at the end | 77 MiB | 219 MiB |
+| Event-loop delay beyond its 10 ms timer, p50 / p99 | 0.44 / 0.99 ms | 0.23 / 1.90 ms |
 | Events stored / dropped | | 124,000 / 0 |
 
 The 124,000 events stored are the 120,000 of the measured minute and the 4,000
 recorded during the two seconds of warm-up before it.
 
-The heap after collection grows by 0.2 MiB over the minute, as the unwrapped
-run's grows by 1.0 MiB. The heap figure
+The heap after collection grows by 0.1 MiB over the minute, as the unwrapped
+run's grows by 0.9 MiB. The heap figure
 between collections is a sample taken once a second, not a true peak. The
 resident set is about 140 MiB larger; the heap between collections accounts for
 about 50 MiB of that, and the benchmark does not break down the rest.

@@ -136,8 +136,11 @@ shorter overview is in
   `traceparent`.
 - **What the SDK costs is measured.** The package's `bench` script reports added latency per wrapped call, heap and event-loop delay under
   sustained load, and throughput by send concurrency, and `bench:fleet` models
-  many processes against one API instance. The SDK README's "What it costs" has
-  the numbers and the machine they came from.
+  many processes against one API instance. `bench -- --awake` repeats the
+  latency run with a core kept awake, and `bench/capture-cpu.mjs` reports the
+  processor time per call without pacing. The SDK README's "What it costs" has
+  the numbers and the machine they came from, and `src/overhead.test.ts` holds
+  the time per call to a multiple of plain work in the same process.
 
 #### The server and the contract
 
@@ -331,6 +334,16 @@ shorter overview is in
   [docs/WHAT_RUNNING_IT_FOUND.md](docs/WHAT_RUNNING_IT_FOUND.md).
 
 ### Changed
+
+- **Capture is about a quarter faster.** Fitting an event to the server's limits
+  (ADR-051) had made a wrapped call about 40 percent slower: it checked the whole
+  event a second time and walked each payload again to cut long strings. The
+  event is now measured with plain serialisation when it is certainly within
+  its budget, and strings are cut in the walk that makes a payload storable,
+  with the same results. In a tight loop on an Apple M3 Pro, a 1 KiB `transform`
+  went from 41 to 31 µs and a 64 KiB one from 2,122 to 1,781 µs. While the
+  circuit breaker is open the recorder no longer starts a send for every event
+  recorded, which cost about 6 µs a call against a refusing endpoint.
 
 - **A blank required setting is reported as missing (SDK-60).** An empty or
   whitespace-only `endpoint`, `apiKey`, `serviceName` or `environment`, such as
