@@ -63,7 +63,13 @@ export function parseResetArgs(
 export function describeTarget(databaseUrl: string): string {
   try {
     const url = new URL(databaseUrl);
-    return url.host === "" ? "the configured host" : url.host;
+    // An `@` the parser did not read as the end of the credentials means it
+    // read them as something else: in `postgresql://owner:1234/5@db/x` an
+    // unescaped `/` in the password makes `owner:1234` the host and port.
+    const afterScheme = databaseUrl.slice(databaseUrl.indexOf("://") + 3);
+    const credentialsMisread =
+      afterScheme.includes("@") && url.username === "" && url.password === "";
+    return url.host === "" || credentialsMisread ? "the configured host" : url.host;
   } catch {
     return "the configured host";
   }

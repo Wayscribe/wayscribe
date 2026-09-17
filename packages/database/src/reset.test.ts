@@ -53,4 +53,23 @@ describe("describeTarget", () => {
     );
     expect(describeTarget("not a url")).toBe("the configured host");
   });
+
+  it.each([
+    ["postgresql://owner:1234/5@db.internal:5432/ledger", ["1234", "5"]],
+    ["postgresql://owner:9876?x@db.internal/ledger", ["9876"]]
+  ])("never prints credentials the parser misreads as the host: %s", (databaseUrl, digits) => {
+    const target = describeTarget(databaseUrl);
+    expect(target).toBe("the configured host");
+    const parsed = parseResetArgs([], {}, databaseUrl);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.message).not.toContain("owner");
+    for (const secret of digits) expect(parsed.message).not.toContain(secret);
+  });
+
+  it("still names the host when the password holds an escaped @", () => {
+    expect(describeTarget("postgresql://owner:p%40ss@db.internal:5432/ledger")).toBe(
+      "db.internal:5432"
+    );
+  });
 });
