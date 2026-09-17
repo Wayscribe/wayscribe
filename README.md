@@ -286,6 +286,39 @@ two. It does not write `traceparent` — OTel owns that header.
 
 ---
 
+## Alternatives
+
+As of September 2026, I have not found an open-source tool that does all four
+for services you already run: (1) follow one record by its business id and
+aliases across services; (2) capture what each step received and produced and
+show the field that changed; (3) replay a recorded input against development;
+(4) with no platform to move onto.
+
+Several open-source tools do part of it:
+
+| Tool | What it does | What it lacks for this job |
+| --- | --- | --- |
+| Apache NiFi provenance | Finds a piece of data, shows it at each step, replays it | Only data moving through a NiFi dataflow |
+| Workflow engines such as Temporal | Keep each execution's inputs and results, searchable | Only code written as their workflows |
+| Tracing backends such as Jaeger or Grafana Tempo | Find traces by span attribute, such as an order id | No documented capture of step payloads, field diff or replay |
+| Webhook servers such as Svix | Deliver webhooks with retries | Only the webhook, not the steps around it |
+| Model-history libraries such as PaperTrail or django-simple-history | Record before and after values of a model's fields | One application's database models only |
+| Traffic capture and replay such as Keploy and Kubeshark | Record traffic; Keploy replays it as tests | No record history by business id across services |
+| Lineage standards such as OpenLineage | Lineage of jobs, runs and datasets | No single record in the model |
+
+Convoy, Bemi and n8n come close to parts of this and are source-available
+rather than OSI open source. Commercial tools such as Nodinite, Turbo360,
+Particular ServicePulse and Dynatrace Business Flow do this job on their own
+platforms, which shows teams pay for it.
+
+[docs/ALTERNATIVES.md](docs/ALTERNATIVES.md) has the licence, the overlap and
+the gap for each, with a source and the date it was checked. If a tool does all
+four, this claim is wrong: please
+[open an issue](https://gitlab.com/jojithedev/flight-recorder/-/issues) with a
+link to it.
+
+---
+
 ## How it works
 
 ```text
@@ -512,6 +545,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Testing strategy](docs/TESTING_STRATEGY.md) | Unit, integration, browser, acceptance |
 | [Task list](docs/TASKS.md) | Implementation checklist and current state |
 | [Roadmap](docs/ROADMAP.md) | Beyond the first release |
+| [Alternatives](docs/ALTERNATIVES.md) | The closest open-source and commercial tools, with sources |
 | [Changelog](CHANGELOG.md) | What changed, and what does not work yet |
 | [Contributing](CONTRIBUTING.md) | How to help |
 | [Mirroring](docs/MIRRORING.md) | How the GitHub mirror works, and why it is a CI job |
@@ -540,6 +574,17 @@ examples/
   instrument-a-service/ standalone; the smallest real instrumentation
 infrastructure/         Compose files and queue configuration
 ```
+
+---
+
+## How this is built
+
+AI agents write most of the code in this repository. Jorge, the owner, makes the
+decisions, and each one is recorded with its reasoning in
+[the decision log](docs/DECISIONS.md), which holds 56 ADRs.
+[What running it found](docs/WHAT_RUNNING_IT_FOUND.md) lists the defects the
+agents' tests missed and running the software found, and what changed in the
+testing because of them.
 
 ---
 
