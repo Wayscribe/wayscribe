@@ -407,9 +407,8 @@ const { context, data } = recorder.extractPayload(body); // ExtractedPayload
 ```
 
 `extractPayload` returns a body that is not an envelope as `data`, with no
-context. The header, attribute and envelope names carry the product's current
-name and are not specified in `SDK_SPEC.md` (its section 1); they change at the
-rename.
+context. The header, attribute and envelope names are not specified in
+`SDK_SPEC.md` yet (its section 1); they wait on the propagation specification.
 
 ## 8. Batching, transport and shutdown
 

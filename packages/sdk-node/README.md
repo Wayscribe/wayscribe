@@ -102,7 +102,7 @@ async function handleWebhook(account) {
 }
 ```
 
-Then search your Wayscribe for `account.Id` and read the timeline.
+Then search Wayscribe for `account.Id` and read the timeline.
 
 **Aliases are masked when they are read**, because they are other identifiers
 for the record and a reader may not be entitled to them. An identifier that is
@@ -421,8 +421,9 @@ context, so a consumer can read old and new messages alike.
 
 **Aliases never propagate, at any level.** Not configurable.
 
-The header, attribute and envelope names carry the product's name and will
-change with it, so these helpers are experimental (see [Stability](#stability)).
+No propagation specification fixes the header, attribute and envelope names or
+their value grammar yet, so these helpers are experimental (see
+[Stability](#stability)).
 
 ## It cannot break your application
 
@@ -1204,8 +1205,8 @@ marked `@experimental` in the types, and may change in a minor release:
 - **The propagation helpers** (`injectHttpHeaders`, `extractHttpContext`,
   `injectSqsAttributes`, `extractSqsContext`, `injectPayload`,
   `extractPayload`), `PropagationLevel` and the `propagation` option: the
-  header, attribute and envelope names carry the product's current name, which
-  is about to change.
+  header, attribute and envelope names and their value grammar wait on the
+  propagation specification.
 - **`across` and `JourneyGroup`**: the name, the deduplication and label
   rules, and what an empty group does came from one service instrumented with
   them.

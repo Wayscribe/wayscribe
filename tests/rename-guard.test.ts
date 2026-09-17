@@ -51,7 +51,12 @@ const ALLOWED_LINES: { file: string; line: RegExp }[] = [
   // Removes a local stack started before the rename, under its old project name.
   {
     file: "docs/LOCAL_DEVELOPMENT.md",
-    line: /^docker compose -p flight-recorder -f infrastructure\/compose\.yaml down -v$/
+    line: /^docker compose -p flight-recorder -f infrastructure\/compose\.yaml down -v --remove-orphans$/
+  },
+  // The README's one sentence saying what the product was called before the rename.
+  {
+    file: "README.md",
+    line: /^Wayscribe was called Flight Recorder until September 2026\.$/
   }
 ];
 
@@ -88,6 +93,10 @@ function hasOldName(line: string): boolean {
   return OLD.test(stripped);
 }
 
+function isAllowedLine(file: string, line: string): boolean {
+  return ALLOWED_LINES.some((allowed) => allowed.file === file && allowed.line.test(line));
+}
+
 describe("rename to Wayscribe", () => {
   it("scans every tracked text file, including ones holding NUL bytes", () => {
     expect(files.length).toBeGreaterThan(100);
@@ -100,10 +109,7 @@ describe("rename to Wayscribe", () => {
         .split("\n")
         .map((line, index) => ({ line, number: index + 1 }))
         .filter(({ line }) => hasOldName(line))
-        .filter(
-          ({ line }) =>
-            !ALLOWED_LINES.some((allowed) => allowed.file === file && allowed.line.test(line))
-        )
+        .filter(({ line }) => !isAllowedLine(file, line))
         .map(({ line, number }) => `${file}:${String(number)}:${line}`)
     );
     expect(leftovers).toEqual([]);
@@ -111,7 +117,12 @@ describe("rename to Wayscribe", () => {
 
   it("leaves no old name split across a line break", () => {
     const leftovers = files.flatMap(({ file, text }) => {
-      const unlabelled = text.replace(DERIVATION_LABEL, "");
+      // An allowed line is blanked, not removed, so line numbers still match.
+      const unlabelled = text
+        .replace(DERIVATION_LABEL, "")
+        .split("\n")
+        .map((line) => (isAllowedLine(file, line) ? "" : line))
+        .join("\n");
       return [...unlabelled.matchAll(SPLIT_NAME)].map((match) => {
         const number = unlabelled.slice(0, match.index).split("\n").length;
         return `${file}:${String(number)}:${match[0].replace(/\s+/g, " ")}`;
@@ -128,7 +139,8 @@ describe("rename to Wayscribe", () => {
       [
         ".gitleaks.toml", // allows fixtures in both key forms
         "apps/api/src/auth.test.ts", // proves the server still authenticates fr_ keys
-        "docs/SECURITY.md", // the one place the docs name the old key form
+        "docs/RELEASE_NOTES_DRAFT.md", // tells an upgrader old keys keep working
+        "docs/SECURITY.md", // the reference for the old key form
         "packages/config/src/insecure-defaults.ts", // the demo key published before the rename
         "packages/config/src/insecure-defaults.test.ts",
         "packages/database/src/doctor.ts", // accepts an fr_ key for --api-key

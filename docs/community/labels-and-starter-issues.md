@@ -8,7 +8,7 @@ the original text as the record of how they were chosen.
 Every issue was drawn from something real in the repository as of this draft
 (2026-09-16), verified by reading the code, tests, and docs listed under each
 one, not invented from a generic "good first issue" template. None of them
-depend on the pending product rename, and none require a design decision the
+depended on the product rename, which was still pending then, and none require a design decision the
 owner hasn't already made; they close small, well-scoped, already-described
 gaps.
 
@@ -216,9 +216,10 @@ sign-off before merging, rather than being decided unilaterally in the PR.
 
 All of these have been run (the labels with the longer descriptions from the
 table, the issues through the API with the text above); they are kept for
-reference. `glab` must be authenticated against
-`gitlab.com` and pointed at the project, or run with `-R jojithedev/wayscribe`
-as shown.
+reference. They were run before the rename to Wayscribe (ADR-057), against the
+project's old path; the commands below show its current path. `glab` must be
+authenticated against `gitlab.com` and pointed at the project, or run with
+`-R jojithedev/wayscribe` as shown.
 
 ### Create the labels
 

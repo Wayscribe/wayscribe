@@ -1,5 +1,8 @@
 # Architecture Decision Log
 
+The product was called Flight Recorder until 2026-09-17 (ADR-057). Decisions
+before ADR-057 use the old name and are left as written.
+
 This file records decisions that constrain implementation.
 
 Each accepted change should include date, status, context, decision, and consequences.
@@ -2642,3 +2645,107 @@ fails. Each is cheap before a release and breaking after it.
   the print prefix, the key prefix, the package name and repository fields, and
   the README's relative links, which break on npmjs.com until they become
   absolute URLs.
+
+---
+
+## ADR-057: The product is renamed Wayscribe, before anything is published
+
+**Status:** Accepted, 2026-09-17. Changes the product name, the package names,
+every wire name that carried the old name, the API key prefix, the deployment
+names and the local database defaults. Leaves the key-derivation labels, the
+stored data and the history as they were. Settles the rename ADR-056 left to its
+own decision.
+
+### Context
+
+"Flight recorder" is already taken in this field. JDK Flight Recorder owns the
+`flight-recorder` GitHub organization, Go's `runtime/trace` package ships a
+`FlightRecorder`, and `pg_flight_recorder` is a PostgreSQL tool. A search for the
+name finds those first, and a package or organization under it would be
+confused with them.
+
+The first replacement chosen, Clewline, was dropped on 2026-09-17: clewline.com
+is a live software company, working on AI governance and open source security,
+and it holds the github.com/Clewline organization. The maintainer then chose
+Wayscribe and holds github.com/wayscribe and wayscribe.dev.
+
+Nothing had been published: no npm package, no image in a registry, and no
+outside team running the tool. Every wire name that carried the product's name
+would be a breaking change after the first release, so this was the one moment
+the rename could be a clean break.
+
+### Decision
+
+- **The names.** The product is Wayscribe in prose and in the interface. The
+  root package is `wayscribe`, the workspace packages are `@wayscribe/*`, and
+  the SDK is `@wayscribe/node`. The CLI binary is `wayscribe`. The headers are
+  `x-wayscribe-journey-id`, `x-wayscribe-entity-type`,
+  `x-wayscribe-entity-id`, `x-wayscribe-replay` and `x-wayscribe-project-id`,
+  and `x-wayscribe-api-key` is redacted from logs. The queue attributes are
+  `wayscribeJourneyId`, `wayscribeEntityType` and `wayscribeEntityId`, and the
+  payload envelope key is `_wayscribe`. The environment variables are
+  `WAYSCRIBE_API_KEY`, `WAYSCRIBE_URL`, `WAYSCRIBE_TOKEN`, `WAYSCRIBE_PROJECT`,
+  `WAYSCRIBE_ENVIRONMENT`, `WAYSCRIBE_VERSION` and `WAYSCRIBE_WEB`. The
+  Prometheus metrics are `wayscribe_*` and the alert rules
+  `WayscribeRetentionStalled`, `WayscribeRejectingEvents` and
+  `WayscribeDatabaseStrained`. The Helm chart is `deploy/helm/wayscribe`, the
+  images are `registry.gitlab.com/jojithedev/wayscribe/api` and `/web`, the
+  Compose project is `wayscribe`, and the GitLab project moves to
+  `jojithedev/wayscribe`.
+- **New API keys start `wsk_`; keys that start `fr_` keep working.** The
+  server finds a key by its stored first 12 characters and verifies an HMAC of
+  the whole key, and never checks the prefix, so a key issued before the rename
+  authenticates with no code for it. The three places that know the prefix
+  accept both: masking of credentials in error text, `doctor`'s check of a key
+  given to it, and the warning about the published demo key, which names the
+  old demo key as well as the new one. `wsk_` rather than `ws_`, because
+  secret scanners match on the prefix and a two-letter one is common in
+  unrelated code. New keys are 36 characters; old ones are 35.
+- **No aliases on the wire.** The old headers, queue attributes, envelope key
+  and environment variables are not read. There were no outside users to keep
+  working, and an alias would have to be carried and tested for as long as the
+  product exists.
+- **The six key-derivation labels keep the old name.**
+  `flight-recorder/field-encryption`, `flight-recorder/search-token`,
+  `flight-recorder/api-key`, `flight-recorder/content-hash`,
+  `flight-recorder/key-id` and `flight-recorder/web-session` are HKDF labels,
+  and a label decides the key derived from `ENCRYPTION_KEY`, or, for the web
+  session, from `ADMIN_TOKEN`. Changing one would leave encrypted identifiers unreadable, stop
+  search tokens matching, change key fingerprints, fail every stored API key
+  and end every web session. No user sees them. Each carries a comment saying
+  why, and `packages/payload-security/src/derivation-labels.test.ts` pins them.
+- **History stays as written.** ADR-001 to ADR-056, past CHANGELOG entries,
+  the dated design documents and plans, the reviews, the claims audit of
+  2026-09-16 and the migration files keep the old name.
+  `tests/rename-guard.test.ts` fails on the old name anywhere else, apart from
+  the exceptions it lists with a reason for each.
+- **The local database defaults change.** The Compose user, password and
+  database are `wayscribe`, as are the database names in the examples.
+- **The Helm release in the examples and in CI is `ws`**, so resources are
+  named `ws-wayscribe-*`.
+
+### Alternatives rejected
+
+- **Keeping the name.** Every search, package name and organization would sit
+  next to a better-known tool with the same name.
+- **Clewline.** Taken by a live software company with the matching GitHub
+  organization.
+- **Accepting the old wire names beside the new ones.** A compatibility path
+  for users that do not exist, kept forever.
+- **Renaming the derivation labels with a migration.** It would mean decrypting
+  and re-encrypting every stored identifier, recomputing every search token and
+  reissuing every API key, to change strings no user sees.
+
+### Consequences
+
+- A local stack started before the rename is not picked up: its Compose
+  project, volume and database user changed. It needs a fresh start, which
+  [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md#upgrading-a-checkout-from-before-the-rename)
+  describes.
+- Stored data stays readable, and API keys that start `fr_` keep
+  authenticating, because the labels and the schema did not change.
+- The GitLab project path moves to `jojithedev/wayscribe` after this change is
+  merged. GitLab redirects the old repository URL; the old registry path does
+  not redirect, so an image reference must use the new path.
+- Leadline and the other repositories that name the product, its package, its
+  environment variables or its headers update to the new names.

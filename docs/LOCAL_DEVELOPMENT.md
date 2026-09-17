@@ -285,10 +285,12 @@ volume, and the database user, password and name, which are now all
 `wayscribe`. A stack started before the rename is not picked up: its volume
 belongs to the old project and its database has the old user. Start fresh.
 
-If you no longer need its data, remove the old stack and its volume:
+If you no longer need its data, remove the old stack and its volume. This
+removes every container of the old project, the demo profile's included, so
+none keeps running or holding a port:
 
 ```bash
-docker compose -p flight-recorder -f infrastructure/compose.yaml down -v
+docker compose -p flight-recorder -f infrastructure/compose.yaml down -v --remove-orphans
 ```
 
 Then copy `.env.example` to `.env` again, or change `DATABASE_URL` in your

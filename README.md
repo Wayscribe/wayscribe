@@ -10,6 +10,8 @@ where its data changed.**
 Free, self-hosted, and small enough to run on a laptop. No account, no hosted
 service, and nothing captured is sent anywhere you did not configure.
 
+Wayscribe was called Flight Recorder until September 2026.
+
 ![A customer's journey across two services, with the transformation step open
 and a field-level diff showing Phone going in with a value and phone coming out
 null](docs/images/diff.png)
@@ -379,7 +381,7 @@ service**: no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md): 56 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md): 57 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -615,7 +617,7 @@ infrastructure/         Compose files and queue configuration
 
 AI agents write most of the code in this repository. Jorge, the owner, makes the
 decisions, and each one is recorded with its reasoning in
-[the decision log](docs/DECISIONS.md), which holds 56 ADRs.
+[the decision log](docs/DECISIONS.md), which holds 57 ADRs.
 [What running it found](docs/WHAT_RUNNING_IT_FOUND.md) lists the defects the
 agents' tests missed and running the software found, and what changed in the
 testing because of them.

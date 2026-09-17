@@ -6,8 +6,8 @@ import type { Entity } from "./types.js";
  *
  * The rule for the names is `inject<Carrier>` and `extract<Carrier>Context`,
  * as OpenTelemetry's propagators have it. The header, attribute and envelope
- * names themselves carry the product's name, which is about to change, so all
- * of this is experimental until the propagation specification settles them.
+ * names themselves, and their value grammar, are not yet fixed by a
+ * propagation specification, so all of this is experimental until one is.
  */
 
 /**
@@ -60,8 +60,7 @@ export type SqsMessageAttributes = Record<string, SqsMessageAttributeValue>;
 
 /**
  * A payload with the journey beside it, for a carrier with no headers or
- * attributes. The envelope's key carries the product's name and changes with
- * it.
+ * attributes. The envelope's key waits on the propagation specification.
  *
  * @experimental As `PropagationLevel`.
  */

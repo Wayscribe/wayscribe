@@ -327,7 +327,7 @@ export interface Recorder {
    * A copy of `headers` with the journey added, at the configured
    * `propagation` level. Without a context, `headers` unchanged.
    *
-   * @experimental The header names carry the product's name and change with it.
+   * @experimental The header names wait on the propagation specification.
    */
   injectHttpHeaders(
     headers: Record<string, string>,
@@ -344,7 +344,7 @@ export interface Recorder {
    * A copy of `attributes` with the journey added as SQS or SNS message
    * attributes, at the configured `propagation` level.
    *
-   * @experimental The attribute names carry the product's name and change with it.
+   * @experimental The attribute names wait on the propagation specification.
    */
   injectSqsAttributes<A extends object>(
     attributes: A,
@@ -361,7 +361,7 @@ export interface Recorder {
    * `payload` in an envelope beside the journey, for a carrier with no headers
    * or attributes. The payload itself is not changed.
    *
-   * @experimental The envelope's key carries the product's name and changes with it.
+   * @experimental The envelope's key waits on the propagation specification.
    */
   injectPayload<T>(payload: T, context: PropagatedContext): ContextEnvelope<T>;
   /**

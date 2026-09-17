@@ -569,12 +569,16 @@ describe("docs/SDK_SPEC.md", () => {
     expect(appendix).not.toMatch(/batchSize: 20/);
   });
 
-  it("specifies no name the rename will change", () => {
-    // Section 10 states the propagation rules that survive a rename and no
-    // names at all; a header or variable name here would have to be rewritten
-    // in the same month it was published (ADR-049).
+  it("specifies no propagation name before the propagation specification", () => {
+    // Section 10 states only the propagation rules that do not depend on a
+    // name. The header, attribute and variable names were left out so the
+    // rename (ADR-057) did not break a published contract (ADR-049), and they
+    // stay out until the propagation specification fixes them.
     for (const name of ["x-wayscribe-", "WAYSCRIBE_", "wayscribeJourney", "jrn_"]) {
-      expect(spec(), `SDK_SPEC.md names ${name}, which the rename changes`).not.toContain(name);
+      expect(
+        spec(),
+        `SDK_SPEC.md names ${name}, which belongs to the pending propagation specification`
+      ).not.toContain(name);
     }
   });
 });

@@ -125,7 +125,7 @@ Two things the policies change:
 - **Running the CLI in the cluster.** With the bundled database, a pod without
   the chart's labels cannot reach PostgreSQL, so the `kubectl run` above times
   out. Give it the migrate pod's labels:
-  `--labels=app.kubernetes.io/name=wayscribe,app.kubernetes.io/instance=fr,app.kubernetes.io/component=migrate`.
+  `--labels=app.kubernetes.io/name=wayscribe,app.kubernetes.io/instance=ws,app.kubernetes.io/component=migrate`.
 
 ## Why migrations run *after* install
 

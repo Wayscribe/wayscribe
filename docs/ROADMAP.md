@@ -15,9 +15,9 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. Counted on 2026-09-16: 2,314 unit
-tests, 741 integration tests against a real PostgreSQL and 7 acceptance tests
-against a running stack; on 2026-09-17, 40 browser tests.
+the step against a development destination. Counted on 2026-09-17: 2,416 unit
+tests, 747 integration tests against a real PostgreSQL, 7 acceptance tests
+against a running stack and 40 browser tests.
 
 Nothing is published. There is no npm package and no image in any registry, so
 every install today is `git clone` and `docker compose up`. That is deliberate
@@ -53,16 +53,18 @@ Presenting the work, and closing what the last review opened.
   conformance fixtures under `packages/protocol/conformance/` that any
   implementation can run through the dry run (ADR-049). The fixtures are what
   prove the protocol is genuinely language-neutral rather than TypeScript-shaped.
-  The propagation specification and its test vectors are not part of this: every
-  requirement in them is a header name, a queue attribute name or an environment
-  variable name, and all of those carry the product name the rename will change.
-- **OpenTelemetry log ingest.** After the rename, `POST /v1/logs` accepting OTLP
+  The propagation specification and its test vectors are not part of this yet:
+  every requirement in them is a header name, a queue attribute name or an
+  environment variable name, and all of those carried the product name until the
+  rename to Wayscribe (ADR-057). With the names settled, it can be written.
+- **OpenTelemetry log ingest.** `POST /v1/logs` accepting OTLP
   over HTTP, so a team already exporting logs can map them onto journey events
   without adding a recorder. gRPC is out of scope: it is a second transport and a
   second dependency for a path that is already optional. The Node SDK stays the
   recommended path for Node, because the input and output pairing the diff needs
-  is something a recorder knows and a log line does not. It waits for the rename
-  because the attribute names it would read carry the product prefix.
+  is something a recorder knows and a log line does not. It waited for the
+  rename because the attribute names it reads carry the product prefix, which is
+  now `wayscribe` (ADR-057).
 
 - **Per-record timing and context, before the first release.**
   Wayscribe already stores when each step started and how long it took, so most

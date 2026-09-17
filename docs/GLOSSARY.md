@@ -30,10 +30,6 @@ Examples: received, transformed, persisted, published, consumed, delivered, fail
 
 A client-generated unique identifier used for ingestion idempotency.
 
-## Wayscribe
-
-The product as a whole.
-
 ## Journey
 
 The complete recorded history of one logical entity or workflow instance across services, traces, queues, retries, and systems.
@@ -83,6 +79,10 @@ A processing step that intentionally changes the shape or values of data.
 ## V0
 
 The first tightly scoped implementation described by the product specification.
+
+## Wayscribe
+
+The product as a whole.
 
 ## BYOK
 
