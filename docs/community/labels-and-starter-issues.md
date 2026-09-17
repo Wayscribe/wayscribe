@@ -1,9 +1,9 @@
 # Labels and starter issues (draft)
 
-This is a proposal, not a record of what exists on GitLab. Nothing here has
-been created. The owner should review the labels and issues below, adjust
-wording as needed, then either run the `glab` commands at the bottom or create
-the equivalent by hand.
+The labels below were created on GitLab on 2026-09-17, with the full
+descriptions from the table. The starter issues are still a proposal and have
+not been created. The owner should review them, adjust wording as needed, then
+either run the `glab` commands at the bottom or create them by hand.
 
 Every issue was drawn from something real in the repository as of this draft
 (2026-09-16), verified by reading the code, tests, and docs listed under each
@@ -214,8 +214,8 @@ sign-off before merging, rather than being decided unilaterally in the PR.
 
 ## `glab` commands
 
-For the owner to run (or adapt) after reviewing the labels and issues above.
-None of these have been executed. `glab` must be authenticated against
+The label commands have been run (with the longer descriptions from the
+table); they are kept for reference. The issue commands have not been run. `glab` must be authenticated against
 `gitlab.com` and pointed at the project, or run with `-R jojithedev/flight-recorder`
 as shown.
 
