@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
+import { LEGACY_PUBLISHED_DEMO_API_KEY, PUBLISHED_DEMO_API_KEY } from "@wayscribe/config";
 import { createKeyring, encryptValue, searchTokens } from "@wayscribe/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
@@ -436,6 +437,38 @@ describe("doctor", () => {
     }
     const revoked = await doctor([], {}, "demokey");
     expect(statusOf(revoked, "Projects and keys"), revoked.output).toBe("PASS");
+  });
+
+  it("warns while the demo key published before the rename is active, alone or with the current one", async () => {
+    // A demo stack seeded before ADR-057 holds the old key, which still
+    // authenticates, and demo-bootstrap adds the new one beside it.
+    await withDatabase("legacydemo", async (db) => {
+      await db.migrate.latest();
+      await seedDemo(db, keyring, LEGACY_PUBLISHED_DEMO_API_KEY);
+    });
+
+    const legacy = await doctor([], {}, "legacydemo");
+    expect(statusOf(legacy, "Projects and keys"), legacy.output).toBe("WARN");
+    expect(lineOf(legacy, "Projects and keys")).toContain(
+      "including fr_demo00000, the published demo key"
+    );
+    expect(legacy.output).toContain("revoke it: key:revoke fr_demo00000.");
+    expect(legacy.output).not.toContain(LEGACY_PUBLISHED_DEMO_API_KEY);
+
+    const db = knex(createKnexConfig(urlFor("legacydemo")));
+    try {
+      await seedDemo(db, keyring, PUBLISHED_DEMO_API_KEY);
+    } finally {
+      await db.destroy();
+    }
+    const both = await doctor([], {}, "legacydemo");
+    expect(statusOf(both, "Projects and keys"), both.output).toBe("WARN");
+    expect(lineOf(both, "Projects and keys")).toContain(
+      "including wsk_demo0000 and fr_demo00000, published demo keys"
+    );
+    expect(both.output).toContain(
+      "revoke them: key:revoke wsk_demo0000, then key:revoke fr_demo00000."
+    );
   });
 
   it("fails a revoked key", async () => {

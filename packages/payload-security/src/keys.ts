@@ -27,6 +27,8 @@ const FINGERPRINT_LENGTH = 6;
 export function deriveSubkeys(masterKey: string): Subkeys {
   assertMasterLength(masterKey);
 
+  // These labels predate the rename to Wayscribe and must not change: each one
+  // determines its derived key, so renaming it loses stored data (ADR-057).
   return {
     fieldEncryption: derive(masterKey, "flight-recorder/field-encryption"),
     searchToken: derive(masterKey, "flight-recorder/search-token"),
@@ -48,6 +50,8 @@ export function deriveSubkeys(masterKey: string): Subkeys {
  */
 export function keyFingerprint(masterKey: string): string {
   assertMasterLength(masterKey);
+  // The label predates the rename to Wayscribe and must not change: it
+  // determines the fingerprint every stored row is labelled with (ADR-057).
   return derive(masterKey, "flight-recorder/key-id", FINGERPRINT_LENGTH).toString("hex");
 }
 

@@ -1,7 +1,7 @@
 import {
   findInsecureDefaults,
   loadStatementTimeoutMs,
-  PUBLISHED_DEMO_API_KEY
+  PUBLISHED_DEMO_API_KEYS
 } from "@wayscribe/config";
 import {
   API_KEY_PREFIX_LENGTH,
@@ -489,17 +489,24 @@ async function projectsResult(db: Knex): Promise<CheckResult> {
   // anyone can write events here. A warning rather than a failure: on the demo
   // stack it is the point, and demo-bootstrap restores it on every start.
   // Matched by prefix, which is unique among keys and which a generated key
-  // shares with probability 64^-9.
-  const demoPrefix = PUBLISHED_DEMO_API_KEY.slice(0, API_KEY_PREFIX_LENGTH);
-  const demo: unknown = await db("api_keys")
-    .where({ key_prefix: demoPrefix })
+  // shares with probability 64^-8. Both the current demo key and the one
+  // published before the rename (ADR-057) count: the old one still
+  // authenticates.
+  const demoPrefixes = PUBLISHED_DEMO_API_KEYS.map((key) => key.slice(0, API_KEY_PREFIX_LENGTH));
+  const demoRows: { key_prefix: string }[] = await db("api_keys")
+    .whereIn("key_prefix", demoPrefixes)
     .whereNull("revoked_at")
-    .first("id");
-  if (demo !== undefined) {
+    .select("key_prefix");
+  const active = demoPrefixes.filter((prefix) => demoRows.some((row) => row.key_prefix === prefix));
+  if (active.length > 0) {
+    const named =
+      active.length === 1
+        ? `${active.join("")}, the published demo key`
+        : `${active.join(" and ")}, published demo keys`;
     return warn(
       "Projects and keys",
-      `${plural(projects, "project")}, ${plural(keys, "unrevoked API key")}, including ${demoPrefix}, the published demo key anyone can write events with.`,
-      `Unless this is the demo stack, revoke it: key:revoke ${demoPrefix}.`
+      `${plural(projects, "project")}, ${plural(keys, "unrevoked API key")}, including ${named} anyone can write events with.`,
+      `Unless this is the demo stack, revoke ${active.length === 1 ? "it" : "them"}: ${active.map((prefix) => `key:revoke ${prefix}`).join(", then ")}.`
     );
   }
   return pass(

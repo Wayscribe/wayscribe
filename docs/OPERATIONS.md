@@ -14,8 +14,8 @@ The demo profile adds ElasticMQ, which holds nothing worth keeping.
 ### Bring your own database
 
 `DATABASE_URL` is the whole coupling. Point it at the PostgreSQL your team
-already runs, the one somebody backs up, monitors, and can restore, and Flight
-Recorder needs nothing else from you.
+already runs, the one somebody backs up, monitors, and can restore, and
+Wayscribe needs nothing else from you.
 
 ```bash
 export COMPOSE_FILE=compose.published.yaml

@@ -64,8 +64,8 @@ Presenting the work, and closing what the last review opened.
   is something a recorder knows and a log line does not. It waits for the rename
   because the attribute names it would read carry the product prefix.
 
-- **Per-record timing and context, before the first release.** Flight
-  Recorder already stores when each step started and how long it took, so most
+- **Per-record timing and context, before the first release.**
+  Wayscribe already stores when each step started and how long it took, so most
   of this is presentation. All of it answers a question about one record;
   aggregate latency and throughput across records stays with Prometheus,
   Grafana or an OpenTelemetry backend. Each item is exercised by the Leadline

@@ -3,8 +3,8 @@ import Fastify from "fastify";
 /**
  * Stands in for HubSpot.
  *
- * Deliberately not instrumented: this is a system the team using Flight
- * Recorder does not own, and a timeline covering only your own services is the
+ * Deliberately not instrumented: this is a system the team using Wayscribe
+ * does not own, and a timeline covering only your own services is the
  * honest picture — as well as proof that the tool needs no cooperation from
  * either end of the integration.
  */

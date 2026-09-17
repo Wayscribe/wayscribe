@@ -46,8 +46,8 @@
 #   docker compose run --rm --entrypoint node api \
 #     packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key <key>
 #
-# `compose.yaml` builds from source instead and is for people working on Flight
-# Recorder itself.
+# `compose.yaml` builds from source instead and is for people working on
+# Wayscribe itself.
 #
 # The API logs a warning at every boot while the published default secrets are
 # in use. To rotate ENCRYPTION_KEY later, set the old value as

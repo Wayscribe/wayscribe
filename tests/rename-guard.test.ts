@@ -1,28 +1,37 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { root } from "./docs-helpers.js";
 
 /**
  * The product was renamed from Flight Recorder to Wayscribe (ADR-057). Any old
  * name outside the history and the deliberate exceptions below is a leftover.
+ *
+ * The scan reads files itself rather than using `git grep`: `git grep -I`
+ * skips any file holding a NUL byte, and some TypeScript tests do, and a line
+ * search cannot see a name split across a line break.
  */
 
-// POSIX ERE has no `\b`, and Apple's git reads it as a literal `b`, so word
-// edges are spelled out to behave the same on every git build.
+// Word edges spelled out rather than `\b`, as the patterns were first written
+// for `git grep`, whose POSIX ERE on Apple's git has no `\b`.
 const START = "(^|[^A-Za-z0-9_])";
 const END = "([^A-Za-z0-9_]|$)";
-const LEGACY_PREFIX = `${START}fr_`;
-const OLD = [
-  "flight.?recorder",
-  "x-flight",
-  "flightJourney",
-  "flightEntity",
-  `${START}_flight${END}`,
-  LEGACY_PREFIX,
-  "FLIGHT_",
-  "flight_session",
-  String.raw`flight\.example`
-].join("|");
+const LEGACY_PREFIX = new RegExp(`${START}fr_`, "g");
+const OLD = new RegExp(
+  [
+    "flight.?recorder",
+    "x-flight",
+    "flightJourney",
+    "flightEntity",
+    `${START}_flight${END}`,
+    `${START}fr_`,
+    "FLIGHT_",
+    "flight_session",
+    String.raw`flight\.example`
+  ].join("|"),
+  "i"
+);
+const SPLIT_NAME = /flight\s+recorder/gi;
 
 const ALLOWED_FILES = [
   /^docs\/superpowers\/(specs|plans)\//,
@@ -33,52 +42,84 @@ const ALLOWED_FILES = [
   /^CHANGELOG\.md$/, // past entries are history
   /^tests\/rename-guard\.test\.ts$/,
   /^packages\/payload-security\/src\/derivation-labels\.test\.ts$/,
-  /^scripts\/rename-to-wayscribe\.mjs$/ // the one-off rename script; removed in its own commit
+  /^scripts\/rename-to-wayscribe\.mjs$/, // the one-off rename script; removed in its own commit
+  /^pnpm-lock\.yaml$/
 ];
 
-/** Lines outside the allowed files that may keep an old name, and why. */
-const ALLOWED_LINES: RegExp[] = [
-  /"flight-recorder\/(field-encryption|search-token|api-key|content-hash|key-id|web-session)"/, // derivation labels
-  /fr_/ // legacy key prefix, checked by the next test instead
-];
+/** Files that are not text at all. Anything else is read, NUL bytes or not. */
+const BINARY = /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf|pdf|zip|gz)$/i;
 
-/** `git grep` exits 1 when nothing matches; that is an empty result, not an error. */
-function gitGrep(args: string[]): string {
-  try {
-    return execFileSync("git", ["grep", ...args, "--", ".", ":!pnpm-lock.yaml"], {
-      cwd: root,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024
-    }).trim();
-  } catch (error) {
-    if ((error as { status?: number }).status === 1) return "";
-    throw error;
-  }
+/** HKDF labels that must keep the old name, since they determine derived keys. */
+const DERIVATION_LABEL =
+  /"flight-recorder\/(field-encryption|search-token|api-key|content-hash|key-id|web-session)"/g;
+
+interface Scanned {
+  file: string;
+  text: string;
 }
 
-const allowedFile = (file: string): boolean => ALLOWED_FILES.some((pattern) => pattern.test(file));
+function scannedFiles(): Scanned[] {
+  return execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
+    .split("\0")
+    .filter((file) => file !== "")
+    .filter((file) => !ALLOWED_FILES.some((pattern) => pattern.test(file)))
+    .filter((file) => !BINARY.test(file))
+    .map((file) => ({ file, text: readFileSync(`${root}${file}`, "latin1") }));
+}
+
+const files = scannedFiles();
+
+/**
+ * An old name on a line, once the two deliberate exceptions are taken out: the
+ * derivation labels, and the legacy `fr_` token (checked by its own test), so
+ * that `FLIGHT_X=fr_...` is still caught by its other half.
+ */
+function hasOldName(line: string): boolean {
+  const stripped = line.replace(DERIVATION_LABEL, "").replace(LEGACY_PREFIX, "$1");
+  return OLD.test(stripped);
+}
 
 describe("rename to Wayscribe", () => {
+  it("scans every tracked text file, including ones holding NUL bytes", () => {
+    expect(files.length).toBeGreaterThan(100);
+    expect(files.some(({ text }) => text.includes("\0"))).toBe(true);
+  });
+
   it("leaves no old name outside history and the deliberate exceptions", () => {
-    const leftovers = gitGrep(["-n", "-i", "-I", "-E", OLD])
-      .split("\n")
-      .filter((line) => line !== "")
-      .filter((line) => !allowedFile(line.slice(0, line.indexOf(":"))))
-      .filter((line) => !ALLOWED_LINES.some((pattern) => pattern.test(line)));
+    const leftovers = files.flatMap(({ file, text }) =>
+      text
+        .split("\n")
+        .map((line, index) => ({ line, number: index + 1 }))
+        .filter(({ line }) => hasOldName(line))
+        .map(({ line, number }) => `${file}:${String(number)}:${line}`)
+    );
+    expect(leftovers).toEqual([]);
+  });
+
+  it("leaves no old name split across a line break", () => {
+    const leftovers = files.flatMap(({ file, text }) => {
+      const unlabelled = text.replace(DERIVATION_LABEL, "");
+      return [...unlabelled.matchAll(SPLIT_NAME)].map((match) => {
+        const number = unlabelled.slice(0, match.index).split("\n").length;
+        return `${file}:${String(number)}:${match[0].replace(/\s+/g, " ")}`;
+      });
+    });
     expect(leftovers).toEqual([]);
   });
 
   it("mentions the legacy fr_ key prefix only where old keys are still recognised", () => {
-    const files = gitGrep(["-l", "-E", LEGACY_PREFIX])
-      .split("\n")
-      .filter((file) => file !== "")
-      .filter((file) => !allowedFile(file));
-    expect(files.sort()).toEqual(
+    const mentioning = files
+      .filter(({ text }) => new RegExp(LEGACY_PREFIX.source, "m").test(text))
+      .map(({ file }) => file);
+    expect(mentioning.sort()).toEqual(
       [
         ".gitleaks.toml", // allows fixtures in both key forms
         "docs/SECURITY.md", // the one place the docs name the old key form
+        "packages/config/src/insecure-defaults.ts", // the demo key published before the rename
+        "packages/config/src/insecure-defaults.test.ts",
         "packages/database/src/doctor.ts", // accepts an fr_ key for --api-key
         "packages/database/src/doctor.test.ts",
+        "packages/database/src/doctor.integration.test.ts", // warns on the old demo key
         "packages/payload-security/src/api-key.ts", // says why fr_ keys still verify
         "packages/payload-security/src/api-key.test.ts", // proves they do
         "packages/payload-security/src/mask-text.ts", // masks fr_ keys in error text

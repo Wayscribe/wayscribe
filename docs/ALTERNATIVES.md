@@ -11,8 +11,8 @@ This page backs the claim in the README's
 > show the field that changed; (3) replay a recorded input against development;
 > (4) with no platform to move onto.
 
-Each tool below does part of that job, and some do their part better than Flight
-Recorder does. Every statement about a tool is taken from that tool's own
+Each tool below does part of that job, and some do their part better than
+Wayscribe does. Every statement about a tool is taken from that tool's own
 documentation, licence file or pricing page, and each source carries the date
 it was checked. Statements that could not be confirmed from such a source were
 left out. Where this page says a tool's documentation does not describe
