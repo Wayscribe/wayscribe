@@ -15,7 +15,7 @@ export const API_KEY = process.env["FLIGHT_API_KEY"] ?? "";
  * land on the picker instead of the page under test. The admin API lists the
  * projects, and the one that holds the journey is the one the key writes to.
  */
-async function projectHolding(journeyId: string): Promise<string | null> {
+export async function projectHolding(journeyId: string): Promise<string | null> {
   const headers = { authorization: `Bearer ${ADMIN_TOKEN}` };
   const listed = await fetch(`${API_URL}/v1/projects`, { headers });
   if (!listed.ok) throw new Error(`GET /v1/projects answered ${String(listed.status)}`);
