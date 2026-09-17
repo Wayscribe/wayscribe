@@ -3,7 +3,7 @@
 > **Written before implementation, and kept as the original plan.**
 >
 > Where this and [the decision log](DECISIONS.md) disagree, the decision log
-> wins — that is the precedence `AGENTS.md` already sets, and it records what
+> wins. That is the precedence `AGENTS.md` already sets, and it records what
 > was actually built, including the decisions that reversed something here.
 >
 > Kept rather than rewritten: what was planned and what was learned are more
@@ -304,7 +304,7 @@ Journey identity remains a Wayscribe concept even when trace context comes from 
 
 Partly built:
 
-- external PostgreSQL — **shipped**, and now the default rather than an option
+- external PostgreSQL: **shipped**, and now the default rather than an option
   (ADR-037)
 - TLS
 - external identity

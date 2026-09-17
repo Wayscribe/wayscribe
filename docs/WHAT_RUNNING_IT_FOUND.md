@@ -28,7 +28,7 @@ PostgreSQL, after passing through both redaction points in the default capture
 mode. `authorization` at depth two was masked. At depth three it was not, and
 arrays terminated redaction entirely.
 
-`config.headers.authorization` is the shape every axios error carries — the most
+`config.headers.authorization` is the shape every axios error carries, the most
 common way a live key reaches a captured payload at all.
 
 It was found in the first sixty seconds of looking at an unrelated problem. The
@@ -45,7 +45,7 @@ Four more surfaced the same day, from the same exercise:
 
 | What | Why it was invisible |
 | --- | --- |
-| `Map`, `Set`, `Error` stored as `{}` | They have no own enumerable properties, so the walk that enables redaction emptied them. An `Error` — on a debugging tool — lost the two fields that say what went wrong. |
+| `Map`, `Set`, `Error` stored as `{}` | They have no own enumerable properties, so the walk that enables redaction emptied them. An `Error` (on a debugging tool) lost the two fields that say what went wrong. |
 | Cyclic and `BigInt` payloads discarded | Reported as `payload_too_large`, which sends an operator to raise a limit that could never have helped. |
 | A `__proto__` key silently destroyed | `JSON.parse` makes it an ordinary key; assignment spends it on the prototype. The field vanished from the record. |
 | A `development` key could read `production` payloads | The environment boundary was enforced on search and on none of the three routes that return data. |
@@ -53,7 +53,7 @@ Four more surfaced the same day, from the same exercise:
 And one more, which is the one that should be most uncomfortable: the README
 claimed payloads were **encrypted at rest**. They are `jsonb`. The operations
 guide went further and told operators that a `pg_dump` taken without the
-encryption key restores unreadable payloads — so following the documented backup
+encryption key restores unreadable payloads, so following the documented backup
 procedure exported every captured customer payload in the clear, while the
 document said it had not.
 
@@ -64,7 +64,7 @@ document said it had not.
 They all passed. That is the interesting part.
 
 **The test data was written by the same person as the code.** Every payload the
-demo emits is flat plain JSON — never a `Date`, never a shared reference, never
+demo emits is flat plain JSON: never a `Date`, never a shared reference, never
 an object graph that points back at itself. The first real ORM row exposed three
 defects, because a real ORM row is none of those things.
 
@@ -75,7 +75,7 @@ is silently discarded. A BigInt was covered by `rejected > 0 || stored`, which
 passes either way.
 
 **One test covered the boundary next to the broken one.** The suite contained
-*"returns 404 for another project's journey and event"*, and it passed — because
+*"returns 404 for another project's journey and event"*, and it passed, because
 composite keys make cross-*project* access structurally impossible. Nothing
 tested another *environment* of the same project, which is where the hole was.
 
@@ -90,7 +90,7 @@ real secrets sit. That is a different test, and it did not exist.
 Not just the fixes.
 
 - **Every `not.toContain(secret)` assertion is now paired with a contents
-  assertion.** On its own the first passes vacuously — an empty object contains
+  assertion.** On its own the first passes vacuously: an empty object contains
   no secret either. The pair fails if the data is dropped *or* if it leaks.
 - **Regression tests read the row back out of PostgreSQL** rather than checking
   a function's return value, because the two disagreed.
@@ -107,14 +107,14 @@ Not just the fixes.
 
 ## The one that came from looking, not running
 
-A later question — can a demo application live in this repository without
-shipping? — was answered by listing the image rather than reading the Dockerfile,
+A later question (can a demo application live in this repository without
+shipping?) was answered by listing the image rather than reading the Dockerfile,
 and the answer was no.
 
 The API image contained 62 test files, ten source directories, the demo
 application and the web application. `apps/api/Dockerfile` ended its build stage
-with `COPY --from=build /app /app`, and the comment above it gave a real reason —
-keeping the whole tree keeps the paths the documentation uses — that justified
+with `COPY --from=build /app /app`, and the comment above it gave a real reason
+(keeping the whole tree keeps the paths the documentation uses) that justified
 far less than it was taking, since those paths are `dist` paths.
 
 Nothing shipped was reachable. The entrypoint runs `dist`, and the workspace
@@ -124,7 +124,7 @@ purpose, because they have to look real enough to exercise the parsers, and a
 scanner reading a published image cannot tell a fixture from a leak.
 
 Trivy had been scanning these images for days. It answers which packages have
-known vulnerabilities, not what is in here that should not be — so the job that
+known vulnerabilities, not what is in here that should not be, so the job that
 existed to inspect the image was structurally incapable of finding this.
 
 The guard that replaced it ([ADR-043](DECISIONS.md#adr-043-the-runtime-image-carries-only-what-the-runtime-executes))

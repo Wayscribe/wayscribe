@@ -260,7 +260,7 @@ A message or event was received by a worker or subscriber.
 
 Data was sent to an external or downstream system.
 
-A failed delivery attempt uses `delivered` — or `retried` for subsequent attempts —
+A failed delivery attempt uses `delivered` (or `retried` for subsequent attempts),
 with `error` populated and the HTTP status in `metadata`. The `failed` operation is
 reserved for terminal journey or branch failure, such as a dead-letter transition.
 See ADR-022.

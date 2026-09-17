@@ -108,14 +108,14 @@ leaving and the internal fields arriving:
 
 | Field | Before | After |
 |---|---|---|
-| `Id` | `"0018Z00002ABC"` | — |
-| `Name` | `"Jorge Polanco"` | — |
-| `Phone` | `"+1 919 555 1234"` | — |
-| `Status__c` | `"Active"` | — |
-| `externalId` | — | `"0018Z00002ABC"` |
-| `name` | — | `"Jorge Polanco"` |
-| `phone` | — | `null` |
-| `status` | — | `"active"` |
+| `Id` | `"0018Z00002ABC"` | (absent) |
+| `Name` | `"Jorge Polanco"` | (absent) |
+| `Phone` | `"+1 919 555 1234"` | (absent) |
+| `Status__c` | `"Active"` | (absent) |
+| `externalId` | (absent) | `"0018Z00002ABC"` |
+| `name` | (absent) | `"Jorge Polanco"` |
+| `phone` | (absent) | `null` |
+| `status` | (absent) | `"active"` |
 
 The defect is visible in the pair of rows for the phone number: `Phone` went in
 carrying a value, and `phone` came out `null`. Every other field arrives with its
@@ -127,7 +127,7 @@ output shared field names. That diff is not producible from this step: section 3
 defines the input as the Salesforce shape and the output as the internal shape, so
 an input-versus-output comparison can only ever report removals and additions.
 
-What the earlier version depicted was *expected output versus actual output* — the
+What the earlier version depicted was *expected output versus actual output*: the
 correct internal customer against the defective one. That is the replay comparison
 in `REPLAY_SPEC.md` section 11, not the transformation diff. See ADR-030.
 
