@@ -813,7 +813,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
     const size = (field: "input" | "output"): number => {
       const value = event[field];
       if (value === undefined || value === TOO_LARGE || value === UNCAPTURABLE) return 0;
-      return Buffer.byteLength(JSON.stringify(value), "utf8");
+      // A function or a Symbol serialises to nothing: it takes no room, and
+      // weighing `undefined` threw and lost the whole event.
+      const text = JSON.stringify(value) as string | undefined;
+      return text === undefined ? 0 : Buffer.byteLength(text, "utf8");
     };
     const input = size("input");
     const output = size("output");

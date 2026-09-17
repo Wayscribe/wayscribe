@@ -94,11 +94,29 @@ function walk(value: unknown, seen: Set<object>, finish: (text: string) => strin
   try {
     if (Array.isArray(value)) return value.map((child) => walk(child, seen, finish));
 
+    const entries = Object.entries(value);
+    // Keys too: a NUL in a key is as unstorable as one in a value, and jsonb
+    // rejects the whole document either way.
+    const keys = entries.map(([key]) => toStorableText(key));
     const result: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(value)) {
-      // Keys too: a NUL in a key is as unstorable as one in a value, and jsonb
-      // rejects the whole document either way.
-      defineKey(result, toStorableText(key), walk(child, seen, finish));
+    if (keys.every((key, index) => key === entries[index]?.[0])) {
+      entries.forEach(([key, child]) => {
+        defineKey(result, key, walk(child, seen, finish));
+      });
+      return result;
+    }
+
+    // Two keys that differ only by a NUL or a lone surrogate become one key.
+    // The last value written wins, in the place the first one took, as
+    // assigning them in order does. Only that value is walked: one walked and
+    // then overwritten was never stored, and `finish` would have counted a
+    // cut in it.
+    const last = new Map<string, number>();
+    keys.forEach((key, index) => last.set(key, index));
+    for (const key of keys) {
+      if (Object.hasOwn(result, key)) continue;
+      const child: unknown = entries[last.get(key) ?? 0]?.[1];
+      defineKey(result, key, walk(child, seen, finish));
     }
     return result;
   } finally {

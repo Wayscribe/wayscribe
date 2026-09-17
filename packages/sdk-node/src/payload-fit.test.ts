@@ -312,6 +312,41 @@ describe("fitting an event to the server's limits", () => {
     }
   });
 
+  it("sends the event when a payload JSON cannot write pushes it to omit the other", async () => {
+    // A function or a Symbol serialises to nothing. Weighing it used to throw
+    // inside the recorder, and the event was lost as a capture error.
+    for (const input of [() => 1, Symbol("s")]) {
+      const { events, counters } = await capture(
+        (journey) => {
+          journey.record({
+            operation: "transformed",
+            name: "map",
+            input,
+            output: { a: "x".repeat(450) }
+          });
+        },
+        { maxEventBytes: 600 }
+      );
+      expect(counters).toMatchObject({ recorded: 1, sent: 1, captureErrors: 0 });
+      expect(events[0]?.["output"]).toBe("[PAYLOAD_TOO_LARGE]");
+      expect(events[0]).not.toHaveProperty("input");
+    }
+  });
+
+  it("reports no cut for a long string whose key another key replaced", async () => {
+    // `note ` and `note` are one key once stored, and the later value wins.
+    const input = JSON.parse(`{"note\\u0000": "${"x".repeat(70_000)}", "note": "short"}`) as Record<
+      string,
+      unknown
+    >;
+    const { events, diagnostics, counters } = await capture((journey) => {
+      journey.record({ operation: "received", name: "collide", input });
+    });
+    expect(events[0]?.["input"]).toEqual({ note: "short" });
+    expect(counters.payloadsTruncated).toBe(0);
+    expect(diagnostics.filter((d) => d.kind === "payload_truncated")).toEqual([]);
+  });
+
   it("keeps the exact accounting: sent + rejected + dropped equals recorded", async () => {
     const { counters } = await capture((journey) => {
       for (let index = 0; index < 5; index += 1) {
