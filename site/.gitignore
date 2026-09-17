@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.astro/
+
+# Written by scripts/sync-docs.mjs from the repository's own files on every
+# build. Edit the sources, not these.
+/src/content/docs/docs/
+/src/generated/
+/public/images/

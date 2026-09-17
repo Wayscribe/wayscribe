@@ -23,6 +23,10 @@ playwright-report
 *.md
 !README.md
 
+# The website (ADR-058). Its own dependencies and sources, none of which an image
+# builds or runs; scripts/verify-image-contents.sh checks it stayed out.
+site
+
 # SBOMs from scripts/sbom.sh. The web image is built after the API image is
 # attested in publish-images, and would otherwise copy them into its build stage.
 sboms

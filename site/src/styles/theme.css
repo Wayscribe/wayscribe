@@ -1,0 +1,37 @@
+/* Starlight's palette, moved to a blue accent. System fonts only: nothing is
+   fetched from a font host. */
+
+:root {
+  --sl-color-accent-low: #0f2350;
+  --sl-color-accent: #3d7bf0;
+  --sl-color-accent-high: #bcd2ff;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #d5e2ff;
+  --sl-color-accent: #2257c4;
+  --sl-color-accent-high: #0f2a66;
+}
+
+/* The landing page's screenshots: framed, and never wider than the column. */
+.shot {
+  margin-block: 1.5rem;
+}
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+}
+.shot figcaption {
+  margin-top: 0.5rem;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+}
+
+/* Wide tables scroll inside themselves rather than widening the page. */
+.sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+}

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { root } from "./docs-helpers.js";
+import { GENERATED_DIRECTORIES, root } from "./docs-helpers.js";
 
 /**
  * The product was renamed from Flight Recorder to Wayscribe (ADR-057). Any old
@@ -89,7 +89,9 @@ const SKIP_DIRECTORIES = new Set([
   "test-results",
   ".claude",
   ".superpowers",
-  "sboms"
+  "sboms",
+  // Astro's type and content cache for the website.
+  ".astro"
 ]);
 
 /**
@@ -111,6 +113,9 @@ function repositoryFiles(directory = "", found: string[] = []): string[] {
   for (const entry of readdirSync(`${root}${directory}`, { withFileTypes: true })) {
     if (SKIP_DIRECTORIES.has(entry.name)) continue;
     const relative = directory === "" ? entry.name : `${directory}/${entry.name}`;
+    // The website's copies of documents scanned here at their source, the
+    // decision log's history among them.
+    if (GENERATED_DIRECTORIES.has(relative)) continue;
     if (entry.isDirectory()) repositoryFiles(relative, found);
     else if (entry.isFile() && !isSkippedFile(relative, entry.name)) found.push(relative);
   }

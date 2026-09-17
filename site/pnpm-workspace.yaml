@@ -1,0 +1,13 @@
+# The site is its own pnpm project, with its own lockfile, and not a member of
+# the root workspace (site/README.md says why). This file is what makes pnpm
+# treat site/ as a root of its own rather than as a part of the workspace above.
+
+# Build scripts are denied by default in pnpm 11; each must be decided explicitly.
+#
+#   esbuild  Astro's bundler, through Vite. Its postinstall fetches the platform
+#            binary, so it must run.
+#   sharp    Astro's default image service. The site uses the passthrough image
+#            service instead (astro.config.mjs), so the native build is not needed.
+allowBuilds:
+  esbuild: true
+  sharp: false

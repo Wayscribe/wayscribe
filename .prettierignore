@@ -29,3 +29,9 @@ packages/protocol/schemas/
 
 # Local agent state and worktrees of other branches (see .gitignore).
 .claude/
+
+# The website's generated content and Astro's own type cache (site/.gitignore).
+site/.astro/
+site/src/generated/
+site/src/content/docs/docs/
+site/public/images/

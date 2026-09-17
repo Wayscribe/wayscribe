@@ -78,7 +78,9 @@ report "no source directories (found $COUNT)" "$([ "$COUNT" -eq 0 ] && echo 0 ||
 # They are not named like test files, so the pattern above does not reach them,
 # and they carry credential-shaped values on purpose: a redaction case cannot
 # prove a secret was replaced without holding something shaped like one.
-for DIR in /app/apps/demo /app/apps/web /app/packages/protocol/conformance /app/packages/sdk-node; do
+# /app/site is the website (ADR-058), which .dockerignore keeps out of the
+# build context; this catches the day that line goes missing.
+for DIR in /app/apps/demo /app/apps/web /app/packages/protocol/conformance /app/packages/sdk-node /app/site; do
   # `cmd; report $?` would abort here under `set -e` on the first failure, so a
   # broken image would report one problem and hide the rest. The `&&`/`||` form
   # keeps the non-zero status out of `set -e`'s hands.
