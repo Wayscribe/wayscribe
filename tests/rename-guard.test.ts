@@ -127,6 +127,7 @@ describe("rename to Wayscribe", () => {
     expect(mentioning.sort()).toEqual(
       [
         ".gitleaks.toml", // allows fixtures in both key forms
+        "apps/api/src/auth.test.ts", // proves the server still authenticates fr_ keys
         "docs/SECURITY.md", // the one place the docs name the old key form
         "packages/config/src/insecure-defaults.ts", // the demo key published before the rename
         "packages/config/src/insecure-defaults.test.ts",

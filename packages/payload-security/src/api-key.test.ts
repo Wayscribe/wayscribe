@@ -35,8 +35,9 @@ describe("generateApiKey", () => {
 });
 
 describe("a key issued before the rename", () => {
-  // Keys started fr_ before ADR-057. Nothing on the server reads the prefix, so
-  // such a key still verifies against the record made when it was issued.
+  // Keys started fr_ before ADR-057. Nothing on the server checks which prefix
+  // a key has, so such a key still verifies against the record made when it
+  // was issued.
   const legacyKey = "fr_" + "q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A";
 
   it("still verifies", () => {

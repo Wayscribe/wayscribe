@@ -488,10 +488,11 @@ async function projectsResult(db: Knex): Promise<CheckResult> {
   // The demo's key is committed to the repository, so while it is unrevoked
   // anyone can write events here. A warning rather than a failure: on the demo
   // stack it is the point, and demo-bootstrap restores it on every start.
-  // Matched by prefix, which is unique among keys and which a generated key
-  // shares with probability 64^-8. Both the current demo key and the one
-  // published before the rename (ADR-057) count: the old one still
-  // authenticates.
+  // Matched by prefix, which is unique among keys. Both the current demo key
+  // and the one published before the rename (ADR-057) count: the old one still
+  // authenticates. A generated key shares the wsk_demo0000 prefix with
+  // probability 64^-8, and cannot share the old fr_demo00000 prefix, since new
+  // keys start wsk_.
   const demoPrefixes = PUBLISHED_DEMO_API_KEYS.map((key) => key.slice(0, API_KEY_PREFIX_LENGTH));
   const demoRows: { key_prefix: string }[] = await db("api_keys")
     .whereIn("key_prefix", demoPrefixes)

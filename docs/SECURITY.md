@@ -368,8 +368,9 @@ What is built:
 - A key is `wsk_` and 24 random bytes in base64url, 192 bits
   (`packages/payload-security/src/api-key.ts`), 36 characters in all. Keys
   issued before the rename to Wayscribe start `fr_` (35 characters) and still
-  authenticate: lookup uses the stored prefix and verification an HMAC of the
-  whole key, so the server never reads the prefix (ADR-057).
+  authenticate: the server looks a key up by its first 12 characters and
+  verifies an HMAC of the whole key, so it never checks which prefix a key has
+  (ADR-057).
 - `key:create` prints the full key once. Only its first 12 characters, the
   prefix, and an HMAC-SHA256 verifier under a subkey of `ENCRYPTION_KEY` are
   stored, so a database read alone cannot verify a guess.
