@@ -140,9 +140,9 @@ migrations:
 postgresql:
   enabled: false
   image: postgres:17-alpine
-  user: flight
-  password: flight
-  database: flight
+  user: wayscribe
+  password: wayscribe
+  database: wayscribe
   storage: 2Gi
   # Empty uses the cluster default, which is what a local cluster wants.
   storageClass: ""

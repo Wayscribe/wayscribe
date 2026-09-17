@@ -86,7 +86,7 @@ With the bundled overlay, the data is in the `postgres-data` volume. With
 
 ```bash
 docker compose exec -T postgres \
-  pg_dump -U flight -d flight --format=custom > flight-$(date +%F).dump
+  pg_dump -U wayscribe -d wayscribe --format=custom > wayscribe-$(date +%F).dump
 ```
 
 The stack built from source runs the same PostgreSQL service. Name its file
@@ -94,7 +94,7 @@ instead of relying on `COMPOSE_FILE`:
 
 ```bash
 docker compose -f infrastructure/compose.yaml exec -T postgres \
-  pg_dump -U flight -d flight --format=custom > flight-$(date +%F).dump
+  pg_dump -U wayscribe -d wayscribe --format=custom > wayscribe-$(date +%F).dump
 ```
 
 **Treat the dump as if it contained your customers' request bodies, because it
@@ -114,14 +114,14 @@ as in §1:
 
 ```bash
 docker compose exec -T postgres \
-  pg_restore -U flight -d flight --clean --if-exists < flight-2026-09-15.dump
+  pg_restore -U wayscribe -d wayscribe --clean --if-exists < wayscribe-2026-09-15.dump
 ```
 
 On the stack built from source:
 
 ```bash
 docker compose -f infrastructure/compose.yaml exec -T postgres \
-  pg_restore -U flight -d flight --clean --if-exists < flight-2026-09-15.dump
+  pg_restore -U wayscribe -d wayscribe --clean --if-exists < wayscribe-2026-09-15.dump
 ```
 
 Restore against the **same `ENCRYPTION_KEY`**. A restore under a different key
@@ -166,7 +166,7 @@ From a published image, without a source checkout:
 
 ```bash
 docker run --rm --network wayscribe_default \
-  -e DATABASE_URL=postgresql://flight:flight@postgres:5432/flight \
+  -e DATABASE_URL=postgresql://wayscribe:wayscribe@postgres:5432/wayscribe \
   --entrypoint node wayscribe-api packages/database/dist/cli.js migrate
 ```
 

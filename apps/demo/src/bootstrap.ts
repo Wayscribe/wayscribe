@@ -29,10 +29,10 @@ async function createDemoDatabase(db: Knex, name: string): Promise<void> {
   console.log(`[bootstrap] created database ${name}`);
 }
 
-const flight = knex(createKnexConfig(requiredEnv("DATABASE_URL")));
+const wayscribe = knex(createKnexConfig(requiredEnv("DATABASE_URL")));
 
 try {
-  const [, applied] = (await flight.migrate.latest()) as [number, string[]];
+  const [, applied] = (await wayscribe.migrate.latest()) as [number, string[]];
   console.log(
     applied.length === 0
       ? "[bootstrap] schema already up to date"
@@ -41,7 +41,7 @@ try {
 
   const retention = Number.parseInt(process.env["DEFAULT_RETENTION_DAYS"] ?? "7", 10);
   const seeded = await seedDemo(
-    flight,
+    wayscribe,
     // Read as the API reads it, previous key included, so the demo key's
     // verifier is written under the key the API treats as current.
     keyringFromEnvironment(process.env),
@@ -50,9 +50,9 @@ try {
   );
   console.log(`[bootstrap] demo project ${seeded.projectId} ready`);
 
-  await createDemoDatabase(flight, requiredEnv("DEMO_DATABASE_NAME"));
+  await createDemoDatabase(wayscribe, requiredEnv("DEMO_DATABASE_NAME"));
 } finally {
-  await flight.destroy();
+  await wayscribe.destroy();
 }
 
 const demo = demoDatabase();

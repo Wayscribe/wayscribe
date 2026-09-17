@@ -242,7 +242,7 @@ images does not need this repository:
 
 ```bash
 docker run --rm --network wayscribe_default \
-  -e DATABASE_URL=postgresql://flight:flight@postgres:5432/flight \
+  -e DATABASE_URL=postgresql://wayscribe:wayscribe@postgres:5432/wayscribe \
   -e ENCRYPTION_KEY="$ENCRYPTION_KEY" \
   --entrypoint node wayscribe-api packages/database/dist/cli.js migrate
 ```
@@ -277,6 +277,22 @@ pnpm db:seed
 
 The demo profile needs none of this: `demo-bootstrap` migrates and seeds itself
 on every start.
+
+### Upgrading a checkout from before the rename
+
+The rename to Wayscribe (ADR-057) changed the Compose project, and with it the
+volume, and the database user, password and name, which are now all
+`wayscribe`. A stack started before the rename is not picked up: its volume
+belongs to the old project and its database has the old user. Start fresh.
+
+If you no longer need its data, remove the old stack and its volume:
+
+```bash
+docker compose -p flight-recorder -f infrastructure/compose.yaml down -v
+```
+
+Then copy `.env.example` to `.env` again, or change `DATABASE_URL` in your
+`.env` to the new user and name, and follow the setup in §2.
 
 ## 9. Troubleshooting principles
 

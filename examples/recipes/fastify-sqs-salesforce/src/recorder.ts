@@ -11,7 +11,7 @@ export function createAppRecorder(serviceName: string): Recorder {
     // Your logger, not the console, once the service is known to send.
     onDiagnostic: (diagnostic) => {
       if (diagnostic.kind === "rejected" || diagnostic.kind === "dropped") {
-        console.warn("flight recorder", diagnostic.kind, diagnostic.code);
+        console.warn("wayscribe", diagnostic.kind, diagnostic.code);
       }
     }
   });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { describeTarget, parseResetArgs } from "./reset.js";
 
-const URL = "postgresql://flight:flight@localhost:5432/flight";
+const URL = "postgresql://wayscribe:wayscribe@localhost:5432/wayscribe";
 
 describe("parseResetArgs", () => {
   it("runs with --yes outside production", () => {
@@ -48,7 +48,7 @@ describe("parseResetArgs", () => {
 
 describe("describeTarget", () => {
   it("falls back when the URL has no host or does not parse", () => {
-    expect(describeTarget("postgresql:///flight?host=/var/run/postgresql")).toBe(
+    expect(describeTarget("postgresql:///wayscribe?host=/var/run/postgresql")).toBe(
       "the configured host"
     );
     expect(describeTarget("not a url")).toBe("the configured host");

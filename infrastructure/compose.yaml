@@ -4,9 +4,9 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: flight
-      POSTGRES_PASSWORD: flight
-      POSTGRES_DB: flight
+      POSTGRES_USER: wayscribe
+      POSTGRES_PASSWORD: wayscribe
+      POSTGRES_DB: wayscribe
     ports:
       # Every published port binds to the loopback address, so a default `up` on a
       # cloud host does not expose the stack to the internet. This is the Compose
@@ -15,7 +15,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flight -d flight"]
+      test: ["CMD-SHELL", "pg_isready -U wayscribe -d wayscribe"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -39,7 +39,7 @@ services:
       - path: ../.env
         required: false
     environment:
-      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+      DATABASE_URL: postgresql://wayscribe:wayscribe@postgres:5432/wayscribe
       APP_URL: http://localhost:3000
       API_URL: http://localhost:8080
       PORT: "8080"

@@ -81,4 +81,4 @@ while (!stop.signal.aborted) {
   for (const message of Messages) await handle(message);
 }
 
-console.log("flight recorder", await recorder.shutdown());
+console.log("wayscribe", await recorder.shutdown());

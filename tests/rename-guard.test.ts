@@ -46,6 +46,15 @@ const ALLOWED_FILES = [
   /^pnpm-lock\.yaml$/
 ];
 
+/** Single lines outside the allowed files that must keep an old name, and why. */
+const ALLOWED_LINES: { file: string; line: RegExp }[] = [
+  // Removes a local stack started before the rename, under its old project name.
+  {
+    file: "docs/LOCAL_DEVELOPMENT.md",
+    line: /^docker compose -p flight-recorder -f infrastructure\/compose\.yaml down -v$/
+  }
+];
+
 /** Files that are not text at all. Anything else is read, NUL bytes or not. */
 const BINARY = /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf|pdf|zip|gz)$/i;
 
@@ -91,6 +100,10 @@ describe("rename to Wayscribe", () => {
         .split("\n")
         .map((line, index) => ({ line, number: index + 1 }))
         .filter(({ line }) => hasOldName(line))
+        .filter(
+          ({ line }) =>
+            !ALLOWED_LINES.some((allowed) => allowed.file === file && allowed.line.test(line))
+        )
         .map(({ line, number }) => `${file}:${String(number)}:${line}`)
     );
     expect(leftovers).toEqual([]);

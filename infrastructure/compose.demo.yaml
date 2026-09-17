@@ -32,7 +32,7 @@ x-demo: &demo
     QUEUE_URL: http://elasticmq:9324/000000000000/customer-updates
     DLQ_URL: http://elasticmq:9324/000000000000/customer-updates-dlq
     AWS_REGION: us-east-1
-    DEMO_DATABASE_URL: postgresql://flight:flight@postgres:5432/demo
+    DEMO_DATABASE_URL: postgresql://wayscribe:wayscribe@postgres:5432/demo
     TARGET_URL: http://demo-target:3300
     INTEGRATION_URL: http://demo-integration:3200
 
@@ -57,7 +57,7 @@ services:
         required: false
     environment:
       <<: *demo-env
-      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+      DATABASE_URL: postgresql://wayscribe:wayscribe@postgres:5432/wayscribe
       DEMO_DATABASE_NAME: demo
       DEFAULT_RETENTION_DAYS: ${DEFAULT_RETENTION_DAYS:-7}
     command: ["node", "apps/demo/dist/bootstrap.js"]

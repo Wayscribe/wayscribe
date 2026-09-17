@@ -59,7 +59,7 @@ const NEWEST_TESTED_POSTGRES = 18;
  * guessing at. It still cannot reach the output, because no message doctor
  * prints includes DATABASE_URL, and PostgreSQL's own errors never repeat a
  * password. For the same reason doctor no longer prints the database's name,
- * which on the bundled stack is `flight`, the same word as its password.
+ * which on the bundled stack is `wayscribe`, the same word as its password.
  */
 const MINIMUM_SCRUBBED_LENGTH = 4;
 

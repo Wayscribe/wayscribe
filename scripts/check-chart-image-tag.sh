@@ -25,7 +25,7 @@ if [ -z "$VERSION" ]; then
 fi
 EXPECTED="v$VERSION"
 
-RENDERED=$(helm template fr "$CHART" \
+RENDERED=$(helm template ws "$CHART" \
   --set postgresql.enabled=true \
   --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
   --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111)

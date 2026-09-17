@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ConfigError, loadEncryptionKeys, loadServerEnv, loadStatementTimeoutMs } from "./load.js";
 
 const validEnv = {
-  DATABASE_URL: "postgresql://flight:flight@localhost:5432/flight",
+  DATABASE_URL: "postgresql://wayscribe:wayscribe@localhost:5432/wayscribe",
   APP_URL: "http://localhost:3000",
   API_URL: "http://localhost:8080",
   ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef",

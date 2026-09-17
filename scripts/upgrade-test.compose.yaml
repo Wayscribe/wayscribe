@@ -13,15 +13,15 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: flight
-      POSTGRES_PASSWORD: flight
-      POSTGRES_DB: flight
+      POSTGRES_USER: wayscribe
+      POSTGRES_PASSWORD: wayscribe
+      POSTGRES_DB: wayscribe
     # No published port: the script reaches the database with `compose exec`,
     # so a developer's own PostgreSQL on 5432 is never in the way.
     volumes:
       - upgrade-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flight -d flight"]
+      test: ["CMD-SHELL", "pg_isready -U wayscribe -d wayscribe"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -29,7 +29,7 @@ services:
   api:
     image: ${UPGRADE_API_IMAGE:?set by scripts/upgrade-test.mjs}
     environment:
-      DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+      DATABASE_URL: postgresql://wayscribe:wayscribe@postgres:5432/wayscribe
       APP_URL: http://localhost:3000
       API_URL: http://localhost:8080
       PORT: "8080"

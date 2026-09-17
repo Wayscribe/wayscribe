@@ -82,14 +82,14 @@ helm:
     # publish-images pushes. The chart defaulted to its bare appVersion, a tag
     # nothing pushes.
     - scripts/check-chart-image-tag.sh
-    - helm template fr deploy/helm/wayscribe
+    - helm template ws deploy/helm/wayscribe
       --set postgresql.enabled=true
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
       > /dev/null
     # The metrics port is off by default, so its template branch renders only
     # when asked for.
-    - helm template fr deploy/helm/wayscribe
+    - helm template ws deploy/helm/wayscribe
       --set postgresql.enabled=true
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
@@ -97,14 +97,14 @@ helm:
       > /dev/null
     # NetworkPolicies are off by default too, and have a branch for the bundled
     # database and one for an external one.
-    - helm template fr deploy/helm/wayscribe
+    - helm template ws deploy/helm/wayscribe
       --set postgresql.enabled=true
       --set networkPolicy.enabled=true
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
       > /dev/null
-    - helm template fr deploy/helm/wayscribe
-      --set databaseUrl=postgresql://u:p@db.internal:5432/fr
+    - helm template ws deploy/helm/wayscribe
+      --set databaseUrl=postgresql://u:p@db.internal:5432/wayscribe
       --set networkPolicy.enabled=true
       --set networkPolicy.database.to[0].ipBlock.cidr=10.0.0.0/24
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
@@ -114,7 +114,7 @@ helm:
     # server calls the API for every page. The API's policy is read out of the
     # render and must name both the configured peer and the web pod.
     - |
-      helm template fr deploy/helm/wayscribe \
+      helm template ws deploy/helm/wayscribe \
         --set postgresql.enabled=true \
         --set networkPolicy.enabled=true \
         --set networkPolicy.ingressFrom[0].namespaceSelector.matchLabels.team=ingress \
@@ -130,7 +130,7 @@ helm:
       fi
     # The migrate Job is bounded by default, and the bound can be removed.
     - |
-      helm template fr deploy/helm/wayscribe \
+      helm template ws deploy/helm/wayscribe \
         --set postgresql.enabled=true \
         --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
         --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111 \
@@ -138,7 +138,7 @@ helm:
       if ! grep -q "activeDeadlineSeconds: 1800" migrate-job.yaml; then
         echo "the migrate Job lost its deadline"; cat migrate-job.yaml; exit 1
       fi
-      helm template fr deploy/helm/wayscribe \
+      helm template ws deploy/helm/wayscribe \
         --set postgresql.enabled=true \
         --set migrations.activeDeadlineSeconds=null \
         --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000 \
@@ -149,7 +149,7 @@ helm:
       fi
     # And refuses a metrics port equal to the API's. An `if`, not `!`: a
     # negated command does not fail a job under `set -e`.
-    - if helm template fr deploy/helm/wayscribe
+    - if helm template ws deploy/helm/wayscribe
       --set postgresql.enabled=true
       --set secrets.encryptionKey=0000000000000000000000000000000000000000000000000000000000000000
       --set secrets.adminToken=1111111111111111111111111111111111111111111111111111111111111111
@@ -277,10 +277,10 @@ e2e:
     - name: postgres:17-alpine
       alias: postgres
   variables:
-    POSTGRES_USER: flight
-    POSTGRES_PASSWORD: flight
-    POSTGRES_DB: flight
-    DATABASE_URL: postgresql://flight:flight@postgres:5432/flight
+    POSTGRES_USER: wayscribe
+    POSTGRES_PASSWORD: wayscribe
+    POSTGRES_DB: wayscribe
+    DATABASE_URL: postgresql://wayscribe:wayscribe@postgres:5432/wayscribe
     ENCRYPTION_KEY: ci-encryption-key-00000000000000000
     ADMIN_TOKEN: ci-admin-token-0000000000000000000
     API_URL: http://localhost:8080

@@ -188,7 +188,7 @@ process.once("SIGTERM", () => {
   void (async () => {
     await worker.close();
     const counters = await recorder.shutdown();
-    console.log("flight recorder", counters);
+    console.log("wayscribe", counters);
     process.exit(0);
   })();
 });

@@ -200,7 +200,7 @@ Salesforce access token is in a request header the recorder never sees.
 ```typescript
     onDiagnostic: (diagnostic) => {
       if (diagnostic.kind === "rejected" || diagnostic.kind === "dropped") {
-        console.warn("flight recorder", diagnostic.kind, diagnostic.code);
+        console.warn("wayscribe", diagnostic.kind, diagnostic.code);
       }
     }
 ```

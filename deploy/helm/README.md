@@ -17,7 +17,7 @@ docker tag wayscribe-api:latest wayscribe/api:local
 docker tag wayscribe-web:latest wayscribe/web:local
 kind load docker-image wayscribe/api:local wayscribe/web:local --name wayscribe
 
-helm install fr deploy/helm/wayscribe -f deploy/helm/values-local.yaml \
+helm install ws deploy/helm/wayscribe -f deploy/helm/values-local.yaml \
   --set secrets.encryptionKey=$(openssl rand -hex 32) \
   --set secrets.adminToken=$(openssl rand -hex 32)
 
@@ -29,9 +29,9 @@ Then open `http://localhost:3000` and sign in with the admin token you generated
 A new installation has no projects. Create one, and issue it a key:
 
 ```bash
-kubectl run frcli --rm -i --restart=Never \
+kubectl run wscli --rm -i --restart=Never \
   --image=wayscribe/api:local --image-pull-policy=Never \
-  --env="DATABASE_URL=postgresql://flight:flight@ws-wayscribe-postgresql:5432/flight" \
+  --env="DATABASE_URL=postgresql://wayscribe:wayscribe@ws-wayscribe-postgresql:5432/wayscribe" \
   --env="ENCRYPTION_KEY=$(kubectl get secret ws-wayscribe-secrets -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d)" \
   --command -- node packages/database/dist/cli.js project:create acme "Acme Payments"
 ```
@@ -44,7 +44,7 @@ is backed up and monitored (ADR-037). It needs PostgreSQL 15 or later and a role
 with privileges on its own schema; `docs/OPERATIONS.md` §1 lists them:
 
 ```bash
-helm install fr deploy/helm/wayscribe \
+helm install ws deploy/helm/wayscribe \
   --set databaseUrl=postgresql://user:password@db.internal:5432/wayscribe \
   --set secrets.encryptionKey=… --set secrets.adminToken=…
 ```

@@ -6,7 +6,7 @@
 #   docker tag wayscribe-web:latest wayscribe/web:local
 #   kind load docker-image wayscribe/api:local wayscribe/web:local --name wayscribe
 #
-#   helm install fr deploy/helm/wayscribe -f deploy/helm/values-local.yaml \
+#   helm install ws deploy/helm/wayscribe -f deploy/helm/values-local.yaml \
 #     --set secrets.encryptionKey=$(openssl rand -hex 32) \
 #     --set secrets.adminToken=$(openssl rand -hex 32)
 #

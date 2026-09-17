@@ -18,7 +18,7 @@
 //   UPGRADE_BASELINE_REF   ref to upgrade from; default the newest earlier
 //                          vMAJOR.MINOR.PATCH tag, else DEFAULT_BASELINE below
 //   UPGRADE_FETCH_TAGS=1   `git fetch --tags` before choosing (CI sets this)
-//   UPGRADE_PROJECT        Compose project name (default fr-upgrade-<pid>)
+//   UPGRADE_PROJECT        Compose project name (default ws-upgrade-<pid>)
 //   UPGRADE_API_PORT       host port for the API (default a free port)
 //   UPGRADE_BIND_ADDRESS   address the port binds to (default 127.0.0.1)
 //   UPGRADE_API_HOST       host the script calls the API on (default 127.0.0.1)
@@ -54,7 +54,7 @@ const COMPOSE_FILE = join(ROOT, "scripts", "upgrade-test.compose.yaml");
 // Unique per run by default. Every run begins with `compose down -v` on its
 // project, so two runs sharing a name would delete each other's database.
 // Compose requires a lowercase project name.
-const PROJECT = (process.env.UPGRADE_PROJECT || `fr-upgrade-${String(process.pid)}`).toLowerCase();
+const PROJECT = (process.env.UPGRADE_PROJECT || `ws-upgrade-${String(process.pid)}`).toLowerCase();
 const PRINT_BASELINE = process.argv.includes("--print-baseline");
 const API_PORT = process.env.UPGRADE_API_PORT || (PRINT_BASELINE ? "0" : String(await freePort()));
 const API_HOST = process.env.UPGRADE_API_HOST || "127.0.0.1";
@@ -225,9 +225,9 @@ async function sql(image, statement) {
     "postgres",
     "psql",
     "-U",
-    "flight",
+    "wayscribe",
     "-d",
-    "flight",
+    "wayscribe",
     "-tAc",
     statement
   ]);
@@ -736,7 +736,7 @@ async function main() {
 
   const workdir = process.env.UPGRADE_WORKDIR
     ? resolve(process.env.UPGRADE_WORKDIR)
-    : mkdtempSync(join(tmpdir(), "fr-upgrade-"));
+    : mkdtempSync(join(tmpdir(), "ws-upgrade-"));
   const worktree = join(workdir, `baseline-${baseline.commit.slice(0, 10)}`);
 
   // Registered before anything is created, and run in reverse, so an early
