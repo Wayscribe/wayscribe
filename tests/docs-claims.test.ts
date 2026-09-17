@@ -47,7 +47,7 @@ const recorderSource = (): string => read("packages/sdk-node/src/recorder.ts");
 describe("the Node SDK's documented numbers", () => {
   const resolved = resolveConfig({
     endpoint: "http://localhost:8080",
-    apiKey: "fr_test",
+    apiKey: "wsk_test",
     serviceName: "svc",
     environment: "development"
   });

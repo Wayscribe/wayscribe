@@ -54,7 +54,7 @@ From the published images, with `COMPOSE_FILE` set as in Operations §1:
 
 ```bash
 docker compose run --rm --entrypoint node api \
-  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
+  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key wsk_…
 ```
 
 From a checkout, where it reads the repository-root `.env`. Keep the `run`:
@@ -62,14 +62,14 @@ without it, pnpm runs its own built-in command of the same name, which checks
 pnpm and never looks at the database.
 
 ```bash
-pnpm run doctor --api-url http://localhost:8080 --api-key fr_…
+pnpm run doctor --api-url http://localhost:8080 --api-key wsk_…
 ```
 
 Pass the key your service uses. `doctor` checks it locally and never sends it
 anywhere, and it tells you which environment the key belongs to:
 
 ```text
-PASS  API key                 Key fr_LVrC_lHO- authenticates for docs/development. Events it sends must name environment "development".
+PASS  API key                 Key wsk_LVrC_lHO authenticates for docs/development. Events it sends must name environment "development".
 PASS  API reachable           GET http://localhost:8080/ready answered 200.
 ```
 
@@ -77,7 +77,7 @@ A key that this database does not know fails like this, which usually means
 the key was issued against another database:
 
 ```text
-FAIL  API key                 No key with prefix fr_notARealK exists in this database.
+FAIL  API key                 No key with prefix wsk_notAReal exists in this database.
                               Fix: Check that DATABASE_URL is the database the key was issued in (key:list shows every prefix), or issue a new key.
 ```
 
@@ -255,10 +255,10 @@ check each:
 
   ```text
   PREFIX        PROJECT/ENVIRONMENT            NAME                 LAST USED
-  fr_LVrC_lHO-  docs/development               docs-check           2026-09-17 00:01:50
-  fr_KxaI9KTDt  docs/staging                   docs-staging         2026-09-16 23:58:09  [REVOKED]
+  wsk_LVrC_lHO  docs/development               docs-check           2026-09-17 00:01:50
+  wsk_KxaI9KTD  docs/staging                   docs-staging         2026-09-16 23:58:09  [REVOKED]
   ```
-- `doctor --api-key fr_…` says whether this database knows the key and which
+- `doctor --api-key wsk_…` says whether this database knows the key and which
   environment it belongs to.
 - The admin token reads; it never ingests. Issue an API key with `key:create`.
 - A key moves to a new `ENCRYPTION_KEY` the next time it authenticates. One that

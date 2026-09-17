@@ -31,7 +31,7 @@ const fixture = JSON.parse(
 
 const base: RecorderConfig = {
   endpoint: "http://127.0.0.1:1",
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "production"
 };

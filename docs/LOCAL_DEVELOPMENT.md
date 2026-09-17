@@ -104,7 +104,7 @@ secrets, the demo's own key works:
 
 ```bash
 ADMIN_TOKEN=replace-for-local-development-0000 \
-  WAYSCRIBE_API_KEY=fr_demo00000000000000000000000000000 pnpm test:e2e
+  WAYSCRIBE_API_KEY=wsk_demo0000000000000000000000000000 pnpm test:e2e
 ```
 
 With your own `.env`, use its `ADMIN_TOKEN`, and set `API_URL` and `WEB_URL`
@@ -232,7 +232,7 @@ stored and whoever is revoking it usually does not have it:
 
 ```bash
 pnpm key:list
-pnpm key:revoke fr_AbCdEfGhIjK
+pnpm key:revoke wsk_AbCdEfGh
 ```
 
 ### Provisioning without a source checkout

@@ -16,7 +16,8 @@ const key = deriveSubkeys("0123456789abcdef0123456789abcdef").apiKey;
 describe("generateApiKey", () => {
   it("returns a key, a prefix, and a verifier", () => {
     const generated = generateApiKey(key);
-    expect(generated.apiKey.startsWith("fr_")).toBe(true);
+    expect(generated.apiKey).toMatch(/^wsk_[A-Za-z0-9_-]{32}$/);
+    expect(generated.apiKey).toHaveLength(36);
     expect(generated.keyPrefix).toHaveLength(API_KEY_PREFIX_LENGTH);
     expect(generated.apiKey.startsWith(generated.keyPrefix)).toBe(true);
     expect(generated.verifier).toMatch(/^[0-9a-f]{64}$/);
@@ -29,24 +30,47 @@ describe("generateApiKey", () => {
 
   it("does not store the key itself in the verifier", () => {
     const generated = generateApiKey(key);
-    expect(generated.verifier).not.toContain(generated.apiKey.slice(3));
+    expect(generated.verifier).not.toContain(generated.apiKey.slice(4));
+  });
+});
+
+describe("a key issued before the rename", () => {
+  // Keys started fr_ before ADR-057. Nothing on the server reads the prefix, so
+  // such a key still verifies against the record made when it was issued.
+  const legacyKey = "fr_" + "q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A";
+
+  it("still verifies", () => {
+    const record = apiKeyRecord(key, legacyKey);
+    expect(record.keyPrefix).toBe("fr_q8Zr4LmN2");
+    expect(verifyApiKey(key, legacyKey, record.verifier)).toBe(true);
+  });
+
+  it("still verifies through the keyring", () => {
+    const keyring = createKeyring("0123456789abcdef0123456789abcdef");
+    const record = apiKeyRecordFor(keyring, legacyKey);
+    expect(
+      verifyApiKeyWithKeyring(keyring, legacyKey, {
+        keyHash: record.verifier,
+        keyHashKeyId: record.keyHashKeyId
+      })
+    ).toEqual({ ok: true, migrate: null });
   });
 });
 
 describe("apiKeyRecord", () => {
-  const demoKey = "fr_demo00000000000000000000000000000";
+  const demoKey = "wsk_demo0000000000000000000000000000";
 
   it("produces a record that verifies the same key", () => {
     expect(verifyApiKey(key, demoKey, apiKeyRecord(key, demoKey).verifier)).toBe(true);
   });
 
   it("rejects a different key", () => {
-    const other = "fr_other0000000000000000000000000000";
+    const other = "wsk_other000000000000000000000000000";
     expect(verifyApiKey(key, other, apiKeyRecord(key, demoKey).verifier)).toBe(false);
   });
 
   it("takes the prefix from the key itself", () => {
-    expect(apiKeyRecord(key, demoKey).keyPrefix).toBe("fr_demo00000");
+    expect(apiKeyRecord(key, demoKey).keyPrefix).toBe("wsk_demo0000");
   });
 });
 
@@ -83,7 +107,7 @@ describe("issueApiKey", () => {
   it("issues a key verified under the current pepper and records the current key id", () => {
     const keyring = createKeyring(masterB, masterA);
     const issued = issueApiKey(keyring);
-    expect(issued.apiKey.startsWith("fr_")).toBe(true);
+    expect(issued.apiKey).toMatch(/^wsk_[A-Za-z0-9_-]{32}$/);
     expect(issued.keyPrefix).toBe(issued.apiKey.slice(0, API_KEY_PREFIX_LENGTH));
     expect(issued.keyHashKeyId).toBe(keyFingerprint(masterB));
     expect(verifyApiKey(keyring.current.apiKey, issued.apiKey, issued.verifier)).toBe(true);
@@ -97,7 +121,7 @@ describe("issueApiKey", () => {
 });
 
 describe("apiKeyRecordFor", () => {
-  const demoKey = "fr_demo00000000000000000000000000000";
+  const demoKey = "wsk_demo0000000000000000000000000000";
 
   it("matches the single-pepper record under the current key and records its id", () => {
     const keyring = createKeyring(masterB, masterA);
@@ -109,8 +133,8 @@ describe("apiKeyRecordFor", () => {
 });
 
 describe("verifyApiKeyWithKeyring", () => {
-  const presented = "fr_verify0000000000000000000000000000";
-  const wrong = "fr_wrong00000000000000000000000000000";
+  const presented = "wsk_verify00000000000000000000000000";
+  const wrong = "wsk_wrong000000000000000000000000000";
   const idA = keyFingerprint(masterA);
   const idB = keyFingerprint(masterB);
   const hashUnder = (master: string, apiKey = presented): string =>

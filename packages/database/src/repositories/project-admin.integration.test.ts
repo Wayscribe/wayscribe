@@ -46,7 +46,7 @@ describe("project administration", () => {
       name: "worker"
     });
     expect(issued.projectSlug).toBe("fulfilment");
-    expect(issued.apiKey).toMatch(/^fr_/);
+    expect(issued.apiKey).toMatch(/^wsk_/);
   });
 
   it("lists what exists", async () => {

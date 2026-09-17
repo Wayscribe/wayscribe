@@ -479,7 +479,7 @@ with it:
 
 ```bash
 docker compose run --rm --entrypoint node api \
-  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
+  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key wsk_…
 ```
 
 `doctor` prints one line per check (the database, migrations, default secrets,

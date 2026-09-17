@@ -471,7 +471,7 @@ forever on a misconfiguration; its error still reaches stderr every pass.
   authenticates, because the presented key is the only thing a verifier can be
   recomputed from. Wait for the services holding them to send events. A key that
   will not be used again should be revoked with `key:revoke` and the prefix the
-  listing shows (`key:revoke fr_AbCdEfGhIjK`), and reissued with `key:create` if
+  listing shows (`key:revoke wsk_AbCdEfGh`), and reissued with `key:create` if
   something still needs one. Revoked keys are not counted.
 - **API keys whose key id is `not recorded`.** Issued before key ids were
   stored. They record one the next time they authenticate. During a rotation
@@ -583,7 +583,7 @@ API keys rotate individually and without side effects:
 
 ```bash
 pnpm key:create local production new-worker-key
-pnpm key:revoke fr_AbCdEfGhIjK    # the old key's prefix, from key:list
+pnpm key:revoke wsk_AbCdEfGh    # the old key's prefix, from key:list
 ```
 
 ## 7. Retention
@@ -1416,10 +1416,10 @@ API image, like the other commands:
 
 ```bash
 docker compose run --rm --entrypoint node api \
-  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key fr_…
+  packages/database/dist/cli.js doctor --api-url http://api:8080 --api-key wsk_…
 ```
 
-From a checkout, `pnpm run doctor --api-url http://localhost:8080 --api-key fr_…`
+From a checkout, `pnpm run doctor --api-url http://localhost:8080 --api-key wsk_…`
 reads the repository-root `.env`.
 
 Run it with the API's environment, because that is what it checks: the same
@@ -1437,7 +1437,7 @@ beneath it:
 | Migrations | any are pending, the database has one this build does not, or the role has no `USAGE` on the schema holding them (the fix names the `GRANT`) | |
 | `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |
-| Projects and keys | | no project, no unrevoked API key, or the published demo key (`fr_demo00000`) is unrevoked |
+| Projects and keys | | no project, no unrevoked API key, or the published demo key (`wsk_demo0000`) is unrevoked |
 | Journey environments | an event was written by another environment's API key than its journey's own, which ingestion now refuses (ADR-038, amendment) and earlier builds did not | |
 | Secret-looking names | | a recently stored payload holds a plain value under a key name that looks like a secret, or the sample did not finish within 5 seconds or could not run |
 | API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |

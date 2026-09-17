@@ -62,7 +62,7 @@ async function capture(run: (recorder: Recorder) => Promise<void> | void): Promi
   const diagnostics: Diagnostic[] = [];
   const recorder = createRecorder({
     endpoint: `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`,
-    apiKey: "fr_test",
+    apiKey: "wsk_test",
     serviceName: "svc",
     environment: "development",
     onDiagnostic: (d) => diagnostics.push(d)

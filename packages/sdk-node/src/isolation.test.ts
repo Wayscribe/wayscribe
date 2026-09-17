@@ -4,7 +4,7 @@ import { createRecorder } from "./recorder.js";
 // Port 1 refuses connections on every platform we care about.
 const base = {
   endpoint: "http://127.0.0.1:1",
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "development"
 };

@@ -70,7 +70,7 @@ function webhook(extraNames) {
 async function timeRecords(createRecorder, payload, count) {
   const recorder = createRecorder({
     endpoint: "http://127.0.0.1:1",
-    apiKey: "fr_bench_not_a_key",
+    apiKey: "wsk_bench_not_a_key",
     serviceName: "bench",
     environment: "bench",
     flushIntervalMs: 3_600_000,

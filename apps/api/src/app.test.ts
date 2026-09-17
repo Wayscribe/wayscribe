@@ -188,7 +188,7 @@ describe("an unexpected database error", () => {
       const response = await app.inject({
         method: "GET",
         url: "/v1/journeys/jrn_1",
-        headers: { authorization: "Bearer fr_0000000000000000000000000000000" }
+        headers: { authorization: "Bearer wsk_0000000000000000000000000000000" }
       });
 
       expect(response.statusCode, sqlState).toBe(500);
@@ -256,11 +256,14 @@ describe("log redaction", () => {
     await app.inject({
       method: "GET",
       url: "/health",
-      headers: { authorization: "Bearer fr_secret_value_here", cookie: "wayscribe_session=abc.def" }
+      headers: {
+        authorization: "Bearer wsk_secret_value_here",
+        cookie: "wayscribe_session=abc.def"
+      }
     });
 
     const written = lines.join("");
-    expect(written).not.toContain("fr_secret_value_here");
+    expect(written).not.toContain("wsk_secret_value_here");
     expect(written).not.toContain("abc.def");
     await app.close();
   });
@@ -270,12 +273,12 @@ describe("log redaction", () => {
     // the redact configuration has to.
     const { app, lines } = appWithCapturedLogs();
     app.log.info(
-      { headers: { authorization: "Bearer fr_secret_value_here", "user-agent": "probe" } },
+      { headers: { authorization: "Bearer wsk_secret_value_here", "user-agent": "probe" } },
       "explicit"
     );
 
     const written = lines.join("");
-    expect(written).not.toContain("fr_secret_value_here");
+    expect(written).not.toContain("wsk_secret_value_here");
     expect(written).toContain("[REDACTED]");
     // Redaction, not suppression: the rest of the object survives.
     expect(written).toContain("user-agent");
@@ -417,9 +420,9 @@ describe("query strings in the log", () => {
 
   it("still censors headers logged explicitly", async () => {
     const { app, lines } = appWithCapturedLogs();
-    app.log.info({ headers: { authorization: "Bearer fr_still_secret_000" } }, "explicit");
+    app.log.info({ headers: { authorization: "Bearer wsk_still_secret_000" } }, "explicit");
     const written = lines.join("");
-    expect(written).not.toContain("fr_still_secret_000");
+    expect(written).not.toContain("wsk_still_secret_000");
     expect(written).toContain("[REDACTED]");
     await app.close();
   });
@@ -430,7 +433,7 @@ describe("a request too malformed for HTTP", () => {
   // default client-error handler logged `{ err }` at trace. The parser's error
   // carries `rawPacket`, the request bytes as received: every header, the
   // bearer key among them, and the query string.
-  const TOKEN = "fr_rawpacket_token_5d2c81e9a0b4";
+  const TOKEN = "wsk_rawpacket_token_5d2c81e9a0b4";
   const VALUE = "CUST-RAWPACKET-3317";
 
   /** Send raw bytes to the app and wait until the server closes the connection. */

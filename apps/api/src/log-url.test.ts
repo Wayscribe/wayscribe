@@ -21,11 +21,11 @@ describe("serializeError", () => {
   it("keeps type, message, stack, code, and cause, and drops rawPacket at every level", () => {
     const cause = Object.assign(new Error("inner"), {
       code: "HPE_INVALID",
-      rawPacket: Buffer.from("Authorization: Bearer fr_inner")
+      rawPacket: Buffer.from("Authorization: Bearer wsk_inner")
     });
     const error = Object.assign(new TypeError("outer", { cause }), {
       statusCode: 400,
-      rawPacket: Buffer.from("Authorization: Bearer fr_outer")
+      rawPacket: Buffer.from("Authorization: Bearer wsk_outer")
     });
 
     const logged = serializeError(error);
@@ -101,7 +101,7 @@ describe("serializeRequest", () => {
         host: "api:8080",
         ip: "10.0.0.5",
         socket: { remotePort: 51234 },
-        headers: { authorization: "Bearer fr_secret" }
+        headers: { authorization: "Bearer wsk_secret" }
       })
     ).toEqual({
       method: "GET",

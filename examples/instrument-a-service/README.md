@@ -49,7 +49,7 @@ npm install
 ```
 
 ```bash
-WAYSCRIBE_API_KEY=fr_the_key_you_just_issued node index.mjs
+WAYSCRIBE_API_KEY=wsk_the_key_you_just_issued node index.mjs
 ```
 
 It prints a link. Open it, sign in with your `ADMIN_TOKEN`, and read the
@@ -61,7 +61,7 @@ link to `localhost:3000`:
 
 ```bash
 WAYSCRIBE_URL=http://localhost:8081 WAYSCRIBE_WEB=http://localhost:3001 \
-  WAYSCRIBE_API_KEY=fr_the_key_you_just_issued node index.mjs
+  WAYSCRIBE_API_KEY=wsk_the_key_you_just_issued node index.mjs
 ```
 
 ## Installing from npm instead

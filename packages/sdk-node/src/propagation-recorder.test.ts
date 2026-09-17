@@ -4,7 +4,7 @@ import { createRecorder } from "./recorder.js";
 
 const base = {
   endpoint: "http://127.0.0.1:1",
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "development"
 };
@@ -70,7 +70,7 @@ describe("recorder propagation", () => {
 describe("propagation cannot break the host", () => {
   const recorder = createRecorder({
     endpoint: "http://127.0.0.1:1",
-    apiKey: "fr_test",
+    apiKey: "wsk_test",
     serviceName: "relay",
     environment: "development"
   });
@@ -113,7 +113,7 @@ describe("propagation cannot break the host", () => {
     const seen: Diagnostic[] = [];
     const reporting = createRecorder({
       endpoint: "http://127.0.0.1:1",
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "relay",
       environment: "development",
       onDiagnostic: (d) => seen.push(d)
@@ -130,7 +130,7 @@ describe("propagation cannot break the host", () => {
     const seen: Diagnostic[] = [];
     const reporting = createRecorder({
       endpoint: "http://127.0.0.1:1",
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "relay",
       environment: "development",
       onDiagnostic: (d) => seen.push(d)
@@ -167,7 +167,7 @@ describe("propagation cannot break the host", () => {
 describe("an entity id that cannot be a header value", () => {
   const full = createRecorder({
     endpoint: "http://127.0.0.1:1",
-    apiKey: "fr_test",
+    apiKey: "wsk_test",
     serviceName: "svc",
     environment: "development",
     propagation: "full"

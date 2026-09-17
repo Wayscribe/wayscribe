@@ -75,13 +75,15 @@ describe("rename to Wayscribe", () => {
       .filter((file) => !allowedFile(file));
     expect(files.sort()).toEqual(
       [
-        ".gitleaks.toml",
-        "packages/database/src/doctor.ts",
+        ".gitleaks.toml", // allows fixtures in both key forms
+        "docs/SECURITY.md", // the one place the docs name the old key form
+        "packages/database/src/doctor.ts", // accepts an fr_ key for --api-key
         "packages/database/src/doctor.test.ts",
-        "packages/payload-security/src/mask-text.ts",
+        "packages/payload-security/src/api-key.ts", // says why fr_ keys still verify
+        "packages/payload-security/src/api-key.test.ts", // proves they do
+        "packages/payload-security/src/mask-text.ts", // masks fr_ keys in error text
         "packages/payload-security/src/mask-text.test.ts",
-        "packages/payload-security/src/api-key.test.ts",
-        "scripts/upgrade-test.mjs"
+        "scripts/upgrade-test.mjs" // the baseline build issues fr_ keys
       ].sort()
     );
   });

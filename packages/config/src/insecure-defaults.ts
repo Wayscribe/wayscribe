@@ -13,7 +13,7 @@
  * configured secrets and had not.
  */
 /** The API key `infrastructure/compose.demo.yaml` commits for the demo services. */
-export const PUBLISHED_DEMO_API_KEY = "fr_demo00000000000000000000000000000";
+export const PUBLISHED_DEMO_API_KEY = "wsk_demo0000000000000000000000000000";
 
 const PUBLISHED_DEFAULTS = new Set([
   "replace-for-local-development-0000",

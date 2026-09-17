@@ -538,7 +538,7 @@ describe("docs/SDK_SPEC.md", () => {
     );
     const resolved = resolveConfig({
       endpoint: "http://localhost:8080",
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "svc",
       environment: "development"
     });

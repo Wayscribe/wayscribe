@@ -8,7 +8,7 @@ import { createRecorder, type Journey } from "./recorder.js";
 // transport, which is the point.
 const base = {
   endpoint: "http://127.0.0.1:1",
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "development"
 };
@@ -799,7 +799,7 @@ describe("instrumenting a synchronous handler", () => {
   function handle(raw: string): { status: number; body: unknown } {
     const journey = createRecorder({
       endpoint: "http://127.0.0.1:1",
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "api",
       environment: "development"
     }).startJourney({ entity: { type: "customer", id: "1" } });
@@ -824,7 +824,7 @@ describe("instrumenting a synchronous handler", () => {
   it("produces a value, not a promise", () => {
     const journey = createRecorder({
       endpoint: "http://127.0.0.1:1",
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "api",
       environment: "development"
     }).startJourney({ entity: { type: "customer", id: "1" } });

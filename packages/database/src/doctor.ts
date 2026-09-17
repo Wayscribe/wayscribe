@@ -545,15 +545,28 @@ async function journeyEnvironmentsResult(db: Knex): Promise<CheckResult> {
   return pass("Journey environments", "Every event belongs to its journey's environment.");
 }
 
+/**
+ * Why a presented key cannot be a Wayscribe key, or null if it can be.
+ *
+ * New keys start `wsk_` (36 characters); keys issued before the rename
+ * (ADR-057) start `fr_` (35) and still authenticate, so both are accepted. The
+ * length test only asks for more than the stored prefix: the server itself
+ * never checks a key's length, so neither does this.
+ */
+export function apiKeyShapeProblem(presented: string): CheckResult | null {
+  const known = presented.startsWith("wsk_") || presented.startsWith("fr_");
+  if (known && presented.length > API_KEY_PREFIX_LENGTH) return null;
+  return fail(
+    "API key",
+    "The key given is not a Wayscribe API key, which starts wsk_ (or fr_ for keys issued before the rename).",
+    "Pass the key key:create printed, whole."
+  );
+}
+
 async function apiKeyResult(db: Knex, keyring: Keyring, apiKey: string): Promise<CheckResult> {
   const presented = apiKey.trim();
-  if (!presented.startsWith("fr_") || presented.length <= API_KEY_PREFIX_LENGTH) {
-    return fail(
-      "API key",
-      "The key given is not a Wayscribe API key, which starts fr_ and is 35 characters.",
-      "Pass the key key:create printed, whole."
-    );
-  }
+  const shapeProblem = apiKeyShapeProblem(presented);
+  if (shapeProblem !== null) return shapeProblem;
 
   const prefix = presented.slice(0, API_KEY_PREFIX_LENGTH);
   const row: unknown = await db("api_keys")

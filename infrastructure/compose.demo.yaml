@@ -26,7 +26,7 @@ x-demo: &demo
     # A placeholder, and safe to commit: it authorises writing demo events to a
     # local stack and nothing else. Real keys come from `pnpm db:seed`, which
     # generates them and prints each one exactly once.
-    WAYSCRIBE_API_KEY: ${DEMO_API_KEY:-fr_demo00000000000000000000000000000}
+    WAYSCRIBE_API_KEY: ${DEMO_API_KEY:-wsk_demo0000000000000000000000000000}
     WAYSCRIBE_ENVIRONMENT: development
     QUEUE_ENDPOINT: http://elasticmq:9324
     QUEUE_URL: http://elasticmq:9324/000000000000/customer-updates

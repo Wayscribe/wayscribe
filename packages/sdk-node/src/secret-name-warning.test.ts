@@ -70,7 +70,7 @@ async function run(
   try {
     const recorder = createRecorder({
       endpoint,
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "svc",
       environment: "development",
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -337,7 +337,7 @@ describe("the unredacted secret-name warning", () => {
       const before = process.memoryUsage().heapUsed;
       const recorder = createRecorder({
         endpoint,
-        apiKey: "fr_test",
+        apiKey: "wsk_test",
         serviceName: "svc",
         environment: "development",
         onDiagnostic: (diagnostic) => kept.push(diagnostic)

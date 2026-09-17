@@ -43,7 +43,7 @@ async function capture(record: (journey: Journey) => Promise<void> | void): Prom
   try {
     const recorder = createRecorder({
       endpoint: `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`,
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "svc",
       environment: "development",
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic)
@@ -261,7 +261,7 @@ describe("types", () => {
   it("keeps the callback's own return type, and gives the projection the resolved value", () => {
     const journey = createRecorder({
       endpoint: "http://127.0.0.1:1",
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "svc",
       environment: "development"
     }).startJourney({ entity: { type: "invoice", id: "1" } });

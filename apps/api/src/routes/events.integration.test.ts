@@ -205,7 +205,7 @@ describe("event ingestion", () => {
   });
 
   it("rejects an unknown key", async () => {
-    expect((await send(event(), "fr_totallyfakekeyvalue")).statusCode).toBe(401);
+    expect((await send(event(), "wsk_totallyfakekeyvalue")).statusCode).toBe(401);
   });
 
   it("rejects an event naming another environment", async () => {
@@ -619,7 +619,7 @@ describe("event ingestion", () => {
     });
 
     it("validates the error body of a refused credential", async () => {
-      const response = await send(event({ id: "evt_schema_401" }), "fr_not_a_key");
+      const response = await send(event({ id: "evt_schema_401" }), "wsk_not_a_key");
       expect(response.statusCode).toBe(401);
       against(errorBody, response.json(), "401");
     });

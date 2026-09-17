@@ -59,7 +59,7 @@ async function capture(
   try {
     const recorder = createRecorder({
       endpoint: `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`,
-      apiKey: "fr_test",
+      apiKey: "wsk_test",
       serviceName: "sweep",
       environment: "development",
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),

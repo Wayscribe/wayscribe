@@ -408,7 +408,7 @@ describe("doctor", () => {
   it("warns while the published demo key is active, and names the revoke", async () => {
     // compose.demo.yaml commits this key so the demo starts with nothing
     // configured. On any other installation it lets anyone write events.
-    const demoKey = "fr_demo00000000000000000000000000000";
+    const demoKey = "wsk_demo0000000000000000000000000000";
     await withDatabase("demokey", async (db) => {
       await db.migrate.latest();
       await db("projects").insert({ name: "Acme", slug: "acme" });
@@ -423,14 +423,14 @@ describe("doctor", () => {
     const active = await doctor([], {}, "demokey");
 
     expect(statusOf(active, "Projects and keys"), active.output).toBe("WARN");
-    expect(lineOf(active, "Projects and keys")).toContain("fr_demo00000");
-    expect(active.output).toContain("key:revoke fr_demo00000");
+    expect(lineOf(active, "Projects and keys")).toContain("wsk_demo0000");
+    expect(active.output).toContain("key:revoke wsk_demo0000");
     expect(active.code).toBe(0);
     expect(active.output).not.toContain(demoKey);
 
     const db = knex(createKnexConfig(urlFor("demokey")));
     try {
-      await revokeKey(db, "fr_demo00000");
+      await revokeKey(db, "wsk_demo0000");
     } finally {
       await db.destroy();
     }
@@ -465,11 +465,11 @@ describe("doctor", () => {
   });
 
   it("fails a key this database never issued", async () => {
-    const run = await doctor(["--api-key", "fr_neverissued0000000000000000000000"], {});
+    const run = await doctor(["--api-key", "wsk_neverissued000000000000000000000"], {});
 
     expect(run.code).toBe(1);
-    expect(lineOf(run, "API key")).toContain("No key with prefix fr_neverissu");
-    expect(run.output).not.toContain("fr_neverissued0000000000000000000000");
+    expect(lineOf(run, "API key")).toContain("No key with prefix wsk_neveriss");
+    expect(run.output).not.toContain("wsk_neverissued000000000000000000000");
   });
 
   it("fails when the API is not ready, with its reason", async () => {

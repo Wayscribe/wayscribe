@@ -90,7 +90,7 @@ import { createRecorder } from "@wayscribe/node";
 
 const recorder = createRecorder({
   endpoint: "http://127.0.0.1:9",
-  apiKey: "fr_consumer_check",
+  apiKey: "wsk_consumer_check",
   serviceName: "consumer-check",
   environment: "test",
   logDiagnostics: false
@@ -109,7 +109,7 @@ const { createRecorder } = require("@wayscribe/node");
 async function main() {
   const recorder = createRecorder({
     endpoint: "http://127.0.0.1:9",
-    apiKey: "fr_consumer_check",
+    apiKey: "wsk_consumer_check",
     serviceName: "consumer-check",
     environment: "test",
     logDiagnostics: false

@@ -239,7 +239,7 @@ describe("dry-run validation", () => {
     });
 
     it("is refused before the credential is checked, so a bad key cannot hide it", async () => {
-      const response = await batch([], "?dryRun=maybe", "fr_not_a_key");
+      const response = await batch([], "?dryRun=maybe", "wsk_not_a_key");
       expect(response.statusCode).toBe(400);
     });
 

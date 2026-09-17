@@ -476,8 +476,9 @@ async function ingest(apiKey, events, label) {
   );
 }
 
+/** The baseline build prints `fr_` keys (issued before the rename, ADR-057); this one `wsk_`. */
 function apiKeyFrom(output) {
-  const match = /fr_[A-Za-z0-9_-]{16,}/.exec(output);
+  const match = /(?:wsk|fr)_[A-Za-z0-9_-]{16,}/.exec(output);
   if (match === null) throw new UpgradeTestError(`key:create printed no key:\n${output}`);
   return match[0];
 }

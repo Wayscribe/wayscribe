@@ -3,7 +3,7 @@ import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder } from "./recorder.js";
 
 const base = {
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "development"
 };

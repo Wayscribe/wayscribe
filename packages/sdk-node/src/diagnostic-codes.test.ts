@@ -10,7 +10,7 @@ import { createRecorder, type RecorderConfig } from "./index.js";
  */
 
 const base = {
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "development"
 };

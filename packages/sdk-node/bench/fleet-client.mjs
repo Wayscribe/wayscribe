@@ -11,7 +11,7 @@ const { createRecorder } = await import(args.module);
 
 const recorder = createRecorder({
   endpoint: args.endpoint,
-  apiKey: "fr_bench_not_a_key",
+  apiKey: "wsk_bench_not_a_key",
   serviceName: "fleet",
   environment: "bench",
   maxConcurrentSends: args.maxConcurrentSends

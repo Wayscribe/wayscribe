@@ -5,7 +5,7 @@ import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder } from "./recorder.js";
 
 const base = {
-  apiKey: "fr_test",
+  apiKey: "wsk_test",
   serviceName: "svc",
   environment: "development"
 };
@@ -246,7 +246,7 @@ describe("the console", () => {
       "[wayscribe] rejected: invalid_event at event.aliases.email (the server's message goes to onDiagnostic)"
     ]);
     expect(lines.join()).not.toContain("cus_secret_id");
-    expect(lines.join()).not.toContain("fr_test");
+    expect(lines.join()).not.toContain("wsk_test");
     // Nothing is lost: the callback still gets the whole message.
     expect(reasons.join()).toContain("Value dana@example.com is not allowed.");
   });

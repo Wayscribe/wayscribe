@@ -297,7 +297,7 @@ e2e:
     - pnpm --filter @wayscribe/web start &
     # A bounded wait: a server that dies at boot must fail the job, not hang it.
     - npx wait-on --timeout 120000 http://localhost:8080/health http://localhost:3000/login
-    - export WAYSCRIBE_API_KEY=$(pnpm db:seed | grep -oE 'fr_[A-Za-z0-9_-]+' | tail -1)
+    - export WAYSCRIBE_API_KEY=$(pnpm db:seed | grep -oE 'wsk_[A-Za-z0-9_-]+' | tail -1)
     - pnpm test:e2e
 
 # The demo is the product acceptance test (DEMO_SCENARIO.md section 1). It needs

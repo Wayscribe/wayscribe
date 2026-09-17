@@ -128,7 +128,7 @@ describe("formatRotationStatus", () => {
         unknownKey: [],
         notCurrent: [
           {
-            keyPrefix: "fr_abcdefghi",
+            keyPrefix: "wsk_abcdefgh",
             name: "worker",
             projectSlug: "acme",
             environmentName: "production",
@@ -146,8 +146,8 @@ describe("formatRotationStatus", () => {
     expect(lines.join("\n")).toContain(
       "journeys has rows under cccccccccccc, which is not configured."
     );
-    expect(lines.find((line) => line.startsWith("fr_abcdefghi"))).toMatch(
-      /^fr_abcdefghi\s+acme\/production\s+worker\s+not recorded\s+never$/
+    expect(lines.find((line) => line.startsWith("wsk_abcdefgh"))).toMatch(
+      /^wsk_abcdefgh\s+acme\/production\s+worker\s+not recorded\s+never$/
     );
     expect(lines.at(-1)).toBe("Not complete: 2 rows and 1 API key are not under the current key.");
   });
@@ -179,7 +179,7 @@ describe("formatRotationStatus", () => {
     // An install from before key ids were stored, with no previous key: the
     // key is under the only key there is, and records its id when next used.
     const unrecorded = {
-      keyPrefix: "fr_abcdefghi",
+      keyPrefix: "wsk_abcdefgh",
       name: "worker",
       projectSlug: "acme",
       environmentName: "production",
@@ -196,8 +196,8 @@ describe("formatRotationStatus", () => {
 
     expect(lines).toContain("API keys not yet under the current key: 0");
     expect(lines).toContain("API keys with key id not recorded yet; recorded on next use: 1");
-    expect(lines.find((line) => line.startsWith("fr_abcdefghi"))).toMatch(
-      /^fr_abcdefghi\s+acme\/production\s+worker\s+not recorded\s+never$/
+    expect(lines.find((line) => line.startsWith("wsk_abcdefgh"))).toMatch(
+      /^wsk_abcdefgh\s+acme\/production\s+worker\s+not recorded\s+never$/
     );
     expect(lines.join("\n")).not.toContain("Each moves to the current key");
     expect(lines.at(-1)).toBe("Complete: every row and API key is under the current key.");
@@ -217,9 +217,9 @@ describe("formatRotationStatus", () => {
         complete: false,
         apiKeys: {
           current: 0,
-          notCurrent: [key("fr_previous1", "aaaaaaaaaaaa")],
+          notCurrent: [key("wsk_previous", "aaaaaaaaaaaa")],
           notRecorded: [],
-          unknownKey: [key("fr_orphan001", "cccccccccccc"), key("fr_orphan002", "cccccccccccc")]
+          unknownKey: [key("wsk_orphan01", "cccccccccccc"), key("wsk_orphan02", "cccccccccccc")]
         }
       })
     );
