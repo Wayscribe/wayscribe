@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PostResult, ReplayRun } from "../../../src/lib/api";
+import { ApiUnavailableError, type PostResult, type ReplayRun } from "../../../src/lib/api";
 import { SESSION_COOKIE_NAME, signSession } from "../../../src/lib/session";
 import { POST } from "./route";
 
@@ -159,12 +159,44 @@ describe("POST /api/replay", () => {
     );
   });
 
-  it("returns to the replay page with the event alone when the API answered neither", async () => {
-    createReplayMock.mockResolvedValue(result({ ok: false, status: 500 }));
+  it("returns to the replay page with a generic error when the API answered neither", async () => {
+    createReplayMock.mockResolvedValue(result({ ok: false, status: 502 }));
 
     const response = await POST(requestFor(signedIn(), FORM));
 
-    expect(response.headers.get("location")).toBe("/journeys/jrn_1/replay?event=evt_1");
+    expect(response.headers.get("location")).toBe(
+      "/journeys/jrn_1/replay?event=evt_1&error=unexpected"
+    );
+  });
+
+  it("returns to the replay page with api_unavailable when the API cannot be reached, and logs why", async () => {
+    const unreachable = new ApiUnavailableError("The Flight Recorder API is unreachable.", {
+      cause: new Error("connect ECONNREFUSED 10.0.0.1:8080")
+    });
+    createReplayMock.mockRejectedValue(unreachable);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(requestFor(signedIn(), { ...FORM, journeyId: "jrn/1" }));
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "/journeys/jrn%2F1/replay?event=evt_1&error=api_unavailable"
+    );
+    // The detail goes to the server log, never into the redirect.
+    expect(consoleError).toHaveBeenCalledWith(unreachable);
+    expect(response.headers.get("location")).not.toContain("ECONNREFUSED");
+  });
+
+  it("returns to the replay page with a generic error when anything else is thrown", async () => {
+    createReplayMock.mockRejectedValue(new TypeError("Cannot read properties of undefined"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(requestFor(signedIn(), FORM));
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "/journeys/jrn_1/replay?event=evt_1&error=unexpected"
+    );
   });
 
   it("encodes the journey id and the query values from the form", async () => {
