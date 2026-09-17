@@ -1,7 +1,7 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createKeyring, verifyApiKeyWithKeyring } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";
 import { insertReturningId } from "../insert.js";
 import { KeyAdminError, issueKey, listKeys, revokeKey } from "./key-admin.js";
@@ -14,7 +14,7 @@ describe("API key administration", () => {
   let db: Knex;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     await insertReturningId(db, "projects", { name: "Local", slug: "local" });

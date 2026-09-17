@@ -4,7 +4,7 @@ import { createKnexConfig, insertReturningId, issueKey } from "@flight-recorder/
 import { createKeyring, searchTokens } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { buildApp } from "../app.js";
 
 /**
@@ -68,7 +68,7 @@ describe("a journey cannot span environments", () => {
   const keys: Record<Environment, string> = { production: "", development: "" };
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

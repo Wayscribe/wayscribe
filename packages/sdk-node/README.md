@@ -1127,8 +1127,14 @@ Node 22.12 or later.
 
 The package is ESM, with one bundled file and one declaration file. `import`
 works on any supported Node, and so does `require()`, because Node 22.12 is the
-first 22 release where `require()` of an ES module needs no flag. Node 20 is
-past its end of life and is not supported.
+first 22 release where `require()` of an ES module needs no flag. On 22.12 that
+`require()` prints an `ExperimentalWarning` once; Node 24 prints nothing. Node
+20 is past its end of life and is not supported.
+
+CI checks this on Node 22.12.0 and 24: it builds the package, runs its unit
+tests, and installs the packed tarball into a fresh ESM project and a fresh
+CommonJS project, each of which creates a recorder and calls a wrapper
+(`scripts/sdk-node-versions.sh`).
 
 ## Stability
 

@@ -41,8 +41,13 @@ export interface DoctorOptions {
 
 /** PostgreSQL 15 is the oldest release Flight Recorder's SQL is written for. */
 const MINIMUM_POSTGRES = 150_000;
-/** The version CI, Compose, and the Helm chart run. */
-const TESTED_POSTGRES = 170_000;
+/**
+ * The newest release CI runs the integration suite on. CI runs it on 15, 17
+ * and 18 (`database` in .gitlab-ci.yml); 16 lies between two tested releases
+ * and passes too. A newer release is not known to break anything, but nobody
+ * has run it, so doctor says so.
+ */
+const NEWEST_TESTED_POSTGRES = 18;
 
 /**
  * The shortest secret scrubbed from output.
@@ -354,14 +359,14 @@ export function versionResult(version: { num: number; text: string }): CheckResu
     return fail(
       "PostgreSQL version",
       `PostgreSQL ${version.text} is older than 15, the oldest supported.`,
-      "Upgrade PostgreSQL to 17, or at least 15."
+      "Upgrade PostgreSQL to 15 or later; CI tests 15, 17 and 18."
     );
   }
-  if (version.num < TESTED_POSTGRES) {
+  if (Math.floor(version.num / 10_000) > NEWEST_TESTED_POSTGRES) {
     return warn(
       "PostgreSQL version",
-      `PostgreSQL ${version.text} is supported, but CI tests against 17.`,
-      "Upgrade to PostgreSQL 17 when you can; nothing is known to break on 15 or 16."
+      `PostgreSQL ${version.text} is newer than ${String(NEWEST_TESTED_POSTGRES)}, the newest release CI tests.`,
+      "Nothing is known to break on it; if something does, report it, or run a tested release (15, 17 or 18)."
     );
   }
   return pass("PostgreSQL version", `PostgreSQL ${version.text}.`);

@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig, migrationsDirectory } from "./knex-config.js";
 import {
@@ -18,7 +18,7 @@ describe("schema constraints", () => {
   let environmentId: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 
@@ -33,6 +33,17 @@ describe("schema constraints", () => {
   afterAll(async () => {
     await db.destroy();
     await container.stop();
+  });
+
+  // CI runs this suite once per supported PostgreSQL release by setting
+  // TEST_POSTGRES_VERSION. A run that silently used the default would report
+  // 15 or 18 as tested when it was not.
+  it("runs on the PostgreSQL major version under test", async () => {
+    const result = await db.raw<{ rows: { version: string }[] }>(
+      "select current_setting('server_version') as version"
+    );
+    const version = result.rows[0]?.version ?? "";
+    expect(version.split(".")[0]).toBe(inject("postgresVersion"));
   });
 
   it("applies all migrations", async () => {

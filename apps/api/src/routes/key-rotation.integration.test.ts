@@ -12,7 +12,7 @@ import {
 } from "@flight-recorder/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
 import { buildApp } from "../app.js";
 
 /** The key id a stored value names, or null for a legacy value. */
@@ -57,7 +57,7 @@ describe("key rotation grace period", () => {
   const keyringB = createKeyring(KEY_B);
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

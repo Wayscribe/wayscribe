@@ -1,7 +1,7 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createKeyring, searchTokens } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
 import { InvalidCursorError, encodeCursor } from "./cursors.js";
@@ -21,7 +21,7 @@ describe("searchJourneys", () => {
   let otherScope: ReadScope;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

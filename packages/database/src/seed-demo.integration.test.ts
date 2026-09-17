@@ -1,7 +1,7 @@
 import { createKeyring, verifyApiKeyWithKeyring } from "@flight-recorder/payload-security";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { createKnexConfig } from "./knex-config.js";
 import { seedDemo } from "./seed-demo.js";
 
@@ -29,7 +29,7 @@ describe("seedDemo", () => {
   let db: Knex;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
   });

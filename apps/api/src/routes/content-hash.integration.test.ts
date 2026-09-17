@@ -10,7 +10,7 @@ import {
 import { parseEnvelope } from "@flight-recorder/protocol";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
 import { buildApp } from "../app.js";
 
 const KEY_A = "0123456789abcdef0123456789abcdef";
@@ -58,7 +58,7 @@ describe("keyed content hash", () => {
   let app: FastifyInstance | undefined;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

@@ -1,7 +1,7 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createKeyring, parseEncryptedValue } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";
 import { insertReturningId } from "../insert.js";
 import { listAudit, recordAudit } from "./audit.js";
@@ -32,7 +32,7 @@ describe("replay destinations", () => {
   let projectB: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectA = await insertReturningId(db, "projects", { name: "A", slug: "a" });
@@ -201,7 +201,7 @@ describe("replay runs", () => {
   let destinationId: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectId = await insertReturningId(db, "projects", { name: "R", slug: "r" });
@@ -310,7 +310,7 @@ describe("audit events", () => {
   let projectId: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectId = await insertReturningId(db, "projects", { name: "Au", slug: "au" });

@@ -28,11 +28,16 @@ reads. The commands for the published images in this document are written
 without `-f` and rely on it, so they always see the stack you started. Export it
 again in a new shell.
 
-It needs PostgreSQL 15 or later (CI tests 17), an ordinary database, and an
-ordinary role: `USAGE`, `CREATE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE` on its
-own schema. It does not need `CREATE` on the database: it installs no
-extensions and touches nothing outside the tables its migrations create, so an
-existing database with other tables in it is fine.
+It needs PostgreSQL 15 or later, an ordinary database, and an ordinary role:
+`USAGE`, `CREATE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE` on its own schema. It
+does not need `CREATE` on the database: it installs no extensions and touches
+nothing outside the tables its migrations create, so an existing database with
+other tables in it is fine.
+
+CI runs the whole integration suite, migrations included, on PostgreSQL 15, 17
+and 18. 16 is not run; it lies between two releases that are, and `doctor`
+passes it. The README's [Supported versions](../README.md#supported-versions)
+table lists the Node, Compose and platform versions as well.
 
 The bundled overlay runs PostgreSQL in a container instead and sets
 `DATABASE_URL` for you:
@@ -1404,7 +1409,7 @@ beneath it:
 | Check | Fails when | Warns when |
 | --- | --- | --- |
 | Database reachable | the connection is refused, the host does not resolve, or authentication fails | |
-| PostgreSQL version | below 15 | below 17, the version CI tests |
+| PostgreSQL version | below 15 | newer than 18, the newest release CI tests (CI tests 15, 17 and 18) |
 | Migrations | any are pending, the database has one this build does not, or the role has no `USAGE` on the schema holding them (the fix names the `GRANT`) | |
 | `ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ENCRYPTION_KEY_PREVIOUS` | one is a published development default, or `ADMIN_TOKEN` is too short to start the API | `ADMIN_TOKEN` is not set where doctor runs |
 | Keys readable | stored data or API keys are under a key that is not configured (the boot check's count) | a rotation is in progress |

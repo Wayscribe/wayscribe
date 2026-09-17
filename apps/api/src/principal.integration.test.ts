@@ -2,7 +2,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import { createKnexConfig, insertReturningId, searchJourneys } from "@flight-recorder/database";
 import { createKeyring, issueApiKey, searchTokens } from "@flight-recorder/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { databaseApiKeys } from "./auth.js";
 import { principalEnvironmentId, principalProjectId, resolvePrincipal } from "./principal.js";
 
@@ -19,7 +19,7 @@ describe("principal resolution", () => {
   let apiKey: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    container = await new PostgreSqlContainer(inject("postgresImage")).start();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 
