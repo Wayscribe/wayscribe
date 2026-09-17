@@ -1,0 +1,18 @@
+{
+  // For this repository's check (tests/recipes-typecheck.test.ts): the SDK is
+  // resolved to its source, and Stripe and `next/server` to the stubs. Module
+  // resolution is the bundler's, as in a Next.js project. In your own
+  // application, keep your Next.js tsconfig and install the packages.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "paths": {
+      "@/*": ["./*"],
+      "@flight-recorder/node": ["../../../packages/sdk-node/src/index.ts"]
+    }
+  },
+  "include": ["app/**/*.ts", "lib/**/*.ts", "../stubs/stripe.d.ts", "../stubs/next-server.d.ts"]
+}

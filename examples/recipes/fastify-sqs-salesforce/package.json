@@ -1,0 +1,19 @@
+{
+  "name": "flight-recorder-recipe-fastify-sqs-salesforce",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fastify API, SQS queue and consumer, Salesforce Account upsert, instrumented with Flight Recorder.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.0.0",
+    "@flight-recorder/node": "file:../../../packages/sdk-node",
+    "fastify": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  // So the stubs belong to a TypeScript project, which ESLint's type-aware
+  // rules need. Each recipe's own tsconfig.json includes the stubs it uses.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["*.d.ts"]
+}
