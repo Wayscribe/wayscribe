@@ -17,9 +17,10 @@ const recorder = createRecorder({
   apiKey: API_KEY,
   serviceName: "example-service",
   environment: "development",
-  // The SDK never writes to your console on its own. This opts in while you are
-  // getting set up: a wrong key or port prints why, and the first batch the
-  // server stores prints `delivered_first`. Turn it off once the service is
+  // Unasked, the SDK prints only four warnings, each once per process (its
+  // README, "It cannot break your application"). This opts in to the rest
+  // while you are getting set up: a wrong key or port prints why, and the
+  // first batch the server stores prints `delivered_first`. Turn it off once the service is
   // known to send, and use `onDiagnostic` to route failures to your own logger.
   logDiagnostics: true
 });

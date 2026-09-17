@@ -4,11 +4,11 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-24-brightgreen.svg)](.nvmrc)
 
-**Find out what happened to one customer record as it crossed your services — and
+**Find out what happened to one customer record as it crossed your services, and
 where its data changed.**
 
 Free, self-hosted, and small enough to run on a laptop. No account, no hosted
-service, nothing captured leaves your machine.
+service, and nothing captured is sent anywhere you did not configure.
 
 ![A customer's journey across two services, with the transformation step open
 and a field-level diff showing Phone going in with a value and phone coming out
@@ -19,17 +19,17 @@ lost. Regenerate with `pnpm screenshots`.*
 
 > **Development happens on [GitLab](https://gitlab.com/jojithedev/flight-recorder).**
 > Issues and merge requests go there. Any GitHub repository is a read-only
-> mirror — see [docs/MIRRORING.md](docs/MIRRORING.md).
+> mirror; see [docs/MIRRORING.md](docs/MIRRORING.md).
 
 **If you only read one thing, read [the decision log](docs/DECISIONS.md).** Every
-architecture decision, with the reasoning kept in — including
+architecture decision, with the reasoning kept in, including
 [why redaction matches key names at any depth](docs/DECISIONS.md#adr-035-a-secret-is-identified-by-its-key-name-at-any-depth)
 after a live credential leak was found in it, and
 [why replay connects to a resolved address rather than a hostname](docs/DECISIONS.md#adr-033-replay-connects-to-a-resolved-address-not-to-a-hostname).
 Several record decisions that were wrong the first time and say so.
 
 [**What running it found**](docs/WHAT_RUNNING_IT_FOUND.md) is the companion:
-five defects that were live in `main` with a green test suite, why the tests
+the defects that were live in `main` with a green test suite, why the tests
 missed them, and what changed in how this is tested as a result.
 
 ---
@@ -44,7 +44,7 @@ third-party API. Six services. Somewhere in there the phone number became
 `null`.
 
 You have logs. They are in six places, keyed by request ID, and none of them
-knows that customer by name. You may have traces — spans and latencies, which
+knows that customer by name. You may have traces: spans and latencies, which
 tell you the call succeeded and nothing about what it carried.
 
 So you start grepping.
@@ -77,17 +77,17 @@ received against what it produced:
 
 | Field | Before | After |
 | --- | --- | --- |
-| `Id` | `"0018Z00002ABC"` | — |
-| `Name` | `"Jorge Polanco"` | — |
-| `Phone` | `"+1 919 555 1234"` | — |
-| `Status__c` | `"Active"` | — |
-| `externalId` | — | `"0018Z00002ABC"` |
-| `name` | — | `"Jorge Polanco"` |
-| `phone` | — | **`null`** |
-| `status` | — | `"active"` |
+| `Id` | `"0018Z00002ABC"` | (absent) |
+| `Name` | `"Jorge Polanco"` | (absent) |
+| `Phone` | `"+1 919 555 1234"` | (absent) |
+| `Status__c` | `"Active"` | (absent) |
+| `externalId` | (absent) | `"0018Z00002ABC"` |
+| `name` | (absent) | `"Jorge Polanco"` |
+| `phone` | (absent) | **`null`** |
+| `status` | (absent) | `"active"` |
 
 There it is. `Phone` went in carrying a value and `phone` came out `null`, while
-every other field arrived intact. That pair is the bug — a mapping reading
+every other field arrived intact. That pair is the bug: a mapping reading
 `Phone__c` from a payload that carries `Phone`.
 
 Then **replay the original input** against your corrected code and compare:
@@ -127,8 +127,9 @@ docker compose -f infrastructure/compose.yaml \
 
 That builds the images and boots the API, the interface, PostgreSQL, a queue,
 and four demo services that bring their own broken integration to investigate.
-Measured from a fresh clone on a laptop with no Docker layer cache, the build
-took 38 seconds and the boot 12; the first run also downloads the base images.
+Measured on 2026-09-14 from a fresh clone on a laptop with no Docker layer
+cache, the build took 38 seconds and the boot 12; the first run also downloads
+the base images.
 
 Then start a journey:
 
@@ -140,7 +141,9 @@ Four demo services move a Salesforce account through a webhook, a
 transformation, PostgreSQL, a queue, a worker, and a third-party API. The
 transformation contains a real defect, the queue really retries, and the target
 really rejects the result with a 422. About ten seconds after the trigger the
-journey has reached its dead-letter state.
+journey has reached its dead-letter state: the demo queue redelivers after 3
+seconds and dead-letters on the third receive
+([`elasticmq.conf`](infrastructure/elasticmq.conf)).
 
 Open `http://localhost:3000` and sign in with the admin token, which is
 `replace-for-local-development-0000` until you set your own (below). Search
@@ -247,8 +250,8 @@ Then search for `account.Id`. Or the internal ID. Or any other identifier you
 attached.
 
 [`examples/instrument-a-service`](examples/instrument-a-service) is a standalone
-project that does this end to end in about thirty lines, including the part
-where a value goes missing.
+project that does this end to end, including the part where a value goes
+missing; the instrumentation in it is about thirty lines.
 
 ### The SDK cannot break your application
 
@@ -265,8 +268,11 @@ no library. This one is built so that cannot happen:
 - The transport retries behind a circuit breaker and gives up rather than piling
   up.
 - `shutdown()` races the final flush against a timeout and never hangs.
-- Nothing is written to your console unless you ask for it, apart from one line
-  per process for a configuration under which nothing recorded can be stored.
+- Nothing is written to your console unless you ask for it, apart from four
+  warnings printed once per process: a required setting that is missing or
+  empty, a setting under its old name, a `journeyIdSecret` that cannot be used,
+  and a field whose name looks like a secret that was sent in plain text
+  ([SDK README](packages/sdk-node/README.md#it-cannot-break-your-application)).
 
 ---
 
@@ -290,8 +296,8 @@ Five things this does that a tracing tool does not:
 2. **Identity mapping.** One record is a Salesforce ID here, an internal ID
    there, a queue message ID in between. Search any of them and get the same
    journey.
-3. **Field-level transformation diffs.** Structural rather than textual —
-   `{path, kind, before, after}` — because input and output routinely use
+3. **Field-level transformation diffs.** Structural rather than textual
+   (`{path, kind, before, after}`), because input and output routinely use
    different field names, and a unified `−/+` view would have to pick one and
    mislead about the other.
 4. **Works with the architecture you already have.** Webhooks, PostgreSQL,
@@ -301,7 +307,7 @@ Five things this does that a tracing tool does not:
 
 **It is not a replacement for OpenTelemetry.** When OTel is present, the SDK
 reads the active trace and span IDs onto each event so you can pivot between the
-two. It does not write `traceparent` — OTel owns that header.
+two. It does not write `traceparent`; OTel owns that header.
 
 ---
 
@@ -347,7 +353,7 @@ your services ──SDK──▶  API  ──▶  PostgreSQL
 ```
 
 That is the entire architecture. **PostgreSQL is the only required backing
-service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
+service**: no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 
 - Events are captured **synchronously**, so the recorded payload is what the
   step actually saw, then batched and sent in the background.
@@ -355,7 +361,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
   built-in list of secret-looking paths. Paths you add are appended to that
   list rather than replacing it, so adding one cannot silently disable the rest.
 - Entity identifiers and alias values are **encrypted at rest**. Payloads are
-  not — they are stored as `jsonb`, which is exactly why redaction runs before
+  not: they are stored as `jsonb`, which is exactly why redaction runs before
   they leave your process and again before they are written. Two things the
   instrumenting code declares public are also kept in plain text so they can be
   found by partial text: a journey's label, and a copy of each alias value it
@@ -373,7 +379,7 @@ service** — no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md) — 56 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md): 56 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -428,6 +434,7 @@ and holds the credentials for.
 ```bash
 curl -O https://gitlab.com/jojithedev/flight-recorder/-/raw/main/infrastructure/compose.published.yaml
 export COMPOSE_FILE=compose.published.yaml
+export FLIGHT_RECORDER_VERSION=vX.Y.Z   # the release to run; releases are 0.x
 
 export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
 export ENCRYPTION_KEY=$(openssl rand -hex 32)
@@ -436,8 +443,11 @@ docker compose up -d
 ```
 
 `COMPOSE_FILE` names the files every `docker compose` command in this shell
-reads, so the commands below always see the same stack you started. Export it
-again in a new shell.
+reads, so the commands below always see the same stack you started.
+`FLIGHT_RECORDER_VERSION` is required: the file has no `latest` fallback,
+because the `migrate` service applies the schema of whatever image it pulls,
+and an unpinned pull could move your database across a minor release. Export
+both again in a new shell.
 
 To try it without standing a database up first, add the bundled overlay to that
 list. It runs PostgreSQL alongside and sets `DATABASE_URL` for you:
@@ -453,7 +463,7 @@ orphan and suggests `--remove-orphans`. Do not take that advice: it removes the
 database container.
 
 A new installation has no projects. Create the one you are about to instrument,
-and issue it a key — the same image carries the CLI, so this still needs no
+and issue it a key. The same image carries the CLI, so this still needs no
 checkout:
 
 ```bash
@@ -515,7 +525,7 @@ It observes workflows that already exist.
 
 **One caution worth reading.** Flight Recorder records the contents of your
 integration payloads. Treat its database as holding whatever your workflows
-carry. If that includes regulated data, review `captureMode` first —
+carry. If that includes regulated data, review `captureMode` first:
 `metadata-only` records the shape of a journey without storing payloads at all.
 
 ---
@@ -588,8 +598,9 @@ apps/
   demo/                 the reference journey, five entry points in one image
 packages/
   protocol/             event schema and version
-  sdk-node/             published as @flight-recorder/node
-  database/             migrations, repositories, CLI
+  sdk-node/             to be published as @flight-recorder/node
+  cli/                  read-only CLI over the HTTP API
+  database/             migrations, repositories, operator CLI
   payload-security/     redaction, encryption, keys, search tokens
   payload-diff/         structural field-level diffs
   config/               environment parsing

@@ -1,6 +1,6 @@
 # Running Flight Recorder on a local cluster
 
-A Helm chart for **a local single-node cluster** — kind, k3s, or Docker Desktop.
+A Helm chart for **a local single-node cluster**: kind, k3s, or Docker Desktop.
 It has been installed, upgraded and used on kind; it has **not** been run on a
 managed cluster, and this file will say so until it has (ADR-042).
 
@@ -39,7 +39,7 @@ kubectl run frcli --rm -i --restart=Never \
 ## Your own database
 
 `values-local.yaml` turns on an in-cluster PostgreSQL, which is for evaluation.
-A real installation points at the database your team already runs — the one that
+A real installation points at the database your team already runs, the one that
 is backed up and monitored (ADR-037). It needs PostgreSQL 15 or later and a role
 with privileges on its own schema; `docs/OPERATIONS.md` §1 lists them:
 
@@ -64,7 +64,7 @@ restart them yourself; the procedure is in `docs/OPERATIONS.md` §6.
 | --- | --- |
 | `api` Deployment + Service | readiness on `/ready`, which reports `migrations_pending` until schema is applied |
 | `web` Deployment + Service | readiness on `/login` |
-| `migrate` Job | a `post-install,post-upgrade` hook — see below |
+| `migrate` Job | a `post-install,post-upgrade` hook; see below |
 | `Secret` | unless you bring your own |
 | `postgresql` StatefulSet | only when `postgresql.enabled` |
 | `Ingress` | only when `ingress.enabled`; off by default |
@@ -132,8 +132,8 @@ Two things the policies change:
 This is the non-obvious part, and it was arrived at by watching the chart fail.
 
 A `pre-install` hook runs before **every** regular resource in the release. The
-migrate Job therefore could not see the Secret holding `DATABASE_URL` — the pod
-sat in `CreateContainerConfigError` — and with `postgresql.enabled` there was no
+migrate Job therefore could not see the Secret holding `DATABASE_URL` (the pod
+sat in `CreateContainerConfigError`), and with `postgresql.enabled` there was no
 database to migrate either. `helm lint` and `helm template` both passed. The
 chart rendered perfectly and did not run.
 
@@ -142,8 +142,11 @@ Ordering is enforced by the application instead, which is a better place for it:
 pods stay out of service until the Job finishes, and during an upgrade the
 previous pods keep serving.
 
-The Job retries the migration itself for a minute rather than probing the
-database first. A probe answers a different question than the operation does.
+The Job retries the migration itself rather than probing the database first: up
+to 30 attempts, 2 seconds apart, while the error reads as a connection failure,
+and once more for any other failure (`templates/migrate-job.yaml`). The whole
+Job stops after `migrations.activeDeadlineSeconds`, 1800 by default. A probe
+answers a different question than the operation does.
 
 ## Not yet
 

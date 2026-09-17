@@ -15,13 +15,13 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. 1930 unit tests, 713 integration
-tests against a real PostgreSQL, 29 browser tests and 7 acceptance tests against
-a running stack.
+the step against a development destination. Counted on 2026-09-16: 2,314 unit
+tests, 741 integration tests against a real PostgreSQL, 29 browser tests
+and 7 acceptance tests against a running stack.
 
 Nothing is published. There is no npm package and no image in any registry, so
 every install today is `git clone` and `docker compose up`. That is deliberate
-and not currently a priority — see *If this goes public*.
+and not currently a priority; see *If this goes public*.
 
 ---
 
@@ -30,8 +30,8 @@ and not currently a priority — see *If this goes public*.
 Presenting the work, and closing what the last review opened.
 
 - ~~**Screenshots in the README.**~~ **Built:** the README opens with the diff
-  view, and `docs/images` holds search, timeline, and diff, regenerated with
-  `pnpm screenshots`.
+  view, and `docs/images` holds search, timeline, diff and the Journeys page,
+  regenerated with `pnpm screenshots`.
 - ~~**Surface the decision log.**~~ **Built:** the README's first section after
   the screenshot points at [the decision log](DECISIONS.md), and its ADR count is
   checked by `tests/docs-truth.test.ts`.
@@ -92,13 +92,14 @@ Presenting the work, and closing what the last review opened.
 
 ### Known open, and honest about it
 
-Each of these now carries a DebtWatch declaration where the shortcut lives, with
-an owner and a date — `npx debtwatch list`. This section says what; the
-declaration says until when, and `debt` in the pipeline says whether the
-declaration is still valid.
+Neither of these carries a DebtWatch declaration yet, so neither has a date;
+`npx debtwatch list` shows the three shortcuts that do, and `debt` in the
+pipeline checks that each declaration is still valid.
 
-- **`audit_events` is never swept.** Harmless while it holds four call sites;
-  a problem the moment reads are audited.
+- **`audit_events` is never swept.** It grows by one row per deletion, replay,
+  and key issued or revoked, ten actions in all (`docs/SECURITY.md` section
+  13). That is small while nothing else is audited, and a problem the moment
+  reads are.
 - **The login limiter is per-process,** so N web replicas means N times the
   allowed attempts.
 
@@ -109,8 +110,9 @@ declaration is still valid.
 Deferred on purpose. None of it is visible to somebody evaluating the code, and
 all of it is cheap to add once there is a reason.
 
-- publish `@flight-recorder/node` and the images, pinned off `:latest`, with the
-  pushed tag booted on both architectures before it moves
+- publish `@flight-recorder/node` and the images, with the pushed tag booted on
+  both architectures before it moves. (`compose.published.yaml` already
+  requires `FLIGHT_RECORDER_VERSION` rather than falling back to `latest`.)
 - a private-registry rehearsal of the documented install before the public tag
 - ~~a `doctor` preflight~~ **Built:** `pnpm run doctor`, or `doctor` in the API
   image: migrations applied, secrets not the published defaults, an issued key
@@ -145,7 +147,7 @@ all of it is cheap to add once there is a reason.
 Everything on the do-not-add list in `AGENTS.md` stays out. The ones worth
 restating, with reasons:
 
-- ~~**Kubernetes and a Helm chart.**~~ **Built** — see `deploy/helm` and ADR-042.
+- ~~**Kubernetes and a Helm chart.**~~ **Built**: see `deploy/helm` and ADR-042.
   The reasoning against it held while adoption was the goal: it would point at
   images nobody had published, and a second install shape doubles the surface
   where a quick start can dead-end. Neither survives the owner being the primary
@@ -165,8 +167,8 @@ restating, with reasons:
 - **A second storage engine.** The search latency at 120k journeys was a query
   and indexing problem, and it was solved as one: at a million journeys in
   PostgreSQL, search for a value matching a few journeys is under a
-  millisecond, and one matching 20,000 takes 64 ms (measurements on
-  `searchJourneys`).
+  millisecond, and one matching 20,000 takes 64 ms (measured on 2026-09-15;
+  `OPERATIONS.md` section 10, *Indexes*).
 - **AI features.** A future bring-your-own-key module may be added, disabled by
   default. Nothing will be sent anywhere without being asked for.
 
@@ -181,8 +183,8 @@ Kept as a note on how planning documents drift.
 - **The V0 scope listed "self-hosted Docker Compose deployment" as the goal**
   while the quick start it described could not create a project, so a new
   installation had nothing to instrument.
-- **Four planning documents** — `PRODUCT_SPEC.md`, `IMPLEMENTATION_PLAN.md`,
-  `ARCHITECTURE.md`, and this one — predate every ADR and describe an install
+- **Four planning documents** (`PRODUCT_SPEC.md`, `IMPLEMENTATION_PLAN.md`,
+  `ARCHITECTURE.md`, and this one) predate every ADR and describe an install
   premise that no longer holds. Reconciling four vocabularies costs more than
   retiring three of them, which is not done yet because `AGENTS.md` ranks
   `PRODUCT_PRINCIPLES.md` second in the source-of-truth order and deleting it

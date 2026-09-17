@@ -127,17 +127,19 @@ Store full payload subject to hard size limits and mandatory secret filtering.
 
 ## 4. Redaction
 
-Redaction should occur:
+Where redaction runs today:
 
-1. in the SDK before buffering
-2. on the server before persistence
-3. before replay request creation
-4. before replay response persistence
-5. before any future AI provider request
+1. in the SDK, before an event is queued;
+2. on the server, before an event is stored, whoever sent it;
+3. before a replay is sent, in effect: a replay sends the input as it was
+   stored, so it carries the stored redaction (ADR-032);
+4. before a replay's response is stored, for the destination's own header
+   values only (section 7); name rules are not applied to a response body;
+5. before any AI provider request, of which there are none (section 15).
 
 Server policy is authoritative and may capture less data than the SDK requests.
 
-Redaction replacements should preserve evidence that a value existed:
+A replacement keeps the evidence that a value existed:
 
 ```json
 {
@@ -360,14 +362,24 @@ until they are deleted (section 14).
 
 ## 5. API keys
 
-- Generate high-entropy keys.
-- Display the full key once.
-- Store only a safe prefix and verification hash.
-- Scope keys to one project and environment.
-- Support revocation.
-- Never log keys.
-- Use constant-time verification where applicable.
-- Track last use without storing request payloads in auth logs.
+What is built:
+
+- A key is `fr_` and 24 random bytes in base64url, 192 bits
+  (`packages/payload-security/src/api-key.ts`).
+- `key:create` prints the full key once. Only its first 12 characters, the
+  prefix, and an HMAC-SHA256 verifier under a subkey of `ENCRYPTION_KEY` are
+  stored, so a database read alone cannot verify a guess.
+- A key is scoped to one project and one environment. The composite foreign
+  key on `api_keys` makes a key for another project's environment
+  unrepresentable.
+- `key:revoke` revokes a key by its prefix, and a revoked key answers 401.
+- Verification compares with `timingSafeEqual`.
+- Keys are not logged: request headers are not logged at all, and the logger
+  also censors `authorization`, `x-api-key` and `x-flight-api-key`
+  (`OPERATIONS.md` §13, Logs).
+- `last_used_at` records when a key last authenticated; nothing about the
+  request is kept with it.
+- Issuing and revoking a key each write an audit row (section 13).
 
 ## 6. Searchable sensitive aliases
 
@@ -533,35 +545,45 @@ of the old key's reach once re-encryption finishes, not the copies made before.
 
 ## 8. Project isolation
 
-Every query must be explicitly scoped by authenticated project.
+Every read and write the API makes is scoped by the authenticated project, and
+the schema's composite keys make a row that crosses projects unrepresentable
+(ADR-020, ADR-038). Integration tests attempt cross-project access for:
 
-Tests must attempt cross-project access for:
+- search (`search.integration.test.ts`, "excludes another project's journeys")
+- journey and event reads (`queries.integration.test.ts`, "returns 404 for
+  another project's journey and event")
+- replay runs (`replays.integration.test.ts`, "does not return another
+  project's replay")
+- deleting a journey or a replay destination (`deletions.integration.test.ts`)
+- API keys (`schema.integration.test.ts`, "rejects an API key whose
+  environment belongs to another project")
 
-- search
-- journey reads
-- event reads
-- replay destinations
-- replay runs
-- audit events
-
-Avoid unscoped repository functions.
+Audit events have no read route. `listAudit` takes a project id, and only tests
+call it.
 
 ## 9. Replay security
 
-V0 replay rules:
+What is built (ADR-008, ADR-019, ADR-032, ADR-033):
 
-- development destinations only
-- explicit destination configuration
-- host allowlist
-- no automatic production credentials
-- no copied authorization header
-- no copied cookies
-- no copied webhook signatures
-- strict timeout
-- request and response size limits
-- audit every attempt
-- user reviews payload before send
-- destination header values are sent, never stored with the run or returned
+- A destination's `environmentType` must be `local`, `development` or `test`;
+  anything else is refused when it is created.
+- A replay goes only to a destination an admin created. The request names the
+  destination by id and a relative path under its base URL.
+- The destination's host must be on `REPLAY_ALLOWED_HOSTS` (below).
+- A replay sends the recorded input with only these headers: the destination's
+  own configured headers, `content-type`, Flight Recorder's `user-agent`, and
+  `x-flight-replay: true`. Nothing from the recorded request's headers is sent,
+  so no authorization header, cookie or webhook signature is copied.
+- The request times out after 10 seconds, and at most 256 KiB of the response
+  is read (`apps/api/src/replay/send.ts`). The request body is the recorded
+  input, which ingestion already bounded (`INGESTION_CONTRACT.md` §3).
+- Every replay that reaches a destination decision is stored as a run and
+  audited as `replay.completed`, `replay.failed` or `replay.blocked`. A request
+  refused before that (an unknown event, an event with no captured input, a
+  disabled destination, a malformed body) is answered 4xx and not audited.
+- The web interface shows the payload before it is sent, and cannot edit it.
+- Destination header values are sent, and never stored with the run or
+  returned.
 
 `REPLAY_ALLOWED_HOSTS` is the load-bearing control. Replay deliberately allows
 private addresses, because every development destination is one, so the list is
@@ -571,7 +593,11 @@ Docker host, and `localhost` is the API's own container. The published Compose
 file and the Helm chart default to `localhost` alone; a production installation
 should set a minimal explicit list (`OPERATIONS.md` §9).
 
-Blocked headers should include at least:
+The header policy also drops these names from any caller-supplied header, and
+stores them as `[REDACTED]` wherever they appear in a run
+(`apps/api/src/replay/header-policy.ts`). `POST /v1/replays` accepts no caller
+headers today, so the list guards the day it does. The list is fixed; a
+project cannot extend it.
 
 ```text
 authorization
@@ -584,20 +610,18 @@ x-hook-signature
 stripe-signature
 ```
 
-Projects may add more.
-
 ## 10. Propagation security
 
-By default, propagate only:
+What the Node SDK propagates, by its `propagation` setting:
 
-- journey ID
-- non-sensitive entity type
-- primary entity ID when explicitly allowed
-- standard trace context
+- `journey-only`: the journey id.
+- `journey-and-type`, the default: the journey id and the entity type.
+- `full`: those and the entity id, which is otherwise never sent.
 
-Do not propagate aliases automatically.
-
-Allow projects to propagate only the journey ID.
+Aliases are never propagated, at any level. Trace context is not written:
+OpenTelemetry owns `traceparent` (ADR-010). The setting belongs to each
+recorder, so a service that should send only the journey id sets
+`propagation: "journey-only"`.
 
 Propagation does not cross environments. A journey id propagated from a service
 in one environment to one in another is refused at ingestion with
@@ -606,43 +630,61 @@ stored; the receiving service should start a journey of its own.
 
 ## 11. Input limits
 
-Enforce:
-
-- maximum request body
-- maximum batch count
-- maximum event payload
-- maximum JSON depth
-- maximum number of object keys
-- maximum string length
-- maximum metadata size
-- maximum replay response body
-- replay timeout
-
-Reject dangerous or malformed payloads before expensive processing.
+Ingestion enforces a request body limit, at most 100 events in a batch, 262,144
+bytes per envelope by default, 32 levels of nesting, 1,000 keys or elements per
+object or array, and 65,536 UTF-16 code units per string. Metadata counts
+toward the envelope's size, and a metadata key is at most 128 code points. The
+normative table, checked against the code, is `INGESTION_CONTRACT.md` §3. The
+size and structural limits are checked before anything walks the payload.
+Replay reads at most 256 KiB of a response and waits at most 10 seconds
+(section 9).
 
 ## 12. SDK resilience and safety
 
-- bounded event queue
-- no recursive logging of recorder failures
-- no synchronous network dependency
-- safe serialization of circular values
-- truncation indicators
-- configurable stack capture
-- clear dropped-event diagnostics
+What the Node SDK does (its README, "It cannot break your application"):
+
+- a bounded event queue, 1,000 events by default, that drops the oldest
+- a recorder failure is counted, never thrown, and printing a diagnostic never
+  throws
+- recording never waits on the network; sending happens in the background
+- a cycle is stored as `[CIRCULAR]`
+- a cut string ends in `[TRUNCATED: <n> characters removed]`, and a replaced
+  payload reads `[PAYLOAD_TOO_LARGE]` or `[UNCAPTURABLE]`
+- the wrappers and `fail` send no stack; `record()` sends one only if the
+  caller passes it
+- every undelivered event is counted in `dropped`, with a diagnostic code
+  saying why
 
 ## 13. Audit events
 
-Audit at least:
+What writes an `audit_events` row, checked on 2026-09-16 against every call to
+`recordAudit`:
 
-- API-key creation and revocation
-- capture-policy changes
-- replay destination creation and update
-- replay attempt
-- replay blocked by policy
-- retention changes
-- deletion or cleanup operations
+| Action | Written by |
+| --- | --- |
+| `api_key.created` | `key:create` |
+| `api_key.revoked` | `key:revoke` |
+| `replay_destination.created` | `POST /v1/replay-destinations` |
+| `replay_destination.deleted` | `DELETE /v1/replay-destinations/:destinationId`, `delete:destination` |
+| `replay.completed`, `replay.failed`, `replay.blocked` | `POST /v1/replays` (section 9) |
+| `journey.deleted` | `DELETE /v1/journeys/:journeyId`, the journey page, `delete:journey` |
+| `erasure.completed` | `POST /v1/erasures`, `delete:identifier` |
+| `range.deleted` | `delete:range` |
 
-Audit metadata must itself be sanitized.
+`tests/docs-audit-actions.test.ts` holds this table to the code. An action
+taken through the API records the actor `admin`, and one taken through the
+database CLI records `cli`. The key rows name the key by its prefix and never
+hold the key. Keys the development seeds create (`db:seed`, and the demo's
+bootstrap) are not audited.
+
+What is **not** audited: changes to an environment's capture mode, redaction
+paths, allowlist and retention. No code path changes them. They are changed
+with SQL on `environments` (`OPERATIONS.md` §7), which leaves no audit row, as
+does any other change made directly in the database. There is no route that
+updates a replay destination.
+
+Audit metadata passes through the built-in secret names before it is stored
+(`packages/database/src/repositories/audit.ts`).
 
 A deletion's audit row is written in the same transaction as the delete, so
 data never leaves without a record. An erasure's row records the search token
@@ -659,12 +701,14 @@ from them.
 
 ## 14. Retention
 
-- default to short local retention
-- configure per environment
-- delete in bounded batches
-- document backup implications
-- ensure deleted aliases and payloads are removed
-- avoid retaining replay responses longer than the source environment requires
+- An environment keeps journeys for its `retention_days`: 7, unless
+  `DEFAULT_RETENTION_DAYS` said otherwise when the environment was created.
+- The sweep runs hourly in the API process and deletes at most 1,000 journeys
+  per transaction (`OPERATIONS.md` §7).
+- Deleting a journey deletes its events with their payloads, its aliases, and
+  the replay runs of its events with their stored responses, by cascade.
+- `OPERATIONS.md` §2 and §8 say what backups keep.
+- `audit_events` is not swept (`ROADMAP.md`, Known open).
 
 ### Deletion on demand
 
@@ -710,15 +754,27 @@ Future BYOK rules:
 
 ## 16. Pre-release security checklist
 
-- [ ] Project isolation tests pass.
-- [ ] API keys are never stored in plaintext.
-- [ ] Default capture mode is safe.
-- [ ] Redaction occurs before persistence.
-- [ ] Common secret headers are filtered.
-- [ ] Payload and batch limits are enforced.
-- [ ] Replay cannot target an unapproved host.
-- [ ] Replay cannot copy historical authorization.
-- [ ] Audit events are generated.
-- [ ] SDK outage does not fail host operations.
-- [ ] Retention cleanup deletes all related data.
-- [ ] Documentation warns against capturing regulated data without proper controls.
+Each item, and where it is checked, as of 2026-09-16:
+
+- Project isolation tests pass: section 8.
+- API keys are never stored in plaintext: section 5, and `api-key.test.ts`.
+- The default capture mode is `redacted-payload`: migration 002, held by
+  `tests/security-review.test.ts`.
+- Redaction occurs before persistence: section 4, `redact.test.ts`, and the
+  `wire` conformance cases.
+- Common secret headers are filtered: the built-in list in
+  `default-secrets.ts`.
+- Payload and batch limits are enforced: section 11, held by
+  `tests/docs-truth.test.ts`.
+- Replay cannot target an unapproved host: section 9 and ADR-033.
+- Replay cannot copy historical authorization: section 9.
+- Audit events are generated: section 13.
+- An SDK outage does not fail host operations: the SDK README, "It cannot
+  break your application", and `isolation.test.ts`.
+- Retention cleanup deletes all related data: section 14, and
+  `retention.integration.test.ts`.
+- The documentation warns against capturing regulated data: the README's
+  "What Flight Recorder is not", and `../SECURITY.md`.
+
+The pre-release review of the same date is
+[reviews/2026-09-16-security-review.md](reviews/2026-09-16-security-review.md).

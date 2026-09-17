@@ -18,14 +18,14 @@ disclosing publicly.
 ## Scope
 
 Flight Recorder is self-hosted. There is no hosted service, so there is no
-production environment to test against — please test against your own
+production environment to test against. Please test against your own
 installation.
 
 In scope:
 
 - the API (`apps/api`), the web interface (`apps/web`), and the Node SDK
-- the published `@flight-recorder/node` package
-- the published container images
+- the `@flight-recorder/node` package and the container images, once published
+  (nothing is published yet, and releases will be 0.x)
 - the default Compose configuration
 
 Out of scope, because they are known and documented rather than undiscovered:
@@ -35,29 +35,30 @@ Out of scope, because they are known and documented rather than undiscovered:
   configured. The API warns at every boot while they are in use. Running a real
   installation on them is a misconfiguration, not a vulnerability.
 - **The admin token is a single shared secret.** There are no user accounts, no
-  per-user permissions, and no record of who used it. It grants project-wide read
-  of every recorded payload. See ADR-029.
+  per-user permissions, and no record of who used it. It can read every recorded
+  payload of every project on the installation. See ADR-029.
 - **Propagated journey context is not authenticated.** A caller who can set
   headers on a request to an instrumented service, and who knows a valid journey
   ID, can attach events to that journey. Extraction validates shape only, which
   stops injection and garbage but not a well-formed forgery. This is stated in
   the Phase 4 design and is not an authorization control.
 - Anything requiring an attacker to already hold the admin token or a valid API
-  key, unless it crosses a project boundary — cross-project access is structural
-  (composite foreign keys) and a break there **is** in scope.
+  key, unless it crosses a project boundary. Cross-project isolation is
+  structural (composite foreign keys), and a break there **is** in scope.
 
 ## Verifying the images you run
 
-Released images at `registry.gitlab.com/jojithedev/flight-recorder/api` and
-`/web` are signed with Sigstore keyless signing from this project's GitLab
-release pipeline, and each platform's image carries a signed CycloneDX software
-bill of materials. The signing certificate names the pipeline and the release
-tag, so a check like this one proves the image came from a tagged release of
-this repository:
+Nothing is published yet. When a release is, its images at
+`registry.gitlab.com/jojithedev/flight-recorder/api` and `/web` are signed with
+Sigstore keyless signing by this project's GitLab release pipeline, and each
+platform's image carries a signed CycloneDX software bill of materials. The
+signing certificate names the pipeline and the release tag, so a check like this
+one proves the image came from a tagged release of this repository. Replace
+`vX.Y.Z` with the release you run; releases will be 0.x, such as `v0.1.0`:
 
 ```bash
-cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:v1.0.0 \
-  --certificate-identity 'https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/v1.0.0' \
+cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:vX.Y.Z \
+  --certificate-identity 'https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/vX.Y.Z' \
   --certificate-oidc-issuer https://gitlab.com
 ```
 
@@ -77,7 +78,9 @@ guard against mistakes rather than a control.
 
 ## What the product does with your data
 
-Nothing captured is sent anywhere. The running services send no telemetry and
+Nothing captured is sent anywhere you did not configure: the only outbound
+requests the API makes are replays, to destinations an admin registered on a
+host `REPLAY_ALLOWED_HOSTS` lists. The running services send no telemetry and
 no analytics, and make no outbound connection other than the ones your own
 configuration creates. Building the images is not offline: it downloads base
 images, Alpine packages and npm packages. Next.js's build telemetry is
@@ -85,14 +88,14 @@ switched off (`NEXT_TELEMETRY_DISABLED=1`) in the web image and in the web
 package's scripts.
 
 Entity identifiers and alias values are encrypted at rest with keys derived from
-`ENCRYPTION_KEY`. **Payloads are not** — they are stored as `jsonb`, which is
+`ENCRYPTION_KEY`. **Payloads are not**: they are stored as `jsonb`, which is
 exactly why redaction matters: payloads are redacted in your process before they
 leave it, and again on the server before they are written, against a built-in
 list of secret names matched at any depth.
 
 **Flight Recorder records the contents of your integration payloads.** Treat the
 database as holding whatever your workflows carry. If that includes regulated
-data — health records, payment details, government identifiers — review
+data (health records, payment details, government identifiers), review
 `captureMode` before enabling it. `metadata-only` records the shape of a journey
 without storing payloads at all.
 

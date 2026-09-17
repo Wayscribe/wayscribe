@@ -1,7 +1,7 @@
 # Operations
 
-Running Flight Recorder for a team. It is deliberately small — one API, one web
-application, one PostgreSQL database — so most of this is short.
+Running Flight Recorder for a team. It is deliberately small (one API, one web
+application, one PostgreSQL database), so most of this is short.
 
 ## 1. What holds state
 
@@ -14,19 +14,24 @@ The demo profile adds ElasticMQ, which holds nothing worth keeping.
 ### Bring your own database
 
 `DATABASE_URL` is the whole coupling. Point it at the PostgreSQL your team
-already runs — the one somebody backs up, monitors, and can restore — and Flight
+already runs, the one somebody backs up, monitors, and can restore, and Flight
 Recorder needs nothing else from you.
 
 ```bash
 export COMPOSE_FILE=compose.published.yaml
+export FLIGHT_RECORDER_VERSION=vX.Y.Z   # the release to run; releases are 0.x
 export DATABASE_URL=postgresql://user:password@db.internal:5432/flight_recorder
 docker compose up -d
 ```
 
 `COMPOSE_FILE` names the files every `docker compose` command in the shell
 reads. The commands for the published images in this document are written
-without `-f` and rely on it, so they always see the stack you started. Export it
-again in a new shell.
+without `-f` and rely on it, so they always see the stack you started.
+`FLIGHT_RECORDER_VERSION` names the release, as its git tag, and is required:
+`compose.published.yaml` has no `latest` fallback, because its `migrate`
+service applies the schema of whatever image it pulls, and an unpinned pull
+could move the database across a minor release, which before 1.0 may change
+the API. Export both again in a new shell.
 
 It needs PostgreSQL 15 or later, an ordinary database, and an ordinary role:
 `USAGE`, `CREATE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE` on its own schema. It
@@ -53,7 +58,7 @@ removes the database container.
 
 The overlay is for evaluation and for local work. Nothing about it is
 unsuitable for production except that it is invisible to whoever is
-responsible for your data — no backup schedule, no monitoring, and a `docker
+responsible for your data: no backup schedule, no monitoring, and a `docker
 compose down -v` away from gone.
 
 ### Schema changes
@@ -97,7 +102,7 @@ does.** Payloads are stored as `jsonb` in the clear; redaction, not encryption,
 is what keeps secrets out of them. A dump is readable by anyone who holds it.
 
 Entity identifiers and alias values *are* encrypted, with a key derived from
-`ENCRYPTION_KEY`, which is **not** in the dump — so a backup taken without that
+`ENCRYPTION_KEY`, which is **not** in the dump. So a backup taken without that
 key restores a database whose journeys cannot be searched or attributed to a
 customer, while their payloads remain readable. Store the key separately, and
 store it somewhere you will still have it when you need the backup.
@@ -122,7 +127,7 @@ docker compose -f infrastructure/compose.yaml exec -T postgres \
 Restore against the **same `ENCRYPTION_KEY`**. A restore under a different key
 leaves every encrypted field undecryptable and every search token unmatchable.
 The interface degrades one field at a time rather than failing, so this looks
-like missing data rather than an error — check the key first when a restored
+like missing data rather than an error. Check the key first when a restored
 installation shows blank identifiers. A dump taken before a key rotation needs
 the old key back as `ENCRYPTION_KEY_PREVIOUS`; see §6.
 
@@ -268,8 +273,9 @@ came from the destination, so the ones Flight Recorder set itself, such as
 `user-agent`, are redacted too.
 
 It is one `UPDATE` of every `replay_runs` row that has headers, in one
-transaction. Measured on PostgreSQL 17 with 100,000 runs carrying payloads of
-about 1 KB: the migration took about 2 seconds. An update to an existing run
+transaction. Measured on 2026-09-15 on PostgreSQL 17, on the development
+machine (commit `8e948a4`, which does not name it), with 100,000 runs carrying
+payloads of about 1 KB: the migration took about 2 seconds. An update to an existing run
 while it ran, such as the previous API finishing a replay, waited until it
 committed, about 2.3 seconds. Inserts of new runs were not blocked. The table
 doubled in size, because every row is rewritten, until vacuum reclaimed the old
@@ -336,7 +342,9 @@ docker compose run --rm --entrypoint node api \
 ```
 
 `project:list`, `key:list`, and `key:revoke` do what they say. A key is printed
-once and is not recoverable — issue another rather than hunting for it.
+once and is not recoverable: issue another rather than hunting for it.
+`key:create` and `key:revoke` each write an audit row, `api_key.created` or
+`api_key.revoked`, naming the key by its prefix (`SECURITY.md` section 13).
 
 A slug is lowercase letters, digits and hyphens, because it reaches project
 selection, the CLI, and the interface. It cannot be changed afterwards without
@@ -568,7 +576,7 @@ does not hold the exit code at 1 while no rotation is under way.
 ### `ADMIN_TOKEN` and API keys
 
 `ADMIN_TOKEN` rotation is safe and cheap. It invalidates every web session,
-because the session signing key is derived from it — which is the correct
+because the session signing key is derived from it, which is the correct
 behaviour after a suspected leak, not an inconvenience.
 
 API keys rotate individually and without side effects:
@@ -600,8 +608,10 @@ Retention is not the only way data leaves: §8 deletes a journey, an identifier,
 or a time window on demand.
 
 `DEFAULT_RETENTION_DAYS` applies to environments created by `db:seed` and
-`key:create`. Changing it does not alter environments that already exist —
-update `environments.retention_days` for those.
+`key:create`. Changing it does not alter environments that already exist:
+update `environments.retention_days` for those. No command or route changes an
+environment's retention or capture settings, so a change made in SQL writes no
+audit row (`SECURITY.md` section 13).
 
 ## 8. Deleting data
 
@@ -791,7 +801,7 @@ location / {
 ```
 
 The admin token grants project-wide read of every recorded payload. It is a
-single shared secret with no user accounts and no audit of who used it — treat
+single shared secret with no user accounts and no audit of who used it. Treat
 it as an operator credential, not a login.
 
 ### Replay destinations
@@ -887,9 +897,9 @@ plus a row per alias. Payloads are stored inline as JSONB.
 and two aliases each, with small Salesforce and customer payloads averaging 120
 bytes of JSON input and output per event) through the real ingestion code, in
 each capture mode, and reports what `journeys`, `journey_events`, and
-`entity_aliases` occupy with their indexes and TOAST. Run on an Apple M3 Pro,
-PostgreSQL 17.11 (`postgres:17-alpine`, default configuration) in Docker
-Desktop with 12 CPUs and 7.75 GiB:
+`entity_aliases` occupy with their indexes and TOAST. Measured on 2026-09-15 on
+an Apple M3 Pro, PostgreSQL 17.11 (`postgres:17-alpine`, default configuration)
+in Docker Desktop with 12 CPUs and 7.75 GiB:
 
 | Capture mode | 100,000 events | 1,000,000 events | Compacted, per event | Per journey |
 |---|---|---|---|---|
@@ -960,7 +970,11 @@ Search looks a value up in one index per kind of identifier:
 that matches thousands (a shared correlation id, say) is joined with a
 sequential scan of the project's journeys, so its cost grows with the journey
 count: 13 ms for 2,400 matches among 120,000 journeys and 64 ms for 20,000
-among a million, for an API key scoped to one environment. `journeys_recent_idx` serves retention selection. The
+among a million, for an API key scoped to one environment. These search
+figures were measured on 2026-09-15 with `EXPLAIN (ANALYZE, BUFFERS)` on
+PostgreSQL 17, on the development machine; commits `5ffc08e` and `33f8f1e`
+record them and do not name the machine, and no script in the repository
+repeats them. `journeys_recent_idx` serves retention selection. The
 recent-journeys list adds `journeys_status_recent_idx` and
 `journey_events_service_idx`; the second costs one more index write on every
 event insert, and the span id index adds one on every event that carries a
@@ -973,7 +987,8 @@ and its text filter use `journeys_project_recent_idx` and
 Migrations 013, 014, 016, and 019 build their indexes with
 `CREATE INDEX CONCURRENTLY`, so on a large installation they take longer than
 the other migrations but do not block ingestion while they run (014 took 3
-seconds over 3 million events).
+seconds over 3 million events, as its own comment records, measured
+2026-09-15).
 
 Run `migrate` against PostgreSQL directly, not through a PgBouncer in
 transaction pooling mode. 019 sets `lock_timeout` on its connection and then
@@ -1051,8 +1066,9 @@ code and times `GET /v1/journeys` through the real API, in process (Fastify's
 `inject`: authentication, validation, the query and the response are in the
 figure, the network is not). Each case is three warm-up requests and then 40
 timed ones, page of 25, and the slowest cases are run again under
-`EXPLAIN (ANALYZE, BUFFERS)` with the SQL and parameters the API sent. Run on
-the machine and PostgreSQL of *Measured disk per event* above (Apple M3 Pro,
+`EXPLAIN (ANALYZE, BUFFERS)` with the SQL and parameters the API sent. Measured
+on 2026-09-16 on the machine and PostgreSQL of *Measured disk per event* above
+(Apple M3 Pro,
 PostgreSQL 17.11, `postgres:17-alpine` with its default configuration: 128 MB
 `shared_buffers`, `jit` on), with the cache warm.
 
@@ -1194,7 +1210,10 @@ SBOM cannot be generated, because a release would then fail at the same step
 
 GitLab's own Dependency Scanning and Container Scanning templates are
 Ultimate-tier. On a Free project they produce an empty report, which looks
-exactly like a scanner that works — so these run the underlying tools directly.
+exactly like a scanner that works, so these run the underlying tools directly.
+Each tool's image is pinned by version and digest (gitleaks
+`zricethezav/gitleaks:v8.30.1`, and Trivy, Syft and cosign likewise), so a new
+release of a scanner changes the gate only when somebody moves the pin.
 
 **Create a pipeline schedule.** Under *Build → Pipeline schedules*, a daily or
 weekly run on the default branch. This is the part that matters: an advisory is
@@ -1202,7 +1221,7 @@ published against a dependency that has not changed, and a base-image CVE
 appears without anybody committing anything. A push-only gate reports
 yesterday's answer indefinitely.
 
-`container-scan` is deliberately not on every push — it builds two images, and
+`container-scan` is deliberately not on every push: it builds two images, and
 the same reasoning that keeps `demo` and `e2e` manual applies. It runs on the
 default branch, on tags, and on the schedule.
 
@@ -1214,13 +1233,14 @@ removes the finding rather than hiding it. Each entry says what it is for and
 should be dropped once the parent ships a version that resolves it.
 
 **`secrets`.** Assume it is real until you have read the line it matched. If it
-is genuinely a fixture, add an allowance to `.gitleaks.toml` — against the
-*value* rather than the path, so it cannot hide whatever lands in that file
+is genuinely a fixture, add an allowance to `.gitleaks.toml`, written against
+the *value* rather than the path, so it cannot hide whatever lands in that file
 next. If it is real, the credential is already published: rotate it first, and
 treat removing it from history as cleanup rather than as the fix.
 
 **`container-scan`.** Check whether the package is ours before reaching for an
-ignore. The first run found seven CVEs in `npm` and `corepack`, which the base
+ignore. The first run, on 2026-08-10, found seven CVEs in `npm` and `corepack`,
+which the base
 image ships and the runtime never uses; both Dockerfiles now delete them, which
 is a smaller attack surface as well as a clean scan.
 
@@ -1233,7 +1253,8 @@ audience `npm:registry.npmjs.org`, is exchanged by npm for a short-lived publish
 token, and a second token with the audience `sigstore` signs the provenance
 statement that npmjs.com shows beside the version. npm stopped issuing classic
 and Automation tokens in November 2025, and the granular tokens left expire in
-90 days at most.
+90 days at most (npm's announcements: creation of classic tokens stopped on
+2025-11-05; checked 2026-08-10).
 
 **Once, before the first release**, the project owner must:
 
@@ -1285,7 +1306,7 @@ the chart's default is `v` plus its `appVersion`. `scripts/check-chart-image-tag
 renders the chart in CI and fails if its default is anything else.
 
 **What a signature proves depends on tag protection.** The certificate says a
-pipeline ran `.gitlab-ci.yml` at `refs/tags/v1.0.0` in this project. That is
+pipeline ran `.gitlab-ci.yml` at `refs/tags/vX.Y.Z` in this project. That is
 worth something only if nobody but a maintainer can create a `v*` tag. Before
 the first release, the project owner must add `v*` as a protected tag with
 *Allowed to create* set to Maintainers (*Settings → Repository → Protected
@@ -1302,11 +1323,14 @@ a cleanup policy that deletes them leaves every release unverifiable.
 Use [cosign](https://github.com/sigstore/cosign) 3.x, the major version the
 pipeline signs with, plus `jq` and Docker's `buildx` for the SBOM steps.
 
+Nothing is published yet. In the commands below, `vX.Y.Z` stands for the
+release you run; releases will be 0.x, such as `v0.1.0`.
+
 **The signature.** For a version you have chosen, name its tag exactly:
 
 ```bash
-cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:v1.0.0 \
-  --certificate-identity 'https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/v1.0.0' \
+cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:vX.Y.Z \
+  --certificate-identity 'https://gitlab.com/jojithedev/flight-recorder//.gitlab-ci.yml@refs/tags/vX.Y.Z' \
   --certificate-oidc-issuer https://gitlab.com
 ```
 
@@ -1315,7 +1339,7 @@ not a typo. To accept any release tag, for example in an admission policy that
 checks every image a cluster pulls:
 
 ```bash
-cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:v1.0.0 \
+cosign verify registry.gitlab.com/jojithedev/flight-recorder/api:vX.Y.Z \
   --certificate-identity-regexp '^https://gitlab\.com/jojithedev/flight-recorder//\.gitlab-ci\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
   --certificate-oidc-issuer https://gitlab.com
 ```
@@ -1336,7 +1360,7 @@ your platform, verify the attestation on it, and extract the document:
 
 ```bash
 IMAGE=registry.gitlab.com/jojithedev/flight-recorder/api
-TAG=v1.0.0
+TAG=vX.Y.Z
 ARCH=amd64   # or arm64
 
 DIGEST=$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{json .Manifest}}' \
@@ -1354,7 +1378,7 @@ A release attaches one SBOM per platform digest, so there is one line; `head -n
 1` keeps the extraction to a single document if a digest ever carries more.
 
 The result is a CycloneDX 1.6 JSON document that Grype, Trivy
-(`trivy sbom api-v1.0.0-amd64.cdx.json`), and Dependency-Track read directly.
+(`trivy sbom api-vX.Y.Z-amd64.cdx.json`), and Dependency-Track read directly.
 The release job keeps the same files as artifacts, and the `sbom` job produces
 SBOMs for the images built from each default-branch pipeline, which is what to
 look at between releases.
@@ -1505,8 +1529,9 @@ doctor applies the full name rule to them. `error`, `runtime_metadata`,
 from `journey_events_timeline_idx` as an index-only scan, then each sampled
 event is read once by primary key, so the cost depends on the sample and not
 on the size of the table. It runs in a read-only transaction with
-`statement_timeout` at 5 seconds. Measured with `EXPLAIN (ANALYZE, BUFFERS)` on
-PostgreSQL 17 with 600,000 events (626 MB of `journey_events`, about 5 KB of
+`statement_timeout` at 5 seconds. Measured on 2026-09-16 with
+`EXPLAIN (ANALYZE, BUFFERS)` on PostgreSQL 17, on the development machine
+(commit `190564b`, which does not name it), with 600,000 events (626 MB of `journey_events`, about 5 KB of
 payload each) in four environments: 1,600 events sampled (four shares of 400),
 7,698 shared buffers, about 155 ms warm and 168 ms on the first run, most of it
 reading keys with `jsonb_each`.
@@ -1544,7 +1569,8 @@ port, and only there: `/metrics` on the API port is 404, so publishing ingestion
 never publishes metrics by accident. Unset, which is the default, nothing listens
 (ADR-047).
 
-Neither Compose file publishes the port. A Prometheus on the same Compose network
+No Compose file in this repository publishes the port. A Prometheus on the same
+Compose network
 scrapes `api:9464`; one on the host needs a loopback mapping in an override file:
 
 ```yaml
@@ -1657,7 +1683,9 @@ legitimately takes longer to cascade than a search should, and a retention batch
 cancelled every hour would never let the sweep reach the next environment. On a
 database with 1,000 expired journeys of 200 events each, one retention batch
 took 2.4 seconds with migration 016's index and 9.5 seconds without it, beside
-only 1,000 replay runs.
+only 1,000 replay runs (measured on 2026-09-15 on PostgreSQL 17, on the
+development machine; commit `4c7ab65` records it and does not name the
+machine).
 
 The request gets 503 `query_timeout` with its request
 id; the API logs one warning naming the route and the request id, never the SQL
@@ -1726,7 +1754,7 @@ hold `detail` in the clear; treat their failure lines as personal data too.
 | Not sure what is wrong | run `doctor` (§12) |
 | `/ready` 503 `migrations_pending` | run `pnpm db:migrate` |
 | Requests return 503 `query_timeout` | a statement ran past `DATABASE_STATEMENT_TIMEOUT_MS`: the route is in the API's warning log and `flight_recorder_query_timeouts_total`; check the database's load before raising the timeout (§13) |
-| Every search returns nothing | which project the session selected — see `/projects` |
+| Every search returns nothing | which project the session selected; see `/projects` |
 | A search that worked stops working | `rotate:status`: an unknown key id means `ENCRYPTION_KEY_PREVIOUS` was removed before re-encryption finished (§6) |
 | Boot log warns of stored data the configured keys cannot read | restore the old key as `ENCRYPTION_KEY_PREVIOUS` and recreate the API (§6) |
 | API exits at boot: `ENCRYPTION_KEY_PREVIOUS is the same key as ENCRYPTION_KEY` | set it to the key being replaced, not the new one |
@@ -1735,8 +1763,8 @@ hold `detail` in the clear; treat their failure lines as personal data too.
 | `rotate:reencrypt` exits 1 saying the lock is held | another run is still going; let it finish, then `rotate:status` |
 | `delete:range` exits 1 saying the retention lock is held | the retention sweep is running; run it again when that finishes |
 | An audit row for a deletion says `complete: false` | the run stopped part way; run the same command again (§8) |
-| SDK sends nothing | key validity, environment match, and the SDK's `onDiagnostic` reports and `counters()` |
-| Ingestion returns 403 | the key's environment does not match the event's |
+| SDK sends nothing | [Troubleshooting](TROUBLESHOOTING.md#no-journeys-appear) walks through it: key validity, environment match, and the SDK's `onDiagnostic` reports and `counters()` |
+| An event is refused `unauthorized_environment` | the key's environment does not match the event's. `POST /v1/events/batch`, which the SDK uses, answers 202 with `httpStatus: 403` in that event's result; only `POST /v1/events` answers the request 403 ([Troubleshooting](TROUBLESHOOTING.md#403-unauthorized_environment)) |
 | Ingestion returns 401 after working | the key was revoked, which `pnpm key:list` shows, or it had not authenticated before `ENCRYPTION_KEY_PREVIOUS` was removed (§6) |
 
 The SDK's `shutdown()` returns counters, and `counters()` returns them at any

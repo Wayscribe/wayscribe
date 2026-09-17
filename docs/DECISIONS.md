@@ -222,7 +222,7 @@ The target users include individual developers and small teams that may not have
 
 The self-hosted community edition will be free to use and released under an established open-source license selected before the first implementation release.
 
-The core journey workflow—ingestion, entity search, identity mapping, timelines, transformation diffs, investigation, and development replay—must not require payment.
+The core journey workflow (ingestion, entity search, identity mapping, timelines, transformation diffs, investigation, and development replay) must not require payment.
 
 ### Consequences
 
@@ -604,7 +604,7 @@ A related defect appeared first: because `.d.ts` declaration files end in `.ts`,
 `loadExtensions: [".ts", ".js"]` list counted every compiled migration twice, so
 `/ready` reported migrations pending forever.
 
-Both are the same underlying problem — migration identity must not depend on how
+Both are the same underlying problem: migration identity must not depend on how
 the process was started.
 
 ### Decision
@@ -616,7 +616,7 @@ JSDoc.
 
 The directories resolve as `../migrations` relative to the Knex configuration
 module, which sits at `src/knex-config.ts` in development and `dist/knex-config.js`
-in a container — both exactly one level below the package root.
+in a container, both exactly one level below the package root.
 
 ### Consequences
 
@@ -638,8 +638,8 @@ in a container — both exactly one level below the package root.
 Phase 1a computed search tokens as `HMAC(key, aliasType + ":" + value)`. That makes
 value-only lookup impossible: computing the hash requires already knowing the alias
 type. The `(project_id, alias_value_hash)` index exists specifically for value-only
-lookup and was therefore unusable, and the product's central promise — type an
-identifier into a search box and find the record — could not work, because a developer
+lookup and was therefore unusable, and the product's central promise (type an
+identifier into a search box and find the record) could not work, because a developer
 holding an ID from a log line does not know which alias type it was stored under.
 
 `DATABASE_SCHEMA.md` section 4 says to include the alias type "when appropriate".
@@ -709,7 +709,7 @@ sessions.
 ### Context
 
 `DEMO_SCENARIO.md` section 7 documented an expected transformation diff showing
-`phone` changing from a value to `null` with `name` unchanged — both sides using
+`phone` changing from a value to `null` with `name` unchanged, both sides using
 internal field names.
 
 That diff cannot be produced by the step it describes. The transformation's input is
@@ -818,7 +818,7 @@ This mirrors ADR-029, which refuses admin tokens at ingestion.
 
 **V0 sends the recorded payload unmodified. The editor moves to V1.**
 
-Review stays and is mandatory — the prepare screen shows exactly what will be sent, which
+Review stays and is mandatory: the prepare screen shows exactly what will be sent, which
 is what makes section 13's prohibition on one-click replay mean anything. What is deferred
 is changing it.
 
@@ -875,8 +875,8 @@ Following one would repeat the whole resolution problem at a destination the ope
 never approved.
 
 **Private address ranges are permitted.** Section 10 suggests considering a block, and
-this decision declines: every destination the feature exists for — `localhost`,
-`host.docker.internal`, a Compose service name — resolves into a private range. Blocking
+this decision declines: every destination the feature exists for (`localhost`,
+`host.docker.internal`, a Compose service name) resolves into a private range. Blocking
 them would leave replay unable to reach anything it is for. `REPLAY_ALLOWED_HOSTS` is the
 control, and an explicit allowlist is a better control than a heuristic.
 
@@ -901,14 +901,14 @@ requires blocked.
 ### Context
 
 `checkLimits` measured a payload by calling `JSON.stringify` on it. That throws on exactly
-two inputs — a cycle and a BigInt — and both were caught and reported as
+two inputs, a cycle and a BigInt, and both were caught and reported as
 `payload_too_large`.
 
 Both reports were wrong, and wrong in a way that cost the payload:
 
 - A cycle is capturable. ADR-030's redaction walk marks the point where a loop closes and
   keeps the rest of the structure. But `checkLimits` runs first, so that repair was
-  unreachable — every parent/child graph an ORM hands back was discarded before reaching
+  unreachable: every parent/child graph an ORM hands back was discarded before reaching
   it. This was found by instrumenting a real application, not by a test.
 - A BigInt is capturable too. A PostgreSQL `bigint` column, a Prisma `BigInt`, and a
   snowflake id are all ordinary values.
@@ -930,7 +930,7 @@ measures the rendering rather than the original.
   actually stored agree. It tracks the **ancestor chain**, not every object visited: two
   fields pointing at one address object is ordinary and must be expanded twice, or an
   oversized payload could slip through by carrying a self-reference.
-- Genuine failures — a getter or a `toJSON` that throws — get their own reason,
+- Genuine failures (a getter or a `toJSON` that throws) get their own reason,
   `unserialisable_payload`, so the operator is not sent to a setting that cannot help.
 
 ### Consequences
@@ -950,7 +950,7 @@ measures the rendering rather than the original.
 
 ### Context
 
-`DEFAULT_SECRET_PATHS` shipped each name twice — `authorization` and `*.authorization` —
+`DEFAULT_SECRET_PATHS` shipped each name twice (`authorization` and `*.authorization`),
 which reached the top level of a payload and one level below it. Nothing deeper, and
 nothing inside an array, because an array with no matching `x[*]` rule was walked with no
 rules at all.
@@ -966,8 +966,8 @@ plaintext in `journey_events.input_payload`:
 
 `config.headers.authorization` is the shape every axios error carries, and it is the most
 common way a live key reaches a captured payload at all. This applied in every capture
-mode, including the default, and at both redaction points — the SDK before buffering and
-the server before persistence — because both append the same list.
+mode, including the default, and at both redaction points (the SDK before buffering and
+the server before persistence), because both append the same list.
 
 `SECURITY.md` section 2 names secret capture as a primary threat and lists API keys, OAuth
 tokens, cookies and passwords; section 3 requires that `full-payload` never mean "skip
@@ -985,7 +985,7 @@ is written entirely in that form. Twenty-two rules covering two levels became el
 covering all of them.
 
 It is implemented as a set of key names checked on every key of every object, never
-narrowed while descending — not as a general glob. The security property is then a single
+narrowed while descending, and not as a general glob. The security property is then a single
 sentence a reviewer can confirm in one reading: *a key whose name is on the list is
 replaced wherever it is filed.* A `**` segment threaded through the existing path matcher
 would have put the same guarantee behind path-matching edge cases, which is where this
@@ -1021,13 +1021,13 @@ finds every field of that name masked instead.
 A `Map`, a `Set`, an `Error`, a `RegExp` and a `Headers` keep their data in internal slots
 rather than in own enumerable properties. The object rebuild that makes redaction possible
 therefore turned every one of them into `{}`. The event was still recorded and the field
-was simply empty, with nothing to say so — the same failure ADR-030 fixed for `Date`, in
+was simply empty, with nothing to say so: the same failure ADR-030 fixed for `Date`, in
 the values `toJSON` does not cover.
 
 An `Error` is the sharp case. This is a debugging tool, and an error stored as `{}` is the
 one payload a reader most needs. An axios failure carries `config` and `response` as
-assigned own properties, so those survived, while `name` and `message` — the two fields
-that say what went wrong — did not.
+assigned own properties, so those survived, while `name` and `message`, the two fields
+that say what went wrong, did not.
 
 ### Decision
 
@@ -1039,7 +1039,7 @@ Two properties carry the whole security argument, and both are pinned by tests.
 **Shallow.** A render never recurses. Its values are the *original* references, handed
 straight back to the walk that called it, with the paths un-advanced. Converting a subtree
 inside the renderer would carry it past every remaining match site and past the ancestor
-set that detects cycles — that single change would turn this from a fix into a leak.
+set that detects cycles. That single change would turn this from a fix into a leak.
 
 **Plain.** A render emits ordinary objects and arrays under the keys the data already had,
 with no wrapper frame and no type marker. The path a reader sees in a stored payload is
@@ -1051,8 +1051,8 @@ payloads land it propagates into `payload_diff` and the interface, and reverting
 would not revert the data.
 
 Detection is two-stage. `Object.prototype.toString` is a fast candidate filter, and each
-branch then confirms by reaching for the intrinsic itself — `Map.prototype.entries`, the
-`RegExp.prototype.source` getter — which a forgery cannot satisfy and which works across
+branch then confirms by reaching for the intrinsic itself (`Map.prototype.entries`, the
+`RegExp.prototype.source` getter), which a forgery cannot satisfy and which works across
 realms, where `instanceof` fails. `RegExp.prototype.toString` is *not* a brand check: it is
 specified to work on any object, and an impostor came back as `/undefined/undefined`.
 
@@ -1078,7 +1078,7 @@ closing.
   is the deliberate cost of storing them under their own keys, and the SDK README says so.
 - Map keys are stringified, so two distinct keys can collapse onto one name. The count is
   reported as `[COLLIDED_KEYS]`, and an application already using that name keeps its own
-  value — the marker is dropped rather than the data.
+  value: the marker is dropped rather than the data.
 - A payload holding one of these now hashes differently, and `contentHash` is computed over
   what the SDK sent. Resending the same event id from a mixed-version fleet during a
   rollout returns 409 `event_id_conflict`.
@@ -1101,13 +1101,13 @@ The quick start bundled PostgreSQL and offered no way to point at another one, w
 inverted the relationship a self-hosted tool should have with a team's data. Flight
 Recorder stores captured request payloads. The database holding them is exactly the one an
 operations team wants inside their own backup schedule, their own monitoring, and their own
-credential rotation — not in a container the tool brought with it.
+credential rotation, not in a container the tool brought with it.
 
 Worse, an installation could not be used at all. `key:create` requires a project, and the
 only two projects that could ever exist came from the two hardcoded seeds, `local` and
 `demo`, neither of which the published stack ran. A team following the documented quick
 start reached "No projects yet", had no command to create one, and stopped there. Nothing
-downstream — SDK, timeline, diff, replay — was reachable from a fresh install.
+downstream (SDK, timeline, diff, replay) was reachable from a fresh install.
 
 `key:create` was also documented only as `pnpm key:create`, which needs the repository
 cloned, contradicting a quick start whose premise is that no checkout is required.
@@ -1118,14 +1118,14 @@ cloned, contradicting a quick start whose premise is that no checkout is require
 moves to `infrastructure/compose.bundled.yaml`, an overlay for evaluation and local work.
 
 An overlay rather than a Compose profile: a profiled service cannot be the target of
-`depends_on`, and `docker compose config` refuses the file outright — *service "app"
+`depends_on`, and `docker compose config` refuses the file outright: *service "app"
 depends on undefined service "postgres"*. Compose also interpolates each file before
 merging them, so `${DATABASE_URL:?...}` in the base would refuse to start even when the
 overlay is about to supply the value. The variable is therefore permissive in the file, and
 both the API's config loader and the migration CLI say what to do when it is unset.
 
 `project:create` and `project:list` join the CLI, which the published image already
-carries — `migrate` runs from it. The documented invocation is the container one, so the
+carries; `migrate` runs from it. The documented invocation is the container one, so the
 no-clone path is complete.
 
 A slug is `^[a-z0-9]+(-[a-z0-9]+)*$`, validated at creation. It reaches project selection,
@@ -1162,8 +1162,8 @@ Read routes accept either principal, so an API key can read. A key issued for
 decrypted payload, by id. Verified against a running stack before the fix: the response to
 a development key carried `{"salary": 185000, "ssnLast4": "6789"}` from a production event.
 
-The boundary was real in the schema — `journeys` and `journey_events` both carry
-`environment_id` with foreign keys — enforced on one route, and absent on the three that
+The boundary was real in the schema (`journeys` and `journey_events` both carry
+`environment_id` with foreign keys), enforced on one route, and absent on the three that
 return the data.
 
 The test suite contained a case that looks like it covers this and does not. *"returns 404
@@ -1172,7 +1172,7 @@ already make unreachable. Nothing tested a second environment of the same projec
 
 ### Decision
 
-`ReadScope` — `{ projectId, environmentId? }` — moves out of `search.ts`, where it lived as
+`ReadScope` (`{ projectId, environmentId? }`) moves out of `search.ts`, where it lived as
 `SearchScope` because search was the only read that took one, into its own module. Every
 read takes it. A single `readScope(principal)` in the route file is the one place a scope is
 constructed, so a future read cannot be written that quietly omits the environment.
@@ -1289,7 +1289,7 @@ a client that is not the SDK runs none of that.
 
 ### Decision
 
-Key names are normalised — lowercased, with `-` and `_` removed — on both sides of the
+Key names are normalised (lowercased, with `-` and `_` removed) on both sides of the
 comparison. `apiKey`, `api_key`, `api-key` and `APIKey` are one name. Only case and
 separators go; `secret` still does not match `secretary`, because the point is one name
 spelled differently rather than one name resembling another.
@@ -1299,8 +1299,8 @@ convention reaches both.
 
 `redactAlways` applies the operator's paths plus the built-in list regardless of capture
 mode, and covers the four fields `applyCapture` never saw. It is a separate function
-because `applyCapture` answers a different question — *how much of the business payload may
-we store* — and for `metadata-only` that answer is none, while SECURITY.md section 3 keeps
+because `applyCapture` answers a different question (*how much of the business payload may
+we store*), and for `metadata-only` that answer is none, while SECURITY.md section 3 keeps
 identifiers and operation metadata in that mode.
 
 ### Consequences
@@ -1322,7 +1322,7 @@ identifiers and operation metadata in that mode.
 
 The README asserted that payload fields are encrypted at rest. They are `jsonb`.
 `docs/OPERATIONS.md` went further and told an operator that a `pg_dump` taken without
-`ENCRYPTION_KEY` restores a database whose payloads cannot be read — so following the
+`ENCRYPTION_KEY` restores a database whose payloads cannot be read, so following the
 documented backup procedure exported every captured customer payload in the clear, while
 the document said it had not.
 
@@ -1364,20 +1364,20 @@ that finds nothing is indistinguishable from one that works.
 
 ### Decision
 
-Three jobs run the underlying open-source tools directly — `pnpm audit`, gitleaks, and
-Trivy — so the result is real and the pipeline stays portable off GitLab. SAST is
+Three jobs run the underlying open-source tools directly (`pnpm audit`, gitleaks, and
+Trivy), so the result is real and the pipeline stays portable off GitLab. SAST is
 deliberately absent: on a codebase this size, with type-aware lint and 423 tests, it
 produces findings that get triaged once and ignored afterwards, which is worse than not
 having it.
 
 **All three block, and the baseline was cleared first.** Turning a scanner on red is how it
-gets disabled — the same reasoning that already keeps `demo` and `e2e` manual, written down
+gets disabled: the same reasoning that already keeps `demo` and `e2e` manual, written down
 in this repository as *"a red pipeline on every push for a suite needing the whole stack
 trains people to ignore it."*
 
 Clearing it meant fixing rather than allowlisting:
 
-- Three high advisories reached through Next — `postcss` twice and `sharp` — are pinned
+- Three high advisories reached through Next (`postcss` twice and `sharp`) are pinned
   forward with `overrides` in `pnpm-workspace.yaml`. An override removes the finding; an
   allowlist hides it. (The setting moved out of `package.json` in pnpm 10, and is silently
   ignored there.)
@@ -1385,7 +1385,7 @@ Clearing it meant fixing rather than allowlisting:
   fixtures or the proof strings in `WHAT_RUNNING_IT_FOUND.md`, which necessarily contains
   things shaped like credentials because it documents a defect that stored them. The
   allowances in `.gitleaks.toml` are written against the *value* rather than the path
-  wherever possible, so they cannot hide whatever lands in that file next — and a planted
+  wherever possible, so they cannot hide whatever lands in that file next; and a planted
   credential is still detected, which is a test rather than an assumption.
 - Trivy reported seven HIGH and one CRITICAL in both images, in `tar`, `brace-expansion`,
   `ip-address` and an old `undici`. None were ours: they belong to `npm` and `corepack`,
@@ -1423,7 +1423,7 @@ shape doubles the surface where a quick start can dead-end. `docs/ROADMAP.md` sa
 this week.
 
 The goal changed. The owner is the primary user, deploys to a local cluster, and does not
-want to publish. Under that goal both objections fall away — a chart is not a *second*
+want to publish. Under that goal both objections fall away: a chart is not a *second*
 install shape if it is the one actually used, and "no adopter would notice" stops being an
 argument when there is no adopter to notice.
 
@@ -1433,7 +1433,7 @@ and a volume claim, which is the worst kind of chart to own.
 
 ### Decision
 
-`deploy/helm/flight-recorder` targets a **local single-node cluster** — kind, k3s, or Docker
+`deploy/helm/flight-recorder` targets a **local single-node cluster**: kind, k3s, or Docker
 Desktop. Access is by `port-forward` or NodePort; no ingress controller, cert manager, or
 storage class is assumed, because assuming any of them is how a chart fails on the machine
 it was written for.
@@ -1449,13 +1449,13 @@ moving parts than a single StatefulSet, and its licensing has moved recently.
 Migrations run as a Helm hook, mirroring the `migrate` service in Compose, so there is one
 answer to "who applies schema" rather than two. The hook is `post-install,post-upgrade`,
 not `pre-install`: a `pre-install` hook runs before *every* regular resource in the release,
-so the Job could not see the Secret holding `DATABASE_URL` and — with `postgresql.enabled` —
+so the Job could not see the Secret holding `DATABASE_URL` and, with `postgresql.enabled`,
 had no database to migrate. Ordering is enforced by `/ready` returning `migrations_pending`
 instead, which keeps new pods out of service until the schema is applied and lets the
 previous pods keep serving through an upgrade.
 
 The chart is verified by installing it into a throwaway kind cluster and reading pod status
-and a live response — not by `helm lint` alone. A chart that templates cleanly and does not
+and a live response, not by `helm lint` alone. A chart that templates cleanly and does not
 run is the exact failure this project keeps finding.
 
 ### Consequences
@@ -1477,15 +1477,15 @@ run is the exact failure this project keeps finding.
 ### Context
 
 "Can a demo application live in this repository without shipping?" turned out to have three
-mechanisms behind it — `private: true` in the package, absence from
-`infrastructure/compose.published.yaml` and the Helm chart, and `.dockerignore` — and
+mechanisms behind it (`private: true` in the package, absence from
+`infrastructure/compose.published.yaml` and the Helm chart, and `.dockerignore`), and
 `apps/demo` satisfied only the first two.
 
 Looking at the actual image rather than the intent made the real problem bigger than the
 demo. `apps/api/Dockerfile` ended its build stage with `COPY --from=build /app /app`, which
 is every file in the workspace: 62 test files, ten source directories, the demo application
 and the web application, all in the published API image. The comment above it explained the
-choice — keeping the whole tree keeps the paths the documentation uses — but those paths are
+choice (keeping the whole tree keeps the paths the documentation uses), but those paths are
 `dist` paths, so the reason justified far less than it was taking.
 
 None of it is reachable. The entrypoint is `apps/api/dist/server.js`, and the workspace
@@ -1493,7 +1493,7 @@ None of it is reachable. The entrypoint is `apps/api/dist/server.js`, and the wo
 an explicit `--conditions=development` that nothing in the image passes.
 
 Unreachable is not the same as harmless. Test fixtures in this repository contain
-credential-shaped strings — `admin-token-for-tests-…`, a 64-character hex key — that exist
+credential-shaped strings (`admin-token-for-tests-…`, a 64-character hex key) that exist
 precisely because they look real enough to exercise the parsers. A secret scanner reading a
 published image cannot tell a fixture from a leak, and neither can a person.
 
@@ -1502,9 +1502,9 @@ Trivy was already scanning these images and had nothing to say about any of it. 
 
 ### Decision
 
-The build stage deletes what the runtime never executes — `apps/demo`, `apps/web`, every
+The build stage deletes what the runtime never executes (`apps/demo`, `apps/web`, every
 `src` directory outside `node_modules`, every `*.test.ts` and `*.spec.ts`, and the
-`tsconfig` files — after the production install and before the runtime stage copies it.
+`tsconfig` files) after the production install and before the runtime stage copies it.
 
 `.dockerignore` is the wrong place for `apps/demo`: the root context is shared by all three
 image builds, and excluding the demo there would break `apps/demo/Dockerfile`. Exclusion
@@ -1522,7 +1522,7 @@ so it can be run locally, which is the same reasoning as DEBT on untested releas
 - `container-scan` runs on the default branch, tags and schedules, not on feature branches.
   A regression is caught at merge rather than before it, because the check needs a built
   image and adding a docker build to every push is the worse trade.
-- Size was never the point and barely moved — 34.9M to 33.6M, since `node_modules` dominates
+- Size was never the point and barely moved: 34.9M to 33.6M, since `node_modules` dominates
   both. The 62 test files were the point.
 - The demo now genuinely does not ship, by all four mechanisms rather than two.
 
@@ -2187,6 +2187,13 @@ kept and nothing links them.
   entities under `refused`. And a missing or short secret prints one warning per process even
   with `logDiagnostics` off, the one exception to SDK-40, because a counter nobody reads does
   not stop journeys splitting in production.
+
+**Amendment (2026-09-16, claims audit).** "The one exception to SDK-40" was true when this was
+written and is not now. SDK-40 allows three kinds of unasked warning (SDK-56, SDK-60, SDK-61),
+and the Node SDK prints four: this one, a required setting that is missing, empty or not a
+string, a setting under its old name, and a secret-looking field name sent in plain text
+(`packages/sdk-node/README.md`, "It cannot break your application"). The decision above is
+unchanged.
 
 ---
 

@@ -81,7 +81,7 @@ timeline covers `demo-integration` and `demo-worker` only.
 
 `pnpm test:demo` asserts the whole reference journey against a **running** stack:
 the ten events and their order, the phone diff, the target's 422, the retries,
-and the dead-letter state. Bring the stack up first — unlike `pnpm test` and
+and the dead-letter state. Bring the stack up first: unlike `pnpm test` and
 `pnpm test:integration`, it starts nothing itself.
 
 ### Running the browser suite
@@ -173,8 +173,14 @@ const recorder = createRecorder({
 });
 ```
 
+When `FLIGHT_RECORDER_API_KEY` is unset, `?? ""` hands the SDK an empty key.
+The SDK treats an empty or blank required setting as missing: it prints one
+`configuration_error` line per process, even with `logDiagnostics` off, and the
+server refuses the events
+([Troubleshooting](TROUBLESHOOTING.md#3-did-the-sdk-reach-the-api)).
+
 Naming the variables in your own application is a convention this repository
-suggests, not one the SDK enforces — a library that reads `process.env` behind
+suggests, not one the SDK enforces: a library that reads `process.env` behind
 your back is a library that behaves differently in tests.
 
 ## 6. Commands
@@ -182,7 +188,7 @@ your back is a library that behaves differently in tests.
 | Command | |
 |---|---|
 | `pnpm build` | compile every package |
-| `pnpm lint` · `pnpm format` · `pnpm typecheck` | the three verify gates |
+| `pnpm lint` · `pnpm format:check` · `pnpm typecheck` | the three verify gates; `pnpm format` rewrites what `format:check` refuses |
 | `pnpm test` | unit; starts nothing, needs nothing running |
 | `pnpm test:integration` | real PostgreSQL via Testcontainers; needs Docker |
 | `pnpm test:e2e` | Playwright browser suite; needs the API and web running, and `ADMIN_TOKEN` and `FLIGHT_API_KEY` set (§3, Running the browser suite) |
@@ -203,7 +209,7 @@ your back is a library that behaves differently in tests.
 ## 7. Projects, environments, and keys
 
 `pnpm db:seed` creates a `local` project with a `development` environment and
-prints one API key. **The key is shown once and cannot be recovered** — only a
+prints one API key. **The key is shown once and cannot be recovered**: only a
 peppered HMAC of it is stored.
 
 Issue further keys with `key:create`, which creates the environment if it does
@@ -213,9 +219,12 @@ not exist yet:
 pnpm key:create local staging staging-worker
 ```
 
-A key is scoped to one project *and one environment*. Ingestion returns 403 when
-the event's `environment` does not match the key's, so a service that writes to
-both needs two keys.
+A key is scoped to one project *and one environment*. Ingestion refuses an event
+whose `environment` does not match the key's with `unauthorized_environment`,
+so a service that writes to both needs two keys. On `POST /v1/events/batch`,
+which the SDK uses, the request is answered 202 and the refusal, with
+`httpStatus: 403`, is in that event's result; only `POST /v1/events` answers
+the request itself 403.
 
 Revocation takes the prefix rather than the key, because the full value is not
 stored and whoever is revoking it usually does not have it:
@@ -259,13 +268,14 @@ Check PostgreSQL connectivity and migration state.
 
 ### SDK emits no events
 
-Check:
+[Troubleshooting](TROUBLESHOOTING.md#no-journeys-appear) walks through this one
+question at a time. In short, check:
 
 - endpoint
 - API key
 - environment match
-- debug logs
-- circuit breaker state
+- the lines `logDiagnostics: true` prints
+- `counters()`, including `breakerOpened`
 - local network route from container or host
 
 ### Search finds no alias
@@ -308,6 +318,7 @@ Server capture policy may be stricter than SDK configuration. Server policy wins
 | Web interface authentication | Single admin token | ADR-016 |
 | Migration file format | Plain ESM JavaScript | ADR-027 |
 
-The time-to-first-journey target is measured in Epic 12, once the demo workflow makes
-it a real number. Phase 0 verifies only that the documented Compose command brings up
-the stack on a clean machine.
+The time to a first journey was measured on 2026-09-14 from a fresh clone on a
+laptop with no Docker layer cache: the demo stack built in 38 seconds, booted in
+12, and showed the reference journey within a minute of the clone (the README's
+*Try it*).
