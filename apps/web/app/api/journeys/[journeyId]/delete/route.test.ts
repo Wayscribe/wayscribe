@@ -143,12 +143,12 @@ describe("POST /api/journeys/[journeyId]/delete", () => {
 
     it("honours x-forwarded-host behind a proxy", async () => {
       await allowed({
-        origin: "https://recorder.example.com",
-        "x-forwarded-host": "recorder.example.com"
+        origin: "https://wayscribe.example.com",
+        "x-forwarded-host": "wayscribe.example.com"
       });
       await refused({
         origin: "https://other.example.com",
-        "x-forwarded-host": "recorder.example.com"
+        "x-forwarded-host": "wayscribe.example.com"
       });
     });
 
