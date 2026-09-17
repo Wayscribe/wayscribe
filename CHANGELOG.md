@@ -346,6 +346,12 @@ shorter overview is in
   circuit breaker is open the recorder no longer starts a send for every event
   recorded, which cost about 6 µs a call against a refusing endpoint.
 
+- **Events arrive in order after an outage.** Those failed sends overlapped and
+  put their batches back out of order, so once the endpoint recovered a few
+  batches arrived out of order, and with the queue full a batch from the middle
+  of the outage could arrive after thousands of newer events had been dropped.
+  The events kept are now the newest, and they arrive in the order recorded.
+
 - **A blank required setting is reported as missing (SDK-60).** An empty or
   whitespace-only `endpoint`, `apiKey`, `serviceName` or `environment`, such as
   `process.env.FLIGHT_RECORDER_API_KEY ?? ""` with the variable unset, now
