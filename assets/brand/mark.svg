@@ -1,0 +1,18 @@
+<!--
+  The Wayscribe mark: a thread that runs, steps, and continues in another
+  colour. It is the product in one line. A record moves through your services,
+  one step changes it, and everything after that carries the change.
+
+  Geometry is on a 32 unit grid with a 4.4 unit stroke, which is 2.2 device
+  pixels at 16 CSS pixels: heavy enough that a favicon still reads as a step
+  rather than as a smudge. There is no type in the mark and no gradient.
+
+  Colours: the navy is the site's dark accent family, the blue is the product
+  interface's dark-theme accent, and the coral is its failed state, which is
+  what the upper run means.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="Wayscribe">
+  <rect width="32" height="32" rx="7" fill="#11203c"/>
+  <path d="M4.9 22.5 H15 V9.5" stroke="#94b8ff" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M15 9.5 H27.1" stroke="#ff7a63" stroke-width="4.4" stroke-linecap="round"/>
+</svg>
