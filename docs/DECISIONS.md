@@ -2710,9 +2710,9 @@ the rename could be a clean break.
   `flight-recorder/api-key`, `flight-recorder/content-hash`,
   `flight-recorder/key-id` and `flight-recorder/web-session` are HKDF labels,
   and a label decides the key derived from `ENCRYPTION_KEY`, or, for the web
-  session, from `ADMIN_TOKEN`. Changing one would leave encrypted identifiers unreadable, stop
-  search tokens matching, change key fingerprints, fail every stored API key
-  and end every web session. No user sees them. Each carries a comment saying
+  session, from `ADMIN_TOKEN`. Changing one would leave encrypted identifiers
+  unreadable, stop search tokens matching, change key fingerprints, fail every
+  stored API key and end every web session. No user sees them. Each carries a comment saying
   why, and `packages/payload-security/src/derivation-labels.test.ts` pins them.
 - **History stays as written.** ADR-001 to ADR-056, past CHANGELOG entries,
   the dated design documents and plans, the reviews, the claims audit of
