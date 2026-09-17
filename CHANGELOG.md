@@ -40,6 +40,7 @@ the new one for each. There are no aliases: the old names are not read.
 | Prometheus metrics (nine families) | `flight_recorder_*` | `wayscribe_*` |
 | Alert rules | `FlightRecorderRetentionStalled`, `FlightRecorderRejectingEvents`, `FlightRecorderDatabaseStrained` | `WayscribeRetentionStalled`, `WayscribeRejectingEvents`, `WayscribeDatabaseStrained` |
 | SDK print prefix | `[flight-recorder]` | `[wayscribe]` |
+| Web session cookie | `flight_session` | `wayscribe_session` |
 | New API keys | `fr_` and 32 characters | `wsk_` and 32 characters |
 | Published demo key | `fr_demo...` | `wsk_demo...` |
 | Images | `registry.gitlab.com/jojithedev/flight-recorder/{api,web}`, demo `flight-recorder-demo:local` | `registry.gitlab.com/jojithedev/wayscribe/{api,web}`, demo `wayscribe-demo:local` |
@@ -51,8 +52,8 @@ the new one for each. There are no aliases: the old names are not read.
 What keeps working:
 
 - **Stored data.** The key-derivation labels did not change, so encrypted
-  identifiers, search tokens and web sessions from before the rename still
-  work, and no migration was added.
+  identifiers and search tokens from before the rename still work, and no
+  migration was added.
 - **API keys that start `fr_`.** The server never checked the prefix. Masking
   in error text and `doctor` accept both forms, and `doctor` still warns while
   the old published demo key is active.
@@ -64,6 +65,10 @@ What you have to do when upgrading a checkout or a deployment:
   than the SDK reads or writes.
 - **Update dashboards and alert rules** to the `wayscribe_*` metrics and the
   new alert names.
+- **Sign in to the interface once more.** The session cookie is now
+  `wayscribe_session`. A session is still signed with the same key, but the
+  browser holds it under the old name, which is no longer read, so everyone
+  signed in is asked to sign in again, once.
 - **Pull images from the new path.** The old registry path does not redirect.
 - **Start a local Compose stack afresh.** The project, volume and database
   user changed, so an old stack's database is not picked up

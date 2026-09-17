@@ -2660,8 +2660,8 @@ own decision.
 
 "Flight recorder" is already taken in this field. JDK Flight Recorder owns the
 `flight-recorder` GitHub organization, Go's `runtime/trace` package ships a
-`FlightRecorder`, and `pg_flight_recorder` is a PostgreSQL tool. A search for the
-name finds those first, and a package or organization under it would be
+`FlightRecorder`, and `pg_flight_recorder` is a PostgreSQL tool. A search for
+the name finds those first, and a package or organization under it would be
 confused with them.
 
 The first replacement chosen, Clewline, was dropped on 2026-09-17: clewline.com
@@ -2681,7 +2681,8 @@ the rename could be a clean break.
   the SDK is `@wayscribe/node`. The CLI binary is `wayscribe`. The headers are
   `x-wayscribe-journey-id`, `x-wayscribe-entity-type`,
   `x-wayscribe-entity-id`, `x-wayscribe-replay` and `x-wayscribe-project-id`,
-  and `x-wayscribe-api-key` is redacted from logs. The queue attributes are
+  and `x-wayscribe-api-key` is redacted from logs. The web session cookie is
+  `wayscribe_session`. The queue attributes are
   `wayscribeJourneyId`, `wayscribeEntityType` and `wayscribeEntityId`, and the
   payload envelope key is `_wayscribe`. The environment variables are
   `WAYSCRIBE_API_KEY`, `WAYSCRIBE_URL`, `WAYSCRIBE_TOKEN`, `WAYSCRIBE_PROJECT`,
@@ -2712,8 +2713,15 @@ the rename could be a clean break.
   and a label decides the key derived from `ENCRYPTION_KEY`, or, for the web
   session, from `ADMIN_TOKEN`. Changing one would leave encrypted identifiers
   unreadable, stop search tokens matching, change key fingerprints, fail every
-  stored API key and end every web session. No user sees them. Each carries a comment saying
-  why, and `packages/payload-security/src/derivation-labels.test.ts` pins them.
+  stored API key and end every web session. No user sees them. Each carries a
+  comment saying why, and
+  `packages/payload-security/src/derivation-labels.test.ts` pins them.
+- **The stored ciphertext prefix keeps its old initials.** An encrypted value
+  is stored as `fr1.<keyId>.<payload>`
+  (`packages/database/src/repositories/rotation.ts`,
+  [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)). `fr1.` is part of the stored data,
+  not a name anyone reads, and every value already written carries it, so it
+  stays as it is on purpose.
 - **History stays as written.** ADR-001 to ADR-056, past CHANGELOG entries,
   the dated design documents and plans, the reviews, the claims audit of
   2026-09-16 and the migration files keep the old name.
@@ -2744,6 +2752,8 @@ the rename could be a clean break.
   describes.
 - Stored data stays readable, and API keys that start `fr_` keep
   authenticating, because the labels and the schema did not change.
+- Everyone signed in to the interface signs in once more: the session cookie's
+  name changed, and the old name is not read.
 - The GitLab project path moves to `jojithedev/wayscribe` after this change is
   merged. GitLab redirects the old repository URL; the old registry path does
   not redirect, so an image reference must use the new path.

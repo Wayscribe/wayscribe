@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { root } from "./docs-helpers.js";
 
@@ -9,7 +8,9 @@ import { root } from "./docs-helpers.js";
  *
  * The scan reads files itself rather than using `git grep`: `git grep -I`
  * skips any file holding a NUL byte, and some TypeScript tests do, and a line
- * search cannot see a name split across a line break.
+ * search cannot see a name split across a line break. It walks the tree rather
+ * than asking `git ls-files`, because the CI unit job runs on node:24-alpine,
+ * which has no git (see tests/docs-helpers.ts).
  */
 
 // Word edges spelled out rather than `\b`, as the patterns were first written
@@ -47,10 +48,11 @@ const ALLOWED_FILES = [
 
 /** Single lines outside the allowed files that must keep an old name, and why. */
 const ALLOWED_LINES: { file: string; line: RegExp }[] = [
-  // Removes a local stack started before the rename, under its old project name.
+  // Dumps and then removes a local stack started before the rename, under its
+  // old project name.
   {
     file: "docs/LOCAL_DEVELOPMENT.md",
-    line: /^docker compose -p flight-recorder -f infrastructure\/compose\.yaml down -v --remove-orphans$/
+    line: /^docker compose -p flight-recorder -f infrastructure\/compose\.yaml (down( -v)? --remove-orphans|up -d --wait postgres|exec -T postgres \\)$/
   },
   // The README's one sentence saying what the product was called before the rename.
   {
@@ -71,10 +73,52 @@ interface Scanned {
   text: string;
 }
 
+/**
+ * Directories that are build output, installed dependencies, or local tool
+ * state, none of it in the repository (.gitignore). Skipped wherever they
+ * appear, so a local build cannot make this test disagree with CI.
+ */
+const SKIP_DIRECTORIES = new Set([
+  ".git",
+  "node_modules",
+  ".pnpm-store",
+  "dist",
+  ".next",
+  "coverage",
+  "playwright-report",
+  "test-results",
+  ".claude",
+  ".superpowers",
+  "sboms"
+]);
+
+/**
+ * Ignored files that can exist on one machine and not another. A local `.env`
+ * is never read: it is the operator's own, and may hold secrets.
+ */
+function isSkippedFile(relative: string, name: string): boolean {
+  return (
+    (name.startsWith(".env") && name !== ".env.example") ||
+    name === ".DS_Store" ||
+    name === "next-env.d.ts" ||
+    name.endsWith(".tsbuildinfo") ||
+    /^examples\/[^/]+\/package-lock\.json$/.test(relative)
+  );
+}
+
+/** Every repository file under `directory`, dotfiles included, as paths relative to the root. */
+function repositoryFiles(directory = "", found: string[] = []): string[] {
+  for (const entry of readdirSync(`${root}${directory}`, { withFileTypes: true })) {
+    if (SKIP_DIRECTORIES.has(entry.name)) continue;
+    const relative = directory === "" ? entry.name : `${directory}/${entry.name}`;
+    if (entry.isDirectory()) repositoryFiles(relative, found);
+    else if (entry.isFile() && !isSkippedFile(relative, entry.name)) found.push(relative);
+  }
+  return found;
+}
+
 function scannedFiles(): Scanned[] {
-  return execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
-    .split("\0")
-    .filter((file) => file !== "")
+  return repositoryFiles()
     .filter((file) => !ALLOWED_FILES.some((pattern) => pattern.test(file)))
     .filter((file) => !BINARY.test(file))
     .map((file) => ({ file, text: readFileSync(`${root}${file}`, "latin1") }));
@@ -97,8 +141,25 @@ function isAllowedLine(file: string, line: string): boolean {
 }
 
 describe("rename to Wayscribe", () => {
-  it("scans every tracked text file, including ones holding NUL bytes", () => {
+  it("scans every repository text file, dotfiles and ones holding NUL bytes included", () => {
     expect(files.length).toBeGreaterThan(100);
+    const scanned = new Set(files.map(({ file }) => file));
+    for (const file of [
+      ".gitleaks.toml",
+      ".gitlab-ci.yml",
+      ".env.example",
+      "infrastructure/defaults.env"
+    ]) {
+      expect(scanned, file).toContain(file);
+    }
+    expect(
+      [...scanned].some((file) => file.startsWith(".github/")),
+      ".github/"
+    ).toBe(true);
+    expect(
+      [...scanned].some((file) => file.startsWith(".gitlab/")),
+      ".gitlab/"
+    ).toBe(true);
     expect(files.some(({ text }) => text.includes("\0"))).toBe(true);
   });
 

@@ -283,9 +283,43 @@ on every start.
 The rename to Wayscribe (ADR-057) changed the Compose project, and with it the
 volume, and the database user, password and name, which are now all
 `wayscribe`. A stack started before the rename is not picked up: its volume
-belongs to the old project and its database has the old user. Start fresh.
+belongs to the old project and its database has the old user. Starting the new
+stack under the old project name does not help either, because the new
+configuration connects as `wayscribe`, a user the old database does not have.
+Either copy the data across or start fresh.
 
-If you no longer need its data, remove the old stack and its volume. This
+To keep the data, dump the old database and restore it into the new one, with
+the backup and restore commands from [OPERATIONS.md](OPERATIONS.md#2-backup)
+adjusted for the old user. Both stacks publish PostgreSQL on port 5432, so run
+one at a time. Keep `ENCRYPTION_KEY` in `.env` as it was: the restored
+identifiers are readable only under the key that wrote them. Stop the old stack
+first if it is running, then start only its database and dump it:
+
+```bash
+docker compose -p flight-recorder -f infrastructure/compose.yaml down --remove-orphans
+docker compose -p flight-recorder -f infrastructure/compose.yaml up -d --wait postgres
+docker compose -p flight-recorder -f infrastructure/compose.yaml exec -T postgres \
+  pg_dump -U flight -d flight --format=custom > before-rename.dump
+docker compose -p flight-recorder -f infrastructure/compose.yaml down --remove-orphans
+```
+
+Then start the new database and restore into it. `--no-owner` and
+`--no-privileges` are needed: the dump names the old `flight` user as owner of
+every table, and that user does not exist in the new database.
+
+```bash
+docker compose -f infrastructure/compose.yaml up -d --wait postgres
+docker compose -f infrastructure/compose.yaml exec -T postgres \
+  pg_restore -U wayscribe -d wayscribe --no-owner --no-privileges < before-rename.dump
+```
+
+Change `DATABASE_URL` in `.env` to the new user and name, then continue with
+the setup in §2 (`up -d --build`, then `pnpm db:migrate`, which applies any
+migration newer than the dump). The `down` above keeps the old volume; once the
+new stack shows your journeys, remove it with the command below, and delete
+`before-rename.dump`, which holds payloads in the clear.
+
+If you no longer need the old data, remove the old stack and its volume. This
 removes every container of the old project, the demo profile's included, so
 none keeps running or holding a port:
 
