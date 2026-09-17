@@ -86,7 +86,7 @@ export default async function ReplayPage({
             <select id="destinationId" name="destinationId" required>
               {destinations.map((destination) => (
                 <option key={destination.id} value={destination.id}>
-                  {destination.name} — {destination.baseUrl} ({destination.environmentType})
+                  {destination.name}: {destination.baseUrl} ({destination.environmentType})
                 </option>
               ))}
             </select>

@@ -27,8 +27,8 @@ export default async function SearchPage({
         <Link href="/journeys?status=failed">No identifier? See recent failures</Link>
       </header>
       <p className="muted">
-        Search any identifier you have — a customer ID, an external reference, a trace or message
-        ID. You do not need to know which system it came from.
+        Search any identifier you have: a customer ID, an external reference, a trace or message ID.
+        You do not need to know which system it came from.
       </p>
 
       {/* A plain GET form; with JavaScript it also says a search is under way. */}
