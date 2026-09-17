@@ -1,6 +1,13 @@
 import { issueApiKey, type Keyring } from "@flight-recorder/payload-security";
 import type { Knex } from "knex";
 import { insertReturningId } from "../insert.js";
+import { recordAudit } from "./audit.js";
+
+/**
+ * The audit actor for key administration. Keys are issued and revoked only
+ * through the database CLI, so whoever acted held the database credentials.
+ */
+const KEY_ADMIN_ACTOR = "cli";
 
 export interface IssuedKey {
   id: string;
@@ -47,45 +54,66 @@ export async function issueKey(
     retentionDays?: number;
   }
 ): Promise<IssuedKey> {
-  const projectRow: unknown = await db("projects").where({ slug: options.projectSlug }).first("id");
-  const project = projectRow as { id: string } | undefined;
-  if (project === undefined) {
-    throw new KeyAdminError(
-      `No project with slug "${options.projectSlug}". Existing projects: ${await slugList(db)}`
-    );
-  }
+  return db.transaction(async (trx): Promise<IssuedKey> => {
+    const projectRow: unknown = await trx("projects")
+      .where({ slug: options.projectSlug })
+      .first("id");
+    const project = projectRow as { id: string } | undefined;
+    if (project === undefined) {
+      throw new KeyAdminError(
+        `No project with slug "${options.projectSlug}". Existing projects: ${await slugList(trx)}`
+      );
+    }
 
-  const environmentRow: unknown = await db("environments")
-    .where({ project_id: project.id, name: options.environmentName })
-    .first("id");
-  const existing = environmentRow as { id: string } | undefined;
+    const environmentRow: unknown = await trx("environments")
+      .where({ project_id: project.id, name: options.environmentName })
+      .first("id");
+    const existing = environmentRow as { id: string } | undefined;
 
-  const environmentId =
-    existing?.id ??
-    (await insertReturningId(db, "environments", {
+    const environmentId =
+      existing?.id ??
+      (await insertReturningId(trx, "environments", {
+        project_id: project.id,
+        name: options.environmentName,
+        retention_days: options.retentionDays ?? 7,
+        capture_mode: "redacted-payload"
+      }));
+
+    const generated = issueApiKey(keyring);
+    const id = await insertReturningId(trx, "api_keys", {
       project_id: project.id,
-      name: options.environmentName,
-      retention_days: options.retentionDays ?? 7,
-      capture_mode: "redacted-payload"
-    }));
+      environment_id: environmentId,
+      name: options.name,
+      key_prefix: generated.keyPrefix,
+      key_hash: generated.verifier,
+      key_hash_key_id: generated.keyHashKeyId
+    });
 
-  const generated = issueApiKey(keyring);
-  const id = await insertReturningId(db, "api_keys", {
-    project_id: project.id,
-    environment_id: environmentId,
-    name: options.name,
-    key_prefix: generated.keyPrefix,
-    key_hash: generated.verifier,
-    key_hash_key_id: generated.keyHashKeyId
+    // In the same transaction as the key, so a key never exists without the
+    // record of its issue. The prefix is what key:list shows and what revoking
+    // takes; the key itself is never in the row.
+    await recordAudit(trx, {
+      projectId: project.id,
+      actor: KEY_ADMIN_ACTOR,
+      action: "api_key.created",
+      resourceType: "api_key",
+      resourceId: id,
+      metadata: {
+        keyPrefix: generated.keyPrefix,
+        name: options.name,
+        environment: options.environmentName,
+        environmentCreated: existing === undefined
+      }
+    });
+
+    return {
+      id,
+      apiKey: generated.apiKey,
+      keyPrefix: generated.keyPrefix,
+      projectSlug: options.projectSlug,
+      environmentName: options.environmentName
+    };
   });
-
-  return {
-    id,
-    apiKey: generated.apiKey,
-    keyPrefix: generated.keyPrefix,
-    projectSlug: options.projectSlug,
-    environmentName: options.environmentName
-  };
 }
 
 /**
@@ -96,27 +124,43 @@ export async function issueKey(
  * revoking it. The prefix is what `key:list` shows.
  */
 export async function revokeKey(db: Knex, keyPrefix: string): Promise<KeyListing> {
-  const updated: unknown = await db("api_keys")
-    .where({ key_prefix: keyPrefix })
-    .whereNull("revoked_at")
-    .update({ revoked_at: db.fn.now() })
-    .returning("id");
-
-  if (!Array.isArray(updated) || updated.length === 0) {
-    const knownRow: unknown = await db("api_keys")
+  return db.transaction(async (trx): Promise<KeyListing> => {
+    const updated: unknown = await trx("api_keys")
       .where({ key_prefix: keyPrefix })
-      .first("revoked_at");
-    const known = knownRow as { revoked_at: Date | null } | undefined;
-    throw new KeyAdminError(
-      known === undefined
-        ? `No key with prefix "${keyPrefix}".`
-        : `Key "${keyPrefix}" was already revoked at ${known.revoked_at?.toISOString() ?? "?"}.`
-    );
-  }
+      .whereNull("revoked_at")
+      .update({ revoked_at: trx.fn.now() })
+      .returning(["id", "project_id as projectId"]);
+    const [row] = Array.isArray(updated) ? (updated as { id: string; projectId: string }[]) : [];
 
-  const listing = (await listKeys(db)).find((key) => key.keyPrefix === keyPrefix);
-  if (listing === undefined) throw new KeyAdminError(`Key "${keyPrefix}" vanished mid-revoke.`);
-  return listing;
+    if (row === undefined) {
+      const knownRow: unknown = await trx("api_keys")
+        .where({ key_prefix: keyPrefix })
+        .first("revoked_at");
+      const known = knownRow as { revoked_at: Date | null } | undefined;
+      throw new KeyAdminError(
+        known === undefined
+          ? `No key with prefix "${keyPrefix}".`
+          : `Key "${keyPrefix}" was already revoked at ${known.revoked_at?.toISOString() ?? "?"}.`
+      );
+    }
+
+    const listing = (await listKeys(trx)).find((key) => key.keyPrefix === keyPrefix);
+    if (listing === undefined) throw new KeyAdminError(`Key "${keyPrefix}" vanished mid-revoke.`);
+
+    await recordAudit(trx, {
+      projectId: row.projectId,
+      actor: KEY_ADMIN_ACTOR,
+      action: "api_key.revoked",
+      resourceType: "api_key",
+      resourceId: row.id,
+      metadata: {
+        keyPrefix,
+        name: listing.name,
+        environment: listing.environmentName
+      }
+    });
+    return listing;
+  });
 }
 
 export async function listKeys(db: Knex, projectSlug?: string): Promise<KeyListing[]> {
