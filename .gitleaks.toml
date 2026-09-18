@@ -29,10 +29,18 @@ regexes = [
   # API-key fixtures. A real one is 32 random characters after `wsk_`, or after
   # `fr_` for a key issued before the rename (ADR-057).
   '''(wsk|fr)_(test|validkey1|demo0000)[A-Za-z0-9_-]*''',
+  # key-create.test.ts as first committed: a fake key written to look random,
+  # which is exactly what the entropy rule catches. The test now uses a
+  # `wsk_test` fixture the line above covers, so this matches only that
+  # history. Anchored to the whole value, not a run inside one.
+  # secret-files.test.ts: fixtures whose text says what they are and how long
+  # they had to be for the setting's own length rule.
+  '''an-(encryption-key|admin-token)-of-enough-length-[0-9]+''',
   # doctor.integration.test.ts: distinctive fake secrets whose whole purpose is
   # to be searched for in doctor's output, so they must look like secrets to a
   # scanner. Each carries the `doctor-` prefix and a role name no real
   # credential has.
+  '''\bwsk_q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A\b''',
   '''doctor-(db-password|wrong-password|encryption-key|other-encryption-key|admin-token|ungranted-pw)-[0-9a-f]+''',
   # replays.integration.test.ts: a destination header value the test proves is
   # never stored or returned.

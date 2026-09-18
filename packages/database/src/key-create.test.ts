@@ -3,8 +3,8 @@ import { formatIssuedKey, KEY_CREATE_USAGE, parseKeyCreateArgs } from "./key-cre
 
 const issued = {
   id: "00000000-0000-4000-8000-000000000000",
-  apiKey: "wsk_q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A",
-  keyPrefix: "wsk_q8Zr4Lm",
+  apiKey: "wsk_test0000000000000000000000000000",
+  keyPrefix: "wsk_test0000",
   projectSlug: "acme",
   environmentName: "production"
 };
@@ -68,9 +68,9 @@ describe("formatIssuedKey", () => {
       "Key issued for acme/production.",
       "",
       "  API key (shown once, not recoverable):",
-      "    wsk_q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A",
+      "    wsk_test0000000000000000000000000000",
       "",
-      "  prefix: wsk_q8Zr4Lm"
+      "  prefix: wsk_test0000"
     ]);
   });
 
@@ -78,8 +78,8 @@ describe("formatIssuedKey", () => {
     const lines = formatIssuedKey(issued, true);
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0] ?? "")).toEqual({
-      apiKey: "wsk_q8Zr4LmN2pXw7Kc9Vt3Hb6Js1Dy5Gf0A",
-      keyPrefix: "wsk_q8Zr4Lm",
+      apiKey: "wsk_test0000000000000000000000000000",
+      keyPrefix: "wsk_test0000",
       projectSlug: "acme",
       environmentName: "production"
     });
