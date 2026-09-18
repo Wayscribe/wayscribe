@@ -64,6 +64,15 @@ export interface EventDetailData extends EventListItem {
   outputPayload: unknown;
   payloadDiff: { changes: DiffChange[]; truncated: boolean } | null;
   error: unknown;
+  /**
+   * What the instrumented code attached, as stored: `metadata`, `deployment`
+   * and `runtime` on the event it sent. Untrusted text of any shape, so it is
+   * shown only through `metadataEntries`. Optional so a test fixture, or a
+   * different API, may leave them out.
+   */
+  customMetadata?: unknown;
+  deploymentMetadata?: unknown;
+  runtimeMetadata?: unknown;
 }
 
 export interface ProjectSummary {

@@ -61,3 +61,67 @@ describe("EventDetail without payloads", () => {
     expect(screen.queryByText(/No payload was recorded/)).toBeNull();
   });
 });
+
+/**
+ * F-044: the API returned all three kinds of metadata and the page showed
+ * none, so an HTTP status an SDK user had moved into metadata, as the SDK
+ * advises, disappeared from the screen.
+ */
+describe("EventDetail metadata", () => {
+  it("lists custom, deployment and runtime metadata as keys and values", () => {
+    render(
+      <EventDetail
+        event={event({
+          customMetadata: { httpStatus: 429, retryDelayMs: 1200 },
+          deploymentMetadata: { version: "2.4.1", gitCommit: "abc1234" },
+          runtimeMetadata: { language: "node", hostname: "worker-3" }
+        })}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Metadata" })).toBeTruthy();
+    const groups = ["Custom", "Deployment", "Runtime"].map((name) =>
+      screen.getByRole("group", { name })
+    );
+    expect(groups.map((group) => group.textContent)).toEqual([
+      "CustomhttpStatus429retryDelayMs1200",
+      "DeploymentgitCommitabc1234version2.4.1",
+      "Runtimehostnameworker-3languagenode"
+    ]);
+  });
+
+  it("leaves out a kind with nothing in it", () => {
+    render(<EventDetail event={event({ customMetadata: { queue: "jobs" } })} />);
+    expect(screen.getByRole("group", { name: "Custom" })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Deployment" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Runtime" })).toBeNull();
+  });
+
+  it("says so when the step recorded none, including from an API that omits the fields", () => {
+    render(<EventDetail event={event()} />);
+    expect(screen.getByText("No metadata was recorded for this step.")).toBeTruthy();
+  });
+
+  // Metadata is text the instrumented code chose. It is shown as text: a key
+  // or a value that looks like markup must stay characters on the page.
+  it("renders markup in a key or a value as text, never as elements", () => {
+    const markup = '<img src="x" onerror="alert(1)"><script>alert(2)</script>';
+    const { container } = render(
+      <EventDetail event={event({ customMetadata: { [markup]: markup, nested: { markup } } })} />
+    );
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("script")).toBeNull();
+    const group = screen.getByRole("group", { name: "Custom" });
+    expect(group.textContent).toContain(markup);
+    expect(group.innerHTML).toContain("&lt;img");
+  });
+
+  it("says how many entries it left out", () => {
+    const many = Object.fromEntries(
+      Array.from({ length: 60 }, (_, index) => [`k${String(index)}`, index])
+    );
+    render(<EventDetail event={event({ customMetadata: many })} />);
+    expect(screen.getByText("10 more not shown.")).toBeTruthy();
+  });
+});

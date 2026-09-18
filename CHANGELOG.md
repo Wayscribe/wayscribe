@@ -268,6 +268,14 @@ What you have to do when upgrading a checkout or a deployment:
   Each kind of identifier is one index lookup, so a value matching a few
   journeys takes about 0.1 ms at a million journeys (`docs/OPERATIONS.md`
   section 10).
+- **Event metadata on screen.** The event detail lists the step's custom,
+  deployment and runtime metadata, `metadata`, `deployment` and `runtime` on the
+  event the SDK sent, as plain keys and values, one group per kind. Before this
+  the API returned all three and the web app showed none of them, so an HTTP
+  status moved from a step's output into its metadata, as the SDK advises,
+  disappeared from the screen (F-044). Keys and values are shown as escaped
+  text, never as markup; at most 50 entries per kind and 300 characters per key
+  or value are shown, and the page says how many entries it left out.
 - **The Journeys page** (ADR-054). `/journeys` lists what happened in a period,
   any status and the last 24 hours by default, as a table of last activity,
   status, entity type, what the journey is shown as, last step and events. It

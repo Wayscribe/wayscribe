@@ -117,7 +117,9 @@ Presenting the work, and closing what the last review opened.
       says plainly that the two are not comparable and the presentation keeps
       them apart.
   - **The deployment on each event:** the existing `deployment` field shown on
-    the timeline, so a field that changed after a deploy is easy to spot.
+    the timeline, so a field that changed after a deploy is easy to spot. The
+    event detail already lists it, with the custom and runtime metadata, as
+    plain keys and values (F-044); this item puts it on the timeline's rows.
   - **Duration filters** on the Journeys page: journeys that took longer than
     a given time, and journeys with a step longer than a given time.
 

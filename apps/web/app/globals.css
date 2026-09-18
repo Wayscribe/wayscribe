@@ -561,6 +561,41 @@ button[aria-busy="true"] {
   }
 }
 
+/* An event's metadata: one group per kind, each a list of keys and values.
+   Values are whatever the instrumented code sent and may be long and
+   unbroken, so they wrap anywhere rather than widen the page. */
+.metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.metadata-list {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  margin: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+}
+.metadata-list > div {
+  display: contents;
+}
+.metadata-list dt,
+.metadata-list dd {
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.metadata-list > div:first-child dt,
+.metadata-list > div:first-child dd {
+  border-top: none;
+}
+.metadata-list dt {
+  color: var(--muted);
+}
+
 /* Timeline filters: a row of toggles, not a form. */
 .filters {
   display: flex;

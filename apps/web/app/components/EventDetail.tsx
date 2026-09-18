@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { EventDetailData } from "../../src/lib/api";
 import { DiffTable } from "./DiffTable";
+import { EventMetadata } from "./EventMetadata";
 import { EXPLANATIONS } from "./explanations";
 
 /** A line about the event being shown: that its replacement is loading, or failed to. */
@@ -66,6 +67,8 @@ export function EventDetail({
           <pre className="mono block">{JSON.stringify(event.error, null, 2)}</pre>
         </>
       )}
+
+      <EventMetadata event={event} />
 
       <h3>Payloads</h3>
       {!event.hasInput && !event.hasOutput ? (
