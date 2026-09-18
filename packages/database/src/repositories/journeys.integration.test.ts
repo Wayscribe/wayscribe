@@ -231,17 +231,61 @@ describe("journey summary", () => {
     });
 
     it("reads completed once finish() lands", async () => {
+      // Its own journey, arranged here: borrowing the previous test's would
+      // make this one mean something different under .only or a reorder.
+      const failed = { ...base, journeyId: "jrn_retry_finish", environmentId, hasError: false };
+      await applyJourneyEvent(db, projectId, {
+        ...failed,
+        eventTimestamp: new Date("2026-08-06T10:00:00Z"),
+        operation: "delivered",
+        hasError: true
+      });
+      await applyJourneyEvent(db, projectId, {
+        ...failed,
+        eventTimestamp: new Date("2026-08-06T10:00:05Z"),
+        operation: "retried"
+      });
+      expect((await findJourney(db, projectId, "jrn_retry_finish"))?.status).toBe("active");
+
+      await applyJourneyEvent(db, projectId, {
+        ...failed,
+        eventTimestamp: new Date("2026-08-06T10:00:06Z"),
+        operation: "completed"
+      });
+
+      expect((await findJourney(db, projectId, "jrn_retry_finish"))?.status).toBe("completed");
+      expect((await completedAt("jrn_retry_finish"))?.toISOString()).toBe(
+        "2026-08-06T10:00:06.000Z"
+      );
+    });
+
+    it("clears a terminal failed the same way, because a later retry supersedes it", async () => {
+      // ADR-022 reserves the `failed` operation for a terminal transition such
+      // as a dead letter. It is terminal for the attempt, not for the record: a
+      // message replayed out of the queue records `retried`, and a successful
+      // one stamped after the transition says the failure was superseded. The
+      // `failed` event stays in the timeline either way.
       await applyJourneyEvent(db, projectId, {
         ...base,
-        journeyId: "jrn_retry_wins",
+        journeyId: "jrn_dead_letter",
         environmentId,
-        eventTimestamp: new Date("2026-08-06T10:00:06Z"),
-        operation: "completed",
+        eventTimestamp: new Date("2026-08-06T10:00:00Z"),
+        operation: "failed",
+        hasError: false
+      });
+      expect((await findJourney(db, projectId, "jrn_dead_letter"))?.status).toBe("failed");
+
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_dead_letter",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:05:00Z"),
+        operation: "retried",
         hasError: false
       });
 
-      expect((await findJourney(db, projectId, "jrn_retry_wins"))?.status).toBe("completed");
-      expect((await completedAt("jrn_retry_wins"))?.toISOString()).toBe("2026-08-06T10:00:06.000Z");
+      expect((await findJourney(db, projectId, "jrn_dead_letter"))?.status).toBe("active");
+      expect(await completedAt("jrn_dead_letter")).toBeNull();
     });
 
     it("leaves a journey whose only event is a successful retry active", async () => {

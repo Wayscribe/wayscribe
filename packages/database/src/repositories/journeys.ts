@@ -237,6 +237,15 @@ export async function updateJourneySummary(
       -- itself, so an older successful retry cannot clear a newer failure, and
       -- it fires only on a journey that is currently failed, so it can never
       -- knock a completed journey back to active.
+      --
+      -- It clears a terminal 'failed' too, the operation ADR-022 reserves for a
+      -- dead-letter transition, and that is intended rather than an oversight.
+      -- A dead letter is terminal for the attempt that produced it, not for the
+      -- record: a message is replayed out of the queue and the replay records
+      -- 'retried'. A later successful retry, stamped after that transition, is
+      -- evidence the failure was superseded, and the journey is running again.
+      -- The status is not the audit trail either way; the 'failed' event stays
+      -- in the timeline and is what a reader opens the journey to see.
       status = case
         when e.event_status = 'failed' then 'failed'
         when e.event_at >= last_event_at and e.event_status is not null then e.event_status
