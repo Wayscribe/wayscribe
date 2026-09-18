@@ -79,7 +79,7 @@ function preflightParse(command: CommandName, args: string[]): Parsed {
 
 /** Refused as a flag the parser does not know, as opposed to refused for its value. */
 function refusedAsUnknown(parsed: Parsed): boolean {
-  return !parsed.ok && /unknown/i.test(parsed.message);
+  return !parsed.ok && /unknown|is not an option/i.test(parsed.message);
 }
 
 /** Every way a flag could be given: bare, and with a value that suits every date flag. */
@@ -401,9 +401,7 @@ describe("preflight", () => {
     const result = preflight("key:revoke", ["\u2011\u2011help", "wsk_abcdefgh"]);
     expect(result.run).toBe(false);
     if (!result.run) {
-      expect(result.stderr[0]).toMatch(
-        /^\u2011\u2011help contains a dash that is not a hyphen \(U\+2011\)/
-      );
+      expect(result.stderr[0]).toMatch(/^Argument 1 contains U\+2011, a dash that is not a hyphen/);
     }
   });
 
@@ -529,12 +527,65 @@ describe("preflight", () => {
       "delete:range": () =>
         parseRangeArgs(["acme", "production", "extra", "--before", "2030-01-01"])
     };
+    const positions: Partial<Record<CommandName, number>> = {
+      reset: 2,
+      "delete:journey": 3,
+      "delete:destination": 3,
+      "delete:identifier": 3,
+      "delete:range": 3
+    };
     const full = name === "key:list" ? ["acme"] : RUNNABLE[name];
     const result = withExtra[name]?.() ?? preflightParse(name, [...full, "extra"]);
     expect(result.ok, name).toBe(false);
-    if (!result.ok && name !== "doctor")
-      expect(result.message).toContain("Unexpected argument: extra");
+    if (!result.ok && name !== "doctor") {
+      const position = positions[name] ?? full.length + 1;
+      expect(result.message).toContain(`Unexpected argument ${String(position)}: ${name} takes`);
+      expect(result.message).not.toContain("extra");
+    }
   });
+
+  /**
+   * preflight, then the command's own parser on what preflight passes it: the
+   * whole path an argument takes before anything runs.
+   */
+  const refusalOf = (name: CommandName, args: string[]): string | null => {
+    const early = preflight(name, args);
+    if (!early.run) return [...early.stdout, ...early.stderr].join("\n");
+    const own: Partial<Record<CommandName, (a: string[]) => Parsed>> = {
+      reset: (a) => parseResetArgs(a, {}, "postgresql://localhost/x"),
+      doctor: (a) => parseDoctorArgs(a, {}),
+      "key:create": (a) => parseKeyCreateArgs(a),
+      "delete:journey": (a) => parseIdArgs("delete:journey", a),
+      "delete:destination": (a) => parseIdArgs("delete:destination", a),
+      "delete:identifier": (a) => parseIdentifierArgs(a),
+      "delete:range": (a) => parseRangeArgs(a)
+    };
+    const parsed = own[name]?.(early.args);
+    return parsed === undefined || parsed.ok ? null : parsed.message;
+  };
+
+  // delete:identifier promises never to print its value, and operators are
+  // asked to scrub it from shell history: a refusal must not print it either.
+  it.each(COMMANDS.map((command) => command.name))(
+    "names %s's refused arguments by position, never printing their text",
+    (name) => {
+      const dashed = "jane.smith\u2013jones-4417@example.com";
+      const extra = "customer-secret-4417";
+      const full = name === "key:list" ? ["acme"] : RUNNABLE[name];
+      const cases: string[][] = [[dashed], [...full, dashed], ["--", "--", ...full, dashed]];
+      if (!COMMANDS.some((command) => command.name === name && "restArgument" in command)) {
+        cases.push([...full, extra], ["--", ...full, extra]);
+        if (full.includes("--before")) cases.push(["acme", "production", "--", extra, "x"]);
+        else if (full.length > 0) cases.push([...full, "--", extra]);
+      }
+      if (name.startsWith("delete:")) cases.push(["acme", `-${extra}`]);
+      for (const args of cases) {
+        const refusal = refusalOf(name, args);
+        expect(refusal, `${name} ${args.join(" ")}`).not.toBeNull();
+        expect(refusal, `${name} ${args.join(" ")}`).not.toContain("4417");
+      }
+    }
+  );
 
   it("takes the rest of the arguments as project:create's and key:create's name", () => {
     expect(preflight("project:create", ["beta", "Beta", "Payments", "Ltd"])).toEqual({

@@ -843,7 +843,9 @@ because it would delete a different window depending on the server's time zone.
 
 `delete:identifier` needs `ENCRYPTION_KEY`, and `ENCRYPTION_KEY_PREVIOUS` during a
 rotation, because the value is matched by its search tokens under both keys. It
-never prints the value.
+never prints the value, and nor does a refusal of its arguments: one it does
+not accept is named by its position, such as `Unexpected argument 3`, as on
+every deletion command.
 
 **The value you type is still recorded outside Wayscribe.** It stays in
 your shell's history, and anyone who can list processes on that host sees it in

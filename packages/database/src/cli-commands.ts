@@ -496,19 +496,29 @@ export function parseCommandArgs<N extends CommandName>(
     const reported = /'(-[^' =<]*)/.exec(text)?.[1] ?? "";
     // parseArgs names only the first letter of a short cluster such as -A1;
     // the argument itself is clearer, without any value given after `=`.
-    const whole = args.find((arg) => arg !== "--" && arg.startsWith(reported));
+    const index = args.findIndex((arg) => arg !== "--" && arg.startsWith(reported));
+    const whole = args[index];
     const named = reported === "" ? "" : ((whole ?? reported).split("=")[0] ?? reported);
     const code = (error as { code?: unknown }).code;
-    return code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE"
-      ? { ok: false, code: "missing-value", message: `${named} needs a value.\n${usage}` }
-      : { ok: false, code: "unknown", message: `Unknown argument: ${named}\n${usage}` };
+    if (code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE") {
+      return { ok: false, code: "missing-value", message: `${named} needs a value.\n${usage}` };
+    }
+    // On a command whose arguments hold personal data, an argument that only
+    // looks like a flag may be an identifier beginning with a dash: named by
+    // position, never by text.
+    const message = valuesMayBePersonal(name)
+      ? `Argument ${String(positionOf(args, index))} begins with a dash but is not an ` +
+        `option of ${name}. A value beginning with a dash goes after --.`
+      : `Unknown argument: ${named}`;
+    return { ok: false, code: "unknown", message: `${message}\n${usage}` };
   }
   const { min, max } = arityOf(name);
-  if (parsed.positionals.length > max) {
+  const extra = parsed.tokens.filter((token) => token.kind === "positional")[max];
+  if (extra !== undefined) {
     return {
       ok: false,
       code: "arity",
-      message: `Unexpected argument: ${parsed.positionals[max] ?? ""}\n${usage}`
+      message: `${unexpected(name, positionOf(args, extra.index), max)}\n${usage}`
     };
   }
   if (parsed.positionals.length < min) return { ok: false, code: "arity", message: usage };
@@ -521,6 +531,32 @@ export function parseCommandArgs<N extends CommandName>(
     positionals: parsed.positionals,
     given
   };
+}
+
+/**
+ * Whether a command's arguments can hold personal data: the deletion
+ * commands take identifiers, journey ids and environment names, and
+ * `delete:identifier` promises never to print its value. Refusals on these
+ * name an argument by position, never by text.
+ */
+function valuesMayBePersonal(name: CommandName): boolean {
+  return name.startsWith("delete:");
+}
+
+/** The 1-based position of `args[index]`, not counting `--` separators. */
+function positionOf(args: readonly string[], index: number): number {
+  return args.slice(0, index + 1).filter((arg) => arg !== "--").length;
+}
+
+/**
+ * The refusal of an argument beyond those a command declares, by position
+ * rather than by text on every command: the text adds nothing, and on the
+ * deletion commands it may be personal data.
+ */
+function unexpected(name: CommandName, position: number, max: number): string {
+  const takes =
+    max === 0 ? "takes no arguments" : `takes ${String(max)} argument${max === 1 ? "" : "s"}`;
+  return `Unexpected argument ${String(position)}: ${name} ${takes}.`;
 }
 
 /** The same flags, in the shape `node:util`'s `parseArgs` takes. */
@@ -765,15 +801,18 @@ export function preflight(command: string | undefined, given: readonly string[])
   if (options.some((arg) => HELP_FLAGS.has(arg)) || helpWord) {
     return { run: false, stdout: commandHelp(command), stderr: [], code: 0 };
   }
-  const dashed = options.find((arg) => OTHER_DASH.test(arg));
-  if (dashed !== undefined) {
-    const character = OTHER_DASH.exec(dashed)?.[0] ?? "";
+  const dashedIndex = options.findIndex((arg) => OTHER_DASH.test(arg));
+  if (dashedIndex !== -1) {
+    // By position and code point, never by text: on a deletion command the
+    // argument may be an email address or a name.
+    const character = OTHER_DASH.exec(options[dashedIndex] ?? "")?.[0] ?? "";
     const code = `U+${(character.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, "0")}`;
     return refused(
       command,
-      `${dashed.split("=")[0] ?? ""} contains a dash that is not a hyphen (${code}), which ` +
-        "looks like a -- that was auto-corrected. Nothing was changed. Type -- (two " +
-        "hyphens) for a flag, or put a value that really contains the dash after a --."
+      `Argument ${String(positionOf(args, dashedIndex))} contains ${code}, a dash that is not ` +
+        "a hyphen, which looks like a -- that was auto-corrected. Nothing was changed. " +
+        "Type -- (two hyphens) for a flag, or put a value that really contains the dash " +
+        "after a --."
     );
   }
   const helpAsValue = values.find(looksLikeHelp);
@@ -797,7 +836,10 @@ export function preflight(command: string | undefined, given: readonly string[])
   const positionals = [...options, ...values];
   const { max } = arityOf(command);
   if (positionals.length > max) {
-    return refused(command, `Unexpected argument: ${positionals[max] ?? ""}`);
+    // The position as typed, counting the values after the separator after
+    // the options before it.
+    const typed = max < options.length ? max : max + 1;
+    return refused(command, unexpected(command, positionOf(args, typed), max));
   }
   return { run: true, command, args: positionals };
 }
