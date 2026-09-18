@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SESSION_COOKIE_NAME, signSession } from "../../src/lib/session";
+import { VersionFooter } from "../components/VersionFooter";
 import AuthenticatedLayout from "./layout";
 
 /**
@@ -107,6 +108,19 @@ describe("the authenticated layout", () => {
 
     await AuthenticatedLayout({ children: null });
     expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  // F-045: the version line is under every signed-in page, so it lives here.
+  it("puts the version line under every page it lets through", async () => {
+    vi.stubEnv("ADMIN_TOKEN", ADMIN_TOKEN);
+    vi.stubEnv("ADMIN_TOKEN_FILE", undefined);
+    presenting(signSession(ADMIN_TOKEN, { projectId: "proj_1", expiresAt: Date.now() + 60_000 }));
+
+    const shell = await AuthenticatedLayout({ children: null });
+    const children = (shell.props as { children: { type: unknown }[] }).children;
+    expect(children.map((child) => (child as { type?: unknown } | null)?.type)).toContain(
+      VersionFooter
+    );
   });
 
   it("lets a session through when the token came from a file", async () => {

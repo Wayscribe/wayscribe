@@ -60,6 +60,18 @@ COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
 # scripts/verify-image-contents.sh checks they are there.
 COPY --from=build /app/LICENSE /app/NOTICE /licenses/
 
+# What the version line under every signed-in page reports as this web app's
+# version (F-045), beside the API's from its /ready. The same build arguments,
+# filled the same way, as apps/api/Dockerfile: scripts/publish-image.sh passes
+# the release tag and the commit, and a build that passes neither bakes empty
+# strings, which the app reads as "not a release build". Read at request time,
+# not inlined at build time. Last before USER, so a new version does not
+# invalidate the cached layers above it.
+ARG WAYSCRIBE_BUILD_VERSION=""
+ARG WAYSCRIBE_BUILD_COMMIT=""
+ENV WAYSCRIBE_BUILD_VERSION=$WAYSCRIBE_BUILD_VERSION
+ENV WAYSCRIBE_BUILD_COMMIT=$WAYSCRIBE_BUILD_COMMIT
+
 USER node
 EXPOSE 3000
 

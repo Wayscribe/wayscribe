@@ -561,6 +561,18 @@ button[aria-busy="true"] {
   }
 }
 
+/* The version line under every signed-in page. */
+.site-footer {
+  margin-top: 2.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.8rem;
+}
+.site-footer p {
+  margin: 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+
 /* An event's metadata: one group per kind, each a list of keys and values.
    Values are whatever the instrumented code sent and may be long and
    unbroken, so they wrap anywhere rather than widen the page. */

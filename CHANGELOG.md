@@ -346,6 +346,14 @@ What you have to do when upgrading a checkout or a deployment:
   with the release tag and the commit; there is no runtime shell-out to git,
   which the image has no history, working tree or binary for. `GET /health`
   is unchanged and stays a bare liveness check.
+- **The web app says what it is running.** A line under every signed-in page
+  names the web app's version and commit and the API's, read from the API's
+  `GET /ready`, and says when the two are different builds, which is what a
+  partial upgrade looks like (F-045). The web image takes the same
+  `WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT` build arguments as the
+  API image; without them it says "not a release build". An API that does not
+  answer leaves the line saying its version is unknown, and the page renders
+  as usual.
 - **Bring your own database** (ADR-037). `DATABASE_URL` points at a PostgreSQL
   15 or later that your team already runs. Migrations need privileges on their
   own schema only and install no extensions. `infrastructure/compose.bundled.yaml`
