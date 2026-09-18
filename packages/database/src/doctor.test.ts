@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { commandHelp } from "./cli-commands.js";
 import {
   apiKeyShapeProblem,
   doctorExitCode,
@@ -58,8 +59,24 @@ describe("parseDoctorArgs", () => {
     ).toEqual({ ok: true, apiKey: "wsk_fromtheflag0000000000" });
   });
 
-  it.each(["", "   "])("treats a blank WAYSCRIBE_API_KEY as unset (%j)", (value) => {
-    expect(parseDoctorArgs([], { WAYSCRIBE_API_KEY: value })).toEqual({ ok: true });
+  it.each(["", "   ", "\n"])(
+    "reports a set but blank WAYSCRIBE_API_KEY as a key it will not check (%j)",
+    (value) => {
+      expect(parseDoctorArgs([], { WAYSCRIBE_API_KEY: value })).toEqual({
+        ok: true,
+        apiKeyNotChecked: "WAYSCRIBE_API_KEY is set but empty"
+      });
+    }
+  );
+
+  it("asks for no key check when WAYSCRIBE_API_KEY is unset", () => {
+    expect(parseDoctorArgs([], {})).toEqual({ ok: true });
+  });
+
+  it("checks the flag's key and says nothing of a blank WAYSCRIBE_API_KEY beside it", () => {
+    expect(
+      parseDoctorArgs(["--api-key=wsk_fromtheflag0000000000"], { WAYSCRIBE_API_KEY: "" })
+    ).toEqual({ ok: true, apiKey: "wsk_fromtheflag0000000000" });
   });
 
   it("trims the environment's value, which a secrets file often ends with a newline", () => {
@@ -69,8 +86,12 @@ describe("parseDoctorArgs", () => {
     });
   });
 
-  it("says in its usage text that the key may come from the environment", () => {
-    expect(DOCTOR_USAGE).toContain("WAYSCRIBE_API_KEY");
+  it("says in its help that the key may come from the environment", () => {
+    expect(commandHelp("doctor").join("\n")).toContain("WAYSCRIBE_API_KEY");
+  });
+
+  it("points a refusal at the help", () => {
+    expect(DOCTOR_USAGE).toContain("Run doctor --help");
   });
 });
 

@@ -10,6 +10,7 @@ import {
   type Keyring
 } from "@wayscribe/payload-security";
 import type { Knex } from "knex";
+import { commandUsage, everyFlagRead, flag, parseCommandArgs } from "./cli-commands.js";
 import { keyringFromEnvironment } from "./keyring-env.js";
 import { migrationStatusReadOnly, SchemaUsageError } from "./migration-status.js";
 import { findUnreadableData } from "./repositories/rotation.js";
@@ -34,6 +35,11 @@ export interface DoctorOptions {
   apiUrl?: string;
   /** Verifies this key against the database when given. Only its prefix is ever printed. */
   apiKey?: string;
+  /**
+   * Why a key the operator meant to check was not checked, reported as SKIP
+   * in the API key check's place. Ignored when `apiKey` is given.
+   */
+  apiKeyNotChecked?: string;
   /** Injected for tests. */
   fetch?: typeof fetch;
   /** How long `GET /ready` may take. */
@@ -179,6 +185,10 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
       const verifying = keyring;
       results.push(await guarded("API key", () => apiKeyResult(db, verifying, apiKey)));
     }
+  } else if (options.apiKeyNotChecked !== undefined) {
+    // A check that cannot run says so, as every other one does, rather than
+    // vanishing from a report that would then read as all passed (F-032).
+    results.push(skip("API key", options.apiKeyNotChecked));
   }
 
   if (options.apiUrl !== undefined) {
@@ -289,12 +299,11 @@ export function formatDoctor(results: readonly CheckResult[]): string[] {
 }
 
 export type DoctorArgs =
-  { ok: true; apiUrl?: string; apiKey?: string } | { ok: false; message: string };
+  | { ok: true; apiUrl?: string; apiKey?: string; apiKeyNotChecked?: string }
+  | { ok: false; message: string };
 
-export const DOCTOR_USAGE =
-  "Usage: doctor [--api-url <url>] [--api-key <key>]\n" +
-  "       The key may come from WAYSCRIBE_API_KEY instead, which keeps it out of\n" +
-  "       the process list; --api-key wins when both are given.";
+/** From the command registry; `doctor --help` says where else the key may come from. */
+export const DOCTOR_USAGE = commandUsage("doctor");
 
 /**
  * `--api-url <url>` and `--api-key <key>`, each at most once, as `--flag value`
@@ -305,44 +314,65 @@ export const DOCTOR_USAGE =
  * the process list, which inside a container is anything with Docker access to
  * the host, so the environment is the safer route (docs/OPERATIONS.md §12). The
  * flag still wins, for an operator checking one key while the environment holds
- * another. A blank value counts as unset, the way every other setting treats
- * one, and the value is trimmed because a secrets file commonly ends in a
+ * another. The value is trimmed because a secrets file commonly ends in a
  * newline.
+ *
+ * A variable that is set but blank is not treated as unset. A Compose file's
+ * `WAYSCRIBE_API_KEY: ${WAYSCRIBE_API_KEY}` sets it empty on a host that has
+ * none, and so does `-e WAYSCRIBE_API_KEY` from a shell that set it empty, so
+ * a blank value usually means a key the operator meant to pass went missing
+ * on the way. (`-e` alone, from a shell without the variable, leaves it
+ * unset.) It comes back as `apiKeyNotChecked`, which doctor
+ * reports as SKIP, rather than as no key at all, which left the check out of
+ * the report and let it read as all passed (F-032). An unset variable asks
+ * for no key check and gets none.
  */
 export function parseDoctorArgs(
   args: readonly string[],
   env: Record<string, string | undefined> = {}
 ): DoctorArgs {
-  const values: { "--api-url"?: string; "--api-key"?: string } = {};
-
-  const remaining = [...args];
-  while (remaining.length > 0) {
-    const arg = remaining.shift() ?? "";
-    const [flag, inline] = arg.startsWith("--") ? splitOnce(arg, "=") : [arg, undefined];
-    if (flag !== "--api-url" && flag !== "--api-key") {
-      // Never echo the argument: it may be a key pasted without its flag.
-      return { ok: false, message: `Unknown argument.\n${DOCTOR_USAGE}` };
+  const API_URL = flag("doctor", "--api-url");
+  const API_KEY = flag("doctor", "--api-key");
+  const parsed = parseCommandArgs("doctor", args);
+  if (!parsed.ok) {
+    // Never echo an unknown argument: it may be a key pasted without its flag.
+    return {
+      ok: false,
+      message:
+        parsed.code === "missing-value" ? parsed.message : `Unknown argument.\n${DOCTOR_USAGE}`
+    };
+  }
+  for (const name of [API_URL, API_KEY]) {
+    if (parsed.given.filter((given) => given === name).length > 1) {
+      return { ok: false, message: `${name} was given twice.\n${DOCTOR_USAGE}` };
     }
-    if (values[flag] !== undefined) {
-      return { ok: false, message: `${flag} was given twice.\n${DOCTOR_USAGE}` };
-    }
-    const value = inline ?? remaining.shift();
-    if (value === undefined || value === "") {
-      return { ok: false, message: `${flag} needs a value.\n${DOCTOR_USAGE}` };
-    }
-    values[flag] = value;
+  }
+  const { "api-url": apiUrl, "api-key": apiKeyFlag, ...unread } = parsed.values;
+  everyFlagRead(unread);
+  for (const [name, value] of [
+    [API_URL, apiUrl],
+    [API_KEY, apiKeyFlag]
+  ] as const) {
+    if (value === "") return { ok: false, message: `${name} needs a value.\n${DOCTOR_USAGE}` };
   }
 
-  const apiUrl = values["--api-url"];
   if (apiUrl !== undefined && !isHttpUrl(apiUrl)) {
-    return { ok: false, message: `--api-url must be an http:// or https:// URL.\n${DOCTOR_USAGE}` };
+    return {
+      ok: false,
+      message: `${API_URL} must be an http:// or https:// URL.\n${DOCTOR_USAGE}`
+    };
   }
-  const fromEnvironment = (env["WAYSCRIBE_API_KEY"] ?? "").trim();
-  const apiKey = values["--api-key"] ?? (fromEnvironment === "" ? undefined : fromEnvironment);
+  const fromEnvironment = env["WAYSCRIBE_API_KEY"]?.trim();
+  const apiKey = apiKeyFlag ?? (fromEnvironment === "" ? undefined : fromEnvironment);
+  const apiKeyNotChecked =
+    apiKey === undefined && fromEnvironment === ""
+      ? "WAYSCRIBE_API_KEY is set but empty"
+      : undefined;
   return {
     ok: true,
     ...(apiUrl === undefined ? {} : { apiUrl }),
-    ...(apiKey === undefined ? {} : { apiKey })
+    ...(apiKey === undefined ? {} : { apiKey }),
+    ...(apiKeyNotChecked === undefined ? {} : { apiKeyNotChecked })
   };
 }
 
@@ -464,6 +494,7 @@ function defaultSecretResults(env: Record<string, string | undefined>): CheckRes
         warn(
           "ADMIN_TOKEN",
           "Not set where doctor runs, so it was not checked.",
+          // eslint-disable-next-line no-restricted-syntax -- Docker's --rm, not a flag of this CLI.
           "Run doctor with the API's environment, for example with `docker compose run --rm api`."
         )
       );
@@ -819,11 +850,6 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-function splitOnce(value: string, separator: string): [string, string | undefined] {
-  const at = value.indexOf(separator);
-  return at === -1 ? [value, undefined] : [value.slice(0, at), value.slice(at + 1)];
 }
 
 function plural(count: number, noun: string): string {

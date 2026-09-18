@@ -433,10 +433,38 @@ What you have to do when upgrading a checkout or a deployment:
   in the API image beside `key:create`, and runs as `pnpm run doctor` from a
   checkout (`docs/OPERATIONS.md` section 12). It takes the key to check from
   `WAYSCRIBE_API_KEY` when `--api-key` is absent, so the key need not sit in the
-  container's process list; the flag wins when both are given.
+  container's process list; the flag wins when both are given. A variable that
+  is set but empty, which is what a Compose file's
+  `WAYSCRIBE_API_KEY: ${WAYSCRIBE_API_KEY}` gives it on a host without one,
+  reports the key check as `SKIP` with that reason rather than leaving it out
+  of a report that then read as all passed (F-032).
 - **`key:create --json`** prints one JSON object with the key, its prefix, the
   project and the environment, and nothing else, so a script capturing a new key
   parses no prose. Without the flag the human form is unchanged.
+- **`--help`** for the database CLI and for each of its commands, listing the
+  arguments and flags, including `key:create --json` and the four fields it
+  prints (`apiKey`, `keyPrefix`, `projectSlug`, `environmentName`). The
+  top-level help names both ways to run the CLI:
+  `node packages/database/dist/cli.js` in the API image, and
+  `pnpm run <script>` in a checkout. It replaces a usage line that named
+  `tsx src/cli.ts`, which the image does not have and which appeared only for
+  an unknown command (F-033).
+  Help needs no `DATABASE_URL` and never runs the command, however many `--`
+  pnpm and the operator put before it; `--help` or `-h` after the value
+  separator is refused rather than read as a value. Every flag is declared once
+  in the CLI's command registry, which the parsers read their flags from by
+  type and every usage line and help text is built from. A command that takes
+  no flags now refuses one, as `key:create` and `doctor` already did, rather
+  than ignoring it, and a name that begins with a dash goes after `--` for
+  `project:create` and `key:create` as it does for the deletion commands.
+  `help <command>` prints a command's help, as does a bare `help`, in any letter
+  case, on every command but `project:create`, `key:create` and `key:list`; on
+  the deletion commands a value that is really `help` goes after `--`. An
+  argument containing a dash other than the ASCII hyphen, which smart
+  punctuation or a full-width keyboard makes of a typed `--`, is refused, and so
+  is an argument beyond those a command declares. With the `--` of `--help` turned
+  into an em dash, `rollback` used to roll back and `key:revoke <prefix>` to
+  revoke.
 - **`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and
   `ADMIN_TOKEN_FILE`** read each value from a file at startup instead of from
   the environment, the way Docker's own secrets mechanism mounts one.
@@ -765,6 +793,15 @@ What you have to do when upgrading a checkout or a deployment:
 - **The Helm migrate Job says why a migration failed, and is bounded.** It
   printed `database not ready` after every failed attempt and retried every
   failure 30 times. See the upgrade notes for its deadline.
+- **Database CLI commands that take no flags refuse one.** `migrate --dry-run`,
+  for one, used to ignore the flag and migrate; it now prints
+  `Unknown argument: --dry-run` with the command's usage and exits 1, changing
+  nothing. A script passing such a flag should drop it. `key:create` and
+  `project:create` likewise refuse an argument beginning with a dash, which
+  `key:create` took as the key's name; such a name goes after `--`, which
+  `project:create` used to fold into the name. Every command refuses an
+  argument it does not declare, which `migrate`, `rollback`, `seed`,
+  `key:revoke` and the others without a parser of their own used to ignore.
 
 ### Security
 

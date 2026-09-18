@@ -418,6 +418,39 @@ docker compose run --rm --entrypoint node api \
 
 `project:list`, `key:list`, and `key:revoke` do what they say. A key is printed
 once and is not recoverable: issue another rather than hunting for it.
+
+Every command prints its arguments and options with `--help`, as in
+`packages/database/dist/cli.js key:create --help`, and `--help` alone lists the
+commands and how to run them in the image and in a checkout. Neither needs
+`DATABASE_URL`, and a request for help never runs the command: `--help` or `-h`
+anywhere before a `--` that follows an argument prints the help, including
+after the `--` that `pnpm run <script> -- --help` adds. After such a `--`,
+where every argument is otherwise a value, either one is refused and nothing
+runs. `help <command>` prints the same help, and so does a bare `help`, in any
+letter case, before a `--` on every command except `project:create`,
+`key:create` and `key:list`, where it is read as a slug or a name. On a command
+that deletes or revokes, `help` is always a request for help, even where a
+journey id, an identifier, an environment or a destination could be called
+`help`; a value that really is `help` goes after `--`, as in
+`delete:journey acme -- help`, as a value beginning with a dash does.
+
+An argument containing a dash other than the ASCII hyphen is refused before a
+`--`, since it is most likely a `--` that macOS, Slack, a word processor or a
+full-width keyboard turned into an en or em dash, a non-breaking hyphen, a minus
+sign or a full-width hyphen-minus: `rollback --help` with its `--` turned into
+an em dash used to roll back. Type `--` with two hyphens. A name or value that
+genuinely contains such a dash, such as a customer name with an en dash between
+two surnames, goes after `--`. An
+argument beyond those a command declares
+is refused rather than ignored; `project:create` and `key:create` are the
+exception, because their name takes the rest of the arguments, as in
+`project:create acme Acme Payments`.
+
+A project or key name that begins with a dash goes after `--`, as for the
+deletion commands: `project:create beta -- -Beta` names the project `-Beta`.
+Before a `--`, anything beginning with a dash is read as a flag, and one the
+command does not have is refused.
+
 `key:create` and `key:revoke` each write an audit row, `api_key.created` or
 `api_key.revoked`, naming the key by its prefix (`SECURITY.md` section 13).
 
@@ -432,6 +465,9 @@ docker compose run --rm --entrypoint node api \
 ```json
 {"apiKey":"wsk_…","keyPrefix":"wsk_…","projectSlug":"acme","environmentName":"production"}
 ```
+
+Those four fields are all it prints, and `key:create --help` names them. The
+key's database id is left out.
 
 The flag may appear anywhere in the arguments. Without it the human form above
 is unchanged. Either way the key reaches stdout, so redirect it into the place
@@ -838,7 +874,9 @@ because it would delete a different window depending on the server's time zone.
 
 `delete:identifier` needs `ENCRYPTION_KEY`, and `ENCRYPTION_KEY_PREVIOUS` during a
 rotation, because the value is matched by its search tokens under both keys. It
-never prints the value.
+never prints the value, and nor does a refusal of its arguments: one it does
+not accept is named by its position, such as `Unexpected argument 3`, as on
+every deletion command.
 
 **The value you type is still recorded outside Wayscribe.** It stays in
 your shell's history, and anyone who can list processes on that host sees it in
@@ -849,7 +887,11 @@ otherwise remove the line afterwards (`history -d <number>` in bash). Run it on 
 host whose process list only operators can read.
 
 A value or id that begins with a dash goes after `--`, so it is not read as an
-option: `pnpm delete:identifier acme -- -A1`.
+option: `pnpm delete:identifier acme -- -A1`. So does a value that is the word
+`help`, which before a `--` asks for help. The one exception is `--help` or
+`-h`, which the CLI refuses as a value, so that asking for help can never
+delete anything; erase such a value through the admin API
+(`POST /v1/erasures`, `docs/API_SPEC.md`).
 
 `delete:range` takes the retention sweep's advisory lock, so a range deletion
 and a sweep never run at once. While the sweep holds it the command deletes
@@ -1582,9 +1624,22 @@ docker compose run --rm --entrypoint node \
   -e WAYSCRIBE_API_KEY api packages/database/dist/cli.js doctor --api-url http://api:8080
 ```
 
-A blank value counts as unset, and the value is trimmed, so a key read from a
-file that ends in a newline works. `--api-key` wins when both are given, for
-checking one key while the environment holds another.
+The value is trimmed, so a key read from a file that ends in a newline works.
+`--api-key` wins when both are given, for checking one key while the environment
+holds another.
+
+A variable that is set but empty is reported rather than left out, so the
+summary counts it as skipped and says the check did not happen:
+
+```text
+SKIP  API key                 Not checked: WAYSCRIBE_API_KEY is set but empty.
+```
+
+That is what a Compose file's `WAYSCRIBE_API_KEY: ${WAYSCRIBE_API_KEY}`
+passes on a host without the variable, and what `-e WAYSCRIBE_API_KEY` passes
+from a shell that has it set empty. Like every `SKIP`, it does not change the
+exit code. With the variable unset and no flag, which is what `-e` passes from a
+shell without it, doctor checks no key and prints no line for one.
 
 Run it with the API's environment, because that is what it checks: the same
 `DATABASE_URL`, `ENCRYPTION_KEY`, `ADMIN_TOKEN`, and

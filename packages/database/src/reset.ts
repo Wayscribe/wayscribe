@@ -15,7 +15,9 @@
  * reached from a laptop; the flag is what does.
  */
 
-export const RESET_USAGE = "Usage: reset --yes";
+import { commandUsage, everyFlagRead, flag, parseCommandArgs } from "./cli-commands.js";
+
+export const RESET_USAGE = commandUsage("reset");
 
 export type ResetArgs = { ok: true } | { ok: false; message: string };
 
@@ -28,10 +30,11 @@ export function parseResetArgs(
   env: Record<string, string | undefined>,
   databaseUrl: string
 ): ResetArgs {
-  const unknown = args.filter((arg) => arg !== "--yes");
-  if (unknown.length > 0) {
-    return { ok: false, message: `Unknown argument: ${unknown[0] ?? ""}\n${RESET_USAGE}` };
-  }
+  const YES = flag("reset", "--yes");
+  const parsed = parseCommandArgs("reset", args);
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  const { yes, ...unread } = parsed.values;
+  everyFlagRead(unread);
   if (env["NODE_ENV"] === "production") {
     return {
       ok: false,
@@ -40,13 +43,13 @@ export function parseResetArgs(
         "every recorded journey, and is for a local development database only."
     };
   }
-  if (!args.includes("--yes")) {
+  if (yes !== true) {
     return {
       ok: false,
       message:
         `reset drops every table and every recorded journey in the database on ${describeTarget(databaseUrl)}, ` +
         "then migrates and seeds it again. Nothing was changed.\n" +
-        "If that is the local development database you mean, run it again with --yes: pnpm db:reset --yes"
+        `If that is the local development database you mean, run it again with ${YES}: pnpm db:reset ${YES}`
     };
   }
   return { ok: true };

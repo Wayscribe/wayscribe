@@ -61,7 +61,7 @@ export async function runDeletionCommand(
 
   switch (command) {
     case "delete:journey": {
-      const parsed = parseIdArgs(args, "Usage: delete:journey <project-slug> <journey-id>");
+      const parsed = parseIdArgs("delete:journey", args);
       if (!parsed.ok) return usage(parsed.message);
       const { projectSlug, id: journeyId } = parsed;
       const project = await findProject(db, projectSlug);
@@ -143,7 +143,7 @@ export async function runDeletionCommand(
     }
 
     case "delete:destination": {
-      const parsed = parseIdArgs(args, "Usage: delete:destination <project-slug> <destination-id>");
+      const parsed = parseIdArgs("delete:destination", args);
       if (!parsed.ok) return usage(parsed.message);
       const { projectSlug, id: destinationId } = parsed;
       const project = await findProject(db, projectSlug);

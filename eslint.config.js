@@ -98,6 +98,67 @@ export default tseslint.config(
     }
   },
   {
+    // A flag of the database CLI is named through its command registry
+    // (packages/database/src/cli-commands.ts: `flag`, `isFlagOf`,
+    // `parseArgsOptions`), never written out as a string, so renaming one
+    // there is a type error wherever it is still used. Before this, renaming
+    // delete:range's --dry-run in the registry alone compiled, passed the unit
+    // tests, and made the flag the help calls "delete nothing" delete.
+    files: ["packages/database/src/**/*.ts"],
+    ignores: ["packages/database/src/cli-commands.ts", "packages/database/src/**/*.test.ts"],
+    rules: {
+      // A parser destructures every flag it reads beside a rest it hands to
+      // everyFlagRead; a flag destructured there and never used must fail,
+      // which the project-wide ignoreRestSiblings would let pass.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          ignoreRestSiblings: false
+        }
+      ],
+      // parseCommandArgs is the only caller of parseArgs, so a parser's options
+      // can only be the registry's: spreading extra ones into them let a
+      // parser accept a flag its help did not list.
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: ["node:util", "util"].map((name) => ({
+            name,
+            importNames: ["parseArgs"],
+            message: "Read a command's arguments with parseCommandArgs from cli-commands.ts."
+          }))
+        }
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          // await import("node:util"), which no-restricted-imports does not see.
+          selector: "ImportExpression[source.value=/^(node:)?util$/]",
+          message: "Read a command's arguments with parseCommandArgs from cli-commands.ts."
+        },
+        {
+          selector: "MemberExpression[property.name='parseArgs']",
+          message: "Read a command's arguments with parseCommandArgs from cli-commands.ts."
+        },
+        {
+          // flag("delete:range", "--before") is the one place a flag's name
+          // is written, and the registry's type checks it.
+          selector: "Literal[value=/--[a-z]/]:not(CallExpression[callee.name='flag'] > Literal)",
+          message:
+            "Name a CLI flag with flag() from cli-commands.ts, not as a string, so a rename there is a type error."
+        },
+        {
+          selector: "TemplateElement[value.raw=/--[a-z]/]",
+          message:
+            "Name a CLI flag with flag() from cli-commands.ts, not as a string, so a rename there is a type error."
+        }
+      ]
+    }
+  },
+  {
     // React components return JSX and the ecosystem conventionally omits the
     // annotation. Requiring it here buys nothing and fights every example a
     // contributor will have seen.

@@ -1,4 +1,4 @@
-import { parseArgs } from "node:util";
+import { commandUsage, everyFlagRead, flag, parseCommandArgs } from "./cli-commands.js";
 import type {
   BatchProgress,
   DestinationDeletion,
@@ -29,12 +29,6 @@ export interface ReportContext {
   scope: string;
   command: string;
 }
-
-const IDENTIFIER_USAGE =
-  "Usage: delete:identifier <project-slug> <value> [--environment <name>] [--dry-run]\n" +
-  "A value beginning with a dash goes after --, as in: delete:identifier acme -- -A1";
-const RANGE_USAGE =
-  "Usage: delete:range <project-slug> <environment> --before <iso-8601> [--after <iso-8601>] [--dry-run]";
 
 const TIMESTAMP_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
@@ -74,19 +68,25 @@ export function parseTimestamp(
  * before an id that begins with a dash, as for the others.
  */
 export function parseIdArgs(
-  args: readonly string[],
-  usage: string
+  command: "delete:journey" | "delete:destination",
+  args: readonly string[]
 ): { ok: true; projectSlug: string; id: string } | { ok: false; message: string } {
-  let positionals: string[];
-  try {
-    positionals = parseArgs({ args: [...args], allowPositionals: true, strict: true }).positionals;
-  } catch (error) {
-    return { ok: false, message: `${messageOf(error)}\n${usage}` };
+  // One call per command, each checked on its own: a union of the two would
+  // only require the flags they share to be read.
+  if (command === "delete:journey") {
+    const parsed = parseCommandArgs("delete:journey", args);
+    if (!parsed.ok) return { ok: false, message: parsed.message };
+    everyFlagRead(parsed.values);
+    return idArgs(parsed.positionals);
   }
-  const [projectSlug, id, ...extra] = positionals;
-  if (projectSlug === undefined || id === undefined || extra.length > 0) {
-    return { ok: false, message: usage };
-  }
+  const parsed = parseCommandArgs("delete:destination", args);
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  everyFlagRead(parsed.values);
+  return idArgs(parsed.positionals);
+}
+
+function idArgs(positionals: readonly string[]): { ok: true; projectSlug: string; id: string } {
+  const [projectSlug = "", id = ""] = positionals;
   return { ok: true, projectSlug, id };
 }
 
@@ -101,28 +101,18 @@ export type IdentifierArgs =
   | { ok: false; message: string };
 
 export function parseIdentifierArgs(args: readonly string[]): IdentifierArgs {
-  let parsed;
-  try {
-    parsed = parseArgs({
-      args: [...args],
-      options: { environment: { type: "string" }, "dry-run": { type: "boolean" } },
-      allowPositionals: true,
-      strict: true
-    });
-  } catch (error) {
-    return { ok: false, message: `${messageOf(error)}\n${IDENTIFIER_USAGE}` };
-  }
+  const parsed = parseCommandArgs("delete:identifier", args);
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  const { environment, "dry-run": dryRun, ...unread } = parsed.values;
+  everyFlagRead(unread);
 
-  const [projectSlug, value, ...extra] = parsed.positionals;
-  if (projectSlug === undefined || value === undefined || extra.length > 0) {
-    return { ok: false, message: IDENTIFIER_USAGE };
-  }
+  const [projectSlug = "", value = ""] = parsed.positionals;
   return {
     ok: true,
     projectSlug,
     value,
-    environment: parsed.values.environment,
-    dryRun: parsed.values["dry-run"] ?? false
+    environment,
+    dryRun: dryRun === true
   };
 }
 
@@ -138,41 +128,29 @@ export type RangeArgs =
   | { ok: false; message: string };
 
 export function parseRangeArgs(args: readonly string[]): RangeArgs {
-  let parsed;
-  try {
-    parsed = parseArgs({
-      args: [...args],
-      options: {
-        before: { type: "string" },
-        after: { type: "string" },
-        "dry-run": { type: "boolean" }
-      },
-      allowPositionals: true,
-      strict: true
-    });
-  } catch (error) {
-    return { ok: false, message: `${messageOf(error)}\n${RANGE_USAGE}` };
+  const parsed = parseCommandArgs("delete:range", args);
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  const { before: beforeValue, after: afterValue, "dry-run": dryRun, ...unread } = parsed.values;
+  everyFlagRead(unread);
+
+  const [projectSlug = "", environment = ""] = parsed.positionals;
+  const BEFORE = flag("delete:range", "--before");
+  const AFTER = flag("delete:range", "--after");
+  if (beforeValue === undefined) {
+    return { ok: false, message: `${BEFORE} is required.\n${commandUsage("delete:range")}` };
   }
 
-  const [projectSlug, environment, ...extra] = parsed.positionals;
-  if (projectSlug === undefined || environment === undefined || extra.length > 0) {
-    return { ok: false, message: RANGE_USAGE };
-  }
-  if (parsed.values.before === undefined) {
-    return { ok: false, message: `--before is required.\n${RANGE_USAGE}` };
-  }
-
-  const before = parseTimestamp("--before", parsed.values.before);
+  const before = parseTimestamp(BEFORE, beforeValue);
   if (!before.ok) return before;
   let after: Date | undefined;
-  if (parsed.values.after !== undefined) {
-    const parsedAfter = parseTimestamp("--after", parsed.values.after);
+  if (afterValue !== undefined) {
+    const parsedAfter = parseTimestamp(AFTER, afterValue);
     if (!parsedAfter.ok) return parsedAfter;
     after = parsedAfter.date;
     if (after.getTime() >= before.date.getTime()) {
       return {
         ok: false,
-        message: `--after (${after.toISOString()}) must be earlier than --before (${before.date.toISOString()}).`
+        message: `${AFTER} (${after.toISOString()}) must be earlier than ${BEFORE} (${before.date.toISOString()}).`
       };
     }
   }
@@ -183,7 +161,7 @@ export function parseRangeArgs(args: readonly string[]): RangeArgs {
     environment,
     before: before.date,
     after,
-    dryRun: parsed.values["dry-run"] ?? false
+    dryRun: dryRun === true
   };
 }
 
@@ -323,7 +301,8 @@ export function reportDestination(
 }
 
 const LATE_ARRIVALS =
-  "Journeys recorded after the run started were left alone; run it again with --dry-run to check for any.";
+  "Journeys recorded after the run started were left alone; run it again with " +
+  `${flag("delete:identifier", "--dry-run")} to check for any.`;
 
 function refusal(reason: "environment_not_found" | "empty_value", context: ReportContext): Report {
   return {
