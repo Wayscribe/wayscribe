@@ -198,7 +198,10 @@ data (ADR-060, ADR-062).
 
 The check is deliberately dumb, an email shape and an international phone shape
 and nothing else, so that it does not print at every deploy for text that is
-fine. It does not catch a person's name, a customer number, a national
+fine. A telephone number is a `+` at the start or after a space, a bracket, a
+quote, `,`, `;`, `=` or `:`, so `phone=+19195551234` counts, followed by 8 to
+15 digits with separators between them, or 10 to 15 written as one run, so a
+signed count such as `Received +12345678 bytes` does not. It does not catch a person's name, a customer number, a national
 telephone number written without a `+`, or anything else, so the rule above
 still needs reading. If what it found is not personal data, nothing needs
 doing.

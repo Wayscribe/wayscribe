@@ -599,6 +599,16 @@ What you have to do when upgrading a checkout or a deployment:
   or an image digest, and a timezone offset such as `+0000` is not a telephone
   number.
 
+- **The telephone shape finds a number in a field and not a signed count.**
+  The `+` of a telephone number may now follow `=`, `:`, a quote, `,`, `;`,
+  `>` or `)` as well as whitespace, `(`, `[` and `<`, so `phone=+19195551234`,
+  `tel:+19195551234` and `{"phone":"+19195551234"}` raise
+  `personal_data_in_public_value`, which they did not. Digits written as one
+  unbroken run now need 10 to 15 rather than 8 to 15, so
+  `Received +12345678 bytes` no longer does; a number with separators still
+  needs 8. A number of 8 or 9 digits written with no separator is no longer
+  found (ADR-063).
+
 - **Four SDK declarations say what the code does.** `WrapResult` says the
   assignment of a second implementation needs no cast and its body's return
   still does (F-037). `ContinueJourneyOptions` names all four steps of the

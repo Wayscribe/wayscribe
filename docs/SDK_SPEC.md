@@ -641,9 +641,16 @@ company and a person's full name, and nothing in any SDK would have said a word
   1. Something shaped like an email address anywhere in the value: characters
      that are not whitespace or `@`, an `@`, more of the same, a `.`, and at
      least two letters.
-  2. Or something shaped like an international telephone number: a `+`
-     followed by 8 to 15 digits (E.164's own bound), with spaces, dashes, dots
-     and parentheses allowed between them.
+  2. Or something shaped like an international telephone number (ADR-063): a
+     `+` at the start of the value or after whitespace or one of `<`, `>`,
+     `(`, `)`, `[`, `"`, `'`, `,`, `;`, `=`, `:`, never after a letter, a
+     digit or `.`; then the run of digits, spaces, `(`, `)`, `.` and `-` after
+     it, at most 20 characters, cut after its last digit; not a `+` and
+     exactly four digits, which is a timezone offset; holding 8 to 15 digits
+     (E.164's own bound) when a separator stands between two of them, and 10
+     to 15 when they are one unbroken run. So `phone=+19195551234`,
+     `tel:+19195551234` and `{"phone":"+19195551234"}` are found, and
+     `Received +12345678 bytes` is not.
 
   Nothing else. A person's name, a customer number, a national telephone
   number written without a `+` and a postal address are all personal data this
@@ -653,7 +660,7 @@ company and a person's full name, and nothing in any SDK would have said a word
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-63 | ADR-055; ADR-060; ADR-053; ADR-062 | section 14 |
+| SDK-63 | ADR-055; ADR-060; ADR-053; ADR-062; ADR-063 | section 14 |
 
 ## 14. Conformance, and what the fixtures cannot check
 
@@ -695,4 +702,4 @@ either.
 | SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
 | SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. Repeat with a required setting that is `""` and one that is only whitespace, and assert each is reported and printed as missing. Start a recorder with every setting valid, make a call with an unusable option, and assert the settings the host can read are still empty and the option is readable apart from them. Configure a deployment with one field too long and assert that field alone is named and the rest is sent; with every field refused, assert the field and the setting are both named. |
 | SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a string is reported; assert a payload the event budget omits reports nothing; record many distinct very long names and assert the memory kept is bounded. |
-| SDK-63 | Set a journey label holding an email address and assert one report naming the label and the shape, with debug output off, one printed line, and neither carrying the value; assert the label the event carries is the one that was set; assert a second label with an email address reports nothing more, and one with an international telephone number reports once; assert a label that looks like neither reports nothing; mark an alias displayable whose value is an email address and assert the same report names the alias, and that an alias not marked displayable reports nothing; then, in the same process, record a failure whose message holds an email address and assert a report naming the error message although the label already warned for that shape, that the message the event carries is unchanged, and that a stack holding one reports nothing; assert an error message holding a module path under `node_modules/@scope/`, a git remote `git@host:org/repo.git` or a date with `+0000` reports nothing. |
+| SDK-63 | Set a journey label holding an email address and assert one report naming the label and the shape, with debug output off, one printed line, and neither carrying the value; assert the label the event carries is the one that was set; assert a second label with an email address reports nothing more, and one with an international telephone number reports once; assert a label that looks like neither reports nothing; mark an alias displayable whose value is an email address and assert the same report names the alias, and that an alias not marked displayable reports nothing; then, in the same process, record a failure whose message holds an email address and assert a report naming the error message although the label already warned for that shape, that the message the event carries is unchanged, and that a stack holding one reports nothing; assert an error message holding a module path under `node_modules/@scope/`, a git remote `git@host:org/repo.git` or a date with `+0000` reports nothing; assert an error message holding `phone=+19195551234` or `tel:+19195551234` reports the telephone shape and one holding `Received +12345678 bytes` reports nothing. |

@@ -460,3 +460,75 @@ describe("one field never silences another (F-041 review)", () => {
     expect(lines[1]).toContain("A journey label");
   });
 });
+
+describe("the telephone shape (ADR-063 decision 5)", () => {
+  // A number written in a field, `phone=+1...`, was missed because the `+`
+  // followed `=`, and a signed count was flagged because any 8 to 15 digits
+  // after a well-placed `+` counted.
+  it.each([
+    ["a number after an equals sign", "phone=+19195551234"],
+    ["a number after a colon", "tel:+19195551234"],
+    ["a number in JSON", '{"phone":"+19195551234"}'],
+    ["a number written with spaces", "+1 919 555 1234"],
+    ["a dialling code in brackets", "(+44) 20 7946 0958"],
+    ["a number after a comma", "contacts: jane,+442079460958"],
+    ["a number after a semicolon", "to;+442079460958"],
+    ["a number in single quotes", "unknown recipient '+442079460958'"],
+    ["a number after a closing bracket", "(mobile)+442079460958"],
+    ["a number in angle brackets", "SMS <+442079460958> failed"],
+    ["a number after a greater-than sign", "sent >+442079460958"],
+    ["a number after an opening square bracket", "[+44 20 7946 0958]"],
+    ["an unbroken run of fifteen digits", "call +123456789012345"],
+    ["eight digits with a separator", "call +12 3456 78"],
+    ["nine digits with a separator", "ring +12 345 6789"]
+  ])("flags %s", (_what, text) => {
+    expect(personalDataShapeOf(text)).toBe("phone");
+  });
+
+  it.each([
+    ["a signed byte count", "Received +12345678 bytes"],
+    ["a signed count of nine digits", "delta +123456789 rows"],
+    ["a count after an equals sign", "delta=+123456789"],
+    ["a count after a colon", "bytes:+12345678"],
+    ["a short count", "+3 more"],
+    ["semver build metadata", "1.2.3+20130313144700"],
+    ["an offset timestamp", "2026-09-17T12:00:00+01:00"],
+    ["a JavaScript date", "Fri Sep 18 14:00:00 +0000 2026"],
+    ["a timezone offset after a colon", "zone:+0100 2026"],
+    ["a plus after a letter", "abc+12345678901"],
+    ["a plus after a digit", "4+12345678901"],
+    ["a plus after a dot", "v.+12345678901"],
+    ["a plus after a closing square bracket", "[x]+12345678901"],
+    ["sixteen digits", "card +1234567890123456"],
+    ["sixteen digits with separators", "+1234 5678 9012 3456"],
+    ["seven digits with a separator", "call +123 4567"],
+    ["a trailing separator after eight digits", "+12345678 - done"]
+  ])("does not flag %s", (_what, text) => {
+    expect(personalDataShapeOf(text)).toBeUndefined();
+  });
+
+  it("stays linear on adversarial input of the examined length", () => {
+    const inputs = [
+      "+".repeat(1_024),
+      "=+".repeat(512),
+      "(+1 ".repeat(256),
+      `+${"1 ".repeat(511)}x`,
+      `+${"(".repeat(1_023)}`,
+      ":+1234567".repeat(113),
+      `${"a".repeat(1_000)}=+1234567890123`.slice(0, 1_024),
+      "+- ".repeat(341)
+    ];
+    for (const input of inputs) {
+      expect(input.length).toBeLessThanOrEqual(1_024);
+      for (let i = 0; i < 20; i += 1) personalDataShapeOf(input);
+      const started = performance.now();
+      for (let i = 0; i < 100; i += 1) personalDataShapeOf(input);
+      const perCall = (performance.now() - started) / 100;
+      // Measured at under 0.6 ms a call on the worst of these, and usually far
+      // less once the expression is compiled. The bound is loose so a busy
+      // machine does not fail it: what it catches is backtracking, which over
+      // 1,024 characters costs seconds, not milliseconds.
+      expect(perCall, JSON.stringify(input.slice(0, 16))).toBeLessThan(5);
+    }
+  });
+});
