@@ -584,9 +584,43 @@ GET /health
 GET /ready
 ```
 
-`/health` checks the process.
+`/health` checks the process and nothing else. It answers `{ "status": "ok" }`,
+it never touches the database, and it carries no version: a load balancer hits
+it every few seconds and it stays the cheapest possible answer.
 
-`/ready` verifies required dependencies such as PostgreSQL.
+`/ready` verifies required dependencies such as PostgreSQL, and says what the
+API is running:
+
+```json
+{
+  "status": "ready",
+  "version": "v0.1.0",
+  "commit": "27f4d64e0b5a63f0d0b3e2a1c4d5e6f708192a3b",
+  "source": "build"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `status` | `ready`, or `not_ready` with a `reason` and a 503. |
+| `version` | What this process is running. |
+| `commit` | The commit the image was built from. Absent when the build recorded none. |
+| `source` | `build` when the published image baked the value in at build time, so it is a fact about the artefact; `package` when nothing was baked in, which means a source run or a hand-built image, and the value is only the workspace's own version. |
+
+The three fields are on the 503 answers too, because when something is wrong
+the first question is what is running.
+
+**Where the value comes from.** The published image bakes it in: the
+`WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT` build arguments in
+`apps/api/Dockerfile`, which the release fills with the tag it is about to
+create and the commit it built. There is no runtime shell-out to git, because
+the image carries no git history, no working tree and no git binary; a
+shell-out could only answer for whichever machine ran the container. A build
+that passes neither argument reports `"source": "package"` and the version in
+`apps/api/package.json`, which is `0.0.0`: not a release, and saying so.
+
+The answer is unauthenticated, as both endpoints already are. It repeats what
+the image tag says in the registry and is derived from no stored data.
 
 Metrics are not on this port. With `METRICS_PORT` set, the API serves
 `GET /metrics` on that port alone (`docs/OPERATIONS.md` §13); `/metrics` on the

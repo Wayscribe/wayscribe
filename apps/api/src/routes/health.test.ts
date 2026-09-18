@@ -23,6 +23,8 @@ describe("GET /health", () => {
     const response = await app.inject({ method: "GET", url: "/health" });
 
     expect(response.statusCode).toBe(200);
+    // Bare, and staying bare: a load balancer hits this every few seconds and
+    // it must stay the cheapest possible answer. /ready carries the version.
     expect(response.json()).toEqual({ status: "ok" });
 
     await app.close();

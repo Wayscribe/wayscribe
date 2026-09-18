@@ -28,6 +28,10 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 PLATFORMS="${PLATFORMS:-linux/amd64 linux/arm64}"
+# The commit baked into the image, for GET /ready. CI_COMMIT_SHA in a GitLab
+# pipeline; empty outside one, which the API reads as "not recorded" rather
+# than guessing.
+COMMIT="${WAYSCRIBE_BUILD_COMMIT:-${CI_COMMIT_SHA:-}}"
 HERE=$(dirname "$0")
 
 WORK=$(mktemp -d)
@@ -41,8 +45,16 @@ for IMAGE in "$@"; do
 
   # `push-by-digest` uploads the manifests without creating a tag, and
   # `name-canonical` records the repository@digest form in the metadata.
+  #
+  # The build arguments are what `GET /ready` reports as the running version
+  # (F-007). They are the tag this script is about to create and the commit it
+  # was built from, so the image can answer what it is without a git shell-out
+  # it has no history for. The web Dockerfile ignores arguments it does not
+  # declare, so both images take the same line.
   docker buildx build \
     --platform "$(echo "$PLATFORMS" | tr ' ' ',')" \
+    --build-arg "WAYSCRIBE_BUILD_VERSION=$TAG" \
+    --build-arg "WAYSCRIBE_BUILD_COMMIT=$COMMIT" \
     --file "$DOCKERFILE" \
     --output "type=image,name=$REPOSITORY,push-by-digest=true,name-canonical=true,push=true" \
     --metadata-file "$METADATA" \

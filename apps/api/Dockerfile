@@ -96,6 +96,24 @@ RUN rm -rf /usr/local/lib/node_modules/npm \
            /usr/local/bin/npx \
            /usr/local/bin/corepack
 
+# What this image is, baked in so `GET /ready` can answer it (F-007). Neither
+# health endpoint named a version, so a report recording what it ran against
+# had to take the operator's own pin on trust; an image that is asked what it
+# is should be able to say.
+#
+# Build arguments rather than a runtime shell-out to git: the image carries no
+# git history, no git binary and no working tree, so a shell-out could only
+# answer for whatever machine happened to run the container. These are filled
+# by scripts/publish-image.sh from the release tag and the commit; a build that
+# passes neither bakes empty strings, which the API reads as "not a published
+# image" and answers with the package version instead.
+#
+# Last, so a new version does not invalidate the cached layers above it.
+ARG WAYSCRIBE_BUILD_VERSION=""
+ARG WAYSCRIBE_BUILD_COMMIT=""
+ENV WAYSCRIBE_BUILD_VERSION=$WAYSCRIBE_BUILD_VERSION
+ENV WAYSCRIBE_BUILD_COMMIT=$WAYSCRIBE_BUILD_COMMIT
+
 # Never root. A process that serves HTTP and talks to PostgreSQL has no reason
 # to be able to write to its own image.
 USER node
