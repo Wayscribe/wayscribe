@@ -887,3 +887,49 @@ describe("telling collector faults apart from the SDK's counters (F-050)", () =>
     expect(doc).toContain("`transportErrors` above zero");
   });
 });
+
+describe("the images' build arguments (F-051)", () => {
+  // Leadline passed WAYSCRIBE_BUILD_VERSION and WAYSCRIBE_BUILD_COMMIT to the
+  // API image only, because API_SPEC section 14 named apps/api/Dockerfile
+  // alone, and its web app then called its own API a different build.
+  const DOCKERFILES = ["apps/api/Dockerfile", "apps/web/Dockerfile"];
+  const ARGS = ["WAYSCRIBE_BUILD_VERSION", "WAYSCRIBE_BUILD_COMMIT"];
+  const flat = (text: string): string => text.replace(/\s+/g, " ");
+
+  it("are declared by both Dockerfiles", () => {
+    for (const dockerfile of DOCKERFILES) {
+      for (const arg of ARGS) expect(read(dockerfile)).toMatch(new RegExp(`^ARG ${arg}=`, "m"));
+    }
+  });
+
+  it("are named for both Dockerfiles where API_SPEC says where the version comes from", () => {
+    const text = section(read("docs/API_SPEC.md"), "14. Health endpoints");
+    // The paragraph alone: the web app's paragraph further down names
+    // apps/web/Dockerfile too, and did while this one named the API's alone.
+    const start = text.indexOf("**Where the value comes from.**");
+    expect(start).toBeGreaterThan(-1);
+    const where = flat(text.slice(start, text.indexOf("\n\n", start)));
+    for (const dockerfile of DOCKERFILES) expect(where).toContain(`\`${dockerfile}\``);
+    expect(flat(text)).toContain("cannot tell whether the web app and the API are the same build");
+  });
+
+  it("are passed to both images in OPERATIONS' hand-built example", () => {
+    const text = section(read("docs/OPERATIONS.md"), "1. What holds state");
+    const commands = [...text.matchAll(/```bash\n([\s\S]*?)```/g)]
+      .map((match) => (match[1] ?? "").replace(/\\\n/g, " "))
+      .flatMap((block) => block.split("\n"))
+      .filter((line) => line.includes("docker build"));
+    for (const dockerfile of DOCKERFILES) {
+      const command = commands.find((line) => line.includes(`--file ${dockerfile}`));
+      expect(command, `no docker build of ${dockerfile}`).toBeDefined();
+      for (const arg of ARGS) expect(command).toContain(`--build-arg ${arg}=`);
+    }
+  });
+
+  it("holds the footer to the sentence the documents paraphrase", () => {
+    const footer = flat(read("apps/web/app/components/VersionFooter.tsx"));
+    expect(footer).toContain(
+      "image was built without WAYSCRIBE_BUILD_VERSION, so this page cannot tell whether the web app and the API are the same build."
+    );
+  });
+});

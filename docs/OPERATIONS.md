@@ -123,6 +123,34 @@ docker compose run --rm --entrypoint node api \
 The API reports `/ready` 503 `migrations_pending` until they are applied, so it
 will not serve reads against a schema it does not recognise.
 
+### Building the images yourself
+
+The published images say what they are: the API in `/ready`, the web app on the
+line under every signed-in page. Both read it from two build arguments,
+`WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT`, which
+`apps/api/Dockerfile` and `apps/web/Dockerfile` both declare and the release
+passes to both. An image you build yourself, from a checkout or a `git archive`,
+needs the same two on both builds:
+
+```bash
+VERSION=local-$(git rev-parse --short HEAD)
+COMMIT=$(git rev-parse HEAD)
+docker build --file apps/api/Dockerfile \
+  --build-arg WAYSCRIBE_BUILD_VERSION="$VERSION" \
+  --build-arg WAYSCRIBE_BUILD_COMMIT="$COMMIT" \
+  --tag wayscribe-api:"$VERSION" .
+docker build --file apps/web/Dockerfile \
+  --build-arg WAYSCRIBE_BUILD_VERSION="$VERSION" \
+  --build-arg WAYSCRIBE_BUILD_COMMIT="$COMMIT" \
+  --tag wayscribe-web:"$VERSION" .
+```
+
+An image built without them reports `0.0.0`, "not a release build", whatever
+commit it came from. With one image built each way, the version line cannot
+compare them and says so, rather than calling them different builds (F-051).
+`infrastructure/compose.yaml` builds both without them, so the source stack
+says "not a release build" on both halves.
+
 ## 2. Backup
 
 On your own database, Wayscribe's tables are ordinary tables in it: back

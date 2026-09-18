@@ -435,7 +435,13 @@ What you have to do when upgrading a checkout or a deployment:
   `WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT` build arguments as the
   API image; without them it says "not a release build". An API that does not
   answer leaves the line saying its version is unknown, and the page renders
-  as usual.
+  as usual. Only two build identities are compared: when one side was built
+  without the arguments, the line says, in the muted style, that the page
+  cannot tell whether the two are the same build, where a hand-built web image
+  beside its own API used to read "The web app and the API are different
+  builds." in red on every page (F-051). `docs/OPERATIONS.md` section 1 now
+  gives the commands that pass both arguments to both images, and
+  `docs/API_SPEC.md` section 14 names both Dockerfiles.
 - **Bring your own database** (ADR-037). `DATABASE_URL` points at a PostgreSQL
   15 or later that your team already runs. Migrations need privileges on their
   own schema only and install no extensions. `infrastructure/compose.bundled.yaml`

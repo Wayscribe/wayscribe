@@ -31,7 +31,10 @@ const cachedApiVersion = cachedFor(API_VERSION_PERIOD_MS, () => {
  * other, is visible on the page (F-045).
  *
  * An API that does not answer leaves the line saying its version is unknown;
- * it never fails the page. The values are shown as text.
+ * it never fails the page. When one side was built without its build
+ * arguments the page cannot compare them, and says so in the muted style
+ * rather than calling them different builds (F-051). The values are shown as
+ * text.
  */
 export async function VersionFooter({
   env = process.env,
@@ -49,6 +52,13 @@ export async function VersionFooter({
       {versions.mismatch ? (
         <p className="error">The web app and the API are different builds.</p>
       ) : null}
+      {versions.unverified === null ? null : (
+        <p>
+          The {versions.unverified === "web" ? "web" : "API"} image was built without
+          WAYSCRIBE_BUILD_VERSION, so this page cannot tell whether the web app and the API are the
+          same build.
+        </p>
+      )}
     </footer>
   );
 }

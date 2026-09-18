@@ -712,9 +712,12 @@ The three fields are on the 503 answers too, because when something is wrong
 the first question is what is running.
 
 **Where the value comes from.** The published image bakes it in: the
-`WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT` build arguments in
-`apps/api/Dockerfile`, which the release fills with the tag it is about to
-create and the commit it built. There is no runtime shell-out to git, because
+`WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT` build arguments, which
+`apps/api/Dockerfile` and `apps/web/Dockerfile` both declare, and which the
+release fills in both images with the tag it is about to create and the commit
+it built. An image you build yourself needs both arguments on both builds;
+`docs/OPERATIONS.md` section 1, *Building the images yourself*, has the
+commands. There is no runtime shell-out to git, because
 the image carries no git history, no working tree and no git binary; a
 shell-out could only answer for whichever machine ran the container. A build
 that passes neither argument reports `"source": "package"` and the version in
@@ -726,7 +729,13 @@ the image tag says in the registry and is derived from no stored data.
 The web app shows it under every signed-in page, beside its own version, which
 it reads from the same two build arguments in `apps/web/Dockerfile`, and says
 when the two name different builds: a different version, or the same version
-from a different commit. It asks at most once every 30 seconds, and when
+from a different commit. It compares only two builds that both carry the
+arguments. A side built without them reports its package version, `0.0.0`,
+whatever commit it came from, so when exactly one side has none the line says,
+in the muted style, that the page cannot tell whether the web app and the API
+are the same build, and names the image that lacks them. When neither has
+them, as in the source stack, both halves say "not a release build" and
+nothing is compared. It asks at most once every 30 seconds, and when
 `/ready` does not answer within 1.5 seconds the line says the API version is
 unknown and the page renders as usual.
 
