@@ -588,6 +588,12 @@ interface ChildResult {
  * hangs the suite rather than failing it. The module and the timing helper
  * are bundled from source with esbuild, as `bench/build.mjs` does, so the
  * child runs this code.
+ *
+ * On a Node without `process.threadCpuUsage`, such as 22.12.0, the helper
+ * reads the whole process's processor time instead. That is still sound here:
+ * the child does nothing but these comparisons, so the only other threads are
+ * V8's own, working for the code being measured, and both sizes are read with
+ * the same clock, alternately.
  */
 async function growthInChild(
   inputs: readonly { small: string; large: string }[]
