@@ -23,6 +23,12 @@ export interface EventRow {
   runtimeMetadata: unknown;
   deploymentMetadata: unknown;
   customMetadata: unknown;
+  /**
+   * The `entity_aliases` rows this event stated, by id: empty when it stated
+   * none (migration 020). Written with the insert, so the row is never
+   * updated to add them.
+   */
+  statedAliasIds: readonly string[];
 }
 
 export type InsertOutcome = { kind: "inserted" } | { kind: "duplicate" } | { kind: "conflict" };
@@ -71,7 +77,9 @@ export async function insertEvent(
       error: toJson(event.error),
       runtime_metadata: toJson(event.runtimeMetadata),
       deployment_metadata: toJson(event.deploymentMetadata),
-      custom_metadata: toJson(event.customMetadata)
+      custom_metadata: toJson(event.customMetadata),
+      // node-postgres sends a JavaScript array as a PostgreSQL array literal.
+      stated_alias_ids: [...event.statedAliasIds]
     })
     .onConflict(["project_id", "id"])
     .ignore()

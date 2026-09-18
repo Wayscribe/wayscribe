@@ -233,7 +233,7 @@ export function registerQueryRoutes(
       return reply.code(404).send(errorBody("not_found", "Event not found.", request.id));
     }
 
-    return reply.send({ data: presentEvent(detail) });
+    return reply.send({ data: presentEvent(keyring, detail, warnUnknownKey) });
   });
 }
 

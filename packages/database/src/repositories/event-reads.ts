@@ -1,6 +1,7 @@
 import type { Knex } from "knex";
 import { scoped, type ReadScope } from "./read-scope.js";
 import { decodeEventCursor, encodeCursor } from "./cursors.js";
+import type { JourneyAlias } from "./journey-reads.js";
 
 export interface EventListItem {
   id: string;
@@ -44,6 +45,14 @@ export interface EventDetail extends EventListItem {
   runtimeMetadata: unknown;
   deploymentMetadata: unknown;
   customMetadata: unknown;
+  /**
+   * The aliases this event stated, as the journey detail reads them: the same
+   * rows, so the same values and the same display flags (ADR-053). Empty when
+   * it stated none; null when the server did not record which it stated,
+   * which is every event stored before migration 020 and any the previous API
+   * stored during an upgrade (F-042).
+   */
+  aliases: JourneyAlias[] | null;
 }
 
 /**
@@ -141,8 +150,44 @@ export async function findEventDetail(
       "custom_metadata as customMetadata",
       db.raw('input_payload is not null as "hasInput"'),
       db.raw('output_payload is not null as "hasOutput"'),
-      db.raw('error is not null as "hasError"')
+      db.raw('error is not null as "hasError"'),
+      "stated_alias_ids as statedAliasIds"
     );
+  if (row === undefined) return undefined;
 
-  return row === undefined ? undefined : (row as EventDetail);
+  const { statedAliasIds, ...detail } = row as Omit<EventDetail, "aliases"> & {
+    statedAliasIds: string[] | null;
+  };
+  return { ...detail, aliases: await statedAliases(db, scope, detail, statedAliasIds) };
+}
+
+/**
+ * The alias rows an event names, read as `findJourneyDetail` reads a
+ * journey's, in the same order.
+ *
+ * Project and journey alone, as the journey read does: the event above was
+ * already inside the caller's scope, and `entity_aliases` carries no
+ * environment. The journey condition is what keeps an id from reaching
+ * another journey's alias. An id whose row is gone is left out rather than
+ * failing the read; key rotation, the one path that deletes a single alias
+ * row, first points the ids that name it at the row that replaces it.
+ */
+async function statedAliases(
+  db: Knex,
+  scope: ReadScope,
+  event: { journeyId: string },
+  ids: string[] | null
+): Promise<JourneyAlias[] | null> {
+  if (ids === null) return null;
+  if (ids.length === 0) return [];
+  const rows: unknown = await db("entity_aliases")
+    .where({ project_id: scope.projectId, journey_id: event.journeyId })
+    .whereIn("id", ids)
+    .select(
+      "alias_type as aliasType",
+      "encrypted_display_value as encryptedDisplayValue",
+      "displayable"
+    )
+    .orderBy("alias_type");
+  return rows as JourneyAlias[];
 }

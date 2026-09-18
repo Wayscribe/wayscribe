@@ -373,6 +373,29 @@ async function reencryptAlias(
       // The copy goes in the same statement as the flag: a masked row never
       // holds one (ADR-053). A survivor that stays displayable keeps its own.
       .update({ displayable: false, display_value: null });
+    // Events that stated the alias through the stale row name it by id
+    // (migration 020). They are pointed at the survivor, which now carries
+    // what the stale row said, rather than left naming a row about to go. The
+    // only write key rotation makes to an event row, and to a link, never to
+    // what the event recorded.
+    await trx.raw(
+      `update journey_events e
+          set stated_alias_ids = array_replace(e.stated_alias_ids, ?::uuid, s.id)
+         from entity_aliases s
+        where s.project_id = ? and s.journey_id = ? and s.alias_type = ?
+          and s.alias_value_hash = ? and s.id <> ?::uuid
+          and e.project_id = s.project_id and e.journey_id = s.journey_id
+          and e.stated_alias_ids @> array[?::uuid]`,
+      [
+        row["id"],
+        row["projectId"],
+        row["journeyId"],
+        row["aliasType"],
+        token,
+        row["id"],
+        row["id"]
+      ] as Knex.RawBinding[]
+    );
     const deleted = await trx("entity_aliases").where(unchanged).del();
     return deleted > 0 ? "duplicate_removed" : "changed";
   };

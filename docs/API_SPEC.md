@@ -518,8 +518,18 @@ describes it: its ids (`id`, `journeyId`, `parentEventId`, `traceId`, `spanId`,
 `messageId`, `correlationId`), `operation`, `name`, `service`,
 `eventTimestamp`, `receivedAt`, `durationMs`, `hasInput`, `hasOutput`,
 `hasError`, `inputPayload` and `outputPayload` as the capture mode stored them,
-`payloadDiff`, `error`, and the runtime, deployment and custom metadata. An API
-key reads events of its own environment only.
+`payloadDiff`, `error`, the runtime, deployment and custom metadata, and
+`aliases`. An API key reads events of its own environment only.
+
+`aliases` is what the event stated, which is what an `identified` event exists
+to record: each alias as section 7 shows it, `{ type, displayValue,
+displayable }`, from the same stored alias and masked the same way, in alias
+type order. An alias is stored once per journey, so its display flag is the
+journey's: when a later event masks an alias, every event that stated it shows
+it masked (ADR-053). `aliases` is `[]` for an event that stated none, and
+`null` for an event stored before the server recorded which aliases an event
+stated (`docs/OPERATIONS.md` section 4, migration 020); the journey still has
+those aliases.
 
 ## 10. Create replay destination
 

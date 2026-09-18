@@ -36,7 +36,7 @@ touch the database. `/ready` is the one that matters:
 | `/ready` answers | Means | Fix |
 | --- | --- | --- |
 | `{"status":"ready"}` 200 | the API can serve | go to step 2 |
-| `{"status":"not_ready","reason":"migrations_pending","pendingCount":19}` 503 | the schema is older than the build | run the migrations: `pnpm db:migrate` from a checkout, or the `migrate` command in [Operations §1](OPERATIONS.md#schema-changes) |
+| `{"status":"not_ready","reason":"migrations_pending","pendingCount":20}` 503 | the schema is older than the build | run the migrations: `pnpm db:migrate` from a checkout, or the `migrate` command in [Operations §1](OPERATIONS.md#schema-changes) |
 | `{"status":"not_ready","reason":"database_unreachable"}` 503 | the API cannot reach PostgreSQL | check `DATABASE_URL`; the API's log has the driver error, which is never returned over HTTP |
 | connection refused | nothing listens on that port | `docker compose ps`; check `API_PORT` |
 

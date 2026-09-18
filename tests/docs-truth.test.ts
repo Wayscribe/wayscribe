@@ -9,7 +9,8 @@ import {
   INGESTION_REFUSALS,
   MAX_BATCH_EVENTS,
   PROTOCOL_ERROR_CODES,
-  TRANSPORT_REFUSALS
+  TRANSPORT_REFUSALS,
+  storedEventSchema
 } from "../packages/protocol/src/index.js";
 import {
   JOURNEY_LIST_PARAMETERS,
@@ -417,6 +418,18 @@ describe("the documentation's checkable claims", () => {
         .find((line) => line.startsWith(`| a \`since\` more than ${seconds} seconds ahead`));
       expect(row, "TROUBLESHOOTING has no row for a future since").toBeDefined();
       expect(row).toContain(`\`${FUTURE_SINCE_MESSAGE}\``);
+    });
+  });
+
+  describe("GET /v1/events/:eventId in API_SPEC.md", () => {
+    it("names the aliases an event stated, and what null means", () => {
+      // F-042: an identified event read on its own did not say what it
+      // identified. The stored-event schema is what section 9 points to.
+      expect(Object.keys(storedEventSchema.shape)).toContain("aliases");
+      const text = section(read("docs/API_SPEC.md"), "9. Get event details").replace(/\s+/g, " ");
+      expect(text).toContain("`aliases`");
+      expect(text).toContain("`[]` for an event that stated none");
+      expect(text).toContain("`null` for an event stored before the server recorded");
     });
   });
 

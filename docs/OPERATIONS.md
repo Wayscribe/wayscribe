@@ -234,6 +234,22 @@ where pid in (select pid from pg_locks where relation = 'entity_aliases'::regcla
 The previous API keeps working while the column exists and it does not know
 about it: its inserts get `false`, which is how every alias read before.
 
+### Migration 020 records which aliases each event stated
+
+`020_event_stated_aliases.js` adds `stated_alias_ids uuid[]` to
+`journey_events`, nullable and with no default (F-042). Like 017 it is a
+catalogue change with no table rewrite, holds its exclusive lock for an
+instant, and sets `lock_timeout` to five seconds, so behind a long-running
+transaction it fails with `canceling statement due to lock timeout`, changes
+nothing, and succeeds when `migrate` runs again; check
+`'journey_events'::regclass` in the query above.
+
+There is no backfill, because nothing recorded which event stated which alias
+before. Events stored before the migration, and events the previous API stores
+between migrate and deploy, read `aliases: null` from `GET /v1/events/:eventId`,
+which means "not recorded", not "stated none". Their aliases are still on the
+journey, `GET /v1/journeys/:journeyId`.
+
 ### Upgrading to the journey browsing release (migrations 018 and 019)
 
 This release adds journey labels, last steps and partial text matching on

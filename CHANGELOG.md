@@ -306,6 +306,16 @@ What you have to do when upgrading a checkout or a deployment:
   could not say which one it gave. Both lists now build their rows from one
   presenter, so the two cannot drift again. Measured at 200,000 journeys, the
   join this needs on every search costs nothing outside the run-to-run spread.
+- **An event read says which aliases it stated** (F-042, `docs/API_SPEC.md`
+  section 9). `GET /v1/events/:eventId` gains `aliases`, each as the journey
+  read shows it, `{ type, displayValue, displayable }`, from the same stored
+  alias and masked the same way (ADR-053), so an `identified` event read on its
+  own finally says what it identified. `[]` means the event stated none;
+  `null` means the server did not record it, which is every event stored
+  before this release. A dry run's `stored.event` carries the same field.
+  Aliases are still stored once per journey; migration 020 adds
+  `journey_events.stated_alias_ids`, the ids of the alias rows the event
+  stated, written with the event's own insert.
 - **The journey page.** Headed by the journey's label when it has one, with the
   entity type and identifier beneath, and a back link to the list it was opened
   from. `GET /v1/journeys/:journeyId` returns the environment's name, `label`,
@@ -774,6 +784,10 @@ development build of `main`. A new installation can skip them.
 - **Rename SDK calls and options** as in the table under Changed. Convert
   numeric SDK options before passing them:
   `maxBufferedEvents: Number(process.env.MAX_BUFFERED)`, not the string.
+- **Migration 020 adds a column to `journey_events`** with a five-second
+  `lock_timeout`, as 017 did; run `migrate` again if it gives up behind a long
+  transaction (`docs/OPERATIONS.md` section 4). There is no backfill: events
+  stored before it read `aliases: null`.
 - **Send a `limit` from 1 to 100, once.** A client that sent `limit=1000` to
   get the largest page, or `limit=0` for the default, now gets
   `400 invalid_query`; send `100`, or leave `limit` out.

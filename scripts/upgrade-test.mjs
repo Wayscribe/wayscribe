@@ -966,6 +966,24 @@ async function main() {
     j4.json
   );
 
+  // Migration 020 has no backfill. An event the baseline stored says its
+  // aliases were not recorded, which is null and not an empty list, and its
+  // journey still has them; an event this build stored says what it stated.
+  const oldEvent = await request("GET", "/v1/events/evt_upgrade_j1_received");
+  check(
+    oldEvent.status === 200 && oldEvent.json.data.aliases === null,
+    "after upgrade: an event the baseline stored reads aliases null, not recorded",
+    oldEvent.json?.data?.aliases
+  );
+  const newEvent = await request("GET", "/v1/events/evt_upgrade_j4_received");
+  check(
+    newEvent.status === 200 &&
+      Array.isArray(newEvent.json.data.aliases) &&
+      newEvent.json.data.aliases.length === 0,
+    "after upgrade: an event this build stored with no aliases reads aliases []",
+    newEvent.json?.data?.aliases
+  );
+
   const recent = await request(
     "GET",
     `/v1/journeys?since=${encodeURIComponent(new Date(STARTED_AT.getTime() - 60_000).toISOString())}&status=failed`

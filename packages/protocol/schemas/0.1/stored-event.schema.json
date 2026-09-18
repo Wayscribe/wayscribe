@@ -107,7 +107,42 @@
     },
     "runtimeMetadata": {},
     "deploymentMetadata": {},
-    "customMetadata": {}
+    "customMetadata": {},
+    "aliases": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "displayValue": {
+                "description": "Masked, because an alias may be an identifier the caller is not entitled to see in full, unless displayable is true. Null when the key that encrypted it is no longer held.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "displayable": {
+                "type": "boolean",
+                "description": "True when every event that stated this alias listed it in displayableAliases; displayValue is then the whole value."
+              }
+            },
+            "required": [
+              "type",
+              "displayValue",
+              "displayable"
+            ]
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The aliases this event stated, each as the journey read shows it, masked the same way. Empty when it stated none. Null when the server did not record which aliases it stated, as for an event stored before that was recorded."
+    }
   },
   "required": [
     "id",
@@ -132,6 +167,7 @@
     "error",
     "runtimeMetadata",
     "deploymentMetadata",
-    "customMetadata"
+    "customMetadata",
+    "aliases"
   ]
 }
