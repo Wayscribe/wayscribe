@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { EventDetailData } from "../../src/lib/api";
 import { DiffTable } from "./DiffTable";
+import { EventAliases } from "./EventAliases";
 import { EventMetadata } from "./EventMetadata";
 import { EXPLANATIONS } from "./explanations";
 
@@ -67,6 +68,8 @@ export function EventDetail({
           <pre className="mono block">{event.errorText}</pre>
         </>
       )}
+
+      <EventAliases event={event} />
 
       <EventMetadata event={event} />
 

@@ -1,5 +1,5 @@
 import type { DiffChange, EventDetailData } from "./api";
-import { metadataEntries, runtimeFormat } from "./metadata";
+import { bounded, metadataEntries, runtimeFormat } from "./metadata";
 
 /**
  * An event as the page shows it, made on the server from the API's answer.
@@ -30,7 +30,13 @@ export interface DisplayedChange {
 /** The event as `GET /v1/events/:id` answers it. */
 export type ApiEventDetail = Omit<
   EventDetailData,
-  "inputText" | "outputText" | "errorText" | "payloadsCaptured" | "payloadDiff" | "metadata"
+  | "inputText"
+  | "outputText"
+  | "errorText"
+  | "payloadsCaptured"
+  | "payloadDiff"
+  | "metadata"
+  | "statedAliases"
 > & {
   inputPayload: unknown;
   outputPayload: unknown;
@@ -39,6 +45,8 @@ export type ApiEventDetail = Omit<
   customMetadata?: unknown;
   deploymentMetadata?: unknown;
   runtimeMetadata?: unknown;
+  /** `[]`, null for an event stored before migration 020, absent from an older API. */
+  aliases?: unknown;
 };
 
 /** Markers the SDK stores in place of a payload it could not capture. */
@@ -53,6 +61,7 @@ export function eventForDisplay(raw: ApiEventDetail): EventDetailData {
     customMetadata,
     deploymentMetadata,
     runtimeMetadata,
+    aliases,
     ...event
   } = raw;
   return {
@@ -72,8 +81,46 @@ export function eventForDisplay(raw: ApiEventDetail): EventDetailData {
       deployment: metadataEntries(deploymentMetadata),
       // `sdk` reads as `<name> <version> at <commit>` (ADR-063).
       runtime: metadataEntries(runtimeMetadata, runtimeFormat)
-    }
+    },
+    statedAliases: statedAliases(aliases)
   };
+}
+
+/** One alias an event stated, as the page shows it. */
+export interface StatedAlias {
+  type: string;
+  /** The value as the API gave it, masked or not, or `(no value)` when it gave none. */
+  value: string;
+  /** True unless the API said the alias is displayable (ADR-053). */
+  masked: boolean;
+}
+
+/**
+ * The aliases an event stated, from `GET /v1/events/:id` (F-042), as text.
+ *
+ * The API masks them the way the journey read does, so nothing is masked
+ * here; a value it did not mark displayable is only marked as masked, as
+ * `AliasList` marks the journey's. Null when the API did not record them (an
+ * event stored before migration 020 reads `null`) or did not send the field.
+ * An entry without a string `type` is left out rather than guessed at.
+ */
+function statedAliases(value: unknown): StatedAlias[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.flatMap((entry: unknown): StatedAlias[] => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const own = (field: string): unknown =>
+      Object.hasOwn(entry, field) ? (entry as Record<string, unknown>)[field] : undefined;
+    const type = own("type");
+    if (typeof type !== "string") return [];
+    const displayValue = own("displayValue");
+    return [
+      {
+        type: bounded(type),
+        value: typeof displayValue === "string" ? bounded(displayValue) : "(no value)",
+        masked: own("displayable") !== true
+      }
+    ];
+  });
 }
 
 /** One diff change as text. Also used for a replay's comparison. */

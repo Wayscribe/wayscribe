@@ -70,7 +70,8 @@ describe("getEvent", () => {
     "durationMs":null,"hasInput":false,"hasOutput":false,"hasError":false,"traceId":null,"messageId":null,
     "inputPayload":null,"outputPayload":null,"payloadDiff":null,"error":null,
     "customMetadata":{"__proto__":"kept","queue":"jobs"},
-    "deploymentMetadata":{"version":"2.4.1"},"runtimeMetadata":null}}`;
+    "deploymentMetadata":{"version":"2.4.1"},"runtimeMetadata":null,
+    "aliases":[{"type":"__proto__","displayValue":"kept","displayable":true}]}}`;
 
   const fetched = async (): Promise<Awaited<ReturnType<typeof getEvent>>> => {
     fetchMock.mockResolvedValueOnce(
@@ -87,6 +88,7 @@ describe("getEvent", () => {
     ]);
     expect(event?.metadata?.deployment.entries).toEqual([{ key: "version", value: "2.4.1" }]);
     expect(event?.metadata?.runtime.entries).toEqual([]);
+    expect(event?.statedAliases).toEqual([{ type: "__proto__", value: "kept", masked: false }]);
   });
 
   it("hands out no raw payload, error or metadata object to be serialised", async () => {
@@ -97,7 +99,8 @@ describe("getEvent", () => {
       "error",
       "customMetadata",
       "deploymentMetadata",
-      "runtimeMetadata"
+      "runtimeMetadata",
+      "aliases"
     ]) {
       expect(Object.hasOwn(event ?? {}, field), field).toBe(false);
     }

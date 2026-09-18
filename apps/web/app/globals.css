@@ -541,7 +541,8 @@ button[aria-busy="true"] {
   color: var(--failed);
   border-color: var(--failed);
 }
-.aliases .masked {
+.aliases .masked,
+.metadata-list .masked {
   font-style: italic;
 }
 

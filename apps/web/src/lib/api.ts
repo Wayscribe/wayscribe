@@ -1,5 +1,10 @@
 import { webConfig } from "./config";
-import { eventForDisplay, type ApiEventDetail, type DisplayedChange } from "./event-display";
+import {
+  eventForDisplay,
+  type ApiEventDetail,
+  type DisplayedChange,
+  type StatedAlias
+} from "./event-display";
 import type { EventMetadataLists } from "./metadata";
 
 export interface SearchItem {
@@ -94,6 +99,12 @@ export interface EventDetailData extends EventListItem {
    * Absent means none was recorded.
    */
   metadata?: EventMetadataLists;
+  /**
+   * The aliases the event stated (F-042), as text, from `eventForDisplay`.
+   * `[]` when it stated none; null when the API did not record them or did
+   * not send them.
+   */
+  statedAliases: StatedAlias[] | null;
 }
 
 export interface ProjectSummary {

@@ -279,6 +279,16 @@ What you have to do when upgrading a checkout or a deployment:
   disappeared from the screen (F-044). Keys and values are shown as escaped
   text, never as markup; at most 50 entries per kind and 300 characters per key
   or value are shown, and the page says how many entries it left out.
+- **The event detail shows the aliases an event stated** (F-042). An
+  `identified` event's detail used to say nothing about what it identified,
+  although the event read returns it. Under "Aliases stated" the detail lists
+  each alias's type and value as the API masked it, with a masked one marked
+  as masked, as the journey's own list marks it. An `identified` event that
+  stated none says so, and one whose aliases the API did not record, stored
+  before migration 020 or read from an older API, says that instead; for any
+  other step the section appears only when it stated some. Types and values
+  are shown as escaped text, at most 300 characters each, and read the same
+  on first load, after choosing the step, and with JavaScript off.
 - **An event shows the same payload keys however it is reached.** On an
   event's first load, with or without JavaScript, a payload or diff value key
   named `__proto__`, at any depth, was dropped, so a stored `{"__proto__":1}`

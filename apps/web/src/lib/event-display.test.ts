@@ -62,7 +62,9 @@ describe("eventForDisplay", () => {
 
   it("hands out text only: no raw payload, error, diff value or metadata object", () => {
     const event = eventForDisplay(
-      raw(',"inputPayload":{"a":1},"customMetadata":{"k":"v"},"runtimeMetadata":null')
+      raw(
+        ',"inputPayload":{"a":1},"customMetadata":{"k":"v"},"runtimeMetadata":null,"aliases":[{"type":"email","displayValue":"j…m","displayable":false}]'
+      )
     );
     for (const field of [
       "inputPayload",
@@ -70,7 +72,8 @@ describe("eventForDisplay", () => {
       "error",
       "customMetadata",
       "deploymentMetadata",
-      "runtimeMetadata"
+      "runtimeMetadata",
+      "aliases"
     ]) {
       expect(Object.hasOwn(event, field), field).toBe(false);
     }
@@ -217,5 +220,68 @@ describe("the Runtime group's sdk entry", () => {
     expect(runtime("null")).toEqual([]);
     expect(runtime('{"language":"node"}')).toEqual([{ key: "language", value: "node" }]);
     expect(eventForDisplay(raw("")).metadata?.runtime.entries).toEqual([]);
+  });
+});
+
+/**
+ * F-042: an `identified` event read on its own did not say what it
+ * identified. `GET /v1/events/:id` returns the aliases the event stated,
+ * masked as the journey read masks them; the page shows them as text.
+ */
+describe("the aliases an event stated", () => {
+  it("lists each as its type, its value as the API gave it, and whether it is masked", () => {
+    const event = eventForDisplay(
+      raw(
+        ',"aliases":[{"type":"email","displayValue":"j…@example.com","displayable":false},{"type":"hubspotContactId","displayValue":"1234","displayable":true}]'
+      )
+    );
+    expect(event.statedAliases).toEqual([
+      { type: "email", value: "j…@example.com", masked: true },
+      { type: "hubspotContactId", value: "1234", masked: false }
+    ]);
+  });
+
+  it("is empty for an event that stated none", () => {
+    expect(eventForDisplay(raw(',"aliases":[]')).statedAliases).toEqual([]);
+  });
+
+  it("is null when the API did not record them, or is older and does not send them", () => {
+    expect(eventForDisplay(raw(',"aliases":null')).statedAliases).toBeNull();
+    expect(eventForDisplay(raw("")).statedAliases).toBeNull();
+  });
+
+  it("reads an alias as masked unless the API says it is displayable, and a missing value as none", () => {
+    const event = eventForDisplay(
+      raw(
+        ',"aliases":[{"type":"phone","displayValue":null},{"type":"crm","displayValue":"7","displayable":"yes"}]'
+      )
+    );
+    expect(event.statedAliases).toEqual([
+      { type: "phone", value: "(no value)", masked: true },
+      { type: "crm", value: "7", masked: true }
+    ]);
+  });
+
+  it("leaves out an entry that is not an alias rather than guessing at it", () => {
+    const event = eventForDisplay(
+      raw(
+        ',"aliases":[null,"email",{"displayValue":"x"},{"type":1,"displayValue":"y"},{"type":"email","displayValue":"z","displayable":true}]'
+      )
+    );
+    expect(event.statedAliases).toEqual([{ type: "email", value: "z", masked: false }]);
+  });
+
+  it("reads null for an aliases field that is not a list", () => {
+    expect(eventForDisplay(raw(',"aliases":{"type":"email"}')).statedAliases).toBeNull();
+  });
+
+  it("bounds a type or value however long", () => {
+    const long = "v".repeat(MAX_METADATA_TEXT + 50);
+    const event = eventForDisplay(
+      raw(`,"aliases":[{"type":"${long}","displayValue":"${long}","displayable":true}]`)
+    );
+    const [alias] = event.statedAliases ?? [];
+    expect(Array.from(alias?.type ?? "")).toHaveLength(MAX_METADATA_TEXT + 1);
+    expect(alias?.value.endsWith("…")).toBe(true);
   });
 });
