@@ -1291,9 +1291,12 @@ server's check, so the extra walks fail on any machine. `src/overhead.test.ts`
 counts the work instead of timing it: a 1 KiB `transform` lists 2.6 entries for
 each property of its input and output (4.9 before the fix; the limit is 3.5)
 and serialises 2.1 characters for each byte of them (the limit is 3), and the
-work per unit is the same at 8 KiB and 64 KiB. It replaced a wall-clock ratio
-that failed on a busy machine. Neither test measures time, so run the benchmark
-above before a release all the same.
+work per unit is the same at 8 KiB and 64 KiB. Work that avoids those counts,
+such as a walk written as a `for...in` loop, is held by a ratio of a wrapped
+call to a plain copy of its input and output, at most 11, measured in
+processor time so that a busy machine does not stretch it (8 to 10 on
+2026-09-18; a second masking walk read 14.6). Run the benchmark above before a
+release all the same.
 
 **Sustained load:** 2,000 wrapped calls a second for 60 seconds, 1 KiB,
 alternating `transform` and `persist`, with the cores idle between calls.
