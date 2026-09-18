@@ -1,6 +1,7 @@
 import { DEFAULT_SECRET_PATHS } from "@wayscribe/payload-security/redaction";
 import type { Diagnostic } from "./diagnostics.js";
 import type { PropagationLevel } from "./propagation.js";
+import { readHostList } from "./host-list.js";
 import { readKnownSafeNames } from "./secret-names.js";
 
 /**
@@ -64,7 +65,7 @@ export interface RecorderConfig {
   captureMode?: CaptureMode | undefined;
   /**
    * Redaction rules, applied beside the built-in secret names, never instead
-   * of them.
+   * of them. At most 1,000; any past that are ignored and reported.
    *
    * @defaultValue []
    */
@@ -150,6 +151,7 @@ export interface RecorderConfig {
    * is an analytics id. The `unredacted_secret_name` warning skips them. Plain
    * names only, compared with case, `-` and `_` ignored. Redaction is
    * unaffected: a name on `redact` or the built-in list is still redacted.
+   * At most 1,000; any past that are ignored and reported.
    *
    * @defaultValue []
    */
@@ -232,6 +234,13 @@ const WITHOUT: Record<RequiredSetting, string> = {
 
 const CAPTURE_MODES = ["metadata-only", "redacted-payload", "full-payload"] as const;
 const PROPAGATION_LEVELS = ["journey-only", "journey-and-type", "full"] as const;
+
+/**
+ * The most entries a list setting keeps, `redact` and `knownSafeNames` alike.
+ * Far more rules than anybody writes, and small enough that a list whose
+ * `length` claims a trillion costs a moment, not the process.
+ */
+export const MAX_LIST_ENTRIES = 1_000;
 
 /** The longest delay Node's timers accept; past it they fire after 1 ms. */
 const MAX_TIMER_MS = 2_147_483_647;
@@ -331,24 +340,28 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
 
   const endpoint = text("endpoint").replace(/\/$/, "");
   const redact = readOnce("redact", "only the built-in secret names apply");
+  // Copied by index into an array of the SDK's own before anything else
+  // touches it: a revoked Proxy, a hostile method, a species constructor or a
+  // huge length all threw out of createRecorder, or hung it (SDK-6).
+  const redactList = readHostList(redact, MAX_LIST_ENTRIES);
   let paths: string[] = [];
-  try {
-    // Inside the try: `Array.isArray` throws for a revoked Proxy, and reading
-    // the entries runs a Proxy's traps, and either used to throw out of
-    // createRecorder into the host's startup.
-    const listed = Array.isArray(redact);
-    paths = listed
-      ? (redact as unknown[]).filter((path): path is string => typeof path === "string")
-      : [];
-    if (redact !== undefined && (!listed || paths.length !== (redact as unknown[]).length)) {
+  if (redactList.kind === "unreadable") {
+    problem("redact", "redact could not be read; only the built-in secret names apply.");
+  } else if (redactList.kind === "not_a_list") {
+    problem("redact", "redact is not a list of paths; only the built-in secret names apply.");
+  } else if (redactList.kind === "list") {
+    paths = redactList.entries.filter((path): path is string => typeof path === "string");
+    if (redactList.cut) {
+      problem(
+        "redact",
+        `redact holds more than ${String(MAX_LIST_ENTRIES)} paths; the rest are ignored.`
+      );
+    } else if (paths.length !== redactList.entries.length) {
       problem(
         "redact",
         "redact is not a list of paths; the entries that are not strings are ignored."
       );
     }
-  } catch {
-    paths = [];
-    problem("redact", "redact could not be read; only the built-in secret names apply.");
   }
   const onDiagnostic = readOnce("onDiagnostic", "it is not called");
   if (onDiagnostic !== undefined && typeof onDiagnostic !== "function") {
@@ -361,7 +374,8 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
   const secret = readOnce("journeyIdSecret", "journeyIdFor returns random journey ids");
   const deployment = readDeployment(readOnce("deployment", "events carry no deployment"), problem);
   const knownSafe = readKnownSafeNames(
-    readOnce("knownSafeNames", "no name is exempt from the warning")
+    readOnce("knownSafeNames", "no name is exempt from the warning"),
+    MAX_LIST_ENTRIES
   );
   if (knownSafe.problem !== undefined) problem("knownSafeNames", knownSafe.problem);
   for (const [old, current] of Object.entries(RENAMED)) {

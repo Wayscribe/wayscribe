@@ -372,6 +372,16 @@ describe("a list setting whose reads throw (SDK-6)", () => {
   const throwing = (): never => {
     throw new Error("trap");
   };
+  // Iterating it throws, and so does iterating what its `map` returns, which
+  // is how the knownSafeNames copy used to reach `new Set` outside any try.
+  const hostileIterable = (): object => ({
+    length: 1,
+    [Symbol.iterator]: throwing,
+    map: () => ({ length: 1, [Symbol.iterator]: throwing })
+  });
+  function hostileSpecies(): object {
+    return hostileIterable();
+  }
   const lists = (): [string, () => unknown][] => [
     [
       "a revoked Proxy",
@@ -381,23 +391,96 @@ describe("a list setting whose reads throw (SDK-6)", () => {
         return revoked.proxy;
       }
     ],
-    ["an array Proxy whose reads throw", () => new Proxy(["a"], { get: throwing })]
+    ["an array Proxy whose reads throw", () => new Proxy(["a"], { get: throwing })],
+    // What the SDK does with the list must be its own code too: each of these
+    // hands back an object whose iteration throws, from a method the SDK used
+    // to call on the host's array.
+    [
+      "an array whose constructor has a Symbol.species",
+      () => {
+        const list: unknown[] = ["a"];
+        Object.defineProperty(list, "constructor", {
+          value: { [Symbol.species]: hostileSpecies }
+        });
+        return list;
+      }
+    ],
+    [
+      "an Array subclass that overrides filter",
+      () => {
+        class Hostile extends Array<unknown> {
+          override filter(): never {
+            return hostileIterable() as never;
+          }
+        }
+        return Hostile.from(["a"]);
+      }
+    ],
+    [
+      "an array Proxy whose filter returns a custom iterable",
+      () =>
+        new Proxy(["a"], {
+          get: (target, key, receiver) =>
+            key === "filter"
+              ? () => hostileIterable()
+              : (Reflect.get(target, key, receiver) as unknown)
+        })
+    ],
+    [
+      "an array Proxy whose length is a trillion",
+      () =>
+        new Proxy([], {
+          get: (target, key, receiver) =>
+            key === "length" ? 1e12 : (Reflect.get(target, key, receiver) as unknown)
+        })
+    ]
   ];
 
   it.each(["redact", "knownSafeNames"])(
-    "never throws out of createRecorder for %s, and reports it",
+    "never throws out of createRecorder for %s, and never hangs",
     async (setting) => {
-      for (const [, make] of lists()) {
+      for (const [what, make] of lists()) {
         forgetRequiredSettingWarnings();
         let recorder: Recorder | undefined;
         expect(() => {
           recorder = createRecorder({ ...base, [setting]: make() });
-        }).not.toThrow();
-        expect(recorder?.counters().rejectedSettings).toEqual([setting]);
+        }, what).not.toThrow();
+        expect(recorder, what).toBeDefined();
+        // Recording still works, and nothing the host's list does reaches it.
+        recorder
+          ?.startJourney({ entity: { type: "t", id: "1" } })
+          .record({ operation: "received", name: "r", input: { a: 1 } });
         await recorder?.shutdown({ timeoutMs: 100 });
       }
     }
   );
+
+  it.each(["redact", "knownSafeNames"])(
+    "reports %s when it cannot be read, or holds more entries than it keeps",
+    async (setting) => {
+      const revoked = Proxy.revocable([], {});
+      revoked.revoke();
+      const huge = new Proxy([], {
+        get: (target, key, receiver) =>
+          key === "length" ? 1e12 : (Reflect.get(target, key, receiver) as unknown)
+      });
+      for (const value of [revoked.proxy, huge, Array.from({ length: 1_001 }, () => "a")]) {
+        forgetRequiredSettingWarnings();
+        const recorder = createRecorder({ ...base, [setting]: value });
+        expect(recorder.counters().rejectedSettings).toEqual([setting]);
+        await recorder.shutdown({ timeoutMs: 100 });
+      }
+    }
+  );
+
+  it("keeps the entries of an array whose own methods are hostile", () => {
+    const list = ["sessionId"];
+    Object.defineProperty(list, "constructor", {
+      value: { [Symbol.species]: hostileSpecies }
+    });
+    const recorder = createRecorder({ ...base, knownSafeNames: list, redact: list });
+    expect(recorder.counters().rejectedSettings).toEqual([]);
+  });
 
   it("still redacts the built-in secret names when redact cannot be read", async () => {
     const events: Record<string, unknown>[] = [];

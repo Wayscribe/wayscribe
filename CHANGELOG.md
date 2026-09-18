@@ -456,11 +456,15 @@ What you have to do when upgrading a checkout or a deployment:
   now refused as empty, `{}` and `{ gitCommit: undefined }` are now reported,
   and `constructor` or `toString` beside a valid field is now caught.
 
-- **`createRecorder` no longer throws for a list setting it cannot read.** A
-  revoked Proxy given as `deployment`, `redact` or `knownSafeNames`, or an
-  array Proxy whose reads throw, threw out of `createRecorder` into the host's
-  startup, against SDK-6. Each is now reported as that setting, and `redact`
-  keeps the built-in secret names.
+- **`createRecorder` no longer throws or hangs for a list setting it cannot
+  read.** A revoked Proxy given as `deployment`, `redact` or `knownSafeNames`,
+  an array Proxy whose reads throw, an array with a hostile `Symbol.species`
+  or an overridden `filter`, threw out of `createRecorder` into the host's
+  startup, against SDK-6, and an array Proxy claiming a `length` of a trillion
+  hung it. `redact` and `knownSafeNames` are now copied by index into an array
+  the SDK owns, at most 1,000 entries, and nothing of the host's runs after
+  that. A list that cannot be read, or holds more than 1,000 entries, is
+  reported as that setting, and `redact` keeps the built-in secret names.
 
 - **An error message that looks like personal data is warned about**, as a
   journey label and a displayable alias already were (F-041, ADR-062). A

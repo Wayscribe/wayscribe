@@ -1355,7 +1355,7 @@ fleet against one instance. It is clamped to 1-16.
 | `serviceName` | none | required |
 | `environment` | none | required; must match the API key's environment |
 | `captureMode` | `redacted-payload` | or `metadata-only`, `full-payload` |
-| `redact` | `[]` | appended to the built-in secret paths |
+| `redact` | `[]` | appended to the built-in secret paths; at most 1,000 |
 | `propagation` | `journey-and-type` | see [Crossing a process boundary](#crossing-a-process-boundary); experimental |
 | `batchSize` | `50` | at most 100, the server's limit |
 | `flushIntervalMs` | `1000` | |
@@ -1367,7 +1367,7 @@ fleet against one instance. It is clamped to 1-16.
 | `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends); experimental |
 | `journeyIdSecret` | none | at least 32 bytes; see [The same record, the same journey](#the-same-record-the-same-journey); experimental |
 | `deployment` | none | `{ gitCommit?, version?, image? }`, sent on every event; see [Which build recorded this](#which-build-recorded-this) |
-| `knownSafeNames` | `[]` | key names that look like secrets and are not; see [Names no rule covers](#names-no-rule-covers) |
+| `knownSafeNames` | `[]` | key names that look like secrets and are not, at most 1,000; see [Names no rule covers](#names-no-rule-covers) |
 
 The SDK reads no environment variables. A library that changes behaviour based on
 ambient state is a library that behaves differently in your tests.
