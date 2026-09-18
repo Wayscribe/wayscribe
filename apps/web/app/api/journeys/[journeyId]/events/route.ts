@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { type EventsPageResponse, getJourney, listEvents } from "../../../../../src/lib/api";
+import { failedStepOf } from "../../../../../src/lib/failed-step";
 import { apiFailure, jsonError } from "../../../../../src/lib/route-errors";
 import { requestSession } from "../../../../../src/lib/request-session";
 
@@ -9,7 +10,7 @@ import { requestSession } from "../../../../../src/lib/request-session";
  * A proxy, not a new contract: the admin token is project-wide and stays on
  * the server (ADR-029), so the browser asks this handler and this handler asks
  * the API. The journey rides along so live mode can learn in one request that
- * the journey has finished.
+ * the journey has finished, and which step failed it.
  */
 export async function GET(
   request: NextRequest,
@@ -32,7 +33,10 @@ export async function GET(
       items: page.items,
       nextCursor: page.nextCursor,
       journeyStatus: journey.status,
-      journeyEventCount: journey.eventCount
+      journeyEventCount: journey.eventCount,
+      // Beside the status, so live mode's summary line learns both on one
+      // poll (ADR-063). Text or null, whatever the API sent.
+      journeyFailedStep: failedStepOf(journey)
     };
     // Same reasoning as `cache: "no-store"` in src/lib/api.ts: a debugging tool
     // showing another operator's stale journey is worse than one that is

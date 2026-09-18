@@ -163,6 +163,11 @@ button {
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
 }
+/* An entity type may be 128 characters and an identifier 512, with no space
+   to break at; the link wraps rather than widening the page. */
+.results li > a {
+  overflow-wrap: anywhere;
+}
 .status {
   font-size: 0.75rem;
   text-transform: uppercase;
@@ -170,6 +175,15 @@ button {
 }
 .status.failed {
   color: var(--failed);
+}
+/* A step name inside a status (`failed at <step>`) is an identifier: it keeps
+   its own case and spacing under the status's capitals. */
+.status .status-step {
+  text-transform: none;
+  letter-spacing: normal;
+  /* A step name may be 256 characters with no space to break at; without this
+     one widens the Search page past the screen. */
+  overflow-wrap: anywhere;
 }
 
 /* The two ways in, above every signed-in page. */
@@ -379,6 +393,10 @@ button[aria-busy="true"] {
 }
 .journey-table .col-step {
   width: 20%;
+}
+/* The step that failed a failed journey (ADR-063). */
+.journey-table .col-step.failed {
+  color: var(--failed);
 }
 .journey-table .col-events {
   width: 4.5rem;

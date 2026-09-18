@@ -53,7 +53,7 @@ describe("JourneyTable", () => {
       "Environment",
       "Entity type",
       "Shown as",
-      "Last step",
+      "Step",
       "Events"
     ]);
     const row = within(table).getAllByRole("row")[1];

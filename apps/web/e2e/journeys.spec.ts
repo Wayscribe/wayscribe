@@ -114,7 +114,7 @@ test("lists a labelled journey and the fallback rows, newest first", async ({ pa
     "Environment",
     "Entity type",
     "Shown as",
-    "Last step",
+    "Step",
     "Events"
   ];
   await expect(page.getByRole("columnheader")).toHaveCount(names.length);

@@ -47,6 +47,7 @@ function page(overrides: Partial<EventsPageResponse> = {}): EventsPageResponse {
     nextCursor: null,
     journeyStatus: "active",
     journeyEventCount: 4,
+    journeyFailedStep: null,
     ...overrides
   };
 }
@@ -68,6 +69,7 @@ function mount(props: Partial<Parameters<typeof JourneyTimeline>[0]> = {}) {
     <JourneyTimeline
       journeyId="jrn_1"
       initialStatus={status}
+      initialFailedStep={null}
       initialEvents={EVENTS}
       initialCursor={null}
       initialSelectedId="evt_1"
@@ -81,6 +83,13 @@ function mount(props: Partial<Parameters<typeof JourneyTimeline>[0]> = {}) {
     />
   );
 }
+
+/** The count line above the filters: status, count and services. */
+const summaryLine = (): HTMLElement => {
+  const line = document.querySelector<HTMLElement>("p[aria-live=polite]");
+  if (line === null) throw new Error("no summary line");
+  return line;
+};
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
@@ -219,6 +228,63 @@ describe("JourneyTimeline", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(screen.getAllByRole("option")).toHaveLength(8);
     expect(screen.getByRole("checkbox", { name: "Live" })).toBeChecked();
+  });
+
+  // ADR-063, F-047: the summary line names the step that failed the journey,
+  // which a later successful step no longer hides.
+  it("says which step a failed journey failed at", () => {
+    mount({ initialStatus: "failed", initialFailedStep: "push-hubspot" });
+    expect(summaryLine().textContent).toBe(
+      "failed at push-hubspot · 4 events · webhook-api, sync-worker"
+    );
+  });
+
+  it("says only the status when there is no failed step", () => {
+    mount({ initialStatus: "failed", initialFailedStep: null });
+    expect(summaryLine().textContent).toBe("failed · 4 events · webhook-api, sync-worker");
+  });
+
+  it("learns the failed step on the same poll that brings the failure", async () => {
+    vi.useFakeTimers();
+    const polls = [
+      page({ items: [event("evt_5")], journeyStatus: "active", journeyEventCount: 5 }),
+      page({
+        items: [event("evt_5"), event("evt_6")],
+        journeyStatus: "failed",
+        journeyEventCount: 6,
+        journeyFailedStep: "push-hubspot"
+      }),
+      // A successful retry clears the failure, and with it the failed step.
+      page({
+        items: [event("evt_5"), event("evt_6"), event("evt_7")],
+        journeyStatus: "completed",
+        journeyEventCount: 7,
+        journeyFailedStep: null
+      })
+    ];
+    let served = 0;
+    fetchMock.mockImplementation(() => {
+      const next = polls[Math.min(served, polls.length - 1)];
+      served += 1;
+      return Promise.resolve(ok(next));
+    });
+    mount({ initialStatus: "active", initialFailedStep: null });
+    expect(summaryLine().textContent).toMatch(/^active · 4 events/);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(summaryLine().textContent).toMatch(/^active · 5 events/);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(summaryLine().textContent).toMatch(/^failed at push-hubspot · 6 events/);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(summaryLine().textContent).toMatch(/^completed · 7 events/);
   });
 
   // Whether a finished journey is still warm is decided on the server and

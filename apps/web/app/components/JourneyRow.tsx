@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactElement } from "react";
 import type { JourneyListRow } from "../../src/lib/api";
+import { failedStepOf } from "../../src/lib/failed-step";
 import { journeyHref } from "../../src/lib/journey-filters";
 import { fullTimestamp } from "../../src/lib/time";
 import { LinkPending } from "./LinkPending";
@@ -92,11 +93,35 @@ export function JourneyRow({
           {shown.text}
         </Link>
       </td>
+      <StepCell item={item} />
+      <td className="col-events">{item.eventCount}</td>
+    </tr>
+  );
+}
+
+/**
+ * The Step column (ADR-063, F-047): the step that failed a failed journey, in
+ * the failed style, when the API names it; otherwise the last step, as before.
+ * A failed journey's last step can be a later step that succeeded, so the
+ * title gives both.
+ */
+function StepCell({ item }: { item: JourneyListRow }): ReactElement {
+  const failedStep = failedStepOf(item);
+  if (failedStep === null) {
+    return (
       <td className="col-step" title={item.lastStep ?? undefined}>
         {item.lastStep ?? ""}
       </td>
-      <td className="col-events">{item.eventCount}</td>
-    </tr>
+    );
+  }
+  const title =
+    item.lastStep === null
+      ? `Failed at ${failedStep}`
+      : `Failed at ${failedStep}; last step ${item.lastStep}`;
+  return (
+    <td className="col-step failed" title={title}>
+      {failedStep}
+    </td>
   );
 }
 

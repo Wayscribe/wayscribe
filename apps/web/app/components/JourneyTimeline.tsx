@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EventDetailData, EventListItem, EventsPageResponse } from "../../src/lib/api";
 import { type Fetched, eventsUrl, fetchJson } from "../../src/lib/api-client";
+import { statusText } from "../../src/lib/failed-step";
 import { spansDays } from "../../src/lib/time";
 import {
   NO_FILTERS,
@@ -20,6 +21,11 @@ import { TimelineList } from "./TimelineList";
 export interface JourneyTimelineProps {
   journeyId: string;
   initialStatus: string;
+  /**
+   * The step that failed the journey, from `failedStepOf`, or null (ADR-063).
+   * Each poll brings it again beside the status.
+   */
+  initialFailedStep: string | null;
   initialEvents: EventListItem[];
   initialCursor: string | null;
   initialSelectedId: string | null;
@@ -76,6 +82,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const [events, setEvents] = useState(props.initialEvents);
   const [cursor, setCursor] = useState(props.initialCursor);
   const [status, setStatus] = useState(props.initialStatus);
+  const [failedStep, setFailedStep] = useState(props.initialFailedStep);
   const [total, setTotal] = useState(props.totalEvents);
   const [filters, setFilters] = useState<TimelineFilters>(NO_FILTERS);
   const [selectedId, setSelectedId] = useState(props.initialSelectedId);
@@ -195,6 +202,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
     setCursor(page.nextCursor);
     if (page.nextCursor !== null) pollFrom.current = page.nextCursor;
     setStatus(page.journeyStatus);
+    setFailedStep(page.journeyFailedStep);
     setTotal(page.journeyEventCount);
     return added;
   }, []);
@@ -298,7 +306,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   return (
     <>
       <p className="muted wrap" aria-live="polite">
-        {status} · {count} · {services.join(", ")}
+        {statusText(status, failedStep)} · {count} · {services.join(", ")}
       </p>
       <FilterBar
         services={services}

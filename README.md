@@ -117,7 +117,8 @@ journey's label or displayable alias. Its Failures shortcut shows only what
 failed, and each row opens the same timeline.
 
 ![The Journeys page: a filter bar above a table of journeys with their last
-activity, status, entity type, what each is shown as, last step and event
+activity, status, entity type, what each is shown as, their step (the step a
+failed journey failed at, in red, else its last step) and event
 count](docs/images/journeys.png)
 
 ---
