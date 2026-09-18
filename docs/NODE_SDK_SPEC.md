@@ -455,9 +455,11 @@ const { context, data } = recorder.extractPayload(body); // ExtractedPayload
 context. `PayloadEnvelope<T>` is `ContextEnvelope<T>` or `NoContextEnvelope<T>`,
 the empty envelope a recorder with no context to inject produces, so the value
 the SDK itself makes satisfies its own type (F-014, ADR-060). A nested
-discriminant does not narrow a union, so `hasJourney(envelope)`, an exported
-type guard, is what narrows one to `ContextEnvelope<T>`; the README's
-propagation section states the formulations that work. The header,
+discriminant does not narrow a union, so `hasJourney(value)`, an exported
+type guard, is what narrows one to `ContextEnvelope<T>`. It takes `unknown`, so
+a body off a queue needs no cast to reach it, and its `false` covers both a
+value that is not an envelope and an envelope with no journey (F-034). The
+README's propagation section states the formulations that work. The header,
 attribute and envelope names are not specified in
 `SDK_SPEC.md` yet (its section 1); they wait on the propagation specification.
 

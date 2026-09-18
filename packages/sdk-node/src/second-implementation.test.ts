@@ -135,6 +135,25 @@ describe("the no-context envelope", () => {
     expect(contextOf(withoutJourney)).toBeUndefined();
   });
 
+  it("takes a body typed unknown with no cast, and narrows it (F-034)", () => {
+    // A body off a queue is `unknown`. Declared as taking an envelope, this
+    // call needed the cast the guard exists to remove; `pnpm typecheck` is
+    // what fails if the parameter narrows again.
+    const journeyIdOf = (body: unknown): string | undefined => {
+      if (!hasJourney(body)) return undefined;
+      expectTypeOf(body).toEqualTypeOf<ContextEnvelope<unknown>>();
+      expectTypeOf(body._wayscribe.journeyId).toEqualTypeOf<string>();
+      return body._wayscribe.journeyId;
+    };
+    expect(journeyIdOf(JSON.parse('{"_wayscribe":{"journeyId":"jrn_1"},"data":1}'))).toBe("jrn_1");
+
+    // `false` is both "not an envelope" and "an envelope with no journey":
+    // a caller that must tell those apart reads `_wayscribe` itself, or
+    // calls `extractPayload`.
+    expect(hasJourney({ a: 1 })).toBe(false);
+    expect(hasJourney({ _wayscribe: {}, data: { a: 1 } })).toBe(false);
+  });
+
   it("says no journey for anything that is not an envelope with one", () => {
     // A host can pass anything, and this runs on a body from the network.
     for (const value of [
@@ -147,7 +166,7 @@ describe("the no-context envelope", () => {
       "no",
       undefined
     ]) {
-      expect(hasJourney(value as PayloadEnvelope<unknown>)).toBe(false);
+      expect(hasJourney(value)).toBe(false);
     }
     expect(hasJourney({ _wayscribe: { journeyId: "jrn_1" }, data: 1 })).toBe(true);
   });
@@ -172,8 +191,8 @@ describe("the no-context envelope", () => {
       new Proxy({}, { get: throwing })
     ];
     for (const value of hostile) {
-      expect(() => hasJourney(value as PayloadEnvelope<unknown>)).not.toThrow();
-      expect(hasJourney(value as PayloadEnvelope<unknown>)).toBe(false);
+      expect(() => hasJourney(value)).not.toThrow();
+      expect(hasJourney(value)).toBe(false);
     }
   });
 

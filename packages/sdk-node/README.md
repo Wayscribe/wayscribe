@@ -529,7 +529,8 @@ under this repo's TypeScript settings:
 ```typescript
 import { hasJourney, type PayloadEnvelope } from "@wayscribe/node";
 
-// 1. The exported type guard narrows the envelope itself.
+// 1. The exported type guard narrows the envelope itself. It takes anything,
+//    a body typed `unknown` included, and never throws.
 if (hasJourney(envelope)) {
   const journey = recorder.continueJourney({ context: envelope._wayscribe, entity });
 }
@@ -553,6 +554,11 @@ level, and this one is nested, so inside that block the envelope is still the
 union and assigning it to `ContextEnvelope<T>` is an error. The compiler's
 message talks about assignability and says nothing about narrowing, which is
 why this looks right; use one of the three above.
+
+`hasJourney` answers `false` both for a value that is not an envelope, such as
+`{ a: 1 }`, and for an envelope with no journey, such as `{ _wayscribe: {},
+data }`. A consumer that must tell those apart, to unwrap `data` from the
+second and not the first, checks for `_wayscribe` itself (F-034).
 
 | `propagation` | Emits |
 | --- | --- |

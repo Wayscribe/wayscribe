@@ -438,6 +438,15 @@ What you have to do when upgrading a checkout or a deployment:
 
 ### Changed
 
+- **`hasJourney` takes `unknown`.** It was declared as taking a
+  `PayloadEnvelope<T>` while documented as taking anything, so a body off a
+  queue, typed `unknown`, needed the cast the guard exists to remove (F-034).
+  It is now `hasJourney<T = unknown>(envelope: unknown): envelope is
+  ContextEnvelope<T>`; a typed envelope still narrows to its own
+  `ContextEnvelope<T>`. Its documentation now says that `false` covers both a
+  value that is not an envelope and an envelope with no journey. Nothing
+  changes at run time, and every call that compiled before still compiles.
+
 - **`injectPayload` returns `PayloadEnvelope<T>`, not `ContextEnvelope<T>`.**
   Without a context to inject it produces an envelope with an empty
   `_wayscribe`, which did not satisfy `ContextEnvelope` and which the SDK cast
