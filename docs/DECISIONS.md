@@ -3063,23 +3063,42 @@ behaves exactly as it does today when it is not used.
     `entityId` reachable on it.
 
   The README carries this, because a reader who tries the obvious thing meets a
-  compiler error about assignability that says nothing about narrowing. Whether
-  the package also exports a ready-made guard is the SDK's call; if it does, it
-  is listed here with the rest of the surface.
+  compiler error about assignability that says nothing about narrowing.
+
+  **The package exports the guard**, so the second of those three is written
+  once rather than in every consumer:
+  `hasJourney<T>(envelope: PayloadEnvelope<T>): envelope is ContextEnvelope<T>`.
+  It reads the value as `unknown` before testing it, because a queue hands a
+  consumer whatever was put there and a JavaScript caller can pass anything
+  the types did not stop. It takes the package's exported values from two to
+  three, `createRecorder`, `OPERATIONS` and `hasJourney`, which
+  `docs/NODE_SDK_SPEC.md` section 4 states. Most consumers still want
+  `extractPayload`, which returns the context and the payload apart and reads a
+  body that is not an envelope at all; the guard is for a reader who already
+  holds one.
 - **Wrapper signatures a second implementation can satisfy.** Each of
   `transform`, `persist`, `publish` and `deliver` is declared so that one plain,
   non-overloaded function satisfies it without a cast: one signature over
   `() => T | PromiseLike<T>` with a conditional return type. If that is found to
   lose inference at a call site, the overloads stay and a non-overloaded alias
   is exported beside them, and the README says which one an implementer writes
-  against. The acceptance test is the external property, because that is what
-  a second implementation needs: a small hand-written object satisfies
-  `JourneyOperations` with no cast, proved by a type-level test. A cast that
-  remains inside the SDK's own factory, where one generic implementation is
-  assigned to four differently typed methods, does not fail that test and is
-  acceptable where it is genuinely unavoidable, with the reason written at the
-  cast. What is not acceptable is a declaration that forces a caller outside
-  the package to cast. This is a
+  against. The mechanism chosen was the conditional type:
+  `WrapResult<T> = T extends PromiseLike<infer R> ? Promise<Awaited<R>> : T`,
+  one signature per wrapper over `fn: () => T`.
+
+  **The acceptance test is met.** All four assignment-site casts are gone from
+  the SDK's own factory, and a hand-written implementation satisfies
+  `JourneyOperations` with no cast, which was F-021's complaint. One cast
+  remains inside the body of the shared wrapper implementation, on its return.
+  It is unavoidable: `WrapResult<T>` is a conditional type over an unresolved
+  type parameter, and TypeScript cannot check that a value produced at run time
+  satisfies one, so returning the value without a cast is
+  `error TS2322: Type 'unknown' is not assignable to type 'WrapResult<T>'`.
+  Every implementation of these methods needs it, a second SDK's included; no
+  consumer of them needs any. The cast is commented where it sits, saying which
+  of those two it is. A declaration that forced a caller outside the package to
+  cast would fail this test; one that costs an implementer a commented cast on
+  a return does not. This is a
   declaration change; what the wrappers do at runtime is untouched, and a
   callback returning a thenable still comes back as a native promise of its
   resolved value.
@@ -3163,8 +3182,9 @@ holds, and this decision is its amendment rather than a standing licence to add.
   caller that reads `_wayscribe.journeyId` under the usual check changes
   nothing either. A caller that needs the envelope itself typed as a
   `ContextEnvelope<T>` writes the guard the decision describes.
-- The surface grows by five options, two exported envelope types, one signature
-  shape, one diagnostic kind with its counter, and one field on `counters()`,
+- The surface grows by five options, two exported envelope types, one exported
+  function, one signature shape, one diagnostic kind with its counter, and one
+  field on `counters()`,
   each of which is a thing to keep documented, tested and honest in two places
   once a second recorder exists (ADR-059).
 
