@@ -315,7 +315,10 @@ What you have to do when upgrading a checkout or a deployment:
   with a note saying the search spans all time. The page says what the results
   are narrowed to, and that the window is on a journey's last activity. Each
   result row names its environment when the API's search rows carry it (F-036);
-  against an API whose rows do not, it shows none.
+  against an API whose rows do not, it shows none. On an installation with more
+  than one project and none chosen, the search box still shows, with only "all"
+  environments and a link to choose a project; a search goes to the project
+  picker and back, as before.
 - **The journey page.** Headed by the journey's label when it has one, with the
   entity type and identifier beneath, and a back link to the list it was opened
   from. `GET /v1/journeys/:journeyId` returns the environment's name, `label`,
