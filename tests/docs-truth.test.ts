@@ -419,6 +419,21 @@ describe("the documentation's checkable claims", () => {
       expect(text).toMatch(/`completed` operation at or after the newest event's timestamp/);
     });
 
+    it("does not let completedAt be read as tracking the status", () => {
+      // The update writes completed_at in one branch and never writes null, so
+      // a journey cleared back to `active` keeps the one it had. A reader who
+      // took the documentation for "active implies no completedAt" would be
+      // wrong on a path ADR-031 makes ordinary.
+      const update = read("packages/database/src/repositories/journeys.ts");
+      const clause = /completed_at = case([\s\S]*?)\n {6}end,/.exec(update)?.[1] ?? "";
+      expect(clause, "the completed_at clause moved").not.toBe("");
+      expect(clause).not.toContain("null");
+
+      const text = section();
+      expect(text).toContain("`completedAt` does not track the status");
+      expect(text).toContain("never cleared");
+    });
+
     it("lists the statuses the database allows", () => {
       const row = /^\| `status` \|(.*)$/m.exec(section())?.[1] ?? "";
       expect([...row.matchAll(/`([a-z]+)`/g)].map((m) => m[1])).toEqual([...JOURNEY_STATUSES]);

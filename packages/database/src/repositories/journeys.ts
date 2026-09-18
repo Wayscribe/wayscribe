@@ -252,6 +252,11 @@ export async function updateJourneySummary(
         when e.clears_failure and e.event_at >= last_event_at and status = 'failed' then 'active'
         else status
       end,
+      -- Only ever set, never cleared: there is no branch that writes null, so
+      -- a journey that completed and then failed, or that was cleared back to
+      -- 'active' by ADR-061's branch above, keeps the completion time it was
+      -- given. It records when this journey last completed, which is not the
+      -- same question the status answers (docs/API_SPEC.md section 6).
       completed_at = case
         when e.event_at >= last_event_at and e.event_status = 'completed' then e.event_at
         else completed_at
@@ -303,10 +308,17 @@ function deriveStatus(facts: JourneyEventFacts): string | null {
  * means for the summary's status changes.
  *
  * It clears the failure rather than completing the journey. `deriveStatus`
- * therefore still answers null for it, and nothing sets `completed_at`: a
- * journey that retried successfully and then died without finishing reads
- * `active`, not `completed`. The error test is in the caller's first branch,
- * so a retry that fails again is still a failure.
+ * therefore still answers null for it, so a journey that retried successfully
+ * and then died without finishing reads `active`, not `completed`. The error
+ * test is in the caller's first branch, so a retry that fails again is still a
+ * failure.
+ *
+ * This event writes no `completed_at`, which is not the same as the journey
+ * having none: `completed_at` is only ever set, never cleared, so a journey
+ * that completed, then failed on a late-arriving event, then was cleared back
+ * to `active` keeps the one it already had. That is the behaviour a
+ * `completed` then `failed` pair has always had, and the status is the field
+ * that says where the journey stands.
  */
 function clearsFailure(facts: JourneyEventFacts): boolean {
   return facts.operation === "retried" && !facts.hasError;

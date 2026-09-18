@@ -323,8 +323,12 @@ than a stale alarming one. A `retried` event that carries an error is an
 ordinary failure. The clearing follows the same ordering rules as any other
 status change, so a retry stamped before the newest event changes nothing.
 
-`completedAt` (section 7) is set by the same `completed` operation that sets
-the status, so a journey cleared back to `active` by a retry has none.
+**`completedAt` does not track the status.** It is set only by a `completed`
+operation, so a retry never sets one, and it is **never cleared**, so a journey
+that completed, then failed, then was cleared back to `active` by a successful
+retry keeps the `completedAt` it was given. Read it as "when this journey last
+recorded a completion", not as "this journey is complete"; the status is the
+field that answers that. A journey that never completed has `completedAt` null.
 
 **What `q` matches.** Only the two values stored in plain text: the journey's
 `label` and the values of its displayable aliases (ADR-053). It never matches
@@ -435,6 +439,11 @@ Response:
   }
 }
 ```
+
+`completedAt` is when the journey last recorded a `completed` operation at or
+after the newest event's timestamp, and null when it never has. It is never
+cleared, so it can be set on a journey whose `status` is `failed` or `active`:
+the two fields answer different questions, and section 6 has the rule.
 
 `label` and `lastStep` are as in a search result (section 5). An alias's
 `displayValue` is masked unless `displayable` is true, which it is

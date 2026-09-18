@@ -288,6 +288,53 @@ describe("journey summary", () => {
       expect(await completedAt("jrn_dead_letter")).toBeNull();
     });
 
+    it("keeps completedAt when a clear returns the journey to active", async () => {
+      // completed_at is only ever set, never cleared, so it does not track the
+      // status: this journey ends up `active` with a completion time. The path
+      // is ordinary rather than contrived, because ADR-031 stamps a wrapped
+      // event when its callback starts and enqueues it when it finishes, so a
+      // slow failing step is stamped before finish() and arrives after it.
+      //
+      // Written down here because it is the kind of thing a later reader
+      // "fixes" by nulling completed_at on a clear, which would lose when the
+      // journey completed and contradict docs/API_SPEC.md section 6.
+      const journey = { ...base, journeyId: "jrn_keeps_completed_at", environmentId };
+      await applyJourneyEvent(db, projectId, {
+        ...journey,
+        eventTimestamp: new Date("2026-08-06T10:00:10Z"),
+        operation: "completed",
+        hasError: false
+      });
+      expect((await completedAt("jrn_keeps_completed_at"))?.toISOString()).toBe(
+        "2026-08-06T10:00:10.000Z"
+      );
+
+      // Stamped before the completion, arriving after it: a failure registers
+      // whatever its timestamp says, and completed_at is left alone.
+      await applyJourneyEvent(db, projectId, {
+        ...journey,
+        eventTimestamp: new Date("2026-08-06T10:00:05Z"),
+        operation: "delivered",
+        hasError: true
+      });
+      expect((await findJourney(db, projectId, "jrn_keeps_completed_at"))?.status).toBe("failed");
+      expect((await completedAt("jrn_keeps_completed_at"))?.toISOString()).toBe(
+        "2026-08-06T10:00:10.000Z"
+      );
+
+      await applyJourneyEvent(db, projectId, {
+        ...journey,
+        eventTimestamp: new Date("2026-08-06T10:00:20Z"),
+        operation: "retried",
+        hasError: false
+      });
+
+      expect((await findJourney(db, projectId, "jrn_keeps_completed_at"))?.status).toBe("active");
+      expect((await completedAt("jrn_keeps_completed_at"))?.toISOString()).toBe(
+        "2026-08-06T10:00:10.000Z"
+      );
+    });
+
     it("leaves a journey whose only event is a successful retry active", async () => {
       // The control: clearing a failure is all this rule does. A 'retried'
       // event never marks a journey completed on its own.
