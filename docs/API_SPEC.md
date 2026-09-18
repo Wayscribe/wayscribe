@@ -469,7 +469,7 @@ GET /v1/journeys/:journeyId/events?limit=100&cursor=<cursor>
 empty; above 100 it is read as 100, and `nextCursor` says whether more
 remains. `400 invalid_query` when it is anything else, holds a NUL, or is given
 more than once, and when the query names a parameter this route does not have;
-a malformed cursor, or one given more than once, is `400 invalid_cursor`.
+a malformed `cursor`, or one given more than once, is `400 invalid_cursor`.
 
 Ordering:
 

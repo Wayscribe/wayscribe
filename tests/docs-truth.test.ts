@@ -21,7 +21,8 @@ import {
   DEFAULT_PAGE_LIMIT,
   FUTURE_SINCE_MESSAGE,
   MAX_PAGE_LIMIT,
-  SINCE_CLOCK_TOLERANCE_MS
+  SINCE_CLOCK_TOLERANCE_MS,
+  TIMELINE_PARAMETERS
 } from "../apps/api/src/routes/query-params.js";
 import { filesEndingWith, findSection, markdownFiles, read, root } from "./docs-helpers.js";
 
@@ -431,6 +432,14 @@ describe("the documentation's checkable claims", () => {
       expect(text).toContain("`aliases`");
       expect(text).toContain("`[]` for an event that stated none");
       expect(text).toContain("`null` for an event stored before the server recorded");
+    });
+  });
+
+  describe("the timeline's parameters in API_SPEC.md", () => {
+    it("names every key the route reads and says any other is refused", () => {
+      const text = section(read("docs/API_SPEC.md"), "8. List journey events").replace(/\s+/g, " ");
+      for (const key of TIMELINE_PARAMETERS) expect(text).toContain(`\`${key}\``);
+      expect(text).toContain("when the query names a parameter this route does not have");
     });
   });
 

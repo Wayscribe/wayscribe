@@ -166,6 +166,36 @@ describe("limit on the list endpoints", () => {
     });
   });
 
+  describe("the timeline's other parameters", () => {
+    // Search and the journey list refuse a key they do not read; the timeline
+    // ignored one, so `?limt=5` returned the default page as if it had been
+    // understood. It changes its error behaviour once, with limit.
+    const timeline = "/v1/journeys/jrn_limit_0/events";
+
+    it("refuses a key it does not read, naming the ones it does", async () => {
+      const response = await get(`${timeline}?limt=5`);
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error).toMatchObject({
+        code: "invalid_query",
+        message: "limt is not a parameter of this timeline. Known parameters: limit, cursor."
+      });
+    });
+
+    it("refuses a parameter name holding a null byte without echoing it", async () => {
+      const response = await get(`${timeline}?limit%00=5`);
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.body).not.toContain(String.fromCharCode(0));
+      expect(response.json().error.message).toBe(
+        "A parameter name must not contain a null byte. Known parameters: limit, cursor."
+      );
+    });
+
+    it("still answers 404 for a journey that does not exist", async () => {
+      const response = await get("/v1/journeys/jrn_missing/events");
+      expect(response.statusCode, response.body).toBe(404);
+    });
+  });
+
   describe("the rest of F-029's table, which already held", () => {
     const NUL = "%00";
 

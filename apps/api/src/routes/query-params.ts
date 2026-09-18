@@ -67,6 +67,13 @@ export function single(
   return { ok: true, value: raw };
 }
 
+/**
+ * Every key a journey's timeline (`GET /v1/journeys/:journeyId/events`)
+ * reads. Anything else is refused, as search and the journey list refuse
+ * one: `?limt=5` returned the default page as if it had been understood.
+ */
+export const TIMELINE_PARAMETERS = ["limit", "cursor"] as const;
+
 /** The page size a list endpoint returns when `limit` is omitted or empty. */
 export const DEFAULT_PAGE_LIMIT = 25;
 

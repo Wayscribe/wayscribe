@@ -584,6 +584,11 @@ What you have to do when upgrading a checkout or a deployment:
   at least 1; above 100 it is read as 100.`, where it used to become 25 without
   a word. A whole number above 100 is still read as 100, as before, and
   `nextCursor` says whether more remains. Omitted or empty is still 25.
+- **A journey's timeline refuses a query key it does not read**, as search and
+  the journey list do: `GET /v1/journeys/:journeyId/events?limt=5` is
+  `400 invalid_query` naming the key and listing `limit` and `cursor`, where it
+  returned the default page as if the key had been understood. This lands with
+  the `limit` change, so the route changes its error behaviour once.
 - **The read-only CLI reads `--limit` strictly.** `wayscribe search x --limit
   5abc` sent a limit of 5, because it too was read with `parseInt`. A value
   that is not a whole number of at least 1 is now refused before anything is

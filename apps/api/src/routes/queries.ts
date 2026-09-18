@@ -19,7 +19,7 @@ import {
 import { presentEvent, presentJourneyDetail, presentJourneySummary } from "./present.js";
 import { parseJourneyListQuery } from "./journey-list-query.js";
 import { parseSearchQuery } from "./search-query.js";
-import { pageLimit } from "./query-params.js";
+import { TIMELINE_PARAMETERS, pageLimit, unknownKey } from "./query-params.js";
 
 const NULL_BYTE = String.fromCharCode(0);
 
@@ -186,6 +186,10 @@ export function registerQueryRoutes(
     const { journeyId } = request.params as { journeyId: string };
     if (journeyId.includes(NULL_BYTE)) {
       return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
+    }
+    const unknown = unknownKey(queryParams(request.query), TIMELINE_PARAMETERS, "this timeline");
+    if (unknown !== undefined) {
+      return reply.code(400).send(errorBody("invalid_query", unknown, request.id));
     }
     const limit = pageLimit(queryParams(request.query));
     if (!limit.ok) {
