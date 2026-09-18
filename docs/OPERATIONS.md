@@ -145,6 +145,12 @@ serving against an older schema must not take traffic. A rolling deploy that
 starts new containers before migrating will report unready until the migration
 runs, which is the correct behaviour and not a reason to skip the ordering.
 
+`/ready` also reports the running version: `version`, `commit` when the build
+recorded one, and `source`, which says whether those came from the image's own
+build (`build`) or only from the package (`package`, meaning a source run or a
+hand-built image). All three are on the 503 answers too, so the first question
+after an unready container is already answered (`docs/API_SPEC.md` section 14).
+
 Every release is gated on an upgrade test (`scripts/upgrade-test.mjs`, the
 `upgrade-test` CI job). It builds the previous release (until there is one, a
 commit from before v1's storage format changes), records journeys,
