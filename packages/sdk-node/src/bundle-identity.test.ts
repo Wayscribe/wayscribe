@@ -1,14 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  statSync,
-  writeFileSync
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -309,8 +300,6 @@ describe("the built bundle", () => {
   });
 
   it("is not built at all with a malformed commit, and dist is left alone", () => {
-    const built = join(packageRoot, "dist", "index.js");
-    const before = existsSync(built) ? statSync(built).mtimeMs : undefined;
     const result = spawnSync(process.execPath, [join(packageRoot, "scripts", "bundle.mjs")], {
       cwd: packageRoot,
       encoding: "utf8",
@@ -319,8 +308,15 @@ describe("the built bundle", () => {
     });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("WAYSCRIBE_BUILD_COMMIT");
-    // It failed before anything was built or removed.
+    // It failed in the identity step, before anything was built or removed.
+    // Whether dist/ survives is not checked on disk: tests/sdk-pack.test.ts
+    // rebuilds it in parallel. The order is checked in the script instead.
     expect(result.stdout).not.toContain("bundled");
-    expect(existsSync(built) ? statSync(built).mtimeMs : undefined).toBe(before);
+    expect(result.stderr).toContain("build-identity.mjs");
+    const script = readFileSync(join(packageRoot, "scripts", "bundle.mjs"), "utf8");
+    expect(script.indexOf("buildIdentity({ packageRoot })")).toBeGreaterThan(0);
+    expect(script.indexOf("buildIdentity({ packageRoot })")).toBeLessThan(
+      script.indexOf("rmSync(dist")
+    );
   });
 });
