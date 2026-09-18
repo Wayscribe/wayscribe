@@ -8,6 +8,7 @@ export type {
   Diagnostic,
   DiagnosticCode,
   DiagnosticKind,
+  DroppedCause,
   DroppedDiagnostic,
   InsecureEndpointDiagnostic,
   KeyDroppedDiagnostic,

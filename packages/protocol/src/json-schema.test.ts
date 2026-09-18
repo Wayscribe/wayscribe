@@ -194,6 +194,8 @@ describe("Zod and Ajv agree", () => {
       expect(names).toContain("aliases.<propertyNames>");
       expect(names).toContain("displayableAliases.<items>");
       expect(names).toContain("journeyLabel");
+      expect(names).toContain("runtime.sdk.name");
+      expect(names).toContain("runtime.sdk.commit");
       expect(capped.length).toBeGreaterThan(15);
     });
 
@@ -241,17 +243,27 @@ describe("Zod and Ajv agree", () => {
       } else if (rest[0] === "<additionalProperties>") {
         event[head] = { orderId: value };
       } else {
-        const nested: Record<string, unknown> =
-          head === "entity"
-            ? { type: "customer", id: "18492" }
-            : head === "error"
-              ? { message: "failed" }
-              : {};
-        nested[rest[0] ?? ""] = value;
-        event[head] = nested;
+        // An object at each level of the path, holding what is required beside
+        // the field: `runtime.sdk.commit` needs `name` and `version` next to it.
+        let parent: Record<string, unknown> = event;
+        const prefix: string[] = [];
+        for (const key of one.path.slice(0, -1)) {
+          prefix.push(key);
+          const nested: Record<string, unknown> = { ...REQUIRED_BESIDE[prefix.join(".")] };
+          parent[key] = nested;
+          parent = nested;
+        }
+        parent[one.path.at(-1) ?? ""] = value;
       }
       return { protocolVersion: "0.1", event };
     }
+
+    /** What an object in the event must hold whatever else is set in it. */
+    const REQUIRED_BESIDE: Record<string, Record<string, unknown>> = {
+      entity: { type: "customer", id: "18492" },
+      error: { message: "failed" },
+      "runtime.sdk": { name: "@wayscribe/node", version: "0.1.0" }
+    };
   });
 });
 

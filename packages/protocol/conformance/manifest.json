@@ -38,6 +38,8 @@
     "wire/raw-headers-http1",
     "wire/raw-headers-http2",
     "wire/reference-journey",
+    "wire/runtime-sdk",
+    "wire/runtime-sdk-name-empty",
     "wire/secret-name-spellings",
     "wire/secrets-at-depth",
     "wire/timestamp-offset",

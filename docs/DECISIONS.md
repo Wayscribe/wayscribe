@@ -3596,3 +3596,583 @@ personal data in place (F-041).
   settings refused at creation are readable apart from options refused on a
   call, and SDK-63 names an error message beside a label and a displayable
   alias, with its conformance row extended to match.
+
+---
+
+## ADR-063: An event names the SDK that recorded it, a failed journey names its failed step, and a drop names its cause
+
+**Status:** Accepted, 2026-09-18. Adds one optional protocol field, one journey
+field with a migration, one SDK counter and one breaker rule, and fixes two
+defects found while reviewing Leadline's second run. Follows findings F-046,
+F-047, F-048 and F-049, and two review items: the telephone shape that ADR-062
+tightened, and a deadlock between dry runs. The protocol version stays `0.1`:
+every wire change here is an added optional field, which EVENT_PROTOCOL.md
+section 11 lists as compatible and ADR-049 makes true in practice.
+
+### Context
+
+Checked against the code at `85a8651`:
+
+- **Nothing says which SDK recorded an event (F-046).** `enqueue` in
+  `packages/sdk-node/src/recorder.ts`, which builds every event, sends `deployment` when the host set it
+  and never sends `runtime`, so every event from the Node SDK is stored with
+  `runtimeMetadata: null`. `runtimeSchema` in `packages/protocol/src/event.ts`
+  has `language`, `version`, `hostname` and `processId`, and no field for the
+  recorder itself. The SDK does not know its own version at run time: nothing in
+  `src/` reads `package.json`, and `scripts/bundle.mjs` bakes nothing in. Both
+  builds Leadline ran, from `27f4d64` and from `dcd4fea`, are `0.1.0` in
+  `package.json`. The API solved the same problem for itself (F-007):
+  `apps/api/src/version.ts` reads `WAYSCRIBE_BUILD_VERSION` and
+  `WAYSCRIBE_BUILD_COMMIT`, which `scripts/publish-image.sh` bakes into the
+  image, and `/ready` reports them. Leadline's `scripts/pin-sdk.sh` packs the
+  SDK from `git archive` output, which has no `.git`, so a commit read with
+  `git rev-parse` at pack time would find nothing there.
+- **The server already stores and shows `runtime`.** `ingestEvent` stores
+  `redactAlways(event.runtime, policy)` as `runtimeMetadata`, the event read
+  returns it, and the web app's event detail lists it as the "Runtime" group
+  through `metadataEntries` in `apps/web/src/lib/metadata.ts`, one entry per
+  key, with a nested value shown as compact JSON. `runtimeSchema` is a plain
+  `z.object`, so an unknown key inside `runtime` is stripped before the content
+  hash and before storage (ADR-049), and the published JSON Schema does not set
+  `additionalProperties: false` (`packages/protocol/src/json-schema.ts`).
+- **A failed journey's last step is not its failure (F-047).**
+  `updateJourneySummary` in `packages/database/src/repositories/journeys.ts`
+  sets `status` to `failed` for any failing event whatever its timestamp, and
+  sets `last_step` from the event that is last in timeline order,
+  `(timestamp, received at, event id)`, failing or not. So between a failure
+  and the event that settles it (ADR-061's successful `retried`, or
+  `finish()`), every later successful step moves `lastStep` off the step that
+  failed. Nothing stores which event set the failure. `lastStep` reaches the
+  journey read (`presentJourneyDetail`), both list rows
+  (`presentJourneySummary`), the dry run's preview (`storedJourneySchema`), the
+  Journeys table's "Last step" column (`JourneyRow.tsx`), and nothing else: the
+  journey page shows the status in `JourneyTimeline`'s summary line, fed by the
+  web's events proxy (`journeyStatus`), and the CLI shows no step at all.
+- **`dropped` is one number for five causes (F-048).** `DroppedDiagnostic` in
+  `packages/sdk-node/src/diagnostics.ts` has the codes `queue_full`
+  (`queue.ts`), `after_shutdown` and `shutdown` (`recorder.ts`),
+  `retry_budget` (`Transport.giveUp`) and `no_verdict` (`readOutcome`), and
+  `Counters.dropped` counts them all together. So a collector that hangs past
+  shutdown (`shutdown`) and a proxy answering 2xx with the wrong body
+  (`no_verdict`) end with the same counters.
+- **A wrong collector never opens the breaker (F-048).** A send whose reply
+  gave no verdict for any event returns from `readOutcome` with
+  `accepted: 0` and `retry: []`. In `Transport.send` that leaves nothing
+  pending and nothing abandoned, which is the branch that sets
+  `consecutiveFailures = 0`. So a stream of such replies resets the breaker on
+  every send, and Leadline measured `recorded 16000, dropped 16000` with the
+  breaker never opened. SDK-32 says a send that stored anything must not count
+  toward the breaker; nothing says what a send that got no answer at all counts
+  as.
+- **Journey ids come in two shapes and the protocol shows neither (F-049).**
+  The Node SDK makes a random id as `` `jrn_${randomUUID()}` `` (`recorder.ts`):
+  `jrn_` and a lowercase hyphenated version 4 UUID, 40 characters. It derives
+  one as `jrn_` and the first 32 lowercase hex characters of an HMAC
+  (`journey-id.ts`, SDK-55, ADR-052), 36 characters. EVENT_PROTOCOL.md section
+  4 recommends `jrn_<uuidv7>`, which neither is. What checks a journey id:
+  `journeyEventSchema` (1 to 128 characters) and, when the SDK reads a
+  propagated context, `build` in `propagation.ts`, which requires the `jrn_`
+  prefix, at most 256 characters and the characters of `SAFE_VALUE`. Nothing
+  checks the part after the prefix.
+- **The telephone shape misses what it should find and finds what it should
+  not.** `PHONE_SHAPE` in `personal-data.ts` takes a `+` only at the start of
+  the value or after whitespace, `(`, `[` or `<`. Measured against a copy of
+  the rule: `phone=+19195551234`, `tel:+19195551234` and
+  `{"phone":"+19195551234"}` report nothing, and `Received +12345678 bytes`
+  reports a telephone number, because any run of 8 to 15 digits after a
+  well-placed `+` counts. The email shape already accepts `=`, `:` and a quote
+  before an address (ADR-062's amendment); the telephone shape was not given
+  the same.
+- **Two dry runs deadlock on each other's journeys.** `previewBatch` in
+  `apps/api/src/routes/events.ts` runs a dry run's events in one outer
+  transaction, each in a savepoint, in the order sent. Each event creates its
+  journey (`ensureJourney`, an insert that waits on another transaction's
+  uncommitted insert of the same id) and takes its row lock (`lockJourney`),
+  and a dry run holds all of them until its rollback. Two dry runs that touch
+  journeys A and B in opposite orders each hold one and wait for the other.
+  PostgreSQL cancels one statement, which `storageRejection` answers as
+  `storage_error` (500), so a preview reports a storage failure that real
+  ingestion would never have. The reviewer reproduced it in 50 runs of 50, on
+  main before round 2 as well. A live batch cannot do this: `ingestBatch`
+  without a dry run gives each event its own transaction, which touches one
+  journey and commits before the next event starts.
+
+### Decision
+
+**1. An event names the SDK that recorded it, inside `runtime` (F-046).**
+
+The protocol's `runtime` block gains one optional field, `sdk`:
+
+```typescript
+runtime?: {
+  language?: string;   // at most 64, as today
+  version?: string;    // at most 64, as today
+  hostname?: string;   // at most 256, as today
+  processId?: number;  // as today
+  sdk?: {
+    name: string;      // 1 to 128 characters
+    version: string;   // 1 to 64 characters
+    commit?: string;   // 1 to 128 characters
+  };
+};
+```
+
+In `packages/protocol/src/event.ts` that is a new exported
+`runtimeSdkSchema = z.object({ name: z.string().min(1).max(128), version:
+z.string().min(1).max(64), commit: z.string().min(1).max(128).optional() })`,
+added to `runtimeSchema` as `sdk: runtimeSdkSchema.optional()`. `name` and
+`version` are required inside it because an `sdk` object without them says
+nothing; the SDK writes them from constants, never from host input, so the
+requirement cannot cost a host an event. The limits are the protocol's
+existing ones for the same kind of value: `runtime.version`'s 64 for a
+version, `deployment.gitCommit`'s 128 for a commit, and 128 for a package
+name. A value over a limit is `invalid_event` with the path
+`event.runtime.sdk.<field>`, like every field.
+
+It goes inside `runtime` rather than beside it because `runtime` already means
+"what was running when this was recorded", which the recorder is part of, and
+because it then costs the server nothing: `runtimeMetadata` stores and returns
+it with no column, no migration and no change to the event read, and the web
+app already lists it.
+
+What the Node SDK sends, on every event, read once when the recorder is
+created and frozen as `deployment` is:
+
+- `runtime.language`: `"node"`.
+- `runtime.version`: `process.versions.node`.
+- `runtime.sdk.name`: `"@wayscribe/node"`.
+- `runtime.sdk.version`: the `version` of `packages/sdk-node/package.json`,
+  baked into the bundle by `scripts/bundle.mjs` through esbuild's `define`.
+  Run from source, where nothing is baked in (only this repository's tests do
+  that; containers and npm both run `dist/`), it is `"0.0.0-development"`,
+  which cannot be mistaken for a release.
+- `runtime.sdk.commit`: the commit the bundle was built from, baked in the same
+  way, from the first of these that gives a value (order corrected after
+  implementation, see the note at the end):
+  1. A new file, `packages/sdk-node/BUILD_COMMIT`, holding `$Format:%H$` and
+     marked `export-subst` in `.gitattributes`, so that `git archive`, which is
+     how Leadline's `pin-sdk.sh` and a GitLab source download make a tree,
+     writes the commit into it. Used when it holds 40 or 64 lowercase hex
+     characters (a SHA-1 or a SHA-256 repository), which it does only in an
+     archive. First, because it is exact for the tree it sits in and is never
+     filled in a checkout, so it cannot be wrong when present.
+  2. `WAYSCRIBE_BUILD_COMMIT`, then `CI_COMMIT_SHA`, the variables
+     `scripts/publish-image.sh` already reads. A value that is set and is not
+     7 to 64 lowercase hex characters fails the build rather than baking in
+     something that names no commit, whichever source gives the commit.
+  3. `git rev-parse HEAD`, only when `git rev-parse --show-toplevel` run in
+     the package directory names the repository root that contains it, so an
+     extracted archive that happens to sit inside another repository does not
+     take that repository's commit.
+  4. None: `commit` is left out.
+
+`hostname` and `processId` are not sent. The question F-046 asks is which
+services run which SDK, and `service` with `runtime.sdk` answers it. A
+hostname is a new identifier on every event, often a person's name on a
+laptop, and nothing here needs it; sending it would be its own decision.
+
+**An old SDK sends none of this**, and its events keep `runtimeMetadata: null`.
+That absence is itself the answer during an upgrade: an event with no
+`runtime.sdk` was recorded by an SDK from before this decision or by another
+client. **An old server** strips `runtime.sdk` as an unknown key and stores the
+rest of `runtime`, so a new SDK works against it unchanged.
+
+The web app's event detail keeps the Runtime group and formats one entry:
+when `runtimeMetadata.sdk` is an object whose `name` and `version` are strings,
+its value is shown as `<name> <version>`, followed by ` at <commit>` when
+`commit` is a string, for example `@wayscribe/node 0.1.0 at 27f4d64...` with
+the full commit. Any other shape falls back to the compact JSON every other
+entry gets. Nothing else in the web app changes.
+
+**2. A failed journey carries the step that failed it (F-047).**
+
+The journey read, both list rows (`GET /v1/journeys` and `GET /v1/search`) and
+the dry run's `stored.journey` gain `failedStep: string | null`, beside
+`lastStep`. `storedJourneySchema` gains
+`failedStep: z.string().nullable()`, described as below.
+
+`failedStep` is the `name` of the failing event that is last in timeline order,
+`(timestamp, received at, event id)` under the tie rule `lastStep` uses, among
+the failing events applied since the journey last became failed. It is null
+whenever `status` is not `failed`.
+
+How it is set and cleared, in the same `update journeys` statement that sets
+the status, so it costs no statement:
+
+- The status case is written once as a SQL fragment, `NEW_STATUS`, and used for
+  `status` and for the rules below, because every SET expression reads the row
+  as it was before the update.
+- A failing event (one `deriveStatus` maps to `failed`) takes the failed step
+  when the journey was not already failed, or when no failed step is stored,
+  or when its own `(event_at, now(), event_id)` is greater than the stored
+  one's. That is `TAKES_FAILED_STEP`, written like `TAKES_STEP`:
+  `(e.event_status = 'failed' and (status <> 'failed' or failed_step_at is null
+  or (e.event_at, now(), e.event_id collate "C") > (failed_step_at,
+  coalesce(failed_step_received_at, '-infinity'), failed_step_event_id collate
+  "C")))`.
+- When `NEW_STATUS` is not `failed`, all four columns are set to null. That
+  covers ADR-061's clearing retry, a `completed` at or after the watermark, and
+  nothing else, since those are the only ways out of `failed`.
+
+So the answer to "latest-stamped or latest-applied" is latest-stamped, among
+the failures that are current. Latest-applied would name whichever failure
+happened to arrive last, which depends on delivery order and would differ
+between a live send and a replay of the same events; every other summary field
+is order-independent and this one must be too. "Among the failures that are
+current" is what the clearing buys: a failure that a successful retry cleared
+cannot come back as the named step. Two consequences follow from rules already
+decided, and are intended:
+
+- A failure stamped before the clearing retry but applied after it fails the
+  journey again (ADR-061 keeps that rule deliberately conservative), and
+  `failedStep` then names that late failure, because it is the one that set the
+  status.
+- Two current failures name the later-stamped one whichever arrives first.
+
+A migration adds the columns, `packages/database/migrations/021_journey_failed_step.js`:
+
+```sql
+set local lock_timeout = '5s';
+alter table journeys
+  add column if not exists failed_step text null,
+  add column if not exists failed_step_at timestamptz null,
+  add column if not exists failed_step_received_at timestamptz null,
+  add column if not exists failed_step_event_id text null;
+```
+
+This is 020's pattern: nullable columns with no default are a catalogue change
+that rewrites nothing, run in knex's migration transaction so `set local`
+holds, and `lock_timeout` makes the ALTER give up after five seconds rather
+than queue ingestion behind it. It gives up cleanly and is retried by running
+`migrate` again. `down` drops the four, under the same timeout. No index: the
+list is not filtered by the failed step. No backfill: rebuilding it for every
+failed journey means reading their events under row locks that ingestion
+needs, for a value the next failure sets anyway.
+
+Old rows, and rows the previous API writes between migrate and deploy, have
+null columns. The reads, `journeySummaryColumns` in `journey-summary.ts`,
+which both lists use, and `findJourneyDetail` in `journey-reads.ts`, select the
+column as
+`case when status = 'failed' then failed_step end as "failedStep"`, so a stale
+value left by a previous-build instance that cleared a failure without knowing
+the column is never shown; and `TAKES_FAILED_STEP`'s `status <> 'failed'`
+branch means the next failure replaces such a value however it is stamped.
+A failed journey with a null `failedStep` is one whose failure predates the
+column, and a reader falls back to `lastStep`, which is what it shows today.
+
+The web app:
+
+- The Journeys table's "Last step" header becomes "Step". In a row whose
+  status is `failed` and whose `failedStep` is a string, the cell shows
+  `failedStep` in the failed style, with the title
+  `Failed at <failedStep>; last step <lastStep>`. Every other row shows
+  `lastStep` as today.
+- The journey page's summary line reads `failed at <failedStep>` where it read
+  `failed`, and otherwise as today. The web's events proxy
+  (`app/api/journeys/[journeyId]/events/route.ts`) adds
+  `journeyFailedStep: string | null` to `EventsPageResponse`, from the journey
+  it already fetches, so a live journey's line updates on the same poll as its
+  status.
+- A search result (`JourneyListItem`) shows `failed at <failedStep>` in its
+  status the same way.
+- The web types take `failedStep?: string | null`, optional, because an older
+  API omits it; absent reads as null.
+
+**3. A drop names its cause, and an answer that is not an answer counts
+toward the breaker (F-048).**
+
+`Counters` gains `droppedByCause: Readonly<Record<DroppedCause, number>>`,
+where `DroppedCause` is a new exported type,
+`type DroppedCause = DroppedDiagnostic["code"]`, today
+`"queue_full" | "after_shutdown" | "shutdown" | "retry_budget" | "no_verdict"`.
+The keys are the diagnostic codes verbatim, so a report and its counter share
+one name. Every key is present from creation, at zero, so a health check reads
+it without a guard. Each `dropped` report increments `droppedByCause[code]`
+and `dropped`, in the same place `COUNTER_OF` is applied, and `counters()`
+returns a fresh copy. `dropped` stays the total, so
+`dropped === sum(droppedByCause)` always and
+`sent + rejected + dropped === recorded` after `shutdown()` is untouched. A
+code added later adds a key, which `Counters`' `@experimental` note already
+allows.
+
+F-048's four faults then read apart: a hanging collector and one slower than
+the shutdown timeout end in `shutdown`, the two wrong bodies in `no_verdict`.
+
+**The breaker.** A send counts as a failure toward the breaker when the server
+gave a verdict for none of its events. Exactly:
+
+- `SendOutcome` gains `noVerdict: number`, the events of that request the reply
+  gave no verdict for, which `readOutcome` counts as it reports each
+  `no_verdict` drop.
+- An attempt **gave a verdict** when `noVerdict` is less than the number of
+  events it sent: at least one event was accepted, refused for good, or
+  refused for now.
+- At the end of `Transport.send`, the rules are, in order: a send that stored
+  anything resets the count (SDK-32, unchanged); a send with events still
+  unsent or given up adds one (unchanged); a send in which **no attempt gave a
+  verdict** adds one (new); any other send resets the count (unchanged, and
+  now only for a send the server really answered). A whole-request permanent
+  refusal still returns before any of this and leaves the count as it was
+  (SDK-31, unchanged).
+- Reaching `breakerThreshold` (5) opens the breaker for `breakerCooldownMs`
+  (30 seconds), with the existing `breaker_opened` report and code
+  `consecutive_failures`. A verdictless send reports no `transport_error`: its
+  events are already reported as `dropped` with `no_verdict`.
+- Sends already in flight when the breaker opens, at most
+  `maxConcurrentSends` minus 1, still complete. Each that fails counts, reports
+  `breaker_opened` again and restarts the cooldown, so `breakerOpened` can
+  exceed 1 for one episode.
+- A send of no events neither counts toward the breaker nor resets it. `flush`
+  never sends one, and the rule does not depend on that.
+
+What resets it: a send that stored something, or a send that got at least one
+verdict and left nothing unsent, and the cooldown ending, as today. A reply
+with some verdicts and some missing is a server speaking the protocol badly,
+not a wrong collector, and it resets as today. While the breaker is open,
+events wait in the queue instead of being sent into a reply that loses them,
+so a misconfigured proxy now shows `breakerOpened` above zero and loses events
+as `queue_full` or `shutdown` only once the queue is full or the process ends.
+
+**4. Journey ids have two documented shapes, and nothing checks either
+(F-049).**
+
+They are not unified. Changing the derived shape would give every derived
+journey a new id at the SDK upgrade, splitting each one in two, which is the one
+thing derivation exists to prevent (ADR-052). Changing the random shape buys
+nothing, since random ids join nothing across versions, and would make the two
+shapes no more alike. Both are stated instead, in EVENT_PROTOCOL.md section 4
+under `journeyId`, replacing the `jrn_<uuidv7>` recommendation that neither
+matches:
+
+- random: `jrn_` and a lowercase hyphenated UUID, 40 characters, such as
+  `jrn_dd37c205-7ea6-4e14-bc8f-c07022f96696`;
+- derived: `jrn_` and 32 lowercase hex characters, 36 characters, such as
+  `jrn_5f93deccb9b599e792d560765761bec6`, computed as SDK-55 says.
+
+The section says that a journey id is an opaque string of 1 to 128 characters,
+that the server checks nothing else about it, that another client may use any
+unpredictable id, and that a reader must not parse or validate the shape. The
+one check that exists stays as it is and must not be tightened: the SDK's
+propagation reader requires the `jrn_` prefix and the characters of
+`SAFE_VALUE`, which both shapes satisfy. No schema, route or reader gains a
+shape check. API_SPEC.md and INGESTION_CONTRACT.md keep `jrn_01` in their
+examples, and API_SPEC.md section 7 points to EVENT_PROTOCOL.md section 4 for
+what a real id looks like.
+
+**5. A telephone number may follow `=`, `:` or a quote, and a bare count is
+not one (review).**
+
+`PHONE_SHAPE` becomes, in order:
+
+1. **Where the `+` may be:** at the start of the examined text, or after
+   whitespace or one of `<`, `>`, `(`, `)`, `[`, `"`, `'`, `,`, `;`, `=`, `:`.
+   That is the email shape's delimiter set plus `[`, which the telephone shape
+   already accepted. A `+` after a letter, a digit or `.` is still not a
+   dialling code (`1.2.3+20130313144700`, `12:00:00+01:00`).
+2. **The candidate:** the `+` and the run of digits, spaces, `(`, `)`, `.` and
+   `-` after it, at most 20 characters as today.
+3. **A real timezone offset is skipped:** `+`, hours 00 to 14, minutes 00, 15,
+   30 or 45, and no fifth digit. So `+0000 2026` and `+0530` are skipped, and
+   `+1234 5678`, `+4930 1234567` and `+3531 234 5678` are found.
+4. **Digits:** 8 to 15 when a separator stands between two of the digits;
+   **10 to 15 when the digits are one unbroken run.**
+
+The last rule is what removes `Received +12345678 bytes`: a signed count is an
+unbroken run, and so is a telephone number written in a field, but a real one
+in a field is nearly always 10 digits or more (`+1` and ten, `+44` and ten).
+What it gives up: an unbroken number of 8 or 9 digits from a few small numbering
+plans, written with no separator. Matched after this: `phone=+19195551234`,
+`tel:+19195551234`, `{"phone":"+19195551234"}`, `+1 919 555 1234`,
+`(+44) 20 7946 0958`. Not matched: `Received +12345678 bytes`, `+3 more`,
+`1.2.3+20130313144700`, `2026-09-17T12:00:00+01:00`,
+`Fri Sep 18 14:00:00 +0000 2026`. The rule stays a warning that never changes
+the value, once per field and shape (ADR-062).
+
+**6. A dry run takes its journeys in one fixed order before it starts
+(review).**
+
+Before its first event, `previewBatch` takes, inside its outer transaction, one
+transaction-scoped advisory lock per distinct journey the batch names, in
+ascending order of key:
+
+- The journeys are the `event.journeyId` strings it can read from the raw
+  elements, without parsing; an element with none touches no journey and adds
+  no lock.
+- Each key is the two-integer form,
+  `pg_advisory_xact_lock(DRY_RUN_JOURNEY_LOCK, <key>)`, where
+  `DRY_RUN_JOURNEY_LOCK` is a fixed `int4` constant named in the route and
+  `<key>` is the first four bytes of SHA-256 over the project id, a NUL, and
+  the journey id, read as a signed 32-bit integer. PostgreSQL keeps the
+  two-integer key space apart from the single-`bigint` keys retention and
+  rotation use, so these cannot meet them.
+- Keys are deduplicated and taken one statement each, in ascending numeric
+  order. One statement that relies on the planner to evaluate the calls in
+  array order is not acceptable, because nothing guarantees that order.
+
+Every dry run then acquires the journeys it shares with another in the same
+order, and the second waits at its start for the first to roll back instead
+of taking half of them. A hash collision only makes two unrelated dry runs
+wait for each other, and cannot deadlock, because the order is by key. A wait
+here is bounded by `DATABASE_STATEMENT_TIMEOUT_MS` like any statement, and a
+timeout answers the whole request `503 query_timeout` through the app's error
+handler, which a client retries.
+
+Live batches do not take these locks. Each live event is its own transaction
+touching one journey, so it holds at most one journey while it waits and
+cannot close a cycle; a lock statement per event would be a cost on the hot
+path for a deadlock that cannot happen. A live event can still wait on a dry
+run's journey, which ADR-050 already says.
+
+### Alternatives rejected
+
+- **`sdk` beside `runtime`, at the top of the event.** It would need a column
+  or a place in another stored block, a change to the event read and a new
+  group in the web app, where inside `runtime` it needs none of them. And the
+  recorder is part of what was running, which is what `runtime` describes.
+- **Flat fields, `runtime.sdkName` and `runtime.sdkVersion`.** They would read
+  better in today's metadata list, and they split one fact into fields that
+  mean nothing apart. The web formats the one entry instead.
+- **The SDK's version alone, without a commit.** Both of F-046's builds are
+  `0.1.0`, and every build between releases will be too. Bumping the version on
+  every commit is not how the package is released.
+- **A commit read with `git` at pack time, and nothing else.** Leadline packs
+  from `git archive`, where there is no repository, and would have got nothing,
+  which is the case F-046 was found in. `export-subst` is the mechanism git
+  provides for exactly that.
+- **Sending `hostname` and `processId` because the protocol has them.** See the
+  decision: F-046 does not need them, and a hostname is personal data often
+  enough to be its own decision.
+- **Deriving the failed step on read, from the journey's events.** Every list
+  row would join to `journey_events` and find the right failure among them,
+  which is the cost 018 avoided for `lastStep` by storing it.
+- **`failedStep` as the latest-applied failure, one column.** It depends on
+  arrival order, so the same events delivered differently would name different
+  steps, and a dry run could disagree with the send that follows it.
+- **Replacing `lastStep` with the failed step on a failed journey.** The field
+  would mean two things depending on another field, and the timeline's last
+  row would no longer be `lastStep`, which EVENT_PROTOCOL.md section 3 says it
+  is.
+- **A backfill of `failed_step`.** It reads every failed journey's events under
+  locks ingestion needs, during a migration that 019 and 020 took care to keep
+  from blocking ingestion.
+- **Separate counters, `droppedQueueFull` and so on.** Five top-level fields
+  that a reader must know to sum, and a sixth for every new cause, where one
+  record keyed by the code the diagnostic already carries grows by itself.
+- **Leaving the breaker alone because `no_verdict` is already reported.** A
+  report nobody reads does not stop a process sending every event into a proxy
+  that loses them; the breaker is what stops the sending, and the finding
+  measured 16,000 events lost without it opening.
+- **Counting any send with a missing verdict toward the breaker.** A reply with
+  some verdicts is a server answering, and opening the breaker on it would
+  stop delivery of the events it does store, which is what SDK-32 exists to
+  prevent.
+- **Retrying a verdictless event.** SDK-33 forbids it for the reason it gives:
+  the request succeeded and the server may have stored the event.
+- **One journey id shape.** See the decision: unifying the derived shape splits
+  every derived journey at the upgrade.
+- **Validating the two shapes on the server.** It would refuse ids another
+  client makes legitimately, including Leadline's disabled recorder's, and an
+  SDK in another language would have to copy a rule that protects nothing.
+- **A telephone rule with a list of unit words**, such as "bytes" or "ms" after
+  the number. Unbounded, and exactly the cleverer rule that `personal-data.ts`
+  says it will not be.
+- **Processing a dry run's events in journey order.** It changes the answer:
+  the batch is ordered, and the same event id in two positions is an accept
+  and then a duplicate or a conflict by position (ADR-050), which a reordering
+  would swap.
+- **Locking the journey rows themselves, sorted, at the start.** A journey the
+  batch will create has no row to lock, and two dry runs creating the same two
+  journeys in opposite orders deadlock on the inserts.
+- **Retrying a dry run's event on a deadlock.** It turns a deterministic
+  preview into one that depends on timing, and the retry can deadlock again.
+
+### Consequences
+
+- **Public surface, exactly.**
+  - Protocol: `runtime.sdk?: { name: string; version: string; commit?: string }`,
+    limits 128, 64 and 128, exported as `runtimeSdkSchema`. The committed JSON
+    Schemas under `packages/protocol/schemas/0.1/` are regenerated.
+  - API: `failedStep: string | null` on `GET /v1/journeys/:journeyId`, on each
+    item of `GET /v1/journeys` and `GET /v1/search`, and on a dry run's
+    `stored.journey`; `storedJourneySchema` gains it. `runtimeMetadata` on an
+    event read may now hold `sdk`; its type stays open.
+  - SDK: `Counters.droppedByCause: Readonly<Record<DroppedCause, number>>` and
+    the exported type `DroppedCause`. Events carry `runtime`. A verdictless send
+    counts toward the breaker. The personal-data warning's telephone shape
+    changes as stated.
+  - Database: migration `021_journey_failed_step.js`, adding
+    `journeys.failed_step text`, `failed_step_at timestamptz`,
+    `failed_step_received_at timestamptz` and `failed_step_event_id text`, all
+    null.
+  - Web: the Journeys table's "Last step" header becomes "Step";
+    `EventsPageResponse.journeyFailedStep: string | null`.
+- **Content hashes cover `runtime.sdk`**, like every protocol field, because the
+  hash is taken over the parsed event. One narrow case follows, and it is the
+  one every added field already has: an SDK upgraded before its server, whose
+  first delivery of an event reached the old server (which stripped the field)
+  and whose response was lost, resends it to the upgraded server and gets
+  `event_id_conflict`. The event is stored; the SDK counts it `rejected`. It
+  needs the upgrade to land between an event's two deliveries, and the order
+  Leadline followed, server first, never meets it.
+- Every Node SDK event grows by about 150 bytes of `runtime` with a
+  40-character commit, and about 100 without one, stored in
+  `runtime_metadata`. The event budget is unchanged and the SDK's fitting
+  (ADR-051) counts it like any field.
+- Leadline's `pin-sdk.sh` gets the commit with no change, through
+  `export-subst`. A build from a modified working tree bakes in its `HEAD`,
+  which is a limitation of any commit stamp, and is not marked.
+- Nothing in Wayscribe yet lists which SDK each service runs; a reader opens an
+  event per service. A view of that is not decided here.
+- A failed journey created before migration 021 shows `lastStep` in the
+  Journeys table until its next failure, as it does today.
+- `scripts/upgrade-test.mjs` is extended to assert that the baseline's
+  journeys read `failedStep` null beside `label` and `lastStep`.
+- A misconfigured proxy now opens the breaker after five sends. Events then
+  queue for 30 seconds rather than being lost to the proxy, and are lost as
+  `queue_full` if the queue fills first, which `droppedByCause` says.
+- Dry runs that share a journey run one after the other. A conformance suite
+  that sends two batches against the same journeys concurrently takes the time
+  of both, and no longer gets a spurious `storage_error`. The reviewer's
+  reproduction, 50 runs of two dry runs over two journeys in opposite orders,
+  becomes an integration test in `dry-run.integration.test.ts` expecting no
+  `storage_error`.
+- Documentation that says what is decided here: EVENT_PROTOCOL.md sections 3
+  (`runtime.sdk`, and `failedStep` beside the last step) and 4 (the two
+  journey id shapes); API_SPEC.md sections 5 to 7 (`failedStep`, with the
+  example items showing it) and 7's pointer to the id shapes;
+  INGESTION_CONTRACT.md section 8 (dry runs sharing a journey wait for each
+  other); `docs/SDK_SPEC.md`, where SDK-42 names dropped by cause, SDK-63
+  states the new telephone rule, SDK-64 says an SDK SHOULD send
+  `runtime.language`, `runtime.version` and `runtime.sdk` and MUST NOT take
+  them from host settings, and SDK-65 says a send in which no attempt got a
+  verdict for any event MUST count toward the breaker; the Node SDK's README
+  (counters, and "Which build recorded this"), `docs/NODE_SDK_SPEC.md`,
+  OPERATIONS.md's counters paragraph, the TSDoc on `Counters` and
+  `DroppedDiagnostic`, and the CHANGELOG. Two wire conformance cases cover
+  `runtime.sdk`: one stored and read back, one refused with the path
+  `event.runtime.sdk.name`.
+
+### Corrections after implementation (2026-09-18)
+
+Made while implementing and reviewing the SDK half, and folded into the text
+above:
+
+- **The commit order.** `BUILD_COMMIT` comes first, before the two variables.
+  Packing an archive inside another project's GitLab CI job baked in that
+  project's `CI_COMMIT_SHA`, which names nothing here; `BUILD_COMMIT` is exact
+  for the tree it sits in and is never filled in a checkout.
+- **`BUILD_COMMIT`'s format** is 40 or 64 lowercase hex characters, so a
+  SHA-256 repository's archive is read too.
+- **`readOutcome`** reported missing verdicts and did not count them; it now
+  counts one as it reports each `no_verdict` drop.
+- **Decision 5.** The step that cut the candidate after its last digit is gone:
+  a separator after the last digit is not between two digits, and a fuzz of 2
+  million cases found it changed no outcome. The timezone step skipped any
+  `+` and four digits, which also skipped numbers such as `+4930 1234567`; it
+  now skips a real offset only.
+- **The breaker under concurrency** and **an empty batch** are stated above.
+- **Event size.** About 150 bytes with a 40-character commit and about 100
+  without one, not about 130.
+- **The SDK specification.** SDK-64 and SDK-65 sit at the end of section 13 of
+  `docs/SDK_SPEC.md`, not in the event and transport sections, because
+  requirement numbers must follow document order (`tests/docs-truth.test.ts`).

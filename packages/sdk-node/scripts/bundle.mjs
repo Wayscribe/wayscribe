@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildIdentity } from "./build-identity.mjs";
 import { bundleOptions } from "./bundle-options.mjs";
 
 /**
@@ -38,9 +39,15 @@ import { bundleOptions } from "./bundle-options.mjs";
  * compiled and then failed at runtime, and the maps pointed at sources that are
  * not published. API Extractor also fails the build when a public type refers
  * to one that is not exported (`ae-forgotten-export`).
+ *
+ * The version and commit every event names in `runtime.sdk` are baked in here
+ * (`build-identity.mjs`, ADR-063), and read first, so a malformed commit
+ * variable fails the build before `dist/` is touched.
  */
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const dist = join(packageRoot, "dist");
+
+const identity = buildIdentity({ packageRoot });
 
 rmSync(dist, { recursive: true, force: true });
 
@@ -109,8 +116,11 @@ try {
 }
 
 await build({
-  ...bundleOptions(),
+  ...bundleOptions(identity),
   outfile: join(dist, "index.js")
 });
 
 console.log("bundled dist/index.js with no runtime dependencies, and dist/index.d.ts");
+console.log(
+  `runtime.sdk: @wayscribe/node ${identity.version}${identity.commit === undefined ? ", no commit" : ` at ${identity.commit}`}`
+);

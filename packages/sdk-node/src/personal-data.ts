@@ -72,26 +72,45 @@ function emailIn(text: string): boolean {
 }
 
 /**
- * Something shaped like an international telephone number: a `+` that starts
- * the value or follows whitespace or an opening bracket, then at least eight
- * and at most fifteen digits (E.164's own bound), with the spaces, dashes,
- * dots and parentheses people write between them.
+ * Something shaped like an international telephone number, in four steps
+ * (ADR-063 decision 5):
  *
- * Where the `+` sits is what keeps version and digest text out of it: a `+`
- * after other characters is not a dialling code, as `1.2.3+20130313144700` and
- * a base64 digest show. The digit count keeps `+3 more` and
- * `2026-09-17T12:00:00+01:00` out too.
+ * 1. A `+` that starts the value or follows whitespace or one of `<`, `>`,
+ *    `(`, `)`, `[`, `"`, `'`, `,`, `;`, `=`, `:`: the email shape's delimiters
+ *    and `[`. So a number written in a field is found, `phone=+19195551234`,
+ *    `tel:+19195551234` or `{"phone":"+19195551234"}`, and a `+` after a
+ *    letter, a digit or `.` is not a dialling code: `1.2.3+20130313144700`,
+ *    `12:00:00+01:00` and a base64 digest have one.
+ * 2. The candidate: the `+` and the run of digits, spaces, dashes, dots and
+ *    parentheses after it, at most 20 characters.
+ * 3. A real timezone offset is skipped: `+`, hours 00 to 14, minutes 00, 15,
+ *    30 or 45, and no fifth digit. `Fri Sep 18 14:00:00 +0000 2026` has eight
+ *    digits from `+` to the year (F-041 review), and so does `+0530 2026`;
+ *    `+1234 5678` and `+4930 1234567` are numbers, not offsets.
+ * 4. 8 to 15 digits (E.164's own bound) when a separator stands between two of
+ *    them, and 10 to 15 when they are one unbroken run. A signed count is an
+ *    unbroken run, `Received +12345678 bytes`, and a real number written in a
+ *    field is nearly always ten digits or more. What that gives up is an
+ *    unbroken number of 8 or 9 digits from a few small numbering plans.
  *
  * A national number written without the `+` is not matched: `555 010 9999` and
  * an order number are the same shape, and warning about every order number
- * would be the default nobody keeps. Nor is a `+` followed by exactly four
- * digits, which is a timezone offset: `Fri Sep 18 14:00:00 +0000 2026` has
- * eight digits from `+` to the year (F-041 review).
+ * would be the default nobody keeps.
+ *
+ * Linear: a candidate starts only at a `+` after a delimiter and is at most 21
+ * characters, so no input costs more than a bounded scan per `+`.
  */
-const PHONE_SHAPE = /(?<![^\s([<])\+[\d\s().-]{7,20}/g;
-const TIMEZONE_OFFSET = /^\+\d{4}(?!\d)/;
+const PHONE_SHAPE = /(?<![^\s<>()["',;=:])\+[\d\s().-]{7,20}/g;
+const TIMEZONE_OFFSET = /^\+(?:0\d|1[0-4])(?:00|15|30|45)(?!\d)/;
+/**
+ * A separator between two digits: the difference between a number and a
+ * count. A separator after the last digit is not between two, so a trailing
+ * space never makes a count a number.
+ */
+const SEPARATED_DIGITS = /\d[\s().-]+\d/;
 const DIGIT = /\d/g;
 const MIN_PHONE_DIGITS = 8;
+const MIN_UNBROKEN_PHONE_DIGITS = 10;
 const MAX_PHONE_DIGITS = 15;
 
 /**
@@ -108,11 +127,17 @@ export function personalDataShapeOf(value: string): PersonalDataShape | undefine
   if (emailIn(text)) return "email";
   PHONE_SHAPE.lastIndex = 0;
   for (let phone = PHONE_SHAPE.exec(text); phone !== null; phone = PHONE_SHAPE.exec(text)) {
-    if (TIMEZONE_OFFSET.test(phone[0])) continue;
-    const digits = phone[0].match(DIGIT)?.length ?? 0;
-    if (digits >= MIN_PHONE_DIGITS && digits <= MAX_PHONE_DIGITS) return "phone";
+    if (isTelephoneNumber(phone[0])) return "phone";
   }
   return undefined;
+}
+
+/** Steps 2 to 4 of `PHONE_SHAPE`'s rule, for one candidate. */
+function isTelephoneNumber(candidate: string): boolean {
+  if (TIMEZONE_OFFSET.test(candidate)) return false;
+  const digits = candidate.match(DIGIT)?.length ?? 0;
+  const least = SEPARATED_DIGITS.test(candidate) ? MIN_PHONE_DIGITS : MIN_UNBROKEN_PHONE_DIGITS;
+  return digits >= least && digits <= MAX_PHONE_DIGITS;
 }
 
 /** A field and a shape: the unit the warning is given once for. */
