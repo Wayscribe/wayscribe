@@ -333,23 +333,57 @@ describe("fitting an event to the server's limits", () => {
     }
   });
 
-  it("returns promptly from a payload of shared references that expands past the budget", async () => {
+  it("reads a payload of shared references that expands past the budget at most four properties a byte of it", async () => {
     // 26 objects, each holding the next twice, 24 deep: 16 million leaves once
     // serialised. record() used to spend about 2 seconds and 245 MB on it.
-    let dag: unknown = "x";
-    for (let level = 0; level < 24; level += 1) dag = { l: dag, r: dag };
-    let elapsed = Number.POSITIVE_INFINITY;
-    const { events, diagnostics } = await capture((journey) => {
-      const started = performance.now();
-      journey.record({ operation: "received", name: "dag", input: dag });
-      elapsed = performance.now() - started;
-    });
-    expect(elapsed).toBeLessThan(250);
-    expect(events[0]?.["input"]).toBe("[PAYLOAD_TOO_LARGE]");
-    expect(diagnostics.find((d) => d.kind === "payload_omitted")).toMatchObject({
-      code: "too_large",
-      detail: { field: "input" }
-    });
+    // Every object is a Proxy that counts the reads made of it, so the work is
+    // counted rather than timed: an absolute 250 ms here was a limit a loaded
+    // machine could exceed. Stopping at the budget reads the same at 16 levels
+    // as at 24; measuring all of it reads 256 times as much.
+    const reads = { n: 0 };
+    const counting = (target: object): object =>
+      new Proxy(target, {
+        get(object, key, receiver) {
+          reads.n += 1;
+          return Reflect.get(object, key, receiver) as unknown;
+        },
+        ownKeys(object) {
+          reads.n += 1;
+          return Reflect.ownKeys(object);
+        },
+        getOwnPropertyDescriptor(object, key) {
+          reads.n += 1;
+          return Reflect.getOwnPropertyDescriptor(object, key);
+        },
+        has(object, key) {
+          reads.n += 1;
+          return Reflect.has(object, key);
+        }
+      });
+    const readsAt = async (levels: number): Promise<Captured & { reads: number }> => {
+      let dag: unknown = "x";
+      for (let level = 0; level < levels; level += 1) dag = counting({ l: dag, r: dag });
+      let counted = 0;
+      const captured = await capture((journey) => {
+        reads.n = 0;
+        journey.record({ operation: "received", name: "dag", input: dag });
+        counted = reads.n;
+      });
+      return { ...captured, reads: counted };
+    };
+
+    const atSixteen = await readsAt(16);
+    const atTwentyFour = await readsAt(24);
+    for (const { events, diagnostics } of [atSixteen, atTwentyFour]) {
+      expect(events[0]?.["input"]).toBe("[PAYLOAD_TOO_LARGE]");
+      expect(diagnostics.find((d) => d.kind === "payload_omitted")).toMatchObject({
+        code: "too_large",
+        detail: { field: "input" }
+      });
+    }
+    // About 459,000 on 2026-09-18: 1.75 a byte of the default 256 KiB budget.
+    expect(atTwentyFour.reads).toBeLessThanOrEqual(4 * 262_144);
+    expect(atTwentyFour.reads).toBeLessThanOrEqual(atSixteen.reads * 1.01);
   });
 
   it("reports no cut for a long string whose key another key replaced", async () => {

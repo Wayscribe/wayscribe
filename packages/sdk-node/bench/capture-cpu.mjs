@@ -19,7 +19,7 @@ import { buildRecorder } from "./build.mjs";
  * longer than the run and a buffer larger than it, so the time is capture and
  * the queue push. The `persist` callback returns synchronously, so no promise
  * turn is counted either. Not part of `pnpm test`: the numbers depend on the
- * machine, and `src/overhead.test.ts` holds the ratio instead.
+ * machine, and `src/overhead.test.ts` counts the work capture does instead.
  */
 const RUNS = 7;
 
