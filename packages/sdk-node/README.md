@@ -689,7 +689,9 @@ test can assert.
 (the type is exported as `DroppedCause`). Every key is there from creation at
 zero, so a health check reads it without a guard, and `dropped` is always their
 sum. A collector that hangs or is slower than the shutdown timeout ends in
-`shutdown`; one that answers with the wrong body ends in `no_verdict` (F-048,
+`shutdown`. One that answers with the wrong body ends in `no_verdict`, and,
+once five such sends have opened the breaker, in `queue_full` or `shutdown`
+for what waited behind it; `breakerOpened` says which it was (F-048,
 ADR-063).
 
 ```typescript
@@ -909,7 +911,10 @@ toward the circuit breaker, as a failed send does, though it reports no
 row open the breaker, events wait in the queue for the 30-second cooldown
 rather than being sent into a reply that loses them, and `breakerOpened` says
 something is wrong. A reply with some verdicts and some missing is a server
-answering, and does not count (SDK-65, ADR-063). The body of such a response is never printed or passed to
+answering, and does not count (SDK-65, ADR-063). Sends already in flight when
+the breaker opens, at most `maxConcurrentSends` minus one, still complete, and
+each that gets no verdict opens it again and restarts the cooldown, so one
+episode can show `breakerOpened` above 1. The body of such a response is never printed or passed to
 `onDiagnostic`: the line says `unparseable response body`, not what the body
 was.
 
@@ -1468,9 +1473,11 @@ stops recording on a refused setting can let a field through and still stop on
 The event detail shows it as `@wayscribe/node 0.1.0 at 27f4d64...`, so during
 an upgrade you can tell which services still run the old SDK. The version and
 commit are fixed when the package is built, never read from your settings or
-environment. The commit is the one the build came from: in CI,
-`CI_COMMIT_SHA`; from a `git archive` of the repository, the commit git wrote
-into `packages/sdk-node/BUILD_COMMIT`; from a checkout, `git rev-parse HEAD`.
+environment. The commit is the one the build came from, taken from the first of these
+that has one: the commit `git archive` wrote into
+`packages/sdk-node/BUILD_COMMIT`, which is exact for the tree it is in;
+`WAYSCRIBE_BUILD_COMMIT`, then `CI_COMMIT_SHA`; and, in a checkout,
+`git rev-parse HEAD`.
 Without any of those it is left out, and an SDK run from source rather than
 built reports `0.0.0-development`. An event with no `runtime.sdk` was recorded
 by an SDK from before this, or by another client. The hostname and process id,

@@ -607,14 +607,14 @@ What you have to do when upgrading a checkout or a deployment:
   from, both baked in when the bundle is built. So during an upgrade, which
   services still run the old SDK is on every event, where both builds used to
   say `0.1.0` and send no `runtime` at all (F-046, ADR-063, SDK-64). The commit
-  comes from `WAYSCRIBE_BUILD_COMMIT` or `CI_COMMIT_SHA` (a malformed one fails
-  the build), from `packages/sdk-node/BUILD_COMMIT`, which `git archive` fills
-  through a new `export-subst` rule in `.gitattributes`, or from
-  `git rev-parse HEAD` in the package's own repository. Nothing is read from
+  comes first from `packages/sdk-node/BUILD_COMMIT`, which `git archive` fills
+  through a new `export-subst` rule in `.gitattributes`, then from
+  `WAYSCRIBE_BUILD_COMMIT` or `CI_COMMIT_SHA` (a malformed one fails the
+  build), then from `git rev-parse HEAD` in the package's own repository. Nothing is read from
   host settings, and `hostname` and `processId` are not sent. The protocol
   version stays `0.1`: a server from before this strips `runtime.sdk` and
-  stores the rest, and each event is about 150 bytes larger (152 with a full
-  commit).
+  stores the rest, and each event is about 152 bytes larger with a commit and
+  about 100 without one.
 
 - **`dropped` names its cause, and a reply with no verdict counts toward the
   breaker.** `counters().droppedByCause` counts `dropped` by the diagnostic's
@@ -637,7 +637,9 @@ What you have to do when upgrading a checkout or a deployment:
   unbroken run now need 10 to 15 rather than 8 to 15, so
   `Received +12345678 bytes` no longer does; a number with separators still
   needs 8. A number of 8 or 9 digits written with no separator is no longer
-  found (ADR-063).
+  found. A `+` and four digits is skipped as a timezone offset only when it is
+  one, hours 00 to 14 and minutes 00, 15, 30 or 45, so `+0530 2026` is still
+  skipped and `+4930 1234567` is now found (ADR-063).
 
 - **Four SDK declarations say what the code does.** `WrapResult` says the
   assignment of a second implementation needs no cast and its body's return

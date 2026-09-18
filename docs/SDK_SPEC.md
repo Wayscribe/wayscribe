@@ -637,7 +637,8 @@ company and a person's full name, and nothing in any SDK would have said a word
   never silences a warning about a quieter one (ADR-062). The email shape is
   narrowed further for this reason: a local part holds no `/`, `:`, `[` or `]`,
   and a domain followed by `:`, `/` or `@` is a host, not an address; and a
-  `+` followed by exactly four digits is a timezone offset. An SDK SHOULD say nothing about an alias the host did not mark
+  `+` followed by a real timezone offset (hours 00 to 14, minutes 00, 15, 30
+  or 45) is not a telephone number. An SDK SHOULD say nothing about an alias the host did not mark
   displayable, because it is masked when it is read.
 
   The rule is deliberately narrow, so that it does not fire on ordinary text:
@@ -649,8 +650,8 @@ company and a person's full name, and nothing in any SDK would have said a word
      `+` at the start of the value or after whitespace or one of `<`, `>`,
      `(`, `)`, `[`, `"`, `'`, `,`, `;`, `=`, `:`, never after a letter, a
      digit or `.`; then the run of digits, spaces, `(`, `)`, `.` and `-` after
-     it, at most 20 characters, cut after its last digit; not a `+` and
-     exactly four digits, which is a timezone offset; holding 8 to 15 digits
+     it, at most 20 characters; not a real timezone offset, a `+` with hours
+     00 to 14 and minutes 00, 15, 30 or 45 and no fifth digit; holding 8 to 15 digits
      (E.164's own bound) when a separator stands between two of them, and 10
      to 15 when they are one unbroken run. So `phone=+19195551234`,
      `tel:+19195551234` and `{"phone":"+19195551234"}` are found, and
@@ -700,7 +701,8 @@ never opening (F-048).
   (SDK-32), as does one that got at least one verdict and left nothing unsent,
   and a whole-request 4xx still leaves it as it was (SDK-31). A collector that
   answers 2xx with the wrong body otherwise loses every event it is sent with
-  the breaker never opening (F-048, ADR-063).
+  the breaker never opening (F-048, ADR-063). A send of no events is not a
+  send: it neither counts toward the breaker nor resets it.
 
 | ID | Source | Checked by |
 | --- | --- | --- |

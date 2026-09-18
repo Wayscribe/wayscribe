@@ -164,7 +164,7 @@ them at the end. Once `shutdown()` has returned,
 | `rejected` > 0 | the server refused events and will not take them again; the `rejected` diagnostics carry the code (see [Refusal codes](#refusal-codes)) |
 | `dropped` > 0, `transportErrors` > 0 | the API could not be reached or could not store events for now, and they were given up |
 | `dropped` > 0, `transportErrors` 0 | the queue filled (`queue_full`), events were recorded after `shutdown()` (`after_shutdown`), or replies gave no verdict (`no_verdict`); `droppedByCause` says which |
-| `droppedByCause.shutdown` > 0 | the collector hung or was slower than `shutdown({ timeoutMs })` |
+| `droppedByCause.shutdown` > 0 | the collector hung or was slower than `shutdown({ timeoutMs })`, or the breaker was open when shutdown came; check `breakerOpened` and `no_verdict` |
 | `droppedByCause.no_verdict` > 0 | a 2xx reply carried no verdict: a proxy is rewriting responses, or `endpoint` is not the Wayscribe API |
 | `breakerOpened` > 0 | five sends failed in a row, and sending paused for 30 seconds; a send whose 2xx replies gave no verdict for any event counts as failed |
 | `configurationErrors` > 0 | a setting or argument could not be used; the `configuration_error` diagnostics name it |

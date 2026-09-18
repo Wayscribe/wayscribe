@@ -3747,16 +3747,19 @@ created and frozen as `deployment` is:
   that; containers and npm both run `dist/`), it is `"0.0.0-development"`,
   which cannot be mistaken for a release.
 - `runtime.sdk.commit`: the commit the bundle was built from, baked in the same
-  way, from the first of these that gives a value:
-  1. `WAYSCRIBE_BUILD_COMMIT`, then `CI_COMMIT_SHA`, the variables
-     `scripts/publish-image.sh` already reads. A value that is set and is not
-     7 to 64 lowercase hex characters fails the build rather than baking in
-     something that names no commit.
-  2. A new file, `packages/sdk-node/BUILD_COMMIT`, holding `$Format:%H$` and
+  way, from the first of these that gives a value (order corrected after
+  implementation, see the note at the end):
+  1. A new file, `packages/sdk-node/BUILD_COMMIT`, holding `$Format:%H$` and
      marked `export-subst` in `.gitattributes`, so that `git archive`, which is
      how Leadline's `pin-sdk.sh` and a GitLab source download make a tree,
-     writes the commit into it. Used when it holds 40 lowercase hex characters,
-     which it does only in an archive.
+     writes the commit into it. Used when it holds 40 or 64 lowercase hex
+     characters (a SHA-1 or a SHA-256 repository), which it does only in an
+     archive. First, because it is exact for the tree it sits in and is never
+     filled in a checkout, so it cannot be wrong when present.
+  2. `WAYSCRIBE_BUILD_COMMIT`, then `CI_COMMIT_SHA`, the variables
+     `scripts/publish-image.sh` already reads. A value that is set and is not
+     7 to 64 lowercase hex characters fails the build rather than baking in
+     something that names no commit, whichever source gives the commit.
   3. `git rev-parse HEAD`, only when `git rev-parse --show-toplevel` run in
      the package directory names the repository root that contains it, so an
      extracted archive that happens to sit inside another repository does not
@@ -3899,7 +3902,8 @@ the shutdown timeout end in `shutdown`, the two wrong bodies in `no_verdict`.
 gave a verdict for none of its events. Exactly:
 
 - `SendOutcome` gains `noVerdict: number`, the events of that request the reply
-  gave no verdict for, which `readOutcome` already counts as it reports them.
+  gave no verdict for, which `readOutcome` counts as it reports each
+  `no_verdict` drop.
 - An attempt **gave a verdict** when `noVerdict` is less than the number of
   events it sent: at least one event was accepted, refused for good, or
   refused for now.
@@ -3914,6 +3918,12 @@ gave a verdict for none of its events. Exactly:
   (30 seconds), with the existing `breaker_opened` report and code
   `consecutive_failures`. A verdictless send reports no `transport_error`: its
   events are already reported as `dropped` with `no_verdict`.
+- Sends already in flight when the breaker opens, at most
+  `maxConcurrentSends` minus 1, still complete. Each that fails counts, reports
+  `breaker_opened` again and restarts the cooldown, so `breakerOpened` can
+  exceed 1 for one episode.
+- A send of no events neither counts toward the breaker nor resets it. `flush`
+  never sends one, and the rule does not depend on that.
 
 What resets it: a send that stored something, or a send that got at least one
 verdict and left nothing unsent, and the cooldown ending, as today. A reply
@@ -3960,8 +3970,10 @@ not one (review).**
    already accepted. A `+` after a letter, a digit or `.` is still not a
    dialling code (`1.2.3+20130313144700`, `12:00:00+01:00`).
 2. **The candidate:** the `+` and the run of digits, spaces, `(`, `)`, `.` and
-   `-` after it, at most 20 characters as today, cut after its last digit.
-3. **A timezone offset is skipped**, as today: `+` and exactly four digits.
+   `-` after it, at most 20 characters as today.
+3. **A real timezone offset is skipped:** `+`, hours 00 to 14, minutes 00, 15,
+   30 or 45, and no fifth digit. So `+0000 2026` and `+0530` are skipped, and
+   `+1234 5678`, `+4930 1234567` and `+3531 234 5678` are found.
 4. **Digits:** 8 to 15 when a separator stands between two of the digits;
    **10 to 15 when the digits are one unbroken run.**
 
@@ -4102,7 +4114,8 @@ run's journey, which ADR-050 already says.
   `event_id_conflict`. The event is stored; the SDK counts it `rejected`. It
   needs the upgrade to land between an event's two deliveries, and the order
   Leadline followed, server first, never meets it.
-- Every Node SDK event grows by about 130 bytes of `runtime`, stored in
+- Every Node SDK event grows by about 150 bytes of `runtime` with a
+  40-character commit, and about 100 without one, stored in
   `runtime_metadata`. The event budget is unchanged and the SDK's fitting
   (ADR-051) counts it like any field.
 - Leadline's `pin-sdk.sh` gets the commit with no change, through
@@ -4138,3 +4151,28 @@ run's journey, which ADR-050 already says.
   `DroppedDiagnostic`, and the CHANGELOG. Two wire conformance cases cover
   `runtime.sdk`: one stored and read back, one refused with the path
   `event.runtime.sdk.name`.
+
+### Corrections after implementation (2026-09-18)
+
+Made while implementing and reviewing the SDK half, and folded into the text
+above:
+
+- **The commit order.** `BUILD_COMMIT` comes first, before the two variables.
+  Packing an archive inside another project's GitLab CI job baked in that
+  project's `CI_COMMIT_SHA`, which names nothing here; `BUILD_COMMIT` is exact
+  for the tree it sits in and is never filled in a checkout.
+- **`BUILD_COMMIT`'s format** is 40 or 64 lowercase hex characters, so a
+  SHA-256 repository's archive is read too.
+- **`readOutcome`** reported missing verdicts and did not count them; it now
+  counts one as it reports each `no_verdict` drop.
+- **Decision 5.** The step that cut the candidate after its last digit is gone:
+  a separator after the last digit is not between two digits, and a fuzz of 2
+  million cases found it changed no outcome. The timezone step skipped any
+  `+` and four digits, which also skipped numbers such as `+4930 1234567`; it
+  now skips a real offset only.
+- **The breaker under concurrency** and **an empty batch** are stated above.
+- **Event size.** About 150 bytes with a 40-character commit and about 100
+  without one, not about 130.
+- **The SDK specification.** SDK-64 and SDK-65 sit at the end of section 13 of
+  `docs/SDK_SPEC.md`, not in the event and transport sections, because
+  requirement numbers must follow document order (`tests/docs-truth.test.ts`).
