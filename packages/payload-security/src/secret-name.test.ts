@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { describeComparison, growth } from "../../../tests/support/timing.js";
 import { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
 import {
   looksLikeSecretName,
@@ -236,21 +237,40 @@ describe("looksLikeSecretName", () => {
     expect(looksLikeSecretName("v2")).toBe(false);
   });
 
-  it("answers a very long name without matching across it", () => {
-    const long = `${"token".repeat(20_000)}Count`;
-    const started = performance.now();
-    expect(looksLikeSecretName(long)).toBe(false);
-    expect(looksLikeSecretName(`${"a".repeat(100_000)}Token`)).toBe(true);
-    // Linear: two 100 KB names in well under a second on any CI machine.
-    expect(performance.now() - started).toBeLessThan(1_000);
-  });
+  // Names come from payload keys, which public HTTP reaches. Each long shape
+  // below is answered correctly, and timed at 25,000 and 100,000 characters
+  // per character, in the thread's processor time (tests/support/timing.ts):
+  // linear work costs the same per character at both, and a pattern that
+  // backtracks across the name costs four times as much at the larger. These
+  // were an absolute second for two 100 KB names, which a loaded machine can
+  // exceed and a fast one can meet with quadratic work.
+  const GROWTH_LIMIT = 2;
+  const longNames: [string, (size: number) => string, boolean][] = [
+    [
+      "a long repeated secret word with a plain ending",
+      (size) => `${"token".repeat(size / 5)}Count`,
+      false
+    ],
+    ["a long run of letters ending in a secret word", (size) => `${"a".repeat(size)}Token`, true],
+    ["a long run of digits and no secret word", (size) => `${"1".repeat(size)}x`, false],
+    ["a secret word and a long version suffix", (size) => `token${"1".repeat(size)}`, true]
+  ];
 
-  it("finds the version suffix without backtracking over a long run of digits", () => {
-    const started = performance.now();
-    expect(looksLikeSecretName(`${"1".repeat(100_000)}x`)).toBe(false);
-    expect(looksLikeSecretName(`token${"1".repeat(100_000)}`)).toBe(true);
-    expect(performance.now() - started).toBeLessThan(1_000);
-  });
+  for (const [name, build, secret] of longNames) {
+    it(`answers ${name} in time proportional to its length`, () => {
+      const small = build(25_000);
+      const large = build(100_000);
+      expect(looksLikeSecretName(small)).toBe(secret);
+      expect(looksLikeSecretName(large)).toBe(secret);
+      const measured = growth(
+        looksLikeSecretName,
+        { input: small, units: small.length },
+        { input: large, units: large.length },
+        GROWTH_LIMIT
+      );
+      expect(measured.ratio, describeComparison(measured)).toBeLessThanOrEqual(GROWTH_LIMIT);
+    });
+  }
 });
 
 describe("looksLikeSecretValue", () => {

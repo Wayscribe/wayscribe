@@ -1,5 +1,10 @@
 {
   "extends": "./tsconfig.json",
+  // Here and not in tsconfig.json: tests import shared helpers from
+  // tests/support, outside src, and only the build needs src as the root.
+  "compilerOptions": {
+    "rootDir": "src"
+  },
   // conformance-harness.ts drives the recorder for two test suites. It is not a
   // test file by name, and the declarations are only for the public surface
   // scripts/bundle.mjs rolls up.
