@@ -358,6 +358,34 @@ what a dry run previews.
   the same order, so it is the step the journey's timeline shows last, and an
   event that arrives late never moves it backwards. A read returns it as
   `lastStep`.
+- **An unpaired surrogate is repaired in text and refused in a payload.** The
+  same character gets two answers, depending on the column it is bound for, and
+  the difference is worth knowing before a value that carries one is sent.
+
+  In `journeyLabel`, in an alias value, and in every other value stored as
+  PostgreSQL `text`, an unpaired surrogate is replaced by `U+FFFD`, the
+  replacement character, on the way in. `text` holds UTF-8 and an unpaired
+  surrogate has no UTF-8 form, so it is repaired when the value is encoded for
+  the connection, before it is written. **The stored value is already
+  `U+FFFD`.** It is not a rendering applied when a read route answers, so psql,
+  a dump and any other client see exactly what this API returns: one
+  replacement character, one code point, three bytes, in the place the
+  surrogate stood. Search tokens are taken over the repaired value too, so the
+  value that can be read back finds the journey and the value as sent does not.
+  Nothing is refused, no diagnostic is raised, and the rest of the batch is
+  untouched.
+
+  In `input`, `output`, `error` and anything else stored as `jsonb`, an
+  unpaired surrogate is **refused**: it reaches PostgreSQL's JSON parser as a
+  literal `\ud800` escape, which that parser rejects, and the server answers
+  `400 unstorable_payload` for that event alone (section 4). A client that
+  wants the payload stored repairs it before sending, which is what
+  `toStorableText` in `@wayscribe/payload-security` does and what the Node SDK
+  already does for a payload.
+
+  So a value carrying an unpaired surrogate can be accepted as a label and
+  refused as a payload field in the same event: the refusal wins, and the
+  event is stored either whole or not at all.
 - **Unknown fields are accepted and dropped.** There is no column to store them
   in, and an unvalidated, unredacted field is not something to write to one. The
   rule is "accepted, not refused", which is what makes an additive optional
