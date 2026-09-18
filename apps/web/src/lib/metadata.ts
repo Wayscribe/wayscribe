@@ -33,7 +33,14 @@ export interface EventMetadataLists {
   runtime: MetadataList;
 }
 
-export function metadataEntries(value: unknown): MetadataList {
+/**
+ * How one entry's value is written, when it is not written as compact JSON.
+ * Returns undefined to leave the value to the default. Given the key as the
+ * object holds it, before it is cut.
+ */
+export type EntryFormat = (key: string, value: unknown) => string | undefined;
+
+export function metadataEntries(value: unknown, format?: EntryFormat): MetadataList {
   if (value === undefined || value === null) return { entries: [], omitted: 0 };
   if (typeof value !== "object" || Array.isArray(value)) {
     return { entries: [{ key: "(value)", value: bounded(asText(value)) }], omitted: 0 };
@@ -49,11 +56,31 @@ export function metadataEntries(value: unknown): MetadataList {
   return {
     entries: keys.slice(0, MAX_METADATA_ENTRIES).map((key) => ({
       key: bounded(key),
-      value: bounded(asText(record[key]))
+      value: bounded(format?.(key, record[key]) ?? asText(record[key]))
     })),
     omitted: Math.max(0, keys.length - MAX_METADATA_ENTRIES)
   };
 }
+
+/**
+ * The Runtime group's one formatted entry (ADR-063, F-046): `sdk`, the SDK
+ * that recorded the event, written `<name> <version>`, then ` at <commit>`
+ * when there is one. Anything else under `sdk`, from another client or an
+ * older build, is left to the compact JSON every entry gets. Read with
+ * `Object.hasOwn`, so nothing is taken from a prototype; the value arrives
+ * parsed from JSON, where a key named `__proto__` is an own key and not one.
+ */
+export const runtimeFormat: EntryFormat = (key, value) => {
+  // An array has no own `name`, so it falls through to compact JSON below.
+  if (key !== "sdk" || typeof value !== "object" || value === null) return undefined;
+  const own = (field: string): unknown =>
+    Object.hasOwn(value, field) ? (value as Record<string, unknown>)[field] : undefined;
+  const name = own("name");
+  const version = own("version");
+  if (typeof name !== "string" || typeof version !== "string") return undefined;
+  const commit = own("commit");
+  return typeof commit === "string" ? `${name} ${version} at ${commit}` : `${name} ${version}`;
+};
 
 function asText(value: unknown): string {
   if (typeof value === "string") return value;

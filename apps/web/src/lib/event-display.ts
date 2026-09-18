@@ -1,5 +1,5 @@
 import type { DiffChange, EventDetailData } from "./api";
-import { metadataEntries } from "./metadata";
+import { metadataEntries, runtimeFormat } from "./metadata";
 
 /**
  * An event as the page shows it, made on the server from the API's answer.
@@ -70,7 +70,8 @@ export function eventForDisplay(raw: ApiEventDetail): EventDetailData {
     metadata: {
       custom: metadataEntries(customMetadata),
       deployment: metadataEntries(deploymentMetadata),
-      runtime: metadataEntries(runtimeMetadata)
+      // `sdk` reads as `<name> <version> at <commit>` (ADR-063).
+      runtime: metadataEntries(runtimeMetadata, runtimeFormat)
     }
   };
 }

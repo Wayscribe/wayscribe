@@ -1,5 +1,5 @@
-import { expect, test, type Locator } from "@playwright/test";
-import { API_KEY, API_URL, signIn } from "./session";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { ADMIN_TOKEN, API_KEY, API_URL, projectHolding, signIn } from "./session";
 
 /**
  * F-044: the event detail shows the metadata the API returns, as text.
@@ -171,5 +171,116 @@ test.describe("a payload key named __proto__", () => {
     await expect(main).toContainText('"__proto__": "p"');
     await expect(page.locator("table.diff td.added")).toContainText('"__proto__":"p"');
     await context.close();
+  });
+});
+
+/**
+ * ADR-063, F-046: the Runtime group names the SDK that recorded the event as
+ * one line, `<name> <version> at <commit>`.
+ *
+ * An API from before `runtime.sdk` strips it as an unknown key and stores the
+ * rest of `runtime`, so the entry is then absent; the test asks the API what
+ * it stored and checks the page against that. Shapes the protocol refuses (a
+ * name that is not text, an oversized value) cannot be stored through the
+ * API, so they are the unit tests' (`event-display.test.ts`).
+ */
+const SDK_JOURNEY_ID = `jrn_e2e_metadata_sdk_${RUN}`;
+const SDK_EVENT_ID = `evt_metadata_sdk_${RUN}`;
+const COMMIT = "27f4d64e0c0bd6a5e8a4b2b9f0f1c2d3e4f5a6b7";
+const SDK_TEXT = `@wayscribe/node 0.1.0 at ${COMMIT}`;
+
+test.describe("the Runtime group's sdk entry", () => {
+  test.beforeAll(async () => {
+    const response = await fetch(`${API_URL}/v1/events`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        protocolVersion: "0.1",
+        event: {
+          id: SDK_EVENT_ID,
+          journeyId: SDK_JOURNEY_ID,
+          environment: "development",
+          service: "hubspot-sync",
+          entity: { type: "lead", id: `E2E-METADATA-SDK-${RUN}` },
+          operation: "delivered",
+          name: "push-hubspot",
+          timestamp: new Date().toISOString(),
+          runtime: {
+            language: "node",
+            version: "24.19.0",
+            sdk: { name: "@wayscribe/node", version: "0.1.0", commit: COMMIT }
+          }
+        }
+      })
+    });
+    expect(response.ok, `seeding answered ${String(response.status)}`).toBe(true);
+    const bare = await fetch(`${API_URL}/v1/events`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        protocolVersion: "0.1",
+        event: {
+          id: `${SDK_EVENT_ID}_bare`,
+          journeyId: SDK_JOURNEY_ID,
+          environment: "development",
+          service: "hubspot-sync",
+          entity: { type: "lead", id: `E2E-METADATA-SDK-${RUN}` },
+          operation: "delivered",
+          name: "no-runtime",
+          timestamp: new Date(Date.now() + 1000).toISOString(),
+          metadata: { queue: "jobs" }
+        }
+      })
+    });
+    expect(bare.ok, `seeding answered ${String(bare.status)}`).toBe(true);
+  });
+
+  /** Whether the API kept `runtime.sdk`, which an API from before ADR-063 strips. */
+  async function storedSdk(): Promise<boolean> {
+    const projectId = await projectHolding(SDK_JOURNEY_ID);
+    const response = await fetch(`${API_URL}/v1/events/${SDK_EVENT_ID}`, {
+      headers: {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        ...(projectId === null ? {} : { "x-wayscribe-project-id": projectId })
+      }
+    });
+    expect(response.ok).toBe(true);
+    const body = (await response.json()) as { data: { runtimeMetadata: Record<string, unknown> } };
+    return "sdk" in body.data.runtimeMetadata;
+  }
+
+  async function expectRuntime(page: Page): Promise<void> {
+    const runtime = page.getByRole("group", { name: "Runtime" });
+    if (await storedSdk()) {
+      await expect(runtime.getByRole("term")).toHaveText(["language", "sdk", "version"]);
+      await expect(runtime.getByRole("definition")).toHaveText(["node", SDK_TEXT, "24.19.0"]);
+    } else {
+      await expect(runtime.getByRole("term")).toHaveText(["language", "version"]);
+    }
+  }
+
+  test("reads as one line", async ({ page }) => {
+    await signIn(page, SDK_JOURNEY_ID);
+    await page.goto(`/journeys/${SDK_JOURNEY_ID}?event=${SDK_EVENT_ID}`);
+    await expectRuntime(page);
+  });
+
+  test("is in the server-rendered page, with JavaScript off", async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await signIn(page, SDK_JOURNEY_ID);
+    await page.goto(`/journeys/${SDK_JOURNEY_ID}?event=${SDK_EVENT_ID}`);
+    await expectRuntime(page);
+    await context.close();
+  });
+
+  // An event with no runtime at all, as every event from an SDK before
+  // ADR-063 is stored: no Runtime group, and no sdk entry anywhere.
+  test("is absent from an event recorded with no runtime", async ({ page }) => {
+    await signIn(page, SDK_JOURNEY_ID);
+    await page.goto(`/journeys/${SDK_JOURNEY_ID}?event=${SDK_EVENT_ID}_bare`);
+    await expect(page.getByRole("group", { name: "Custom" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Runtime" })).toHaveCount(0);
+    await expect(page.getByRole("term").filter({ hasText: /^sdk$/ })).toHaveCount(0);
   });
 });
