@@ -284,6 +284,20 @@ What you have to do when upgrading a checkout or a deployment:
   `GET /v1/search`. `GET /v1/projects` names each project's environments.
   Measured at 120,000 journeys in `docs/OPERATIONS.md` section 10, with
   `scripts/measure-journey-list.mjs` to reproduce the figures.
+- **`GET /v1/search` takes a window and an environment** (`docs/API_SPEC.md`
+  section 5): `since`, `until` and `environment`, all optional, beside the `q`,
+  `limit` and `cursor` it already read. `since` and `until` bound a journey's
+  last activity, the same column and the same half-open range `GET /v1/journeys`
+  takes, so one pair of bounds narrows both endpoints. `environment` is a name,
+  applied on top of the caller's scope and never instead of it (ADR-029): for
+  the admin token it picks one environment of the named project, and for an API
+  key, which already reads its own environment and nothing else, naming that
+  environment changes nothing and naming another returns an empty page rather
+  than an error. With none of the three the search spans the project's whole
+  history, as it always has, which is what made a repeated alias value return
+  every journey that ever carried it. No index was needed: measured at 200,000
+  journeys, the bounds filter the plan the search already had, and a window
+  narrow enough to be worth an index is served by `journeys_project_recent_idx`.
 - **The journey page.** Headed by the journey's label when it has one, with the
   entity type and identifier beneath, and a back link to the list it was opened
   from. `GET /v1/journeys/:journeyId` returns the environment's name, `label`,
@@ -313,6 +327,17 @@ What you have to do when upgrading a checkout or a deployment:
 
 #### Operating it
 
+- **`GET /ready` says what the API is running** (`docs/API_SPEC.md` section 14):
+  `version`, `commit` when the build recorded one, and `source`, which is
+  `build` when the published image baked the values in and `package` when
+  nothing was baked in, so a source run or a hand-built image says so instead
+  of naming a release it is not. All three are on the 503 answers as well as
+  the 200, because when something is wrong the first question is what is
+  running. The values come from the `WAYSCRIBE_BUILD_VERSION` and
+  `WAYSCRIBE_BUILD_COMMIT` build arguments that `scripts/publish-image.sh` fills
+  with the release tag and the commit; there is no runtime shell-out to git,
+  which the image has no history, working tree or binary for. `GET /health`
+  is unchanged and stays a bare liveness check.
 - **Bring your own database** (ADR-037). `DATABASE_URL` points at a PostgreSQL
   15 or later that your team already runs. Migrations need privileges on their
   own schema only and install no extensions. `infrastructure/compose.bundled.yaml`
@@ -488,6 +513,26 @@ What you have to do when upgrading a checkout or a deployment:
   `400 invalid_query` naming the start of the key and listing the parameters
   the route reads. A misspelt filter such as `entity_type=order` used to return
   an unfiltered list that looked filtered.
+- **`GET /v1/search` refuses a query key it does not read**, with
+  `400 invalid_query` naming the start of the key and listing the parameters the
+  route reads, as `GET /v1/journeys` already did. **This changes an answer:**
+  `?q=CUST-1&status=failed` was a `200` that silently ignored `status` and is
+  now a `400`, which is the point, because a filter that is dropped without a
+  word returns an unnarrowed search that looks narrowed. A caller that sends
+  only `q`, `limit` and `cursor`, which is every caller in this repository, sees
+  no change; one that sends anything else now sees a refusal. A parameter name
+  holding a NUL is refused without being echoed back.
+- **A successful retry clears a failed journey** (ADR-061). A `retried` event
+  carrying no error returns the journey's status from `failed` to `active`
+  instead of leaving it failed until something else says otherwise. An SDK
+  records a retried call as `retried` whichever way it comes out (ADR-022), so
+  a step that failed on its first attempt and succeeded on its second used to
+  leave the journey failed until `finish()` landed. It clears rather than
+  completes: a journey that retried successfully and then died without
+  finishing must not read as completed, so `completed` still means a
+  `completed` operation at or after the newest event's timestamp. A retry that
+  fails again is still a failure, an older successful retry still cannot clear
+  a newer one, and a journey already completed is never knocked back.
 - **Both ingestion routes refuse a query parameter they do not know**, with
   `400 invalid_query` naming the key. `POST /v1/events` accepts none and
   `POST /v1/events/batch` accepts only `dryRun`, so `?dryrun=true` can no longer

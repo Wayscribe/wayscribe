@@ -22,6 +22,23 @@ export interface SearchHit {
 export type SearchPage = JourneyPage<SearchHit>;
 
 /**
+ * What narrows a search, all of it optional.
+ *
+ * With none of it the search spans the project's whole history and every
+ * environment the scope allows, which is what it did before F-028: a Leadline
+ * run searching by an email address reused across runs got 5 to 8 journeys
+ * where it expected 1, because nothing bounded the search to the run.
+ */
+export interface SearchFilters {
+  /** Journeys whose last activity is at or after this instant. */
+  since?: Date | undefined;
+  /** Journeys whose last activity is before this instant. */
+  until?: Date | undefined;
+  /** An environment name, applied on top of the scope, never instead of it. */
+  environment?: string | undefined;
+}
+
+/**
  * One branch each rather than one `trace_id = ? or span_id = ? ...`: an OR
  * across columns cannot use any one column's index, and each of these has its
  * own (006 and 014).
@@ -85,12 +102,32 @@ const TECHNICAL_IDENTIFIER_COLUMNS = [
  *   them and joins with a sequential scan of the project's journeys, so in
  *   that regime the cost tracks the journey count again, though at a few
  *   percent of what the old query paid for any value.
+ *
+ * `filters` needs no index of its own, measured the same way on PostgreSQL 17
+ * with 200,000 journeys in one project over four environments, one alias each,
+ * 2,000 of them sharing one value, last activity spread over 60 days:
+ *
+ * - a value matching one journey: 0.09 ms with no window, 0.12 ms with a
+ *   one-day window. The plan is the same nested loop over the identifier
+ *   indexes either way; the bounds only filter its one row.
+ * - a value matching 2,000 journeys: 18.8 ms with no window, 14.7 ms with
+ *   `since` alone, 25.6 ms with both bounds. The plan is unchanged, the hash
+ *   join above, and the bounds ride along as a filter on the sequential scan
+ *   that plan already does.
+ * - the same value in a one-minute window: 1.1 ms, and the planner switches to
+ *   an index scan on `journeys_project_recent_idx` (migration 019,
+ *   `(project_id, last_event_at, id)`), whose leading columns are exactly what
+ *   the bounds compare. A window selective enough to be worth an index is
+ *   already served by one the journey list added.
+ * - `environment` adds a join to `environments`, four rows here: 20.4 ms
+ *   against 18.8 ms, inside the run-to-run spread.
  */
 export async function searchJourneys(
   db: Knex,
   scope: ReadScope,
   query: string,
   tokens: readonly string[],
+  filters: SearchFilters,
   limit: number,
   cursor?: string
 ): Promise<SearchPage> {
@@ -130,10 +167,38 @@ export async function searchJourneys(
     .select(...journeySummaryColumns(db))
     .from({ j: "journeys" })
     .join("matches", "matches.journey_id", "j.id")
+    .modify((joined) => {
+      // The environments join only exists to resolve `environment` to an id,
+      // so a search without that filter runs exactly the query it always has.
+      if (filters.environment !== undefined) {
+        // On id alone: the composite foreign key (environment_id, project_id)
+        // on journeys already guarantees the environment belongs to the same
+        // project.
+        void joined.join({ env: "environments" }, "env.id", "j.environment_id");
+      }
+    })
     .where("j.project_id", project)
     .modify((scoped) => {
       if (scope.environmentId !== undefined) {
         void scoped.andWhere("j.environment_id", scope.environmentId);
+      }
+      // Applied on top of the scope, never instead of it, exactly as the
+      // journey list applies it: an environment-scoped API key that names
+      // another environment gets an empty page rather than an error, because
+      // outside its scope nothing exists (ADR-029).
+      if (filters.environment !== undefined) {
+        void scoped.andWhere("env.name", filters.environment);
+      }
+      // The window is on last activity, the same column and the same meaning
+      // as the journey list's, so a caller can hand both endpoints one pair of
+      // bounds. A journey whose matching event is inside the window but whose
+      // last activity is after `until` is outside it: the window selects
+      // journeys, not events, because that is what search returns.
+      if (filters.since !== undefined) {
+        void scoped.andWhere("j.last_event_at", ">=", filters.since);
+      }
+      if (filters.until !== undefined) {
+        void scoped.andWhere("j.last_event_at", "<", filters.until);
       }
     });
 

@@ -15,6 +15,7 @@ import {
   JOURNEY_LIST_PARAMETERS,
   parseJourneyListQuery
 } from "../apps/api/src/routes/journey-list-query.js";
+import { SEARCH_PARAMETERS } from "../apps/api/src/routes/search-query.js";
 import { filesEndingWith, findSection, markdownFiles, read, root } from "./docs-helpers.js";
 
 /** The text of a `## ` section of a markdown document, up to the next one. */
@@ -22,6 +23,19 @@ const section = (markdown: string, heading: string): string => {
   const found = findSection(markdown, heading);
   expect(found, `no section "${heading}"`).toBeDefined();
   return found ?? "";
+};
+
+/**
+ * First-column names of the first markdown table in `text`.
+ *
+ * The first table, not every row that looks like one: a section that
+ * documents its parameters in a table and then explains a vocabulary in a
+ * second one would otherwise report both as parameters, which is exactly what
+ * API_SPEC section 6 does now that it explains what a journey's status means.
+ */
+const firstTableKeys = (text: string): string[] => {
+  const table = /^(\|.*\n)+/m.exec(text)?.[0] ?? "";
+  return [...table.matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((match) => match[1] ?? "");
 };
 
 /**
@@ -263,15 +277,96 @@ describe("the documentation's checkable claims", () => {
     expect(documented, "REPLAY_SPEC section 6 does not list the route's fields").toEqual(declared);
   });
 
+  describe("GET /v1/search in API_SPEC.md", () => {
+    const section = (): string => {
+      const match = /## 5\. Search\n([\s\S]*?)\n## 6\./.exec(read("docs/API_SPEC.md"));
+      expect(match, "API_SPEC.md has no section 5 for search").not.toBeNull();
+      return match?.[1] ?? "";
+    };
+
+    it("documents exactly the query parameters the route reads", () => {
+      // The parser refuses every other key, so its list is the route's. F-028
+      // found the endpoint with no window at all; the table is what tells a
+      // caller there is one to give.
+      expect(firstTableKeys(section())).toEqual([...SEARCH_PARAMETERS]);
+    });
+
+    it("says plainly that a search with no window spans the whole history", () => {
+      expect(section()).toContain("spans the project's whole history");
+    });
+  });
+
+  describe("the retried operation in EVENT_PROTOCOL.md", () => {
+    it("says what a successful retry does to a journey's status", () => {
+      // ADR-061's other consequence. The entry said only "A previous operation
+      // was attempted again", which does not tell a client author that the
+      // absence of an error on such an event means something to the summary.
+      const operations = section(read("docs/EVENT_PROTOCOL.md"), "5. Operation semantics");
+      const retried = /### `retried`\n([\s\S]*?)\n### /.exec(operations)?.[1] ?? "";
+      expect(retried).toContain("clears an earlier failure");
+      expect(retried).toContain("never completes it (ADR-061)");
+      const completed = /### `completed`\n([\s\S]*)/.exec(operations)?.[1] ?? "";
+      expect(completed).toContain("finish()");
+    });
+  });
+
+  describe("who may read, in API_SPEC.md section 1", () => {
+    const conventions = (): string => section(read("docs/API_SPEC.md"), "1. Conventions");
+
+    it("says an API key may read, which is what the code does", () => {
+      // F-013: section 1 listed the admin token alone as "authentication for
+      // reads", while section 6 and resolvePrincipal both say an API key reads
+      // its own environment. resolvePrincipal returns a principal for either
+      // credential and every query route resolves its scope from whichever it
+      // got, so the narrower statement was the wrong one.
+      expect(read("apps/api/src/principal.ts")).toContain('kind: "apiKey"');
+      expect(read("apps/api/src/routes/queries.ts")).toContain("resolvePrincipal");
+      expect(conventions()).toContain("Authentication for reads, with an API key");
+      expect(conventions()).toContain("Either credential may read");
+    });
+
+    it("names the routes that take the admin token alone, and they do", () => {
+      for (const route of ["projects", "replays", "deletions"]) {
+        const source = read(`apps/api/src/routes/${route}.ts`);
+        // A call, not the word: projects.ts explains in a comment why it
+        // cannot go through resolvePrincipal.
+        expect(source, route).not.toMatch(/\bresolvePrincipal\(/);
+      }
+      expect(conventions()).toContain("take the admin token alone");
+    });
+  });
+
+  describe("GET /v1/journeys/:journeyId/events in API_SPEC.md", () => {
+    it("shows every field the route sends in its example item", () => {
+      // F-025: the example omitted `receivedAt`, which the endpoint always
+      // sends and which the section's own ordering rule names, so a caller
+      // building a schema from the example alone landed one field short.
+      const declared = [
+        ...(
+          /export interface EventListItem \{([\s\S]*?)\n\}/.exec(
+            read("packages/database/src/repositories/event-reads.ts")
+          )?.[1] ?? ""
+        ).matchAll(/^ {2}(\w+):/gm)
+      ].map((match) => match[1]);
+      expect(declared).toContain("receivedAt");
+
+      const example = /## 8\. List journey events[\s\S]*?```json\n([\s\S]*?)```/.exec(
+        read("docs/API_SPEC.md")
+      )?.[1];
+      expect(example, "API_SPEC.md section 8 has no example").toBeDefined();
+      const shown = [...(example ?? "").matchAll(/^\s{8}"(\w+)":/gm)].map((match) => match[1]);
+      expect(shown).toEqual(declared);
+    });
+  });
+
   describe("GET /v1/journeys in API_SPEC.md", () => {
     const section = (): string => {
       const match = /## 6\. List journeys\n([\s\S]*?)\n## 7\./.exec(read("docs/API_SPEC.md"));
       expect(match, "API_SPEC.md has no section 6 for the journey list").not.toBeNull();
       return match?.[1] ?? "";
     };
-    /** First-column names of the parameter table. */
-    const documented = (): string[] =>
-      [...section().matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((m) => m[1] ?? "");
+    /** First-column names of the parameter table, which is the section's first. */
+    const documented = (): string[] => firstTableKeys(section());
 
     it("documents exactly the query parameters the route reads", () => {
       // The parser refuses every other key, so its list is the route's.
@@ -310,6 +405,33 @@ describe("the documentation's checkable claims", () => {
       );
       expect(route?.[0]).toContain("parseLimit(request.query)");
       expect(route?.[0]).toContain("cursorParam(request.query)");
+    });
+
+    it("says what each status means, and that a retry clears rather than completes", () => {
+      // ADR-061's consequences: the vocabulary has to say what a successful
+      // retry does and what `completed` means, or the status filter names three
+      // words with no meanings attached.
+      const text = section();
+      expect(text).toContain("What a journey's status means");
+      expect(text).toContain("ADR-061");
+      expect(text).toContain("clears a failure and does not complete the journey");
+      // `completed` is the one operation that sets it, at or after the watermark.
+      expect(text).toMatch(/`completed` operation at or after the newest event's timestamp/);
+    });
+
+    it("does not let completedAt be read as tracking the status", () => {
+      // The update writes completed_at in one branch and never writes null, so
+      // a journey cleared back to `active` keeps the one it had. A reader who
+      // took the documentation for "active implies no completedAt" would be
+      // wrong on a path ADR-031 makes ordinary.
+      const update = read("packages/database/src/repositories/journeys.ts");
+      const clause = /completed_at = case([\s\S]*?)\n {6}end,/.exec(update)?.[1] ?? "";
+      expect(clause, "the completed_at clause moved").not.toBe("");
+      expect(clause).not.toContain("null");
+
+      const text = section();
+      expect(text).toContain("`completedAt` does not track the status");
+      expect(text).toContain("never cleared");
     });
 
     it("lists the statuses the database allows", () => {

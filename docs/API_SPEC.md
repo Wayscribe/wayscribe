@@ -20,19 +20,36 @@ Authentication for SDK ingestion:
 Authorization: Bearer <project-environment-api-key>
 ```
 
-Authentication for reads:
+Authentication for reads, with the admin token:
 
 ```text
 Authorization: Bearer <admin-token>
 x-wayscribe-project-id: <project-id>
 ```
 
+Authentication for reads, with an API key:
+
+```text
+Authorization: Bearer <project-environment-api-key>
+```
+
 The header is exactly the scheme, one space, and the token. The scheme is read in
 any case; anything after the token, a trailing space included, is `401`.
 
-An API key is scoped to one project and one environment and may ingest. An admin
-token reads across every environment of one **named** project and may not ingest
-(ADR-029).
+**Either credential may read.** An API key is scoped to one project and one
+environment: it may ingest, and it reads its own environment and nothing else.
+An admin token reads across every environment of one **named** project and may
+not ingest, because ingestion writes into a specific environment and an admin
+token names none (ADR-029). A key names its own project, so it sends no
+`x-wayscribe-project-id`; the header is how an admin names one.
+
+The reads both credentials serve are search (section 5), the journey list
+(section 6), a journey (section 7), its events (section 8) and an event
+(section 9). The rest take the admin token alone: `GET /v1/projects` below,
+every replay route (sections 10 to 13, 19) because replay sends stored data to
+a destination and an API key must be refused outright rather than resolved
+(ADR-032), and every deletion (sections 17 and 18) because keys ingest and
+never delete (ADR-045).
 
 `x-wayscribe-project-id` selects that project. It may be omitted when the
 installation has exactly one project, in which case the API resolves it; with
@@ -160,10 +177,10 @@ ingestion, so that the two documents cannot answer the same question differently
 ## 5. Search
 
 ```http
-GET /v1/search?q=<query>&limit=25&cursor=<cursor>
+GET /v1/search?q=<query>&since=<instant>&until=<instant>&environment=<name>&limit=25&cursor=<cursor>
 ```
 
-Searches project-scoped:
+Resolves one value against every identifier it could be, project-scoped:
 
 - primary entity ID
 - alias
@@ -172,6 +189,41 @@ Searches project-scoped:
 - span ID
 - message ID
 - correlation ID
+
+| Parameter | Meaning |
+| --- | --- |
+| `q` | Required. The value to resolve. Surrounding white space is removed. |
+| `since` | An ISO 8601 instant with a time zone, such as `2026-08-06T18:00:00Z`. Journeys whose last activity is at or after it. Omitted or empty means no lower bound. |
+| `until` | An ISO 8601 instant with a time zone, after `since`. Journeys whose last activity is before it. Omitted or empty means no upper bound. |
+| `environment` | An environment name. Omitted or empty means every environment the caller can read. |
+| `limit` | Page size, 25 by default, at most 100. |
+| `cursor` | `nextCursor` from the previous page. |
+
+**Without a window the search spans the project's whole history.** There is no
+default: `since` and `until` are optional here, unlike the journey list's
+required `since` (section 6), because search is the endpoint a caller reaches
+for with an identifier in hand and usually wants every trace of it. That is
+safe for a value that never repeats, such as a journey ID or a trace ID, and
+surprising for one that does. An alias drawn from a fixed set, an email address
+or a phone number, is recorded again on every run, so searching for it returns
+every journey that ever carried it, not the one from the run in hand. Give the
+run's own `since` and `until` when that matters; they are the same bounds, on
+the same `lastEventAt`, that section 6 takes, so one pair narrows both
+endpoints.
+
+The window selects journeys, not events: a journey whose matching event falls
+inside the window but whose last activity is after `until` is outside it. The
+bounds are half-open, `since` inclusive and `until` exclusive, so two adjacent
+windows neither overlap nor skip a journey.
+
+**What `environment` means depends on who is asking.** It is applied on top of
+the caller's scope, never instead of it (ADR-029). An API key already reads its
+own environment and nothing else, so naming that environment restates the
+scope and changes nothing, and naming any other returns an empty page rather
+than an error, because outside its scope nothing exists. It cannot widen what a
+key can see. For the admin token, which reads every environment of the named
+project, it picks one of them. Scope is otherwise the same as the journey
+list's.
 
 Response:
 
@@ -208,8 +260,21 @@ before the server kept plain-text copies is listed once an event states it
 again. A displayable value containing a NUL is never listed or matched by `q`,
 because the server keeps no plain-text copy of it; the journey read shows it.
 
-A missing or empty `q`, or `q` given more than once, is `400` `invalid_query`. A
-`cursor` given more than once is `400` `invalid_cursor`, on every list endpoint.
+`400 invalid_query` when `q` is missing or empty, or is given more than once;
+when `since` or `until` is not a full instant with a time zone (the message
+gives an example of one) or names an impossible date; when `since` is more than
+60 seconds ahead of the API's clock (a minute of skew between the caller and
+the API is tolerated); when `until` is not after `since`; when any value holds
+a NUL; when `since`, `until` or `environment` is given more than once; or when
+the query names a parameter this search does not have, so that a misspelt
+filter is not silently ignored. `until` has no clock check: a range that ends
+after now still searches everything up to now, whereas a future `since` could
+only find nothing. A `cursor` given more than once, or a malformed one, is
+`400` `invalid_cursor`, on every list endpoint.
+
+A cursor holds a position only, `lastEventAt` and `journeyId`, and never the
+filters, which always come from the request, so keep the window fixed while
+paging, exactly as section 6 says.
 
 ## 6. List journeys
 
@@ -231,13 +296,39 @@ where. Journeys are ordered by last activity, newest first (`lastEventAt`, then
 | --- | --- |
 | `since` | Required. An ISO 8601 instant with a time zone, such as `2026-08-06T18:00:00Z`. Journeys whose last activity is at or after it. |
 | `until` | An ISO 8601 instant with a time zone, after `since`. Journeys whose last activity is before it. Omitted or empty means no upper bound. |
-| `status` | `active`, `completed` or `failed`. Omitted or empty means any status. |
+| `status` | `active`, `completed` or `failed`. Omitted or empty means any status. See the status vocabulary below. |
 | `environment` | An environment name. Omitted or empty means every environment the caller can read. |
 | `service` | An exact service name. Journeys with at least one event recorded by that service. |
 | `entityType` | An exact entity type, at most 128 characters, after surrounding white space is removed. Omitted, empty or white space alone means any entity type. A type stored with surrounding white space cannot be matched. |
 | `q` | Text of 2 to 200 characters, after surrounding white space is removed. Journeys whose label, or the value of one of whose displayable aliases, contains it, ignoring case. Omitted, empty or white space alone means no text filter. |
 | `limit` | Page size, 25 by default, at most 100. |
 | `cursor` | `nextCursor` from the previous page. |
+
+**What a journey's status means.** A journey is `active` until an event says
+otherwise, and every read that returns a journey returns one of three values.
+
+| Status | What it means |
+| --- | --- |
+| `active` | The journey is running, or has been running and nothing has said it ended. |
+| `completed` | The run reached its end: a `completed` operation at or after the newest event's timestamp, which in practice is the SDK's `finish()`. Nothing else sets it. |
+| `failed` | Some event carried an error or the operation `failed`. A failure registers whatever its timestamp says, because a step that fails slowly is stamped before it arrives. |
+
+A **successful retry clears a failure and does not complete the journey**
+(ADR-061). A `retried` event carrying no error is the success of a step that
+failed before, since an SDK records a retried call as `retried` whichever way
+it comes out, and it returns the status to `active` rather than to
+`completed`. A journey that retried successfully and then died without
+finishing must not read as completed: a falsely reassuring status is worse
+than a stale alarming one. A `retried` event that carries an error is an
+ordinary failure. The clearing follows the same ordering rules as any other
+status change, so a retry stamped before the newest event changes nothing.
+
+**`completedAt` does not track the status.** It is set only by a `completed`
+operation, so a retry never sets one, and it is **never cleared**, so a journey
+that completed, then failed, then was cleared back to `active` by a successful
+retry keeps the `completedAt` it was given. Read it as "when this journey last
+recorded a completion", not as "this journey is complete"; the status is the
+field that answers that. A journey that never completed has `completedAt` null.
 
 **What `q` matches.** Only the two values stored in plain text: the journey's
 `label` and the values of its displayable aliases (ADR-053). It never matches
@@ -349,6 +440,11 @@ Response:
 }
 ```
 
+`completedAt` is when the journey last recorded a `completed` operation at or
+after the newest event's timestamp, and null when it never has. It is never
+cleared, so it can be set on a journey whose `status` is `failed` or `active`:
+the two fields answer different questions, and section 6 has the rule.
+
 `label` and `lastStep` are as in a search result (section 5). An alias's
 `displayValue` is masked unless `displayable` is true, which it is
 only when every event that stated the alias listed it in `displayableAliases`
@@ -379,6 +475,7 @@ Response:
         "name": "receive-salesforce-webhook",
         "service": "customer-integration",
         "eventTimestamp": "2026-08-06T18:31:02.000Z",
+        "receivedAt": "2026-08-06T18:31:02.140Z",
         "durationMs": 18,
         "hasInput": true,
         "hasOutput": false,
@@ -389,6 +486,12 @@ Response:
   }
 }
 ```
+
+Every item carries all ten fields. `receivedAt` is when the server received the
+event, as opposed to `eventTimestamp`, which is when the instrumented service
+says it happened; it is the second term of the ordering above, so a caller that
+reproduces the order needs it. `durationMs` is null when the event recorded no
+duration.
 
 ## 9. Get event details
 
@@ -536,9 +639,43 @@ GET /health
 GET /ready
 ```
 
-`/health` checks the process.
+`/health` checks the process and nothing else. It answers `{ "status": "ok" }`,
+it never touches the database, and it carries no version: a load balancer hits
+it every few seconds and it stays the cheapest possible answer.
 
-`/ready` verifies required dependencies such as PostgreSQL.
+`/ready` verifies required dependencies such as PostgreSQL, and says what the
+API is running:
+
+```json
+{
+  "status": "ready",
+  "version": "v0.1.0",
+  "commit": "27f4d64e0b5a63f0d0b3e2a1c4d5e6f708192a3b",
+  "source": "build"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `status` | `ready`, or `not_ready` with a `reason` and a 503. |
+| `version` | What this process is running. |
+| `commit` | The commit the image was built from. Absent when the build recorded none. |
+| `source` | `build` when the published image baked the value in at build time, so it is a fact about the artefact; `package` when nothing was baked in, which means a source run or a hand-built image, and the value is only the workspace's own version. |
+
+The three fields are on the 503 answers too, because when something is wrong
+the first question is what is running.
+
+**Where the value comes from.** The published image bakes it in: the
+`WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT` build arguments in
+`apps/api/Dockerfile`, which the release fills with the tag it is about to
+create and the commit it built. There is no runtime shell-out to git, because
+the image carries no git history, no working tree and no git binary; a
+shell-out could only answer for whichever machine ran the container. A build
+that passes neither argument reports `"source": "package"` and the version in
+`apps/api/package.json`, which is `0.0.0`: not a release, and saying so.
+
+The answer is unauthenticated, as both endpoints already are. It repeats what
+the image tag says in the registry and is derived from no stored data.
 
 Metrics are not on this port. With `METRICS_PORT` set, the API serves
 `GET /metrics` on that port alone (`docs/OPERATIONS.md` §13); `/metrics` on the

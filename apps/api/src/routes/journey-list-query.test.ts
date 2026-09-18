@@ -6,6 +6,18 @@ const parse = (query: Record<string, unknown>): ReturnType<typeof parseJourneyLi
   parseJourneyListQuery(query, NOW);
 
 describe("parseJourneyListQuery", () => {
+  it("refuses a key holding a null byte without repeating it", () => {
+    // The same rule on the list, which shares the parser's primitives.
+    const nul = String.fromCharCode(0);
+    const parsed = parse({ since: "2026-09-14T12:00:00Z", [`since${nul}`]: "y" });
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.message).toBe(
+      "A parameter name must not contain a null byte. Known parameters: since, until, status, environment, service, entityType, q, limit, cursor."
+    );
+    expect(parsed.message).not.toContain(nul);
+  });
+
   it("needs only since", () => {
     expect(parse({ since: "2026-09-14T12:00:00Z" })).toEqual({
       ok: true,

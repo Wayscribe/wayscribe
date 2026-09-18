@@ -14,6 +14,7 @@ import { registerQueryRoutes } from "./routes/queries.js";
 import { registerReplayRoutes } from "./routes/replays.js";
 import { errorBody } from "./admin.js";
 import { registerAuthThrottle } from "./auth-throttle.js";
+import type { RunningVersion } from "./version.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -53,6 +54,11 @@ export interface BuildAppOptions {
    * and ignores the header, which any client can set.
    */
   trustedProxyCount?: number;
+  /**
+   * What `/ready` says this process is running. Defaults to what the image was
+   * built as, falling back to the package version; a test injects one.
+   */
+  running?: RunningVersion;
 }
 
 /**
@@ -262,7 +268,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   // One per app, and the API builds one app per process: each missing key id
   // is logged once however many reads meet it.
   const warnUnknownKey = unknownKeyWarning(app.log);
-  registerHealthRoutes(app);
+  registerHealthRoutes(app, options.running);
   registerEventRoutes(
     app,
     options.keyring,
