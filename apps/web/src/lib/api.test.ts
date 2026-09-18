@@ -62,7 +62,8 @@ describe("getEvent", () => {
    * /api/events on a later click. A key named `__proto__` in the API's JSON
    * survived the second and was lost in the first, so the same event showed
    * different metadata. `getEvent` hands out metadata as lists of plain
-   * strings, which both ways carry intact, and no raw metadata object at all.
+   * strings and payloads as text (`eventForDisplay`), which both ways carry
+   * intact, and no raw object at all.
    */
   const RAW = `{"data":{"id":"evt_1","journeyId":"jrn_1","operation":"delivered","name":"push",
     "service":"s","eventTimestamp":"2026-09-18T00:00:00.000Z","receivedAt":"2026-09-18T00:00:00.000Z",
@@ -88,9 +89,16 @@ describe("getEvent", () => {
     expect(event?.metadata?.runtime.entries).toEqual([]);
   });
 
-  it("hands out no raw metadata object to be serialised", async () => {
+  it("hands out no raw payload, error or metadata object to be serialised", async () => {
     const event = await fetched();
-    for (const field of ["customMetadata", "deploymentMetadata", "runtimeMetadata"]) {
+    for (const field of [
+      "inputPayload",
+      "outputPayload",
+      "error",
+      "customMetadata",
+      "deploymentMetadata",
+      "runtimeMetadata"
+    ]) {
       expect(Object.hasOwn(event ?? {}, field), field).toBe(false);
     }
   });

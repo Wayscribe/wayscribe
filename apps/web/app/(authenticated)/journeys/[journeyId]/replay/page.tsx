@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DiffTable } from "../../../../components/DiffTable";
+import { displayChange } from "../../../../../src/lib/event-display";
 import { ReplayFailure } from "../../../../components/ReplayFailure";
 import { ReplayHeaders } from "../../../../components/ReplayHeaders";
 import {
@@ -109,7 +110,7 @@ export default async function ReplayPage({
                 tags: web, replay
                 debtwatch:end */}
             <h2>What will be sent</h2>
-            <pre className="mono block">{JSON.stringify(event.inputPayload, null, 2)}</pre>
+            <pre className="mono block">{event.inputText}</pre>
             <p className="muted">
               Credentials recorded with the original request are never replayed. Wayscribe sends its
               own user agent and any header the destination has configured.
@@ -175,7 +176,7 @@ function Result({ run }: { run: NonNullable<Awaited<ReturnType<typeof getReplay>
         </p>
       ) : (
         <>
-          <DiffTable changes={run.comparison.changes} />
+          <DiffTable changes={run.comparison.changes.map(displayChange)} />
           <p className="muted">
             This compares what the step originally produced against what the destination returned
             now. Redacted fields compare as unchanged, so this cannot show that a redacted value was

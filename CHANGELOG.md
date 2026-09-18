@@ -276,6 +276,15 @@ What you have to do when upgrading a checkout or a deployment:
   disappeared from the screen (F-044). Keys and values are shown as escaped
   text, never as markup; at most 50 entries per kind and 300 characters per key
   or value are shown, and the page says how many entries it left out.
+- **An event shows the same payload keys however it is reached.** On an
+  event's first load, with or without JavaScript, a payload or diff value key
+  named `__proto__`, at any depth, was dropped, so a stored `{"__proto__":1}`
+  showed as `{}`, while choosing the same step on the timeline showed every
+  key. The web app now writes payloads, the error, diff values and metadata as
+  text on the server, in one function every page and the timeline read an
+  event through, so both ways show the same text. The text is unchanged:
+  payloads and errors pretty-printed, diff values compact, and a missing side
+  of a change shown as a dash.
 - **The Journeys page** (ADR-054). `/journeys` lists what happened in a period,
   any status and the last 24 hours by default, as a table of last activity,
   status, entity type, what the journey is shown as, last step and events. It

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { API_KEY, API_URL, signIn } from "./session";
 
 /**
@@ -94,5 +94,82 @@ test.describe("a metadata key named __proto__", () => {
     await expect(custom.getByRole("term")).toHaveText(["other"]);
     await page.getByRole("link", { name: /step-0/ }).click();
     await expect(custom.getByRole("term")).toHaveText(["__proto__", "queue"]);
+  });
+});
+
+/**
+ * The same, for payloads: a key named `__proto__` at any depth of the input,
+ * the output or a changed value. A review measured every such key missing on
+ * first load and present after a click.
+ */
+const PAYLOAD_JOURNEY_ID = `jrn_e2e_payload_proto_${RUN}`;
+
+test.describe("a payload key named __proto__", () => {
+  test.beforeAll(async () => {
+    const events = [
+      {
+        name: "transform-0",
+        operation: "transformed",
+        payloads:
+          ',"input":{"customer":{"__proto__":{"tier":"gold"},"name":"Ada"}}' +
+          ',"output":{"customer":{"__proto__":{"tier":"gold"},"name":"Ada","extra":{"__proto__":"p","k":1}}}'
+      },
+      { name: "step-1", operation: "delivered", payloads: "" }
+    ];
+    for (const [index, { name, operation, payloads }] of events.entries()) {
+      // Written as text, for the reason the metadata case above gives.
+      const body = `{"protocolVersion":"0.1","event":{"id":"evt_payload_proto_${RUN}_${String(index)}","journeyId":"${PAYLOAD_JOURNEY_ID}","environment":"development","service":"job-sweep","entity":{"type":"lead","id":"E2E-PAYLOAD-PROTO-${RUN}"},"operation":"${operation}","name":"${name}","timestamp":"${new Date(Date.now() + index * 1000).toISOString()}"${payloads}}}`;
+      const response = await fetch(`${API_URL}/v1/events`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json" },
+        body
+      });
+      expect(response.ok, `seeding answered ${String(response.status)}`).toBe(true);
+    }
+  });
+
+  test("is shown in the payloads and the diff on first load and after choosing the step again", async ({
+    page
+  }) => {
+    await signIn(page, PAYLOAD_JOURNEY_ID);
+    const payload = (label: string): Locator =>
+      page
+        .locator(".split > div", { has: page.locator(".label", { hasText: label }) })
+        .locator("pre");
+
+    const expectKeys = async (): Promise<void> => {
+      await expect(payload("Input")).toContainText('"__proto__": {');
+      await expect(payload("Input")).toContainText('"tier": "gold"');
+      await expect(payload("Output")).toContainText('"__proto__": "p"');
+      // The stored diff's key order is the database's, so only the key is checked.
+      await expect(page.locator("table.diff td.added")).toContainText('"__proto__":"p"');
+    };
+
+    const detail = page.locator("section", {
+      has: page.getByRole("heading", { level: 2, name: "transform-0" })
+    });
+
+    await page.goto(`/journeys/${PAYLOAD_JOURNEY_ID}?event=evt_payload_proto_${RUN}_0`);
+    await expectKeys();
+    const firstLoad = await detail.innerText();
+
+    await page.getByRole("link", { name: /step-1/ }).click();
+    await expect(page.getByRole("heading", { level: 2, name: "step-1" })).toBeVisible();
+    await page.getByRole("link", { name: /transform-0/ }).click();
+    await expectKeys();
+    // Both ways read the event through getEvent, so the text is the same.
+    // Text, not markup: server-rendered HTML carries React's text separators.
+    expect(await detail.innerText()).toBe(firstLoad);
+  });
+  test("is in the server-rendered page, with JavaScript off", async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await signIn(page, PAYLOAD_JOURNEY_ID);
+    await page.goto(`/journeys/${PAYLOAD_JOURNEY_ID}?event=evt_payload_proto_${RUN}_0`);
+    const main = page.locator("main");
+    await expect(main).toContainText('"tier": "gold"');
+    await expect(main).toContainText('"__proto__": "p"');
+    await expect(page.locator("table.diff td.added")).toContainText('"__proto__":"p"');
+    await context.close();
   });
 });

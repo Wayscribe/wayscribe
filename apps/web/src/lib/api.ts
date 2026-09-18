@@ -1,5 +1,6 @@
 import { webConfig } from "./config";
-import { metadataEntries, type EventMetadataLists } from "./metadata";
+import { eventForDisplay, type ApiEventDetail, type DisplayedChange } from "./event-display";
+import type { EventMetadataLists } from "./metadata";
 
 export interface SearchItem {
   journeyId: string;
@@ -67,14 +68,22 @@ export interface EventDetailData extends EventListItem {
   receivedAt: string;
   traceId: string | null;
   messageId: string | null;
-  inputPayload: unknown;
-  outputPayload: unknown;
-  payloadDiff: { changes: DiffChange[]; truncated: boolean } | null;
-  error: unknown;
+  /**
+   * The input and output payloads as the page shows them, pretty-printed on
+   * the server by `eventForDisplay` (`event-display.ts`), never the raw
+   * values: see there for why only text reaches the browser.
+   */
+  inputText: string;
+  outputText: string;
+  /** The error, pretty-printed, or null when the step recorded none. */
+  errorText: string | null;
+  /** False when either payload is a marker the SDK stored instead of it. */
+  payloadsCaptured: boolean;
+  payloadDiff: { changes: DisplayedChange[]; truncated: boolean } | null;
   /**
    * What the instrumented code attached, `metadata`, `deployment` and
-   * `runtime` on the event it sent, as `getEvent` lists it: keys and values
-   * as bounded text. Absent means none was recorded.
+   * `runtime` on the event it sent, as keys and values of bounded text.
+   * Absent means none was recorded.
    */
   metadata?: EventMetadataLists;
 }
@@ -260,37 +269,19 @@ export function listEvents(
   );
 }
 
-/** The event as `GET /v1/events/:id` answers it, before its metadata is listed. */
-type ApiEventDetail = Omit<EventDetailData, "metadata"> & {
-  customMetadata?: unknown;
-  deploymentMetadata?: unknown;
-  runtimeMetadata?: unknown;
-};
-
 /**
- * One event, with its metadata turned into lists of text here, on the server.
- *
- * Before it reaches a page, the event crosses to the browser either as a prop
- * React serialises (first load) or as JSON from /api/events (a later click),
- * and the two did not agree on a metadata key named `__proto__`: the first
- * dropped it. Lists of plain strings cross both ways intact, so the raw
- * metadata objects never leave this function.
+ * One event, as the page shows it: every payload, diff value, error and
+ * metadata entry already turned into text by `eventForDisplay`, here on the
+ * server. The journey page, the replay page and the /api/events route all
+ * read an event through this one function, so a first load and a later click
+ * show byte-identical text.
  */
 export async function getEvent(
   eventId: string,
   projectId: string
 ): Promise<EventDetailData | null> {
   const raw = await get<ApiEventDetail>(`/v1/events/${encodeURIComponent(eventId)}`, projectId);
-  if (raw === null) return null;
-  const { customMetadata, deploymentMetadata, runtimeMetadata, ...event } = raw;
-  return {
-    ...event,
-    metadata: {
-      custom: metadataEntries(customMetadata),
-      deployment: metadataEntries(deploymentMetadata),
-      runtime: metadataEntries(runtimeMetadata)
-    }
-  };
+  return raw === null ? null : eventForDisplay(raw);
 }
 
 /**

@@ -3,31 +3,33 @@ import { join } from "node:path";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { EventDetailData } from "../../src/lib/api";
+import { eventForDisplay, type ApiEventDetail } from "../../src/lib/event-display";
 import { AliasList } from "./AliasList";
 import { EventDetail } from "./EventDetail";
 import { EXPLANATIONS } from "./explanations";
 import { JourneyHeading } from "./JourneyHeading";
 
-const event = (overrides: Partial<EventDetailData>): EventDetailData => ({
-  id: "evt_1",
-  journeyId: "jrn_1",
-  operation: "transformed",
-  name: "transform-customer",
-  service: "webhook-api",
-  eventTimestamp: "2026-09-16T08:00:00.000Z",
-  receivedAt: "2026-09-16T08:00:00.100Z",
-  durationMs: null,
-  hasInput: false,
-  hasOutput: false,
-  hasError: false,
-  traceId: null,
-  messageId: null,
-  inputPayload: null,
-  outputPayload: null,
-  payloadDiff: null,
-  error: null,
-  ...overrides
-});
+const event = (overrides: Partial<ApiEventDetail>): EventDetailData =>
+  eventForDisplay({
+    id: "evt_1",
+    journeyId: "jrn_1",
+    operation: "transformed",
+    name: "transform-customer",
+    service: "webhook-api",
+    eventTimestamp: "2026-09-16T08:00:00.000Z",
+    receivedAt: "2026-09-16T08:00:00.100Z",
+    durationMs: null,
+    hasInput: false,
+    hasOutput: false,
+    hasError: false,
+    traceId: null,
+    messageId: null,
+    inputPayload: null,
+    outputPayload: null,
+    payloadDiff: null,
+    error: null,
+    ...overrides
+  });
 
 /** The one muted paragraph holding `text`, however it is split across nodes. */
 const mutedParagraphWith = (text: string): HTMLElement => {

@@ -1,11 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { DiffChange } from "../../src/lib/api";
-
-function render(value: unknown): string {
-  return value === undefined ? "—" : JSON.stringify(value);
-}
+import type { DisplayedChange } from "../../src/lib/event-display";
 
 /** Enough to show the shape of a change without scrolling past the replay link. */
 const COLLAPSED_ROWS = 8;
@@ -18,6 +14,9 @@ const COLLAPSED_ROWS = 8;
  * `Phone` versus `phone` — so a single-column rendering would have to pick one
  * and mislead about the other.
  *
+ * The values arrive as text, written on the server (`displayChange`): a value
+ * crossing to the browser as an object would lose a key named `__proto__`.
+ *
  * Rows are never reordered when collapsed: the API's order is the order a
  * reader can reason about, and "the interesting rows first" is a judgement the
  * tool has no basis to make.
@@ -27,7 +26,7 @@ export function DiffTable({
   compared = true,
   collapsible = false
 }: {
-  changes: DiffChange[];
+  changes: DisplayedChange[];
   /** False when one side was never captured, so there was nothing to compare. */
   compared?: boolean;
   /** Show the first rows and a button for the rest. Off for the replay view. */
@@ -72,8 +71,8 @@ export function DiffTable({
           {rows.map((change) => (
             <tr key={`${change.path}-${change.kind}`}>
               <td className="mono">{change.path}</td>
-              <td className="mono removed">{render(change.before)}</td>
-              <td className="mono added">{render(change.after)}</td>
+              <td className="mono removed">{change.before}</td>
+              <td className="mono added">{change.after}</td>
             </tr>
           ))}
         </tbody>
