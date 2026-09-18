@@ -518,7 +518,8 @@ button[aria-busy="true"] {
   white-space: nowrap;
 }
 .timeline a > .step,
-.timeline a > .service {
+.timeline a > .service,
+.timeline a > .build {
   flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
@@ -526,6 +527,11 @@ button[aria-busy="true"] {
 }
 .timeline a > .service {
   margin-left: auto;
+}
+/* A version can be 128 characters; cut on the row, whole in its title and in
+   the event's Deployment group. */
+.timeline a > .build {
+  font-size: 0.75rem;
 }
 .step.failed {
   color: var(--failed);

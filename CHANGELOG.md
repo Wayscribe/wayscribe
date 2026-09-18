@@ -289,6 +289,15 @@ What you have to do when upgrading a checkout or a deployment:
   other step the section appears only when it stated some. Types and values
   are shown as escaped text, at most 300 characters each, and read the same
   on first load, after choosing the step, and with JavaScript off.
+- **Each timeline row names the build that recorded it** (F-043). After the
+  service, a row shows the event's deployment version and commit, the commit
+  cut to 12 characters, as `1.4.2 · 3cd2c2034c6d`, with both in full in its
+  title, so a journey recorded by one build reads the same label down the
+  list and a second build stands out. A row whose event named no version or
+  commit shows none; an image alone is left to the event's Deployment group.
+  The label is made as escaped text on the server from the row's
+  `deploymentMetadata`, is cut on the row rather than widening it, and is in
+  the page with JavaScript off.
 - **An event shows the same payload keys however it is reached.** On an
   event's first load, with or without JavaScript, a payload or diff value key
   named `__proto__`, at any depth, was dropped, so a stored `{"__proto__":1}`

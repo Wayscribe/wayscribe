@@ -12,11 +12,14 @@ import { API_KEY, API_URL, signIn } from "./session";
  */
 
 // Versioned for the reason journey.spec.ts gives: an event is immutable.
-const VERSION = "v1";
+const VERSION = "v2";
 const JOURNEY_ID = `jrn_e2e_layout_${VERSION}`;
 const STEP = `step-${"n".repeat(250)}`;
 const SERVICE = `svc-${"s".repeat(124)}`;
 const ENTITY = `layout-${"e".repeat(300)}-${VERSION}`;
+// The longest version and commit the protocol takes (F-043): the row cuts
+// them, and the event's Deployment group wraps them.
+const DEPLOYMENT = { version: `v-${"9".repeat(126)}`, gitCommit: "c".repeat(128) };
 
 async function seed(): Promise<void> {
   const events = [
@@ -39,7 +42,8 @@ async function seed(): Promise<void> {
           name,
           timestamp: `2026-09-16T${time}.000Z`,
           input: { a: 1 },
-          output: { a: 2 }
+          output: { a: 2 },
+          deployment: DEPLOYMENT
         }
       })
     });
@@ -78,6 +82,21 @@ for (const width of [400, 1280]) {
       .first()
       .evaluate((element) => element.scrollWidth > element.clientWidth);
     expect(cut).toBe(true);
+
+    // The build is cut on the row too, and whole in its title.
+    const build = row.locator(".build");
+    await expect(build).toHaveAttribute(
+      "title",
+      `Recorded by version ${DEPLOYMENT.version}, commit ${DEPLOYMENT.gitCommit}`
+    );
+    const buildBox = await build.boundingBox();
+    expect((buildBox?.x ?? 0) + (buildBox?.width ?? 0)).toBeLessThanOrEqual(
+      (rowBox?.x ?? 0) + (rowBox?.width ?? 0)
+    );
+    expect(await build.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    await expect(page.getByRole("group", { name: "Deployment" })).toContainText(
+      DEPLOYMENT.gitCommit
+    );
   });
 }
 

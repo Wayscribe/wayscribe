@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { displayChange, eventForDisplay, type ApiEventDetail } from "./event-display";
+import {
+  displayChange,
+  eventForDisplay,
+  rowForDisplay,
+  type ApiEventDetail,
+  type ApiEventRow
+} from "./event-display";
 import { MAX_METADATA_TEXT, metadataEntries, runtimeFormat } from "./metadata";
 
 /** An event as `GET /v1/events/:id` answers it, parsed from its JSON text. */
@@ -283,5 +289,67 @@ describe("the aliases an event stated", () => {
     const [alias] = event.statedAliases ?? [];
     expect(Array.from(alias?.type ?? "")).toHaveLength(MAX_METADATA_TEXT + 1);
     expect(alias?.value.endsWith("…")).toBe(true);
+  });
+});
+
+/**
+ * F-043: timeline rows carry `deploymentMetadata`, so a row can name the build
+ * that recorded it and a reader can see whether a journey came from one build.
+ */
+describe("rowForDisplay", () => {
+  const row = (fields: string): ApiEventRow =>
+    JSON.parse(`{"id":"evt_1","operation":"transformed","name":"step","service":"s",
+      "eventTimestamp":"2026-09-18T00:00:00.000Z","receivedAt":"2026-09-18T00:00:00.000Z",
+      "durationMs":null,"hasInput":true,"hasOutput":true,"hasError":false${fields}}`) as ApiEventRow;
+  const COMMIT = "3cd2c2034c6d3607a2b8d047ab7758f96d7b5604";
+
+  it("names the version and the commit, cut to twelve characters, with both in full on hover", () => {
+    expect(
+      rowForDisplay(row(`,"deploymentMetadata":{"version":"1.4.2","gitCommit":"${COMMIT}"}`)).build
+    ).toEqual({
+      label: "1.4.2 · 3cd2c2034c6d",
+      title: `Recorded by version 1.4.2, commit ${COMMIT}`
+    });
+  });
+
+  it("names whichever of the two the event carried", () => {
+    expect(rowForDisplay(row(',"deploymentMetadata":{"version":"1.4.2"}')).build).toEqual({
+      label: "1.4.2",
+      title: "Recorded by version 1.4.2"
+    });
+    expect(rowForDisplay(row(`,"deploymentMetadata":{"gitCommit":"${COMMIT}"}`)).build).toEqual({
+      label: "commit 3cd2c2034c6d",
+      title: `Recorded by commit ${COMMIT}`
+    });
+  });
+
+  it.each([
+    ["no deployment", ',"deploymentMetadata":null'],
+    ["an older API that omits it", ""],
+    ["only an image", ',"deploymentMetadata":{"image":"registry/app:1"}'],
+    ["empty values", ',"deploymentMetadata":{"version":" ","gitCommit":""}'],
+    ["values that are not text", ',"deploymentMetadata":{"version":1,"gitCommit":["a"]}'],
+    ["a deployment that is not an object", ',"deploymentMetadata":"1.4.2"'],
+    ["fields only under __proto__", ',"deploymentMetadata":{"__proto__":{"version":"9"}}']
+  ])("names no build for %s", (_, fields) => {
+    expect(rowForDisplay(row(fields)).build).toBeNull();
+  });
+
+  it("does not read a version or commit from the prototype chain", () => {
+    const inherited = Object.create({ version: "9.9.9", gitCommit: "feedface" }) as object;
+    expect(rowForDisplay({ ...row(""), deploymentMetadata: inherited }).build).toBeNull();
+  });
+
+  it("hands out text only, and keeps the rest of the row", () => {
+    const shown = rowForDisplay(row(',"deploymentMetadata":{"version":"1.4.2"}'));
+    expect(Object.hasOwn(shown, "deploymentMetadata")).toBe(false);
+    expect(shown).toMatchObject({ id: "evt_1", name: "step", service: "s", hasInput: true });
+    expect(JSON.parse(JSON.stringify(shown)) as unknown).toEqual(shown);
+  });
+
+  it("bounds a version however long", () => {
+    const long = "v".repeat(MAX_METADATA_TEXT + 50);
+    const { build } = rowForDisplay(row(`,"deploymentMetadata":{"version":"${long}"}`));
+    expect(Array.from(build?.label ?? "")).toHaveLength(MAX_METADATA_TEXT + 1);
   });
 });

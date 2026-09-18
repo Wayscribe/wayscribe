@@ -78,3 +78,51 @@ describe("TimelineList rows", () => {
     expect(badge.getAttribute("title")).toBe("operation: transformed");
   });
 });
+
+/**
+ * F-043: each row names the build that recorded it, the way it names the
+ * service, so whether a journey came from one build reads down the list.
+ */
+describe("TimelineList builds", () => {
+  const build = {
+    label: "1.4.2 · 3cd2c2034c6d",
+    title: "Recorded by version 1.4.2, commit 3cd2c2034c6d3607"
+  };
+
+  it("names each row's build, with the whole of it on hover", () => {
+    renderList([
+      event("evt_1", { build }),
+      event("evt_2", { build: { label: "1.5.0", title: "Recorded by version 1.5.0" } })
+    ]);
+    const shown = screen.getAllByRole("option").map((row) => row.querySelector(".build"));
+    expect(shown.map((span) => span?.textContent)).toEqual(["1.4.2 · 3cd2c2034c6d", "1.5.0"]);
+    expect(shown[0]?.getAttribute("title")).toBe(build.title);
+  });
+
+  it("names none on a row whose event carried none, or from an older API", () => {
+    renderList([event("evt_1", { build: null }), event("evt_2")]);
+    for (const row of screen.getAllByRole("option")) expect(row.querySelector(".build")).toBeNull();
+  });
+
+  it("comes after the service in reading order", () => {
+    renderList([event("evt_1", { build })]);
+    const text = screen.getByRole("option").textContent;
+    expect(text.indexOf("job-sweep")).toBeLessThan(text.indexOf("1.4.2"));
+  });
+
+  it("renders markup in a build as text, never as elements", () => {
+    const markup = '<img src="x" onerror="alert(1)">';
+    const { container } = render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={[event("evt_1", { build: { label: markup, title: markup } })]}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector(".build")?.textContent).toBe(markup);
+  });
+});

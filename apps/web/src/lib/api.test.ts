@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiUnavailableError, InvalidPageLinkError, getEvent, listJourneys } from "./api";
+import {
+  ApiUnavailableError,
+  InvalidPageLinkError,
+  getEvent,
+  listEvents,
+  listJourneys
+} from "./api";
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -110,5 +116,42 @@ describe("getEvent", () => {
   it("comes through a JSON round trip unchanged", async () => {
     const event = await fetched();
     expect(JSON.parse(JSON.stringify(event)) as unknown).toEqual(event);
+  });
+});
+
+describe("listEvents", () => {
+  // F-043: the rows reach the browser as a prop on first load and as JSON on
+  // a poll, so each carries its build as text made here, and no raw object.
+  it("names each row's build and hands out no raw deployment", async () => {
+    fetchMock.mockResolvedValueOnce(
+      json({
+        data: {
+          items: [
+            {
+              id: "evt_1",
+              operation: "received",
+              name: "receive",
+              service: "s",
+              eventTimestamp: "2026-09-18T00:00:00.000Z",
+              receivedAt: "2026-09-18T00:00:00.000Z",
+              durationMs: null,
+              hasInput: false,
+              hasOutput: false,
+              hasError: false,
+              deploymentMetadata: { version: "2.4.1", gitCommit: "abc1234" }
+            }
+          ],
+          nextCursor: null
+        }
+      })
+    );
+    const page = await listEvents("jrn_1", "project-1");
+    const [item] = page?.items ?? [];
+    expect(item?.build).toEqual({
+      label: "2.4.1 · abc1234",
+      title: "Recorded by version 2.4.1, commit abc1234"
+    });
+    expect(Object.hasOwn(item ?? {}, "deploymentMetadata")).toBe(false);
+    expect(page?.nextCursor).toBeNull();
   });
 });

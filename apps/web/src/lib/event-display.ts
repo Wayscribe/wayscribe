@@ -1,4 +1,4 @@
-import type { DiffChange, EventDetailData } from "./api";
+import type { DiffChange, EventDetailData, EventListItem, RowBuild } from "./api";
 import { bounded, metadataEntries, runtimeFormat } from "./metadata";
 
 /**
@@ -140,4 +140,55 @@ function pretty(value: unknown): string {
 
 function compact(value: unknown): string {
   return value === undefined ? "—" : JSON.stringify(value);
+}
+
+/** A timeline row as `GET /v1/journeys/:id/events` answers it. */
+export type ApiEventRow = Omit<EventListItem, "build"> & { deploymentMetadata?: unknown };
+
+/**
+ * A timeline row as the page shows it (F-043): the row, with the build that
+ * recorded it as text in place of the raw `deploymentMetadata`. Made on the
+ * server by `listEvents`, which the journey page and the timeline's polls
+ * both read rows through, for the reason `eventForDisplay` gives.
+ */
+export function rowForDisplay(raw: ApiEventRow): EventListItem {
+  const { deploymentMetadata, ...row } = raw;
+  return { ...row, build: buildOf(deploymentMetadata) };
+}
+
+/** Characters of a commit a row shows; the whole of it is in the title. */
+const SHORT_COMMIT = 12;
+
+/**
+ * The version and commit a deployment names, or null when it names neither.
+ * The image alone is left to the event detail's Deployment group, where it
+ * is shown in full: on a one-line row it would only ever be cut. Read with
+ * `Object.hasOwn`, as `runtimeFormat` reads the sdk entry.
+ */
+function buildOf(deployment: unknown): RowBuild | null {
+  if (typeof deployment !== "object" || deployment === null || Array.isArray(deployment)) {
+    return null;
+  }
+  const text = (field: string): string | null => {
+    const value = Object.hasOwn(deployment, field)
+      ? (deployment as Record<string, unknown>)[field]
+      : undefined;
+    return typeof value === "string" && value.trim() !== "" ? bounded(value) : null;
+  };
+  const version = text("version");
+  const commit = text("gitCommit");
+  if (version === null && commit === null) return null;
+
+  const shortCommit = commit === null ? null : Array.from(commit).slice(0, SHORT_COMMIT).join("");
+  const label =
+    version === null
+      ? `commit ${shortCommit ?? ""}`
+      : shortCommit === null
+        ? version
+        : `${version} · ${shortCommit}`;
+  const named = [
+    ...(version === null ? [] : [`version ${version}`]),
+    ...(commit === null ? [] : [`commit ${commit}`])
+  ];
+  return { label, title: `Recorded by ${named.join(", ")}` };
 }

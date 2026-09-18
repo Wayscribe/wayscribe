@@ -108,6 +108,13 @@ export function TimelineList({
               </>
             )}
             <span className="muted service">{event.service}</span>
+            {/* The build, beside the service it ran in (F-043): a journey
+                recorded by one build reads the same label down the list. */}
+            {event.build == null ? null : (
+              <span className="muted mono build" title={event.build.title}>
+                {event.build.label}
+              </span>
+            )}
             {skewSeconds(event.eventTimestamp, event.receivedAt) > SKEW_THRESHOLD_SECONDS ? (
               <span
                 className="muted"
