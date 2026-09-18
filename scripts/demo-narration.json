@@ -1,0 +1,73 @@
+{
+  "voice": "af_heart",
+  "speed": 1.0,
+  "lang": "en-us",
+  "pronounce": {
+    "wayscribe.dev": "Way-scribe dot dev",
+    "Wayscribe": "Way-scribe",
+    "retried": "re-tried",
+    "replay the": "re-play the"
+  },
+  "sample": {
+    "voices": ["af_heart", "am_michael", "bf_emma"],
+    "text": "The phone goes in with a value, and comes out null. This is the step that lost it."
+  },
+  "lines": [
+    {
+      "name": "title",
+      "text": "A customer's phone number vanished somewhere between Salesforce and the CRM."
+    },
+    {
+      "name": "search",
+      "text": "Start with the account's Salesforce ID."
+    },
+    {
+      "name": "results",
+      "text": "Two journeys come back for this account. One completed, and one failed."
+    },
+    {
+      "name": "timeline",
+      "text": "Here is every step, across two services. Delivery to the CRM failed, was retried twice, then dead-lettered."
+    },
+    {
+      "name": "open-transform",
+      "text": "But delivery isn't where it broke. Open the transform step."
+    },
+    {
+      "name": "diff",
+      "text": "This is the payload before and after the step, field by field."
+    },
+    {
+      "name": "diff-phone",
+      "text": "The phone goes in with a value, and comes out null. This is the step that lost it."
+    },
+    {
+      "name": "good",
+      "text": "Now the journey that completed, for contrast."
+    },
+    {
+      "name": "good-phone",
+      "text": "Its payload carried the field the transform reads, so the phone kept its value."
+    },
+    {
+      "name": "replay-link",
+      "text": "Back on the failed journey, replay the step's recorded input."
+    },
+    {
+      "name": "replay-form",
+      "text": "It goes to a development destination running the fix, not to the original system."
+    },
+    {
+      "name": "replay-response",
+      "text": "The fixed transform answers with a 200."
+    },
+    {
+      "name": "replay-diff",
+      "text": "Original against replay. The phone was null, and now it's back."
+    },
+    {
+      "name": "end",
+      "text": "Wayscribe. Self-hosted, open source, at wayscribe.dev."
+    }
+  ]
+}

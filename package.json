@@ -29,6 +29,7 @@
     "cli": "pnpm --filter @wayscribe/cli exec node dist/cli.js",
     "screenshots": "node scripts/screenshots.mjs",
     "demo:video": "node scripts/demo-video.mjs",
+    "demo:narrate": "node scripts/demo-narrate.mjs",
     "brand": "node scripts/render-brand.mjs",
     "key:create": "pnpm --filter @wayscribe/database run \"key:create\" --",
     "key:revoke": "pnpm --filter @wayscribe/database run \"key:revoke\" --",

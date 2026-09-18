@@ -9,6 +9,12 @@
  *   docker compose -f infrastructure/compose.yaml \
  *     -f infrastructure/compose.demo.yaml up --build -d
  *   pnpm demo:video
+ *   pnpm demo:video --narrate
+ *
+ * With --narrate it first renders scripts/demo-narration.json with Kokoro (set
+ * up as scripts/demo-narrate.mjs describes), holds every caption on screen for
+ * at least its line plus a breath, so the recording is paced to the voice, and
+ * then writes wayscribe-demo-narrated.mp4 beside the silent video.
  *
  * Writes wayscribe-demo.mp4 (the whole walk-through, H.264) and
  * wayscribe-diff.gif (the diff moment, for the README) to OUT_DIR, plus a still
@@ -29,6 +35,7 @@ import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
+import { mixNarration, renderNarration } from "./demo-narrate.mjs";
 
 const WEB_URL = process.env["WEB_URL"] ?? "http://localhost:3000";
 const API_URL = process.env["API_URL"] ?? "http://localhost:8080";
@@ -38,6 +45,7 @@ const ENTITY_ID = process.env["ENTITY_ID"] ?? "0018Z00002ABC";
 const PROJECT = process.env["PROJECT_NAME"] ?? "Demo";
 const FFMPEG = process.env["FFMPEG"] ?? "ffmpeg";
 const OUT = process.env["OUT_DIR"] ?? join(tmpdir(), "wayscribe-demo-video");
+const NARRATE = process.argv.includes("--narrate");
 
 // 720p is what a README reader or a social feed plays. Playwright's recorder
 // captures CSS pixels, so a higher device scale factor adds nothing to it.
@@ -227,6 +235,30 @@ const marks = [];
 let recordingStartedAt = 0;
 const now = () => Date.now() - recordingStartedAt;
 
+/** Seconds each caption has to stay up for its narration, by name; empty when silent. */
+let holdFor = {};
+
+function addMark(name, text) {
+  marks.push({ name, text, at: now() });
+}
+
+/**
+ * Waits until the latest caption's narration has finished, less `reserveMs`:
+ * called before anything that changes the scene, so the voice never describes
+ * a screen that has already gone. A no-op without --narrate.
+ */
+async function hold(reserveMs = 0) {
+  const last = marks.at(-1);
+  const seconds = last === undefined ? undefined : holdFor[last.name];
+  if (seconds === undefined) return;
+  const remaining = last.at + seconds * 1000 - reserveMs - now();
+  if (remaining > 0) await sleep(remaining);
+}
+
+// The time a click spends gliding and pulsing before it lands; a hold with
+// this reserve lets the click land as the line ends.
+const CLICK_LEAD_MS = 1_000;
+
 function createDirector(page) {
   const cursor = { x: 640, y: 360 };
   let captionText = "";
@@ -247,10 +279,11 @@ function createDirector(page) {
   return {
     overlay,
     async caption(text, name) {
+      await hold();
       captionText = text;
       await overlay();
       await setCaptionText(text);
-      marks.push({ name, text, at: now() });
+      addMark(name, text);
       console.log(`  ${(now() / 1000).toFixed(1)}s  ${text}`);
     },
     async clearCaption() {
@@ -322,6 +355,8 @@ function createDirector(page) {
 // ---------------------------------------------------------------------------
 
 await mkdir(OUT, { recursive: true });
+// Render first: a broken voice setup should fail before the stack is touched.
+if (NARRATE) holdFor = await renderNarration(OUT);
 const RAW = join(OUT, "raw");
 await rm(RAW, { recursive: true, force: true });
 await mkdir(RAW, { recursive: true });
@@ -356,8 +391,9 @@ try {
   await page.setContent(
     CARD_HTML(["A customer's phone number vanished", "between Salesforce and the CRM.", "Where?"])
   );
-  marks.push({ name: "title", text: "Title card", at: now() });
+  addMark("title", "Title card");
   await sleep(4_500);
+  await hold();
 
   // 2. Search for the account.
   await page.goto(`${WEB_URL}/`);
@@ -381,6 +417,7 @@ try {
 
   // 3. The failed journey's timeline.
   const failedLink = page.locator(`a[href^='/journeys/${journeys.failed}']`).first();
+  await hold(CLICK_LEAD_MS);
   await director.click(failedLink, { wait: "networkidle" });
   await page.waitForSelector("text=All times UTC");
   await director.overlay();
@@ -398,6 +435,7 @@ try {
     "open-transform"
   );
   await sleep(1_200);
+  await hold(CLICK_LEAD_MS);
   await director.click(transform, { wait: "networkidle" });
   await page.waitForSelector("text=What changed");
   await director.overlay();
@@ -414,6 +452,7 @@ try {
     "diff-phone"
   );
   await sleep(8_000);
+  await hold();
 
   // 5. The run that worked, for comparison.
   await page.goto(`${WEB_URL}/journeys/${journeys.completed}`);
@@ -425,6 +464,7 @@ try {
     .first();
   await director.caption("For comparison, the journey that completed", "good");
   await sleep(1_500);
+  await hold(CLICK_LEAD_MS);
   await director.click(goodTransform, { wait: "networkidle" });
   await page.waitForSelector("text=What changed");
   await director.overlay();
@@ -437,6 +477,7 @@ try {
     "good-phone"
   );
   await sleep(6_000);
+  await hold();
 
   // 6. Replay the failed step's input against the corrected handler.
   await page.goto(`${WEB_URL}/journeys/${journeys.failed}`);
@@ -454,6 +495,7 @@ try {
     "Back on the failed journey, replay that step's recorded input",
     "replay-link"
   );
+  await hold(CLICK_LEAD_MS);
   await director.click(replayLink, { wait: "networkidle" });
   await page.waitForSelector("text=What will be sent");
   await director.overlay();
@@ -471,12 +513,14 @@ try {
   await sleep(1_800);
   await director.moveTo(page.locator("pre").first(), 700);
   await sleep(1_500);
+  await hold(CLICK_LEAD_MS);
   await director.click(page.locator("button", { hasText: "Send replay" }), { wait: "networkidle" });
   await page.waitForSelector("text=Original versus replay");
   await director.overlay();
   await director.scrollTo(page.locator("h2", { hasText: "Response" }), 60);
   await director.caption("The corrected transform answers 200", "replay-response");
   await sleep(3_000);
+  await hold();
   await director.scrollTo(page.locator("h2", { hasText: "Original versus replay" }), 200);
   const replayPhone = page.locator("tr", { has: page.locator("td:text-is('phone')") });
   await director.moveTo(replayPhone.last(), 800);
@@ -486,6 +530,7 @@ try {
     "replay-diff"
   );
   await sleep(6_000);
+  await hold();
 
   // 7. End card. Off the app's origin first: its CSP would refuse the card's
   // inline styles, and the card would render as unstyled text.
@@ -493,9 +538,10 @@ try {
   await page.setContent(
     CARD_HTML(["Wayscribe"], "Self-hosted · open source (Apache-2.0) · wayscribe.dev")
   );
-  marks.push({ name: "end", text: "End card", at: now() });
+  addMark("end", "End card");
   await sleep(5_000);
-  marks.push({ name: "stop", text: "", at: now() });
+  await hold();
+  addMark("stop", "");
 
   await context.close();
 } finally {
@@ -569,7 +615,7 @@ for (const [index, mark] of marks.entries()) {
   const still = Math.min(t + 1.5, next === undefined ? t + 1.5 : next.at / 1000 - start - 0.2);
   const name = `${String(index + 1).padStart(2, "0")}-${mark.name}.png`;
   ffmpeg(["-ss", Math.max(0, still).toFixed(2), "-i", mp4, "-frames:v", "1", join(STILLS, name)]);
-  captions.push({ at: Number(t.toFixed(1)), name: mark.name, text: mark.text, still: name });
+  captions.push({ at: Number(t.toFixed(2)), name: mark.name, text: mark.text, still: name });
 }
 await writeFile(join(OUT, "captions.json"), `${JSON.stringify(captions, null, 2)}\n`);
 await rename(source, join(OUT, "raw.webm"));
@@ -577,3 +623,5 @@ await rm(RAW, { recursive: true, force: true });
 
 console.log(`\n  ${mp4}\n  ${gif}\n  ${STILLS}/`);
 console.log(`  ${(end - start).toFixed(1)}s. Regenerate any time with: pnpm demo:video`);
+
+if (NARRATE) await mixNarration(OUT);
