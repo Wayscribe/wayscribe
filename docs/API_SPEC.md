@@ -296,13 +296,35 @@ where. Journeys are ordered by last activity, newest first (`lastEventAt`, then
 | --- | --- |
 | `since` | Required. An ISO 8601 instant with a time zone, such as `2026-08-06T18:00:00Z`. Journeys whose last activity is at or after it. |
 | `until` | An ISO 8601 instant with a time zone, after `since`. Journeys whose last activity is before it. Omitted or empty means no upper bound. |
-| `status` | `active`, `completed` or `failed`. Omitted or empty means any status. |
+| `status` | `active`, `completed` or `failed`. Omitted or empty means any status. See the status vocabulary below. |
 | `environment` | An environment name. Omitted or empty means every environment the caller can read. |
 | `service` | An exact service name. Journeys with at least one event recorded by that service. |
 | `entityType` | An exact entity type, at most 128 characters, after surrounding white space is removed. Omitted, empty or white space alone means any entity type. A type stored with surrounding white space cannot be matched. |
 | `q` | Text of 2 to 200 characters, after surrounding white space is removed. Journeys whose label, or the value of one of whose displayable aliases, contains it, ignoring case. Omitted, empty or white space alone means no text filter. |
 | `limit` | Page size, 25 by default, at most 100. |
 | `cursor` | `nextCursor` from the previous page. |
+
+**What a journey's status means.** A journey is `active` until an event says
+otherwise, and every read that returns a journey returns one of three values.
+
+| Status | What it means |
+| --- | --- |
+| `active` | The journey is running, or has been running and nothing has said it ended. |
+| `completed` | The run reached its end: a `completed` operation at or after the newest event's timestamp, which in practice is the SDK's `finish()`. Nothing else sets it. |
+| `failed` | Some event carried an error or the operation `failed`. A failure registers whatever its timestamp says, because a step that fails slowly is stamped before it arrives. |
+
+A **successful retry clears a failure and does not complete the journey**
+(ADR-061). A `retried` event carrying no error is the success of a step that
+failed before, since an SDK records a retried call as `retried` whichever way
+it comes out, and it returns the status to `active` rather than to
+`completed`. A journey that retried successfully and then died without
+finishing must not read as completed: a falsely reassuring status is worse
+than a stale alarming one. A `retried` event that carries an error is an
+ordinary failure. The clearing follows the same ordering rules as any other
+status change, so a retry stamped before the newest event changes nothing.
+
+`completedAt` (section 7) is set by the same `completed` operation that sets
+the status, so a journey cleared back to `active` by a retry has none.
 
 **What `q` matches.** Only the two values stored in plain text: the journey's
 `label` and the values of its displayable aliases (ADR-053). It never matches

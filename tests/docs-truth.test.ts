@@ -26,6 +26,19 @@ const section = (markdown: string, heading: string): string => {
 };
 
 /**
+ * First-column names of the first markdown table in `text`.
+ *
+ * The first table, not every row that looks like one: a section that
+ * documents its parameters in a table and then explains a vocabulary in a
+ * second one would otherwise report both as parameters, which is exactly what
+ * API_SPEC section 6 does now that it explains what a journey's status means.
+ */
+const firstTableKeys = (text: string): string[] => {
+  const table = /^(\|.*\n)+/m.exec(text)?.[0] ?? "";
+  return [...table.matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((match) => match[1] ?? "");
+};
+
+/**
  * Claims the documentation makes that the repository can check for itself.
  *
  * The README's status text has now been wrong in both directions inside one
@@ -275,12 +288,25 @@ describe("the documentation's checkable claims", () => {
       // The parser refuses every other key, so its list is the route's. F-028
       // found the endpoint with no window at all; the table is what tells a
       // caller there is one to give.
-      const documented = [...section().matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((m) => m[1] ?? "");
-      expect(documented).toEqual([...SEARCH_PARAMETERS]);
+      expect(firstTableKeys(section())).toEqual([...SEARCH_PARAMETERS]);
     });
 
     it("says plainly that a search with no window spans the whole history", () => {
       expect(section()).toContain("spans the project's whole history");
+    });
+  });
+
+  describe("the retried operation in EVENT_PROTOCOL.md", () => {
+    it("says what a successful retry does to a journey's status", () => {
+      // ADR-061's other consequence. The entry said only "A previous operation
+      // was attempted again", which does not tell a client author that the
+      // absence of an error on such an event means something to the summary.
+      const operations = section(read("docs/EVENT_PROTOCOL.md"), "5. Operation semantics");
+      const retried = /### `retried`\n([\s\S]*?)\n### /.exec(operations)?.[1] ?? "";
+      expect(retried).toContain("clears an earlier failure");
+      expect(retried).toContain("never completes it (ADR-061)");
+      const completed = /### `completed`\n([\s\S]*)/.exec(operations)?.[1] ?? "";
+      expect(completed).toContain("finish()");
     });
   });
 
@@ -339,9 +365,8 @@ describe("the documentation's checkable claims", () => {
       expect(match, "API_SPEC.md has no section 6 for the journey list").not.toBeNull();
       return match?.[1] ?? "";
     };
-    /** First-column names of the parameter table. */
-    const documented = (): string[] =>
-      [...section().matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((m) => m[1] ?? "");
+    /** First-column names of the parameter table, which is the section's first. */
+    const documented = (): string[] => firstTableKeys(section());
 
     it("documents exactly the query parameters the route reads", () => {
       // The parser refuses every other key, so its list is the route's.
@@ -380,6 +405,18 @@ describe("the documentation's checkable claims", () => {
       );
       expect(route?.[0]).toContain("parseLimit(request.query)");
       expect(route?.[0]).toContain("cursorParam(request.query)");
+    });
+
+    it("says what each status means, and that a retry clears rather than completes", () => {
+      // ADR-061's consequences: the vocabulary has to say what a successful
+      // retry does and what `completed` means, or the status filter names three
+      // words with no meanings attached.
+      const text = section();
+      expect(text).toContain("What a journey's status means");
+      expect(text).toContain("ADR-061");
+      expect(text).toContain("clears a failure and does not complete the journey");
+      // `completed` is the one operation that sets it, at or after the watermark.
+      expect(text).toMatch(/`completed` operation at or after the newest event's timestamp/);
     });
 
     it("lists the statuses the database allows", () => {

@@ -271,11 +271,25 @@ A processing step ended in failure.
 
 ### `retried`
 
-A previous operation was attempted again.
+A previous operation was attempted again. Whether the attempt succeeded is in
+`error`: a `retried` event carrying an error is a failed attempt, and one
+carrying none is the attempt that worked.
+
+A successful `retried` event **clears an earlier failure**, returning the
+journey's status to `active`, and never completes it (ADR-061). It clears
+rather than completes because a journey that retried successfully and then
+died without finishing must not read as completed: a falsely reassuring
+status is worse than a stale alarming one. The clearing follows the same
+ordering rules as any other status change, so an event stamped before the
+newest one changes nothing, and a `failed` recorded for a terminal transition
+is cleared the same way as any other failure.
 
 ### `completed`
 
-The journey or a major branch completed successfully.
+The journey or a major branch completed successfully. For the journey's
+status this is the only operation that sets `completed`, and only when it is
+at or after the newest event's timestamp; in practice it is what `finish()`
+records.
 
 ## 6. Aliases
 
