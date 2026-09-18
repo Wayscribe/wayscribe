@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { buildApp } from "../app.js";
-import { DRY_RUN_JOURNEY_LOCK, dryRunJourneyLockKey, dryRunJourneyLockKeys } from "./events.js";
+import { DRY_RUN_EVENT_LOCK, DRY_RUN_JOURNEY_LOCK, dryRunLockKey, dryRunLocks } from "./events.js";
 import { createApiMetrics, type ApiMetrics } from "../metrics/api-metrics.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -442,12 +442,37 @@ describe("dry-run validation", () => {
       expect(failures).toEqual([]);
     }, 120_000);
 
-    it("takes one lock per distinct journey, one statement each, in ascending key order, before any event", async () => {
+    it("never deadlocks two dry runs sending the same event ids under different journeys in opposite orders (20 runs)", async () => {
+      // Event ids are unique per project whatever the journey, so the second
+      // insert of an id waits on the first's uncommitted row. With journey
+      // locks alone the two dry runs share no key, each holds one event id
+      // and waits for the other, and one is cancelled as storage_error.
+      const x = (journeyId: string) => envelope({ id: "evt_shared_x", journeyId });
+      const y = (journeyId: string) => envelope({ id: "evt_shared_y", journeyId });
+      const failures: string[] = [];
+      for (let run = 0; run < 20; run += 1) {
+        const [first, second] = await Promise.all([
+          batch([x("jrn_shared_p"), y("jrn_shared_q")]),
+          batch([y("jrn_shared_r"), x("jrn_shared_s")])
+        ]);
+        for (const response of [first, second]) {
+          if (response.statusCode !== 200) {
+            failures.push(`run ${String(run)}: ${String(response.statusCode)} ${response.body}`);
+            continue;
+          }
+          const codes = codesOf(response.json().data.results);
+          if (codes.length > 0) failures.push(`run ${String(run)}: ${codes.join(", ")}`);
+        }
+      }
+      expect(failures).toEqual([]);
+    }, 120_000);
+
+    it("takes one lock per distinct journey and event id, one statement each, in ascending order, before any event", async () => {
       const events = [
         envelope({ id: "evt_keys_1", journeyId: "jrn_keys_c" }),
         envelope({ id: "evt_keys_2", journeyId: "jrn_keys_a" }),
         envelope({ id: "evt_keys_3", journeyId: "jrn_keys_c" }),
-        // Elements with no journey id to read touch no journey and add no lock.
+        // Elements with no journey id or event id to read add no lock.
         { protocolVersion: "0.1", event: {} },
         { protocolVersion: "0.1", event: { journeyId: 42 } },
         { protocolVersion: "0.1" },
@@ -473,12 +498,21 @@ describe("dry-run validation", () => {
         "accepted"
       ]);
 
-      const expected = ["jrn_keys_a", "jrn_keys_b", "jrn_keys_c"]
-        .map((journeyId) => dryRunJourneyLockKey(projectId, journeyId))
-        .sort((x, y) => x - y);
+      const ascending = (ids: string[]): number[] =>
+        ids.map((id) => dryRunLockKey(projectId, id)).sort((x, y) => x - y);
+      const expected = [
+        ...ascending(["jrn_keys_a", "jrn_keys_b", "jrn_keys_c"]).map((key) => [
+          DRY_RUN_JOURNEY_LOCK,
+          key
+        ]),
+        ...ascending(["evt_keys_1", "evt_keys_2", "evt_keys_3", "evt_keys_4"]).map((key) => [
+          DRY_RUN_EVENT_LOCK,
+          key
+        ])
+      ];
       const locks = locksIn(statements);
-      expect(locks).toEqual(expected.map((key) => [DRY_RUN_JOURNEY_LOCK, key]));
-      expect(dryRunJourneyLockKeys(projectId, events)).toEqual(expected);
+      expect(locks).toEqual(expected);
+      expect(dryRunLocks(projectId, events)).toEqual(expected);
       // Every lock statement comes before the first write of the batch.
       const lastLock = statements.findLastIndex((sql) => LOCK.test(sql));
       const firstWrite = statements.findIndex((sql) => /insert into "journeys"/.test(sql));
@@ -522,7 +556,7 @@ describe("dry-run validation", () => {
       const holder = db.transaction(async (trx) => {
         await trx.raw(
           `select pg_advisory_xact_lock(${String(DRY_RUN_JOURNEY_LOCK)}, ${String(
-            dryRunJourneyLockKey(projectId, "jrn_lock_held")
+            dryRunLockKey(projectId, "jrn_lock_held")
           )})`
         );
         holding();

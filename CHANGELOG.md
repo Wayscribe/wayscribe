@@ -806,13 +806,18 @@ What you have to do when upgrading a checkout or a deployment:
   and it left out the tolerance that explains a refusal caused by clock skew.
   The check itself is unchanged. The message is built from the tolerance, so
   the two cannot drift apart.
-- **Dry runs that share a journey wait for each other** (ADR-063,
-  `docs/INGESTION_CONTRACT.md` section 8). Two dry runs naming the same
-  journeys in opposite orders deadlocked, and PostgreSQL cancelled one, which
-  answered `storage_error` for events a real send would store; a reviewer saw
-  it in 50 runs of 50. A dry run now takes a transaction-scoped advisory lock
-  per distinct journey it names, one statement each in ascending key order,
-  before its first event, so the second waits at its start. A wait past
+- **Dry runs that share a journey or an event id wait for each other**
+  (ADR-063, `docs/INGESTION_CONTRACT.md` section 8). Two dry runs naming the
+  same journeys in opposite orders deadlocked, and PostgreSQL cancelled one,
+  which answered `storage_error` for events a real send would store; a
+  reviewer saw it in 50 runs of 50. Two sending the same event ids under
+  different journeys did the same, 20 of 20, because an event id is unique per
+  project whatever the journey. A dry run now takes a transaction-scoped
+  advisory lock per distinct journey id and per distinct event id, the two
+  kinds under different first keys, one statement each, journeys first and
+  each kind in ascending key order, before its first event, so the second
+  waits at its start. On a 100-event dry run with 100 distinct ids the event
+  locks add about 16 ms to about 420 ms. A wait past
   `DATABASE_STATEMENT_TIMEOUT_MS` answers the request `503 query_timeout`.
   Batches sent for real take no such lock.
 - **The journey id shapes are documented** (F-049, ADR-063,

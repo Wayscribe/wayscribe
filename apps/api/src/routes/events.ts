@@ -236,9 +236,9 @@ interface BatchContext {
  * created by the first event is what the second is checked against, so per-event
  * isolation without a shared outer transaction would answer both differently.
  *
- * Before the first event it takes every journey the batch names, in one fixed
- * order (lockDryRunJourneys, ADR-063), so two dry runs sharing journeys cannot
- * deadlock on each other.
+ * Before the first event it takes every journey and every event id the batch
+ * names, in one fixed order (lockDryRun, ADR-063), so two dry runs sharing
+ * either cannot deadlock on each other.
  *
  * The rollback is unconditional. The results are carried out through a throw so
  * that knex rolls back on every path, including the one where an event threw
@@ -247,7 +247,7 @@ interface BatchContext {
 async function previewBatch(context: BatchContext, events: unknown[]): Promise<BatchResult[]> {
   try {
     await context.app.db.transaction(async (trx) => {
-      await lockDryRunJourneys(trx, context.auth.projectId, events);
+      await lockDryRun(trx, context.auth.projectId, events);
       throw new DryRunFinished(await ingestBatch(context, trx, events, true));
     });
   } catch (error) {
@@ -260,77 +260,115 @@ async function previewBatch(context: BatchContext, events: unknown[]): Promise<B
 }
 
 /**
- * The first key of the two-integer advisory lock a dry run takes for each
- * journey it names (ADR-063). PostgreSQL keeps the two-integer key space
- * apart from the single-`bigint` keys retention and rotation take, so these
- * cannot meet them. Any fixed `int4` would do; this one names the decision.
+ * The first keys of the two-integer advisory locks a dry run takes (ADR-063):
+ * one for each journey it names, and one for each event id it sends. Two
+ * constants keep the two domains apart, so a journey id and an event id with
+ * the same text never share a lock. PostgreSQL keeps the two-integer key
+ * space apart from the single-`bigint` keys retention and rotation take, so
+ * these cannot meet them. Any fixed `int4` values would do; these name the
+ * decision. The journey constant is the smaller, so every dry run takes its
+ * journeys before its event ids.
  */
 export const DRY_RUN_JOURNEY_LOCK = 49_190_063;
+export const DRY_RUN_EVENT_LOCK = 49_190_064;
 
 /**
- * The second key for one journey: the first four bytes of SHA-256 over the
- * project id, a NUL and the journey id, read big-endian as a signed 32-bit
- * integer. A collision only makes two unrelated dry runs wait for each other.
+ * The second key for one journey id or event id: the first four bytes of
+ * SHA-256 over the project id, a NUL and the id, read big-endian as a signed
+ * 32-bit integer. A collision only makes two unrelated dry runs wait for each
+ * other.
  */
-export function dryRunJourneyLockKey(projectId: string, journeyId: string): number {
-  return createHash("sha256")
-    .update(projectId)
-    .update("\u0000")
-    .update(journeyId)
-    .digest()
-    .readInt32BE(0);
+export function dryRunLockKey(projectId: string, id: string): number {
+  return createHash("sha256").update(projectId).update("\u0000").update(id).digest().readInt32BE(0);
 }
 
 /**
- * The keys a dry run locks, deduplicated and in ascending order: one per
- * distinct `event.journeyId` string read from the raw elements, without
- * parsing them. An element with none, or with one that is not a string,
- * touches no journey and adds nothing.
+ * The second keys for one domain, deduplicated and in ascending order: one per
+ * distinct string `event.<field>` read from the raw elements, without parsing
+ * them. An element with none, or with one that is not a string, adds nothing.
  */
-export function dryRunJourneyLockKeys(projectId: string, elements: readonly unknown[]): number[] {
+function lockKeys(
+  projectId: string,
+  elements: readonly unknown[],
+  field: "journeyId" | "id"
+): number[] {
   const keys = new Set<number>();
   for (const element of elements) {
-    const journeyId = rawJourneyId(element);
-    if (journeyId !== undefined) keys.add(dryRunJourneyLockKey(projectId, journeyId));
+    const value = rawEventField(element, field);
+    if (value !== undefined) keys.add(dryRunLockKey(projectId, value));
   }
   return [...keys].sort((a, b) => a - b);
 }
 
-function rawJourneyId(element: unknown): string | undefined {
-  if (typeof element !== "object" || element === null) return undefined;
-  const event: unknown = (element as { event?: unknown }).event;
-  if (typeof event !== "object" || event === null) return undefined;
-  const journeyId: unknown = (event as { journeyId?: unknown }).journeyId;
-  return typeof journeyId === "string" ? journeyId : undefined;
+/** The journey keys a dry run locks: one per distinct `event.journeyId`. */
+export function dryRunJourneyLockKeys(projectId: string, elements: readonly unknown[]): number[] {
+  return lockKeys(projectId, elements, "journeyId");
+}
+
+/** The event keys a dry run locks: one per distinct `event.id`. */
+export function dryRunEventLockKeys(projectId: string, elements: readonly unknown[]): number[] {
+  return lockKeys(projectId, elements, "id");
 }
 
 /**
- * Take every journey a dry run names before its first event, in one fixed
- * order, so that two dry runs sharing journeys acquire them the same way and
- * the second waits at its start for the first to roll back (ADR-063).
+ * Every lock a dry run takes, as `[first key, second key]`, in the one order
+ * every dry run takes them: ascending by first key, then by second, which is
+ * its journeys in ascending key order and then its event ids.
+ */
+export function dryRunLocks(projectId: string, elements: readonly unknown[]): [number, number][] {
+  return [
+    ...dryRunJourneyLockKeys(projectId, elements).map((key): [number, number] => [
+      DRY_RUN_JOURNEY_LOCK,
+      key
+    ]),
+    ...dryRunEventLockKeys(projectId, elements).map((key): [number, number] => [
+      DRY_RUN_EVENT_LOCK,
+      key
+    ])
+  ];
+}
+
+function rawEventField(element: unknown, field: "journeyId" | "id"): string | undefined {
+  if (typeof element !== "object" || element === null) return undefined;
+  const event: unknown = (element as { event?: unknown }).event;
+  if (typeof event !== "object" || event === null) return undefined;
+  const value: unknown = (event as Record<string, unknown>)[field];
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * Take every journey and every event id a dry run names before its first
+ * event, in one fixed order, so that two dry runs sharing either acquire them
+ * the same way and the second waits at its start for the first to roll back
+ * (ADR-063).
  *
- * Without it each event created and locked its journey in the order sent and
- * held it to the rollback, so two dry runs naming journeys A and B in
- * opposite orders each held one and waited for the other; PostgreSQL
- * cancelled one statement, which answered `storage_error` for events a real
- * send would store. One statement per key, in ascending order: a single
- * statement over an array would rely on the planner evaluating the calls in
- * array order, which nothing guarantees. The keys are integers computed here,
- * inlined rather than bound, as every advisory lock in this repository is.
+ * Without it each event created and locked its journey, and inserted its
+ * event id, in the order sent and held both to the rollback. Two dry runs
+ * naming journeys A and B in opposite orders each held one and waited for the
+ * other, and so did two sending the same event ids in opposite orders under
+ * different journeys, because an event id is unique per project whatever the
+ * journey and an insert waits on another transaction's uncommitted row with
+ * the same id. PostgreSQL cancelled one statement, which answered
+ * `storage_error` for events a real send would store. One statement per key,
+ * in ascending order: a single statement over an array would rely on the
+ * planner evaluating the calls in array order, which nothing guarantees. The
+ * keys are integers computed here, inlined rather than bound, as every
+ * advisory lock in this repository is.
  *
  * A wait is bounded by `DATABASE_STATEMENT_TIMEOUT_MS` like any statement,
  * and a timeout throws out of the dry run to the error handler, which
  * answers `503 query_timeout`. Live batches take none of these: each live
- * event is its own transaction touching one journey, so it cannot close a
- * cycle, and a statement per event would be a cost on the hot path.
+ * event is its own transaction touching one journey and one event id, so it
+ * cannot close a cycle, and a statement per event would be a cost on the hot
+ * path.
  */
-async function lockDryRunJourneys(
+async function lockDryRun(
   trx: Knex,
   projectId: string,
   elements: readonly unknown[]
 ): Promise<void> {
-  for (const key of dryRunJourneyLockKeys(projectId, elements)) {
-    await trx.raw(`select pg_advisory_xact_lock(${String(DRY_RUN_JOURNEY_LOCK)}, ${String(key)})`);
+  for (const [first, second] of dryRunLocks(projectId, elements)) {
+    await trx.raw(`select pg_advisory_xact_lock(${String(first)}, ${String(second)})`);
   }
 }
 
