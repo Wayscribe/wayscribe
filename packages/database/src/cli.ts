@@ -183,9 +183,10 @@ try {
       const keyring = await requireKeyring();
       if (keyring === undefined) break;
 
-      const [projectSlug, environmentName, name] = args;
-      if (projectSlug === undefined || environmentName === undefined) {
-        console.error("Usage: key:create <project-slug> <environment> [name]");
+      const { formatIssuedKey, parseKeyCreateArgs } = await import("./key-create.js");
+      const parsed = parseKeyCreateArgs(args);
+      if (!parsed.ok) {
+        console.error(parsed.message);
         process.exitCode = 1;
         break;
       }
@@ -193,17 +194,12 @@ try {
       const { issueKey, KeyAdminError } = await import("./repositories/key-admin.js");
       try {
         const issued = await issueKey(db, keyring, {
-          projectSlug,
-          environmentName,
-          name: name ?? `${environmentName}-key`,
+          projectSlug: parsed.projectSlug,
+          environmentName: parsed.environmentName,
+          name: parsed.name,
           retentionDays: defaultRetentionDays
         });
-        console.log(`Key issued for ${issued.projectSlug}/${issued.environmentName}.`);
-        console.log("");
-        console.log("  API key (shown once, not recoverable):");
-        console.log(`    ${issued.apiKey}`);
-        console.log("");
-        console.log(`  prefix: ${issued.keyPrefix}`);
+        for (const line of formatIssuedKey(issued, parsed.json)) console.log(line);
       } catch (error) {
         if (!(error instanceof KeyAdminError)) throw error;
         console.error(error.message);

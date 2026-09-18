@@ -346,6 +346,22 @@ once and is not recoverable: issue another rather than hunting for it.
 `key:create` and `key:revoke` each write an audit row, `api_key.created` or
 `api_key.revoked`, naming the key by its prefix (`SECURITY.md` section 13).
 
+For a script, `key:create … --json` prints one JSON object on one line and
+nothing else, so nothing has to be parsed by position:
+
+```bash
+docker compose run --rm --entrypoint node api \
+  packages/database/dist/cli.js key:create acme production checkout-worker --json
+```
+
+```json
+{"apiKey":"wsk_…","keyPrefix":"wsk_…","projectSlug":"acme","environmentName":"production"}
+```
+
+The flag may appear anywhere in the arguments. Without it the human form above
+is unchanged. Either way the key reaches stdout, so redirect it into the place
+it belongs rather than leaving it in a terminal's scrollback or a CI job's log.
+
 A slug is lowercase letters, digits and hyphens, because it reaches project
 selection, the CLI, and the interface. It cannot be changed afterwards without
 touching everywhere an operator has written it down.
