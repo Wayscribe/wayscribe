@@ -2,6 +2,7 @@ import {
   aliasIds,
   ensureJourney,
   insertEvent,
+  lockJourney,
   updateJourneySummary,
   upsertAliases,
   type ApiKeyContext
@@ -152,15 +153,22 @@ export async function ingestEvent(
 
     // Aliases before the event, so the event row can name the alias rows it
     // stated in its own insert and is never updated afterwards (migration
-    // 020). They used to follow the journey summary update, whose row lock on
-    // the journey serialized two events of one journey before either touched
-    // an alias; sorted by type, their row locks are now taken in one order
-    // whatever order an event lists them in, so two such events cannot
-    // deadlock on each other's aliases. A duplicate states exactly what the
-    // original stated, so repeating the upsert for one changes nothing
-    // (ADR-053: a repeat never raises the flag, and lowers it only for a
-    // statement that masks, which the original already was). A refusal below
-    // rolls the aliases back with everything else.
+    // 020). A duplicate states exactly what the original stated, so repeating
+    // the upsert for one changes nothing (ADR-053: a repeat never raises the
+    // flag, and lowers it only for a statement that masks, which the original
+    // already was). A refusal below rolls the aliases back with everything
+    // else.
+    //
+    // Lock order. Every writer takes a journey's row lock before any of its
+    // alias rows: this build through `lockJourney` just below, and the build
+    // before migration 020, which may still be ingesting during a rolling
+    // deploy, through `updateJourneySummary`, which it ran before its alias
+    // upsert. The lock is taken only for an event that states aliases; one
+    // that states none touches no alias row, and in a dry-run batch every
+    // earlier event that did has already taken its own journey's lock.
+    // Measured deadlocks without it: a dry-run batch of several events of one
+    // journey racing real events for that journey
+    // (`event-aliases.integration.test.ts`).
     //
     // Reading the ids back is one more statement for an event that carries
     // aliases, and none for one that does not. Measured through the route
@@ -172,26 +180,25 @@ export async function ingestEvent(
     // A type listed here and absent from `aliases` is ignored: it can only
     // mask, so refusing the event over it would be the worse trade (ADR-053).
     const displayable = new Set(event.displayableAliases ?? []);
-    const aliases = Object.entries(event.aliases ?? {})
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([aliasType, value]) => {
-        const tokens = storedTokens(keyring, value);
-        return {
-          journeyId: event.journeyId,
-          aliasType,
-          aliasValueHash: tokens.current,
-          encryptedDisplayValue: encryptValue(keyring, value),
-          // Kept in plain text only while the alias is displayable; see
-          // upsertAliases. A text column cannot hold a NUL, and the value is
-          // valid on the wire, so such a value gets no copy rather than
-          // costing the event.
-          value: value.includes("\u0000") ? null : value,
-          displayable: displayable.has(aliasType),
-          // During a rotation, a repeat of an alias stored under the previous
-          // key's token moves that row rather than adding a second one.
-          supersedesValueHash: tokens.previous
-        };
-      });
+    const aliases = Object.entries(event.aliases ?? {}).map(([aliasType, value]) => {
+      const tokens = storedTokens(keyring, value);
+      return {
+        journeyId: event.journeyId,
+        aliasType,
+        aliasValueHash: tokens.current,
+        encryptedDisplayValue: encryptValue(keyring, value),
+        // Kept in plain text only while the alias is displayable; see
+        // upsertAliases. A text column cannot hold a NUL, and the value is
+        // valid on the wire, so such a value gets no copy rather than
+        // costing the event.
+        value: value.includes("\u0000") ? null : value,
+        displayable: displayable.has(aliasType),
+        // During a rotation, a repeat of an alias stored under the previous
+        // key's token moves that row rather than adding a second one.
+        supersedesValueHash: tokens.previous
+      };
+    });
+    if (aliases.length > 0) await lockJourney(trx, context.projectId, event.journeyId);
     await upsertAliases(trx, context.projectId, aliases);
     const statedAliasIds = await aliasIds(trx, context.projectId, aliases);
 

@@ -124,6 +124,25 @@ export async function ensureJourney(
   return (row as { environmentId: string } | undefined)?.environmentId;
 }
 
+/**
+ * Take the journey row's write lock (FOR NO KEY UPDATE) before an event
+ * touches any of the journey's aliases.
+ *
+ * Every writer locks a journey's row before its alias rows. The build before
+ * migration 020 did it by order alone: it upserted aliases after
+ * `updateJourneySummary`, whose UPDATE takes this same lock. Ingestion now
+ * upserts aliases before the event, so that the event row can name them in
+ * its own insert, and takes the lock here first to keep that order. Without
+ * it, a transaction holding the journey row and waiting on an alias row
+ * (the second event of a dry-run batch, or an old instance during a rolling
+ * deploy) and one holding that alias row and waiting on the journey row
+ * deadlocked each other. `updateJourneySummary` later finds the lock already
+ * held.
+ */
+export async function lockJourney(db: Knex, projectId: string, journeyId: string): Promise<void> {
+  await db("journeys").where({ project_id: projectId, id: journeyId }).forNoKeyUpdate().first("id");
+}
+
 export async function applyJourneyEvent(
   db: Knex,
   projectId: string,

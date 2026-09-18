@@ -235,10 +235,10 @@ describe("the aliases an event stated", () => {
   });
 
   it("stores events of one journey that list the same aliases in opposite orders at once", async () => {
-    // The aliases are written before the event now, ahead of the journey row
-    // lock that used to serialize two events of one journey. Two events that
-    // take the same alias rows' locks in opposite orders would deadlock, and
-    // PostgreSQL would fail one of them; ingestion sorts them by type.
+    // The aliases are written before the event now. Two events of one
+    // journey that listed the same aliases in opposite orders would take
+    // their row locks in opposite orders and deadlock, but for the journey
+    // row lock each takes first, which serializes them.
     const bodies = Array.from({ length: 40 }, (_, index) => {
       const pairs: [string, string][] = [
         ["alpha", `alpha-${String(index % 3)}`],
@@ -266,6 +266,62 @@ describe("the aliases an event stated", () => {
       "bravo",
       "charlie"
     ]);
+  });
+
+  it("races a dry run of several events of one journey against real events for it", async () => {
+    // A dry run stores its whole batch in one transaction and rolls it back,
+    // so it holds the locks of its first event while it stores the second.
+    // With alias rows locked before the journey row, a real event held a new
+    // alias row and waited on the journey row the dry run's first event
+    // held, while the dry run's second event waited on that alias row:
+    // PostgreSQL broke the deadlock by failing one of them, a 500 for the
+    // real event or a refused dry-run result. Taking the journey row first,
+    // as every writer does, serializes them.
+    const aliases = { alpha: "alpha-1", bravo: "bravo-1", charlie: "charlie-1" };
+    await ingest(event("evt_dry_race_seed", "jrn_dry_race", { aliases }));
+    for (let round = 0; round < 15; round += 1) {
+      const dryRun = app.inject({
+        method: "POST",
+        url: "/v1/events/batch?dryRun=true",
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: {
+          events: [0, 1, 2].map((index) => ({
+            protocolVersion: "0.1",
+            event: event(`evt_dry_race_${String(round)}_${String(index)}`, "jrn_dry_race", {
+              // One alias per event, new each round, which a real event
+              // states too: the dry run's first event holds the journey row
+              // while a real event holds the alias its second event needs.
+              aliases: { step: `step-${String(round)}-${String(index)}` },
+              timestamp: `2026-09-18T11:${String(round).padStart(2, "0")}:0${String(index)}.000Z`
+            })
+          }))
+        }
+      });
+      const real = [0, 1, 2, 3].map((index) =>
+        app.inject({
+          method: "POST",
+          url: "/v1/events",
+          headers: { authorization: `Bearer ${apiKey}` },
+          payload: {
+            protocolVersion: "0.1",
+            event: event(`evt_real_race_${String(round)}_${String(index)}`, "jrn_dry_race", {
+              aliases: { step: `step-${String(round)}-${String(3 - index)}` },
+              timestamp: `2026-09-18T12:${String(round).padStart(2, "0")}:0${String(index)}.000Z`
+            })
+          } as object
+        })
+      );
+      const [dry, ...reals] = await Promise.all([dryRun, ...real]);
+      expect(
+        reals.map((response) => response.statusCode),
+        `round ${String(round)}`
+      ).toEqual([202, 202, 202, 202]);
+      expect(dry.statusCode, dry.body).toBe(200);
+      expect(
+        (dry.json().data.results as { status: string }[]).map((result) => result.status),
+        dry.body
+      ).toEqual(["accepted", "accepted", "accepted"]);
+    }
   });
 
   it("is read within the caller's scope, as the event is", async () => {

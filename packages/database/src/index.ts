@@ -19,6 +19,7 @@ export { insertEvent, type EventRow, type InsertOutcome } from "./repositories/e
 export {
   applyJourneyEvent,
   ensureJourney,
+  lockJourney,
   findJourney,
   updateJourneySummary,
   type JourneyEventFacts,
