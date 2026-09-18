@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseJourneyListQuery } from "./journey-list-query.js";
 import {
   DEFAULT_PAGE_LIMIT,
+  LIMIT_MESSAGE,
   MAX_PAGE_LIMIT,
   SINCE_CLOCK_TOLERANCE_MS,
   pageLimit
@@ -11,14 +12,13 @@ import { parseSearchQuery } from "./search-query.js";
 /** Written this way so the source file itself stays plain text. */
 const NUL = String.fromCharCode(0);
 
-const LIMIT_MESSAGE = `limit must be a whole number from 1 to ${String(MAX_PAGE_LIMIT)}.`;
-
 /**
  * F-029: `limit` was read with `Number.parseInt`, which stops at the first
  * character that is not a digit. A NUL, or the comma a repeated parameter's
  * array stringifies to, cut the value short instead of being refused, so
  * `limit=1&limit=99` returned one row and `limit=2%005` two. Nonsense values
- * (`abc`, `0`, `-1`) silently became the default, and `1000` the maximum.
+ * (`abc`, `0`, `-1`) silently became the default. A number above the maximum
+ * still becomes the maximum.
  */
 describe("pageLimit", () => {
   it("is the default when limit is absent or empty, as a GET form sends it", () => {
@@ -32,7 +32,13 @@ describe("pageLimit", () => {
     ["25", 25],
     ["99", 99],
     ["100", 100],
-    ["007", 7]
+    ["007", 7],
+    // Above the maximum is clamped, as it always was: nextCursor says more
+    // remains, so nothing is lost to a caller that pages.
+    ["101", 100],
+    ["500", 100],
+    ["1000", 100],
+    ["99999999999999999999", 100]
   ])("takes %s as %i", (raw, expected) => {
     expect(pageLimit({ limit: raw })).toEqual({ ok: true, value: expected });
   });
@@ -58,15 +64,18 @@ describe("pageLimit", () => {
     });
   });
 
-  it.each(["abc", "0", "-1", "101", "500", "1000", "2.5", "1e2", "+5", " 5", "5 ", "0x10", "5abc"])(
-    "refuses %j instead of clamping it",
+  it.each(["abc", "0", "00", "-1", "2.5", "1e2", "+5", " 5", "5 ", "0x10", "5abc"])(
+    "refuses %j rather than reading it as the default",
     (raw) => {
       expect(pageLimit({ limit: raw })).toEqual({ ok: false, message: LIMIT_MESSAGE });
     }
   );
 
-  it("refuses a number too large to be a page size", () => {
-    expect(pageLimit({ limit: "9".repeat(400) })).toEqual({ ok: false, message: LIMIT_MESSAGE });
+  it("states the clamp in its refusal", () => {
+    expect(MAX_PAGE_LIMIT).toBe(100);
+    expect(LIMIT_MESSAGE).toBe(
+      "limit must be a whole number of at least 1; above 100 it is read as 100."
+    );
   });
 });
 

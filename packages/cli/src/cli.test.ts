@@ -253,11 +253,27 @@ describe("the command line", () => {
     expect(err.join("\n")).toContain("Cannot reach");
   });
 
-  it("rejects a nonsense --limit rather than sending it", async () => {
-    const { err, io } = capture(env());
-    expect(await run(["search", "x", "--limit", "zero"], io)).toBe(2);
-    expect(err.join("\n")).toContain("--limit");
-    expect(seen).toHaveLength(0);
+  it.each(["zero", "5abc", "2.5", "0", "-1", " 5", "1e2", ""])(
+    "rejects --limit %j rather than sending it",
+    async (value) => {
+      // parseInt read "5abc" as 5 and sent it: the same defect F-029 found in
+      // the API's own reading of limit.
+      const { err, io } = capture(env());
+      // The `=` form, which parseArgs accepts for a value starting with "-".
+      expect(await run(["search", "x", `--limit=${value}`], io)).toBe(2);
+      expect(err.join("\n")).toContain(
+        `--limit must be a whole number of at least 1, not "${value}".`
+      );
+      expect(seen).toHaveLength(0);
+    }
+  );
+
+  it("says in its help that the server reads a --limit above 100 as 100", async () => {
+    const { out, io } = capture(env());
+    expect(await run(["--help"], io)).toBe(0);
+    expect(out.join("\n")).toContain(
+      "--limit <n>        search only, default 20; above 100 the server reads it as 100"
+    );
   });
 
   it("rejects an unknown command", async () => {

@@ -14,12 +14,13 @@ const ALIAS = "page-limit@example.test";
 const JOURNEYS = 5;
 const SINCE = "2026-09-01T00:00:00.000Z";
 
-const LIMIT_MESSAGE = "limit must be a whole number from 1 to 100.";
+const LIMIT_MESSAGE = "limit must be a whole number of at least 1; above 100 it is read as 100.";
 
 /**
  * F-029, through the routes: `limit` was the one parameter exempt from the NUL
  * rule and the given-once rule, on every list endpoint. The rows below are the
- * finding's table, on each endpoint, plus the values that used to clamp.
+ * finding's table, on each endpoint, plus the values that used to become the
+ * default and the ones above the maximum, which are still read as it.
  */
 describe("limit on the list endpoints", () => {
   let container: StartedPostgreSqlContainer;
@@ -145,8 +146,8 @@ describe("limit on the list endpoints", () => {
       });
     });
 
-    it.each(["abc", "0", "-1", "101", "1000", "2.5"])(
-      "refuses limit=%s instead of clamping it",
+    it.each(["abc", "0", "-1", "2.5", "5abc"])(
+      "refuses limit=%s rather than reading it as the default",
       async (value) => {
         const response = await request(`limit=${value}`);
         expect(response.statusCode, response.body).toBe(400);
@@ -156,6 +157,13 @@ describe("limit on the list endpoints", () => {
         });
       }
     );
+
+    it.each(["101", "1000"])("reads limit=%s as the maximum, as it always has", async (value) => {
+      const response = await request(`limit=${value}`);
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().data.items).toHaveLength(JOURNEYS);
+      expect(response.json().data.nextCursor).toBeNull();
+    });
   });
 
   describe("the rest of F-029's table, which already held", () => {

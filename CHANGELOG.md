@@ -579,10 +579,16 @@ What you have to do when upgrading a checkout or a deployment:
   `limit=2%005` returned two. Now `limit` given more than once, or holding a
   NUL, is `400 invalid_query` with the words every other parameter gets
   (`limit must be given once.`, `limit must not contain a null byte.`). **This
-  changes an answer:** a value that is not a whole number from 1 to 100 is
-  refused with `limit must be a whole number from 1 to 100.`, where `abc`, `0`
-  and `-1` used to become 25 and anything over 100 became 100, without a word.
-  Omitted or empty is still 25.
+  changes an answer:** a value that is not a whole number of at least 1, such as
+  `abc`, `0`, `-1` or `5abc`, is refused with `limit must be a whole number of
+  at least 1; above 100 it is read as 100.`, where it used to become 25 without
+  a word. A whole number above 100 is still read as 100, as before, and
+  `nextCursor` says whether more remains. Omitted or empty is still 25.
+- **The read-only CLI reads `--limit` strictly.** `wayscribe search x --limit
+  5abc` sent a limit of 5, because it too was read with `parseInt`. A value
+  that is not a whole number of at least 1 is now refused before anything is
+  sent, with `--limit must be a whole number of at least 1`, and `--help` says
+  the server reads one above 100 as 100.
 - **The refusal of a future `since` states the real rule** (F-035), on
   `GET /v1/search` and `GET /v1/journeys`: `since must not be more than 60
   seconds ahead of the API's clock.` It said `since must not be in the future.`,
@@ -799,9 +805,10 @@ development build of `main`. A new installation can skip them.
   `lock_timeout`, as 017 did; run `migrate` again if it gives up behind a long
   transaction (`docs/OPERATIONS.md` section 4). There is no backfill: events
   stored before it read `aliases: null`.
-- **Send a `limit` from 1 to 100, once.** A client that sent `limit=1000` to
-  get the largest page, or `limit=0` for the default, now gets
-  `400 invalid_query`; send `100`, or leave `limit` out.
+- **Send `limit` once, as a whole number of at least 1.** A client that sent
+  `limit=0` or an empty-looking value such as `limit=abc` to get the default
+  now gets `400 invalid_query`; leave `limit` out instead. `limit=1000` still
+  works and is read as 100.
 - **Drop unknown query keys.** A client that sends keys `GET /v1/journeys` does
   not read, or any query parameter to the ingestion routes other than `dryRun`
   on the batch route, gets `400 invalid_query`. A client that branched on the

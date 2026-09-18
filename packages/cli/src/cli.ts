@@ -23,7 +23,7 @@ Options
   --url <url>        default $WAYSCRIBE_URL, then http://localhost:8080
   --token <token>    default $WAYSCRIBE_TOKEN; the admin token
   --project <id>     default $WAYSCRIBE_PROJECT; an admin token must name one
-  --limit <n>        search only, default 20
+  --limit <n>        search only, default 20; above 100 the server reads it as 100
   --diff             event only, show the field-level diff instead of payloads
   --json             raw JSON, for scripts
   --help             this
@@ -95,9 +95,13 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 
       case "search": {
         if (argument === undefined) return missing("search <value>", io);
-        const limit = Number.parseInt(parsed.values.limit ?? "20", 10);
-        if (!Number.isInteger(limit) || limit < 1) {
-          io.err(`--limit must be a positive whole number, not "${parsed.values.limit ?? ""}".`);
+        // Digits only, checked before conversion: parseInt read "5abc" as 5
+        // and sent it, and Number would take " 5" or "1e2". Above 100 is
+        // passed on; the server reads it as 100 and pages the rest.
+        const raw = parsed.values.limit ?? "20";
+        const limit = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+        if (!(limit >= 1)) {
+          io.err(`--limit must be a whole number of at least 1, not "${raw}".`);
           return 2;
         }
         const page = await client.search(argument, limit);

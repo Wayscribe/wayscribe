@@ -370,9 +370,10 @@ describe("the documentation's checkable claims", () => {
 
   describe("limit in API_SPEC.md", () => {
     // F-029: limit was read with parseInt, so a repeat or a NUL cut it short
-    // and nonsense clamped silently. Every list endpoint now reads it through
-    // pageLimit, and each section states the rule pageLimit enforces.
-    const rule = `a whole number from 1 to ${String(MAX_PAGE_LIMIT)}, ${String(DEFAULT_PAGE_LIMIT)} when omitted or empty`;
+    // and nonsense became the default silently. Above the maximum it is still
+    // read as the maximum, which each section has to say. Every list endpoint
+    // now reads it through pageLimit, and each section states its rule.
+    const rule = `a whole number of at least 1, ${String(DEFAULT_PAGE_LIMIT)} when omitted or empty; above ${String(MAX_PAGE_LIMIT)} it is read as ${String(MAX_PAGE_LIMIT)}`;
 
     it.each(["5. Search", "6. List journeys", "8. List journey events"])(
       "section %s states the rule the parser enforces",

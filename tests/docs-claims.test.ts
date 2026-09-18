@@ -226,7 +226,9 @@ describe("the server's documented numbers", () => {
     expect(params).toContain("export const DEFAULT_PAGE_LIMIT = 25;");
     expect(params).toContain("export const MAX_PAGE_LIMIT = 100;");
     const api = prose(read("docs/API_SPEC.md"));
-    expect(api).toContain("Page size: a whole number from 1 to 100, 25 when omitted or empty.");
+    expect(api).toContain(
+      "Page size: a whole number of at least 1, 25 when omitted or empty; above 100 it is read as 100,"
+    );
     expect(api).toContain("List endpoints return 25 items by default and at most 100.");
     expect(api).toContain("Text of 2 to 200 characters");
     expect(api).toContain("at most 128 characters");

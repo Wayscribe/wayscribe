@@ -73,6 +73,11 @@ export const DEFAULT_PAGE_LIMIT = 25;
 /** The largest page size a list endpoint returns. */
 export const MAX_PAGE_LIMIT = 100;
 
+/** The refusal of a malformed `limit`, which also states the clamp. */
+export const LIMIT_MESSAGE = `limit must be a whole number of at least 1; above ${String(
+  MAX_PAGE_LIMIT
+)} it is read as ${String(MAX_PAGE_LIMIT)}.`;
+
 /** Digits only: no sign, no point, no exponent, no white space. */
 const WHOLE_NUMBER = /^\d+$/;
 
@@ -88,13 +93,18 @@ const WHOLE_NUMBER = /^\d+$/;
  * through `single`, like every other value, so a repeat and a NUL are refused
  * with the same words.
  *
- * A value that is not a whole number from 1 to MAX_PAGE_LIMIT is refused too,
- * where it used to be replaced: `abc`, `0` and `-1` became the default and
- * `1000` became the maximum, silently. These endpoints refuse a misspelt key by
- * name, so a nonsense value passing without a word was the odd one out, and a
- * page size that came out of a computation gone wrong read back as a full page
- * with nothing to say it had been ignored. Empty is still omitted, because that
- * is what a plain GET form sends for a field left blank.
+ * A malformed value is refused too, where it used to be replaced: `abc`, `0`
+ * and `-1` became the default, silently. These endpoints refuse a misspelt key
+ * by name, so a nonsense value passing without a word was the odd one out, and
+ * a page size that came out of a computation gone wrong read back as a full
+ * page with nothing to say it had been ignored.
+ *
+ * A whole number above MAX_PAGE_LIMIT is still read as MAX_PAGE_LIMIT. That is
+ * a well-formed request for more than one page holds, not a mistake, and the
+ * answer says so: `nextCursor` is set while more rows remain, so a caller that
+ * pages by the cursor reads everything. Existing callers rely on it, the
+ * read-only CLI's `--limit 500` among them. Empty is still omitted, because
+ * that is what a plain GET form sends for a field left blank.
  */
 export function pageLimit(params: Record<string, unknown>): Validated<number> {
   const raw = single(params, "limit");
@@ -103,13 +113,8 @@ export function pageLimit(params: Record<string, unknown>): Validated<number> {
   // Digits are checked before conversion: `Number` would also take " 5",
   // "1e2" and "0x10".
   const value = WHOLE_NUMBER.test(raw.value) ? Number(raw.value) : Number.NaN;
-  if (!(value >= 1 && value <= MAX_PAGE_LIMIT)) {
-    return {
-      ok: false,
-      message: `limit must be a whole number from 1 to ${String(MAX_PAGE_LIMIT)}.`
-    };
-  }
-  return { ok: true, value };
+  if (!(value >= 1)) return { ok: false, message: LIMIT_MESSAGE };
+  return { ok: true, value: Math.min(value, MAX_PAGE_LIMIT) };
 }
 
 /** One optional instant parameter, validated as `since` always was. */
