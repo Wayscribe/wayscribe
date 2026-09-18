@@ -458,6 +458,15 @@ What you have to do when upgrading a checkout or a deployment:
   now refused as empty, `{}` and `{ gitCommit: undefined }` are now reported,
   and `constructor` or `toString` beside a valid field is now caught.
 
+- **An error whose fields cannot be read no longer costs its step.**
+  `record({ error })` with a `message`, `type`, `code` or `stack` getter that
+  throws, or a revoked Proxy as the error, lost the whole event with one
+  `capture_error`. Each field is now read on its own; a field that throws
+  costs that field. A message that cannot be read, or is not a non-empty
+  string, is sent as `The error's message could not be read.` instead of a
+  value the server would refuse, and only `message`, `type`, `code` and
+  `stack` are sent, each a string.
+
 - **`createRecorder` no longer throws or hangs for a list setting it cannot
   read.** A revoked Proxy given as `deployment`, `redact` or `knownSafeNames`,
   an array Proxy whose reads throw, an array with a hostile `Symbol.species`

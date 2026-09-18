@@ -530,6 +530,59 @@ describe("record's error", () => {
     expect(sent.stack.length).toBeLessThanOrEqual(16_384);
     expect(sent.stack).not.toContain(token);
   });
+
+  it("records the step whatever the error's fields do, each read on its own", async () => {
+    // The error is the host's object: a getter is the host's code, and a
+    // revoked Proxy throws on every read. Each used to cost the whole step.
+    const throwing = (): never => {
+      throw new Error("no");
+    };
+    const getter = (field: string, rest: object): ErrorInput =>
+      Object.defineProperty({ ...rest }, field, { get: throwing, enumerable: true }) as ErrorInput;
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const errors: [string, ErrorInput][] = [
+      ["message getter", getter("message", {})],
+      ["type getter", getter("type", { message: "boom" })],
+      ["code getter", getter("code", { message: "boom" })],
+      ["stack getter", getter("stack", { message: "boom" })],
+      ["revoked Proxy", revoked.proxy as ErrorInput],
+      ["null", null as unknown as ErrorInput],
+      ["a message that is not a string", { message: 7 as never, code: 9 as never }],
+      ["an empty message", { message: "" }]
+    ];
+    const { events, diagnostics } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "t", id: "1" } });
+      for (const [name, error] of errors) {
+        expect(() => {
+          journey.record({ operation: "failed", name, error });
+        }).not.toThrow();
+      }
+    });
+    expect(events.map((event) => event["name"])).toEqual(errors.map(([name]) => name));
+    // Every one is an event the server accepts: a message the protocol can
+    // take, and no field it would refuse.
+    for (const event of events) expect(valid(event)).toBe(true);
+    const sent = (index: number): Record<string, unknown> =>
+      events[index]?.["error"] as Record<string, unknown>;
+    expect(sent(0)["message"]).toBe("The error's message could not be read.");
+    expect(sent(1)).toEqual({ message: "boom" });
+    expect(sent(3)).toEqual({ message: "boom" });
+    expect(sent(6)).toEqual({ message: "The error's message could not be read." });
+    // A read that threw is reported, as failureFrom reports one.
+    expect(reported(diagnostics)).toContain("capture_error/unexpected_error");
+  });
+
+  it("sends only the four fields the protocol has", async () => {
+    const { events } = await capture((recorder) => {
+      recorder.startJourney({ entity: { type: "t", id: "1" } }).record({
+        operation: "failed",
+        name: "r",
+        error: { message: "boom", code: "E1", extra: "x" } as ErrorInput
+      });
+    });
+    expect(events[0]?.["error"]).toEqual({ message: "boom", code: "E1" });
+  });
 });
 
 describe("the wrappers and thenables", () => {

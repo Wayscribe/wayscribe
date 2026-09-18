@@ -32,6 +32,11 @@ export interface JourneyContext {
 /**
  * An error as `record()` takes it. The wrappers and `fail()` build one from
  * the thrown value: its `message`, its `name` as `type`, and a string `code`.
+ *
+ * Each field is read once, on its own, and only these four are sent: a field
+ * whose read throws is left off and reported as `capture_error`, and never
+ * costs the step. A `message` that cannot be read, or is not a non-empty
+ * string, is sent as `The error's message could not be read.`
  */
 export interface ErrorInput {
   /**
