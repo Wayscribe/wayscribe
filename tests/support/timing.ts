@@ -37,14 +37,19 @@ import process from "node:process";
  * side's true cost from above, so work that is really four times dearer per
  * unit stays four times dearer however long it is sampled.
  *
- * `BUDGET_MS` of wall-clock time caps the whole comparison, warming and
- * calibration included, and is checked after every run of the work while
- * warming and calibrating and after every sample. Running out of it throws:
- * work so slow that the comparison cannot finish is the regression these
- * tests exist to catch (a backtracking pattern took 69.6 seconds before this
- * cap), not a pass. A single run cannot be interrupted from the thread doing
- * it, so work that may never return, such as a pattern that can backtrack
- * exponentially, belongs in a child process with a deadline, as
+ * `BUDGET_MS` of the thread's processor time caps the whole comparison,
+ * warming and calibration included, and is checked after every run of the
+ * work while warming and calibrating and after every sample. Running out of
+ * it throws: work so slow that the comparison cannot finish is the regression
+ * these tests exist to catch (a backtracking pattern took 69.6 seconds before
+ * this cap), not a pass. Processor time, like the samples, so that a busy
+ * machine does not spend the budget: a wall-clock budget of the same size ran
+ * out on every run of the helper's own tests at a load average near 300,
+ * where a thread gets a small share of a core. `WALL_BACKSTOP_MS` of
+ * wall-clock time is the backstop for a thread that gets almost none. A
+ * single run cannot be interrupted from the thread doing it, so work that may
+ * never return, such as a pattern that can backtrack exponentially, belongs
+ * in a child process with a deadline, as
  * `packages/sdk-node/src/personal-data.test.ts` does.
  */
 
@@ -56,8 +61,10 @@ const MIN_ROUNDS = 3;
 const MAX_ROUNDS = 40;
 /** A round this far inside the limit ends the comparison on its own. */
 const CLEAR_MARGIN = 1.5;
-/** Wall-clock milliseconds the whole comparison may take before it fails. */
+/** Milliseconds of the thread's processor time the whole comparison may use before it fails. */
 export const BUDGET_MS = 6_000;
+/** Wall-clock milliseconds, as a multiple of the budget, after which it fails regardless. */
+const WALL_BACKSTOP = 10;
 
 export interface Side {
   /** Does the work once. */
@@ -87,16 +94,19 @@ function processorTime(side: Side, count: number): number {
   return (spent.user + spent.system) / 1_000;
 }
 
-/** Throws once the comparison has used its budget of wall-clock time. */
+/** Throws once the comparison has used its budget. */
 type BudgetCheck = (stage: string) => void;
 
 function budget(budgetMs: number): BudgetCheck {
-  const started = performance.now();
+  const startedCpu = process.threadCpuUsage();
+  const startedWall = performance.now();
   return (stage) => {
-    const elapsed = performance.now() - started;
-    if (elapsed > budgetMs) {
+    const spent = process.threadCpuUsage(startedCpu);
+    const processor = (spent.user + spent.system) / 1_000;
+    const wall = performance.now() - startedWall;
+    if (processor > budgetMs || wall > budgetMs * WALL_BACKSTOP) {
       throw new Error(
-        `The timing comparison ran out of its ${String(budgetMs)} ms budget while ${stage}, after ${elapsed.toFixed(0)} ms: the work is far slower than expected, as a pattern that backtracks would be.`
+        `The timing comparison ran out of its budget of ${String(budgetMs)} ms of processor time (${String(budgetMs * WALL_BACKSTOP)} ms on the wall clock) while ${stage}, after ${processor.toFixed(0)} ms of processor time and ${wall.toFixed(0)} ms on the wall clock: the work is far slower than expected, as a pattern that backtracks would be.`
       );
     }
   };

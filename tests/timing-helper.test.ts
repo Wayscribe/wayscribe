@@ -1,4 +1,4 @@
-import { performance } from "node:perf_hooks";
+import process from "node:process";
 import { describe, expect, it } from "vitest";
 import { compare, growth } from "./support/timing.js";
 
@@ -32,7 +32,7 @@ describe("the timing helper (tests/support/timing.ts)", () => {
     );
     expect(quadratic.ratio).toBeGreaterThan(2);
     expect(sink).toBeGreaterThan(0);
-  });
+  }, 60_000);
 
   it("does not stop on a round just inside the limit when the true ratio is over it", () => {
     // 2.6 against a limit of 2: stopping at the first round within the limit
@@ -55,10 +55,12 @@ describe("the timing helper (tests/support/timing.ts)", () => {
       );
       expect(result.ratio, `trial ${String(trial)}`).toBeGreaterThan(2);
     }
-  });
+    // A comparison that does not stop early samples 40 rounds, which a loaded
+    // machine can stretch well past the default timeout.
+  }, 120_000);
 
   it("fails, rather than passes, when the work outruns the budget", () => {
-    const started = performance.now();
+    const started = process.threadCpuUsage();
     expect(() =>
       compare(
         {
@@ -76,8 +78,10 @@ describe("the timing helper (tests/support/timing.ts)", () => {
         2,
         500
       )
-    ).toThrow(/ran out of its 500 ms budget/);
-    // One run of the slow side past the budget, at most.
-    expect(performance.now() - started).toBeLessThan(5_000);
-  });
+    ).toThrow(/ran out of its budget of 500 ms of processor time/);
+    // The budget and one run of the slow side past it, at most, in processor
+    // time: the wall clock is the machine's load, not the helper's.
+    const spent = process.threadCpuUsage(started);
+    expect((spent.user + spent.system) / 1_000).toBeLessThan(2_000);
+  }, 60_000);
 });
