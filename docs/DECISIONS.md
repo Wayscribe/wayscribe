@@ -3031,14 +3031,41 @@ behaves exactly as it does today when it is not used.
   `NoContextEnvelope<T>`, describes the shape `injectPayload` emits when there
   is nothing to inject, with `_wayscribe: { journeyId?: undefined }`, and
   `PayloadEnvelope<T>` is the union of the two. `injectPayload` returns the
-  union. `journeyId` discriminates them, so
-  `if (envelope._wayscribe.journeyId !== undefined)` narrows to
-  `ContextEnvelope<T>` with no cast. The `_wayscribe` key is required in both,
-  because the envelope always carries it and its empty form is how
-  `extractPayload` reads the absence of a journey. The SDK's `as unknown as`
-  cast goes, and anything that reproduces the no-context shape, such as a
-  recorder that records nothing, now has a type to name. Runtime behaviour is
-  unchanged: the values on the wire are exactly what they were.
+  union. The `_wayscribe` key is required in both, because the envelope always
+  carries it and its empty form is how `extractPayload` reads the absence of a
+  journey. The SDK's `as unknown as` cast goes, and anything that reproduces
+  the no-context shape, such as a recorder that records nothing, now has a type
+  to name. Runtime behaviour is unchanged: the values on the wire are exactly
+  what they were.
+
+  **How the union narrows, which is not obvious.** TypeScript does not narrow a
+  union on a discriminant reached through another property, so
+  `if (envelope._wayscribe.journeyId !== undefined)` does not make `envelope` a
+  `ContextEnvelope<T>`. An earlier draft of this decision claimed it did, and
+  the review disproved it. Compiled under tsc 5.9.3 with this repository's own
+  settings (`strict`, `exactOptionalPropertyTypes`), the assignment inside that
+  `if` is `error TS2322: Type 'PayloadEnvelope<T>' is not assignable to type
+  'ContextEnvelope<T>'`. Three things are true instead, each compiled before
+  this was written:
+
+  - **To read the journey id, the plain check is enough.** It narrows the value
+    read even though it does not narrow the envelope: inside
+    `if (envelope._wayscribe.journeyId !== undefined)`, the expression
+    `envelope._wayscribe.journeyId` is `string`.
+  - **To hold the envelope as a `ContextEnvelope<T>`, use a type guard.**
+    `function hasJourney<T>(e: PayloadEnvelope<T>): e is ContextEnvelope<T>`,
+    returning that same comparison. Inside `if (hasJourney(envelope))` the
+    envelope is a `ContextEnvelope<T>`, assignable with no cast.
+  - **Destructuring first also narrows**, because the discriminant is then at
+    the top level of the value being tested: after
+    `const { _wayscribe } = envelope`, `if (_wayscribe.journeyId !== undefined)`
+    gives `_wayscribe` the context's own shape, with `entityType` and
+    `entityId` reachable on it.
+
+  The README carries this, because a reader who tries the obvious thing meets a
+  compiler error about assignability that says nothing about narrowing. Whether
+  the package also exports a ready-made guard is the SDK's call; if it does, it
+  is listed here with the rest of the surface.
 - **Wrapper signatures a second implementation can satisfy.** Each of
   `transform`, `persist`, `publish` and `deliver` is declared so that one plain,
   non-overloaded function satisfies it without a cast: one signature over
@@ -3132,9 +3159,10 @@ holds, and this decision is its amendment rather than a standing licence to add.
   `PayloadEnvelope<T>`. The review found this, and it is the whole migration.
   Nothing is published yet, so no compatibility promise is broken, and
   `ContextEnvelope` is marked experimental (ADR-056) in any case. A caller who
-  passes the result straight on, or reads `.data`, changes nothing. A caller
-  that reaches for `_wayscribe.journeyId` narrows first, which is the case the
-  union exists to make visible.
+  passes the result straight on, or reads `.data`, changes nothing, and a
+  caller that reads `_wayscribe.journeyId` under the usual check changes
+  nothing either. A caller that needs the envelope itself typed as a
+  `ContextEnvelope<T>` writes the guard the decision describes.
 - The surface grows by five options, two exported envelope types, one signature
   shape, one diagnostic kind with its counter, and one field on `counters()`,
   each of which is a thing to keep documented, tested and honest in two places
