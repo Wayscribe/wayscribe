@@ -24,10 +24,17 @@
  * No backfill. Rebuilding the value for every failed journey means reading
  * their events under row locks that ingestion needs, for a value the next
  * failure sets anyway. Journeys written before this migration, and journeys
- * the previous API writes between migrate and deploy, read null, and the
- * reads show the column only while the status is `failed`, so a value a
- * previous-build instance left behind when it cleared a failure is never
- * shown.
+ * the previous API fails between migrate and deploy, read null.
+ *
+ * The previous API does not know these columns, so when it clears or
+ * completes a failed journey it leaves them as they were. The reads show the
+ * column only while the status is `failed`, which hides such a stale value
+ * while the journey is out of `failed`. If the previous API then fails the
+ * journey again, the read can name the earlier, cleared step until a failure
+ * applied by this build and stamped later replaces it; a failure this build
+ * applies while the journey is not failed replaces it however it is stamped.
+ * This happens only while the previous API still writes, and it only ever
+ * names a step that did fail in that journey.
  *
  * @param {import("knex").Knex} knex
  * @returns {Promise<void>}

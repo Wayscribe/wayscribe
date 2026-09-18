@@ -171,7 +171,9 @@ The exact prefix format is presentation guidance, not a protocol requirement.
 The stable identifier that joins events across processes and traces.
 
 A journey id is an opaque string of 1 to 128 characters. The server checks
-nothing about its shape. The Node SDK makes ids in two shapes:
+nothing about its shape. One character cannot be stored: an event whose
+journey id contains a NUL is refused `unstorable_payload`, and the read routes
+answer `404` for such an id. The Node SDK makes ids in two shapes:
 
 - **random:** `jrn_` and a lowercase hyphenated UUID, 40 characters, such as
   `jrn_dd37c205-7ea6-4e14-bc8f-c07022f96696`;

@@ -107,7 +107,7 @@ Constraints:
 | `last_step_at` | timestamptz | Nullable. Timestamp of the event that set `last_step`, at millisecond precision like `label_at` |
 | `last_step_received_at` | timestamptz | Nullable. When the server received the event that set `last_step`, like `label_received_at` |
 | `last_step_event_id` | text | Nullable. Id of the event that set `last_step`; breaks a tie on both timestamp and arrival, in byte order like `label_event_id` |
-| `failed_step` | text | Nullable. Step name of the failing event (an `error`, or the operation `failed`) that comes last in the same order among the failures applied since the journey last became failed; null whenever `status` is not `failed`, set and cleared by the statement that sets the status. Reads select it as `case when status = 'failed' then failed_step end`, so a value a previous build left on a journey it cleared is never shown (migration `021_journey_failed_step.js`, ADR-063) |
+| `failed_step` | text | Nullable. Step name of the failing event (an `error`, or the operation `failed`) that comes last in the same order among the failures applied since the journey last became failed; null whenever `status` is not `failed`, set and cleared by the statement that sets the status. Reads select it as `case when status = 'failed' then failed_step end`, which hides a value a previous build left on a journey it cleared or completed while the journey is out of `failed`; if the previous build fails the journey again, the read can name the earlier, cleared step until a failure applied by this build and stamped later replaces it, which happens only while the previous build still writes and only names a step that did fail in that journey (migration `021_journey_failed_step.js`, ADR-063) |
 | `failed_step_at` | timestamptz | Nullable. Timestamp of the event that set `failed_step`, like `last_step_at` |
 | `failed_step_received_at` | timestamptz | Nullable. When the server received the event that set `failed_step`, like `last_step_received_at` |
 | `failed_step_event_id` | text | Nullable. Id of the event that set `failed_step`; breaks a tie on both timestamp and arrival, in byte order like `last_step_event_id` |
@@ -125,7 +125,7 @@ Constraints and indexes:
 
 The label and last-step columns were added by migration `018_journey_browse.js` with no backfill: a journey recorded before it reads null in all six. Its `last_step` columns fill on its next event; its `label` columns stay null, which the UI shows as no label, until an event that carries a label arrives.
 
-The failed-step columns were added by migration `021_journey_failed_step.js` with no backfill and no index: a journey recorded before it reads null in all four, and a failed one keeps a null `failedStep`, for which a reader shows `lastStep`, until its next failure. A failure on a journey that is not failed takes the step whatever the stored columns hold.
+The failed-step columns were added by migration `021_journey_failed_step.js` with no backfill and no index: a journey recorded before it reads null in all four, and a failed one keeps a null `failedStep`, for which a reader shows `lastStep`, until its next failure. A failure applied while the journey is not failed takes the step whatever the stored columns hold.
 
 ### `entity_aliases`
 

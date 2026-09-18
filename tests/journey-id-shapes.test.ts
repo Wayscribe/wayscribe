@@ -26,6 +26,9 @@ describe("the journey id shapes in EVENT_PROTOCOL.md section 4", () => {
     expect(text).toContain("36 characters");
     expect(text).toContain("opaque string of 1 to 128 characters");
     expect(text).toContain("must not parse or");
+    // The one character the database refuses, and what the reads answer.
+    expect(text).toContain("contains a NUL is refused `unstorable_payload`");
+    expect(text).toContain("answer `404` for such an id");
     // The recommendation neither shape matched is gone.
     expect(text).not.toContain("uuidv7");
   });

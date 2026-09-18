@@ -201,7 +201,9 @@ const NEW_STATUS = `(case
  * after the stored one in timeline order, `(timestamp, received at, id)`,
  * compared as TAKES_STEP compares. The `status <> 'failed'` branch also
  * replaces a value a previous build left behind when it cleared a failure
- * without knowing the column, however that value is stamped.
+ * without knowing the column, however that value is stamped, but only when
+ * the journey is not failed at the time: once the previous build has failed
+ * it again, only a later-stamped failure replaces the stale value.
  */
 const TAKES_FAILED_STEP = `(e.event_status = 'failed' and (status <> 'failed' or failed_step_at is null or (e.event_at, now(), e.event_id collate "C") > (failed_step_at, coalesce(failed_step_received_at, '-infinity'), failed_step_event_id collate "C")))`;
 

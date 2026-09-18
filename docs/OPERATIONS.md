@@ -279,10 +279,17 @@ columns under the same timeout.
 
 There is no backfill. A journey failed before the migration, or failed by the
 previous API between migrate and deploy, reads `failedStep: null` until its
-next failure, and the web app shows its last step for it, as before. The
-previous API does not know the columns, so when it clears a failure it leaves
-them as they were; the reads show `failedStep` only while the status is
-`failed`, so that value is never shown, and the next failure replaces it.
+next failure, and the web app shows its last step for it, as before.
+
+The previous API does not know the columns, so when it clears or completes a
+failed journey it leaves them as they were. The reads show `failedStep` only
+while the status is `failed`, which hides that stale value while the journey
+is out of `failed`. If the previous API then fails the journey again, the read
+can name the earlier, cleared step until a failure applied by this build and
+stamped later replaces it; a failure this build applies while the journey is
+not failed replaces it however it is stamped. This happens only while the
+previous API still writes, so it ends with the deploy, and it only ever names
+a step that did fail in that journey.
 
 ### Upgrading to the journey browsing release (migrations 018 and 019)
 

@@ -205,8 +205,8 @@ describe("failedStep on the journey reads", () => {
       await db("journeys").where({ id: journeyId }).update({ status });
       await expectEverywhere(journeyId, { status, failedStep: null });
     }
-    // And the next failure replaces it, although the stale one is stamped
-    // later.
+    // And a failure applied while the journey is not failed replaces it,
+    // although the stale one is stamped later.
     await db("journeys")
       .where({ id: journeyId })
       .update({ status: "active", failed_step_at: new Date(Date.now() + 60 * MINUTE) });

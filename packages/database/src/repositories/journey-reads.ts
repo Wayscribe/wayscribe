@@ -61,8 +61,10 @@ export async function findJourneyDetail(
     "status",
     "label",
     "last_step as lastStep",
-    // Shown only while the journey is failed: a previous-build instance that
-    // cleared a failure left the column as it was (ADR-063).
+    // Shown only while the journey is failed. That hides a value a
+    // previous-build instance left when it cleared a failure, while the
+    // journey stays out of failed; ADR-063's corrections say what it does not
+    // hide during a rolling deploy.
     db.raw(`case when status = 'failed' then failed_step end as "failedStep"`),
     "event_count as eventCount",
     "started_at as startedAt",
