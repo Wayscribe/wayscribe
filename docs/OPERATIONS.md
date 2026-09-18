@@ -1422,6 +1422,20 @@ docker compose run --rm --entrypoint node api \
 From a checkout, `pnpm run doctor --api-url http://localhost:8080 --api-key wsk_…`
 reads the repository-root `.env`.
 
+A key passed as `--api-key` is part of the command line, so it is visible to
+anything that can read the process list, which inside a container is anything
+with Docker access to the host. `doctor` reads `WAYSCRIBE_API_KEY` instead when
+the flag is absent, which is the safer route:
+
+```bash
+docker compose run --rm --entrypoint node \
+  -e WAYSCRIBE_API_KEY api packages/database/dist/cli.js doctor --api-url http://api:8080
+```
+
+A blank value counts as unset, and the value is trimmed, so a key read from a
+file that ends in a newline works. `--api-key` wins when both are given, for
+checking one key while the environment holds another.
+
 Run it with the API's environment, because that is what it checks: the same
 `DATABASE_URL`, `ENCRYPTION_KEY`, `ADMIN_TOKEN`, and
 `DATABASE_STATEMENT_TIMEOUT_MS`. `docker compose run … api` gives it exactly
@@ -1440,7 +1454,7 @@ beneath it:
 | Projects and keys | | no project, no unrevoked API key, or the published demo key (`wsk_demo0000`) is unrevoked |
 | Journey environments | an event was written by another environment's API key than its journey's own, which ingestion now refuses (ADR-038, amendment) and earlier builds did not | |
 | Secret-looking names | | a recently stored payload holds a plain value under a key name that looks like a secret, or the sample did not finish within 5 seconds or could not run |
-| API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
+| API key (`--api-key` or `WAYSCRIBE_API_KEY`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
 | API reachable (`--api-url`) | `GET /ready` does not answer 200; its `reason` is printed | |
 | Statement timeout | the value is invalid | it is 0 |
 

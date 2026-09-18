@@ -266,10 +266,28 @@ export function formatDoctor(results: readonly CheckResult[]): string[] {
 export type DoctorArgs =
   { ok: true; apiUrl?: string; apiKey?: string } | { ok: false; message: string };
 
-export const DOCTOR_USAGE = "Usage: doctor [--api-url <url>] [--api-key <key>]";
+export const DOCTOR_USAGE =
+  "Usage: doctor [--api-url <url>] [--api-key <key>]\n" +
+  "       The key may come from WAYSCRIBE_API_KEY instead, which keeps it out of\n" +
+  "       the process list; --api-key wins when both are given.";
 
-/** `--api-url <url>` and `--api-key <key>`, each at most once, as `--flag value` or `--flag=value`. */
-export function parseDoctorArgs(args: readonly string[]): DoctorArgs {
+/**
+ * `--api-url <url>` and `--api-key <key>`, each at most once, as `--flag value`
+ * or `--flag=value`.
+ *
+ * The key may also arrive as `WAYSCRIBE_API_KEY`, the variable the SDK already
+ * reads it from. A key on the command line is visible to anything that can read
+ * the process list, which inside a container is anything with Docker access to
+ * the host, so the environment is the safer route (docs/OPERATIONS.md §12). The
+ * flag still wins, for an operator checking one key while the environment holds
+ * another. A blank value counts as unset, the way every other setting treats
+ * one, and the value is trimmed because a secrets file commonly ends in a
+ * newline.
+ */
+export function parseDoctorArgs(
+  args: readonly string[],
+  env: Record<string, string | undefined> = {}
+): DoctorArgs {
   const values: { "--api-url"?: string; "--api-key"?: string } = {};
 
   const remaining = [...args];
@@ -294,10 +312,12 @@ export function parseDoctorArgs(args: readonly string[]): DoctorArgs {
   if (apiUrl !== undefined && !isHttpUrl(apiUrl)) {
     return { ok: false, message: `--api-url must be an http:// or https:// URL.\n${DOCTOR_USAGE}` };
   }
+  const fromEnvironment = (env["WAYSCRIBE_API_KEY"] ?? "").trim();
+  const apiKey = values["--api-key"] ?? (fromEnvironment === "" ? undefined : fromEnvironment);
   return {
     ok: true,
     ...(apiUrl === undefined ? {} : { apiUrl }),
-    ...(values["--api-key"] === undefined ? {} : { apiKey: values["--api-key"] })
+    ...(apiKey === undefined ? {} : { apiKey })
   };
 }
 

@@ -329,7 +329,7 @@ try {
     case "doctor": {
       const { doctorExitCode, formatDoctor, parseDoctorArgs, runDoctor } =
         await import("./doctor.js");
-      const parsed = parseDoctorArgs(args);
+      const parsed = parseDoctorArgs(args, process.env);
       if (!parsed.ok) {
         console.error(parsed.message);
         process.exitCode = 1;

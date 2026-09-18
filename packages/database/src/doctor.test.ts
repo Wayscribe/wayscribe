@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   apiKeyShapeProblem,
   doctorExitCode,
+  DOCTOR_USAGE,
   formatDoctor,
   parseDoctorArgs,
   scrub,
@@ -40,6 +41,36 @@ describe("parseDoctorArgs", () => {
   it("never echoes an argument it does not recognise, which may be a key", () => {
     const parsed = parseDoctorArgs(["wsk_pasted_without_its_flag_00000000"]);
     expect(parsed.ok ? "" : parsed.message).not.toContain("wsk_pasted");
+  });
+
+  it("takes the key from WAYSCRIBE_API_KEY when the flag is absent", () => {
+    expect(parseDoctorArgs([], { WAYSCRIBE_API_KEY: "wsk_fromtheenvironment000000" })).toEqual({
+      ok: true,
+      apiKey: "wsk_fromtheenvironment000000"
+    });
+  });
+
+  it("lets the flag win over the environment", () => {
+    expect(
+      parseDoctorArgs(["--api-key=wsk_fromtheflag0000000000"], {
+        WAYSCRIBE_API_KEY: "wsk_fromtheenvironment000000"
+      })
+    ).toEqual({ ok: true, apiKey: "wsk_fromtheflag0000000000" });
+  });
+
+  it.each(["", "   "])("treats a blank WAYSCRIBE_API_KEY as unset (%j)", (value) => {
+    expect(parseDoctorArgs([], { WAYSCRIBE_API_KEY: value })).toEqual({ ok: true });
+  });
+
+  it("trims the environment's value, which a secrets file often ends with a newline", () => {
+    expect(parseDoctorArgs([], { WAYSCRIBE_API_KEY: "wsk_withanewline000000000\n" })).toEqual({
+      ok: true,
+      apiKey: "wsk_withanewline000000000"
+    });
+  });
+
+  it("says in its usage text that the key may come from the environment", () => {
+    expect(DOCTOR_USAGE).toContain("WAYSCRIBE_API_KEY");
   });
 });
 

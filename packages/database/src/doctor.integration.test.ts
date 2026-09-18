@@ -471,6 +471,20 @@ describe("doctor", () => {
     );
   });
 
+  it("checks the key from WAYSCRIBE_API_KEY when no flag is given", async () => {
+    const run = await doctor([], { WAYSCRIBE_API_KEY: apiKey });
+
+    expect(statusOf(run, "API key"), run.output).toBe("PASS");
+    expectNoSecrets(run, apiKey);
+  });
+
+  it("lets --api-key win over WAYSCRIBE_API_KEY", async () => {
+    const run = await doctor(["--api-key", revokedKey], { WAYSCRIBE_API_KEY: apiKey });
+
+    expect(statusOf(run, "API key"), run.output).toBe("FAIL");
+    expect(lineOf(run, "API key")).toContain("was revoked");
+  });
+
   it("fails a revoked key", async () => {
     const run = await doctor(["--api-key", revokedKey], {});
 
