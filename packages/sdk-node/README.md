@@ -615,8 +615,8 @@ no library. This one is built so that cannot happen:
   range; a setting under its old name (`maxPayloadBytes`, `propagate`), since
   its value is not read; once per
   name, a field whose name looks like a secret that was sent in plain text; and,
-  once per value shape, a journey label or a displayable alias that looks like
-  personal data. A line names the setting or
+  once per field and value shape, a journey label, a displayable alias or an
+  error message that looks like personal data. A line names the setting or
   the field, never its value. Pass `onDiagnostic` if you want to hear about failures in your own
   logger.
   An optional setting used to be silent unless `logDiagnostics` was on, so a

@@ -27,6 +27,12 @@ interface Fixture {
     environment: string;
     entity: { type: string; id: string };
   }[];
+  refusedEmpty: {
+    name: string;
+    secret: string;
+    environment: string;
+    entity: { type: string; id: string };
+  }[];
 }
 
 const fixture = JSON.parse(
@@ -59,6 +65,21 @@ describe("journey id derivation vectors", () => {
       expect(vector.journeyId).toBe(`${fixture.algorithm.prefix}${mac.slice(0, 32)}`);
     }
   );
+
+  it.each(fixture.refusedEmpty.map((one) => [one.name, one] as const))(
+    "lists a refused entity the protocol would refuse, with an empty type or id: %s",
+    (_name, one) => {
+      // The reason to refuse: the protocol's entity schema requires both to be
+      // non-empty, so an event for this entity would never be stored.
+      expect(one.entity.type === "" || one.entity.id === "").toBe(true);
+    }
+  );
+
+  it("lists refused entities of both kinds", () => {
+    // An empty list would make the checks above pass by running nothing.
+    expect(fixture.refused.length).toBeGreaterThan(0);
+    expect(fixture.refusedEmpty.length).toBeGreaterThan(0);
+  });
 
   it.each(fixture.refused.map((one) => [one.name, one] as const))(
     "lists a refused entity that encoding would confuse with a vector: %s",
