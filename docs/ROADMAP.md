@@ -99,6 +99,23 @@ Presenting the work, and closing what the last review opened.
     time, shown as labelled fields rather than anonymous metadata, and set by
     the SDK where it can (for example the queue wait when it extracts context
     from a job). Needs a decision on names, and belongs in the contract.
+    Two things the names alone do not settle, both found by instrumenting a
+    real queue (F-019, F-027):
+    - **A value that could not be measured has to be marked, not defaulted.**
+      A missing or corrupt queue field read as `0` is indistinguishable on the
+      timeline from a job that truly waited no time, and reads with the same
+      confidence. The vocabulary needs a way to say "not measured" for every
+      field it defines, or a rule that an unmeasurable field is left off the
+      event entirely. Two independent computations over the same job, one
+      defaulting to `0` and one dropping the record, disagreed about exactly
+      this case, and only comparing them showed it.
+    - **A retried attempt's queue wait is not the same measurement.** BullMQ,
+      for one, has no "ready again" timestamp: `processedOn` is when the
+      current attempt began, so the gap before it includes that attempt's own
+      backoff rather than time spent waiting for a worker. Either the
+      vocabulary defines queue wait for a retried attempt explicitly, or it
+      says plainly that the two are not comparable and the presentation keeps
+      them apart.
   - **The deployment on each event:** the existing `deployment` field shown on
     the timeline, so a field that changed after a deploy is easy to spot.
   - **Duration filters** on the Journeys page: journeys that took longer than

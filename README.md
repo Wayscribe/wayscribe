@@ -208,7 +208,7 @@ repository, commit the tarball to your application, and depend on it by path:
 
 ```bash
 pnpm install
-pnpm --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
+pnpm --silent --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
 cd /path/to/your-app
 npm install ./vendor/wayscribe-node-0.1.0.tgz   # records "file:vendor/…tgz"
 ```

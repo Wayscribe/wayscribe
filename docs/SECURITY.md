@@ -147,6 +147,15 @@ A replacement keeps the evidence that a value existed:
 }
 ```
 
+**A diff holds a changed value twice.** Where a value changed is computed from
+the payloads as they were stored, and a change keeps both the value before and
+the value after, which is the whole point of a diff. A redacted value compares
+as `[REDACTED]` against `[REDACTED]`, so a rotated secret leaks neither side.
+Personal data is not redacted the way a secret is (section 6), so a payload
+carrying it produces a diff carrying it twice rather than once. Nothing new is
+exposed, since both payloads are already stored, but a capture mode chosen for
+how much a payload holds should be read as saying how much a diff holds as well.
+
 ### What a name rule reaches
 
 A built-in secret name, or a configured `**.name` rule, is matched against the
