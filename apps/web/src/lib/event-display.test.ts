@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { displayChange, eventForDisplay, type ApiEventDetail } from "./event-display";
-import { MAX_METADATA_TEXT } from "./metadata";
+import { MAX_METADATA_TEXT, metadataEntries, runtimeFormat } from "./metadata";
 
 /** An event as `GET /v1/events/:id` answers it, parsed from its JSON text. */
 const raw = (fields: string): ApiEventDetail =>
@@ -173,7 +173,20 @@ describe("the Runtime group's sdk entry", () => {
 
   // JSON.parse makes `__proto__` an own key, so an object whose name and
   // version sit only under it has neither of its own.
-  it("does not read name or version through a key named __proto__", () => {
+  // Only the object's own keys count. An object whose prototype chain
+  // supplies name and version has neither of its own, so it is not read as
+  // an SDK.
+  it("does not read name or version from the prototype chain", () => {
+    const inherited: unknown = Object.create({ name: "forged", version: "9.9.9" });
+    expect(runtimeFormat("sdk", inherited)).toBeUndefined();
+    expect(metadataEntries({ sdk: inherited }, runtimeFormat).entries).toEqual([
+      { key: "sdk", value: "{}" }
+    ]);
+  });
+
+  // JSON.parse makes `__proto__` an own key, never the prototype, so what
+  // sits under it is not the SDK's name and version either.
+  it("does not read name or version under a key named __proto__", () => {
     const value = '{"__proto__":{"name":"forged","version":"9.9.9"}}';
     expect(sdk(value)).toBe('{"__proto__":{"name":"forged","version":"9.9.9"}}');
   });
