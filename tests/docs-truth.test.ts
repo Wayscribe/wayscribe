@@ -844,3 +844,46 @@ describe("docs/SDK_SPEC.md", () => {
     }
   });
 });
+
+describe("telling collector faults apart from the SDK's counters (F-050)", () => {
+  // Under a fault that lasts, droppedByCause is mostly queue_full whatever the
+  // collector did, so a dashboard of the largest cause says "queue full" for
+  // every fault. packages/sdk-node/src/fault-fingerprints.test.ts holds the
+  // rule to the recorder; these hold the places that state it to the rule.
+  const timeout = `${resolveConfig({
+    endpoint: "http://localhost:8080",
+    apiKey: "wsk_test",
+    serviceName: "svc",
+    environment: "development"
+  }).requestTimeoutMs.toLocaleString("en-US")} ms`;
+  const flat = (text: string): string => text.replace(/\s+/g, " ");
+
+  it("states the rule in the SDK README's section on sending", () => {
+    const text = flat(section(read("packages/sdk-node/README.md"), "Sending and shutting down"));
+    expect(text).toContain("where an event was lost, not why");
+    expect(text).toContain("`droppedByCause.no_verdict` above zero");
+    expect(text).toContain("`transportErrors` above zero");
+    expect(text).toContain("Both at zero");
+    expect(text).toContain(`\`requestTimeoutMs\`, ${timeout} by default`);
+  });
+
+  it("states it where TROUBLESHOOTING reads the counters", () => {
+    const text = flat(read("docs/TROUBLESHOOTING.md").split("### 4. Read the counters")[1] ?? "");
+    const step = text.split("### 5.")[0] ?? "";
+    expect(step).toContain("where an event was lost, not why");
+    expect(step).toContain("| `droppedByCause.no_verdict` > 0 |");
+    expect(step).toContain("| `transportErrors` 0 and `droppedByCause.no_verdict` 0 |");
+    expect(step).toContain(`\`requestTimeoutMs\` (${timeout} by default)`);
+  });
+
+  it("states it in the counters' own documentation, which an editor shows", () => {
+    const doc = flat(
+      /\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*droppedByCause:/.exec(
+        read("packages/sdk-node/src/diagnostics.ts")
+      )?.[1] ?? ""
+    );
+    expect(doc).toContain("where an event was lost, not why");
+    expect(doc).toContain("`no_verdict` above zero");
+    expect(doc).toContain("`transportErrors` above zero");
+  });
+});

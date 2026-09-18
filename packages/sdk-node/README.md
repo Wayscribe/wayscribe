@@ -694,6 +694,26 @@ once five such sends have opened the breaker, in `queue_full` or `shutdown`
 for what waited behind it; `breakerOpened` says which it was (F-048,
 ADR-063).
 
+**A cause says where an event was lost, not why.** Under any fault that lasts,
+events wait in the queue until it sheds them or shutdown gives them up, so
+`queue_full` and `shutdown` hold most of the drops whatever the collector did,
+and the largest cause reads "queue full" for every fault. Read the fault from
+two other numbers instead (F-050):
+
+- `droppedByCause.no_verdict` above zero: the collector answered 2xx without a
+  verdict for some events. `endpoint` is not the Wayscribe API, or a proxy is
+  rewriting replies. It can be the smallest cause, because five such sends in a
+  row open the breaker and the rest wait in the queue.
+- `transportErrors` above zero: a send used its three attempts and events were
+  still unsent. A request was refused or reset, was answered with a 5xx, or ran
+  past `requestTimeoutMs`, 1,500 ms by default; or the API answered that it
+  could not store events for now. The `transport_error` diagnostic's code
+  says which: `request_failed` or `refused_for_now`.
+- Both at zero while `queue_full` or `shutdown` climbs: nothing failed. The
+  collector answers, but slower than you record or than shutdown waits. A
+  process that shuts down before any send has used its three attempts shows no
+  transport error either, even against a collector that cannot be reached.
+
 ```typescript
 const { dropped, droppedByCause } = recorder.counters();
 // dropped === 12, droppedByCause === { queue_full: 0, after_shutdown: 0,

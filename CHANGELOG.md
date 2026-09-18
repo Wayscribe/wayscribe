@@ -659,6 +659,17 @@ What you have to do when upgrading a checkout or a deployment:
   measured `recorded 16000, dropped 16000` and `breakerOpened` 0. Such a send
   reports no `transport_error`. A reply with some verdicts resets the count as
   before (ADR-063, SDK-65).
+- **The counters say how to tell a collector's faults apart** (F-050). Under a
+  fault that lasts, `droppedByCause` is mostly `queue_full` and `shutdown`
+  whatever the collector did, because a cause names where an event was lost,
+  not why: Leadline's paced runs of 16,000 events read `queue_full` 14,750 to
+  15,000 in every fault it tried. `droppedByCause`'s TSDoc, the SDK README and
+  `docs/TROUBLESHOOTING.md` now give the rule that does read them apart:
+  `no_verdict` above zero is a collector answering 2xx without verdicts,
+  `transportErrors` above zero is one refused, reset, answering 5xx, slower
+  than `requestTimeoutMs` or unable to store events for now, and neither is a
+  collector that answers but is slower than events arrive or than shutdown
+  waits. A test holds each case to what the recorder does. Documentation only.
 
 - **The telephone shape finds a number in a field and not a signed count.**
   The `+` of a telephone number may now follow `=`, `:`, a quote, `,`, `;`,
