@@ -3348,3 +3348,235 @@ hold is this:
   vocabulary in `docs/API_SPEC.md` say what a successful retry does, and say
   that `completed` means the run reached its end, so the status a reader sees is
   documented where they look it up.
+
+---
+
+## ADR-062: What the second dogfood run changed in the SDK's surface
+
+**Status:** Accepted, 2026-09-18. Amends the Node SDK's public surface, which
+ADR-056 settled and ADR-060 extended, before the first release. Changes what
+`counters()` reports, what `deployment` refuses, one declaration and one
+warning's reach. Nothing on the wire changes and the server needs no change.
+Follows Leadline's second pass over the SDK, written against `dcd4fea`:
+findings F-031, F-034, F-038 and F-041.
+
+### Context
+
+ADR-060 added `deployment` and `counters().rejectedSettings` so a host could set
+its build and learn which settings the SDK refused. Leadline adopted both, and
+measured what they report. Checked against the code at `dcd4fea`:
+
+- **A partial refusal and a total one read the same.** `readDeployment` in
+  `packages/sdk-node/src/config.ts` keeps each of `gitCommit`, `version` and
+  `image` that is a non-empty string within the protocol's limit, and reports
+  every other problem once, under the setting name `deployment`. So
+  `{ gitCommit: <40 chars>, version: <129 chars> }`, which still sends the
+  commit, and `{ gitCommit: <129 chars> }`, which sends nothing, both leave
+  `rejectedSettings` at `["deployment"]` with one configuration error. Only the
+  diagnostic's prose, which the SDK says may change in any release, tells them
+  apart (F-031).
+- **Two empty inputs pass in silence.** `readDeployment` refuses `""` but keeps
+  `"   "`, because it compares with `""` and never trims, while the required
+  settings' own check treats a blank value as missing. And `{}`, like
+  `{ gitCommit: undefined }`, which is what `process.env.GIT_SHA` gives when the
+  variable is unset, is accepted with nothing reported and no deployment sent
+  (F-031).
+- **Some unknown keys go unreported.** The check for keys other than the three
+  is `key in DEPLOYMENT_LIMITS`, and `in` reads the prototype, so `constructor`
+  or `toString` beside a valid `gitCommit` is left off without a report. Found
+  while checking this decision, and measured: both leave `rejectedSettings`
+  empty. The key is never sent, because only the three fields are copied, so
+  this is a silent loss and not a refused event.
+- **Calls feed the settings list.** `createDiagnostics` in `diagnostics.ts`
+  keeps one set, `rejectedSettings`, capped at `MAX_REJECTED_SETTINGS` (50), and
+  `report` adds `detail.setting` from every `configuration_error`, whenever it
+  arrives. The recorder sends those at creation, for its settings, and on later
+  calls: `continueJourney` for `context`, `journeyId` and `entity`,
+  `startJourney` for `entity`, `journeyIdFor` for `journeyIdSecret` when it has
+  no usable secret, and `continueJourney`, `identify` and `startJourney` for
+  the pre-release option names `entityFallback` and `displayable`. So a
+  recorder whose every setting was valid ends with `["journeyId", "context"]`
+  after two odd calls, and a shutdown summary prints a setting problem the
+  process never had. `journeyIdFor` reports an invalid entity with
+  `detail: {}`, so that one reaches no list at all, although
+  `ConfigurationErrorDiagnostic`'s own TSDoc says `setting` is `entity` (F-038).
+- **The guard cannot take what it was written for.** `hasJourney` in
+  `propagation.ts` is declared over `PayloadEnvelope<T>`, reads its argument as
+  `unknown` and answers `false` for anything that is not an envelope with a
+  journey, and its TSDoc says it takes anything. A body off a queue is
+  `unknown`, and passing one is `error TS2345` (F-034).
+- **An error message is shown in the clear and nothing warns.** `maskedError`
+  in `recorder.ts` is the one point every error record passes on its way to
+  the queue: a thrown error's, a `FailureReason`'s, `fail()`'s and one given to
+  `record()`. It masks credential shapes with `maskSecretsInText`, which leaves
+  an email address and a telephone number alone, and nothing warns about them.
+  The label and displayable-alias warning of ADR-060, `warnAboutPersonalData`
+  in `personal-data.ts`, is never called for an error (F-041).
+
+### Decision
+
+**Settings and options are two lists.** `Counters` keeps `rejectedSettings`
+and gains `rejectedOptions`, both `readonly string[]`:
+
+- `rejectedSettings` names what was refused while `createRecorder` ran: the
+  recorder's settings, the fields of `deployment` as below, a setting given
+  under its old name, and an unusable `journeyIdSecret`. It is fixed once
+  `createRecorder` returns, so it gives the same answer whenever it is read,
+  and a correctly configured process never ends with an entry in it.
+- `rejectedOptions` names what a call was refused after that: `entity`,
+  `context`, `journeyId`, `journeyIdSecret` (a call that needed a secret the
+  recorder does not have, or cannot use), and the old option names
+  `entityFallback` and `displayable`.
+
+Each list keeps a name once, in the order first seen, at most 50 entries:
+`MAX_REJECTED_SETTINGS` stays 50 and a new `MAX_REJECTED_OPTIONS` is 50. Both
+hold only names the SDK itself wrote, never a value or a key the host chose,
+which is what keeps them bounded. `counters()` returns a fresh copy of each.
+`configurationErrors` is unchanged: it counts every `configuration_error`
+report, from creation and from calls alike, one per report.
+
+The split is made by when a report arrives, not by tagging each report. The
+internal `Diagnostics` interface gains `endCreation(): void`, which
+`createRecorder` calls once, as its last statement before it returns the
+recorder. A `configuration_error` reported before that call names an entry in
+`rejectedSettings`; one reported after it names an entry in `rejectedOptions`.
+No call can reach the recorder before `createRecorder` returns, so the phase
+cannot be wrong, and a creation-time report added later lands in the right list
+without anyone remembering a flag. The same rule settles `journeyIdSecret`: an
+unusable secret is reported at creation and is a setting; a missing secret is
+the default and not a misconfiguration (the recorder does not report it at
+creation), so a `journeyIdFor` that needed one names it as an option.
+
+`journeyIdFor` reports an invalid entity with `detail: { setting: "entity" }`,
+as `startJourney` and `continueJourney` already do, so it reaches
+`rejectedOptions` like theirs.
+
+**`deployment` is reported by field.** What each case adds to
+`rejectedSettings`, with the code `setting_unusable` for every one; no new code
+is added:
+
+- **`deployment.gitCommit`, `deployment.version`, `deployment.image`:** that
+  field was given, meaning its value is not `undefined`, and is not sent: it is
+  not a string, is empty or whitespace only, is longer than the protocol
+  accepts (128, 128 and 512 UTF-16 code units, as today), or reading it threw.
+  Whitespace only means `value.trim() === ""`, the test the required settings
+  use. A value with text in it is sent as given, never trimmed: nothing is
+  converted.
+- **`deployment.*`:** the object holds one or more own enumerable keys other
+  than the three, tested with `Object.hasOwn` against the limits table rather
+  than `in`, or its keys could not be listed. One report however many such keys
+  there are, and never the key's name, because the key is the host's and could
+  be anything. The three fields are still read and sent as usual.
+- **`deployment`:** the setting was given and events carry no deployment as a
+  result. That is: it could not be read, it is not an object (`null`, an array,
+  a string), or it is an object from which no field is sent, which covers `{}`,
+  `{ gitCommit: undefined }` and an object whose every given field was refused.
+
+Reports are made in the order `deployment.gitCommit`, `deployment.version`,
+`deployment.image`, `deployment.*`, `deployment`, one `configuration_error`
+each. So "was the whole setting dropped" is
+`rejectedSettings.includes("deployment")`, and "which field" is the dotted
+entry. Measured today against decided:
+
+| `deployment` given | `rejectedSettings` today | decided | sent |
+| --- | --- | --- | --- |
+| `{ gitCommit: <40> }` | `[]` | `[]` | the commit |
+| `{ gitCommit: <40>, version: <129> }` | `["deployment"]` | `["deployment.version"]` | the commit |
+| `{ gitCommit: <40>, branch: "main" }` | `["deployment"]` | `["deployment.*"]` | the commit |
+| `{ gitCommit: <40>, constructor: "x" }` | `[]` | `["deployment.*"]` | the commit |
+| `{ gitCommit: <129> }` | `["deployment"]` | `["deployment.gitCommit", "deployment"]` | nothing |
+| `{ gitCommit: "" }` | `["deployment"]` | `["deployment.gitCommit", "deployment"]` | nothing |
+| `{ gitCommit: "   " }` | `[]` | `["deployment.gitCommit", "deployment"]` | nothing |
+| `{}` or `{ gitCommit: undefined }` | `[]` | `["deployment"]` | nothing |
+| `null` | `["deployment"]` | `["deployment"]` | nothing |
+
+`configurationErrors` is the length of the decided list in every row, since
+each entry is one report.
+
+**`hasJourney` takes anything.** Its declaration becomes
+`hasJourney(envelope: unknown): envelope is ContextEnvelope<unknown>`, with no
+type parameter. The guard checks `_wayscribe.journeyId` and never `data`, so a
+type parameter the caller could set would assert the payload's type unchecked,
+which is a cast by another name. None is needed: compiled under tsc 5.9.3 with
+this repository's settings, a value typed `PayloadEnvelope<Job>` still narrows
+to `ContextEnvelope<Job>` inside the guard and to `NoContextEnvelope<Job>` in
+its `else`, because narrowing keeps the union members assignable to the
+predicate's type; a value typed `unknown` narrows to
+`ContextEnvelope<unknown>`, whose `data` is `unknown` until the caller checks
+it. The TSDoc says plainly that `false` covers both "not an envelope" and "an
+envelope with no journey", since F-034 shows a caller needs to tell those apart
+and this guard does not (F-034).
+
+**An error message is checked for personal data.** `maskedError` calls
+`warnAboutPersonalData` on the message after masking and bounding, which is the
+text that is sent. `PublicValueField`, and so the diagnostic's `detail.field`,
+becomes `"journeyLabel" | "displayableAliases" | "errorMessage"`. It is the same
+mechanism, not a second one: the same diagnostic kind and code, the same
+once-per-process-and-shape rule over the same set, the same printed line with
+logging off, and the value is never changed (ADR-055's pattern). Because the
+rule is per shape and not per field, `personalDataInPublicValues` stays at most
+2, and an email address in an error message after one in a label reports
+nothing more. That is the rule's intent: it brings the rule to someone's
+attention, and does not inventory values. A `stack` is not examined: the SDK
+never sends one of its own, and F-041 is about the message a timeline shows.
+`FailureReason`'s TSDoc says that masking covers credential shapes and leaves
+personal data in place (F-041).
+
+### Alternatives rejected
+
+- **One list with a discriminator**, such as
+  `{ name: string; when: "creation" | "call" }[]`. It changes the type of a field
+  a health check already reads as a list of names, and every reader asking the
+  one question that matters, "is this process misconfigured", would filter it
+  first. Two lists answer that question with one read.
+- **A second counter beside `rejectedSettings`**, counting call-time reports.
+  A count says how many and never which, which is the gap ADR-060 closed for
+  settings, and it would leave the settings list still polluted by calls.
+- **A name that covers both**, such as `rejectedConfiguration`. It makes the
+  documentation true and the value no more useful: F-038's point is that the
+  two mean different things, "this process is misconfigured" against "one call
+  site passed something odd", and only the first is a reason to stop.
+- **Tagging each report with its phase** through `ReportOptions`. It works
+  until someone adds a creation-time report and forgets the tag. `unlimited`,
+  the one tag there today, is already not a phase marker: `journeyIdFor`'s
+  first secret report passes it at call time.
+- **Naming the unknown key**, as `deployment.branch`. The list's bound rests
+  on holding only names the SDK wrote; a host-chosen key breaks that and puts
+  whatever the host wrote into every log line that prints the list.
+- **Reporting only the field when nothing is sent.** Then telling a partial
+  refusal from a total one means knowing which fields were given, which is the
+  prose-parsing F-031 asks to end. The extra `deployment` entry is one report
+  that states the outcome.
+- **Dropping the whole deployment when any field is refused.** One bad
+  `version` would then cost a correct commit, which is the outcome F-031 shows
+  a strict consumer already gets from the list today.
+- **Trimming whitespace.** Nothing in `RecorderConfig` is converted, and a
+  trimmed value would name a build differently from the one the host gave.
+
+### Consequences
+
+- A consumer that refuses to record when the SDK refused a setting, as
+  Leadline's `openRecorder` does, reads `rejectedSettings` and gets the same
+  answer at any moment, and can let `deployment.version` through while
+  refusing `deployment` or `journeyIdSecret`.
+- `rejectedSettings` no longer holds `entity`, `context` or `journeyId`, and
+  holds `journeyIdSecret` only for a secret configured and unusable. A test that
+  expected call-time names there moves to `rejectedOptions`; the SDK's own test
+  of two `journeyIdFor` calls without a secret now expects `["batchSize"]` and
+  `["journeyIdSecret"]`.
+- `{ gitCommit: process.env.GIT_SHA }` with the variable unset now reports
+  `deployment`. It was silent, and it sends nothing either way.
+- The one-line warning printed at creation is keyed by the setting name, so a
+  process prints one per dotted name, which is at most five for `deployment`.
+- The public surface grows by one field on `counters()` and one value of an
+  existing `detail.field`, and one declaration loosens. `Counters` and the
+  diagnostic kinds are documented as open to additions, and a caller of
+  `hasJourney` that passed a typed envelope compiles unchanged; one that wrote
+  an explicit type argument, which nothing in this repository does, drops it.
+- The Node SDK's README, `docs/NODE_SDK_SPEC.md`, the TSDoc on `Counters`,
+  `Deployment`, `ConfigurationErrorDiagnostic`,
+  `PersonalDataInPublicValueDiagnostic`, `hasJourney` and `FailureReason`, and
+  the CHANGELOG say what is decided here. `docs/SDK_SPEC.md` SDK-60 says that
+  settings refused at creation are readable apart from options refused on a
+  call, and SDK-63 names an error message beside a label and a displayable
+  alias, with its conformance row extended to match.
