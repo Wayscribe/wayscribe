@@ -309,7 +309,9 @@ function readOutcome(
     ? (body.value as { data?: { results?: BatchOutcome[] } } | null)?.data?.results
     : undefined;
   const verdicts: unknown[] = Array.isArray(results) ? results.slice(0, batch.length) : [];
+  let missing = 0;
   const noVerdict = (why: string): void => {
+    missing += 1;
     diagnostics.report({
       kind: "dropped",
       code: "no_verdict",
@@ -366,6 +368,7 @@ function readOutcome(
   return {
     accepted,
     retry,
+    noVerdict: missing,
     ...(reason === undefined ? {} : { reason }),
     ...(logReason === undefined ? {} : { logReason })
   };

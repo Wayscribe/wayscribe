@@ -250,6 +250,14 @@ configurable policy that was never built.
 - **SDK-34.** Concurrent sends MUST be capped.
 - **SDK-35.** An SDK SHOULD report an unencrypted endpoint and MUST still start.
 - **SDK-36.** An SDK MUST NOT use the dry run in normal operation.
+- **SDK-65.** A send in which no attempt got a verdict for any of its events
+  MUST count toward the breaker, as a send that failed does. An attempt got a
+  verdict when at least one of its events was accepted, refused for good, or
+  refused for now. A send that stored anything still resets the count
+  (SDK-32), as does one that got at least one verdict and left nothing unsent,
+  and a whole-request 4xx still leaves it as it was (SDK-31). A collector that
+  answers 2xx with the wrong body otherwise loses every event it is sent with
+  the breaker never opening (F-048, ADR-063).
 
 ### Defaults
 
@@ -281,6 +289,7 @@ may differ; it should be able to say why.
 | SDK-34 | packages/sdk-node/src/config.ts | section 14 |
 | SDK-35 | packages/sdk-node/src/diagnostics.ts | section 14 |
 | SDK-36 | ADR-050 | section 14 |
+| SDK-65 | ADR-063; packages/sdk-node/src/transport.ts | section 14 |
 
 ## 8. Shutdown
 
@@ -308,13 +317,17 @@ may differ; it should be able to say why.
   message from the server, or the endpoint's path or query. A path or a query
   can carry a credential.
 - **SDK-42.** An SDK SHOULD expose counters: recorded, sent, rejected, dropped,
-  and payloads omitted and truncated, counted separately.
+  and payloads omitted and truncated, counted separately. It SHOULD also expose
+  dropped by cause, one count per cause with every cause present from the
+  start at zero, summing to dropped, so that a collector slower than the
+  shutdown timeout reads apart from one that answers with the wrong body
+  (ADR-063).
 
 | ID | Source | Checked by |
 | --- | --- | --- |
 | SDK-40 | AGENTS.md, SDK reliability rules | section 14 |
 | SDK-41 | SECURITY.md section 12 | section 14 |
-| SDK-42 | packages/sdk-node/src/diagnostics.ts | section 14 |
+| SDK-42 | packages/sdk-node/src/diagnostics.ts; ADR-063 | section 14 |
 
 ## 10. Propagation
 
@@ -686,6 +699,7 @@ either.
 | SDK-25, SDK-26 | Fill the queue past its bound and assert the oldest events are the ones dropped, and that the drop is counted. |
 | SDK-27, SDK-28 | Assert the SDK reads the response body of a 2xx in which every event was refused. |
 | SDK-30, SDK-31, SDK-32 | Assert the backoff is capped and jittered, that a whole-request 4xx is not retried and does not open the breaker, and that a partially stored send does not either. |
+| SDK-65 | Answer every request 2xx with a body that is not JSON, and again with JSON that holds no results; assert the breaker opens after the threshold of sends with no transport error reported, and that events are dropped as no verdict until then. Answer with verdicts for half the events and assert it never opens. |
 | SDK-33 | Assert a 5xx per-event refusal is resent and a 4xx one is not, and that both budgets end it. |
 | SDK-34 | Assert concurrent sends never exceed the cap, including during an explicit flush. |
 | SDK-35 | Point a recorder at an unencrypted endpoint and assert it reports and still starts. |

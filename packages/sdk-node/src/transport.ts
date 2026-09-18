@@ -11,6 +11,12 @@ export interface SendOutcome {
    * here.
    */
   retry: readonly unknown[];
+  /**
+   * Events of this request the reply gave no verdict for, already reported as
+   * `dropped` with `no_verdict`. An attempt gave a verdict when this is less
+   * than the number of events it sent (ADR-063).
+   */
+  noVerdict: number;
   /** The server's reason for the last transient refusal, for diagnostics. */
   reason?: string;
   /** The same refusal without the server's message, for the console. */
@@ -139,6 +145,14 @@ export class Transport {
     const abandoned: unknown[] = [];
     const refusedHere = new Set<object>();
     let storedAny = false;
+    /**
+     * Whether any attempt of this send got a verdict for at least one event:
+     * accepted, refused for good, or refused for now. A send in which none
+     * did counts toward the breaker even when nothing is left unsent, because
+     * a collector that answers 2xx with the wrong body loses every event it
+     * is sent (F-048, ADR-063, SDK-65).
+     */
+    let answered = false;
     let lastError: unknown = undefined;
     let lastRefusal = "The server could not store an event.";
     let lastRefusalLine = lastRefusal;
@@ -158,6 +172,7 @@ export class Transport {
         // clean bill of health for events the server threw away.
         this.diagnostics.recordSent(outcome.accepted);
         if (outcome.accepted > 0) storedAny = true;
+        if (outcome.noVerdict < pending.length) answered = true;
         if (outcome.reason !== undefined) lastRefusal = outcome.reason;
         if (outcome.logReason !== undefined) lastRefusalLine = outcome.logReason;
 
@@ -219,6 +234,14 @@ export class Transport {
     });
 
     if (pending.length === 0 && abandoned.length === 0) {
+      // A send in which no attempt got a verdict for any event: its events
+      // are reported as dropped with no_verdict already, so no transport
+      // error, but it is a failure toward the breaker. Only a send that
+      // stored something or got at least one verdict resets the count.
+      if (!storedAny && !answered) {
+        this.countFailure(now());
+        return;
+      }
       this.consecutiveFailures = 0;
       return;
     }
@@ -240,23 +263,27 @@ export class Transport {
     if (storedAny) {
       this.consecutiveFailures = 0;
     } else {
-      this.consecutiveFailures += 1;
-      if (this.consecutiveFailures >= this.options.breakerThreshold) {
-        this.openedAt = now();
-        this.diagnostics.report({
-          kind: "breaker_opened",
-          code: "consecutive_failures",
-          reason: `${String(this.consecutiveFailures)} sends failed in a row, so sending pauses for ${String(Math.round(this.options.breakerCooldownMs / 1_000))} seconds.`,
-          detail: {
-            failures: this.consecutiveFailures,
-            cooldownMs: this.options.breakerCooldownMs
-          }
-        });
-      }
+      this.countFailure(now());
     }
 
     if (pending.length === 0) return;
     throw new UnsentError(lastError === undefined ? lastRefusal : messageOf(lastError), pending);
+  }
+
+  /** One more send failed in a row; at the threshold the breaker opens. */
+  private countFailure(at: number): void {
+    this.consecutiveFailures += 1;
+    if (this.consecutiveFailures < this.options.breakerThreshold) return;
+    this.openedAt = at;
+    this.diagnostics.report({
+      kind: "breaker_opened",
+      code: "consecutive_failures",
+      reason: `${String(this.consecutiveFailures)} sends failed in a row, so sending pauses for ${String(Math.round(this.options.breakerCooldownMs / 1_000))} seconds.`,
+      detail: {
+        failures: this.consecutiveFailures,
+        cooldownMs: this.options.breakerCooldownMs
+      }
+    });
   }
 
   /**

@@ -599,6 +599,19 @@ What you have to do when upgrading a checkout or a deployment:
   or an image digest, and a timezone offset such as `+0000` is not a telephone
   number.
 
+- **`dropped` names its cause, and a reply with no verdict counts toward the
+  breaker.** `counters().droppedByCause` counts `dropped` by the diagnostic's
+  code, `queue_full`, `after_shutdown`, `shutdown`, `retry_budget` and
+  `no_verdict`, every key present from creation at zero and summing to
+  `dropped`; the type of its keys is exported as `DroppedCause`. Four faults
+  that ended with the same `recorded 12, dropped 12` now read apart (F-048). A
+  send in which no reply gave a verdict for any event now counts toward the
+  circuit breaker, so a proxy answering 2xx with the wrong body opens it after
+  five sends instead of losing every event with the breaker shut: Leadline
+  measured `recorded 16000, dropped 16000` and `breakerOpened` 0. Such a send
+  reports no `transport_error`. A reply with some verdicts resets the count as
+  before (ADR-063, SDK-65).
+
 - **The telephone shape finds a number in a field and not a signed count.**
   The `+` of a telephone number may now follow `=`, `:`, a quote, `,`, `;`,
   `>` or `)` as well as whitespace, `(`, `[` and `<`, so `phone=+19195551234`,

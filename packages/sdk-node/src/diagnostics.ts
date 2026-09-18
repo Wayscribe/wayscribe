@@ -169,7 +169,7 @@ export interface KeyDroppedDiagnostic {
  * the server may have stored it. `retry_budget`: the server was still refusing
  * it for now after 30 seconds or 10 sends. `no_verdict`: the server's reply
  * gave no verdict for it; it may have been stored, so it is not sent again.
- * Counted in `dropped`.
+ * Counted in `dropped`, and under its code in `droppedByCause` (ADR-063).
  */
 export interface DroppedDiagnostic {
   kind: "dropped";
@@ -183,6 +183,13 @@ export interface DroppedDiagnostic {
     operation?: Operation;
   };
 }
+
+/**
+ * Why an event was not delivered: the codes of `DroppedDiagnostic`, verbatim,
+ * so a report and its counter share one name. The keys of
+ * `Counters.droppedByCause`. A code added later adds a key.
+ */
+export type DroppedCause = DroppedDiagnostic["code"];
 
 /**
  * A call could not record what it was asked to, and the host's call was
@@ -343,8 +350,16 @@ export interface Counters {
   sent: number;
   /** `rejected` reports: events the server received and refused. Permanent. */
   rejected: number;
-  /** `dropped` reports: events not delivered. */
+  /** `dropped` reports: events not delivered. Always the sum of `droppedByCause`. */
   dropped: number;
+  /**
+   * `dropped` reports by their code, so a collector slower than the shutdown
+   * timeout (`shutdown`) reads apart from one that answers with the wrong body
+   * (`no_verdict`) (F-048, ADR-063). Every cause is present from creation, at
+   * zero, so a health check reads it without a guard. A fresh copy on every
+   * read of `counters()`.
+   */
+  droppedByCause: Readonly<Record<DroppedCause, number>>;
   /** `transport_error` reports. */
   transportErrors: number;
   /** `capture_error` reports. */
@@ -423,7 +438,7 @@ export interface Counters {
  * counts in `<nouns><Participle>`, `<noun>_error` in `<noun>Errors`, and a
  * bare participle in itself.
  */
-type CountedTotals = Omit<Counters, "rejectedSettings" | "rejectedOptions">;
+type CountedTotals = Omit<Counters, "rejectedSettings" | "rejectedOptions" | "droppedByCause">;
 
 const COUNTER_OF: Record<DiagnosticKind, keyof CountedTotals | undefined> = {
   delivered_first: undefined,
@@ -528,6 +543,14 @@ export function createDiagnostics(
     unredactedSecretNames: 0,
     personalDataInPublicValues: 0
   };
+  /** Every cause at zero from creation; incremented beside `dropped`. */
+  const droppedByCause: Record<DroppedCause, number> = {
+    queue_full: 0,
+    after_shutdown: 0,
+    shutdown: 0,
+    retry_budget: 0,
+    no_verdict: 0
+  };
   /**
    * Bounded, and only ever a name the SDK itself wrote: a host cannot grow
    * either, because `detail.setting` is never a value or a key the host
@@ -582,6 +605,7 @@ export function createDiagnostics(
     report(diagnostic, logLine, options) {
       const counter = COUNTER_OF[diagnostic.kind];
       if (counter !== undefined) counters[counter] += 1;
+      if (diagnostic.kind === "dropped") droppedByCause[diagnostic.code] += 1;
       if (diagnostic.kind === "configuration_error") rememberSetting(diagnostic);
 
       if (log) {
@@ -608,6 +632,7 @@ export function createDiagnostics(
     },
     counters: () => ({
       ...counters,
+      droppedByCause: { ...droppedByCause },
       rejectedSettings: [...rejectedSettings],
       rejectedOptions: [...rejectedOptions]
     }),

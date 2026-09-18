@@ -664,7 +664,7 @@ waits. Three calls control that:
 await recorder.flush(); // send everything queued now, and wait for it
 
 const counters = await recorder.shutdown({ timeoutMs: 2_000 }); // the default
-// { recorded, sent, rejected, dropped, transportErrors, captureErrors,
+// { recorded, sent, rejected, dropped, droppedByCause, transportErrors, captureErrors,
 //   breakerOpened, payloadsOmitted, payloadsTruncated, keysDropped,
 //   configurationErrors, rejectedSettings, rejectedOptions,
 //   unredactedSecretNames, personalDataInPublicValues }
@@ -683,6 +683,20 @@ built, and `sent` every event the server stored. Every other counter counts the
 diagnostics of one kind, one per report (see the table below). Once
 `shutdown()` has returned, `sent + rejected + dropped === recorded`, which a
 test can assert.
+
+`droppedByCause` breaks `dropped` down by the `dropped` diagnostic's code:
+`queue_full`, `after_shutdown`, `shutdown`, `retry_budget` and `no_verdict`
+(the type is exported as `DroppedCause`). Every key is there from creation at
+zero, so a health check reads it without a guard, and `dropped` is always their
+sum. A collector that hangs or is slower than the shutdown timeout ends in
+`shutdown`; one that answers with the wrong body ends in `no_verdict` (F-048,
+ADR-063).
+
+```typescript
+const { dropped, droppedByCause } = recorder.counters();
+// dropped === 12, droppedByCause === { queue_full: 0, after_shutdown: 0,
+//   shutdown: 0, retry_budget: 0, no_verdict: 12 }: a proxy is rewriting replies
+```
 
 `rejectedSettings` and `rejectedOptions` are the exceptions, and the two
 entries that are not numbers: they name what the `configuration_error` reports
@@ -807,10 +821,10 @@ in `<noun>Errors`, and a bare participle in itself (`dropped`).
 | `payload_omitted` | `too_large`, `too_deep`, `too_wide`, `unserialisable`, `projection_failed` | a payload could not fit the server's limits, could not be read (a getter or `toJSON` threw), or a projection failed, and was replaced by a marker; the event is still sent | `{ field }`, and `error` for `unserialisable` and `projection_failed`, never printed | `payloadsOmitted` |
 | `payload_truncated` | `strings_cut`, `label_cut` | strings in a payload were longer than the server accepts and were cut, or a label was; the event is still sent | `{ field, strings, charactersRemoved }` | `payloadsTruncated` |
 | `key_dropped` | `aliases_not_object`, `alias_invalid`, `displayable_alias_invalid`, `metadata_key_too_long`, `label_invalid` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; or a label was not set; the event is still sent | `{ field, keys }`, `keys` being how many entries this report covers | `keysDropped`, per report |
-| `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it | `{ name, operation }` for `after_shutdown`, otherwise `{}` | `dropped` |
+| `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it | `{ name, operation }` for `after_shutdown`, otherwise `{}` | `dropped`, and `droppedByCause[code]` |
 | `capture_error` | `unexpected_error`, `not_a_journey`, `invalid_options`, `context_missing` | something threw inside the SDK; `across` was given something that is not a journey; a call's options were not an object or held keys it does not read (such as `fail`'s old positional metadata); or an inject helper was given no context; your call was unaffected | `{ error }` for `unexpected_error`, `{ call }` for `invalid_options` and `context_missing` | `captureErrors` |
 | `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` when `createRecorder` reported it or `rejectedOptions` when a later call did |
-| `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
+| `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row; a send whose replies gave no verdict for any of its events counts as failed | `{ failures, cooldownMs }` | `breakerOpened` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
 | `personal_data_in_public_value` | `personal_data_shape` | a journey label, an alias marked displayable, or an error message (`field` is `journeyLabel`, `displayableAliases` or `errorMessage`) holds what looks like an email address or a telephone number, and all three are stored and shown in plain text; once per process, field and shape, so at most six; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
 
@@ -887,7 +901,15 @@ result is counted as `dropped` with code `no_verdict`, and **not sent again**.
 The request did succeed, so the server may well have stored those events, and
 sending them again could store them twice; the SDK cannot tell which, so it
 counts them as not known to be stored. This is what a proxy that rewrites
-responses produces. The body of such a response is never printed or passed to
+responses produces.
+
+A send in which no reply gave a verdict for any of its events also counts
+toward the circuit breaker, as a failed send does, though it reports no
+`transport_error` (its events are already `dropped`). So five such sends in a
+row open the breaker, events wait in the queue for the 30-second cooldown
+rather than being sent into a reply that loses them, and `breakerOpened` says
+something is wrong. A reply with some verdicts and some missing is a server
+answering, and does not count (SDK-65, ADR-063). The body of such a response is never printed or passed to
 `onDiagnostic`: the line says `unparseable response body`, not what the body
 was.
 

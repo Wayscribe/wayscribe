@@ -383,13 +383,19 @@ counters; it never throws or hangs (SDK-37 to SDK-39). `counters` returns a
 copy of the counters at any time.
 
 `Counters` (experimental: fields may be added) has `recorded`, `sent`,
-`rejected`, `dropped`, `transportErrors`, `captureErrors`, `breakerOpened`,
+`rejected`, `dropped`, `droppedByCause`, `transportErrors`, `captureErrors`, `breakerOpened`,
 `payloadsOmitted`, `payloadsTruncated`, `keysDropped`, `configurationErrors`,
 `rejectedSettings` and `rejectedOptions` (the names those reports carried, at
 creation and on later calls, not numbers), `unredactedSecretNames` and
 `personalDataInPublicValues`. Every counter but `recorded` and `sent` counts
-reports of one diagnostic kind. Once `shutdown` has returned,
-`sent + rejected + dropped === recorded` (SDK-38, SDK-42).
+reports of one diagnostic kind. `droppedByCause` is a
+`Readonly<Record<DroppedCause, number>>`, where the exported type `DroppedCause`
+is `DroppedDiagnostic["code"]`: `queue_full`, `after_shutdown`, `shutdown`,
+`retry_budget` and `no_verdict`. Every key is present from creation at zero,
+each `dropped` report increments its key beside `dropped`, and every read is a
+fresh copy, so `dropped` is always the sum of `droppedByCause` (ADR-063). Once
+`shutdown` has returned, `sent + rejected + dropped === recorded` (SDK-38,
+SDK-42).
 
 ### Diagnostics
 
