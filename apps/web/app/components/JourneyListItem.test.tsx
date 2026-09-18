@@ -52,6 +52,21 @@ describe("JourneyListItem", () => {
     expect(screen.getByRole("link", { name: "customer: —" })).toBeTruthy();
   });
 
+  // F-036: the admin token searches every environment of a project, so a row
+  // has to say which one it came from.
+  it("says which environment the journey is in", () => {
+    renderRow({ item: { ...item, environment: "production" } });
+    const environment = screen.getByText("production");
+    expect(environment.className).toBe("environment");
+    expect(environment.getAttribute("title")).toBe("Environment");
+  });
+
+  // An API from before search rows carried it answers without the field.
+  it("shows no environment when the API did not send one", () => {
+    renderRow({ item });
+    expect(screen.getByRole("listitem").querySelector(".environment")).toBeNull();
+  });
+
   it("does not mark a status that is not a failure", () => {
     renderRow({ item: { ...item, status: "completed" } });
     expect(screen.getByText("completed").className).toBe("status");

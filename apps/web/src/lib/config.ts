@@ -11,7 +11,13 @@ const schema = z.object({
   // file with a leading space or a byte-order mark would otherwise leave a
   // token nobody can type at the login form, with nothing said about why.
   ADMIN_TOKEN: z.string().trim().min(32),
-  API_URL: z.url(),
+  // http or https only. `z.url()` alone takes any scheme, so `api:8080`, the
+  // host and port without one, was read as a URL with the scheme `api:`; the
+  // app started, passed its health check, and could reach nothing.
+  API_URL: z.url({
+    protocol: /^https?$/i,
+    error: "must be an http:// or https:// URL, such as http://api:8080"
+  }),
   // How many reverse proxies in front of the web app append to X-Forwarded-For.
   // 0 keys the login limiter on the socket and ignores the header, which any
   // client can set. Blank counts as unset, as Compose passes an unset variable.
@@ -25,6 +31,7 @@ export type WebConfig = z.infer<typeof schema>;
 
 /**
  * Fail at boot with the offending variable named, mirroring packages/config.
+ * `startup.ts` calls this once when the server starts and exits on the error.
  *
  * A web app that starts without ADMIN_TOKEN would render a login page that can
  * never succeed — a failure that looks like a forgotten password rather than a
@@ -47,9 +54,9 @@ export const webConfig = (): WebConfig => loadWebConfig(process.env);
  * The admin token a session is verified against, or `null` when this app has
  * none to verify against.
  *
- * The auth gate and the project picker verify a cookie before anything has
- * loaded the whole configuration, so they need the token without the throw
- * `loadWebConfig` would put on the page. `null` is the answer for every way of
+ * The auth gate and the project picker verify a cookie on every request,
+ * without loading the whole configuration, so they need the token without the
+ * throw `loadWebConfig` would put on the page. `null` is the answer for every way of
  * not having one: unset, blank, a `ADMIN_TOKEN_FILE` that cannot be read, an
  * empty file, or the setting given both ways.
  *
@@ -67,9 +74,11 @@ export function sessionAdminToken(
   try {
     token = withTokenFromFile(source)["ADMIN_TOKEN"];
   } catch {
-    // A misconfigured file leaves no token. The API refuses to start on the
-    // same mistake, and `loadWebConfig` names it wherever this app loads its
-    // configuration in full, which every data path does.
+    // A misconfigured file leaves no token. This app refuses to start on the
+    // mistake, as the API does (`startup.ts`), so it is only reached when the
+    // file changes under a running server; `loadWebConfig` then names it
+    // wherever this app loads its configuration in full, which every data path
+    // and the health check (`app/health/route.ts`) do.
     return null;
   }
   // Trimmed the way the schema above trims it, so the token this verifies a

@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { listProjects } from "./api";
+import { listProjects, type ProjectSummary } from "./api";
 import { sessionAdminToken } from "./config";
 import { SESSION_COOKIE_NAME, verifySession } from "./session";
 
@@ -23,6 +23,30 @@ import { SESSION_COOKIE_NAME, verifySession } from "./session";
  * itself for the picker page, which would then redirect to itself forever.
  */
 export async function requireProjectId(returnTo?: string): Promise<string> {
+  const resolved = await currentProject();
+  if (resolved.kind !== "unchosen") return resolved.projectId;
+
+  // Carried so the picker can hand you back to what you were doing. Without
+  // it, a search bounced through the picker and returned to an empty box.
+  redirect(returnTo === undefined ? "/projects" : `/projects?next=${encodeURIComponent(returnTo)}`);
+}
+
+/**
+ * The project the current session reads from, resolved as `requireProjectId`
+ * resolves it, but without sending the reader to the picker when none is
+ * chosen. For a page that has something to show before a project is chosen:
+ * the Search page's empty search box, which is where signing in lands.
+ *
+ * `projects` is the project list when resolving it had to fetch one, so a
+ * caller that also needs the list does not ask the API for it twice; null
+ * when the session had already chosen, and nothing was fetched.
+ */
+export type CurrentProject =
+  | { kind: "chosen"; projectId: string; projects: null }
+  | { kind: "only"; projectId: string; projects: ProjectSummary[] }
+  | { kind: "unchosen"; projects: ProjectSummary[] };
+
+export async function currentProject(): Promise<CurrentProject> {
   const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   // No token means nothing can be verified, so nothing is: verifying against an
   // empty key would admit a cookie signed with an empty key, turning a
@@ -34,12 +58,13 @@ export async function requireProjectId(returnTo?: string): Promise<string> {
       : verifySession(adminToken, cookie, Date.now());
 
   if (session === null) redirect("/login");
-  if (session.projectId !== "") return session.projectId;
+  if (session.projectId !== "") {
+    return { kind: "chosen", projectId: session.projectId, projects: null };
+  }
 
   const projects = await listProjects();
-  if (projects.length === 1 && projects[0] !== undefined) return projects[0].id;
-
-  // Carried so the picker can hand you back to what you were doing. Without
-  // it, a search bounced through the picker and returned to an empty box.
-  redirect(returnTo === undefined ? "/projects" : `/projects?next=${encodeURIComponent(returnTo)}`);
+  if (projects.length === 1 && projects[0] !== undefined) {
+    return { kind: "only", projectId: projects[0].id, projects };
+  }
+  return { kind: "unchosen", projects };
 }

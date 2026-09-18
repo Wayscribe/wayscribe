@@ -27,7 +27,7 @@ vi.mock("../../../../../src/lib/current-project", () => ({
 const event = {
   name: "sync-customer",
   hasInput: true,
-  inputPayload: { customerId: "C-1" }
+  inputText: JSON.stringify({ customerId: "C-1" }, null, 2)
 } as unknown as EventDetailData;
 
 const destination: ReplayDestination = {

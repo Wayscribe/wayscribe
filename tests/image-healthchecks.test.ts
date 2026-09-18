@@ -59,3 +59,25 @@ describe.each(runtimeImages)("%s", (_name, path) => {
     expect(healthcheckOf(contents) ?? "").toContain("http://127.0.0.1:");
   });
 });
+
+/**
+ * F-030: the web image's probe was /login, a page that reads no configuration,
+ * so a web app that could not sign anyone in was reported healthy. The probe
+ * has to reach a route that loads the configuration, or "healthy" says nothing
+ * about whether the app is configured.
+ */
+describe("the web image's health check", () => {
+  const healthcheck = healthcheckOf(dockerfile("apps/web/Dockerfile")) ?? "";
+  const probed = /http:\/\/127\.0\.0\.1:3000(\/[^\s|]*)/.exec(healthcheck)?.[1] ?? "";
+
+  it("probes a route handler, not a page", () => {
+    expect(probed, healthcheck).toMatch(/^\/[a-z-]+$/);
+    expect(() => dockerfile(`apps/web/app${probed}/route.ts`), probed).not.toThrow();
+  });
+
+  it("probes a route that loads the configuration and fails when it does not load", () => {
+    const route = dockerfile(`apps/web/app${probed}/route.ts`);
+    expect(route).toMatch(/\bwebConfig\(\)|\bloadWebConfig\(/);
+    expect(route).toContain("status: 503");
+  });
+});

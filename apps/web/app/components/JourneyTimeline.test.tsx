@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventDetailData, EventListItem, EventsPageResponse } from "../../src/lib/api";
+import { eventForDisplay } from "../../src/lib/event-display";
 import { JourneyTimeline } from "./JourneyTimeline";
 
 function event(id: string, overrides: Partial<EventListItem> = {}): EventListItem {
@@ -21,7 +22,7 @@ function event(id: string, overrides: Partial<EventListItem> = {}): EventListIte
 }
 
 function detail(id: string): EventDetailData {
-  return {
+  return eventForDisplay({
     ...event(id),
     journeyId: "jrn_1",
     traceId: null,
@@ -30,7 +31,7 @@ function detail(id: string): EventDetailData {
     outputPayload: null,
     payloadDiff: null,
     error: null
-  };
+  });
 }
 
 const EVENTS = [

@@ -64,6 +64,23 @@ describe("loadWebConfig", () => {
     expect(() => loadWebConfig({ ...valid, API_URL: "not-a-url" })).toThrow(/API_URL/);
   });
 
+  // `api:8080` parses as a URL with the scheme `api:`, and a web app started
+  // with it passed its health check while every data page said the API could
+  // not be reached. Only a URL fetch can use is accepted.
+  it.each(["api:8080", "ftp://api:8080", "file:///etc/passwd", "javascript:alert(1)"])(
+    "refuses an API_URL that is not http or https: %s",
+    (url) => {
+      expect(() => loadWebConfig({ ...valid, API_URL: url })).toThrow(/API_URL/);
+    }
+  );
+
+  it.each(["http://api:8080", "https://wayscribe.example.com", "HTTP://API:8080"])(
+    "accepts an http or https API_URL: %s",
+    (url) => {
+      expect(loadWebConfig({ ...valid, API_URL: url }).API_URL).toBe(url);
+    }
+  );
+
   describe("ADMIN_TOKEN_FILE", () => {
     it("reads the token from the file, trimming the newline a secrets file ends with", () => {
       const { ADMIN_TOKEN: token, ...withoutToken } = valid;

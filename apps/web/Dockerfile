@@ -60,20 +60,39 @@ COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
 # scripts/verify-image-contents.sh checks they are there.
 COPY --from=build /app/LICENSE /app/NOTICE /licenses/
 
+# What the version line under every signed-in page reports as this web app's
+# version (F-045), beside the API's from its /ready. The same build arguments,
+# filled the same way, as apps/api/Dockerfile: scripts/publish-image.sh passes
+# the release tag and the commit, and a build that passes neither bakes empty
+# strings, which the app reads as "not a release build". Read at request time,
+# not inlined at build time. Last before USER, so a new version does not
+# invalidate the cached layers above it.
+ARG WAYSCRIBE_BUILD_VERSION=""
+ARG WAYSCRIBE_BUILD_COMMIT=""
+ENV WAYSCRIBE_BUILD_VERSION=$WAYSCRIBE_BUILD_VERSION
+ENV WAYSCRIBE_BUILD_COMMIT=$WAYSCRIBE_BUILD_COMMIT
+
 USER node
 EXPOSE 3000
 
 # Without this the container has no health check at all, so `docker compose up
 # -d --wait` reported it `Healthy` on nothing more than the process having
 # started, while the same word next to the API rested on a served request
-# (F-022). /login is the one page that renders without a session, so a passing
-# probe means Next is answering and rendering, not merely listening.
+# (F-022).
+#
+# It probes /health, which loads the configuration and answers 503 when it does
+# not load (apps/web/app/health/route.ts). It used to probe /login, a page that
+# reads no configuration, and a container given both ADMIN_TOKEN and
+# ADMIN_TOKEN_FILE, or a token file that was not there, was reported healthy
+# and failed the first sign-in with a 500 (F-030). The server also refuses to
+# start on those mistakes (src/lib/startup.ts); the probe covers a token file
+# that goes missing after it has started.
 #
 # 127.0.0.1 rather than localhost, for the reason the API image gives: the
 # server binds 0.0.0.0 and localhost resolves to ::1 first here. The body goes
 # to /dev/null because Docker keeps the last probes' output in the container's
-# state and a rendered page is not worth storing there.
+# state and it is not worth storing there.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --start-interval=2s --retries=3 \
-  CMD wget -qO /dev/null http://127.0.0.1:3000/login || exit 1
+  CMD wget -qO /dev/null http://127.0.0.1:3000/health || exit 1
 
 CMD ["node", "apps/web/server.js"]

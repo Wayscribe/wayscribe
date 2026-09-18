@@ -17,6 +17,14 @@ export function JourneyListItem({ item }: { item: SearchItem }): ReactElement {
         {item.entity.type}: {item.entity.id ?? "—"}
       </Link>
       <span className={item.status === "failed" ? "status failed" : "status"}>{item.status}</span>
+      {/* The admin token searches every environment of the project, so a row
+          says which one it came from (F-036). Absent from an API older than
+          the field, which then shows nothing rather than a guess. */}
+      {item.environment === undefined ? null : (
+        <span className="environment" title="Environment">
+          {item.environment}
+        </span>
+      )}
       <span className="muted">
         {item.eventCount} {item.eventCount === 1 ? "event" : "events"} · last activity{" "}
         {item.lastEventAt.slice(0, 19).replace("T", " ")}

@@ -2,15 +2,16 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { DiffChange } from "../../src/lib/api";
+import { displayChange, type DisplayedChange } from "../../src/lib/event-display";
 import { DiffTable } from "./DiffTable";
 
-function changes(count: number): DiffChange[] {
-  return Array.from({ length: count }, (_, i) => ({
+function changes(count: number): DisplayedChange[] {
+  return Array.from({ length: count }, (_, i): DiffChange => ({
     path: `field${String(i)}`,
-    kind: "changed" as const,
+    kind: "changed",
     before: i,
     after: i + 1
-  }));
+  })).map(displayChange);
 }
 
 /** Body rows only, so the header row can't hide in a plain `getAllByRole("row")` count. */
@@ -29,14 +30,14 @@ describe("DiffTable", () => {
         changes={[
           { path: "Phone", kind: "removed", before: "+1 919 555 1234" },
           { path: "phone", kind: "added", after: null }
-        ]}
+        ].map((change) => displayChange(change as DiffChange))}
       />
     );
     expect(screen.getAllByRole("row")).toHaveLength(3);
     expect(screen.getByText('"+1 919 555 1234"')).toBeInTheDocument();
     // The first row's `after` and the second row's `before` are both absent
-    // (undefined), which `render()` shows as an em dash; the second row's
-    // `after` is explicitly `null`, which `render()` shows as the string "null".
+    // (undefined), which `displayChange` writes as an em dash; the second row's
+    // `after` is explicitly `null`, which it writes as the string "null".
     expect(screen.getAllByText("—")).toHaveLength(2);
     expect(screen.getByText("null")).toBeInTheDocument();
   });

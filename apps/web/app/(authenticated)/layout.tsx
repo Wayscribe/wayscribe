@@ -4,6 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 import { sessionAdminToken } from "../../src/lib/config";
 import { SESSION_COOKIE_NAME, verifySession } from "../../src/lib/session";
 import { SiteNav } from "../components/SiteNav";
+import { VersionFooter } from "../components/VersionFooter";
 
 /**
  * The auth gate for every page in this route group.
@@ -15,7 +16,8 @@ import { SiteNav } from "../components/SiteNav";
  *
  * The login page sits outside this group, so it stays reachable.
  *
- * It also carries the nav: the two ways in, and the glossary.
+ * It also carries the nav, the two ways in and the glossary, and under every
+ * page the version line: what this web app and the API are running.
  */
 export default async function AuthenticatedLayout({
   children
@@ -38,6 +40,7 @@ export default async function AuthenticatedLayout({
     <>
       <SiteNav />
       {children}
+      <VersionFooter />
     </>
   );
 }

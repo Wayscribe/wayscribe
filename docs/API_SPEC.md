@@ -677,6 +677,13 @@ that passes neither argument reports `"source": "package"` and the version in
 The answer is unauthenticated, as both endpoints already are. It repeats what
 the image tag says in the registry and is derived from no stored data.
 
+The web app shows it under every signed-in page, beside its own version, which
+it reads from the same two build arguments in `apps/web/Dockerfile`, and says
+when the two name different builds: a different version, or the same version
+from a different commit. It asks at most once every 30 seconds, and when
+`/ready` does not answer within 1.5 seconds the line says the API version is
+unknown and the page renders as usual.
+
 Metrics are not on this port. With `METRICS_PORT` set, the API serves
 `GET /metrics` on that port alone (`docs/OPERATIONS.md` §13); `/metrics` on the
 API port is 404.

@@ -1,4 +1,6 @@
 import { webConfig } from "./config";
+import { eventForDisplay, type ApiEventDetail, type DisplayedChange } from "./event-display";
+import type { EventMetadataLists } from "./metadata";
 
 export interface SearchItem {
   journeyId: string;
@@ -13,6 +15,12 @@ export interface SearchItem {
   lastStep: string | null;
   /** Only aliases marked displayable (ADR-053), in alias-type order, in plain text. */
   displayableAliases: { type: string; value: string }[];
+  /**
+   * The journey's environment. `/v1/journeys` rows always carry it; `/v1/search`
+   * rows carry it from the release that added it (F-036), and an older API
+   * omits it, so it is optional here and required on `JourneyListRow`.
+   */
+  environment?: string;
 }
 
 export interface JourneyDetail {
@@ -60,10 +68,24 @@ export interface EventDetailData extends EventListItem {
   receivedAt: string;
   traceId: string | null;
   messageId: string | null;
-  inputPayload: unknown;
-  outputPayload: unknown;
-  payloadDiff: { changes: DiffChange[]; truncated: boolean } | null;
-  error: unknown;
+  /**
+   * The input and output payloads as the page shows them, pretty-printed on
+   * the server by `eventForDisplay` (`event-display.ts`), never the raw
+   * values: see there for why only text reaches the browser.
+   */
+  inputText: string;
+  outputText: string;
+  /** The error, pretty-printed, or null when the step recorded none. */
+  errorText: string | null;
+  /** False when either payload is a marker the SDK stored instead of it. */
+  payloadsCaptured: boolean;
+  payloadDiff: { changes: DisplayedChange[]; truncated: boolean } | null;
+  /**
+   * What the instrumented code attached, `metadata`, `deployment` and
+   * `runtime` on the event it sent, as keys and values of bounded text.
+   * Absent means none was recorded.
+   */
+  metadata?: EventMetadataLists;
 }
 
 export interface ProjectSummary {
@@ -188,11 +210,9 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   return data?.items ?? [];
 }
 
+/** `query` comes from `searchApiQuery`, which owns what the Search page's fields mean. */
 export async function search(query: string, projectId: string): Promise<SearchItem[]> {
-  const data = await get<{ items: SearchItem[] }>(
-    `/v1/search?q=${encodeURIComponent(query)}`,
-    projectId
-  );
+  const data = await get<{ items: SearchItem[] }>(`/v1/search?${query}`, projectId);
   return data?.items ?? [];
 }
 
@@ -249,8 +269,20 @@ export function listEvents(
   );
 }
 
-export const getEvent = (eventId: string, projectId: string): Promise<EventDetailData | null> =>
-  get<EventDetailData>(`/v1/events/${encodeURIComponent(eventId)}`, projectId);
+/**
+ * One event, as the page shows it: every payload, diff value, error and
+ * metadata entry already turned into text by `eventForDisplay`, here on the
+ * server. The journey page, the replay page and the /api/events route all
+ * read an event through this one function, so a first load and a later click
+ * show byte-identical text.
+ */
+export async function getEvent(
+  eventId: string,
+  projectId: string
+): Promise<EventDetailData | null> {
+  const raw = await get<ApiEventDetail>(`/v1/events/${encodeURIComponent(eventId)}`, projectId);
+  return raw === null ? null : eventForDisplay(raw);
+}
 
 /**
  * The one write path in this application.

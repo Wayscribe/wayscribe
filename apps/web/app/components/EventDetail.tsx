@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { EventDetailData } from "../../src/lib/api";
 import { DiffTable } from "./DiffTable";
+import { EventMetadata } from "./EventMetadata";
 import { EXPLANATIONS } from "./explanations";
 
 /** A line about the event being shown: that its replacement is loading, or failed to. */
@@ -37,7 +38,7 @@ export function EventDetail({
           <DiffTable
             key={event.id}
             changes={event.payloadDiff.changes}
-            compared={wasCaptured(event)}
+            compared={event.payloadsCaptured}
             collapsible
           />
           {event.payloadDiff.truncated ? (
@@ -60,12 +61,14 @@ export function EventDetail({
         </>
       )}
 
-      {event.error === null ? null : (
+      {event.errorText === null ? null : (
         <>
           <h3>Error</h3>
-          <pre className="mono block">{JSON.stringify(event.error, null, 2)}</pre>
+          <pre className="mono block">{event.errorText}</pre>
         </>
       )}
+
+      <EventMetadata event={event} />
 
       <h3>Payloads</h3>
       {!event.hasInput && !event.hasOutput ? (
@@ -80,27 +83,14 @@ export function EventDetail({
         <div className="split">
           <div>
             <div className="label">Input</div>
-            <pre className="mono block">{JSON.stringify(event.inputPayload, null, 2)}</pre>
+            <pre className="mono block">{event.inputText}</pre>
           </div>
           <div>
             <div className="label">Output</div>
-            <pre className="mono block">{JSON.stringify(event.outputPayload, null, 2)}</pre>
+            <pre className="mono block">{event.outputText}</pre>
           </div>
         </div>
       )}
     </section>
   );
-}
-
-/** Markers the SDK stores in place of a payload it could not capture. */
-const MARKERS = new Set(["[PAYLOAD_TOO_LARGE]", "[UNCAPTURABLE]"]);
-
-/**
- * Whether both sides of this step hold real payloads.
- *
- * ADR-032 required this caveat and it was implemented — but only in the replay
- * view, not in the event detail view that shares the same component.
- */
-function wasCaptured(event: EventDetailData): boolean {
-  return !MARKERS.has(String(event.inputPayload)) && !MARKERS.has(String(event.outputPayload));
 }

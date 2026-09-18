@@ -268,6 +268,23 @@ What you have to do when upgrading a checkout or a deployment:
   Each kind of identifier is one index lookup, so a value matching a few
   journeys takes about 0.1 ms at a million journeys (`docs/OPERATIONS.md`
   section 10).
+- **Event metadata on screen.** The event detail lists the step's custom,
+  deployment and runtime metadata, `metadata`, `deployment` and `runtime` on the
+  event the SDK sent, as plain keys and values, one group per kind. Before this
+  the API returned all three and the web app showed none of them, so an HTTP
+  status moved from a step's output into its metadata, as the SDK advises,
+  disappeared from the screen (F-044). Keys and values are shown as escaped
+  text, never as markup; at most 50 entries per kind and 300 characters per key
+  or value are shown, and the page says how many entries it left out.
+- **An event shows the same payload keys however it is reached.** On an
+  event's first load, with or without JavaScript, a payload or diff value key
+  named `__proto__`, at any depth, was dropped, so a stored `{"__proto__":1}`
+  showed as `{}`, while choosing the same step on the timeline showed every
+  key. The web app now writes payloads, the error, diff values and metadata as
+  text on the server, in one function every page and the timeline read an
+  event through, so both ways show the same text. The text is unchanged:
+  payloads and errors pretty-printed, diff values compact, and a missing side
+  of a change shown as a dash.
 - **The Journeys page** (ADR-054). `/journeys` lists what happened in a period,
   any status and the last 24 hours by default, as a table of last activity,
   status, entity type, what the journey is shown as, last step and events. It
@@ -298,6 +315,19 @@ What you have to do when upgrading a checkout or a deployment:
   every journey that ever carried it. No index was needed: measured at 200,000
   journeys, the bounds filter the plan the search already had, and a window
   narrow enough to be worth an index is served by `journeys_project_recent_idx`.
+- **The search box narrows too.** Under the search box, Time (any time, the
+  last hour, day, week or 30 days, or a custom range in UTC) and Environment
+  (all, or one of the project's) send `since`, `until` and `environment` to
+  `GET /v1/search`, in the same plain form, so a narrowed search works without
+  JavaScript and is a link. Time starts on any time, which is what the API
+  searches without a window; a custom range the API would refuse is set aside
+  with a note saying the search spans all time. The page says what the results
+  are narrowed to, and that the window is on a journey's last activity. Each
+  result row names its environment when the API's search rows carry it (F-036);
+  against an API whose rows do not, it shows none. On an installation with more
+  than one project and none chosen, the search box still shows, with only "all"
+  environments and a link to choose a project; a search goes to the project
+  picker and back, as before.
 - **The journey page.** Headed by the journey's label when it has one, with the
   entity type and identifier beneath, and a back link to the list it was opened
   from. `GET /v1/journeys/:journeyId` returns the environment's name, `label`,
@@ -338,6 +368,14 @@ What you have to do when upgrading a checkout or a deployment:
   with the release tag and the commit; there is no runtime shell-out to git,
   which the image has no history, working tree or binary for. `GET /health`
   is unchanged and stays a bare liveness check.
+- **The web app says what it is running.** A line under every signed-in page
+  names the web app's version and commit and the API's, read from the API's
+  `GET /ready`, and says when the two are different builds, which is what a
+  partial upgrade looks like (F-045). The web image takes the same
+  `WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT` build arguments as the
+  API image; without them it says "not a release build". An API that does not
+  answer leaves the line saying its version is unknown, and the page renders
+  as usual.
 - **Bring your own database** (ADR-037). `DATABASE_URL` points at a PostgreSQL
   15 or later that your team already runs. Migrations need privileges on their
   own schema only and install no extensions. `infrastructure/compose.bundled.yaml`
@@ -383,9 +421,22 @@ What you have to do when upgrading a checkout or a deployment:
   where it is reached. Every other setting in those files already did.
 - **Both images declare a health check**, so `docker compose up -d --wait`
   waits on a served request rather than a started process: the API answers
-  `GET /health` and the web image renders `/login`. Each is probed every two
-  seconds during its start period, which returns `--wait` about two seconds
-  sooner on a cold start (11.2 s to 8.8 s, measured on a laptop).
+  `GET /health` and the web app answers its own `GET /health`, which loads its
+  configuration and answers 503 when that fails, so for the web app "healthy"
+  also means configured. Each is probed every two seconds during its start
+  period, which returns `--wait` about two seconds sooner on a cold start
+  (11.2 s to 8.8 s, measured on a laptop).
+- **The web app refuses to start misconfigured**, as the API does. It loads its
+  configuration once when the server starts and, when that fails, writes the
+  reason naming the setting and never its value, and exits 1. Before this, a
+  web container given both `ADMIN_TOKEN` and `ADMIN_TOKEN_FILE`, or a token file
+  that was not there, started, passed a health check that probed `/login`, and
+  failed the first sign-in with a 500; `up --wait` reported it `Healthy`. It now
+  reports `container <name> exited (1)` within a second (F-030, measured on the
+  built image in both cases). `API_URL` must be an `http://` or `https://` URL:
+  `api:8080`, the host and port without a scheme, used to be accepted as a URL
+  with the scheme `api:`, and a container started with it was healthy while
+  every data page said the API could not be reached.
 - **`ENCRYPTION_KEY` rotation without losing data** (ADR-044). Every encrypted
   value names the key that wrote it; `ENCRYPTION_KEY_PREVIOUS` keeps old data
   readable and searchable, and API keys authenticating, through a grace period;

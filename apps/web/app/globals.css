@@ -132,6 +132,24 @@ button {
   flex: 1;
 }
 
+/* Search's narrowing sits under the search box, laid out like the Journeys
+   page's filters. */
+.search-form .search-row {
+  margin-bottom: 0.5rem;
+}
+.search-form .search-narrowing {
+  margin-top: 0;
+}
+/* Which environment a search row came from (F-036). */
+.environment {
+  font-size: 0.75rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .results {
   list-style: none;
   padding: 0;
@@ -559,6 +577,55 @@ button[aria-busy="true"] {
   .split {
     grid-template-columns: 1fr;
   }
+}
+
+/* The version line under every signed-in page. */
+.site-footer {
+  margin-top: 2.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.8rem;
+}
+.site-footer p {
+  margin: 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+
+/* An event's metadata: one group per kind, each a list of keys and values.
+   Keys and values are whatever the instrumented code sent and may be long and
+   unbroken, so they wrap anywhere rather than widen the page. The key column
+   is as wide as its keys up to 40% of the list and no wider: sized to its
+   longest key, one 128-character key squeezed every value to about 35 px. */
+.metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.metadata-list {
+  display: grid;
+  grid-template-columns: fit-content(40%) 1fr;
+  margin: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+}
+.metadata-list > div {
+  display: contents;
+}
+.metadata-list dt,
+.metadata-list dd {
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.metadata-list > div:first-child dt,
+.metadata-list > div:first-child dd {
+  border-top: none;
+}
+.metadata-list dt {
+  color: var(--muted);
 }
 
 /* Timeline filters: a row of toggles, not a form. */
