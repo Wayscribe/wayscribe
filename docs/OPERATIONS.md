@@ -250,6 +250,12 @@ between migrate and deploy, read `aliases: null` from `GET /v1/events/:eventId`,
 which means "not recorded", not "stated none". Their aliases are still on the
 journey, `GET /v1/journeys/:journeyId`.
 
+While the previous API and this one both run, the same event sent to one of
+each at once can deadlock, because the previous build writes the event row
+before it locks the journey: one delivery gets a 500 and the SDK retries it.
+It happens only during the deploy, and only for a duplicate of an event that
+states aliases.
+
 ### Upgrading to the journey browsing release (migrations 018 and 019)
 
 This release adds journey labels, last steps and partial text matching on

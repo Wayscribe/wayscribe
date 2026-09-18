@@ -163,12 +163,20 @@ export async function ingestEvent(
     // alias rows: this build through `lockJourney` just below, and the build
     // before migration 020, which may still be ingesting during a rolling
     // deploy, through `updateJourneySummary`, which it ran before its alias
-    // upsert. The lock is taken only for an event that states aliases; one
-    // that states none touches no alias row, and in a dry-run batch every
-    // earlier event that did has already taken its own journey's lock.
-    // Measured deadlocks without it: a dry-run batch of several events of one
-    // journey racing real events for that journey
-    // (`event-aliases.integration.test.ts`).
+    // upsert. It is taken for every event, with aliases or without, before
+    // anything else is written: `updateJourneySummary` would take it anyway,
+    // and an event that took it later than another of its journey could hold
+    // the event row the other needs while waiting on the lock the other holds.
+    // Deadlocks this prevents, both in `event-aliases.integration.test.ts`: a
+    // dry-run batch of several events of one journey racing real events for
+    // it, and two events with one id and different content, one stating
+    // aliases, which must end in a 409, not a 500.
+    //
+    // One case no order in this build avoids: during a rolling deploy, the
+    // same event delivered to an old and a new instance at once can deadlock,
+    // because the old build inserts the event row before it locks the journey.
+    // It costs a 500 and a retry, only during a deploy, and only for a
+    // duplicate of an event that states aliases.
     //
     // Reading the ids back is one more statement for an event that carries
     // aliases, and none for one that does not. Measured through the route
@@ -198,7 +206,7 @@ export async function ingestEvent(
         supersedesValueHash: tokens.previous
       };
     });
-    if (aliases.length > 0) await lockJourney(trx, context.projectId, event.journeyId);
+    await lockJourney(trx, context.projectId, event.journeyId);
     await upsertAliases(trx, context.projectId, aliases);
     const statedAliasIds = await aliasIds(trx, context.projectId, aliases);
 

@@ -126,7 +126,7 @@ export async function ensureJourney(
 
 /**
  * Take the journey row's write lock (FOR NO KEY UPDATE) before an event
- * touches any of the journey's aliases.
+ * writes anything but the journey itself: its aliases, then its own row.
  *
  * Every writer locks a journey's row before its alias rows. The build before
  * migration 020 did it by order alone: it upserted aliases after

@@ -324,6 +324,33 @@ describe("the aliases an event stated", () => {
     }
   });
 
+  it("answers one of two events sharing an id with a 409, never a 500, whichever states aliases", async () => {
+    // Same id, different content: one wins and the other is an
+    // event_id_conflict. When only the event with aliases took the journey
+    // lock first, the other inserted the event row before locking the
+    // journey, and each waited on what the other held: a deadlock, and a 500
+    // where a 409 belongs. Every event now takes the journey lock first.
+    await ingest(event("evt_conflict_seed", "jrn_conflict"));
+    for (let round = 0; round < 20; round += 1) {
+      const id = `evt_conflict_${String(round)}`;
+      const send = (extra: Record<string, unknown>) =>
+        app.inject({
+          method: "POST",
+          url: "/v1/events",
+          headers: { authorization: `Bearer ${apiKey}` },
+          payload: { protocolVersion: "0.1", event: event(id, "jrn_conflict", extra) } as object
+        });
+      const responses = await Promise.all([
+        send({ aliases: { step: `conflict-${String(round)}` } }),
+        send({ name: "identify-crm-other" })
+      ]);
+      expect(
+        responses.map((response) => response.statusCode).sort(),
+        `round ${String(round)}`
+      ).toEqual([202, 409]);
+    }
+  });
+
   it("is read within the caller's scope, as the event is", async () => {
     await ingest(
       event("evt_prod", "jrn_prod", {
