@@ -115,6 +115,13 @@ describe("an endpoint that sends the API key in cleartext", () => {
     expect(recorder.counters()).toEqual({
       recorded: 0,
       dropped: 0,
+      droppedByCause: {
+        queue_full: 0,
+        after_shutdown: 0,
+        shutdown: 0,
+        retry_budget: 0,
+        no_verdict: 0
+      },
       rejected: 0,
       transportErrors: 0,
       captureErrors: 0,

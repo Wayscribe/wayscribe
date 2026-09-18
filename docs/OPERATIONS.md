@@ -2016,4 +2016,9 @@ limit. If you raised `MAX_EVENT_PAYLOAD_BYTES`, raise the SDK's
 not delivered: the bounded queue shed them under backpressure, the server kept
 refusing them for now past the retry budget, its reply gave no verdict for them,
 or `shutdown()` finished with them undelivered. Each diagnostic's `code` says
-which (`packages/sdk-node/README.md`, "Is it sending?").
+which (`packages/sdk-node/README.md`, "Is it sending?"), and `droppedByCause`
+counts them by that code, every cause present at zero, so a health endpoint can
+tell a collector slower than the shutdown timeout (`shutdown`) from a proxy
+answering with the wrong body (`no_verdict`). Five sends in a row whose replies
+gave no verdict at all open the breaker, so `breakerOpened` rises for that
+proxy too (ADR-063).

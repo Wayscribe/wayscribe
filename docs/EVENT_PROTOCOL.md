@@ -77,10 +77,15 @@ interface JourneyEventV01 {
   };
 
   runtime?: {
-    language?: string;
-    version?: string;
-    hostname?: string;
+    language?: string; // at most 64
+    version?: string; // at most 64
+    hostname?: string; // at most 256
     processId?: number;
+    sdk?: {
+      name: string; // 1 to 128 characters
+      version: string; // 1 to 64 characters
+      commit?: string; // 1 to 128 characters
+    };
   };
 
   deployment?: {
@@ -111,6 +116,25 @@ requests are received in no guaranteed order. An older event
 that arrives later therefore never replaces a newer label, and a replayed event
 can at worst leave a stale one. The label is shown and searchable in full and is
 not redacted, so it must not hold personal data.
+
+`runtime` says what was running when the event was recorded, and `runtime.sdk`
+names the recorder itself: the SDK's package name, its version, and the commit
+it was built from when it knows one, for example
+`{ "name": "@wayscribe/node", "version": "0.1.0", "commit": "27f4d64..." }`
+with the full commit. It answers which services run which SDK build, which
+matters most during an upgrade (F-046, ADR-063). `name` and `version` are
+required inside `sdk`, because an `sdk` without them says nothing; a value over
+a limit, or an empty one, is `invalid_event` with the path
+`event.runtime.sdk.<field>`. The field is optional and was added in `0.1`
+(section 11): an event without it was recorded by an SDK from before it or by
+another client, and a server from before it strips it as an unknown key and
+stores the rest of `runtime`. The server stores `runtime` as the event's
+`runtimeMetadata` and returns it on the event read. Like every protocol field,
+`runtime.sdk` is covered by the event's content hash, so an event first
+delivered to a server from before it (which stripped the field), whose response
+was lost, and resent after that server was upgraded, is answered
+`event_id_conflict`: it is stored, and the SDK counts it `rejected`. Upgrading
+the server before the services, as the upgrade notes advise, never meets this.
 
 The journey also keeps its last step: the `name` of the event with the latest
 `timestamp`, under the same tie rule, so an event that arrives late never moves

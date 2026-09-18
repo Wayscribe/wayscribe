@@ -163,8 +163,10 @@ them at the end. Once `shutdown()` has returned,
 | `sent` equals `recorded` | everything was stored; the problem is where you are looking (step 5) |
 | `rejected` > 0 | the server refused events and will not take them again; the `rejected` diagnostics carry the code (see [Refusal codes](#refusal-codes)) |
 | `dropped` > 0, `transportErrors` > 0 | the API could not be reached or could not store events for now, and they were given up |
-| `dropped` > 0, `transportErrors` 0 | the queue filled (`queue_full`), or events were recorded after `shutdown()` (`after_shutdown`) |
-| `breakerOpened` > 0 | five sends failed in a row, and sending paused for 30 seconds |
+| `dropped` > 0, `transportErrors` 0 | the queue filled (`queue_full`), events were recorded after `shutdown()` (`after_shutdown`), or replies gave no verdict (`no_verdict`); `droppedByCause` says which |
+| `droppedByCause.shutdown` > 0 | the collector hung or was slower than `shutdown({ timeoutMs })`, or the breaker was open when shutdown came; check `breakerOpened` and `no_verdict` |
+| `droppedByCause.no_verdict` > 0 | a 2xx reply carried no verdict: a proxy is rewriting responses, or `endpoint` is not the Wayscribe API |
+| `breakerOpened` > 0 | five sends failed in a row, and sending paused for 30 seconds; a send whose 2xx replies gave no verdict for any event counts as failed |
 | `configurationErrors` > 0 | a setting or argument could not be used; the `configuration_error` diagnostics name it |
 
 A test can assert the counters, so a missing setting fails before it ships:
@@ -222,7 +224,7 @@ this table is `packages/sdk-node/src/diagnostics.ts`.
 | `dropped` | `after_shutdown` | an event was recorded after `shutdown()`; `detail` names it | shut down after the last recording, not before |
 | `dropped` | `shutdown` | still undelivered when `shutdown()` finished; the server may have stored it | give `shutdown({ timeoutMs })` longer, or find why sends are slow |
 | `dropped` | `retry_budget` | the server refused an event for now for 30 seconds or 10 sends | check the database; `doctor`'s statement timeout line |
-| `dropped` | `no_verdict` | a 2xx reply gave no result for an event, so it was not sent again | a proxy between the SDK and the API is rewriting responses |
+| `dropped` | `no_verdict` | a 2xx reply gave no result for an event, so it was not sent again; five sends in a row with no verdict at all open the breaker | a proxy between the SDK and the API is rewriting responses, or `endpoint` names something else; `droppedByCause.no_verdict` counts these |
 | `capture_error` | `unexpected_error` | something threw inside the SDK; your call was unaffected | report it, with `detail.error` |
 | `capture_error` | `not_a_journey` | `across` was given something that is neither a journey nor a context | pass journeys or `journey.context()` |
 | `capture_error` | `invalid_options` | a call's options were not an object, or held keys it does not read; `detail.call` names the call | check the call's options; `fail(name, error, { metadata })` takes metadata under `metadata` |
@@ -234,7 +236,7 @@ this table is `packages/sdk-node/src/diagnostics.ts`.
 | `configuration_error` | `journey_id_secret_unusable` | the secret is shorter than 32 bytes, or is not a string | use a longer secret |
 | `configuration_error` | `entity_invalid` | an entity was missing, or its type or id was not a non-empty string, or, for `journeyIdFor`, held an unpaired surrogate, which cannot be encoded faithfully; events are filed under `unknown`/`unknown`, and `journeyIdFor` returns a random id | pass `{ type, id }` with non-empty string values |
 | `configuration_error` | `journey_id_invalid` | `continueJourney` got a context or `journeyId` without a usable id, as when a journey handle is passed instead of `journey.context()` | pass what an extract helper returned, or `journey.context()` |
-| `breaker_opened` | `consecutive_failures` | five sends failed in a row, and sending paused for 30 seconds | see the `transport_error` lines before it |
+| `breaker_opened` | `consecutive_failures` | five sends failed in a row, and sending paused for 30 seconds; a send whose replies gave no verdict for any event counts as failed | see the `transport_error` lines before it; with none, the `dropped` lines with `no_verdict` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text | see [The secret-name warning](#the-secret-name-warning) |
 | `personal_data_in_public_value` | `personal_data_shape` | a journey label, an alias marked displayable, or an error message (`detail.field` says which) holds what looks like an email address or a telephone number; the value was sent unchanged | take the personal data out of the label or the alias, stop marking the alias displayable, or build the error message from what your code composed rather than from a response body; once per process, field and shape |
 
