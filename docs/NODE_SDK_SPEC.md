@@ -313,7 +313,10 @@ included, is not a failure. One that throws costs the verdict alone: the step
 is recorded as a success and a `capture_error` says so, and a reason whose own
 fields throw costs those fields and not the step. The message is masked for
 credential shapes like any other error message, and personal data in it is
-not masked (F-041).
+not masked: an email address or an international telephone number in any
+error message raises the label's `personal_data_in_public_value` warning, with
+`detail.field` `errorMessage`, once per process and shape, and is sent
+unchanged (F-041, ADR-062).
 
 `metadataFrom` computes metadata from the resolved value, merged over
 `metadata`, which is copied before the callback runs. It runs on that value

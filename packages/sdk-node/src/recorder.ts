@@ -1070,10 +1070,22 @@ export function createRecorder(config: RecorderConfig): Recorder {
    *
    * Both fields are bounded to what the protocol accepts, so a megabyte of
    * message costs the host no more than four kilobytes of one.
+   *
+   * The message, as it will be sent, is checked for personal data too, since
+   * masking leaves an email address or a telephone number alone and a
+   * timeline shows the message to every reader: the label's warning, once per
+   * process and shape, and the value is not changed (F-041, ADR-062). The
+   * stack is not examined: the SDK sends none of its own.
    */
   function maskedError(error: ErrorInput): ErrorInput {
     // Read as unknown: a JavaScript caller can pass anything.
     const { message, stack, type, code } = error as Record<keyof ErrorInput, unknown>;
+    const sent =
+      typeof message === "string"
+        ? boundedMaskedText(message, MAX_ERROR_MESSAGE_LENGTH)
+        : undefined;
+    // Never throws, and costs one comparison once both shapes have warned.
+    warnAboutPersonalData(sent, "errorMessage", diagnostics, resolved.logDiagnostics);
     return {
       ...error,
       // A class name or an error code is not free text worth masking, but the
@@ -1084,9 +1096,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       ...(typeof code === "string" && !fitsCodePoints(code, MAX_ERROR_FIELD_LENGTH)
         ? { code: fit(code, MAX_ERROR_FIELD_LENGTH) }
         : {}),
-      ...(typeof message === "string"
-        ? { message: boundedMaskedText(message, MAX_ERROR_MESSAGE_LENGTH) }
-        : {}),
+      ...(sent === undefined ? {} : { message: sent }),
       ...(typeof stack === "string"
         ? { stack: boundedMaskedText(stack, MAX_ERROR_STACK_LENGTH) }
         : {})

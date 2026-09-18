@@ -2,12 +2,14 @@ import { printDiagnostic, type Diagnostic, type Diagnostics } from "./diagnostic
 
 /**
  * The warning for personal data in a value a reader sees in plain text: a
- * journey label, or an alias the caller marked displayable (F-006, F-012).
+ * journey label, an alias the caller marked displayable, or an error's message
+ * (F-006, F-012, F-041, ADR-062).
  *
  * ADR-055's pattern, applied to personal data rather than credentials: warn,
  * never redact on a guess, never alter the value. A label is text somebody
- * wrote to be read, and a displayable alias is an identifier somebody said was
- * public; changing either would make the journey list show something other
+ * wrote to be read, a displayable alias is an identifier somebody said was
+ * public, and an error message is what a reader needs to understand a
+ * failure; changing any of them would make the timeline show something other
  * than what the host chose.
  *
  * The check is deliberately dumb. It matches an email shape and an
@@ -18,7 +20,7 @@ import { printDiagnostic, type Diagnostic, type Diagnostics } from "./diagnostic
  */
 
 /** Where a value a reader sees in full came from. */
-export type PublicValueField = "journeyLabel" | "displayableAliases";
+export type PublicValueField = "journeyLabel" | "displayableAliases" | "errorMessage";
 
 /** What the value looked like. Part of the diagnostic, so these strings are stable. */
 export type PersonalDataShape = "email" | "phone";
@@ -83,6 +85,27 @@ const ADVICE: Record<PersonalDataShape, string> = {
 };
 
 /**
+ * What the reason says about each field: where the value came from, and how a
+ * reader comes to see it. An error message is not searched, unlike the other
+ * two, and is masked for credential shapes, which leaves personal data alone.
+ */
+const WHERE: Record<PublicValueField, { subject: string; exposure: string }> = {
+  journeyLabel: {
+    subject: "A journey label",
+    exposure: "It is stored, shown and searched in plain text and is never redacted"
+  },
+  displayableAliases: {
+    subject: "An alias marked displayable",
+    exposure: "It is stored, shown and searched in plain text and is never redacted"
+  },
+  errorMessage: {
+    subject: "An error message",
+    exposure:
+      "It is stored and shown in plain text wherever the timeline is, and masking covers credential shapes, not personal data"
+  }
+};
+
+/**
  * Warns if `value` looks like personal data, once per process and shape.
  *
  * Once per process and shape, not per value or per field: at most two lines
@@ -107,14 +130,14 @@ export function warnAboutPersonalData(
     if (shape === undefined || warned.has(shape)) return;
     warned.add(shape);
 
-    const where = field === "journeyLabel" ? "A journey label" : "An alias marked displayable";
+    const where = WHERE[field];
     const diagnostic: Diagnostic = {
       kind: "personal_data_in_public_value",
       code: "personal_data_shape",
       reason:
-        `${where} holds what looks like ${ADVICE[shape]}. It is stored, shown and searched ` +
-        "in plain text and is never redacted, so a reader who may not be entitled to it sees " +
-        "it in full. The value was not changed; if it is not personal data, nothing needs doing.",
+        `${where.subject} holds what looks like ${ADVICE[shape]}. ${where.exposure}, ` +
+        "so a reader who may not be entitled to it sees it in full. The value was not " +
+        "changed; if it is not personal data, nothing needs doing.",
       detail: { field, shape }
     };
     diagnostics.report(diagnostic, undefined, { unlimited: true });
@@ -128,6 +151,6 @@ export function warnAboutPersonalData(
       "printed once per process and value shape, whether or not logDiagnostics is on, because the value is stored in plain text"
     );
   } catch {
-    // The label is set and the event is sent whatever happens here.
+    // The label is set, and the event is sent, whatever happens here.
   }
 }

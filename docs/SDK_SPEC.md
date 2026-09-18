@@ -612,12 +612,15 @@ alias, but documentation alone is missed: a design review approved a label of a
 company and a person's full name, and nothing in any SDK would have said a word
 (F-006, F-012).
 
-- **SDK-63.** An SDK SHOULD report a journey label, or an alias value the host
-  marked displayable, that looks like personal data. It MUST NOT change the
+- **SDK-63.** An SDK SHOULD report a journey label, an alias value the host
+  marked displayable, or an error's message, that looks like personal data. An
+  error message is masked for credential shapes (SDK-22) and for nothing else,
+  and a timeline shows it to every reader (F-041). It MUST NOT change the
   value, refuse it, or stop marking the alias displayable: this warns on a
   guess, as SDK-61 does, and a value changed on a guess is the failure ADR-055
-  refuses. The report names which of the two it was and what the value looked
-  like, and MUST NOT include the value. An SDK SHOULD report once per process
+  refuses. The report names which of the three it was and what the value
+  looked like, and MUST NOT include the value. An error message is examined as
+  it is sent, after masking and bounding; a stack is not examined. An SDK SHOULD report once per process
   and value shape, and SHOULD print one warning per process and shape even when
   debug output is off, for the reason SDK-61 gives: the value is stored in the
   clear. An SDK SHOULD say nothing about an alias the host did not mark
@@ -640,7 +643,7 @@ company and a person's full name, and nothing in any SDK would have said a word
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-63 | ADR-055; ADR-060; ADR-053 | section 14 |
+| SDK-63 | ADR-055; ADR-060; ADR-053; ADR-062 | section 14 |
 
 ## 14. Conformance, and what the fixtures cannot check
 
@@ -682,4 +685,4 @@ either.
 | SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
 | SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. Repeat with a required setting that is `""` and one that is only whitespace, and assert each is reported and printed as missing. |
 | SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a string is reported; assert a payload the event budget omits reports nothing; record many distinct very long names and assert the memory kept is bounded. |
-| SDK-63 | Set a journey label holding an email address and assert one report naming the label and the shape, with debug output off, one printed line, and neither carrying the value; assert the label the event carries is the one that was set; assert a second label with an email address reports nothing more, and one with an international telephone number reports once; assert a label that looks like neither reports nothing; mark an alias displayable whose value is an email address and assert the same report names the alias, and that an alias not marked displayable reports nothing. |
+| SDK-63 | Set a journey label holding an email address and assert one report naming the label and the shape, with debug output off, one printed line, and neither carrying the value; assert the label the event carries is the one that was set; assert a second label with an email address reports nothing more, and one with an international telephone number reports once; assert a label that looks like neither reports nothing; mark an alias displayable whose value is an email address and assert the same report names the alias, and that an alias not marked displayable reports nothing; in a fresh process, record a failure whose message holds an email address and assert the same report names the error message, that the message the event carries is unchanged, and that a stack holding one reports nothing. |

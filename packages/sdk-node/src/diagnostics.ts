@@ -273,12 +273,15 @@ export interface UnredactedSecretNameDiagnostic {
 }
 
 /**
- * A journey label, or an alias the caller marked displayable, holds what looks
- * like personal data: an email address or an international telephone number.
- * A warning, exactly as `unredacted_secret_name` is: the value is stored,
- * shown and searched in plain text and is never changed (ADR-055's pattern,
- * ADR-060). Reported once per process and shape, so at most two of these exist
- * for the life of a process. The value is never included. Counted in
+ * A journey label, an alias the caller marked displayable, or an error's
+ * message holds what looks like personal data: an email address or an
+ * international telephone number. A warning, exactly as
+ * `unredacted_secret_name` is: the value is stored and shown in plain text
+ * (a label and a displayable alias are searched too), and is never changed
+ * (ADR-055's pattern, ADR-060, ADR-062). An error message is masked for
+ * credential shapes only, so masking does not cover this. Reported once per
+ * process and shape, whichever field it was found in, so at most two of these
+ * exist for the life of a process. The value is never included. Counted in
  * `personalDataInPublicValues`.
  */
 export interface PersonalDataInPublicValueDiagnostic {
@@ -287,8 +290,12 @@ export interface PersonalDataInPublicValueDiagnostic {
   /** A sentence for a person. Its wording may change in any release. */
   reason: string;
   detail: {
-    /** Which plain-text value it was: the journey's label, or a displayable alias. */
-    field: "journeyLabel" | "displayableAliases";
+    /**
+     * Which plain-text value it was: the journey's label, a displayable alias,
+     * or the message of an event's error (a thrown error's, a `FailureReason`'s,
+     * `fail()`'s or one given to `record()`).
+     */
+    field: "journeyLabel" | "displayableAliases" | "errorMessage";
     /** What it looked like. */
     shape: "email" | "phone";
   };
@@ -375,9 +382,9 @@ export interface Counters {
    */
   unredactedSecretNames: number;
   /**
-   * `personal_data_in_public_value` reports: journey labels and displayable
-   * aliases that look like personal data and were sent unchanged. At most one
-   * per value shape per process, so at most 2.
+   * `personal_data_in_public_value` reports: journey labels, displayable
+   * aliases and error messages that look like personal data and were sent
+   * unchanged. At most one per value shape per process, so at most 2.
    */
   personalDataInPublicValues: number;
 }

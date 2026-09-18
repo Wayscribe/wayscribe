@@ -244,3 +244,127 @@ describe("personal data in a displayable alias", () => {
     expect(events).toHaveLength(1);
   });
 });
+
+describe("personal data in an error message (F-041)", () => {
+  it("warns for a FailureReason message, and sends it unchanged", async () => {
+    const message = "avery.example@northwind.example is over its limit.";
+    const { events, diagnostics } = await capture(async (recorder) => {
+      await recorder
+        .startJourney({ entity: { type: "lead", id: "1" } })
+        .deliver("push-crm", {}, () => Promise.resolve({ status: 429 }), {
+          isFailure: () => ({ message, code: "http_429" })
+        });
+    });
+    expect((events[0]?.["error"] as { message: string }).message).toBe(message);
+    expect(warnings(diagnostics)).toEqual([
+      {
+        kind: "personal_data_in_public_value",
+        code: "personal_data_shape",
+        reason: expect.stringContaining("An error message") as string,
+        detail: { field: "errorMessage", shape: "email" }
+      }
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain("avery.example");
+  });
+
+  it("warns for a string isFailure returns, a thrown error, record() and fail()", async () => {
+    for (const run of [
+      (recorder: Recorder) => {
+        recorder
+          .startJourney({ entity: { type: "lead", id: "1" } })
+          .transform("t", 1, () => 2, { isFailure: () => "call +44 20 7946 0958 back" });
+      },
+      (recorder: Recorder) => {
+        expect(() =>
+          recorder.startJourney({ entity: { type: "lead", id: "1" } }).transform("t", 1, () => {
+            throw new Error("no account for +44 20 7946 0958");
+          })
+        ).toThrow();
+      },
+      (recorder: Recorder) => {
+        recorder.startJourney({ entity: { type: "lead", id: "1" } }).record({
+          operation: "failed",
+          name: "r",
+          error: { message: "no account for +44 20 7946 0958" }
+        });
+      },
+      (recorder: Recorder) => {
+        recorder
+          .startJourney({ entity: { type: "lead", id: "1" } })
+          .fail("dead-letter", new Error("no account for +44 20 7946 0958"));
+      }
+    ]) {
+      forgetPersonalDataWarnings();
+      const { events, diagnostics } = await capture(run);
+      expect(events).toHaveLength(1);
+      expect(warnings(diagnostics).map((d) => d.detail)).toEqual([
+        { field: "errorMessage", shape: "phone" }
+      ]);
+    }
+  });
+
+  it("says nothing about an error message that looks like neither", async () => {
+    const { diagnostics } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });
+      journey.transform("t", 1, () => 2, { isFailure: () => "HubSpot answered 429 to the create" });
+      journey.record({ operation: "failed", name: "r", error: { message: "timeout after 30s" } });
+    });
+    expect(warnings(diagnostics)).toEqual([]);
+  });
+
+  it("does not examine the stack", async () => {
+    const { diagnostics } = await capture((recorder) => {
+      recorder.startJourney({ entity: { type: "lead", id: "1" } }).record({
+        operation: "failed",
+        name: "r",
+        error: { message: "timeout", stack: "Error: timeout\n    at jane@acme.com" }
+      });
+    });
+    expect(warnings(diagnostics)).toEqual([]);
+  });
+
+  it("shares the once-per-process rule with the label", async () => {
+    const { diagnostics } = await capture((recorder) => {
+      const journey = recorder.startJourney({
+        entity: { type: "lead", id: "1" },
+        label: "Acme · jane@acme.com"
+      });
+      journey.record({ operation: "failed", name: "r", error: { message: "for john@acme.com" } });
+      journey.record({ operation: "failed", name: "r", error: { message: "for jo@acme.com" } });
+    });
+    expect(warnings(diagnostics).map((d) => d.detail)).toEqual([
+      { field: "journeyLabel", shape: "email" }
+    ]);
+  });
+
+  it("cannot cost the step, whatever the error holds", async () => {
+    const throwing = (): never => {
+      throw new Error("no");
+    };
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const { events } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });
+      // A reason whose message getter throws, and one that is a revoked Proxy.
+      journey.transform("getter", 1, () => 2, {
+        isFailure: () => Object.defineProperty({}, "message", { get: throwing, enumerable: true })
+      });
+      journey.transform("revoked", 1, () => 2, { isFailure: () => revoked.proxy });
+      // A thrown error whose message getter throws. Caught by hand, because
+      // `toThrow` reads the message too.
+      const hostile = Object.defineProperty(new Error("x"), "message", { get: throwing });
+      let caught: unknown;
+      try {
+        journey.transform("thrown", 1, () => {
+          throw hostile;
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(hostile);
+      // A message that is not a string.
+      journey.record({ operation: "failed", name: "number", error: { message: 7 as never } });
+    });
+    expect(events.map((event) => event["name"])).toEqual(["getter", "revoked", "thrown", "number"]);
+  });
+});

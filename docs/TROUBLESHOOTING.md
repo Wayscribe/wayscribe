@@ -236,7 +236,7 @@ this table is `packages/sdk-node/src/diagnostics.ts`.
 | `configuration_error` | `journey_id_invalid` | `continueJourney` got a context or `journeyId` without a usable id, as when a journey handle is passed instead of `journey.context()` | pass what an extract helper returned, or `journey.context()` |
 | `breaker_opened` | `consecutive_failures` | five sends failed in a row, and sending paused for 30 seconds | see the `transport_error` lines before it |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text | see [The secret-name warning](#the-secret-name-warning) |
-| `personal_data_in_public_value` | `personal_data_shape` | a journey label, or an alias marked displayable, holds what looks like an email address or a telephone number; the value was sent unchanged | take the personal data out of the label or the alias, or stop marking the alias displayable; once per process and shape |
+| `personal_data_in_public_value` | `personal_data_shape` | a journey label, an alias marked displayable, or an error message (`detail.field` says which) holds what looks like an email address or a telephone number; the value was sent unchanged | take the personal data out of the label or the alias, stop marking the alias displayable, or build the error message from what your code composed rather than from a response body; once per process and shape |
 
 ## Key and environment mismatches
 

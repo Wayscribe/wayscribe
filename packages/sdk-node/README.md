@@ -186,12 +186,14 @@ redacted.** It is text you wrote to be read. Do not put personal data in it:
 no names of people, email addresses, customer numbers, or anything else a
 reader of the journey list should not see.
 
-The SDK warns when it sees one kind of mistake. A label, or an alias you marked
-displayable, that holds what looks like an email address or an international
-telephone number raises one `personal_data_in_public_value` diagnostic, and
-prints one line even with `logDiagnostics` off, once per process and value
-shape. **The value is never changed**, and the warning is never a refusal: this
-is ADR-055's rule for secret-looking names, applied to personal data (ADR-060).
+The SDK warns when it sees one kind of mistake. A label, an alias you marked
+displayable, or an error's message, that holds what looks like an email
+address or an international telephone number raises one
+`personal_data_in_public_value` diagnostic, and prints one line even with
+`logDiagnostics` off, once per process and value shape, whichever of the three
+it was found in. **The value is never changed**, and the warning is never a
+refusal: this is ADR-055's rule for secret-looking names, applied to personal
+data (ADR-060, ADR-062).
 
 The check is deliberately dumb, an email shape and an international phone shape
 and nothing else, so that it does not print at every deploy for text that is
@@ -266,9 +268,11 @@ failure**: `false`, `undefined`, `null`, `""`, `0` and `NaN`, so
 `isFailure: (result) => result.errors.length` means what it has always meant. The message is masked for credential shapes
 and bounded like any other error you give the SDK. **It is not masked for
 personal data**: an email address or a telephone number in it is stored and
-shown in plain text wherever the timeline is. Build the message from what your
-code knows, such as the status, rather than from a response body that may name
-a person (F-041). An `isFailure` that throws
+shown in plain text wherever the timeline is, and one that looks like it raises
+the `personal_data_in_public_value` warning described under
+[Name a journey](#name-a-journey). Build the message from what your code knows,
+such as the status, rather than from a response body that may name a person
+(F-041). An `isFailure` that throws
 costs the verdict and nothing else: your value comes back, the step is recorded
 as the success it looked like, and a `capture_error` says so.
 
@@ -793,7 +797,7 @@ in `<noun>Errors`, and a bare participle in itself (`dropped`).
 | `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` |
 | `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
-| `personal_data_in_public_value` | `personal_data_shape` | a journey label, or an alias marked displayable, holds what looks like an email address or a telephone number, and both are stored and searched in plain text; once per process and shape; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
+| `personal_data_in_public_value` | `personal_data_shape` | a journey label, an alias marked displayable, or an error message (`field` is `journeyLabel`, `displayableAliases` or `errorMessage`) holds what looks like an email address or a telephone number, and all three are stored and shown in plain text; once per process and shape; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
 
 ### An endpoint that is not encrypted
 

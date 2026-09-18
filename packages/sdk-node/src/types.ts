@@ -36,7 +36,9 @@ export interface JourneyContext {
 export interface ErrorInput {
   /**
    * Masked for credential shapes and cut to 4,096 characters before it is
-   * queued. Personal data is not masked: it is stored and shown as given.
+   * queued. Personal data is not masked: it is stored and shown as given, and
+   * an email address or an international telephone number raises a
+   * `personal_data_in_public_value` warning, once per process and shape.
    */
   message: string;
   /** Cut to 256 characters. */
@@ -173,10 +175,14 @@ export interface WrapOptions<T = unknown, I = unknown> {
  * The message becomes the recorded error's message, as `ErrorInput.message`
  * does: masked for credential shapes (private keys, JSON web tokens, provider
  * tokens, webhook secrets, URL credentials, `Bearer`, `Basic` and `Digest`
- * credentials, `name=value` secrets) and cut to 4,096 characters (ADR-046). Masking does not remove personal data. An email address or a
- * telephone number in it is stored and shown in plain text wherever the
+ * credentials, `name=value` secrets) and cut to 4,096 characters (ADR-046).
+ *
+ * Masking leaves personal data in place. An email address or a telephone
+ * number in the message is stored and shown in plain text wherever the
  * timeline is, so build the message from what your code composed, such as the
- * status, and not from a response body that may name a person (F-041).
+ * status, and not from a response body that may name a person. One that looks
+ * like either raises a `personal_data_in_public_value` warning, once per
+ * process and shape, and is sent unchanged (F-041, ADR-062).
  */
 export interface FailureReason {
   message?: string | undefined;

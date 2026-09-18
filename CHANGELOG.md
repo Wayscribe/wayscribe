@@ -438,6 +438,16 @@ What you have to do when upgrading a checkout or a deployment:
 
 ### Changed
 
+- **An error message that looks like personal data is warned about**, as a
+  journey label and a displayable alias already were (F-041, ADR-062). A
+  thrown error's, a `FailureReason`'s, `fail()`'s and `record()`'s message is
+  masked for credential shapes only, and a timeline shows it to every reader;
+  an email address or an international telephone number in it now raises
+  `personal_data_in_public_value` with `detail.field` `errorMessage`. The same
+  once-per-process-and-shape rule applies across all three fields, so
+  `personalDataInPublicValues` is still at most 2, and the message is sent
+  unchanged. A stack is not examined.
+
 - **Four SDK declarations say what the code does.** `WrapResult` says the
   assignment of a second implementation needs no cast and its body's return
   still does (F-037). `ContinueJourneyOptions` names all four steps of the
@@ -732,6 +742,11 @@ What you have to do when upgrading a checkout or a deployment:
 
 These apply to an installation or a host application built from an earlier
 development build of `main`. A new installation can skip them.
+
+- **`personal_data_in_public_value` has a third `detail.field`.** Besides
+  `journeyLabel` and `displayableAliases` it can be `errorMessage`. A handler
+  that switches on the field exhaustively needs the new case; one that logs it
+  needs nothing.
 
 - **A type annotation on an injected payload.** If you declared a value or a
   queue's job payload as `ContextEnvelope<T>`, annotate it as
