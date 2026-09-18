@@ -63,7 +63,7 @@ seen, what was expected, and what Leadline did instead.
   Expected: PASS after updating the README's ADR count.
 - [ ] **Step 3: Commit** (`docs(adr): ADR-060, the SDK options the dogfood run asked for`).
 
-### Task 2: ADR-061, a retried step that succeeds is a completion
+### Task 2: ADR-061, a successful retry clears a failure
 
 **Files:** Modify `docs/DECISIONS.md`.
 
@@ -72,14 +72,19 @@ seen, what was expected, and what Leadline did instead.
   224 and `deriveStatus` around 257 to 261), and `packages/sdk-node/src/recorder.ts`'s
   `wrap()` (ADR-022, the `attempt` rename around lines 1282 to 1287).
 - [ ] **Step 2: Write ADR-061.** The decision: a `retried` event that carries no error
-  counts as a completion for journey status, the same way `completed` does, so a step
-  that fails and then succeeds no longer leaves the journey failed until `finish()`
-  lands. The event keeps the operation `retried`, because that is what happened
-  (ADR-022 is unchanged). Record the alternative rejected: renaming a successful retry
-  to `completed`, which would lose the fact that it was a retry.
-  Consequences: `deriveStatus` and the status case both change, the ordering rules do
-  not, and a journey whose last event is a failed retry is still failed.
-- [ ] **Step 3: Commit** (`docs(adr): ADR-061, a successful retry completes a journey`).
+  clears an existing `failed` status, returning the journey to `active`, so a step that
+  fails and then succeeds no longer leaves the journey failed until `finish()` lands.
+  It does not mark the journey `completed`: `completed` keeps meaning a `completed`
+  operation at or after the watermark, which in practice is `finish()`, because a
+  status that says completed has to mean the run finished. The event keeps the
+  operation `retried`, because that is what happened (ADR-022 is unchanged). Record the
+  alternatives rejected: a successful retry completing the journey, which would let a
+  run that retries and then dies read `completed`, and renaming a successful retry to
+  `completed`, which would lose the fact that it was a retry.
+  Consequences: `deriveStatus` and the status case both change, the ordering and
+  watermark rules do not, `completed_at` is untouched, and a journey whose last event is
+  a failed retry is still failed.
+- [ ] **Step 3: Commit** (`docs(adr): ADR-061, a successful retry clears a failure`).
 
 ## Batch B: the Node SDK
 
@@ -165,14 +170,16 @@ its neighbour.
 
 ## Batch C: the server, the API and its documentation
 
-### Task 8: A successful retry completes a journey (F-008, ADR-061)
+### Task 8: A successful retry clears a failed journey (F-008, ADR-061)
 
 **Files:** `packages/database/src/repositories/journeys.ts`, its integration tests.
 
 - [ ] **Step 1: Failing integration test.** A journey whose step fails on attempt 1 and
-  succeeds as `retried` on attempt 2, with no `finish()`, reads as completed; a journey
-  whose retry also fails stays failed; the existing out-of-order failure test still
-  passes.
+  succeeds as `retried` on attempt 2, with no `finish()`, reads as active, not completed
+  (ADR-061: a successful retry clears the failure, it does not complete the journey, and
+  `completed_at` stays null); a journey whose only event is a successful `retried` reads
+  active; a journey whose retry also fails stays failed; the existing out-of-order
+  failure test still passes.
 - [ ] **Step 2: Implement** in `deriveStatus` and the status case, citing ADR-061.
 - [ ] **Step 3: Run** the database integration tests (Testcontainers).
 - [ ] **Step 4: Commit.**

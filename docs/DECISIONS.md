@@ -2923,3 +2923,328 @@ package to the first published set or moves a release date.
   in the Python package.
 - The recorder surface to maintain doubles: two packages to release, two
   conformance runs, and two README pages that can drift from the specification.
+
+---
+
+## ADR-060: The settled SDK surface gains what the dogfood run asked for
+
+**Status:** Accepted, 2026-09-17. Adds to the Node SDK's public surface, which
+ADR-056 settled before the first release. Every addition is optional and
+additive: no call that exists today changes its shape, its meaning or what it
+puts on the wire, and the server needs no change for any of them. Follows
+Leadline's first pass over the SDK, findings F-001 to F-005, F-014 and F-021.
+
+### Context
+
+ADR-056 settled the shape of what the Node SDK already had, so that the renames
+a release makes expensive were made before it. It could not settle what was
+missing, because nothing outside this repository had yet been instrumented with
+the package as a user installs it.
+
+Leadline, the lead-sync project that exists to dogfood Wayscribe, wired itself
+to the SDK and wrote down every place it had to work around the package rather
+than use it. Seven of those are gaps in the surface rather than defects in it.
+
+- Two services identify one record, and `identify` always names its step
+  `identify` (`recorder.ts`, the `identified` event), so one journey's timeline
+  shows the same step name twice from two different services, and the
+  workaround is to call `record({ operation: "identified" })` by hand (F-001).
+- The wire protocol carries `deployment` (`gitCommit`, `version`, `image`), the
+  ingest path redacts it and stores it as `deployment_metadata`, and no Node
+  service can set it, because neither `RecorderConfig` nor `RecordInput` offers
+  it. Leadline reports its commit on its own health endpoint instead (F-002).
+- A wrapper's `metadata` is copied when the wrapper is called, before the
+  callback runs, so a response status or a `Retry-After` cannot be metadata and
+  has to be pushed into the step's output (F-003).
+- A result that `isFailure` rejects always records the same error,
+  `<name> reported a failed result.` with code `result_failed`, so a rate limit
+  and a validation failure read alike until the output is opened (F-004).
+- A worker whose message carries no context is given a random journey id even
+  when the recorder holds a `journeyIdSecret` and the caller knows the entity,
+  so the journey splits. ADR-052 made the derived id available and ADR-056 made
+  `continueJourney({ journeyId })` the way to pass it, so the caller can do this
+  itself, and every such caller writes the same two lines (F-005).
+- `injectPayload` with no context returns `{ _wayscribe: {}, data: payload }`,
+  which does not satisfy `ContextEnvelope<T>`, whose `journeyId` is required.
+  The SDK's own source reaches that value through `as unknown as`, and anything
+  that reproduces the shape needs the same cast (F-014).
+- The four wrappers are declared as two call signatures each, one for a callback
+  returning a thenable and one for a callback returning a value. A single plain
+  function that forwards its callback's result the way all four do can only be
+  typed to return `unknown`, which satisfies neither signature, so a second
+  implementation has to restate both signatures. The SDK's own `operationsOn`
+  casts each of its four wrappers with `as JourneyOperations["transform"]` and
+  its three siblings (F-021).
+
+Each is cheap to add before the first release and awkward after it, because a
+host that worked around a gap keeps its workaround.
+
+### Decision
+
+The Node SDK gains the following. Every one is optional, and every existing call
+behaves exactly as it does today when it is not used.
+
+- **A name for an identify step.** `IdentifyOptions` gains `name`, so
+  `identify(aliases, { name: "identify-crm" })` records the `identified` event
+  under that step name. The default is `identify`, which is what every current
+  caller gets. The operation stays `identified`: the step name is the timeline's
+  row label, and the operation is what happened.
+- **A deployment on every event.** `RecorderConfig` gains
+  `deployment?: { version?, gitCommit?, image? }`, applied to every event the
+  recorder sends. It sits on the recorder and not on `RecordInput` because one
+  process is one deployment. A field that is not a string, or is longer than
+  `deploymentSchema` allows, is reported and left out rather than sent, in the
+  way ADR-056 settled for every other unusable setting, so a bad value costs
+  that field and not the event.
+- **Metadata computed from the result.** `WrapOptions` gains
+  `metadataFrom`, which receives the callback's resolved value and returns
+  metadata. It runs after the callback resolves, whether or not `isFailure`
+  rejected that value, so a status and a `Retry-After` from a refused response
+  are recordable. It does not run when the callback throws, because there is no
+  result. What it returns is merged over any static `metadata`, and the
+  wrapper's own `attempt` is applied last, so a projection cannot overwrite the
+  attempt the wrapper recorded. It is synchronous and its failure is isolated
+  exactly as `captureOutput`'s is: a projection that throws or returns a promise
+  is reported and costs its own metadata, never the step and never the host's
+  call.
+- **A reason on a failed result.** `isFailure` may return a reason instead of
+  `true`: a non-empty string, which becomes the error's message, or
+  `{ message?, code? }`, whose fields replace the generic message and the
+  `result_failed` code. Returning `true`, or any other truthy value, records
+  today's generic error, and a falsy value is not a failure, so every current
+  caller is unaffected. The reason is masked and bounded as any recorded error
+  is (ADR-046), because it comes from a response body and may hold a secret.
+- **A derived journey id as the last resort.** When `continueJourney` finds no
+  usable journey id, in the context or in `journeyId`, and it does have a usable
+  entity and the recorder has a usable `journeyIdSecret`, the journey id is
+  `journeyIdFor(entity)` rather than a fresh random one. Without a usable
+  secret, or without a usable entity, the id is random, as it is today, and it
+  stays documented. The diagnostics ADR-056 settled for an unusable context, an
+  unusable id and an unusable entity are unchanged and are reported before the
+  fallback, so nothing that was visible becomes silent.
+- **An envelope type that admits its own no-context shape.** In
+  `ContextEnvelope<T>`, `journeyId` becomes optional inside `_wayscribe`. The
+  `_wayscribe` key itself stays required, because the envelope always carries it
+  and its empty form is how `extractPayload` reads the absence of a journey.
+  The value `injectPayload` returns then satisfies its own declared type, and
+  the SDK's `as unknown as` cast goes. Runtime behaviour is unchanged.
+- **Wrapper signatures a second implementation can satisfy.** Each of
+  `transform`, `persist`, `publish` and `deliver` is declared so that one plain,
+  non-overloaded function satisfies it without a cast: one signature over
+  `() => T | PromiseLike<T>` with a conditional return type. If that is found to
+  lose inference at a call site, the overloads stay and a non-overloaded alias
+  is exported beside them, and the README says which one an implementer writes
+  against. Either way the acceptance test is the same and is checkable: the
+  SDK's own `operationsOn` stops casting its four wrappers, and a small
+  hand-written object satisfies `JourneyOperations` with no cast. This is a
+  declaration change; what the wrappers do at runtime is untouched, and a
+  callback returning a thenable still comes back as a native promise of its
+  resolved value.
+
+These are additions. No existing call changes meaning, nothing already released
+changes shape, and the surface is settled again once they land: ADR-056's rule
+holds, and this decision is its amendment rather than a standing licence to add.
+
+### Alternatives rejected
+
+- **Waiting until after the first release.** Each of these becomes harder once
+  hosts have worked around it: a dashboard matches the step name `identify`, a
+  service puts its version in custom metadata, and an envelope a host has
+  already cast around cannot be repaired without touching their code. This is
+  ADR-056's own argument, arriving once more.
+- **A `deployment` on `RecordInput` as well as on the recorder.** One process is
+  one deployment, so a per-event deployment is mostly a way to record something
+  untrue, and it puts the same unchanging bytes on every event.
+- **Letting the callback mutate the wrapper's metadata object.** It makes what
+  was recorded depend on when the SDK copied the object, which is the class of
+  bug ADR-056 removed by reading every option once, inside the boundary.
+- **One `onResult` hook covering metadata, output capture and failure
+  detection.** Three options with three rules are easier to document, to test
+  and to isolate on failure than one hook whose return value means three things,
+  and `captureOutput` and `isFailure` already have settled shapes.
+- **Deriving a journey id from the entity without a secret.** ADR-052 settled
+  this: an unkeyed derivation is guessable by anyone who knows the entity and
+  the scheme, which is what `INGESTION_CONTRACT.md` section 5 warns about.
+- **Making `_wayscribe` itself optional on `ContextEnvelope`.** That would also
+  admit `{ data }`, which `injectPayload` never emits, and it would hide from
+  the reader the one case the type exists to make visible.
+
+### Consequences
+
+- The Node SDK's README documents each new option beside the one it belongs
+  with, and the CHANGELOG lists them as additions in the first release.
+- `docs/SDK_SPEC.md` carries the ones another implementation should follow: the
+  identify step name, the deployment on every event, and the derived id as the
+  last resort. `metadataFrom`, the `isFailure` reason and the wrapper signatures
+  are the Node package's own ergonomics and stay in its README.
+- Nothing on the wire changes and the server needs no change. `deployment` is
+  already validated by `deploymentSchema` and stored as `deployment_metadata`,
+  which is why F-002 is an SDK gap and not a protocol one.
+- A host that matches the error code `result_failed` keeps matching it, unless
+  its own `isFailure` supplies a code.
+- A host reading `envelope._wayscribe.journeyId` now reads `string | undefined`
+  and has to narrow. That is the point of the change, and `ContextEnvelope` is
+  marked experimental (ADR-056), so the type may move.
+- The surface grows by five options, one optional property and one signature
+  shape, each of which is a thing to keep documented, tested and honest in two
+  places once a second recorder exists (ADR-059).
+
+---
+## ADR-061: A successful retry clears a failure rather than completing the journey
+
+**Status:** Accepted, 2026-09-17. Changes how the server derives a journey's
+status from one event. ADR-022 is unchanged: a retried attempt still records the
+operation `retried`, because that is what happened. Nothing in the SDK changes
+and nothing on the wire changes. `completed` keeps the meaning it has today.
+Follows finding F-008.
+
+This decision is narrower than the one Task 2 of
+`docs/superpowers/plans/2026-09-17-leadline-findings-fixes.md` described. That
+plan said a successful `retried` should count as a completion "the same way
+`completed` does". It should not, for the reason recorded under the rejected
+alternatives, and the plan's wording in Task 2 and Task 8 is corrected to match
+this decision. Where the two disagree, this decision governs.
+
+### Context
+
+Two rules meet here, and each is right on its own.
+
+`deriveStatus` in `packages/database/src/repositories/journeys.ts` maps one
+event to the status it implies: `failed` when the event carries an error or its
+operation is `failed`, `completed` when its operation is `completed`, and null,
+meaning this event has no opinion, for everything else. The status case in
+`updateJourneySummary` applies that mapping: a `failed` wins whatever its
+timestamp says, because ADR-031 stamps a wrapped event when its callback starts
+and enqueues it when the callback ends, so a slow failing step is routinely
+stamped earlier than events that reach the server before it; any other status
+applies only when the event is at or after the newest one the journey has seen.
+
+ADR-022 makes the SDK's `wrap()` rename a wrapped call's operation to `retried`
+whenever the caller passes `attempt` greater than one, whichever way the call
+comes out.
+
+So a step that fails on attempt one and succeeds on attempt two records
+`delivered` with an error and then `retried` with none. The failure sets the
+journey to failed. The success carries the operation `retried`, which
+`deriveStatus` has no opinion about, so it cannot undo the failure by itself.
+Only `finish()`, which records a plain `completed` or `failed` whatever the
+attempt, can, and a reader looking at the journey between the retry and the
+`finish()` sees a failed journey whose most recent event succeeded.
+
+There is a general asymmetry underneath this. Every operation is already read at
+journey level when it fails, because `hasError` is checked before the operation
+is: a first-attempt `delivered` that fails sets the journey failed with no retry
+involved. No operation but `completed` is read at journey level when it
+succeeds. So any failing step leaves its journey failed until `finish()`, and
+F-008 is the case where that is most obviously wrong, not the only case.
+
+What makes `retried` the one operation to act on is that it is the only one
+whose meaning is "this is another attempt at something already recorded". Its
+success is evidence about the earlier attempt: that attempt's error has been
+superseded. A successful `delivered` or `persisted` of some other step carries
+no such evidence, because it says nothing about the step that failed. That is
+the whole of the argument, and it reaches exactly as far as clearing the
+failure.
+
+### Decision
+
+A `retried` event that carries no error clears an existing `failed` status,
+returning the journey to `active`. It does not mark the journey `completed`.
+
+`completed` keeps the meaning it has today: the operation `completed`, at or
+after the watermark, which in practice is `finish()`. A journey is completed
+when the run that owns it says it finished, and nothing else says that.
+
+A `retried` event that carries an error is a failure, as it already is.
+
+The event itself is not touched. Its operation stays `retried` on the wire, in
+storage and on the timeline. This decision is about what the server derives from
+an event, not about what the SDK records.
+
+What follows, stated so the implementation is not guessed at:
+
+- A journey whose step fails on attempt one and succeeds as `retried` on attempt
+  two, with no `finish()`, reads `active`. The run is in progress again, which
+  is what is true of it. It is not completed, because nothing has said the run
+  reached its end.
+- A journey whose only event is a successful `retried` reads `active`, which is
+  what it reads today. There is no failure to clear, and a lone retry is not an
+  ending.
+- A journey whose last retry failed is still failed. The retry carries an error,
+  `deriveStatus` returns `failed`, and that branch wins whatever the timestamp.
+- The clearing obeys the watermark, like every status change but a failure: a
+  successful retry clears the failure only when it is at or after the newest
+  event the journey has seen. Without that, a retry stamped before a later
+  failure would clear it.
+- If the successful retry is applied before the earlier failure, the failure
+  still wins and the journey reads failed. That is the existing rule and it is
+  deliberately conservative. It is rare in practice: attempt two cannot start
+  until attempt one has finished, and the SDK's queue does not reorder one
+  journey's events.
+
+**The shape of the implementation is the implementer's call.** Clearing a
+failure is not a pure per-event mapping, because it reads the status the journey
+already has, so `deriveStatus` alone is unlikely to carry it and the status case
+in `updateJourneySummary` will probably need a branch of its own. Whether the
+successful retry arrives there as a new value from `deriveStatus` that the case
+interprets, or as a separate fact passed beside it, does not matter. What must
+hold is this:
+
+- the failure branch still wins whatever the event's timestamp says;
+- the clearing applies only at or after the watermark, by the same comparison
+  every other status change uses;
+- a successful retry never sets `completed` and never writes `completed_at`;
+- the label and last-step rules are untouched.
+
+### Alternatives rejected
+
+- **A successful retry completes the journey, the same way `completed` does.**
+  This was the plan's wording and the first draft of this decision. It is
+  rejected because "completed" has to mean the journey finished. Under that rule
+  a run that retries successfully and then dies before finishing reads
+  `completed`, and `completed_at` gets set mid-run by a step that was not an
+  ending. A falsely reassuring status is worse than a stale alarming one: a
+  failed journey that has really recovered costs someone a look, while a
+  completed journey that really died is never looked at. It would also have made
+  a journey whose only event is a successful retry read completed, which is
+  plainly untrue of it.
+- **Renaming a successful retry to `completed` in the SDK.** The status would
+  then fall out with no server change, and the timeline would lose the fact that
+  the attempt was a retry, which is the thing ADR-022 exists to keep. A second
+  attempt would read like a first. It also has the defect above, one layer down.
+- **Treating every successful operation as clearing a failure.** `delivered` and
+  `persisted` say a step finished, and say nothing about a different step that
+  failed, so a later success would erase a failure it has no evidence about.
+  `retried` is the exception because it is a second attempt at something already
+  recorded.
+- **Leaving it, on the grounds that `finish()` resolves it.** F-008 says as much
+  for Leadline, which calls `finish()` on every run. It holds only for a host
+  that always reaches its own end, and it leaves the status wrong for as long as
+  the rest of the run takes, which is exactly the window someone watching a
+  retry is looking at.
+
+### Consequences
+
+- The general asymmetry is untouched. Any operation that carries an error still
+  fails its journey, and only a `completed` operation still completes one. This
+  decision adds one way for a failure to be cleared, by the one operation whose
+  success is evidence about the failure, and changes nothing else about how a
+  journey's status is reached.
+- `completed_at` is untouched and keeps meaning what it means today. This is the
+  main thing the narrower rule buys over the rejected one.
+- A journey that failed and then retried successfully moves out of a
+  `status=failed` filter on the journeys list and into `status=active`. That is
+  the point of the change, and it is what a reader scanning for failures wants:
+  the ones still listed are the ones nothing has superseded.
+- `active` after a cleared failure is not distinguishable from `active` that
+  never failed. The failure is still in the journey's own timeline, which is
+  where the evidence belongs; the status is a summary, not a history.
+- Existing rows are not rewritten. A journey recorded before this change keeps
+  the status it was given; there is no backfill and no migration.
+- The status is the server's derivation, so the behaviour follows the server's
+  version and not the recorder's. A recorder at 0.1.0 against a newer server
+  gets the new status for free.
+- `docs/EVENT_PROTOCOL.md` section 5's `retried` entry and the journey status
+  vocabulary in `docs/API_SPEC.md` say what a successful retry does, and say
+  that `completed` means the run reached its end, so the status a reader sees is
+  documented where they look it up.
