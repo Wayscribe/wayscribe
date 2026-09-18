@@ -38,11 +38,29 @@ export const errorSchema = z.object({
   stack: z.string().max(16_384).optional()
 });
 
+/**
+ * The SDK that recorded an event (F-046, ADR-063). `name` and `version` are
+ * required inside it because an `sdk` without them says nothing; an SDK writes
+ * them from constants, never from host input. The limits are the protocol's
+ * existing ones for the same kind of value: `runtime.version`'s 64 for a
+ * version, `deployment.gitCommit`'s 128 for a commit, and 128 for a name.
+ */
+export const runtimeSdkSchema = z.object({
+  name: z.string().min(1).max(128),
+  version: z.string().min(1).max(64),
+  commit: z.string().min(1).max(128).optional()
+});
+
 export const runtimeSchema = z.object({
   language: z.string().max(64).optional(),
   version: z.string().max(64).optional(),
   hostname: z.string().max(256).optional(),
-  processId: z.number().int().nonnegative().optional()
+  processId: z.number().int().nonnegative().optional(),
+  /**
+   * Optional and added in 0.1, so the version does not change: a server from
+   * before it strips the key as unknown and stores the rest of `runtime`.
+   */
+  sdk: runtimeSdkSchema.optional()
 });
 
 export const deploymentSchema = z.object({

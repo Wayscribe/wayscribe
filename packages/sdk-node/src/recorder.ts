@@ -46,6 +46,7 @@ import {
   firstSecretWarning,
   journeyIdSecretProblem
 } from "./journey-id.js";
+import { readRuntime } from "./runtime.js";
 import { createTraceReader } from "./trace.js";
 import { AbandonedError, Transport, UnsentError, type SendOutcome } from "./transport.js";
 
@@ -309,7 +310,9 @@ function readOutcome(
     ? (body.value as { data?: { results?: BatchOutcome[] } } | null)?.data?.results
     : undefined;
   const verdicts: unknown[] = Array.isArray(results) ? results.slice(0, batch.length) : [];
+  let missing = 0;
   const noVerdict = (why: string): void => {
+    missing += 1;
     diagnostics.report({
       kind: "dropped",
       code: "no_verdict",
@@ -366,6 +369,7 @@ function readOutcome(
   return {
     accepted,
     retry,
+    noVerdict: missing,
     ...(reason === undefined ? {} : { reason }),
     ...(logReason === undefined ? {} : { logReason })
   };
@@ -642,6 +646,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
   });
   // Resolved once: record() is synchronous, so this cannot be an async import.
   const readTrace = createTraceReader();
+  // Read once and frozen, like the deployment: which SDK and which Node
+  // recorded every event of this recorder (ADR-063).
+  const runtime = readRuntime();
   let stopped = false;
   let delivered = false;
   /**
@@ -1185,6 +1192,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // once, when the recorder was created, so an event that carries it costs
       // nothing per field and an event without one costs one comparison.
       ...(resolved.deployment === undefined ? {} : { deployment: resolved.deployment }),
+      runtime,
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
       ...(captured.input === undefined ? {} : { input: captured.input.value }),
       ...(captured.output === undefined ? {} : { output: captured.output.value }),
