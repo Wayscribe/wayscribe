@@ -775,25 +775,42 @@ async function apiReachableResult(
   );
 }
 
-function statementTimeoutResult(env: Record<string, string | undefined>): CheckResult {
+/**
+ * Reads DATABASE_STATEMENT_TIMEOUT_MS from doctor's own environment, which is
+ * the API's only when doctor runs with it, as `docker compose run ... api`
+ * does. The running API is never asked, so every line says where the value
+ * came from rather than stating a fact about the API: worded that way, it was
+ * the one row that passed when the API could not be reached (F-052).
+ */
+export function statementTimeoutResult(env: Record<string, string | undefined>): CheckResult {
   let timeoutMs: number;
   try {
     timeoutMs = loadStatementTimeoutMs(env);
   } catch {
     return fail(
       "Statement timeout",
-      "DATABASE_STATEMENT_TIMEOUT_MS is not a whole number of milliseconds, so the API refuses to start.",
+      "DATABASE_STATEMENT_TIMEOUT_MS here is not a whole number of milliseconds, so an API started with this environment refuses to start.",
       "Set it to a whole number such as 15000, or 0 to disable it."
     );
   }
   if (timeoutMs === 0) {
     return warn(
       "Statement timeout",
-      "DATABASE_STATEMENT_TIMEOUT_MS is 0, so one slow query can hold a connection ingestion needs.",
+      "DATABASE_STATEMENT_TIMEOUT_MS here is 0, so an API started with this environment lets one slow query hold a connection ingestion needs.",
       "Remove it to use the default of 15000, unless your database sets statement_timeout itself."
     );
   }
-  return pass("Statement timeout", `The API cancels a statement after ${String(timeoutMs)} ms.`);
+  const stated = env["DATABASE_STATEMENT_TIMEOUT_MS"];
+  if (stated === undefined || stated.trim() === "") {
+    return pass(
+      "Statement timeout",
+      `DATABASE_STATEMENT_TIMEOUT_MS is not set here, so an API started with this environment cancels a statement after the default of ${String(timeoutMs)} ms.`
+    );
+  }
+  return pass(
+    "Statement timeout",
+    `DATABASE_STATEMENT_TIMEOUT_MS here is ${String(timeoutMs)} ms, so an API started with this environment cancels a statement after ${String(timeoutMs)} ms.`
+  );
 }
 
 export function secretsIn(

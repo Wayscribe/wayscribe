@@ -1700,6 +1700,14 @@ Run it with the API's environment, because that is what it checks: the same
 `DATABASE_STATEMENT_TIMEOUT_MS`. `docker compose run … api` gives it exactly
 that. Inside Compose the API is `http://api:8080`, not `localhost`.
 
+The statement timeout row reads `DATABASE_STATEMENT_TIMEOUT_MS` from doctor's
+own environment and never asks the running API, so it says so, and it can pass
+while `API reachable` fails:
+
+```text
+PASS  Statement timeout       DATABASE_STATEMENT_TIMEOUT_MS here is 4000 ms, so an API started with this environment cancels a statement after 4000 ms.
+```
+
 Each check prints one line, and anything that did not pass prints its fix
 beneath it:
 

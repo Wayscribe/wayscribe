@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { serverEnvSchema, statementTimeoutSchema } from "../packages/config/src/schema.js";
+import { formatDoctor, statementTimeoutResult } from "../packages/database/src/doctor.js";
 import { JOURNEY_STATUSES } from "../packages/database/src/repositories/journey-list.js";
 import { DEFAULT_SECRET_PATHS } from "../packages/payload-security/src/default-secrets.js";
 import { DEFAULT_LIMITS } from "../packages/payload-security/src/limits.js";
@@ -931,5 +932,15 @@ describe("the images' build arguments (F-051)", () => {
     expect(footer).toContain(
       "image was built without WAYSCRIBE_BUILD_VERSION, so this page cannot tell whether the web app and the API are the same build."
     );
+  });
+});
+
+describe("doctor's statement timeout row in OPERATIONS (F-052)", () => {
+  it("is shown as doctor prints it, saying the value is doctor's own", () => {
+    const [line] = formatDoctor([
+      statementTimeoutResult({ DATABASE_STATEMENT_TIMEOUT_MS: "4000" })
+    ]);
+    expect(line).toContain("an API started with this environment");
+    expect(read("docs/OPERATIONS.md").split("\n")).toContain(line);
   });
 });

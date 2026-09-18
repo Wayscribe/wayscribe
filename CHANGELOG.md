@@ -676,6 +676,14 @@ What you have to do when upgrading a checkout or a deployment:
   than `requestTimeoutMs` or unable to store events for now, and neither is a
   collector that answers but is slower than events arrive or than shutdown
   waits. A test holds each case to what the recorder does. Documentation only.
+- **`doctor`'s statement timeout row says whose setting it read** (F-052). It
+  reads `DATABASE_STATEMENT_TIMEOUT_MS` from doctor's own environment and never
+  asks the running API, yet it read `The API cancels a statement after 15000
+  ms.`, so it passed even when `API reachable` failed. It now reads
+  `DATABASE_STATEMENT_TIMEOUT_MS here is 15000 ms, so an API started with this
+  environment cancels a statement after 15000 ms.`, or says the default
+  applies when the variable is not set; its `WARN` and `FAIL` lines are worded
+  the same way. Statuses are unchanged.
 
 - **The telephone shape finds a number in a field and not a signed count.**
   The `+` of a telephone number may now follow `=`, `:`, a quote, `,`, `;`,

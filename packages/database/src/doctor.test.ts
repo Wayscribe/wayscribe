@@ -8,6 +8,7 @@ import {
   parseDoctorArgs,
   scrub,
   secretsIn,
+  statementTimeoutResult,
   versionResult,
   type CheckResult
 } from "./doctor.js";
@@ -215,5 +216,51 @@ describe("versionResult", () => {
     expect(versionResult({ num: 160_004, text: "16.4" })).toMatchObject({
       detail: "PostgreSQL 16.4."
     });
+  });
+});
+
+/**
+ * F-052: the row reads doctor's own DATABASE_STATEMENT_TIMEOUT_MS. Worded as a
+ * fact about the running API ("The API cancels a statement after 15000 ms."),
+ * it was the one row that passed when the API could not be reached.
+ */
+describe("statementTimeoutResult", () => {
+  const RUNNING_API = /^The API\b/;
+
+  it("says the default comes from this environment when the variable is unset or blank", () => {
+    for (const env of [{}, { DATABASE_STATEMENT_TIMEOUT_MS: " " }]) {
+      expect(statementTimeoutResult(env)).toEqual({
+        status: "PASS",
+        check: "Statement timeout",
+        detail:
+          "DATABASE_STATEMENT_TIMEOUT_MS is not set here, so an API started with this environment cancels a statement after the default of 15000 ms."
+      });
+    }
+  });
+
+  it("names the variable and says the value is this environment's, not the running API's", () => {
+    expect(statementTimeoutResult({ DATABASE_STATEMENT_TIMEOUT_MS: "4000" })).toEqual({
+      status: "PASS",
+      check: "Statement timeout",
+      detail:
+        "DATABASE_STATEMENT_TIMEOUT_MS here is 4000 ms, so an API started with this environment cancels a statement after 4000 ms."
+    });
+  });
+
+  it.each([["4000"], ["0"], ["soon"], [undefined]])(
+    "never states a fact about the running API, for %s",
+    (value) => {
+      const result = statementTimeoutResult(
+        value === undefined ? {} : { DATABASE_STATEMENT_TIMEOUT_MS: value }
+      );
+      expect(result.detail).not.toMatch(RUNNING_API);
+      expect(result.detail).toContain("DATABASE_STATEMENT_TIMEOUT_MS");
+      expect(result.detail).toContain("an API started with this environment");
+    }
+  );
+
+  it("warns at 0 and fails on a value that is not a whole number, as before", () => {
+    expect(statementTimeoutResult({ DATABASE_STATEMENT_TIMEOUT_MS: "0" }).status).toBe("WARN");
+    expect(statementTimeoutResult({ DATABASE_STATEMENT_TIMEOUT_MS: "1.5" }).status).toBe("FAIL");
   });
 });
