@@ -11,7 +11,13 @@ const schema = z.object({
   // file with a leading space or a byte-order mark would otherwise leave a
   // token nobody can type at the login form, with nothing said about why.
   ADMIN_TOKEN: z.string().trim().min(32),
-  API_URL: z.url(),
+  // http or https only. `z.url()` alone takes any scheme, so `api:8080`, the
+  // host and port without one, was read as a URL with the scheme `api:`; the
+  // app started, passed its health check, and could reach nothing.
+  API_URL: z.url({
+    protocol: /^https?$/i,
+    error: "must be an http:// or https:// URL, such as http://api:8080"
+  }),
   // How many reverse proxies in front of the web app append to X-Forwarded-For.
   // 0 keys the login limiter on the socket and ignores the header, which any
   // client can set. Blank counts as unset, as Compose passes an unset variable.

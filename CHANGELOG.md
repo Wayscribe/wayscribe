@@ -421,7 +421,10 @@ What you have to do when upgrading a checkout or a deployment:
   that was not there, started, passed a health check that probed `/login`, and
   failed the first sign-in with a 500; `up --wait` reported it `Healthy`. It now
   reports `container <name> exited (1)` within a second (F-030, measured on the
-  built image in both cases).
+  built image in both cases). `API_URL` must be an `http://` or `https://` URL:
+  `api:8080`, the host and port without a scheme, used to be accepted as a URL
+  with the scheme `api:`, and a container started with it was healthy while
+  every data page said the API could not be reached.
 - **`ENCRYPTION_KEY` rotation without losing data** (ADR-044). Every encrypted
   value names the key that wrote it; `ENCRYPTION_KEY_PREVIOUS` keeps old data
   readable and searchable, and API keys authenticating, through a grace period;
