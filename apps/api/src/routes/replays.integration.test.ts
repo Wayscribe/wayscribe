@@ -1,10 +1,10 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId, listAudit } from "@wayscribe/database";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import type { FastifyInstance } from "fastify";
 
@@ -14,7 +14,7 @@ const keyring = createKeyring(KEY_A);
 const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
 
 describe("replay routes", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let app: FastifyInstance;
   let target: Server;
@@ -64,7 +64,7 @@ describe("replay routes", () => {
     });
     targetPort = (target.address() as AddressInfo).port;
 
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

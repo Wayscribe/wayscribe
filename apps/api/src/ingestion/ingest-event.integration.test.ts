@@ -5,11 +5,11 @@ import {
   type ApiKeyContext
 } from "@wayscribe/database";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ingestEvent } from "./ingest-event.js";
 
@@ -48,7 +48,7 @@ interface AliasColumns {
 }
 
 describe("ingestion stores labels, last steps and plain-text copies", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let app: FastifyInstance;
   let apiKey: string;
@@ -56,7 +56,7 @@ describe("ingestion stores labels, last steps and plain-text copies", () => {
   let context: ApiKeyContext;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

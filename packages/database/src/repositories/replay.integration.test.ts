@@ -1,7 +1,7 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "../testing/postgres.js";
 import { createKeyring, parseEncryptedValue } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";
 import { insertReturningId } from "../insert.js";
 import { listAudit, recordAudit } from "./audit.js";
@@ -26,13 +26,13 @@ const KEY_B = "fedcba9876543210fedcba9876543210";
 const keyring = createKeyring(KEY_A);
 
 describe("replay destinations", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let projectA: string;
   let projectB: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectA = await insertReturningId(db, "projects", { name: "A", slug: "a" });
@@ -195,13 +195,13 @@ describe("replay destinations", () => {
 });
 
 describe("replay runs", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let projectId: string;
   let destinationId: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectId = await insertReturningId(db, "projects", { name: "R", slug: "r" });
@@ -305,12 +305,12 @@ describe("replay runs", () => {
 });
 
 describe("audit events", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let projectId: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectId = await insertReturningId(db, "projects", { name: "Au", slug: "au" });

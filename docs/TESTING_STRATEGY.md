@@ -33,9 +33,26 @@ Use for:
 Next route handlers are tested under node with the API client mocked
 (`apps/web/app/**/*.test.ts`, the `node` Vitest project).
 
+A unit test must not fail because the machine is busy. Hold a performance
+property by counting the work where the work can be counted (the reads a
+payload check makes, the entries capture lists), and otherwise by comparing
+two pieces of work in processor time with `tests/support/timing.ts`: growth
+per unit from a small input to a large one, or one operation against another.
+Never assert a wall-clock duration, and never race a fixed delay against real
+work; wait on the event itself.
+
 ### Database integration tests
 
 Use a real PostgreSQL instance through Testcontainers or a dedicated Compose test service.
+
+`pnpm test:integration` starts one PostgreSQL container for the run, and each
+test file gets a fresh, empty database on it from `startPostgres()`
+(`@wayscribe/database/testing`), which it migrates itself and drops when it
+stops. Starting a container per file failed on a busy machine, now and then,
+at a port-binding wait that Testcontainers fixes at 10 seconds; the one start
+now has a 120 second startup timeout and three attempts. A file that creates a
+role or a database by name asks for `startPostgres({ dedicated: true })`, a
+server of its own, because those outlive a dropped database.
 
 Cover:
 

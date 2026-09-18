@@ -1,9 +1,9 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId, issueKey } from "@wayscribe/database";
 import { createKeyring } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -16,7 +16,7 @@ const WRONG_TOKEN = ["admin-token", "for-tests", "1111111111111111"].join("-");
  * guesses; the API it signs in to did not, so a guesser went to the API.
  */
 describe("failed admin authentication is throttled per source address", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let projectId: string;
   let apiKey: string;
@@ -31,7 +31,7 @@ describe("failed admin authentication is throttled per source address", () => {
     });
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectId = await insertReturningId(db, "projects", { name: "T", slug: "t" });

@@ -1,9 +1,9 @@
 import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { createApiMetrics, type ApiMetrics } from "../metrics/api-metrics.js";
 
@@ -52,7 +52,7 @@ function envelope(overrides: Record<string, unknown> = {}): unknown {
 }
 
 describe("dry-run validation", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let app: FastifyInstance;
   let metrics: ApiMetrics;
@@ -61,7 +61,7 @@ describe("dry-run validation", () => {
   let projectId: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

@@ -10,10 +10,10 @@ import {
   loadConformanceCases,
   type ConformanceCase
 } from "@wayscribe/protocol/conformance";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
 /**
@@ -34,7 +34,7 @@ const LANGUAGE = "node";
 const ENVIRONMENT = "conformance";
 
 describe("sdk conformance cases through the dry run", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let app: FastifyInstance;
   let apiKey: string;
@@ -73,7 +73,7 @@ describe("sdk conformance cases through the dry run", () => {
   }
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 
