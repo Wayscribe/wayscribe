@@ -1,3 +1,5 @@
+import { parseArgs } from "node:util";
+
 /**
  * Every command the database CLI runs, its arguments and flags, and the help
  * and usage text built from them.
@@ -48,6 +50,19 @@ export interface CommandSpec {
    * an unknown flag themselves; for the rest `preflight` refuses any flag.
    */
   parsesOwnArguments: boolean;
+  /**
+   * The last argument takes every word after it, as a name does: `project:create
+   * acme Acme Payments`. Without it, an argument beyond the declared ones is
+   * refused rather than ignored.
+   */
+  restArgument?: true;
+  /**
+   * Whether the word `help` could be one of the command's arguments: a project
+   * slug, a name, an identifier, a journey id. Where it could not (a command
+   * with no arguments, or `key:revoke`, whose prefix begins wsk_), a bare `help`
+   * is read as a request for help, since that is what someone typing it means.
+   */
+  helpCanBeAValue: boolean;
 }
 
 export const COMMANDS = [
@@ -58,7 +73,8 @@ export const COMMANDS = [
     details: [],
     flags: [],
     checkoutScript: "db:migrate",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: false
   },
   {
     name: "migrate:unlock",
@@ -71,7 +87,8 @@ export const COMMANDS = [
     ],
     flags: [],
     checkoutScript: "db:migrate:unlock",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: false
   },
   {
     name: "rollback",
@@ -80,7 +97,8 @@ export const COMMANDS = [
     details: [],
     flags: [],
     checkoutScript: "db:rollback",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: false
   },
   {
     name: "reset",
@@ -99,7 +117,8 @@ export const COMMANDS = [
       }
     ],
     checkoutScript: "db:reset",
-    parsesOwnArguments: true
+    parsesOwnArguments: true,
+    helpCanBeAValue: false
   },
   {
     name: "seed",
@@ -112,7 +131,8 @@ export const COMMANDS = [
     ],
     flags: [],
     checkoutScript: "db:seed",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: false
   },
   {
     name: "seed-demo",
@@ -121,7 +141,8 @@ export const COMMANDS = [
     details: ["Running it again with the same key changes nothing. Needs ENCRYPTION_KEY."],
     flags: [],
     checkoutScript: "db:seed-demo",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: false
   },
   {
     name: "project:create",
@@ -135,7 +156,9 @@ export const COMMANDS = [
     flags: [],
     note: ["A name beginning with a dash goes after --, as in:", "  project:create beta -- -Beta"],
     checkoutScript: "project:create",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    restArgument: true,
+    helpCanBeAValue: true
   },
   {
     name: "project:list",
@@ -144,7 +167,8 @@ export const COMMANDS = [
     details: [],
     flags: [],
     checkoutScript: "project:list",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: false
   },
   {
     name: "key:create",
@@ -166,7 +190,9 @@ export const COMMANDS = [
       }
     ],
     checkoutScript: "key:create",
-    parsesOwnArguments: true
+    parsesOwnArguments: true,
+    restArgument: true,
+    helpCanBeAValue: true
   },
   {
     name: "key:revoke",
@@ -175,7 +201,8 @@ export const COMMANDS = [
     details: ["Requests presenting the key are refused from then on."],
     flags: [],
     checkoutScript: "key:revoke",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: false
   },
   {
     name: "key:list",
@@ -184,7 +211,8 @@ export const COMMANDS = [
     details: ["Revoked keys are listed and marked."],
     flags: [],
     checkoutScript: "key:list",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: true
   },
   {
     name: "retention:sweep",
@@ -196,7 +224,8 @@ export const COMMANDS = [
     ],
     flags: [],
     checkoutScript: "retention:sweep",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: false
   },
   {
     name: "rotate:reencrypt",
@@ -210,7 +239,8 @@ export const COMMANDS = [
     ],
     flags: [],
     checkoutScript: "rotate:reencrypt",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: false
   },
   {
     name: "rotate:status",
@@ -219,7 +249,8 @@ export const COMMANDS = [
     details: ["Exits 1 until nothing is left, so a script can wait on it. Read-only."],
     flags: [],
     checkoutScript: "rotate:status",
-    parsesOwnArguments: false
+    parsesOwnArguments: false,
+    helpCanBeAValue: false
   },
   {
     name: "delete:journey",
@@ -229,7 +260,8 @@ export const COMMANDS = [
     flags: [],
     note: ["An id beginning with a dash goes after --."],
     checkoutScript: "delete:journey",
-    parsesOwnArguments: true
+    parsesOwnArguments: true,
+    helpCanBeAValue: true
   },
   {
     name: "delete:identifier",
@@ -256,7 +288,8 @@ export const COMMANDS = [
       "  delete:identifier acme -- -A1"
     ],
     checkoutScript: "delete:identifier",
-    parsesOwnArguments: true
+    parsesOwnArguments: true,
+    helpCanBeAValue: true
   },
   {
     name: "delete:range",
@@ -286,7 +319,8 @@ export const COMMANDS = [
       }
     ],
     checkoutScript: "delete:range",
-    parsesOwnArguments: true
+    parsesOwnArguments: true,
+    helpCanBeAValue: true
   },
   {
     name: "delete:destination",
@@ -296,7 +330,8 @@ export const COMMANDS = [
     flags: [],
     note: ["An id beginning with a dash goes after --."],
     checkoutScript: "delete:destination",
-    parsesOwnArguments: true
+    parsesOwnArguments: true,
+    helpCanBeAValue: true
   },
   {
     name: "doctor",
@@ -324,7 +359,8 @@ export const COMMANDS = [
       }
     ],
     checkoutScript: "doctor",
-    parsesOwnArguments: true
+    parsesOwnArguments: true,
+    helpCanBeAValue: false
   }
 ] as const satisfies readonly CommandSpec[];
 
@@ -379,6 +415,88 @@ export function isFlagOf<N extends CommandName>(name: N, arg: string): arg is Fl
 export function flag<N extends CommandName, F extends FlagOf<N>>(name: N, declared: F): F {
   if (!isFlagOf(name, declared)) throw new Error(`${name} declares no ${declared}.`);
   return declared;
+}
+
+/** The parsed value of each of a command's flags, typed from the registry. */
+export type ValuesOf<N extends CommandName> = {
+  [K in keyof ParseArgsOptionsOf<N>]?: ParseArgsOptionsOf<N>[K] extends { type: "string" }
+    ? string
+    : boolean;
+};
+
+/**
+ * A record every one of the command's flags must appear in. A parser builds
+ * what it read from the flags as `{ ... } satisfies FlagsRead<"delete:range">`,
+ * so a flag declared in the registry that the parser never reads is a type
+ * error rather than a flag the help advertises and nothing implements.
+ */
+export type FlagsRead<N extends CommandName> = Record<keyof ParseArgsOptionsOf<N>, unknown>;
+
+/** How many positional arguments a command takes, from its declared arguments. */
+export function arityOf(name: CommandName): { min: number; max: number } {
+  const spec = specOf(name);
+  const parts = spec.arguments.split(" ").filter((part) => part !== "");
+  const min = parts.filter((part) => part.startsWith("<")).length;
+  return { min, max: spec.restArgument === true ? Number.POSITIVE_INFINITY : parts.length };
+}
+
+export type CommandArgs<N extends CommandName> =
+  | { ok: true; values: ValuesOf<N>; positionals: string[]; given: FlagOf<N>[] }
+  | { ok: false; message: string; code: "unknown" | "missing-value" | "arity" };
+
+/**
+ * A command's arguments, read with exactly the flags and the number of
+ * arguments the registry declares, and nothing else. It is the only place
+ * `parseArgs` is called (an ESLint rule holds that), so a parser cannot hand
+ * it options of its own.
+ *
+ * An unknown flag is named without any value given with it, which may be a
+ * secret; `given` lists each flag as often as it appeared.
+ */
+export function parseCommandArgs<N extends CommandName>(
+  name: N,
+  args: readonly string[]
+): CommandArgs<N> {
+  const usage = commandUsage(name);
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: [...args],
+      options: parseArgsOptions(name),
+      allowPositionals: true,
+      strict: true,
+      tokens: true
+    });
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    const reported = /'(-[^' =<]*)/.exec(text)?.[1] ?? "";
+    // parseArgs names only the first letter of a short cluster such as -A1;
+    // the argument itself is clearer, without any value given after `=`.
+    const whole = args.find((arg) => arg !== "--" && arg.startsWith(reported));
+    const named = reported === "" ? "" : ((whole ?? reported).split("=")[0] ?? reported);
+    const code = (error as { code?: unknown }).code;
+    return code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE"
+      ? { ok: false, code: "missing-value", message: `${named} needs a value.\n${usage}` }
+      : { ok: false, code: "unknown", message: `Unknown argument: ${named}\n${usage}` };
+  }
+  const { min, max } = arityOf(name);
+  if (parsed.positionals.length > max) {
+    return {
+      ok: false,
+      code: "arity",
+      message: `Unexpected argument: ${parsed.positionals[max] ?? ""}\n${usage}`
+    };
+  }
+  if (parsed.positionals.length < min) return { ok: false, code: "arity", message: usage };
+  const given = parsed.tokens.flatMap((token) =>
+    token.kind === "option" ? [`--${token.name}` as FlagOf<N>] : []
+  );
+  return {
+    ok: true,
+    values: parsed.values,
+    positionals: parsed.positionals,
+    given
+  };
 }
 
 /** The same flags, in the shape `node:util`'s `parseArgs` takes. */
@@ -518,7 +636,7 @@ export function cliHelp(): string[] {
       wrap(command.summary, " ".repeat(commandColumn), `  ${command.name}`.padEnd(commandColumn))
     ),
     "",
-    "Run <command> --help for a command's arguments and options."
+    "Run <command> --help, or help <command>, for a command's arguments and options."
   ];
 }
 
@@ -534,10 +652,26 @@ export type Preflight =
   | { run: false; stdout: string[]; stderr: string[]; code: 0 | 1 };
 
 const HELP_FLAGS = new Set(["--help", "-h"]);
+/** An em dash or an en dash, which smart punctuation makes of a typed `--`. */
+const TYPOGRAPHIC_DASH = /[\u2013\u2014]/;
+
+/** `--help` and `-h`, and the forms smart punctuation makes of them. */
+function looksLikeHelp(arg: string): boolean {
+  return HELP_FLAGS.has(arg) || /^[\u2013\u2014]+-*(help|h)$/.test(arg);
+}
+
+function refused(command: CommandName, first: string): Preflight {
+  return {
+    run: false,
+    stdout: [],
+    stderr: [first, ...commandUsage(command).split("\n")],
+    code: 1
+  };
+}
 
 /**
  * What to do before connecting to anything: print help, refuse an unknown
- * command, refuse a flag on a command that takes none, or run the command
+ * command, refuse an argument the command does not take, or run the command
  * with its arguments.
  *
  * Every `--` before the first argument is dropped. pnpm forwards the `--` a
@@ -548,30 +682,48 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
  * begin with a dash, so nothing is lost. The first `--` after an argument is
  * the operator's, marking where values that begin with a dash start.
  *
- * `--help` or `-h` before that separator prints the command's help and runs
- * nothing. After it, either one is refused rather than read as a value: a
- * help flag must never run anything, and an identifier or a name that is
- * literally `--help` or `-h` is not worth the risk. The admin API still
- * accepts such a value (`POST /v1/erasures`).
+ * Before that separator:
  *
- * For a command that parses no arguments of its own, anything beginning with
- * a dash before the separator is refused, and the separator itself is taken
+ * - `--help` or `-h` prints the command's help and runs nothing, and so does
+ *   a bare `help` where the command has no argument it could be
+ *   (`helpCanBeAValue`).
+ * - An argument containing an em or en dash is refused. Smart punctuation
+ *   turns the `--` of a typed `--help` into an em dash, and the result was
+ *   read as an extra argument and ignored, so the command ran: a rollback, a
+ *   sweep, a revocation.
+ * - For a command that parses no arguments of its own, a flag is refused, and
+ *   so is an argument beyond those it declares, which was ignored before.
+ *
+ * After it, `--help`, `-h` and their dash-corrected forms are refused rather
+ * than read as values: a help request must never run anything. Such a value
+ * can still be erased through the admin API (`POST /v1/erasures`). For a
+ * command that parses no arguments of its own the separator is then taken
  * out, so `project:create beta -- -Beta` names the project "-Beta" as
  * `delete:identifier acme -- -A1` erases "-A1".
  */
 export function preflight(command: string | undefined, given: readonly string[]): Preflight {
-  if (command !== undefined && HELP_FLAGS.has(command)) {
-    return { run: false, stdout: cliHelp(), stderr: [], code: 0 };
+  if (command !== undefined && (HELP_FLAGS.has(command) || command === "help")) {
+    const topic = command === "help" ? given[0] : undefined;
+    return {
+      run: false,
+      stdout: topic !== undefined && isCommand(topic) ? commandHelp(topic) : cliHelp(),
+      stderr: [],
+      code: 0
+    };
   }
   if (command === undefined) return { run: false, stdout: [], stderr: cliHelp(), code: 1 };
   if (!isCommand(command)) {
+    const hint = TYPOGRAPHIC_DASH.test(command)
+      ? [`${command} begins with a dash that was auto-corrected; type -- (two hyphens).`]
+      : [];
     return {
       run: false,
       stdout: [],
-      stderr: [`Unknown command: ${command}`, ...cliHelp()],
+      stderr: [`Unknown command: ${command}`, ...hint, ...cliHelp()],
       code: 1
     };
   }
+  const spec = specOf(command);
 
   let start = 0;
   while (given[start] === "--") start += 1;
@@ -580,36 +732,41 @@ export function preflight(command: string | undefined, given: readonly string[])
   const options = end === -1 ? args : args.slice(0, end);
   const values = end === -1 ? [] : args.slice(end + 1);
 
-  if (options.some((arg) => HELP_FLAGS.has(arg))) {
+  const helpWord = !spec.helpCanBeAValue && options.includes("help");
+  if (options.some((arg) => HELP_FLAGS.has(arg)) || helpWord) {
     return { run: false, stdout: commandHelp(command), stderr: [], code: 0 };
   }
-  const helpAsValue = values.find((arg) => HELP_FLAGS.has(arg));
+  const dashed = options.find((arg) => TYPOGRAPHIC_DASH.test(arg));
+  if (dashed !== undefined) {
+    return refused(
+      command,
+      `${dashed.split("=")[0] ?? ""} contains a long dash, which looks like a -- that was ` +
+        "auto-corrected. Nothing was changed. Type -- (two hyphens) for a flag, or " +
+        "put a value that really contains the dash after a --."
+    );
+  }
+  const helpAsValue = values.find(looksLikeHelp);
   if (helpAsValue !== undefined) {
-    return {
-      run: false,
-      stdout: [],
-      stderr: [
-        `${helpAsValue} after -- is refused, not read as a value, so that a request ` +
-          "for help never runs anything. Nothing was changed. For the command's help, " +
-          `put ${helpAsValue} before the --.`,
-        ...commandUsage(command).split("\n")
-      ],
-      code: 1
-    };
+    return refused(
+      command,
+      `${helpAsValue} after -- is refused, not read as a value, so that a request for ` +
+        "help never runs anything. Nothing was changed. For the command's help, put " +
+        `${helpAsValue} before the --. To erase an identifier that really is ${helpAsValue}, ` +
+        "use the admin API: POST /v1/erasures (docs/API_SPEC.md)."
+    );
   }
 
-  if (specOf(command).parsesOwnArguments) return { run: true, command, args };
+  if (spec.parsesOwnArguments) return { run: true, command, args };
 
   const unknown = options.find((arg) => arg.startsWith("-") && arg !== "-");
   if (unknown !== undefined) {
     // Only the part before any `=`: the value may be a key typed as a flag.
-    const [name] = unknown.split("=");
-    return {
-      run: false,
-      stdout: [],
-      stderr: [`Unknown argument: ${name ?? ""}`, ...commandUsage(command).split("\n")],
-      code: 1
-    };
+    return refused(command, `Unknown argument: ${unknown.split("=")[0] ?? ""}`);
   }
-  return { run: true, command, args: [...options, ...values] };
+  const positionals = [...options, ...values];
+  const { max } = arityOf(command);
+  if (positionals.length > max) {
+    return refused(command, `Unexpected argument: ${positionals[max] ?? ""}`);
+  }
+  return { run: true, command, args: positionals };
 }

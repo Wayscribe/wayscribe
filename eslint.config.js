@@ -107,8 +107,25 @@ export default tseslint.config(
     files: ["packages/database/src/**/*.ts"],
     ignores: ["packages/database/src/cli-commands.ts", "packages/database/src/**/*.test.ts"],
     rules: {
+      // parseCommandArgs is the only caller of parseArgs, so a parser's options
+      // can only be the registry's: spreading extra ones into them let a
+      // parser accept a flag its help did not list.
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: ["node:util", "util"].map((name) => ({
+            name,
+            importNames: ["parseArgs"],
+            message: "Read a command's arguments with parseCommandArgs from cli-commands.ts."
+          }))
+        }
+      ],
       "no-restricted-syntax": [
         "error",
+        {
+          selector: "MemberExpression[property.name='parseArgs']",
+          message: "Read a command's arguments with parseCommandArgs from cli-commands.ts."
+        },
         {
           // flag("delete:range", "--before") is the one place a flag's name
           // is written, and the registry's type checks it.

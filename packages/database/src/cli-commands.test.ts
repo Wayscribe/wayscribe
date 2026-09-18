@@ -37,11 +37,11 @@ const PARSERS: Record<CommandName, (flags: string[]) => Parsed> = {
   "retention:sweep": (flags) => preflightParse("retention:sweep", flags),
   "rotate:reencrypt": (flags) => preflightParse("rotate:reencrypt", flags),
   "rotate:status": (flags) => preflightParse("rotate:status", flags),
-  "delete:journey": (flags) => parseIdArgs(["acme", "jrn_1", ...flags], "Usage"),
+  "delete:journey": (flags) => parseIdArgs("delete:journey", ["acme", "jrn_1", ...flags]),
   "delete:identifier": (flags) => parseIdentifierArgs(["acme", "value", ...flags]),
   "delete:range": (flags) =>
     parseRangeArgs(["acme", "production", "--before", "2026-01-01", ...flags]),
-  "delete:destination": (flags) => parseIdArgs(["acme", "dst_1", ...flags], "Usage"),
+  "delete:destination": (flags) => parseIdArgs("delete:destination", ["acme", "dst_1", ...flags]),
   doctor: (flags) => parseDoctorArgs(flags, {})
 };
 
@@ -315,6 +315,117 @@ describe("preflight", () => {
       expect(unmarked.stderr[0]).toBe("Unknown argument: -Beta");
       expect(unmarked.stderr.join("\n")).toContain("project:create beta -- -Beta");
     }
+  });
+
+  const EM = "\u2014";
+  const EN = "\u2013";
+
+  it.each(COMMANDS.map((command) => command.name))(
+    "refuses a long dash where %s expects -- , before and after its arguments",
+    (name) => {
+      const runnable = RUNNABLE[name];
+      for (const dashed of [`${EM}help`, `${EN}help`, `${EM}h`, `${EM}dry-run`, `${EN}${EN}yes`]) {
+        for (const args of [
+          [...runnable, dashed],
+          [dashed, ...runnable],
+          ["--", ...runnable, dashed]
+        ]) {
+          const result = preflight(name, args);
+          expect(result.run, `${name} ${args.join(" ")}`).toBe(false);
+          if (result.run) continue;
+          expect(result.code).toBe(1);
+          expect(result.stdout).toEqual([]);
+          expect(result.stderr[0]).toContain("looks like a -- that was auto-corrected");
+        }
+      }
+    }
+  );
+
+  it("refuses an em-dashed help after the value separator too", () => {
+    const result = preflight("delete:identifier", ["acme", "--", `${EM}help`]);
+    expect(result.run).toBe(false);
+    if (!result.run) expect(result.stderr[0]).toContain("after -- is refused");
+  });
+
+  it("names POST /v1/erasures when it refuses --help as a value", () => {
+    const result = preflight("delete:identifier", ["acme", "--", "--help"]);
+    expect(result.run).toBe(false);
+    if (!result.run) expect(result.stderr[0]).toContain("POST /v1/erasures");
+  });
+
+  it.each(COMMANDS.filter((command) => !command.helpCanBeAValue).map((command) => command.name))(
+    "reads a bare help as a request for %s's help, before or after its arguments",
+    (name) => {
+      const runnable = RUNNABLE[name];
+      for (const args of [["help"], [...runnable, "help"], ["help", ...runnable]]) {
+        expect(preflight(name, args), `${name} ${args.join(" ")}`).toEqual({
+          run: false,
+          stdout: commandHelp(name),
+          stderr: [],
+          code: 0
+        });
+      }
+    }
+  );
+
+  it("reads a bare help as a value where it could be one", () => {
+    expect(preflight("delete:identifier", ["acme", "help"])).toEqual({
+      run: true,
+      command: "delete:identifier",
+      args: ["acme", "help"]
+    });
+    expect(preflight("project:create", ["beta", "Help", "help"])).toEqual({
+      run: true,
+      command: "project:create",
+      args: ["beta", "Help", "help"]
+    });
+  });
+
+  it.each([
+    ["help", []],
+    ["help", ["key:create"]],
+    ["help", ["no-such-command"]]
+  ] as const)("prints help for %s %j, and exits 0", (command, args) => {
+    expect(preflight(command, [...args])).toEqual({
+      run: false,
+      stdout: args[0] === "key:create" ? commandHelp("key:create") : cliHelp(),
+      stderr: [],
+      code: 0
+    });
+  });
+
+  // A positional beyond the declared ones was ignored, which is how
+  // `rollback` and `key:revoke <prefix>` with an em-dashed help rolled back
+  // and revoked.
+  it.each(
+    COMMANDS.filter((command) => !("restArgument" in command)).map((command) => command.name)
+  )("refuses an argument beyond those %s declares", (name) => {
+    const withExtra: Partial<Record<CommandName, () => Parsed>> = {
+      reset: () => parseResetArgs(["--yes", "extra"], {}, "postgresql://localhost/x"),
+      doctor: () => parseDoctorArgs(["extra"], {}),
+      "delete:journey": () => parseIdArgs("delete:journey", ["acme", "jrn_1", "extra"]),
+      "delete:destination": () => parseIdArgs("delete:destination", ["acme", "dst_1", "extra"]),
+      "delete:identifier": () => parseIdentifierArgs(["acme", "value", "extra"]),
+      "delete:range": () =>
+        parseRangeArgs(["acme", "production", "extra", "--before", "2030-01-01"])
+    };
+    const full = name === "key:list" ? ["acme"] : RUNNABLE[name];
+    const result = withExtra[name]?.() ?? preflightParse(name, [...full, "extra"]);
+    expect(result.ok, name).toBe(false);
+    if (!result.ok && name !== "doctor")
+      expect(result.message).toContain("Unexpected argument: extra");
+  });
+
+  it("takes the rest of the arguments as project:create's and key:create's name", () => {
+    expect(preflight("project:create", ["beta", "Beta", "Payments", "Ltd"])).toEqual({
+      run: true,
+      command: "project:create",
+      args: ["beta", "Beta", "Payments", "Ltd"]
+    });
+    expect(parseKeyCreateArgs(["acme", "production", "checkout", "worker"])).toMatchObject({
+      ok: true,
+      name: "checkout worker"
+    });
   });
 
   it("refuses a flag on a command that takes none, naming only the flag", () => {

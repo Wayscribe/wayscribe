@@ -395,7 +395,18 @@ commands and how to run them in the image and in a checkout. Neither needs
 anywhere before a `--` that follows an argument prints the help, including
 after the `--` that `pnpm run <script> -- --help` adds. After such a `--`,
 where every argument is otherwise a value, either one is refused and nothing
-runs.
+runs. `help <command>` prints the same help, and so does a bare `help` given to
+a command none of whose arguments it could be: one that takes no arguments, and
+`key:revoke`. Where `help` could be an argument (a slug, a name, an identifier,
+an id) it is read as one.
+
+An argument containing an em dash or an en dash is refused before a `--`, since
+it is most likely a `--` that macOS, Slack or a word processor auto-corrected:
+`rollback --help` with its `--` turned into an em dash used to roll back. Type `--`, or put a value that really
+contains such a dash after a `--`. An argument beyond those a command declares
+is refused rather than ignored; `project:create` and `key:create` are the
+exception, because their name takes the rest of the arguments, as in
+`project:create acme Acme Payments`.
 
 A project or key name that begins with a dash goes after `--`, as for the
 deletion commands: `project:create beta -- -Beta` names the project `-Beta`.

@@ -390,6 +390,12 @@ What you have to do when upgrading a checkout or a deployment:
   no flags now refuses one, as `key:create` and `doctor` already did, rather
   than ignoring it, and a name that begins with a dash goes after `--` for
   `project:create` and `key:create` as it does for the deletion commands.
+  `help <command>` prints a command's help, as does a bare `help` for a command
+  none of whose arguments it could be. An argument containing an em or en
+  dash, which smart punctuation makes of a typed `--`, is refused, and so is an
+  argument beyond those a command declares. With the `--` of `--help` turned
+  into an em dash, `rollback` used to roll back and `key:revoke <prefix>` to
+  revoke.
 - **`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and
   `ADMIN_TOKEN_FILE`** read each value from a file at startup instead of from
   the environment, the way Docker's own secrets mechanism mounts one.
@@ -608,7 +614,9 @@ What you have to do when upgrading a checkout or a deployment:
   nothing. A script passing such a flag should drop it. `key:create` and
   `project:create` likewise refuse an argument beginning with a dash, which
   `key:create` took as the key's name; such a name goes after `--`, which
-  `project:create` used to fold into the name.
+  `project:create` used to fold into the name. Every command refuses an
+  argument it does not declare, which `migrate`, `rollback`, `seed`,
+  `key:revoke` and the others without a parser of their own used to ignore.
 
 ### Security
 

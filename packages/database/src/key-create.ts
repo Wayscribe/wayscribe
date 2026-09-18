@@ -1,4 +1,4 @@
-import { commandUsage, flag } from "./cli-commands.js";
+import { commandUsage, parseCommandArgs, type FlagsRead } from "./cli-commands.js";
 import type { IssuedKey } from "./repositories/key-admin.js";
 
 /**
@@ -27,21 +27,11 @@ export type KeyCreateArgs =
  * really begins with a dash goes after `--`, where every argument is a value.
  */
 export function parseKeyCreateArgs(args: readonly string[]): KeyCreateArgs {
-  const JSON_FLAG = flag("key:create", "--json");
-  const end = args.indexOf("--");
-  const options = end === -1 ? args : args.slice(0, end);
-  const values = end === -1 ? [] : args.slice(end + 1);
+  const parsed = parseCommandArgs("key:create", args);
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  const read = { json: parsed.values.json === true } satisfies FlagsRead<"key:create">;
 
-  const unknownFlag = options.find((arg) => arg !== JSON_FLAG && looksLikeFlag(arg));
-  if (unknownFlag !== undefined) {
-    // Only the part before any `=`, as for the other commands.
-    const [name] = unknownFlag.split("=");
-    return { ok: false, message: `Unknown argument: ${name ?? ""}\n${KEY_CREATE_USAGE}` };
-  }
-  const json = options.includes(JSON_FLAG);
-  const rest = [...options.filter((arg) => arg !== JSON_FLAG), ...values];
-
-  const [projectSlug, environmentName, ...nameParts] = rest;
+  const [projectSlug, environmentName, ...nameParts] = parsed.positionals;
   if (projectSlug === undefined || environmentName === undefined) {
     return { ok: false, message: KEY_CREATE_USAGE };
   }
@@ -52,12 +42,8 @@ export function parseKeyCreateArgs(args: readonly string[]): KeyCreateArgs {
     projectSlug,
     environmentName,
     name: name === "" ? `${environmentName}-key` : name,
-    json
+    json: read.json
   };
-}
-
-function looksLikeFlag(arg: string): boolean {
-  return arg.startsWith("-") && arg !== "-";
 }
 
 /** The lines `key:create` prints for a key it issued, in the form asked for. */

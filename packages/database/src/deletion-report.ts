@@ -1,5 +1,4 @@
-import { parseArgs } from "node:util";
-import { commandUsage, flag, parseArgsOptions } from "./cli-commands.js";
+import { commandUsage, flag, parseCommandArgs, type FlagsRead } from "./cli-commands.js";
 import type {
   BatchProgress,
   DestinationDeletion,
@@ -30,9 +29,6 @@ export interface ReportContext {
   scope: string;
   command: string;
 }
-
-const IDENTIFIER_USAGE = commandUsage("delete:identifier");
-const RANGE_USAGE = commandUsage("delete:range");
 
 const TIMESTAMP_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
@@ -72,19 +68,12 @@ export function parseTimestamp(
  * before an id that begins with a dash, as for the others.
  */
 export function parseIdArgs(
-  args: readonly string[],
-  usage: string
+  command: "delete:journey" | "delete:destination",
+  args: readonly string[]
 ): { ok: true; projectSlug: string; id: string } | { ok: false; message: string } {
-  let positionals: string[];
-  try {
-    positionals = parseArgs({ args: [...args], allowPositionals: true, strict: true }).positionals;
-  } catch (error) {
-    return { ok: false, message: `${messageOf(error)}\n${usage}` };
-  }
-  const [projectSlug, id, ...extra] = positionals;
-  if (projectSlug === undefined || id === undefined || extra.length > 0) {
-    return { ok: false, message: usage };
-  }
+  const parsed = parseCommandArgs(command, args);
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  const [projectSlug = "", id = ""] = parsed.positionals;
   return { ok: true, projectSlug, id };
 }
 
@@ -99,28 +88,20 @@ export type IdentifierArgs =
   | { ok: false; message: string };
 
 export function parseIdentifierArgs(args: readonly string[]): IdentifierArgs {
-  let parsed;
-  try {
-    parsed = parseArgs({
-      args: [...args],
-      options: parseArgsOptions("delete:identifier"),
-      allowPositionals: true,
-      strict: true
-    });
-  } catch (error) {
-    return { ok: false, message: `${messageOf(error)}\n${IDENTIFIER_USAGE}` };
-  }
+  const parsed = parseCommandArgs("delete:identifier", args);
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  const read = {
+    environment: parsed.values.environment,
+    "dry-run": parsed.values["dry-run"] === true
+  } satisfies FlagsRead<"delete:identifier">;
 
-  const [projectSlug, value, ...extra] = parsed.positionals;
-  if (projectSlug === undefined || value === undefined || extra.length > 0) {
-    return { ok: false, message: IDENTIFIER_USAGE };
-  }
+  const [projectSlug = "", value = ""] = parsed.positionals;
   return {
     ok: true,
     projectSlug,
     value,
-    environment: parsed.values.environment,
-    dryRun: parsed.values["dry-run"] === true
+    environment: read.environment,
+    dryRun: read["dry-run"]
   };
 }
 
@@ -136,35 +117,26 @@ export type RangeArgs =
   | { ok: false; message: string };
 
 export function parseRangeArgs(args: readonly string[]): RangeArgs {
-  let parsed;
-  try {
-    parsed = parseArgs({
-      args: [...args],
-      options: parseArgsOptions("delete:range"),
-      allowPositionals: true,
-      strict: true
-    });
-  } catch (error) {
-    return { ok: false, message: `${messageOf(error)}\n${RANGE_USAGE}` };
-  }
+  const parsed = parseCommandArgs("delete:range", args);
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  const read = {
+    before: parsed.values.before,
+    after: parsed.values.after,
+    "dry-run": parsed.values["dry-run"] === true
+  } satisfies FlagsRead<"delete:range">;
 
-  const [projectSlug, environment, ...extra] = parsed.positionals;
-  if (projectSlug === undefined || environment === undefined || extra.length > 0) {
-    return { ok: false, message: RANGE_USAGE };
-  }
+  const [projectSlug = "", environment = ""] = parsed.positionals;
   const BEFORE = flag("delete:range", "--before");
   const AFTER = flag("delete:range", "--after");
-  const beforeValue = parsed.values.before;
-  if (beforeValue === undefined) {
-    return { ok: false, message: `${BEFORE} is required.\n${RANGE_USAGE}` };
+  if (read.before === undefined) {
+    return { ok: false, message: `${BEFORE} is required.\n${commandUsage("delete:range")}` };
   }
 
-  const before = parseTimestamp(BEFORE, beforeValue);
+  const before = parseTimestamp(BEFORE, read.before);
   if (!before.ok) return before;
   let after: Date | undefined;
-  const afterValue = parsed.values.after;
-  if (afterValue !== undefined) {
-    const parsedAfter = parseTimestamp(AFTER, afterValue);
+  if (read.after !== undefined) {
+    const parsedAfter = parseTimestamp(AFTER, read.after);
     if (!parsedAfter.ok) return parsedAfter;
     after = parsedAfter.date;
     if (after.getTime() >= before.date.getTime()) {
@@ -181,7 +153,7 @@ export function parseRangeArgs(args: readonly string[]): RangeArgs {
     environment,
     before: before.date,
     after,
-    dryRun: parsed.values["dry-run"] === true
+    dryRun: read["dry-run"]
   };
 }
 

@@ -242,6 +242,62 @@ describe("--help against a real database", () => {
     120_000
   );
 
+  // Smart punctuation turns a typed -- into an em dash (macOS, Slack, Word)
+  // and sometimes an en dash. Each of these used to be an ignored extra
+  // argument, so the command ran: rollback rolled back, the sweep swept.
+  it.each(COMMANDS.map((command) => command.name))(
+    "refuses %s with a long dash where -- was typed, and changes nothing",
+    async (name) => {
+      const before = await fingerprint();
+      const args = runnable()[name];
+      for (const form of [
+        [name, ...args, "\u2014help"],
+        [name, "\u2014help", ...args],
+        [name, ...args, "\u2013help"],
+        [name, "\u2013help", ...args]
+      ]) {
+        const run = await cli(form);
+        expect(run.code, `${form.join(" ")}\n${run.stdout}`).toBe(1);
+        expect(run.stdout, form.join(" ")).toBe("");
+        expect(run.stderr, form.join(" ")).toContain("auto-corrected");
+        expect(await fingerprint(), form.join(" ")).toBe(before);
+      }
+    },
+    120_000
+  );
+
+  it.each(COMMANDS.map((command) => command.name))(
+    "does not run %s for a bare help, before or after its arguments",
+    async (name) => {
+      const before = await fingerprint();
+      const spec = COMMANDS.find((command) => command.name === name);
+      const args = name === "key:list" ? ["acme"] : runnable()[name];
+      const helpIsHelp = spec?.helpCanBeAValue === false;
+      // Where help could be a value it is one: after the last argument it is
+      // then one too many, and refused. Names take the rest, so it would be
+      // part of the name; those two are left out here.
+      if (spec !== undefined && "restArgument" in spec) return;
+      const forms = helpIsHelp
+        ? [
+            [name, ...args, "help"],
+            [name, "help", ...args]
+          ]
+        : [[name, ...args, "help"]];
+      for (const form of forms) {
+        const run = await cli(form);
+        if (helpIsHelp) {
+          expect(run.code, `${form.join(" ")}\n${run.stderr}`).toBe(0);
+          expect(lines(run.stdout), form.join(" ")).toEqual(commandHelp(name));
+        } else {
+          expect(run.code, `${form.join(" ")}\n${run.stdout}`).toBe(1);
+          expect(run.stdout, form.join(" ")).toBe("");
+        }
+        expect(await fingerprint(), form.join(" ")).toBe(before);
+      }
+    },
+    120_000
+  );
+
   it("refuses --help and -h after delete:identifier's separator, and erases neither", async () => {
     const before = await fingerprint();
     for (const form of [
