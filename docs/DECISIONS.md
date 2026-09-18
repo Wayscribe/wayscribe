@@ -2923,3 +2923,168 @@ package to the first published set or moves a release date.
   in the Python package.
 - The recorder surface to maintain doubles: two packages to release, two
   conformance runs, and two README pages that can drift from the specification.
+
+---
+
+## ADR-060: The settled SDK surface gains what the dogfood run asked for
+
+**Status:** Accepted, 2026-09-17. Adds to the Node SDK's public surface, which
+ADR-056 settled before the first release. Every addition is optional and
+additive: no call that exists today changes its shape, its meaning or what it
+puts on the wire, and the server needs no change for any of them. Follows
+Leadline's first pass over the SDK, findings F-001 to F-005, F-014 and F-021.
+
+### Context
+
+ADR-056 settled the shape of what the Node SDK already had, so that the renames
+a release makes expensive were made before it. It could not settle what was
+missing, because nothing outside this repository had yet been instrumented with
+the package as a user installs it.
+
+Leadline, the lead-sync project that exists to dogfood Wayscribe, wired itself
+to the SDK and wrote down every place it had to work around the package rather
+than use it. Seven of those are gaps in the surface rather than defects in it.
+
+- Two services identify one record, and `identify` always names its step
+  `identify` (`recorder.ts`, the `identified` event), so one journey's timeline
+  shows the same step name twice from two different services, and the
+  workaround is to call `record({ operation: "identified" })` by hand (F-001).
+- The wire protocol carries `deployment` (`gitCommit`, `version`, `image`), the
+  ingest path redacts it and stores it as `deployment_metadata`, and no Node
+  service can set it, because neither `RecorderConfig` nor `RecordInput` offers
+  it. Leadline reports its commit on its own health endpoint instead (F-002).
+- A wrapper's `metadata` is copied when the wrapper is called, before the
+  callback runs, so a response status or a `Retry-After` cannot be metadata and
+  has to be pushed into the step's output (F-003).
+- A result that `isFailure` rejects always records the same error,
+  `<name> reported a failed result.` with code `result_failed`, so a rate limit
+  and a validation failure read alike until the output is opened (F-004).
+- A worker whose message carries no context is given a random journey id even
+  when the recorder holds a `journeyIdSecret` and the caller knows the entity,
+  so the journey splits. ADR-052 made the derived id available and ADR-056 made
+  `continueJourney({ journeyId })` the way to pass it, so the caller can do this
+  itself, and every such caller writes the same two lines (F-005).
+- `injectPayload` with no context returns `{ _wayscribe: {}, data: payload }`,
+  which does not satisfy `ContextEnvelope<T>`, whose `journeyId` is required.
+  The SDK's own source reaches that value through `as unknown as`, and anything
+  that reproduces the shape needs the same cast (F-014).
+- The four wrappers are declared as two call signatures each, one for a callback
+  returning a thenable and one for a callback returning a value. A single plain
+  function that forwards its callback's result the way all four do can only be
+  typed to return `unknown`, which satisfies neither signature, so a second
+  implementation has to restate both signatures. The SDK's own `operationsOn`
+  casts each of its four wrappers with `as JourneyOperations["transform"]` and
+  its three siblings (F-021).
+
+Each is cheap to add before the first release and awkward after it, because a
+host that worked around a gap keeps its workaround.
+
+### Decision
+
+The Node SDK gains the following. Every one is optional, and every existing call
+behaves exactly as it does today when it is not used.
+
+- **A name for an identify step.** `IdentifyOptions` gains `name`, so
+  `identify(aliases, { name: "identify-crm" })` records the `identified` event
+  under that step name. The default is `identify`, which is what every current
+  caller gets. The operation stays `identified`: the step name is the timeline's
+  row label, and the operation is what happened.
+- **A deployment on every event.** `RecorderConfig` gains
+  `deployment?: { version?, gitCommit?, image? }`, applied to every event the
+  recorder sends. It sits on the recorder and not on `RecordInput` because one
+  process is one deployment. A field that is not a string, or is longer than
+  `deploymentSchema` allows, is reported and left out rather than sent, in the
+  way ADR-056 settled for every other unusable setting, so a bad value costs
+  that field and not the event.
+- **Metadata computed from the result.** `WrapOptions` gains
+  `metadataFrom`, which receives the callback's resolved value and returns
+  metadata. It runs after the callback resolves, whether or not `isFailure`
+  rejected that value, so a status and a `Retry-After` from a refused response
+  are recordable. It does not run when the callback throws, because there is no
+  result. What it returns is merged over any static `metadata`, and the
+  wrapper's own `attempt` is applied last, so a projection cannot overwrite the
+  attempt the wrapper recorded. It is synchronous and its failure is isolated
+  exactly as `captureOutput`'s is: a projection that throws or returns a promise
+  is reported and costs its own metadata, never the step and never the host's
+  call.
+- **A reason on a failed result.** `isFailure` may return a reason instead of
+  `true`: a non-empty string, which becomes the error's message, or
+  `{ message?, code? }`, whose fields replace the generic message and the
+  `result_failed` code. Returning `true`, or any other truthy value, records
+  today's generic error, and a falsy value is not a failure, so every current
+  caller is unaffected. The reason is masked and bounded as any recorded error
+  is (ADR-046), because it comes from a response body and may hold a secret.
+- **A derived journey id as the last resort.** When `continueJourney` finds no
+  usable journey id, in the context or in `journeyId`, and it does have a usable
+  entity and the recorder has a usable `journeyIdSecret`, the journey id is
+  `journeyIdFor(entity)` rather than a fresh random one. Without a usable
+  secret, or without a usable entity, the id is random, as it is today, and it
+  stays documented. The diagnostics ADR-056 settled for an unusable context, an
+  unusable id and an unusable entity are unchanged and are reported before the
+  fallback, so nothing that was visible becomes silent.
+- **An envelope type that admits its own no-context shape.** In
+  `ContextEnvelope<T>`, `journeyId` becomes optional inside `_wayscribe`. The
+  `_wayscribe` key itself stays required, because the envelope always carries it
+  and its empty form is how `extractPayload` reads the absence of a journey.
+  The value `injectPayload` returns then satisfies its own declared type, and
+  the SDK's `as unknown as` cast goes. Runtime behaviour is unchanged.
+- **Wrapper signatures a second implementation can satisfy.** Each of
+  `transform`, `persist`, `publish` and `deliver` is declared so that one plain,
+  non-overloaded function satisfies it without a cast: one signature over
+  `() => T | PromiseLike<T>` with a conditional return type. If that is found to
+  lose inference at a call site, the overloads stay and a non-overloaded alias
+  is exported beside them, and the README says which one an implementer writes
+  against. Either way the acceptance test is the same and is checkable: the
+  SDK's own `operationsOn` stops casting its four wrappers, and a small
+  hand-written object satisfies `JourneyOperations` with no cast. This is a
+  declaration change; what the wrappers do at runtime is untouched, and a
+  callback returning a thenable still comes back as a native promise of its
+  resolved value.
+
+These are additions. No existing call changes meaning, nothing already released
+changes shape, and the surface is settled again once they land: ADR-056's rule
+holds, and this decision is its amendment rather than a standing licence to add.
+
+### Alternatives rejected
+
+- **Waiting until after the first release.** Each of these becomes harder once
+  hosts have worked around it: a dashboard matches the step name `identify`, a
+  service puts its version in custom metadata, and an envelope a host has
+  already cast around cannot be repaired without touching their code. This is
+  ADR-056's own argument, arriving once more.
+- **A `deployment` on `RecordInput` as well as on the recorder.** One process is
+  one deployment, so a per-event deployment is mostly a way to record something
+  untrue, and it puts the same unchanging bytes on every event.
+- **Letting the callback mutate the wrapper's metadata object.** It makes what
+  was recorded depend on when the SDK copied the object, which is the class of
+  bug ADR-056 removed by reading every option once, inside the boundary.
+- **One `onResult` hook covering metadata, output capture and failure
+  detection.** Three options with three rules are easier to document, to test
+  and to isolate on failure than one hook whose return value means three things,
+  and `captureOutput` and `isFailure` already have settled shapes.
+- **Deriving a journey id from the entity without a secret.** ADR-052 settled
+  this: an unkeyed derivation is guessable by anyone who knows the entity and
+  the scheme, which is what `INGESTION_CONTRACT.md` section 5 warns about.
+- **Making `_wayscribe` itself optional on `ContextEnvelope`.** That would also
+  admit `{ data }`, which `injectPayload` never emits, and it would hide from
+  the reader the one case the type exists to make visible.
+
+### Consequences
+
+- The Node SDK's README documents each new option beside the one it belongs
+  with, and the CHANGELOG lists them as additions in the first release.
+- `docs/SDK_SPEC.md` carries the ones another implementation should follow: the
+  identify step name, the deployment on every event, and the derived id as the
+  last resort. `metadataFrom`, the `isFailure` reason and the wrapper signatures
+  are the Node package's own ergonomics and stay in its README.
+- Nothing on the wire changes and the server needs no change. `deployment` is
+  already validated by `deploymentSchema` and stored as `deployment_metadata`,
+  which is why F-002 is an SDK gap and not a protocol one.
+- A host that matches the error code `result_failed` keeps matching it, unless
+  its own `isFailure` supplies a code.
+- A host reading `envelope._wayscribe.journeyId` now reads `string | undefined`
+  and has to narrow. That is the point of the change, and `ContextEnvelope` is
+  marked experimental (ADR-056), so the type may move.
+- The surface grows by five options, one optional property and one signature
+  shape, each of which is a thing to keep documented, tested and honest in two
+  places once a second recorder exists (ADR-059).
