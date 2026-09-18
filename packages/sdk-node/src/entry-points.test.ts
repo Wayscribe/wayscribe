@@ -438,12 +438,14 @@ describe("what configuration problems print", () => {
     const { restore } = printed();
     try {
       const recorder = createRecorder({ ...base, batchSize: "5" as never });
-      // Two derivations with no secret: one setting, reported twice.
+      // Two derivations with no secret: one option, reported twice, and after
+      // creation, so not a setting (ADR-062).
       recorder.journeyIdFor({ type: "t", id: "1" });
       recorder.journeyIdFor({ type: "t", id: "2" });
       const counters = await recorder.shutdown({ timeoutMs: 100 });
       expect(counters.configurationErrors).toBe(3);
-      expect(counters.rejectedSettings).toEqual(["batchSize", "journeyIdSecret"]);
+      expect(counters.rejectedSettings).toEqual(["batchSize"]);
+      expect(counters.rejectedOptions).toEqual(["journeyIdSecret"]);
     } finally {
       restore();
     }

@@ -16,10 +16,18 @@ export type CaptureMode = "metadata-only" | "redacted-payload" | "full-payload";
  * these three fields since the first release and the API stores them, so a
  * timeline can answer "which build did this?" (F-002, ADR-060).
  *
- * Every field is optional, and one that is not a usable string is left off and
- * reported, as any other setting is. A field longer than the protocol accepts
- * (128 characters for `gitCommit` and `version`, 512 for `image`) is left off
- * rather than cut: a cut commit or version names a build that does not exist.
+ * Every field is optional. One that is given and is not a string, is empty or
+ * only whitespace, or is longer than the protocol accepts (128 characters for
+ * `gitCommit` and `version`, 512 for `image`) is left off rather than cut or
+ * trimmed, since a cut commit or version names a build that does not exist,
+ * and the rest is still sent. A key other than these three is left off too.
+ *
+ * Each is reported as a `configuration_error` and named in
+ * `counters().rejectedSettings` (F-031, ADR-062): `deployment.gitCommit`,
+ * `deployment.version` or `deployment.image` for a field that is not sent,
+ * `deployment.*` for other keys, never by their own names, and `deployment`
+ * when events carry no deployment at all, which includes `{}` and an object
+ * whose every field is `undefined`, as unset environment variables give.
  */
 export interface Deployment {
   /** The commit this build was made from. At most 128 characters. */
@@ -131,7 +139,8 @@ export interface RecorderConfig {
   /**
    * Which build this process is, sent on every event it records. Read once,
    * when the recorder is created, and copied, so a later change to the object
-   * changes no event.
+   * changes no event. What cannot be sent is reported by field, as
+   * `Deployment` says.
    *
    * @defaultValue none: events carry no deployment
    */
@@ -246,7 +255,7 @@ const UNREADABLE = Symbol("unreadable");
  */
 export function resolveConfig(config: RecorderConfig): ResolvedConfig {
   const problems: ConfigProblem[] = [];
-  const problem = (setting: keyof RecorderConfig, reason: string): void => {
+  const problem: Report = (setting, reason) => {
     const required = (REQUIRED as readonly string[]).includes(setting);
     problems.push({
       setting,
@@ -416,7 +425,14 @@ function isWhole(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value);
 }
 
-type Report = (setting: keyof RecorderConfig, reason: string) => void;
+/**
+ * Reports a setting that could not be used as given: a key of
+ * `RecorderConfig`, or a part of `deployment` by its dotted name (ADR-062).
+ */
+type Report = (setting: keyof RecorderConfig | DeploymentPart, reason: string) => void;
+
+/** The names a part of `deployment` is reported under (ADR-062). */
+type DeploymentPart = `deployment.${keyof Deployment}` | "deployment.*";
 
 /**
  * The server refuses a batch of more than 100 events, and that refusal was
@@ -486,16 +502,37 @@ function clampConcurrentSends(configured: unknown, report: Report): number {
  * The deployment as events will carry it: the fields the protocol has, each a
  * string the protocol accepts, frozen and copied.
  *
- * Anything else is left off and reported once, naming the setting and never
- * its value: a field that is not a usable string, one longer than the
- * protocol's limit, and a key the protocol does not have, which would make the
- * server refuse every event of this process. Reading each field is guarded
- * separately, because the object is the host's and its getters are the host's
+ * Anything else is reported, naming what was refused and never a value, so a
+ * partial refusal reads differently from a total one (F-031, ADR-062):
+ *
+ * - `deployment.<field>` for each field that was given, meaning its value is
+ *   not `undefined`, and is not sent: not a string, empty or whitespace only,
+ *   longer than the protocol accepts, or its getter threw. A value with text
+ *   in it is sent as given, never trimmed.
+ * - `deployment.*`, once, for own enumerable keys other than the three, which
+ *   are never sent, or keys that could not be listed. Never the key's name,
+ *   because it is the host's and could be anything.
+ * - `deployment` when the setting was given and events carry no deployment:
+ *   it could not be read, it is not an object, or no field of it is sent,
+ *   which covers `{}` and `{ gitCommit: undefined }`, the shape an unset
+ *   environment variable gives.
+ *
+ * In that order. Reading each field and listing the keys are guarded apart,
+ * because the object is the host's and its getters and traps are the host's
  * code (SDK-6).
  */
 function readDeployment(configured: unknown, report: Report): Readonly<Deployment> | undefined {
   if (configured === undefined) return undefined;
-  if (typeof configured !== "object" || configured === null || Array.isArray(configured)) {
+  let array: boolean;
+  try {
+    // Guarded: `Array.isArray` throws for a revoked Proxy, and this used to
+    // throw out of createRecorder into the host's startup.
+    array = Array.isArray(configured);
+  } catch {
+    report("deployment", "deployment could not be read; events carry no deployment.");
+    return undefined;
+  }
+  if (typeof configured !== "object" || configured === null || array) {
     report(
       "deployment",
       "deployment is not an object of gitCommit, version and image; events carry no deployment."
@@ -503,41 +540,55 @@ function readDeployment(configured: unknown, report: Report): Readonly<Deploymen
     return undefined;
   }
   const kept: Deployment = {};
-  let unusable = false;
   for (const field of Object.keys(DEPLOYMENT_LIMITS) as (keyof Deployment)[]) {
     let value: unknown;
     try {
       value = (configured as Deployment)[field];
     } catch {
-      unusable = true;
+      report(`deployment.${field}`, `deployment.${field} could not be read, so it is not sent.`);
       continue;
     }
     if (value === undefined) continue;
     // Measured in UTF-16 code units, which is never more permissive than the
     // protocol's own count, so a value kept here is one the server accepts.
-    if (typeof value === "string" && value !== "" && value.length <= DEPLOYMENT_LIMITS[field]) {
+    // Blank is empty, as for the required settings: three spaces name no
+    // build, and would be on every event.
+    if (
+      typeof value === "string" &&
+      value.trim() !== "" &&
+      value.length <= DEPLOYMENT_LIMITS[field]
+    ) {
       kept[field] = value;
     } else {
-      unusable = true;
+      report(
+        `deployment.${field}`,
+        `deployment.${field} is ${
+          typeof value !== "string"
+            ? "not a string"
+            : value.trim() === ""
+              ? "empty"
+              : `longer than the ${String(DEPLOYMENT_LIMITS[field])} characters the protocol accepts`
+        }, so it is not sent.`
+      );
     }
   }
-  let extra = false;
+  let extra: boolean;
   try {
-    extra = Object.keys(configured).some((key) => !(key in DEPLOYMENT_LIMITS));
+    // Own keys against the table's own keys: `in` reads the prototype, and let
+    // `constructor` and `toString` through unreported.
+    extra = Object.keys(configured).some((key) => !Object.hasOwn(DEPLOYMENT_LIMITS, key));
   } catch {
-    unusable = true;
+    extra = true;
   }
-  if (unusable || extra) {
+  if (extra) {
     report(
-      "deployment",
-      `deployment holds ${
-        extra
-          ? "keys other than gitCommit, version and image"
-          : "a field that is not a string the protocol accepts"
-      }, which are not sent; ${
-        Object.keys(kept).length === 0 ? "events carry no deployment" : "the rest of it is sent"
-      }.`
+      "deployment.*",
+      "deployment holds keys other than gitCommit, version and image, or its keys could not be listed; those keys are not sent."
     );
   }
-  return Object.keys(kept).length === 0 ? undefined : Object.freeze(kept);
+  if (Object.keys(kept).length === 0) {
+    report("deployment", "deployment has no field that can be sent; events carry no deployment.");
+    return undefined;
+  }
+  return Object.freeze(kept);
 }

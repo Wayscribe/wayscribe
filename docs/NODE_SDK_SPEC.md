@@ -85,8 +85,9 @@ export const recorder = createRecorder({
   propagation: "journey-and-type",
 
   // Which build this process is, sent on every event as `deployment`
-  // (ADR-060). Read and copied once, here; a field the protocol would refuse
-  // is left off and reported.
+  // (ADR-060). Read and copied once, here; a field the protocol would refuse,
+  // or one that is only whitespace, is left off and reported by its own name,
+  // such as `deployment.version` (ADR-062).
   deployment: { version: process.env.APP_VERSION, gitCommit: process.env.GIT_SHA }
 });
 ```
@@ -94,7 +95,13 @@ export const recorder = createRecorder({
 A setting that cannot be used never stops the recorder starting; it is
 reported as `configuration_error` and replaced by its default (SDK-6, SDK-60),
 and printed once per process whether or not `logDiagnostics` is on. Which
-settings were rejected is in `counters().rejectedSettings`.
+settings were rejected is in `counters().rejectedSettings`, which is fixed once
+`createRecorder` returns; an option a later call was refused is in
+`counters().rejectedOptions` instead (F-038, ADR-062). A part of `deployment`
+is named by its path: `deployment.gitCommit`, `deployment.version` or
+`deployment.image` for a field that is not sent, `deployment.*` for keys the
+protocol does not have, and `deployment` when events carry no deployment at
+all (F-031).
 
 ## 4. Public API
 
@@ -377,8 +384,9 @@ copy of the counters at any time.
 `Counters` (experimental: fields may be added) has `recorded`, `sent`,
 `rejected`, `dropped`, `transportErrors`, `captureErrors`, `breakerOpened`,
 `payloadsOmitted`, `payloadsTruncated`, `keysDropped`, `configurationErrors`,
-`rejectedSettings` (the names those reports carried, not a number),
-`unredactedSecretNames` and `personalDataInPublicValues`. Every counter but `recorded` and `sent` counts
+`rejectedSettings` and `rejectedOptions` (the names those reports carried, at
+creation and on later calls, not numbers), `unredactedSecretNames` and
+`personalDataInPublicValues`. Every counter but `recorded` and `sent` counts
 reports of one diagnostic kind. Once `shutdown` has returned,
 `sent + rejected + dropped === recorded` (SDK-38, SDK-42).
 

@@ -2047,7 +2047,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     return targets;
   }
 
-  return {
+  const recorder: Recorder = {
     startJourney(options) {
       const entity =
         safely(diagnostics, "capture_error", () => startedEntity(options)) ?? UNKNOWN_ENTITY;
@@ -2099,7 +2099,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
             kind: "configuration_error",
             code: "entity_invalid",
             reason: problem,
-            detail: {}
+            // Named, as startJourney and continueJourney name it, so it
+            // reaches rejectedOptions like theirs (ADR-062).
+            detail: { setting: "entity" }
           });
           return undefined;
         }
@@ -2181,4 +2183,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
     },
     counters: () => diagnostics.counters()
   };
+  // Last, and nothing after it: every configuration problem reported until
+  // now was a setting, and from here on one is a call's option. No call can
+  // reach the recorder before this returns, so the split cannot be wrong
+  // (F-038, ADR-062).
+  diagnostics.endCreation();
+  return recorder;
 }

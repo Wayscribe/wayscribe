@@ -209,9 +209,14 @@ export interface CaptureErrorDiagnostic {
 /**
  * A setting or an argument could not be used, or a call needed a setting the
  * recorder does not have; the call returned something safe. `setting` names
- * what could not be used, never its value.
+ * what could not be used, never its value. Reported while `createRecorder`
+ * runs, the name goes to `counters().rejectedSettings`; reported by a later
+ * call, to `counters().rejectedOptions` (ADR-062).
  *
- * - `setting_unusable`, `required_setting_unusable`: a recorder setting.
+ * - `setting_unusable`, `required_setting_unusable`: a recorder setting, or a
+ *   part of `deployment` named by its path (`deployment.gitCommit`,
+ *   `deployment.version`, `deployment.image`, `deployment.*` for keys it does
+ *   not have), with `deployment` itself when events carry none of it.
  * - `setting_renamed`: a setting or option given under the name it had
  *   before the first release, which is not read; the reason names the new one.
  * - `journey_id_secret_missing`, `journey_id_secret_unusable`: from
@@ -362,19 +367,42 @@ export interface Counters {
    * refused label. `detail.keys` says how many entries each report covers.
    */
   keysDropped: number;
-  /** `configuration_error` reports. */
+  /**
+   * `configuration_error` reports, from creation and from calls alike, one per
+   * report.
+   */
   configurationErrors: number;
   /**
-   * What those reports named, in `detail.setting`, in the order first seen and
-   * once each however many times it was reported: recorder settings that could
-   * not be used or were given under an old name, and the options a call named
-   * (`entity`, `context`, `journeyId`, `journeyIdSecret`). At most 50.
+   * The settings refused while `createRecorder` ran, by the name their
+   * reports gave in `detail.setting`: a setting that could not be used, one
+   * given under its old name, an unusable `journeyIdSecret`, and a part of
+   * `deployment` (ADR-062):
    *
-   * `configurationErrors` alone says how many settings were rejected and never
-   * which, so a recorder running on a default nobody chose was invisible to an
-   * operator who reads counters rather than diagnostics (ADR-060).
+   * - `deployment.gitCommit`, `deployment.version`, `deployment.image`: that
+   *   field was given and is not sent.
+   * - `deployment.*`: keys other than those three, which are not sent.
+   * - `deployment`: the setting was given and events carry no deployment.
+   *
+   * So whether the whole deployment was dropped is
+   * `rejectedSettings.includes("deployment")`, and which field is the dotted
+   * entry. In the order first seen, once each, at most 50.
+   *
+   * Fixed once `createRecorder` returns, so it gives the same answer whenever
+   * it is read, and a correctly configured process never has an entry in it.
+   * What a later call was refused is in `rejectedOptions` (F-038).
    */
   rejectedSettings: readonly string[];
+  /**
+   * The options a call was refused after the recorder was created: `entity`,
+   * `context`, `journeyId`, `journeyIdSecret` (a call that needed a secret the
+   * recorder does not have, or cannot use), and the pre-release names
+   * `entityFallback` and `displayable`. In the order first seen, once each, at
+   * most 50.
+   *
+   * An entry here means one call site passed something odd, not that the
+   * process is misconfigured (ADR-062).
+   */
+  rejectedOptions: readonly string[];
   /**
    * `unredacted_secret_name` reports: distinct key names, folded as redaction
    * folds them, sent in plain text although they look like secrets
@@ -394,7 +422,7 @@ export interface Counters {
  * counts in `<nouns><Participle>`, `<noun>_error` in `<noun>Errors`, and a
  * bare participle in itself.
  */
-type CountedTotals = Omit<Counters, "rejectedSettings">;
+type CountedTotals = Omit<Counters, "rejectedSettings" | "rejectedOptions">;
 
 const COUNTER_OF: Record<DiagnosticKind, keyof CountedTotals | undefined> = {
   delivered_first: undefined,
@@ -428,6 +456,15 @@ export interface Diagnostics {
   counters(): Counters;
   /** Prints any repeats still suppressed. A no-op unless logging is on. */
   flushLog(): void;
+  /**
+   * Marks the end of `createRecorder`, which calls it once, as its last
+   * statement before returning. A `configuration_error` reported before it
+   * names a setting, in `rejectedSettings`; one reported after it names an
+   * option, in `rejectedOptions`. Split by time rather than by a tag on each
+   * report, so a creation-time report added later lands in the right list
+   * without anybody remembering to mark it (ADR-062).
+   */
+  endCreation(): void;
 }
 
 export interface ReportOptions {
@@ -450,6 +487,9 @@ export interface DiagnosticsOptions {
  * settings, and small enough that the list stays readable.
  */
 const MAX_REJECTED_SETTINGS = 50;
+
+/** How many rejected option names `counters()` keeps, for the same reason. */
+const MAX_REJECTED_OPTIONS = 50;
 
 const PREFIX = "[wayscribe]";
 const LOG_WINDOW_MS = 60_000;
@@ -488,10 +528,14 @@ export function createDiagnostics(
     personalDataInPublicValues: 0
   };
   /**
-   * Bounded, and only ever a setting name the SDK itself wrote: a host cannot
-   * grow it, because `detail.setting` is never a value the host passed in.
+   * Bounded, and only ever a name the SDK itself wrote: a host cannot grow
+   * either, because `detail.setting` is never a value or a key the host
+   * passed in.
    */
   const rejectedSettings = new Set<string>();
+  const rejectedOptions = new Set<string>();
+  /** Until `endCreation`, a configuration problem is a setting. */
+  let creating = true;
   const log = options.log === true;
   const lastPrinted = new Map<DiagnosticKind, number>();
   const suppressed = new Map<DiagnosticKind, number>();
@@ -518,12 +562,19 @@ export function createDiagnostics(
     );
   }
 
-  /** The setting a configuration problem named, kept once and at most 50 of them. */
+  /**
+   * The name a configuration problem gave, kept once and at most 50 to a list:
+   * among the settings while the recorder is being created, and among the
+   * options after.
+   */
   function rememberSetting(diagnostic: ConfigurationErrorDiagnostic): void {
     const { setting } = diagnostic.detail;
     if (typeof setting !== "string" || setting === "") return;
-    if (rejectedSettings.size >= MAX_REJECTED_SETTINGS) return;
-    rejectedSettings.add(setting);
+    const [names, max] = creating
+      ? [rejectedSettings, MAX_REJECTED_SETTINGS]
+      : [rejectedOptions, MAX_REJECTED_OPTIONS];
+    if (names.size >= max) return;
+    names.add(setting);
   }
 
   return {
@@ -554,7 +605,14 @@ export function createDiagnostics(
     countRecorded() {
       counters.recorded += 1;
     },
-    counters: () => ({ ...counters, rejectedSettings: [...rejectedSettings] }),
+    counters: () => ({
+      ...counters,
+      rejectedSettings: [...rejectedSettings],
+      rejectedOptions: [...rejectedOptions]
+    }),
+    endCreation() {
+      creating = false;
+    },
     flushLog() {
       if (!log) return;
       for (const [kind, repeats] of suppressed) {

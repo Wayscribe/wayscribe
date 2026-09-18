@@ -445,14 +445,15 @@ predictable journey id is the risk `INGESTION_CONTRACT.md` section 5 describes.
   type and the entity id, each written as a 4-byte big-endian length followed
   by its UTF-8 bytes. The id MUST be the journey id prefix followed by the first
   32 lowercase hex characters of the MAC. An SDK MUST NOT derive for an entity
-  whose type or id is not well-formed text (in UTF-16, one holding an unpaired
-  surrogate): encoding would replace the bad code unit and give it the id of
-  the replacement, and the server refuses such an id anyway. It MUST reproduce
+  whose type or id is empty, which the server refuses, or is not well-formed
+  text (in UTF-16, one holding an unpaired surrogate): encoding would replace
+  the bad code unit and give it the id of the replacement, and the server
+  refuses such an id anyway. It MUST reproduce
   every vector in
   `packages/protocol/fixtures/journey-id-derivation.json`. The SDK MUST NOT read
   the secret from an environment variable of its own.
 - **SDK-56.** Deriving without a usable secret, or for an entity that SDK-55
-  refuses or whose type and id are not strings, MUST NOT throw and MUST NOT
+  refuses or whose type and id are not non-empty strings, MUST NOT throw and MUST NOT
   fail startup. The SDK MUST report it, and MUST return a fresh unpredictable
   journey id rather than an unkeyed derivation. A secret too short to use MUST
   be reported when the recorder is created, and MUST NOT be used. Because a
@@ -519,7 +520,12 @@ A label is the journey's name on the Journeys page, where partial text finds it
   default the operator did not choose while every event it was meant to bound
   or enrich keeps flowing, and with debug output off and no callback read
   nothing else says so. An SDK SHOULD also let a host read which settings were
-  rejected, not only how many, so that a test or a health check can name one. A required string setting that is
+  rejected, not only how many, so that a test or a health check can name one,
+  and SHOULD keep the settings refused at creation apart from options refused
+  on a later call, so that one odd call site never reads as a misconfigured
+  process (F-038). A setting made of parts SHOULD be reported by the part that
+  was refused, with the setting itself named as well when nothing of it is
+  used, so a partial refusal reads differently from a total one (F-031). A required string setting that is
   empty, or holds only whitespace, MUST be treated as missing, reported and
   printed the same way, since an unset environment variable often arrives as
   `""`. A setting given under a name the SDK
@@ -531,7 +537,7 @@ A label is the journey's name on the Journeys page, where partial text finds it
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-60 | ADR-007; ADR-052; packages/sdk-node/src/config.ts | section 14 |
+| SDK-60 | ADR-007; ADR-052; ADR-062; packages/sdk-node/src/config.ts | section 14 |
 
 ### Secret-looking names no rule covers
 
@@ -683,6 +689,6 @@ either.
 | SDK-56 | Derive without a secret, with a short one, for each entity the fixture's `refused` list names, and for an entity that is not a pair of strings; assert nothing throws, each is reported, the ids differ call to call, a short secret is reported at creation, and a missing or short secret prints one warning per process with debug output off. |
 | SDK-58 | Set a label that is not a string, including one whose conversion to text throws, and assert nothing throws, it is reported, and the event is sent without it. |
 | SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
-| SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. Repeat with a required setting that is `""` and one that is only whitespace, and assert each is reported and printed as missing. |
+| SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. Repeat with a required setting that is `""` and one that is only whitespace, and assert each is reported and printed as missing. Start a recorder with every setting valid, make a call with an unusable option, and assert the settings the host can read are still empty and the option is readable apart from them. Configure a deployment with one field too long and assert that field alone is named and the rest is sent; with every field refused, assert the field and the setting are both named. |
 | SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a string is reported; assert a payload the event budget omits reports nothing; record many distinct very long names and assert the memory kept is bounded. |
 | SDK-63 | Set a journey label holding an email address and assert one report naming the label and the shape, with debug output off, one printed line, and neither carrying the value; assert the label the event carries is the one that was set; assert a second label with an email address reports nothing more, and one with an international telephone number reports once; assert a label that looks like neither reports nothing; mark an alias displayable whose value is an email address and assert the same report names the alias, and that an alias not marked displayable reports nothing; in a fresh process, record a failure whose message holds an email address and assert the same report names the error message, that the message the event carries is unchanged, and that a stack holding one reports nothing. |

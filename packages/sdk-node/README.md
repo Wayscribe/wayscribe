@@ -418,9 +418,9 @@ created, and never used. Because split journeys are easy to miss, a missing or
 short secret also prints one line to stderr, once per process, even with
 `logDiagnostics` off; it is one of the six warnings the SDK prints unasked
 ([It cannot break your application](#it-cannot-break-your-application)). An entity
-whose type or id holds an unpaired surrogate is refused the same way (reported,
-random id, no warning line): it cannot be encoded faithfully, and the server
-refuses such an id anyway. The SDK reads no environment variable for it: the
+whose type or id is empty, or holds an unpaired surrogate, is refused the same
+way (reported, random id, no warning line): the server refuses such an entity,
+and an unpaired surrogate cannot be encoded faithfully either. The SDK reads no environment variable for it: the
 variable name above is your application's. Assert
 `recorder.counters().configurationErrors === 0` in a test to catch a missing
 secret before it ships.
@@ -662,8 +662,8 @@ await recorder.flush(); // send everything queued now, and wait for it
 const counters = await recorder.shutdown({ timeoutMs: 2_000 }); // the default
 // { recorded, sent, rejected, dropped, transportErrors, captureErrors,
 //   breakerOpened, payloadsOmitted, payloadsTruncated, keysDropped,
-//   configurationErrors, rejectedSettings, unredactedSecretNames,
-//   personalDataInPublicValues }
+//   configurationErrors, rejectedSettings, rejectedOptions,
+//   unredactedSecretNames, personalDataInPublicValues }
 
 recorder.counters(); // the same numbers, at any time
 ```
@@ -680,16 +680,27 @@ diagnostics of one kind, one per report (see the table below). Once
 `shutdown()` has returned, `sent + rejected + dropped === recorded`, which a
 test can assert.
 
-`rejectedSettings` is the exception, and the one entry that is not a number: it
-names what the `configuration_error` reports were about, in the order first
-seen and once each, so a test or a health check can say *which* setting was
-rejected rather than only how many were. It holds recorder settings and the
-options a call named (`entity`, `context`, `journeyId`, `journeyIdSecret`),
-never a value, and at most 50 of them (ADR-060).
+`rejectedSettings` and `rejectedOptions` are the exceptions, and the two
+entries that are not numbers: they name what the `configuration_error` reports
+were about, in the order first seen and once each, so a test or a health check
+can say *which* setting was rejected rather than only how many were. Neither
+holds a value, and each holds at most 50 names (ADR-060, ADR-062).
+
+- `rejectedSettings` is what `createRecorder` refused: a setting, a setting
+  given under its old name, an unusable `journeyIdSecret`, or a part of
+  `deployment` (see [Which build recorded this](#which-build-recorded-this)).
+  It is fixed once `createRecorder` returns, so it gives the same answer
+  whenever you read it. An entry means the process is misconfigured.
+- `rejectedOptions` is what a later call was refused: `entity`, `context`,
+  `journeyId`, `journeyIdSecret` (a call that needed a secret the recorder does
+  not have, or cannot use), and the old option names `entityFallback` and
+  `displayable`. An entry means one call site passed something odd (F-038).
+
+`configurationErrors` counts every report from both.
 
 ```typescript
 // A recorder that started on a default nobody chose is a deploy that is wrong
-// in a way nothing else reports.
+// in a way nothing else reports. Calls never add to this list.
 expect(recorder.counters().rejectedSettings).toEqual([]);
 ```
 
@@ -794,7 +805,7 @@ in `<noun>Errors`, and a bare participle in itself (`dropped`).
 | `key_dropped` | `aliases_not_object`, `alias_invalid`, `displayable_alias_invalid`, `metadata_key_too_long`, `label_invalid` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; or a label was not set; the event is still sent | `{ field, keys }`, `keys` being how many entries this report covers | `keysDropped`, per report |
 | `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it | `{ name, operation }` for `after_shutdown`, otherwise `{}` | `dropped` |
 | `capture_error` | `unexpected_error`, `not_a_journey`, `invalid_options`, `context_missing` | something threw inside the SDK; `across` was given something that is not a journey; a call's options were not an object or held keys it does not read (such as `fail`'s old positional metadata); or an inject helper was given no context; your call was unaffected | `{ error }` for `unexpected_error`, `{ call }` for `invalid_options` and `context_missing` | `captureErrors` |
-| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` |
+| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` when `createRecorder` reported it or `rejectedOptions` when a later call did |
 | `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
 | `personal_data_in_public_value` | `personal_data_shape` | a journey label, an alias marked displayable, or an error message (`field` is `journeyLabel`, `displayableAliases` or `errorMessage`) holds what looks like an email address or a telephone number, and all three are stored and shown in plain text; once per process and shape; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
@@ -1392,13 +1403,26 @@ them straight from the environment compiles. The object is read and copied once,
 when the recorder is created, so changing it afterwards changes no event, and an
 event that carries it costs one property and no per-field work.
 
-A field that is not a non-empty string, or is longer than the protocol accepts
-(128 characters for `gitCommit` and `version`, 512 for `image`), is left off
-rather than cut, because a cut commit names a build that does not exist; a key
-the protocol does not have is left off too, since sending it would have the
-server refuse every event this process records. Either is reported once as a
-`configuration_error` naming `deployment`, never its value, and the rest of the
-deployment is still sent (ADR-060).
+A field that is not a string, is empty or only whitespace, or is longer than
+the protocol accepts (128 characters for `gitCommit` and `version`, 512 for
+`image`), is left off rather than cut or trimmed, because a cut commit names a
+build that does not exist; a key the protocol does not have is left off too,
+since sending it would have the server refuse every event this process records.
+The rest of the deployment is still sent. Each problem is a
+`configuration_error`, never quoting a value, under a name that says what was
+lost (ADR-060, ADR-062):
+
+| `rejectedSettings` entry | Means |
+| --- | --- |
+| `deployment.gitCommit`, `deployment.version`, `deployment.image` | that field was given and is not sent |
+| `deployment.*` | keys other than those three were given, and are not sent; never the key's own name |
+| `deployment` | the setting was given and events carry no deployment: it is not an object, or no field of it could be sent, which includes `{}` and `{ gitCommit: undefined }` from an unset variable |
+
+So `{ gitCommit, version: <too long> }` reports `["deployment.version"]` and
+sends the commit, while `{ gitCommit: "" }` reports
+`["deployment.gitCommit", "deployment"]` and sends nothing. A consumer that
+stops recording on a refused setting can let a field through and still stop on
+`rejectedSettings.includes("deployment")` (F-031).
 
 ## OpenTelemetry
 

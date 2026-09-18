@@ -438,6 +438,26 @@ What you have to do when upgrading a checkout or a deployment:
 
 ### Changed
 
+- **`counters()` keeps settings and options apart.** `rejectedSettings` now
+  names only what `createRecorder` refused, and is fixed once it returns; a
+  new `rejectedOptions` names what a later call was refused (`entity`,
+  `context`, `journeyId`, `journeyIdSecret`, `entityFallback`, `displayable`).
+  A correctly configured process used to end its shutdown line with
+  `rejected settings: journeyId` after one odd call (F-038, ADR-062).
+  `configurationErrors` still counts every report. `journeyIdFor` now names
+  `entity` when it refuses one, and refuses an entity whose type or id is
+  empty, as its documentation and the protocol already said.
+
+- **`deployment` is reported by field.** A refused field is named
+  `deployment.gitCommit`, `deployment.version` or `deployment.image`; keys the
+  protocol does not have are `deployment.*`, never by their own names; and
+  `deployment` means events carry none of it. So a partial refusal no longer
+  reads like a total one (F-031, ADR-062). A field that is only whitespace is
+  now refused as empty, `{}` and `{ gitCommit: undefined }` are now reported,
+  and `constructor` or `toString` beside a valid field is now caught. A
+  revoked Proxy given as `deployment` no longer throws out of
+  `createRecorder`.
+
 - **An error message that looks like personal data is warned about**, as a
   journey label and a displayable alias already were (F-041, ADR-062). A
   thrown error's, a `FailureReason`'s, `fail()`'s and `record()`'s message is
@@ -744,6 +764,19 @@ What you have to do when upgrading a checkout or a deployment:
 
 These apply to an installation or a host application built from an earlier
 development build of `main`. A new installation can skip them.
+
+- **`rejectedSettings` no longer holds call-time names.** A test or health
+  check that expected `entity`, `context`, `journeyId`, or a `journeyIdSecret`
+  that a call needed but was never configured, in `rejectedSettings` reads
+  `rejectedOptions` instead. A check that stops recording on any refused
+  setting keeps working, and can now let a single `deployment.<field>` through
+  while still stopping on `deployment`.
+
+- **`deployment` problems have new names.** One that was reported as
+  `deployment` is now `deployment.<field>`, `deployment.*`, `deployment`, or
+  several of them, in that order. `{ gitCommit: process.env.GIT_SHA }` with
+  the variable unset now reports `deployment`; it sent nothing before too, in
+  silence. A value that is only whitespace is refused instead of being sent.
 
 - **`hasJourney` takes no type argument.** A call written
   `hasJourney<Job>(body)` drops the `<Job>`: a typed envelope keeps its payload
