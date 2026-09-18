@@ -218,7 +218,10 @@ operation they record, which is what makes the timeline readable.
 returns a value; one that returns a promise, or any other thenable, returns a
 native promise of its resolved value, which the exported type `WrapResult<T>`
 states in one signature rather than two. So wrapping a synchronous call does not
-change the control flow around it:
+change the control flow around it. (A second implementation of these wrappers,
+such as a recorder that records nothing, is assigned to them with no cast, but
+its body still casts its own return to `WrapResult<T>`: a conditional type
+cannot resolve while `T` is a type parameter.)
 
 ```typescript
 try {
@@ -261,7 +264,11 @@ falls back to the generic text and `result_failed`, so a reason you got wrong
 still records the failure rather than losing it. **Every falsy value is not a
 failure**: `false`, `undefined`, `null`, `""`, `0` and `NaN`, so
 `isFailure: (result) => result.errors.length` means what it has always meant. The message is masked for credential shapes
-and bounded like any other error you give the SDK. An `isFailure` that throws
+and bounded like any other error you give the SDK. **It is not masked for
+personal data**: an email address or a telephone number in it is stored and
+shown in plain text wherever the timeline is. Build the message from what your
+code knows, such as the status, rather than from a response body that may name
+a person (F-041). An `isFailure` that throws
 costs the verdict and nothing else: your value comes back, the step is recorded
 as the success it looked like, and a `capture_error` says so.
 
@@ -280,8 +287,11 @@ const response = await journey.deliver("push-crm", payload, () => post(payload),
 });
 ```
 
-It receives the resolved value and the journey's context, runs once per journey
-in a `recorder.across` group, and is not called when the callback throws. Like
+It receives the resolved value and the journey's context, and runs on that value
+whether or not `isFailure` calls it a failure, so a refused call records the
+status that explains it. It is not called when the callback throws or its
+promise rejects. It runs once per call, or once per journey in a
+`recorder.across` group, and nothing is remembered between calls (F-040). Like
 `captureInput` and `captureOutput` it must be synchronous and cannot break your
 call: one that throws, returns a promise, or returns anything that is not a
 plain object leaves the static metadata exactly as it was and reports

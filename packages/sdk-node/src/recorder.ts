@@ -1877,11 +1877,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
   /**
    * The context `continueJourney` joins.
    *
-   * The journey id is the context's, else `journeyId`, else a new random one.
-   * The entity is the context's, else `entity`, else the unknown entity. At the
-   * default propagation level the journey id crosses the boundary and the
-   * entity does not, so the consumer supplies the entity it already has from
-   * the message body.
+   * The journey id is the context's, else `journeyId`, else the one derived
+   * from the entity when the secret allows (`derivedJourneyId`), else a new
+   * random one. The entity is the context's, else `entity`, else the unknown
+   * entity. At the default propagation level the journey id crosses the
+   * boundary and the entity does not, so the consumer supplies the entity it
+   * already has from the message body.
    *
    * Anything that cannot be used is reported and treated as absent: a context
    * whose id is not a non-empty string, which used to be recorded as it was

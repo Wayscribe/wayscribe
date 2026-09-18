@@ -88,6 +88,25 @@ describe("continueJourney with neither a context nor an id", () => {
     expect(journey.context().entity).toEqual({ type: "unknown", id: "unknown" });
   });
 
+  it("prefers the context's id over a journeyId and the derived one", () => {
+    const { recorder } = recorderWith({ journeyIdSecret: SECRET });
+    const entity = { type: "lead", id: "lead_6" };
+    const journey = recorder.continueJourney({
+      context: { journeyId: "jrn_carried" },
+      journeyId: "jrn_given",
+      entity
+    });
+    expect(journey.context().journeyId).toBe("jrn_carried");
+  });
+
+  it("derives past a journeyId it cannot use, and still reports it", () => {
+    const { recorder, diagnostics } = recorderWith({ journeyIdSecret: SECRET });
+    const entity = { type: "lead", id: "lead_7" };
+    const journey = recorder.continueJourney({ journeyId: 7 as never, entity });
+    expect(journey.context().journeyId).toBe(recorder.journeyIdFor(entity));
+    expect(diagnostics.map((d) => d.code)).toContain("journey_id_invalid");
+  });
+
   it("prefers a journey id the caller gave over the derived one", () => {
     const { recorder } = recorderWith({ journeyIdSecret: SECRET });
     const entity = { type: "lead", id: "lead_5" };
@@ -236,5 +255,22 @@ describe("a second implementation of JourneyOperations", () => {
     expectTypeOf(operations.persist("p", 1, () => Promise.resolve("x"))).toEqualTypeOf<
       Promise<string>
     >();
+  });
+
+  it("still casts its own return: the conditional cannot resolve inside the body (F-037)", () => {
+    // `WrapResult`'s documentation says the assignment above needs no cast and
+    // the implementation's return still does. If TypeScript ever resolves the
+    // conditional while `T` is a type parameter, these directives become
+    // unused, `pnpm typecheck` fails, and the sentence has to change with them.
+    function runOnly<T>(_name: string, _input: unknown, fn: () => T): WrapResult<T> {
+      const produced = fn();
+      if (typeof (produced as { then?: unknown } | null)?.then === "function") {
+        // @ts-expect-error TS2322: a promise is not assignable to the unresolved conditional.
+        return Promise.resolve(produced);
+      }
+      // @ts-expect-error TS2322: nor is `T` itself.
+      return produced;
+    }
+    expect(runOnly("t", 1, () => 2)).toBe(2);
   });
 });

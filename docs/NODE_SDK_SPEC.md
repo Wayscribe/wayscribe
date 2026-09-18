@@ -143,11 +143,10 @@ journey id is the context's, else `journeyId`, else the id derived from the
 entity when the recorder has a usable `journeyIdSecret` (ADR-060), else a new
 random one; the
 entity is the context's, else `entity`, else `{ type: "unknown", id: "unknown"
-}`. A `journeyId` that is not a non-empty string is reported as
-`configuration_error` with code `journey_id_invalid`, and a new journey is
-started; so is a `context` without a non-empty string id, which is then
-treated as absent (the `journeyId` option is used if there is one, and the
-derived id after that). Deriving reports nothing: a recorder without a secret
+}`. A `context` or a `journeyId` without a non-empty string id is reported as
+`configuration_error` with code `journey_id_invalid` and treated as absent, so
+the next step decides: after a context, the `journeyId` option if there is one;
+after either, the derived id, or a new random one without a secret. Deriving reports nothing: a recorder without a secret
 is the default, and its journey is new, as it has always been. A journey's
 own `context()` is a valid `context`; the journey handle itself is not. Records
 nothing by itself. Used by downstream HTTP handlers and queue consumers.
@@ -277,7 +276,9 @@ type WrapResult<T> = T extends PromiseLike<infer R> ? Promise<Awaited<R>> : T;
 
 One signature, not two: a second implementation that runs the callback and
 forwards its result the same way either time can be typed once and assigned to
-all four wrappers with no cast (F-021, ADR-060).
+all four wrappers with no cast (F-021, ADR-060). Its body still casts its own
+return to `WrapResult<T>`, because a conditional type cannot resolve while `T`
+is a type parameter (F-037).
 
 ### Wrapper options
 
@@ -310,11 +311,16 @@ validation message do not read alike (ADR-060). A field that is not a non-empty
 string falls back to the generic one, and every falsy value, `0` and `NaN`
 included, is not a failure. One that throws costs the verdict alone: the step
 is recorded as a success and a `capture_error` says so, and a reason whose own
-fields throw costs those fields and not the step.
+fields throw costs those fields and not the step. The message is masked for
+credential shapes like any other error message, and personal data in it is
+not masked (F-041).
 
 `metadataFrom` computes metadata from the resolved value, merged over
-`metadata`, which is copied before the callback runs. It runs once per journey,
-not when the callback throws, and follows the projection rules above; anything
+`metadata`, which is copied before the callback runs. It runs on that value
+whether or not `isFailure` calls it a failure, and not when the callback throws
+or its promise rejects; once per call, or once per journey in an `across`
+group, with nothing remembered between calls (F-040). It follows the
+projection rules above; anything
 it returns that is not a plain object, and any getter on it that throws, leaves
 `metadata` exactly as it was and reports `projection_failed` with field
 `metadata` (ADR-060). The wrapper's own `attempt` is applied after the merge,

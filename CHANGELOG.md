@@ -438,6 +438,16 @@ What you have to do when upgrading a checkout or a deployment:
 
 ### Changed
 
+- **Four SDK declarations say what the code does.** `WrapResult` says the
+  assignment of a second implementation needs no cast and its body's return
+  still does (F-037). `ContinueJourneyOptions` names all four steps of the
+  journey id, the id derived under `journeyIdSecret` included (F-039).
+  `metadataFrom` says it runs on a result `isFailure` calls a failure, not when
+  the callback throws or rejects, and once per call or per journey of an
+  `across()` group (F-040). `FailureReason` says its message is masked for
+  credential shapes and not for personal data (F-041). Each statement is pinned
+  by a test. No behaviour changed.
+
 - **`hasJourney` takes `unknown`.** It was declared as taking a
   `PayloadEnvelope<T>` while documented as taking anything, so a body off a
   queue, typed `unknown`, needed the cast the guard exists to remove (F-034).
