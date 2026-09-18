@@ -513,6 +513,26 @@ describe("the telephone shape (ADR-063 decision 5)", () => {
     expect(personalDataShapeOf(text)).toBeUndefined();
   });
 
+  it.each([
+    ["UTC", "Fri Sep 18 14:00:00 +0000 2026"],
+    ["India", "Fri Sep 18 14:00:00 +0530 2026"],
+    ["Nepal", "Fri Sep 18 14:00:00 +0545 2026"],
+    ["Kiribati", "Fri Sep 18 14:00:00 +1400 2026"],
+    ["a quarter-hour offset", "Fri Sep 18 14:00:00 +1245 2026"]
+  ])("skips a real timezone offset: %s", (_what, text) => {
+    expect(personalDataShapeOf(text)).toBeUndefined();
+  });
+
+  it.each([
+    ["four digits that are not an offset's minutes", "call +1234 5678"],
+    ["a German number", "call +4930 1234567"],
+    ["an Irish number", "call +3531 234 5678"],
+    ["hours past 14", "call +1500 2026"],
+    ["minutes that are not a quarter hour", "call +0110 2026"]
+  ])("finds a number that starts with four digits: %s", (_what, text) => {
+    expect(personalDataShapeOf(text)).toBe("phone");
+  });
+
   it("stays linear on adversarial input of the examined length", async () => {
     const perCall = await timedInChild(ADVERSARIAL);
     for (const [index, input] of ADVERSARIAL.entries()) {

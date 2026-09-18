@@ -82,10 +82,11 @@ function emailIn(text: string): boolean {
  *    letter, a digit or `.` is not a dialling code: `1.2.3+20130313144700`,
  *    `12:00:00+01:00` and a base64 digest have one.
  * 2. The candidate: the `+` and the run of digits, spaces, dashes, dots and
- *    parentheses after it, at most 20 characters, cut after its last digit.
- * 3. A `+` and exactly four digits is a timezone offset and is skipped:
- *    `Fri Sep 18 14:00:00 +0000 2026` has eight digits from `+` to the year
- *    (F-041 review).
+ *    parentheses after it, at most 20 characters.
+ * 3. A real timezone offset is skipped: `+`, hours 00 to 14, minutes 00, 15,
+ *    30 or 45, and no fifth digit. `Fri Sep 18 14:00:00 +0000 2026` has eight
+ *    digits from `+` to the year (F-041 review), and so does `+0530 2026`;
+ *    `+1234 5678` and `+4930 1234567` are numbers, not offsets.
  * 4. 8 to 15 digits (E.164's own bound) when a separator stands between two of
  *    them, and 10 to 15 when they are one unbroken run. A signed count is an
  *    unbroken run, `Received +12345678 bytes`, and a real number written in a
@@ -100,10 +101,12 @@ function emailIn(text: string): boolean {
  * characters, so no input costs more than a bounded scan per `+`.
  */
 const PHONE_SHAPE = /(?<![^\s<>()["',;=:])\+[\d\s().-]{7,20}/g;
-const TIMEZONE_OFFSET = /^\+\d{4}(?!\d)/;
-/** The candidate up to its last digit, so a trailing space is not a separator. */
-const THROUGH_LAST_DIGIT = /^\+[\d\s().-]*\d/;
-/** A separator between two digits: the difference between a number and a count. */
+const TIMEZONE_OFFSET = /^\+(?:0\d|1[0-4])(?:00|15|30|45)(?!\d)/;
+/**
+ * A separator between two digits: the difference between a number and a
+ * count. A separator after the last digit is not between two, so a trailing
+ * space never makes a count a number.
+ */
 const SEPARATED_DIGITS = /\d[\s().-]+\d/;
 const DIGIT = /\d/g;
 const MIN_PHONE_DIGITS = 8;
@@ -130,9 +133,8 @@ export function personalDataShapeOf(value: string): PersonalDataShape | undefine
 }
 
 /** Steps 2 to 4 of `PHONE_SHAPE`'s rule, for one candidate. */
-function isTelephoneNumber(match: string): boolean {
-  const candidate = THROUGH_LAST_DIGIT.exec(match)?.[0];
-  if (candidate === undefined || TIMEZONE_OFFSET.test(candidate)) return false;
+function isTelephoneNumber(candidate: string): boolean {
+  if (TIMEZONE_OFFSET.test(candidate)) return false;
   const digits = candidate.match(DIGIT)?.length ?? 0;
   const least = SEPARATED_DIGITS.test(candidate) ? MIN_PHONE_DIGITS : MIN_UNBROKEN_PHONE_DIGITS;
   return digits >= least && digits <= MAX_PHONE_DIGITS;
