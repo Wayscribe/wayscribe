@@ -19,7 +19,15 @@ const ALIAS = "shared@example.test";
  * from a fixed pool of fake people and only a lead id is fresh each run.
  *
  * `since`, `until` and `environment` are optional. Without them the search
- * still spans the project's whole history, so no caller breaks.
+ * still returns exactly what it returned before, spanning the project's whole
+ * history.
+ *
+ * One answer does change: an unknown query key is now refused. A request such
+ * as `?q=...&status=failed` was a 200 that quietly ignored the key and is now
+ * a 400, which is the point, because a filter that is silently dropped returns
+ * an unnarrowed search that looks narrowed. No caller in this repository sends
+ * anything but `q` and `limit`, so nothing here breaks, but a caller outside
+ * it that sends a key this route does not read will now see a refusal.
  */
 describe("narrowing a search", () => {
   let container: StartedPostgreSqlContainer;
@@ -112,7 +120,8 @@ describe("narrowing a search", () => {
   const q = `q=${encodeURIComponent(ALIAS)}`;
 
   it("spans the project's whole history when nothing narrows it", async () => {
-    // Unchanged behaviour, and the reason F-028 was surprising.
+    // Unchanged behaviour, and the reason F-028 was surprising. Refusing an
+    // unknown key is the one answer that did change; see the refusals below.
     expect(found(await search(q))).toEqual(["jrn_new", "jrn_old"]);
     expect(found(await admin(q))).toEqual(["jrn_new", "jrn_old", "jrn_prod"]);
   });
@@ -183,11 +192,23 @@ describe("narrowing a search", () => {
       ["an until that is not a full instant", "until=2026-09-01"],
       ["an until at or before since", "since=2026-09-01T00:00:00Z&until=2026-09-01T00:00:00Z"],
       ["a repeated since", "since=2026-09-01T00:00:00Z&since=2026-09-02T00:00:00Z"],
-      ["a repeated environment", "environment=a&environment=b"]
+      ["a repeated environment", "environment=a&environment=b"],
+      ["a parameter name holding a null byte", "q%00=y"]
     ])("refuses %s with 400 invalid_query", async (_name, extra) => {
       const response = await search(`${q}&${extra}`);
       expect(response.statusCode, response.body).toBe(400);
       expect(response.json().error.code).toBe("invalid_query");
+    });
+
+    it("puts no null byte from a parameter name into its answer", async () => {
+      // The refusal echoes the key, so a NUL in one would reach the response
+      // body and the request log.
+      const response = await search(`${q}&q%00=y`);
+      expect(response.statusCode).toBe(400);
+      expect(response.body).not.toContain(String.fromCharCode(0));
+      expect(response.json().error.message).toBe(
+        "A parameter name must not contain a null byte. Known parameters: q, since, until, environment, limit, cursor."
+      );
     });
 
     it("names the parameters it does have", async () => {

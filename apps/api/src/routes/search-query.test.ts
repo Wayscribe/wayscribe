@@ -90,6 +90,18 @@ describe("parseSearchQuery", () => {
     expect(parse({ q: "CUST-1", since: "2026-09-15T12:00:30Z" }).ok).toBe(true);
   });
 
+  it("refuses a key holding a null byte without repeating it", () => {
+    // The key is echoed into the response and the request log, so it gets the
+    // check a value gets. `?q%00=y` used to put a raw NUL in both.
+    const parsed = parse({ q: "CUST-1", [`q${NUL}`]: "y" });
+    expect(parsed).toEqual({
+      ok: false,
+      message:
+        "A parameter name must not contain a null byte. Known parameters: q, since, until, environment, limit, cursor."
+    });
+    expect(parsed.ok ? "" : parsed.message).not.toContain(NUL);
+  });
+
   it("echoes at most 32 code points of an unknown key", () => {
     const parsed = parse({ q: "CUST-1", ["x".repeat(80)]: "1" });
     expect(parsed.ok).toBe(false);

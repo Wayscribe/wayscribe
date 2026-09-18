@@ -38,6 +38,9 @@ export const SINCE_CLOCK_TOLERANCE_MS = 60_000;
  */
 const ECHOED_KEY_LENGTH = 32;
 
+/** NUL. PostgreSQL refuses it in a comparison, and no stored name holds one. */
+const NUL = String.fromCharCode(0);
+
 /** One string value, or undefined for absent or empty; a repeated key is an error. */
 export function single(
   params: Record<string, unknown>,
@@ -46,8 +49,7 @@ export function single(
   const raw = params[name];
   if (raw === undefined || raw === "") return { ok: true, value: undefined };
   if (typeof raw !== "string") return { ok: false, message: `${name} must be given once.` };
-  // PostgreSQL refuses a NUL in a comparison, and no stored name holds one.
-  if (raw.includes(String.fromCharCode(0))) {
+  if (raw.includes(NUL)) {
     return { ok: false, message: `${name} must not contain a null byte.` };
   }
   return { ok: true, value: raw };
@@ -83,9 +85,15 @@ export function unknownKey(
   kind: string
 ): string | undefined {
   for (const key of Object.keys(params)) {
-    if (!known.includes(key)) {
-      return `${echoedKey(key)} is not a parameter of ${kind}. Known parameters: ${known.join(", ")}.`;
+    if (known.includes(key)) continue;
+    // The key is echoed, so it gets the check a value gets, and is answered
+    // without being repeated: `?q%00=y` would otherwise write a NUL into the
+    // response body and into the request log, and no parameter name has one,
+    // so nothing is lost by refusing rather than naming it.
+    if (key.includes(NUL)) {
+      return `A parameter name must not contain a null byte. Known parameters: ${known.join(", ")}.`;
     }
+    return `${echoedKey(key)} is not a parameter of ${kind}. Known parameters: ${known.join(", ")}.`;
   }
   return undefined;
 }
