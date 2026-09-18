@@ -315,7 +315,9 @@ What you have to do when upgrading a checkout or a deployment:
   before this release. A dry run's `stored.event` carries the same field.
   Aliases are still stored once per journey; migration 020 adds
   `journey_events.stated_alias_ids`, the ids of the alias rows the event
-  stated, written with the event's own insert.
+  stated, written with the event's own insert. Ingestion now stores an event's
+  aliases before the event, which costs an event with aliases one more
+  statement: 2.3 to 2.7 ms at the median, measured in process.
 - **A timeline row names the build that recorded it** (F-043, `docs/API_SPEC.md`
   section 8). `GET /v1/journeys/:journeyId/events` rows gain
   `deploymentMetadata`, the event's `deployment` as the event read returns it,
