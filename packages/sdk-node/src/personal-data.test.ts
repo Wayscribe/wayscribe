@@ -1,5 +1,11 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { build } from "esbuild";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Recorder, type RecorderConfig } from "./index.js";
@@ -507,28 +513,82 @@ describe("the telephone shape (ADR-063 decision 5)", () => {
     expect(personalDataShapeOf(text)).toBeUndefined();
   });
 
-  it("stays linear on adversarial input of the examined length", () => {
-    const inputs = [
-      "+".repeat(1_024),
-      "=+".repeat(512),
-      "(+1 ".repeat(256),
-      `+${"1 ".repeat(511)}x`,
-      `+${"(".repeat(1_023)}`,
-      ":+1234567".repeat(113),
-      `${"a".repeat(1_000)}=+1234567890123`.slice(0, 1_024),
-      "+- ".repeat(341)
-    ];
-    for (const input of inputs) {
-      expect(input.length).toBeLessThanOrEqual(1_024);
-      for (let i = 0; i < 20; i += 1) personalDataShapeOf(input);
-      const started = performance.now();
-      for (let i = 0; i < 100; i += 1) personalDataShapeOf(input);
-      const perCall = (performance.now() - started) / 100;
+  it("stays linear on adversarial input of the examined length", async () => {
+    const perCall = await timedInChild(ADVERSARIAL);
+    for (const [index, input] of ADVERSARIAL.entries()) {
       // Measured at under 0.6 ms a call on the worst of these, and usually far
       // less once the expression is compiled. The bound is loose so a busy
       // machine does not fail it: what it catches is backtracking, which over
       // 1,024 characters costs seconds, not milliseconds.
-      expect(perCall, JSON.stringify(input.slice(0, 16))).toBeLessThan(5);
+      expect(perCall[index], JSON.stringify(input.slice(0, 16))).toBeLessThan(5);
     }
-  });
+  }, 60_000);
 });
+
+/** Inputs of the examined length that would make a backtracking rule slow. */
+const ADVERSARIAL = [
+  "+".repeat(1_024),
+  "=+".repeat(512),
+  "(+1 ".repeat(256),
+  `+${"1 ".repeat(511)}x`,
+  `+${"(".repeat(1_023)}`,
+  ":+1234567".repeat(113),
+  `${"a".repeat(1_000)}=+1234567890123`.slice(0, 1_024),
+  "+- ".repeat(341)
+];
+
+/** How long the whole timed run may take before the child is killed. */
+const CHILD_DEADLINE_MS = 20_000;
+
+/**
+ * Milliseconds per call of `personalDataShapeOf` on each input, measured in a
+ * child process that is killed at a deadline.
+ *
+ * In a child, not here: a regular expression that backtracks cannot be
+ * interrupted from the thread running it, so a regression timed in-process
+ * hangs the suite rather than failing it. The module is bundled from source
+ * with esbuild, as `bench/build.mjs` does, so the child runs this code.
+ */
+async function timedInChild(inputs: readonly string[]): Promise<number[]> {
+  const directory = mkdtempSync(join(tmpdir(), "wayscribe-phone-"));
+  try {
+    const module = join(directory, "personal-data.mjs");
+    await build({
+      entryPoints: [fileURLToPath(new URL("./personal-data.ts", import.meta.url))],
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      conditions: ["development"],
+      outfile: module,
+      logLevel: "error"
+    });
+    const runner = join(directory, "run.mjs");
+    writeFileSync(
+      runner,
+      `import { personalDataShapeOf } from ${JSON.stringify(pathToFileURL(module).href)};
+const inputs = JSON.parse(process.argv[2]);
+const out = inputs.map((input) => {
+  for (let i = 0; i < 20; i += 1) personalDataShapeOf(input);
+  const started = performance.now();
+  for (let i = 0; i < 100; i += 1) personalDataShapeOf(input);
+  return (performance.now() - started) / 100;
+});
+process.stdout.write(JSON.stringify(out));
+`
+    );
+    const result = spawnSync(process.execPath, [runner, JSON.stringify(inputs)], {
+      encoding: "utf8",
+      timeout: CHILD_DEADLINE_MS,
+      killSignal: "SIGKILL"
+    });
+    if (result.error !== undefined || result.signal !== null) {
+      throw new Error(
+        `The telephone shape did not finish ${String(inputs.length)} inputs within ${String(CHILD_DEADLINE_MS)} ms (${String(result.signal ?? result.error?.message)}): it backtracks.`
+      );
+    }
+    expect(result.status, result.stderr).toBe(0);
+    return JSON.parse(result.stdout) as number[];
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
