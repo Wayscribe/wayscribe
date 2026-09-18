@@ -286,6 +286,7 @@ describe("logDiagnostics", () => {
       payloadsTruncated: 0,
       keysDropped: 0,
       configurationErrors: 0,
+      rejectedSettings: [],
       unredactedSecretNames: 0,
       sent: 0
     });

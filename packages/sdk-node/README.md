@@ -300,7 +300,7 @@ random id, so recording carries on and the journeys split until the secret is
 set. A secret shorter than 32 bytes is reported once when the recorder is
 created, and never used. Because split journeys are easy to miss, a missing or
 short secret also prints one line to stderr, once per process, even with
-`logDiagnostics` off; it is one of the four warnings the SDK prints unasked
+`logDiagnostics` off; it is one of the five warnings the SDK prints unasked
 ([It cannot break your application](#it-cannot-break-your-application)). An entity
 whose type or id holds an unpaired surrogate is refused the same way (reported,
 random id, no warning line): it cannot be encoded faithfully, and the server
@@ -445,14 +445,20 @@ no library. This one is built so that cannot happen:
   `payloadsOmitted` instead, and one sent with a string cut in
   `payloadsTruncated`, because its event is still sent.
 - Nothing is written to your console unless you set `logDiagnostics`, with
-  four exceptions, each printed once per process: a `journeyIdSecret` that
+  five exceptions, each printed once per process: a `journeyIdSecret` that
   cannot be used; a required setting (`endpoint`, `apiKey`, `serviceName`,
   `environment`) that is missing, empty, blank or not a string, since nothing
-  recorded reaches the server until it is fixed; a setting under its old name
-  (`maxPayloadBytes`, `propagate`), since its value is not read; and, once per
+  recorded reaches the server until it is fixed; an optional setting the
+  recorder could not use, which it replaced with its default or clamped into
+  range; a setting under its old name (`maxPayloadBytes`, `propagate`), since
+  its value is not read; and, once per
   name, a field whose name looks like a secret that was sent in plain text. A line names the setting or
   the field, never its value. Pass `onDiagnostic` if you want to hear about failures in your own
   logger.
+
+  An optional setting used to be silent unless `logDiagnostics` was on, so a
+  recorder could run on a default nobody chose while every event it was meant
+  to bound or enrich kept flowing and the counters read healthy (ADR-060).
 - A bad configuration value never stops your application starting. It is
   reported as a `configuration_error` and replaced by its default, or clamped
   into range. Values are not converted: `maxBufferedEvents: "5000"`, as read
@@ -482,7 +488,7 @@ await recorder.flush(); // send everything queued now, and wait for it
 const counters = await recorder.shutdown({ timeoutMs: 2_000 }); // the default
 // { recorded, sent, rejected, dropped, transportErrors, captureErrors,
 //   breakerOpened, payloadsOmitted, payloadsTruncated, keysDropped,
-//   configurationErrors, unredactedSecretNames }
+//   configurationErrors, rejectedSettings, unredactedSecretNames }
 
 recorder.counters(); // the same numbers, at any time
 ```
@@ -498,6 +504,19 @@ built, and `sent` every event the server stored. Every other counter counts the
 diagnostics of one kind, one per report (see the table below). Once
 `shutdown()` has returned, `sent + rejected + dropped === recorded`, which a
 test can assert.
+
+`rejectedSettings` is the exception, and the one entry that is not a number: it
+names what the `configuration_error` reports were about, in the order first
+seen and once each, so a test or a health check can say *which* setting was
+rejected rather than only how many were. It holds recorder settings and the
+options a call named (`entity`, `context`, `journeyId`, `journeyIdSecret`),
+never a value, and at most 50 of them (ADR-060).
+
+```typescript
+// A recorder that started on a default nobody chose is a deploy that is wrong
+// in a way nothing else reports.
+expect(recorder.counters().rejectedSettings).toEqual([]);
+```
 
 ## Is it sending?
 
@@ -600,7 +619,7 @@ in `<noun>Errors`, and a bare participle in itself (`dropped`).
 | `key_dropped` | `aliases_not_object`, `alias_invalid`, `displayable_alias_invalid`, `metadata_key_too_long`, `label_invalid` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; or a label was not set; the event is still sent | `{ field, keys }`, `keys` being how many entries this report covers | `keysDropped`, per report |
 | `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it | `{ name, operation }` for `after_shutdown`, otherwise `{}` | `dropped` |
 | `capture_error` | `unexpected_error`, `not_a_journey`, `invalid_options`, `context_missing` | something threw inside the SDK; `across` was given something that is not a journey; a call's options were not an object or held keys it does not read (such as `fail`'s old positional metadata); or an inject helper was given no context; your call was unaffected | `{ error }` for `unexpected_error`, `{ call }` for `invalid_options` and `context_missing` | `captureErrors` |
-| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors` |
+| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` |
 | `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
 

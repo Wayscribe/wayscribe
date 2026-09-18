@@ -11,7 +11,12 @@ import {
   type TruncationStats
 } from "@wayscribe/payload-security/redaction";
 import { fitsCodePoints } from "./code-points.js";
-import { firstRequiredSettingWarning, resolveConfig, type RecorderConfig } from "./config.js";
+import {
+  firstRequiredSettingWarning,
+  resolveConfig,
+  type ConfigProblem,
+  type RecorderConfig
+} from "./config.js";
 import {
   createDiagnostics,
   printDiagnostic,
@@ -485,6 +490,21 @@ async function raceTimeout(promise: Promise<unknown>, ms: number): Promise<void>
   }
 }
 
+/**
+ * Why one line about a rejected setting is printed although `logDiagnostics`
+ * is off. Each reason is different, and the line is the only sign an operator
+ * who reads no diagnostics will get (SDK-56, SDK-60, ADR-060).
+ */
+function whyPrinted(required: boolean, code: ConfigProblem["code"]): string {
+  if (required) {
+    return "printed once per process, whether or not logDiagnostics is on, because nothing recorded reaches the server until it is fixed";
+  }
+  if (code === "setting_renamed") {
+    return "printed once per process, whether or not logDiagnostics is on, because the setting is otherwise lost unseen";
+  }
+  return "printed once per process, whether or not logDiagnostics is on, because the setting was replaced by its default while the recorder went on looking healthy";
+}
+
 export function createRecorder(config: RecorderConfig): Recorder {
   const resolved = resolveConfig(config);
   const diagnostics = createDiagnostics(resolved.onDiagnostic, { log: resolved.logDiagnostics });
@@ -500,6 +520,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
   // fixed, silently to anybody not reading diagnostics. Like an unusable
   // secret, it prints one line per process and setting even with
   // logDiagnostics off, the other exception to SDK-40 that SDK-56 allows.
+  //
+  // So does an optional one (ADR-060): it was replaced by its default, and
+  // with logDiagnostics off and no onDiagnostic read nothing else said so,
+  // while the recorder went on looking healthy (F-010).
   safely(diagnostics, "capture_error", () => {
     for (const { setting, code, reason, required, printed } of resolved.problems) {
       const diagnostic: Diagnostic = {
@@ -510,12 +534,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       };
       diagnostics.report(diagnostic, undefined, { unlimited: true });
       if (!printed || resolved.logDiagnostics || !firstRequiredSettingWarning(setting)) continue;
-      printDiagnostic(
-        diagnostic,
-        required
-          ? "printed once per process, whether or not logDiagnostics is on, because nothing recorded reaches the server until it is fixed"
-          : "printed once per process, whether or not logDiagnostics is on, because the setting is otherwise lost unseen"
-      );
+      printDiagnostic(diagnostic, whyPrinted(required, code));
     }
   });
   // A secret that was configured and cannot be used is reported now, once, so

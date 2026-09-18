@@ -97,7 +97,9 @@ describe("settings that cannot be used", () => {
         code: "setting_unusable",
         reason: expect.stringContaining(key) as string,
         required: false,
-        printed: false
+        // Every rejected setting prints one line, not only a required one
+        // (F-010, ADR-060).
+        printed: true
       }
     ]);
   });

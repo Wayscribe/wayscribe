@@ -150,9 +150,12 @@ export interface ConfigProblem {
    */
   required: boolean;
   /**
-   * Printed once per process whatever `logDiagnostics` says: a required
-   * setting, because nothing reaches the server without it, and a renamed
-   * one, because the value is otherwise lost unseen (SDK-60).
+   * Printed once per process whatever `logDiagnostics` says. Every rejected
+   * setting is: a required one because nothing reaches the server without it,
+   * a renamed one because the value is otherwise lost unseen (SDK-60), and an
+   * optional one because it was replaced by its default and the recorder goes
+   * on looking healthy while the setting the operator chose is not in force
+   * (ADR-060).
    */
   printed: boolean;
 }
@@ -210,7 +213,12 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
       code: required ? "required_setting_unusable" : "setting_unusable",
       reason,
       required,
-      printed: required
+      // Every rejected setting prints, not only a required one. Gating this on
+      // `required` left an optional setting silent with logDiagnostics off and
+      // no onDiagnostic read: the recorder ran with a value the operator never
+      // chose, and every event it was meant to bound or enrich kept flowing
+      // (F-010, ADR-060).
+      printed: true
     });
   };
   const read = (key: keyof RecorderConfig): unknown => {

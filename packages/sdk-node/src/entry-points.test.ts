@@ -382,13 +382,71 @@ describe("what configuration problems print", () => {
     } finally {
       restore();
     }
-    // One line each for the two required settings; the optional one is silent.
-    expect(lines).toHaveLength(2);
+    // One line each for the two required settings, and one for the optional
+    // one, which is rejected just as silently (F-010).
+    expect(lines).toHaveLength(3);
     expect(lines[0]).toContain("endpoint");
     expect(lines[0]).toContain("once per process");
     expect(lines[1]).toContain("apiKey");
+    expect(lines[2]).toContain("captureMode");
     expect(lines.join("\n")).not.toContain("918273645");
-    expect(lines.join("\n")).not.toContain("captureMode");
+  });
+
+  it("prints a rejected optional setting once per process with logDiagnostics off, never its value", async () => {
+    const { lines, restore } = printed();
+    try {
+      for (let recorders = 0; recorders < 2; recorders += 1) {
+        const recorder = createRecorder({
+          ...base,
+          batchSize: "5" as never,
+          maxBufferedEvents: -1
+        });
+        await recorder.shutdown({ timeoutMs: 100 });
+      }
+    } finally {
+      restore();
+    }
+    // A setting the recorder replaced with its default used to be silent
+    // unless logDiagnostics was on, so a recorder ran misconfigured while
+    // every event it was meant to bound kept flowing (F-010).
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("batchSize");
+    expect(lines[0]).toContain("once per process");
+    expect(lines[1]).toContain("maxBufferedEvents");
+    expect(lines.join("\n")).not.toContain('"5"');
+  });
+
+  it("names the rejected settings in counters(), not only how many there were", async () => {
+    const { restore } = printed();
+    try {
+      const recorder = createRecorder({
+        ...base,
+        captureMode: "bogus" as never,
+        batchSize: "5" as never
+      });
+      const counters = await recorder.shutdown({ timeoutMs: 100 });
+      expect(counters.configurationErrors).toBe(2);
+      expect(counters.rejectedSettings).toEqual(["captureMode", "batchSize"]);
+      // A copy, so a host cannot change what the recorder counted.
+      expect(counters.rejectedSettings).not.toBe(recorder.counters().rejectedSettings);
+    } finally {
+      restore();
+    }
+  });
+
+  it("names a setting once however many times it was reported", async () => {
+    const { restore } = printed();
+    try {
+      const recorder = createRecorder({ ...base, batchSize: "5" as never });
+      // Two derivations with no secret: one setting, reported twice.
+      recorder.journeyIdFor({ type: "t", id: "1" });
+      recorder.journeyIdFor({ type: "t", id: "2" });
+      const counters = await recorder.shutdown({ timeoutMs: 100 });
+      expect(counters.configurationErrors).toBe(3);
+      expect(counters.rejectedSettings).toEqual(["batchSize", "journeyIdSecret"]);
+    } finally {
+      restore();
+    }
   });
 
   it("prints an empty required setting once per process with logDiagnostics off, as it prints a missing one", async () => {

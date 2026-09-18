@@ -513,7 +513,12 @@ A label is the journey's name on the Journeys page, where partial text finds it
   setting SHOULD take its default, or be clamped into range. A required
   setting (section 12) has no default, so nothing recorded reaches the server
   until it is fixed; an SDK SHOULD therefore print one warning for it per
-  process even when debug output is off. A required string setting that is
+  process even when debug output is off. An SDK SHOULD print one warning per
+  process for an optional setting it rejected too: the recorder runs on a
+  default the operator did not choose while every event it was meant to bound
+  or enrich keeps flowing, and with debug output off and no callback read
+  nothing else says so. An SDK SHOULD also let a host read which settings were
+  rejected, not only how many, so that a test or a health check can name one. A required string setting that is
   empty, or holds only whitespace, MUST be treated as missing, reported and
   printed the same way, since an unset environment variable often arrives as
   `""`. A setting given under a name the SDK
