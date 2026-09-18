@@ -554,6 +554,13 @@ What you have to do when upgrading a checkout or a deployment:
   refused with `limit must be a whole number from 1 to 100.`, where `abc`, `0`
   and `-1` used to become 25 and anything over 100 became 100, without a word.
   Omitted or empty is still 25.
+- **The refusal of a future `since` states the real rule** (F-035), on
+  `GET /v1/search` and `GET /v1/journeys`: `since must not be more than 60
+  seconds ahead of the API's clock.` It said `since must not be in the future.`,
+  which a caller whose clock ran 30 seconds fast saw contradicted by a `200`,
+  and it left out the tolerance that explains a refusal caused by clock skew.
+  The check itself is unchanged. The message is built from the tolerance, so
+  the two cannot drift apart.
 - **A successful retry clears a failed journey** (ADR-061). A `retried` event
   carrying no error returns the journey's status from `failed` to `active`
   instead of leaving it failed until something else says otherwise. An SDK

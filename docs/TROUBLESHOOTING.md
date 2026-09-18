@@ -359,7 +359,7 @@ The other refusals of `since`:
 | Sent | Answer |
 | --- | --- |
 | `since=2026-09-01T00:00:00` (no zone) | `since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z.` |
-| a `since` more than 60 seconds ahead of the API's clock | `since must not be in the future.` |
+| a `since` more than 60 seconds ahead of the API's clock | `since must not be more than 60 seconds ahead of the API's clock.` |
 
 Keep the same `since` for every page. A cursor continues the list it came from,
 and recomputing "24 hours ago" per page moves the window under it

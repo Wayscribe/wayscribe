@@ -71,7 +71,10 @@ describe("parseSearchQuery", () => {
       { q: "CUST-1", until: "2026-09-14" },
       "until must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
     ],
-    [{ q: "CUST-1", since: "2026-09-16T12:00:00Z" }, "since must not be in the future."],
+    [
+      { q: "CUST-1", since: "2026-09-16T12:00:00Z" },
+      "since must not be more than 60 seconds ahead of the API's clock."
+    ],
     [
       { q: "CUST-1", since: "2026-09-14T12:00:00Z", until: "2026-09-14T12:00:00Z" },
       "until must be after since."

@@ -16,7 +16,12 @@ import {
   parseJourneyListQuery
 } from "../apps/api/src/routes/journey-list-query.js";
 import { SEARCH_PARAMETERS } from "../apps/api/src/routes/search-query.js";
-import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "../apps/api/src/routes/query-params.js";
+import {
+  DEFAULT_PAGE_LIMIT,
+  FUTURE_SINCE_MESSAGE,
+  MAX_PAGE_LIMIT,
+  SINCE_CLOCK_TOLERANCE_MS
+} from "../apps/api/src/routes/query-params.js";
 import { filesEndingWith, findSection, markdownFiles, read, root } from "./docs-helpers.js";
 
 /** The text of a `## ` section of a markdown document, up to the next one. */
@@ -362,6 +367,31 @@ describe("the documentation's checkable claims", () => {
       expect(limits.replace(/\s+/g, " ")).toContain(
         `List endpoints return ${String(DEFAULT_PAGE_LIMIT)} items by default and at most ${String(MAX_PAGE_LIMIT)}`
       );
+    });
+  });
+
+  describe("the clock tolerance on since", () => {
+    // F-035: the refusal said "since must not be in the future." while the
+    // check tolerates a minute. The message is built from the constant; these
+    // hold the documents that quote the rule and the message to it.
+    const seconds = String(SINCE_CLOCK_TOLERANCE_MS / 1000);
+
+    it.each(["5. Search", "6. List journeys"])(
+      "API_SPEC section %s states the tolerance",
+      (heading) => {
+        expect(section(read("docs/API_SPEC.md"), heading).replace(/\s+/g, " ")).toContain(
+          `more than ${seconds} seconds ahead of the API's clock`
+        );
+      }
+    );
+
+    it("TROUBLESHOOTING quotes the refusal as the API sends it", () => {
+      expect(FUTURE_SINCE_MESSAGE).toContain(`${seconds} seconds`);
+      const row = read("docs/TROUBLESHOOTING.md")
+        .split("\n")
+        .find((line) => line.startsWith(`| a \`since\` more than ${seconds} seconds ahead`));
+      expect(row, "TROUBLESHOOTING has no row for a future since").toBeDefined();
+      expect(row).toContain(`\`${FUTURE_SINCE_MESSAGE}\``);
     });
   });
 

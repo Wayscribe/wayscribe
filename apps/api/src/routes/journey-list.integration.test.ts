@@ -230,7 +230,7 @@ describe("GET /v1/journeys", () => {
     ],
     [
       `since=${encodeURIComponent(new Date(Date.now() + HOUR).toISOString())}`,
-      "since must not be in the future."
+      "since must not be more than 60 seconds ahead of the API's clock."
     ],
     ["since=2026-01-01T00:00:00Z&status=broken", "status must be one of active, completed, failed."]
   ])("rejects %j with the error envelope", async (query, message) => {

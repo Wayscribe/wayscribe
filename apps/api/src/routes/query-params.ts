@@ -32,6 +32,18 @@ const instantMessage = (name: string): string =>
 export const SINCE_CLOCK_TOLERANCE_MS = 60_000;
 
 /**
+ * The refusal of a `since` past the tolerance, in the style of the format
+ * message: it states the rule the check applies. It said "since must not be
+ * in the future." (F-035), which a caller whose clock runs 30 seconds fast
+ * sees contradicted by a 200, and which leaves out the one number that
+ * explains a refusal caused by clock skew. Built from the constant, so the
+ * words cannot drift from the check.
+ */
+export const FUTURE_SINCE_MESSAGE = `since must not be more than ${String(
+  SINCE_CLOCK_TOLERANCE_MS / 1000
+)} seconds ahead of the API's clock.`;
+
+/**
  * How much of an unknown key a refusal repeats. Enough to recognise a typo; a
  * key of any length would otherwise be copied back whole into the response and
  * the request log.
