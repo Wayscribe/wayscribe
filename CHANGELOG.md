@@ -382,10 +382,14 @@ What you have to do when upgrading a checkout or a deployment:
   `pnpm run <script>` in a checkout. It replaces a usage line that named
   `tsx src/cli.ts`, which the image does not have and which appeared only for
   an unknown command (F-033).
-  Help needs no `DATABASE_URL`, and every usage line and help text is built
-  from the one list of flags the parsers accept. A command that takes no flags
-  now refuses one, as `key:create` and `doctor` already did, rather than
-  ignoring it.
+  Help needs no `DATABASE_URL` and never runs the command, however many `--`
+  pnpm and the operator put before it; `--help` or `-h` after the value
+  separator is refused rather than read as a value. Every flag is declared once
+  in the CLI's command registry, which the parsers read their flags from by
+  type and every usage line and help text is built from. A command that takes
+  no flags now refuses one, as `key:create` and `doctor` already did, rather
+  than ignoring it, and a name that begins with a dash goes after `--` for
+  `project:create` and `key:create` as it does for the deletion commands.
 - **`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and
   `ADMIN_TOKEN_FILE`** read each value from a file at startup instead of from
   the environment, the way Docker's own secrets mechanism mounts one.
@@ -601,7 +605,10 @@ What you have to do when upgrading a checkout or a deployment:
 - **Database CLI commands that take no flags refuse one.** `migrate --dry-run`,
   for one, used to ignore the flag and migrate; it now prints
   `Unknown argument: --dry-run` with the command's usage and exits 1, changing
-  nothing. A script passing such a flag should drop it.
+  nothing. A script passing such a flag should drop it. `key:create` and
+  `project:create` likewise refuse an argument beginning with a dash, which
+  `key:create` took as the key's name; such a name goes after `--`, which
+  `project:create` used to fold into the name.
 
 ### Security
 

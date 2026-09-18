@@ -391,7 +391,17 @@ once and is not recoverable: issue another rather than hunting for it.
 Every command prints its arguments and options with `--help`, as in
 `packages/database/dist/cli.js key:create --help`, and `--help` alone lists the
 commands and how to run them in the image and in a checkout. Neither needs
-`DATABASE_URL`.
+`DATABASE_URL`, and a request for help never runs the command: `--help` or `-h`
+anywhere before a `--` that follows an argument prints the help, including
+after the `--` that `pnpm run <script> -- --help` adds. After such a `--`,
+where every argument is otherwise a value, either one is refused and nothing
+runs.
+
+A project or key name that begins with a dash goes after `--`, as for the
+deletion commands: `project:create beta -- -Beta` names the project `-Beta`.
+Before a `--`, anything beginning with a dash is read as a flag, and one the
+command does not have is refused.
+
 `key:create` and `key:revoke` each write an audit row, `api_key.created` or
 `api_key.revoked`, naming the key by its prefix (`SECURITY.md` section 13).
 
@@ -826,7 +836,10 @@ otherwise remove the line afterwards (`history -d <number>` in bash). Run it on 
 host whose process list only operators can read.
 
 A value or id that begins with a dash goes after `--`, so it is not read as an
-option: `pnpm delete:identifier acme -- -A1`.
+option: `pnpm delete:identifier acme -- -A1`. The one exception is `--help` or
+`-h`, which the CLI refuses as a value, so that asking for help can never
+delete anything; erase such a value through the admin API
+(`POST /v1/erasures`, `docs/API_SPEC.md`).
 
 `delete:range` takes the retention sweep's advisory lock, so a range deletion
 and a sweep never run at once. While the sweep holds it the command deletes
@@ -1563,10 +1576,14 @@ The value is trimmed, so a key read from a file that ends in a newline works.
 `--api-key` wins when both are given, for checking one key while the environment
 holds another.
 
-A variable that is set but empty is reported as
-`SKIP  API key  Not checked: WAYSCRIBE_API_KEY is set but empty.` rather than
-left out, so the summary counts it as skipped and says the check did not
-happen. That is what a Compose file's `WAYSCRIBE_API_KEY: ${WAYSCRIBE_API_KEY}`
+A variable that is set but empty is reported rather than left out, so the
+summary counts it as skipped and says the check did not happen:
+
+```text
+SKIP  API key                 Not checked: WAYSCRIBE_API_KEY is set but empty.
+```
+
+That is what a Compose file's `WAYSCRIBE_API_KEY: ${WAYSCRIBE_API_KEY}`
 passes on a host without the variable, and what `-e WAYSCRIBE_API_KEY` passes
 from a shell that has it set empty. Like every `SKIP`, it does not change the
 exit code. With the variable unset and no flag, which is what `-e` passes from a
