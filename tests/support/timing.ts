@@ -188,12 +188,14 @@ export function growth<T>(
   work: (input: T) => unknown,
   small: { input: T; units: number },
   large: { input: T; units: number },
-  limit: number
+  limit: number,
+  budgetMs: number = BUDGET_MS
 ): Comparison {
   return compare(
     { run: () => work(large.input), units: large.units },
     { run: () => work(small.input), units: small.units },
-    limit
+    limit,
+    budgetMs
   );
 }
 
