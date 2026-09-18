@@ -1450,6 +1450,32 @@ sends the commit, while `{ gitCommit: "" }` reports
 stops recording on a refused setting can let a field through and still stop on
 `rejectedSettings.includes("deployment")` (F-031).
 
+`deployment` is your build. The SDK's own build is on every event too, as
+`runtime`, with nothing to configure (ADR-063):
+
+```json
+{
+  "language": "node",
+  "version": "24.19.0",
+  "sdk": {
+    "name": "@wayscribe/node",
+    "version": "0.1.0",
+    "commit": "27f4d64a3b1c0e9f8d7c6b5a4f3e2d1c0b9a8f7e"
+  }
+}
+```
+
+The event detail shows it as `@wayscribe/node 0.1.0 at 27f4d64...`, so during
+an upgrade you can tell which services still run the old SDK. The version and
+commit are fixed when the package is built, never read from your settings or
+environment. The commit is the one the build came from: in CI,
+`CI_COMMIT_SHA`; from a `git archive` of the repository, the commit git wrote
+into `packages/sdk-node/BUILD_COMMIT`; from a checkout, `git rev-parse HEAD`.
+Without any of those it is left out, and an SDK run from source rather than
+built reports `0.0.0-development`. An event with no `runtime.sdk` was recorded
+by an SDK from before this, or by another client. The hostname and process id,
+which the protocol also has, are not sent.
+
 ## OpenTelemetry
 
 If OpenTelemetry is installed, the SDK reads the active trace and span IDs onto

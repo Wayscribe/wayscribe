@@ -250,14 +250,6 @@ configurable policy that was never built.
 - **SDK-34.** Concurrent sends MUST be capped.
 - **SDK-35.** An SDK SHOULD report an unencrypted endpoint and MUST still start.
 - **SDK-36.** An SDK MUST NOT use the dry run in normal operation.
-- **SDK-65.** A send in which no attempt got a verdict for any of its events
-  MUST count toward the breaker, as a send that failed does. An attempt got a
-  verdict when at least one of its events was accepted, refused for good, or
-  refused for now. A send that stored anything still resets the count
-  (SDK-32), as does one that got at least one verdict and left nothing unsent,
-  and a whole-request 4xx still leaves it as it was (SDK-31). A collector that
-  answers 2xx with the wrong body otherwise loses every event it is sent with
-  the breaker never opening (F-048, ADR-063).
 
 ### Defaults
 
@@ -289,7 +281,6 @@ may differ; it should be able to say why.
 | SDK-34 | packages/sdk-node/src/config.ts | section 14 |
 | SDK-35 | packages/sdk-node/src/diagnostics.ts | section 14 |
 | SDK-36 | ADR-050 | section 14 |
-| SDK-65 | ADR-063; packages/sdk-node/src/transport.ts | section 14 |
 
 ## 8. Shutdown
 
@@ -675,6 +666,46 @@ company and a person's full name, and nothing in any SDK would have said a word
 | --- | --- | --- |
 | SDK-63 | ADR-055; ADR-060; ADR-053; ADR-062; ADR-063 | section 14 |
 
+### Which SDK recorded an event
+
+Nothing in an event said which SDK recorded it, and two builds of the Node SDK
+both called themselves `0.1.0`, so during a server-first upgrade nothing could
+say which services still ran the old one (F-046).
+
+- **SDK-64.** An SDK SHOULD send `runtime.language`, `runtime.version` and
+  `runtime.sdk` (`name`, `version`, and `commit` when it has one) on every
+  event, so a reader can say which services run which SDK build, and MUST NOT
+  take any of them from host settings or the host's environment: they describe
+  the SDK, which the host cannot know better, and a value the host could set
+  would answer the question wrongly. The version and commit are those of the
+  build, fixed when the SDK is built. It SHOULD NOT send `runtime.hostname` or
+  `runtime.processId` for this: a hostname is a new identifier on every event,
+  often a person's name on a laptop (F-046, ADR-063).
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-64 | ADR-063; wire/runtime-sdk; wire/runtime-sdk-name-empty | section 14 |
+
+### A reply with no verdict
+
+A collector that answers 2xx with a body that is not a verdict, which is what a
+misconfigured proxy in front of the API does, reset the breaker on every send:
+Leadline measured 16,000 events recorded and 16,000 dropped with the breaker
+never opening (F-048).
+
+- **SDK-65.** A send in which no attempt got a verdict for any of its events
+  MUST count toward the breaker, as a send that failed does. An attempt got a
+  verdict when at least one of its events was accepted, refused for good, or
+  refused for now. A send that stored anything still resets the count
+  (SDK-32), as does one that got at least one verdict and left nothing unsent,
+  and a whole-request 4xx still leaves it as it was (SDK-31). A collector that
+  answers 2xx with the wrong body otherwise loses every event it is sent with
+  the breaker never opening (F-048, ADR-063).
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-65 | ADR-063; packages/sdk-node/src/transport.ts | section 14 |
+
 ## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive
@@ -699,7 +730,6 @@ either.
 | SDK-25, SDK-26 | Fill the queue past its bound and assert the oldest events are the ones dropped, and that the drop is counted. |
 | SDK-27, SDK-28 | Assert the SDK reads the response body of a 2xx in which every event was refused. |
 | SDK-30, SDK-31, SDK-32 | Assert the backoff is capped and jittered, that a whole-request 4xx is not retried and does not open the breaker, and that a partially stored send does not either. |
-| SDK-65 | Answer every request 2xx with a body that is not JSON, and again with JSON that holds no results; assert the breaker opens after the threshold of sends with no transport error reported, and that events are dropped as no verdict until then. Answer with verdicts for half the events and assert it never opens. |
 | SDK-33 | Assert a 5xx per-event refusal is resent and a 4xx one is not, and that both budgets end it. |
 | SDK-34 | Assert concurrent sends never exceed the cap, including during an explicit flush. |
 | SDK-35 | Point a recorder at an unencrypted endpoint and assert it reports and still starts. |
@@ -717,3 +747,5 @@ either.
 | SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. Repeat with a required setting that is `""` and one that is only whitespace, and assert each is reported and printed as missing. Start a recorder with every setting valid, make a call with an unusable option, and assert the settings the host can read are still empty and the option is readable apart from them. Configure a deployment with one field too long and assert that field alone is named and the rest is sent; with every field refused, assert the field and the setting are both named. |
 | SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a string is reported; assert a payload the event budget omits reports nothing; record many distinct very long names and assert the memory kept is bounded. |
 | SDK-63 | Set a journey label holding an email address and assert one report naming the label and the shape, with debug output off, one printed line, and neither carrying the value; assert the label the event carries is the one that was set; assert a second label with an email address reports nothing more, and one with an international telephone number reports once; assert a label that looks like neither reports nothing; mark an alias displayable whose value is an email address and assert the same report names the alias, and that an alias not marked displayable reports nothing; then, in the same process, record a failure whose message holds an email address and assert a report naming the error message although the label already warned for that shape, that the message the event carries is unchanged, and that a stack holding one reports nothing; assert an error message holding a module path under `node_modules/@scope/`, a git remote `git@host:org/repo.git` or a date with `+0000` reports nothing; assert an error message holding `phone=+19195551234` or `tel:+19195551234` reports the telephone shape and one holding `Received +12345678 bytes` reports nothing. |
+| SDK-64 | Record events of every kind and assert each carries `runtime.language`, `runtime.version` and `runtime.sdk` with the SDK's own name and version, and no `hostname` or `processId`; set host settings and environment variables that name another version or commit and assert nothing changes; assert the server's schema accepts the event. |
+| SDK-65 | Answer every request 2xx with a body that is not JSON, and again with JSON that holds no results; assert the breaker opens after the threshold of sends with no transport error reported, and that events are dropped as no verdict until then. Answer with verdicts for half the events and assert it never opens. |

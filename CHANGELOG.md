@@ -599,6 +599,23 @@ What you have to do when upgrading a checkout or a deployment:
   or an image digest, and a timezone offset such as `+0000` is not a telephone
   number.
 
+- **Every event names the SDK that recorded it.** The protocol's `runtime`
+  block gains an optional `sdk: { name, version, commit? }`, exported as
+  `runtimeSdkSchema` (limits 128, 64 and 128), and the Node SDK now sends
+  `runtime` on every event: `language` `"node"`, `version` the Node version, and
+  `sdk` with `@wayscribe/node`, the package version and the commit it was built
+  from, both baked in when the bundle is built. So during an upgrade, which
+  services still run the old SDK is on every event, where both builds used to
+  say `0.1.0` and send no `runtime` at all (F-046, ADR-063, SDK-64). The commit
+  comes from `WAYSCRIBE_BUILD_COMMIT` or `CI_COMMIT_SHA` (a malformed one fails
+  the build), from `packages/sdk-node/BUILD_COMMIT`, which `git archive` fills
+  through a new `export-subst` rule in `.gitattributes`, or from
+  `git rev-parse HEAD` in the package's own repository. Nothing is read from
+  host settings, and `hostname` and `processId` are not sent. The protocol
+  version stays `0.1`: a server from before this strips `runtime.sdk` and
+  stores the rest, and each event is about 150 bytes larger (152 with a full
+  commit).
+
 - **`dropped` names its cause, and a reply with no verdict counts toward the
   breaker.** `counters().droppedByCause` counts `dropped` by the diagnostic's
   code, `queue_full`, `after_shutdown`, `shutdown`, `retry_budget` and
@@ -956,6 +973,20 @@ What you have to do when upgrading a checkout or a deployment:
 
 These apply to an installation or a host application built from an earlier
 development build of `main`. A new installation can skip them.
+
+- **Upgrade the server before the services.** A new SDK sends `runtime.sdk`,
+  which a server from before ADR-063 strips before it takes the event's content
+  hash. An event whose first delivery reached the old server and whose response
+  was lost, resent after the server was upgraded, is answered
+  `event_id_conflict`: it is stored, and the SDK counts it `rejected`. Upgrading
+  the server first never meets this.
+
+- **`counters()` has `droppedByCause`, and a proxy that answers without verdicts
+  opens the breaker.** A test that compares the whole counters object adds the
+  new key. A service behind a proxy that rewrites the API's replies now shows
+  `breakerOpened` above zero and loses events as `queue_full` or `shutdown`
+  once the queue fills or the process ends, where it lost them all as
+  `no_verdict` before.
 
 - **`rejectedSettings` no longer holds call-time names.** A test or health
   check that expected `entity`, `context`, `journeyId`, or a `journeyIdSecret`
