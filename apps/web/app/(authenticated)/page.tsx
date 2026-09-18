@@ -9,7 +9,7 @@ import {
   search,
   type SearchItem
 } from "../../src/lib/api";
-import { requireProjectId } from "../../src/lib/current-project";
+import { currentProject } from "../../src/lib/current-project";
 import {
   toQueryString,
   withoutEmptyValues,
@@ -46,24 +46,39 @@ export default async function SearchPage({
   const deleted = typeof params["deleted"] === "string" ? params["deleted"] : undefined;
 
   let environments: string[] = [];
+  // False when no project is chosen yet and there is nothing to list.
+  let projectKnown = true;
   let outcome: Outcome = { kind: "idle" };
   try {
     // Inside the try for the same reason as the journey page: this reaches the
-    // API, and an unreachable API escaping here rendered a blank 500. Every
-    // value of a repeated key is kept, so the page the picker returns to reads
-    // the same parameters and shows the same notes.
-    const projectId = await requireProjectId(`/?${toQueryString(params)}`);
-    // Settled separately, so a refused search still has the environments for
-    // the form that lets the reader change what was refused.
-    const [projects, found] = await Promise.allSettled([
-      listProjects(),
-      filters.q === "" ? Promise.resolve(null) : search(searchApiQuery(filters), projectId)
-    ]);
-    if (projects.status === "fulfilled") {
-      environments = projects.value.find((project) => project.id === projectId)?.environments ?? [];
+    // API, and an unreachable API escaping here rendered a blank 500.
+    //
+    // Not `requireProjectId`: signing in lands here, and on an installation
+    // with more than one project and none chosen the search box has to show
+    // rather than the picker. Only a search needs a project.
+    const resolved = await currentProject();
+    if (resolved.kind === "unchosen") {
+      // Every value of a repeated key is kept, so the page the picker returns
+      // to reads the same parameters and shows the same notes.
+      if (filters.q !== "") redirect(pickerHref(params));
+      projectKnown = false;
+    } else {
+      const projectId = resolved.projectId;
+      // The list once per render: resolving the only project already fetched
+      // it. Settled separately, so a refused search still has the
+      // environments for the form that lets the reader change what was
+      // refused.
+      const [projects, found] = await Promise.allSettled([
+        resolved.projects ?? listProjects(),
+        filters.q === "" ? Promise.resolve(null) : search(searchApiQuery(filters), projectId)
+      ]);
+      if (projects.status === "fulfilled") {
+        environments =
+          projects.value.find((project) => project.id === projectId)?.environments ?? [];
+      }
+      if (found.status === "rejected") throw found.reason;
+      if (found.value !== null) outcome = { kind: "found", items: found.value };
     }
-    if (found.status === "rejected") throw found.reason;
-    if (found.value !== null) outcome = { kind: "found", items: found.value };
   } catch (error) {
     if (error instanceof ApiUnavailableError) outcome = { kind: "unavailable" };
     else if (error instanceof ProjectNotSelectedError) outcome = { kind: "no-project" };
@@ -91,6 +106,11 @@ export default async function SearchPage({
       </p>
 
       <SearchForm filters={filters} environments={environments} />
+      {projectKnown ? null : (
+        <p className="muted">
+          <Link href={pickerHref(params)}>Choose a project</Link> to narrow by environment.
+        </p>
+      )}
 
       {filters.notes.length === 0 ? null : (
         <div role="status">
@@ -105,6 +125,12 @@ export default async function SearchPage({
       <Results filters={filters} outcome={outcome} />
     </main>
   );
+}
+
+/** The picker, with this page to come back to. */
+function pickerHref(params: SearchParams): string {
+  const query = toQueryString(params);
+  return `/projects?next=${encodeURIComponent(query === "" ? "/" : `/?${query}`)}`;
 }
 
 type Outcome =
