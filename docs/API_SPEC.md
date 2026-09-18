@@ -243,13 +243,19 @@ Response:
         "lastEventAt": "2026-08-06T18:34:38.000Z",
         "label": "Acme renewal, 2026",
         "lastStep": "sync-account",
-        "displayableAliases": [{ "type": "postingId", "value": "greenhouse:4567" }]
+        "displayableAliases": [{ "type": "postingId", "value": "greenhouse:4567" }],
+        "environment": "production"
       }
     ],
     "nextCursor": null
   }
 }
 ```
+
+`environment` is the name of the journey's environment. A search spans every
+environment the caller can read, which for the admin token is every environment
+of the project, so this is what tells two rows for the same identifier apart;
+with the `environment` parameter it names the one that was asked for.
 
 `label` is the journey's label, or null until an event carries one. `lastStep`
 is the `name` of its latest event, or null for a journey no event has reached
@@ -382,7 +388,7 @@ that receives an event between two page requests moves to the top of the list,
 above the cursor, and does not appear on later pages. Search pages behave the
 same way.
 
-Response items are search results with the environment added:
+Response items have the same fields as search results (section 5):
 
 ```json
 {

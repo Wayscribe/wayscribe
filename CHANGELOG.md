@@ -298,6 +298,14 @@ What you have to do when upgrading a checkout or a deployment:
   every journey that ever carried it. No index was needed: measured at 200,000
   journeys, the bounds filter the plan the search already had, and a window
   narrow enough to be worth an index is served by `journeys_project_recent_idx`.
+- **A search row names its environment** (F-036, `docs/API_SPEC.md` section 5):
+  `environment`, the environment's name, as a `GET /v1/journeys` row already
+  had. The admin token's search spans every environment of the project, so the
+  same identifier recorded in development and in production came back as two
+  rows with nothing to tell them apart, and a search narrowed by `environment`
+  could not say which one it gave. Both lists now build their rows from one
+  presenter, so the two cannot drift again. Measured at 200,000 journeys, the
+  join this needs on every search costs nothing outside the run-to-run spread.
 - **The journey page.** Headed by the journey's label when it has one, with the
   entity type and identifier beneath, and a back link to the list it was opened
   from. `GET /v1/journeys/:journeyId` returns the environment's name, `label`,

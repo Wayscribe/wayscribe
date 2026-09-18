@@ -44,6 +44,22 @@ const firstTableKeys = (text: string): string[] => {
   return [...table.matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((match) => match[1] ?? "");
 };
 
+/** The fields `presentJourneySummary` returns, in the order it declares them. */
+const summaryFields = (): string[] =>
+  [
+    ...(
+      /export interface PresentedJourneySummary \{([\s\S]*?)\n\}/.exec(
+        read("apps/api/src/routes/present.ts")
+      )?.[1] ?? ""
+    ).matchAll(/^ {2}(\w+):/gm)
+  ].map((match) => match[1] ?? "");
+
+/** The top-level keys of the first item in a section's first JSON example. */
+const exampleItemKeys = (text: string): string[] => {
+  const example = /```json\n([\s\S]*?)```/.exec(text)?.[1] ?? "";
+  return [...example.matchAll(/^\s{8}"(\w+)":/gm)].map((match) => match[1] ?? "");
+};
+
 /**
  * Claims the documentation makes that the repository can check for itself.
  *
@@ -300,6 +316,15 @@ describe("the documentation's checkable claims", () => {
     it("says plainly that a search with no window spans the whole history", () => {
       expect(section()).toContain("spans the project's whole history");
     });
+
+    it("shows every field a search row carries in its example item", () => {
+      // F-036: a journey list row carried `environment` and a search row did
+      // not. Both are presentJourneySummary's output, so its declared fields
+      // are the example's, in both sections.
+      const declared = summaryFields();
+      expect(declared).toContain("environment");
+      expect(exampleItemKeys(section())).toEqual(declared);
+    });
   });
 
   describe("the retried operation in EVENT_PROTOCOL.md", () => {
@@ -491,6 +516,10 @@ describe("the documentation's checkable claims", () => {
       const text = section();
       expect(text).toContain("`completedAt` does not track the status");
       expect(text).toContain("never cleared");
+    });
+
+    it("shows the same fields as a search row in its example item", () => {
+      expect(exampleItemKeys(section())).toEqual(summaryFields());
     });
 
     it("lists the statuses the database allows", () => {

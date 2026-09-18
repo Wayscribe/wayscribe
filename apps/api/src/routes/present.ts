@@ -50,6 +50,8 @@ export interface PresentedJourneySummary {
   label: string | null;
   lastStep: string | null;
   displayableAliases: { type: string; value: string }[];
+  /** The name of the journey's environment. */
+  environment: string;
 }
 
 /**
@@ -80,7 +82,8 @@ export function presentJourneySummary(
     displayableAliases: hit.displayableAliases.map((alias) => ({
       type: alias.type,
       value: alias.value
-    }))
+    })),
+    environment: hit.environment
   };
 }
 

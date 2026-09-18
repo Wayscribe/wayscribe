@@ -17,6 +17,13 @@ export interface SearchHit {
   lastStep: string | null;
   /** Aliases a reader may see in full, in alias type order, then by value. */
   displayableAliases: DisplayableAlias[];
+  /**
+   * The name of the journey's environment. A search spans every environment
+   * the scope allows, which for the admin token is all of them, so a row that
+   * did not say which one it came from could not be told apart from the same
+   * identifier recorded in another (F-036).
+   */
+  environment: string;
 }
 
 export type SearchPage = JourneyPage<SearchHit>;
@@ -121,6 +128,18 @@ const TECHNICAL_IDENTIFIER_COLUMNS = [
  *   already served by one the journey list added.
  * - `environment` adds a join to `environments`, four rows here: 20.4 ms
  *   against 18.8 ms, inside the run-to-run spread.
+ *
+ * Every row now carries its environment's name (F-036), so that join is made
+ * for every search, not only for the filter. Measured the same way, on
+ * PostgreSQL 17.11 with 200,000 journeys over four environments, 2,000 of them
+ * sharing one alias value, median of 21 runs under EXPLAIN (ANALYZE, BUFFERS),
+ * page of 25, without the join and then with it:
+ *
+ * - one match: 0.099 and 0.114 ms for the admin token, 26 and 28 buffers;
+ *   0.070 and 0.076 ms for an API key.
+ * - 2,000 matches: 14.1 and 14.2 ms for the admin token, 10.1 and 10.6 ms for
+ *   an API key, the same buffers.
+ * - no match: 0.064 and 0.065 ms.
  */
 export async function searchJourneys(
   db: Knex,
@@ -167,16 +186,10 @@ export async function searchJourneys(
     .select(...journeySummaryColumns(db))
     .from({ j: "journeys" })
     .join("matches", "matches.journey_id", "j.id")
-    .modify((joined) => {
-      // The environments join only exists to resolve `environment` to an id,
-      // so a search without that filter runs exactly the query it always has.
-      if (filters.environment !== undefined) {
-        // On id alone: the composite foreign key (environment_id, project_id)
-        // on journeys already guarantees the environment belongs to the same
-        // project.
-        void joined.join({ env: "environments" }, "env.id", "j.environment_id");
-      }
-    })
+    // For every row's environment name, and for the `environment` filter. On
+    // id alone: the composite foreign key (environment_id, project_id) on
+    // journeys already guarantees the environment belongs to the same project.
+    .join({ env: "environments" }, "env.id", "j.environment_id")
     .where("j.project_id", project)
     .modify((scoped) => {
       if (scope.environmentId !== undefined) {

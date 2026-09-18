@@ -65,6 +65,10 @@ async function referenceSearch(
     .select(...journeySummaryColumns(db))
     .from({ j: "journeys" })
     .join("matches", "matches.id", "j.id")
+    // The one addition to the original: the row's environment name (F-036),
+    // which the shared columns now read. Every journey has exactly one
+    // environment, so the join changes which rows match in no way.
+    .join({ env: "environments" }, "env.id", "j.environment_id")
     .where("j.project_id", scope.projectId);
 
   const rows: unknown = await orderJourneysAfter(statement, "j", limit, cursor);

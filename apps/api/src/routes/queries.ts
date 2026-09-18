@@ -148,10 +148,9 @@ export function registerQueryRoutes(
 
       return await reply.send({
         data: {
-          items: page.items.map((journey) => ({
-            ...presentJourneySummary(keyring, journey, warnUnknownKey),
-            environment: journey.environment
-          })),
+          items: page.items.map((journey) =>
+            presentJourneySummary(keyring, journey, warnUnknownKey)
+          ),
           nextCursor: page.nextCursor
         }
       });

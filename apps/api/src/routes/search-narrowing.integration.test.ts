@@ -183,6 +183,50 @@ describe("narrowing a search", () => {
     });
   });
 
+  describe("each row's environment", () => {
+    // F-036: a journey list row carried `environment` and a search row did
+    // not, so an admin's search, which reads every environment of the project,
+    // listed development and production journeys with nothing to tell them
+    // apart, and a search narrowed by environment could not say which it gave.
+    const environments = (
+      response: Awaited<ReturnType<typeof search>>
+    ): Record<string, unknown> => {
+      expect(response.statusCode, response.body).toBe(200);
+      return Object.fromEntries(
+        (response.json().data.items as { journeyId: string; environment?: unknown }[]).map(
+          (item) => [item.journeyId, item.environment]
+        )
+      );
+    };
+
+    it("names the environment of every row an admin finds", async () => {
+      expect(environments(await admin(q))).toEqual({
+        jrn_new: "development",
+        jrn_old: "development",
+        jrn_prod: "production"
+      });
+    });
+
+    it("names the environment the filter picked", async () => {
+      expect(environments(await admin(`${q}&environment=production`))).toEqual({
+        jrn_prod: "production"
+      });
+    });
+
+    it("names an API key's own environment", async () => {
+      expect(environments(await search(q, prodKey))).toEqual({ jrn_prod: "production" });
+    });
+
+    it("is the same value the journey list gives the same journey", async () => {
+      const listed = await app.inject({
+        method: "GET",
+        url: "/v1/journeys?since=2026-07-01T00:00:00Z",
+        headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "x-wayscribe-project-id": projectId }
+      });
+      expect(environments(await admin(q))).toEqual(environments(listed));
+    });
+  });
+
   describe("refusals", () => {
     it.each([
       ["an unknown parameter", "status=failed"],
