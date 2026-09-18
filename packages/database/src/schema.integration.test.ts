@@ -611,6 +611,181 @@ describe("schema constraints", () => {
     }, 30_000);
   });
 
+  describe("the journey's failed step (021)", () => {
+    const MIGRATION = "021_journey_failed_step.js";
+    const ADDED: [column: string, type: string][] = [
+      ["failed_step", "text"],
+      ["failed_step_at", "timestamp with time zone"],
+      ["failed_step_event_id", "text"],
+      ["failed_step_received_at", "timestamp with time zone"]
+    ];
+
+    const columns = async (): Promise<
+      {
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+        column_default: string | null;
+      }[]
+    > => {
+      const result: unknown = await db.raw(
+        `select column_name, data_type, is_nullable, column_default
+         from information_schema.columns
+         where table_name = 'journeys' and column_name like 'failed_step%'
+         order by column_name`
+      );
+      return (
+        result as {
+          rows: {
+            column_name: string;
+            data_type: string;
+            is_nullable: string;
+            column_default: string | null;
+          }[];
+        }
+      ).rows;
+    };
+
+    const journey = (id: string): Record<string, unknown> => ({
+      id,
+      project_id: projectId,
+      environment_id: environmentId,
+      entity_type: "customer",
+      primary_entity_id_hash: `hash-${id}`,
+      status: "failed",
+      started_at: db.fn.now(),
+      last_event_at: db.fn.now(),
+      event_count: 1
+    });
+
+    it("adds four nullable columns with no default and no index, and removes them on the way down", async () => {
+      expect(await columns()).toEqual(
+        ADDED.map(([column, type]) => ({
+          column_name: column,
+          data_type: type,
+          is_nullable: "YES",
+          column_default: null
+        }))
+      );
+      const indexes: unknown = await db.raw(
+        `select indexdef from pg_indexes where tablename = 'journeys' and indexdef like '%failed_step%'`
+      );
+      expect((indexes as { rows: unknown[] }).rows).toEqual([]);
+      await db.migrate.down({ name: MIGRATION });
+      expect(await columns()).toEqual([]);
+      await db.migrate.up({ name: MIGRATION });
+      expect(await columns()).toHaveLength(ADDED.length);
+    });
+
+    it("leaves journeys written before it null, without rewriting the table", async () => {
+      // No backfill: a failed journey from before the migration reads a null
+      // failed step, and a reader falls back to lastStep.
+      await db.migrate.down({ name: MIGRATION });
+      await db("journeys").insert(journey("jrn_021"));
+      const fileNode = async (): Promise<unknown> =>
+        (await db.raw("select pg_relation_filenode('journeys') as f")).rows;
+      const before = await fileNode();
+      await db.migrate.up({ name: MIGRATION });
+      expect(await fileNode()).toEqual(before);
+      expect(
+        await db("journeys")
+          .where({ project_id: projectId, id: "jrn_021" })
+          .first("failed_step", "failed_step_at", "failed_step_received_at", "failed_step_event_id")
+      ).toEqual({
+        failed_step: null,
+        failed_step_at: null,
+        failed_step_received_at: null,
+        failed_step_event_id: null
+      });
+      await db("journeys").where({ id: "jrn_021" }).delete();
+    });
+
+    it("gives up after five seconds rather than queueing ingestion behind it, and a rerun succeeds", async () => {
+      // The ALTER waits for the reader below, and a summary update that arrives
+      // meanwhile queues behind the ALTER. lock_timeout makes the ALTER give up
+      // so the queued write goes through while the reader still holds the
+      // table. With no lock_timeout both wait for the reader, and the reader
+      // waits for this test: the attempt and the write are raced against a
+      // deadline, so a lost timeout fails here, by name, instead of hanging.
+      await db("journeys").insert(journey("jrn_021_busy"));
+      await db.migrate.down({ name: MIGRATION });
+      let release: () => void = () => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let holding: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        holding = resolve;
+      });
+      const reader = db.transaction(async (trx) => {
+        await trx("journeys").select("id").limit(1);
+        holding();
+        await released;
+      });
+      await held;
+      const started = Date.now();
+      const attempt: Promise<unknown> = db.migrate.up({ name: MIGRATION }).then(
+        () => "applied",
+        (error: unknown) => error
+      );
+      // Queued behind the ALTER's lock request once the ALTER is waiting.
+      await waitForLockWait("alter table journeys");
+      const write: Promise<unknown> = db("journeys")
+        .where({ id: "jrn_021_busy" })
+        .increment("event_count", 1)
+        .then(
+          () => "written",
+          (error: unknown) => error
+        );
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      let outcome: unknown;
+      let written: unknown;
+      try {
+        [outcome, written] = await Promise.race([
+          Promise.all([attempt, write]),
+          new Promise<[string, string]>((resolve) => {
+            deadline = setTimeout(() => {
+              resolve([
+                "still waiting after 15 s: the migration has no lock_timeout",
+                "the write is still queued behind the migration"
+              ]);
+            }, 15_000);
+          })
+        ]);
+      } finally {
+        clearTimeout(deadline);
+        release();
+        await reader;
+        await attempt;
+        await write;
+      }
+      expect(outcome).toBeInstanceOf(Error);
+      expect((outcome as Error).message).toMatch(/lock timeout/);
+      // The write went through while the reader still held the table: the
+      // ALTER gave up and stopped blocking it.
+      expect(written).toBe("written");
+      expect(Date.now() - started).toBeLessThan(15_000);
+      expect(await columns()).toEqual([]);
+      await db.migrate.up({ name: MIGRATION });
+      expect(await columns()).toHaveLength(ADDED.length);
+      await db("journeys").where({ id: "jrn_021_busy" }).delete();
+    }, 30_000);
+
+    /** Until a session running `query` is waiting on a lock. */
+    async function waitForLockWait(query: string): Promise<void> {
+      const until = Date.now() + 10_000;
+      while (Date.now() < until) {
+        const result: unknown = await db.raw(
+          `select 1 from pg_stat_activity where wait_event_type = 'Lock' and query ilike ?`,
+          [`%${query}%`]
+        );
+        if ((result as { rows: unknown[] }).rows.length > 0) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error(`no session running "${query}" waited on a lock within 10 s`);
+    }
+  });
+
   describe("the journey browse columns (018)", () => {
     const MIGRATION = "018_journey_browse.js";
     const ADDED: [table: string, column: string, type: string][] = [

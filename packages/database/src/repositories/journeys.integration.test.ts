@@ -667,6 +667,316 @@ describe("journey summary", () => {
     });
   });
 
+  describe("the failed step (ADR-063)", () => {
+    interface Failure {
+      status: string;
+      lastStep: string | null;
+      failedStep: string | null;
+      failedStepAt: Date | null;
+      failedStepReceivedAt: Date | null;
+      failedStepEventId: string | null;
+    }
+
+    const failure = async (journeyId: string): Promise<Failure> => {
+      const row: unknown = await db("journeys")
+        .where({ project_id: projectId, id: journeyId })
+        .first(
+          "status",
+          "last_step as lastStep",
+          "failed_step as failedStep",
+          "failed_step_at as failedStepAt",
+          "failed_step_received_at as failedStepReceivedAt",
+          "failed_step_event_id as failedStepEventId"
+        );
+      if (row === undefined) throw new Error(`no journey ${journeyId}`);
+      return row as Failure;
+    };
+
+    const CLEARED = {
+      failedStep: null,
+      failedStepAt: null,
+      failedStepReceivedAt: null,
+      failedStepEventId: null
+    };
+
+    /** One event: a step name, when, and how it came out. */
+    type Step = [eventId: string, at: string, step: string, outcome: "ok" | "error" | Operation];
+    type Operation = "retried" | "completed" | "failed";
+
+    const apply = async (
+      journeyId: string,
+      [eventId, at, stepName, outcome]: Step,
+      connection: Knex = db
+    ): Promise<void> => {
+      await applyJourneyEvent(connection, projectId, {
+        ...base,
+        journeyId,
+        environmentId,
+        eventId,
+        stepName,
+        eventTimestamp: new Date(at),
+        operation: outcome === "ok" || outcome === "error" ? "transformed" : outcome,
+        hasError: outcome === "error"
+      });
+    };
+
+    const applyAll = async (journeyId: string, steps: readonly Step[]): Promise<void> => {
+      for (const step of steps) await apply(journeyId, step);
+    };
+
+    // F-047 as Leadline recorded it: attempt 1's push failed, and attempt 2's
+    // first two steps were recorded before its push.
+    const F047: readonly Step[] = [
+      ["evt_1", "2026-09-18T10:00:01Z", "take-job", "ok"],
+      ["evt_2", "2026-09-18T10:00:02Z", "map-hubspot", "ok"],
+      ["evt_3", "2026-09-18T10:00:03Z", "push-hubspot", "error"],
+      ["evt_4", "2026-09-18T10:00:04Z", "take-job", "ok"],
+      ["evt_5", "2026-09-18T10:00:05Z", "map-hubspot", "ok"]
+    ];
+
+    it("names the step that failed while later steps succeed, where lastStep moves on (F-047)", async () => {
+      await applyAll("jrn_fs_f047", F047);
+      expect(await failure("jrn_fs_f047")).toMatchObject({
+        status: "failed",
+        lastStep: "map-hubspot",
+        failedStep: "push-hubspot",
+        failedStepAt: new Date("2026-09-18T10:00:03Z"),
+        failedStepEventId: "evt_3"
+      });
+      expect((await failure("jrn_fs_f047")).failedStepReceivedAt).toBeInstanceOf(Date);
+    });
+
+    it("is null on a journey that never failed", async () => {
+      await applyAll("jrn_fs_none", F047.slice(0, 2));
+      expect(await failure("jrn_fs_none")).toMatchObject({ status: "active", ...CLEARED });
+    });
+
+    it("clears all four columns when a successful retry clears the failure (ADR-061)", async () => {
+      await applyAll("jrn_fs_retry", [
+        ...F047,
+        ["evt_6", "2026-09-18T10:00:06Z", "push-hubspot", "retried"]
+      ]);
+      expect(await failure("jrn_fs_retry")).toMatchObject({ status: "active", ...CLEARED });
+    });
+
+    it("clears when a completed at or after the watermark completes the journey", async () => {
+      await applyAll("jrn_fs_done", [
+        ...F047,
+        ["evt_6", "2026-09-18T10:00:05Z", "finish", "completed"]
+      ]);
+      expect(await failure("jrn_fs_done")).toMatchObject({ status: "completed", ...CLEARED });
+    });
+
+    it("keeps it when a completed older than the watermark leaves the journey failed", async () => {
+      await applyAll("jrn_fs_old_done", [
+        ...F047,
+        ["evt_6", "2026-09-18T10:00:04Z", "finish", "completed"]
+      ]);
+      expect(await failure("jrn_fs_old_done")).toMatchObject({
+        status: "failed",
+        failedStep: "push-hubspot",
+        failedStepEventId: "evt_3"
+      });
+    });
+
+    it("keeps it when a retry fails again, and names the retry, the later failure", async () => {
+      await applyAll("jrn_fs_retry_fails", [
+        ...F047,
+        ["evt_6", "2026-09-18T10:00:06Z", "push-hubspot-again", "error"]
+      ]);
+      expect(await failure("jrn_fs_retry_fails")).toMatchObject({
+        status: "failed",
+        failedStep: "push-hubspot-again",
+        failedStepEventId: "evt_6"
+      });
+    });
+
+    it("names a failure stamped before the clearing retry but applied after it", async () => {
+      // ADR-061 fails the journey again on such a failure, deliberately, and
+      // failedStep names the failure that set the status.
+      await applyAll("jrn_fs_late", [
+        ...F047,
+        ["evt_6", "2026-09-18T10:00:06Z", "push-hubspot", "retried"],
+        ["evt_0", "2026-09-18T10:00:00Z", "validate", "error"]
+      ]);
+      expect(await failure("jrn_fs_late")).toMatchObject({
+        status: "failed",
+        failedStep: "validate",
+        failedStepAt: new Date("2026-09-18T10:00:00Z"),
+        failedStepEventId: "evt_0"
+      });
+    });
+
+    it("names the later-stamped of two current failures, whichever arrives first", async () => {
+      const early: Step = ["evt_a", "2026-09-18T10:00:01Z", "early", "error"];
+      const late: Step = ["evt_b", "2026-09-18T10:00:02Z", "late", "error"];
+      await applyAll("jrn_fs_two_1", [early, late]);
+      await applyAll("jrn_fs_two_2", [late, early]);
+      for (const journeyId of ["jrn_fs_two_1", "jrn_fs_two_2"]) {
+        expect(await failure(journeyId), journeyId).toMatchObject({
+          failedStep: "late",
+          failedStepEventId: "evt_b"
+        });
+      }
+    });
+
+    it("gives the same failed step in every delivery order of the same events", async () => {
+      const steps: readonly Step[] = [
+        ["evt_1", "2026-09-18T10:00:01Z", "take-job", "ok"],
+        ["evt_2", "2026-09-18T10:00:02Z", "map-hubspot", "error"],
+        ["evt_3", "2026-09-18T10:00:03Z", "push-hubspot", "error"],
+        ["evt_4", "2026-09-18T10:00:04Z", "take-job", "ok"],
+        ["evt_5", "2026-09-18T10:00:05Z", "notify", "failed"],
+        ["evt_6", "2026-09-18T10:00:06Z", "map-hubspot", "ok"],
+        ["evt_7", "2026-09-18T10:00:00Z", "finish-early", "completed"]
+      ];
+      // A fixed seed, so a failure names the order that produced it.
+      let seed = 63;
+      const random = (): number => {
+        seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+        return seed / 2_147_483_648;
+      };
+      const orders: Step[][] = [[...steps], [...steps].reverse()];
+      for (let i = 0; i < 10; i += 1) {
+        const shuffled = [...steps];
+        for (let j = shuffled.length - 1; j > 0; j -= 1) {
+          const k = Math.floor(random() * (j + 1));
+          [shuffled[j], shuffled[k]] = [shuffled[k] as Step, shuffled[j] as Step];
+        }
+        orders.push(shuffled);
+      }
+      for (const [index, order] of orders.entries()) {
+        const journeyId = `jrn_fs_order_${String(index)}`;
+        await applyAll(journeyId, order);
+        expect(await failure(journeyId), order.map(([id]) => id).join(",")).toMatchObject({
+          status: "failed",
+          failedStep: "notify",
+          failedStepAt: new Date("2026-09-18T10:00:05Z"),
+          failedStepEventId: "evt_5"
+        });
+      }
+    });
+
+    it("breaks a tie on the timestamp by the order failures were received, whatever their ids", async () => {
+      const at = "2026-09-18T10:00:00Z";
+      await applyAll("jrn_fs_tie_1", [
+        ["evt_b", at, "b", "error"],
+        ["evt_a", at, "a", "error"]
+      ]);
+      await applyAll("jrn_fs_tie_2", [
+        ["evt_a", at, "a", "error"],
+        ["evt_b", at, "b", "error"]
+      ]);
+      expect(await failure("jrn_fs_tie_1")).toMatchObject({
+        failedStep: "a",
+        failedStepEventId: "evt_a"
+      });
+      expect(await failure("jrn_fs_tie_2")).toMatchObject({
+        failedStep: "b",
+        failedStepEventId: "evt_b"
+      });
+    });
+
+    it("breaks a tie on the timestamp and the arrival by the larger event id, byte by byte", async () => {
+      // One transaction: the same received-at, so the id decides. "B" (0x42)
+      // sorts before "a" (0x61) in bytes and after it in most linguistic
+      // collations; the stored id is given one for this test, so a comparison
+      // that followed the column's collation would pick "evt_B".
+      const at = "2026-09-18T10:00:00Z";
+      const setCollation = async (collation: string): Promise<void> => {
+        await db.raw(
+          `alter table journeys alter column failed_step_event_id type text collate "${collation}"`
+        );
+      };
+      await setCollation("en-x-icu");
+      try {
+        for (const [journeyId, order] of [
+          ["jrn_fs_tie_3", ["evt_a", "evt_B"]],
+          ["jrn_fs_tie_4", ["evt_B", "evt_a"]]
+        ] as const) {
+          await db.transaction(async (trx) => {
+            for (const eventId of order) {
+              await apply(journeyId, [eventId, at, `step ${eventId}`, "error"], trx);
+            }
+          });
+          expect(await failure(journeyId), journeyId).toMatchObject({
+            failedStep: "step evt_a",
+            failedStepEventId: "evt_a"
+          });
+        }
+      } finally {
+        await setCollation("default");
+      }
+    });
+
+    it("replaces a value left by a previous build that cleared the failure without knowing the column", async () => {
+      // The previous API clears a failure to 'active' and leaves failed_step
+      // as it was, stamped later than the next failure. The next failure takes
+      // the step because the journey was not failed, however it is stamped.
+      await applyAll("jrn_fs_stale", F047);
+      await db("journeys")
+        .where({ project_id: projectId, id: "jrn_fs_stale" })
+        .update({
+          status: "active",
+          failed_step: "stale",
+          failed_step_at: new Date("2026-09-19T00:00:00Z"),
+          failed_step_event_id: "evt_zzz"
+        });
+      await apply("jrn_fs_stale", ["evt_0", "2026-09-18T10:00:00Z", "validate", "error"]);
+      expect(await failure("jrn_fs_stale")).toMatchObject({
+        status: "failed",
+        failedStep: "validate",
+        failedStepEventId: "evt_0"
+      });
+    });
+
+    it("settles on the latest failure in timeline order under concurrent events", async () => {
+      const events = Array.from({ length: 24 }, (_, i) => ({
+        eventId: `evt_${String(i).padStart(2, "0")}`,
+        at: new Date(Date.UTC(2026, 8, 18, 10, 0, i % 5)).toISOString(),
+        failing: i % 3 !== 0
+      }));
+      const facts = (event: (typeof events)[number]) => ({
+        ...base,
+        journeyId: "jrn_fs_race",
+        environmentId,
+        eventId: event.eventId,
+        stepName: `step ${event.eventId}`,
+        eventTimestamp: new Date(event.at),
+        operation: "transformed",
+        hasError: event.failing
+      });
+      await ensureJourney(db, projectId, facts(events[0] as (typeof events)[number]));
+      const receivedAt = new Map<string, string>();
+      await Promise.all(
+        events.map((event) =>
+          db.transaction(async (trx) => {
+            const started: unknown = await trx.raw(
+              "select to_char(now() at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') as at"
+            );
+            receivedAt.set(
+              event.eventId,
+              (started as { rows: { at: string }[] }).rows[0]?.at ?? ""
+            );
+            await ensureJourney(trx, projectId, facts(event));
+            await updateJourneySummary(trx, projectId, facts(event));
+          })
+        )
+      );
+      const key = (event: (typeof events)[number]): string =>
+        `${event.at}|${receivedAt.get(event.eventId) ?? ""}|${event.eventId}`;
+      const latest = events
+        .filter((event) => event.failing)
+        .sort((a, b) => (key(a) < key(b) ? -1 : 1))
+        .at(-1);
+      expect(await failure("jrn_fs_race")).toMatchObject({
+        status: "failed",
+        failedStep: `step ${latest?.eventId ?? ""}`,
+        failedStepEventId: latest?.eventId
+      });
+    });
+  });
+
   describe("the lock ensureJourney holds while an event is stored", () => {
     const facts = (journeyId: string) => ({
       ...base,

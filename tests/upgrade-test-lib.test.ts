@@ -154,6 +154,7 @@ describe("legacyJourneyListProblems, the journey list over an earlier build's ro
     journeyId,
     label: null,
     lastStep: null,
+    failedStep: null,
     displayableAliases: [],
     ...fields
   });
@@ -189,7 +190,7 @@ describe("legacyJourneyListProblems, the journey list over an earlier build's ro
     ).toEqual(["a: not listed", "c: listed, expected the filter to exclude it"]);
   });
 
-  it("fails on a label, a last step or displayable aliases, and on fields that are missing", () => {
+  it("fails on a label, a last step, a failed step or displayable aliases, and on fields that are missing", () => {
     expect(
       legacyJourneyListProblems(
         200,
@@ -197,6 +198,7 @@ describe("legacyJourneyListProblems, the journey list over an earlier build's ro
           row("a", {
             label: "Acme",
             lastStep: "receive",
+            failedStep: "deliver",
             displayableAliases: [{ type: "t", value: "v" }]
           }),
           { journeyId: "b" }
@@ -206,9 +208,11 @@ describe("legacyJourneyListProblems, the journey list over an earlier build's ro
     ).toEqual([
       'a: label "Acme", expected null',
       'a: lastStep "receive", expected null',
+      'a: failedStep "deliver", expected null',
       'a: displayableAliases [{"type":"t","value":"v"}], expected []',
       "b: label undefined, expected null",
       "b: lastStep undefined, expected null",
+      "b: failedStep undefined, expected null",
       "b: displayableAliases undefined, expected []"
     ]);
   });

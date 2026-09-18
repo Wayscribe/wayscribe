@@ -19,6 +19,12 @@ export interface JourneyDetail {
   label: string | null;
   /** The step name of the latest event, or null for a journey not written since migration 018. */
   lastStep: string | null;
+  /**
+   * The step name of the failing event latest in timeline order among the
+   * current failures (ADR-063). Null whenever the status is not `failed`, and
+   * for a failed journey whose failure predates migration 021.
+   */
+  failedStep: string | null;
   eventCount: number;
   startedAt: Date;
   completedAt: Date | null;
@@ -55,6 +61,9 @@ export async function findJourneyDetail(
     "status",
     "label",
     "last_step as lastStep",
+    // Shown only while the journey is failed: a previous-build instance that
+    // cleared a failure left the column as it was (ADR-063).
+    db.raw(`case when status = 'failed' then failed_step end as "failedStep"`),
     "event_count as eventCount",
     "started_at as startedAt",
     "completed_at as completedAt",

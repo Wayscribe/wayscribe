@@ -34,6 +34,9 @@ export function journeySummaryColumns(db: Knex): (string | Knex.Raw)[] {
     "j.last_event_at as lastEventAt",
     "j.label as label",
     "j.last_step as lastStep",
+    // Shown only while the journey is failed (ADR-063): a previous-build
+    // instance that cleared a failure left the column as it was.
+    db.raw(`case when j.status = 'failed' then j.failed_step end as ??`, ["failedStep"]),
     "env.name as environment",
     db.raw(
       `coalesce(

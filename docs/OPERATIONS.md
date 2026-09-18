@@ -265,6 +265,25 @@ before it locks the journey: one delivery gets a 500 and the SDK retries it.
 It happens only during the deploy, and only for a duplicate of an event that
 states aliases.
 
+### Migration 021 records the step that failed a journey
+
+`021_journey_failed_step.js` adds four columns to `journeys`, `failed_step`,
+`failed_step_at`, `failed_step_received_at` and `failed_step_event_id`, all
+nullable with no default and no index (ADR-063, F-047). Like 020 it is a
+catalogue change with no table rewrite, holds its exclusive lock for an
+instant, and sets `lock_timeout` to five seconds, so behind a long-running
+transaction it fails with `canceling statement due to lock timeout`, changes
+nothing, and succeeds when `migrate` runs again; check
+`'journeys'::regclass` in the query above. Rolling it back drops the four
+columns under the same timeout.
+
+There is no backfill. A journey failed before the migration, or failed by the
+previous API between migrate and deploy, reads `failedStep: null` until its
+next failure, and the web app shows its last step for it, as before. The
+previous API does not know the columns, so when it clears a failure it leaves
+them as they were; the reads show `failedStep` only while the status is
+`failed`, so that value is never shown, and the next failure replaces it.
+
 ### Upgrading to the journey browsing release (migrations 018 and 019)
 
 This release adds journey labels, last steps and partial text matching on

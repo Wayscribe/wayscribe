@@ -348,6 +348,16 @@ What you have to do when upgrading a checkout or a deployment:
   stated, written with the event's own insert. Ingestion now stores an event's
   aliases before the event, which costs an event with aliases one more
   statement: 2.3 to 2.7 ms at the median, measured in process.
+- **A failed journey names the step that failed it** (F-047, ADR-063,
+  `docs/API_SPEC.md` section 5). `GET /v1/journeys/:journeyId`, each item of
+  `GET /v1/journeys` and `GET /v1/search`, and a dry run's `stored.journey`
+  gain `failedStep`: the `name` of the failing event last in timeline order
+  among the failures since the journey last became failed, and null whenever
+  `status` is not `failed`. `lastStep` still follows the timeline's last row, so
+  while a retry is in flight it names the retry's latest step and `failedStep`
+  still names the step that failed. A successful retry that clears the failure
+  and a completion clear it. Migration 021 adds the four columns behind it; it
+  costs no statement, being part of the update that sets the status.
 - **A timeline row names the build that recorded it** (F-043, `docs/API_SPEC.md`
   section 8). `GET /v1/journeys/:journeyId/events` rows gain
   `deploymentMetadata`, the event's `deployment` as the event read returns it,
@@ -995,6 +1005,10 @@ development build of `main`. A new installation can skip them.
   `lock_timeout`, as 017 did; run `migrate` again if it gives up behind a long
   transaction (`docs/OPERATIONS.md` section 4). There is no backfill: events
   stored before it read `aliases: null`.
+- **Migration 021 adds four columns to `journeys`** with the same five-second
+  `lock_timeout` (`docs/OPERATIONS.md` section 4). There is no backfill: a
+  journey failed before it reads `failedStep: null` until its next failure;
+  show its `lastStep` meanwhile.
 - **Send `limit` once, as a whole number of at least 1.** A client that sent
   `limit=0` or an empty-looking value such as `limit=abc` to get the default
   now gets `400 invalid_query`; leave `limit` out instead. `limit=1000` still

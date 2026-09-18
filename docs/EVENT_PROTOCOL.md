@@ -116,6 +116,16 @@ The journey also keeps its last step: the `name` of the event with the latest
 `timestamp`, under the same tie rule, so an event that arrives late never moves
 it backwards, and it is the step the journey's timeline shows last. `name` is required, so every event is a candidate.
 
+A failed journey also keeps its failed step (ADR-063): the `name` of the
+failing event that comes last in the same order among the failures applied
+since the journey last became failed. A failing event is one that carries an
+`error` or has the operation `failed`. So while a retry is in flight, the last
+step moves on to the retry's steps and the failed step still names the step
+that failed. It is null whenever the journey is not failed: a successful retry
+that clears the failure (section 5, `retried`) and a `completed` that sets the
+status (section 5, `completed`) clear it.
+Reads return it as `failedStep` (`API_SPEC.md` section 5).
+
 ## 4. Required field semantics
 
 ### `id`
