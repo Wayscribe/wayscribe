@@ -192,6 +192,145 @@ describe("journey summary", () => {
     });
   });
 
+  describe("a retried step that succeeds (ADR-061)", () => {
+    const completedAt = async (journeyId: string): Promise<Date | null> => {
+      const row: unknown = await db("journeys")
+        .where({ project_id: projectId, id: journeyId })
+        .first("completed_at as completedAt");
+      return (row as { completedAt: Date | null } | undefined)?.completedAt ?? null;
+    };
+
+    it("clears an earlier failure back to active, without waiting for finish()", async () => {
+      // ADR-022 renames a wrapped call's operation to 'retried' whenever the
+      // caller passes an attempt greater than 1, whichever way the call comes
+      // out. So the success of a step that failed on attempt 1 arrives as
+      // 'retried' with no error, and before ADR-061 it could not undo the
+      // earlier failure by itself: only finish() could.
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_retry_wins",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:00Z"),
+        operation: "delivered",
+        hasError: true
+      });
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_retry_wins",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:05Z"),
+        operation: "retried",
+        hasError: false
+      });
+
+      // Active, not completed: the journey is running again, and it has not
+      // said it finished. A falsely reassuring status is worse than a stale
+      // alarming one.
+      expect((await findJourney(db, projectId, "jrn_retry_wins"))?.status).toBe("active");
+      expect(await completedAt("jrn_retry_wins")).toBeNull();
+    });
+
+    it("reads completed once finish() lands", async () => {
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_retry_wins",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:06Z"),
+        operation: "completed",
+        hasError: false
+      });
+
+      expect((await findJourney(db, projectId, "jrn_retry_wins"))?.status).toBe("completed");
+      expect((await completedAt("jrn_retry_wins"))?.toISOString()).toBe("2026-08-06T10:00:06.000Z");
+    });
+
+    it("leaves a journey whose only event is a successful retry active", async () => {
+      // The control: clearing a failure is all this rule does. A 'retried'
+      // event never marks a journey completed on its own.
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_retry_only",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:00Z"),
+        operation: "retried",
+        hasError: false
+      });
+
+      expect((await findJourney(db, projectId, "jrn_retry_only"))?.status).toBe("active");
+      expect(await completedAt("jrn_retry_only")).toBeNull();
+    });
+
+    it("never knocks a completed journey back to active", async () => {
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_retry_after_finish",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:00Z"),
+        operation: "completed",
+        hasError: false
+      });
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_retry_after_finish",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:05Z"),
+        operation: "retried",
+        hasError: false
+      });
+
+      expect((await findJourney(db, projectId, "jrn_retry_after_finish"))?.status).toBe(
+        "completed"
+      );
+    });
+
+    it("stays failed when the retry fails too", async () => {
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_retry_fails",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:00Z"),
+        operation: "delivered",
+        hasError: true
+      });
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_retry_fails",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:05Z"),
+        operation: "retried",
+        hasError: true
+      });
+
+      expect((await findJourney(db, projectId, "jrn_retry_fails"))?.status).toBe("failed");
+      expect(await completedAt("jrn_retry_fails")).toBeNull();
+    });
+
+    it("does not let an older successful retry clear a newer failure", async () => {
+      // ADR-061 changes what a successful 'retried' event means for status, not
+      // the ordering rules: a failure still registers whatever its timestamp
+      // says, and the clearing carries the same watermark test a completion
+      // does, so an event stamped before the newest one cannot undo it.
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_retry_older",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:10Z"),
+        operation: "delivered",
+        hasError: true
+      });
+      await applyJourneyEvent(db, projectId, {
+        ...base,
+        journeyId: "jrn_retry_older",
+        environmentId,
+        eventTimestamp: new Date("2026-08-06T10:00:05Z"),
+        operation: "retried",
+        hasError: false
+      });
+
+      expect((await findJourney(db, projectId, "jrn_retry_older"))?.status).toBe("failed");
+    });
+  });
+
   describe("the label and the last step", () => {
     interface Shown {
       label: string | null;

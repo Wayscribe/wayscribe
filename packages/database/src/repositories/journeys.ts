@@ -217,9 +217,30 @@ export async function updateJourneySummary(
       -- ADR-031 makes this the common case rather than a race: a wrapped event
       -- is stamped when its callback starts and enqueued when it finishes, so a
       -- slow failing step is always stamped earlier than it arrives.
+      --
+      -- ADR-061 adds the last branch: a 'retried' event carrying no error
+      -- clears a failure back to 'active'. ADR-022 renames a wrapped call's
+      -- operation to 'retried' whenever the attempt is greater than 1,
+      -- whichever way the call comes out, so the success of a step that failed
+      -- on attempt 1 arrives as 'retried' with no error and nothing here could
+      -- undo the earlier failure until finish() landed.
+      --
+      -- It clears rather than completes. A journey that retried successfully
+      -- and then died without finishing must not read as completed: a falsely
+      -- reassuring status is worse than a stale alarming one. 'completed' keeps
+      -- its meaning, a 'completed' operation at or after the watermark, which
+      -- in practice is finish().
+      --
+      -- The branch comes last, so the two rules above are untouched: a failure
+      -- still wins whatever its timestamp says, and a status the watermark
+      -- accepts still wins over the clearing. It carries the watermark test
+      -- itself, so an older successful retry cannot clear a newer failure, and
+      -- it fires only on a journey that is currently failed, so it can never
+      -- knock a completed journey back to active.
       status = case
         when e.event_status = 'failed' then 'failed'
         when e.event_at >= last_event_at and e.event_status is not null then e.event_status
+        when e.clears_failure and e.event_at >= last_event_at and status = 'failed' then 'active'
         else status
       end,
       completed_at = case
@@ -237,7 +258,8 @@ export async function updateJourneySummary(
       updated_at = now()
     from (
       select ?::timestamptz as event_at, ?::text as event_status, ?::text as event_id,
-             ?::text as event_step, ?::text as event_label
+             ?::text as event_step, ?::text as event_label,
+             ?::boolean as clears_failure
     ) e
     where project_id = ? and id = ?
     `,
@@ -247,6 +269,7 @@ export async function updateJourneySummary(
       facts.eventId,
       facts.stepName,
       facts.label,
+      clearsFailure(facts),
       projectId,
       facts.journeyId
     ]
@@ -258,4 +281,24 @@ function deriveStatus(facts: JourneyEventFacts): string | null {
   if (facts.hasError || facts.operation === "failed") return "failed";
   if (facts.operation === "completed") return "completed";
   return null;
+}
+
+/**
+ * Whether this event clears an existing failure (ADR-061).
+ *
+ * A `retried` event carrying no error is the success of a step that failed
+ * before: ADR-022 renames a wrapped call's operation to `retried` whenever the
+ * attempt is greater than 1, whichever way the call comes out, so a successful
+ * retry cannot be told from a failed one by its operation alone. The event
+ * keeps the operation `retried`, because that is what happened; only what it
+ * means for the summary's status changes.
+ *
+ * It clears the failure rather than completing the journey. `deriveStatus`
+ * therefore still answers null for it, and nothing sets `completed_at`: a
+ * journey that retried successfully and then died without finishing reads
+ * `active`, not `completed`. The error test is in the caller's first branch,
+ * so a retry that fails again is still a failure.
+ */
+function clearsFailure(facts: JourneyEventFacts): boolean {
+  return facts.operation === "retried" && !facts.hasError;
 }
