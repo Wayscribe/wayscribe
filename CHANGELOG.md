@@ -438,6 +438,80 @@ What you have to do when upgrading a checkout or a deployment:
 
 ### Changed
 
+- **`counters()` keeps settings and options apart.** `rejectedSettings` now
+  names only what `createRecorder` refused, and is fixed once it returns; a
+  new `rejectedOptions` names what a later call was refused (`entity`,
+  `context`, `journeyId`, `journeyIdSecret`, `entityFallback`, `displayable`).
+  A correctly configured process used to end its shutdown line with
+  `rejected settings: journeyId` after one odd call (F-038, ADR-062).
+  `configurationErrors` still counts every report. `journeyIdFor` now names
+  `entity` when it refuses one, and refuses an entity whose type or id is
+  empty, as its documentation and the protocol already said. The derivation
+  fixture lists those entities under a new `refusedEmpty`, so another SDK's
+  conformance run checks it too.
+
+- **`deployment` is reported by field.** A refused field is named
+  `deployment.gitCommit`, `deployment.version` or `deployment.image`; keys the
+  protocol does not have are `deployment.*`, never by their own names; and
+  `deployment` means events carry none of it. So a partial refusal no longer
+  reads like a total one (F-031, ADR-062). A field that is only whitespace is
+  now refused as empty, `{}` and `{ gitCommit: undefined }` are now reported,
+  and `constructor` or `toString` beside a valid field is now caught.
+
+- **An error whose fields cannot be read no longer costs its step.**
+  `record({ error })` with a `message`, `type`, `code` or `stack` getter that
+  throws, or a revoked Proxy as the error, lost the whole event with one
+  `capture_error`. Each field is now read on its own; a field that throws
+  costs that field. A message that cannot be read, or is not a non-empty
+  string, is sent as `The error's message could not be read.` instead of a
+  value the server would refuse, and only `message`, `type`, `code` and
+  `stack` are sent, each a string.
+
+- **`createRecorder` no longer throws or hangs for a list setting it cannot
+  read.** A revoked Proxy given as `deployment`, `redact` or `knownSafeNames`,
+  an array Proxy whose reads throw, an array with a hostile `Symbol.species`
+  or an overridden `filter`, threw out of `createRecorder` into the host's
+  startup, against SDK-6, and an array Proxy claiming a `length` of a trillion
+  hung it. `redact` and `knownSafeNames` are now copied by index into an array
+  the SDK owns, at most 1,000 entries, and nothing of the host's runs after
+  that. A list that cannot be read, or holds more than 1,000 entries, is
+  reported as that setting, and `redact` keeps the built-in secret names.
+
+- **An error message that looks like personal data is warned about**, as a
+  journey label and a displayable alias already were (F-041, ADR-062). A
+  thrown error's, a `FailureReason`'s, `fail()`'s and `record()`'s message is
+  masked for credential shapes only, and a timeline shows it to every reader;
+  an email address or an international telephone number in it now raises
+  `personal_data_in_public_value` with `detail.field` `errorMessage`, and the
+  message is sent unchanged. A stack is not examined. The warning is now given
+  once per process, field and shape, so `personalDataInPublicValues` is at most
+  6 rather than 2, and a warning about an error message never silences a
+  later one about a label or an alias. The email shape no longer matches a
+  module path, a versioned package, a masked URL, a git remote, an ssh target
+  or an image digest, and a timezone offset such as `+0000` is not a telephone
+  number.
+
+- **Four SDK declarations say what the code does.** `WrapResult` says the
+  assignment of a second implementation needs no cast and its body's return
+  still does (F-037). `ContinueJourneyOptions` names all four steps of the
+  journey id, the id derived under `journeyIdSecret` included (F-039).
+  `metadataFrom` says it runs on a result `isFailure` calls a failure, not when
+  the callback throws or rejects, and once per call or per journey of an
+  `across()` group (F-040). `FailureReason` says its message is masked for
+  credential shapes and not for personal data (F-041). Each statement is pinned
+  by a test. No behaviour changed.
+
+- **`hasJourney` takes `unknown`.** It was declared as taking a
+  `PayloadEnvelope<T>` while documented as taking anything, so a body off a
+  queue, typed `unknown`, needed the cast the guard exists to remove (F-034).
+  It is now `hasJourney(envelope: unknown): envelope is
+  ContextEnvelope<unknown>`, with no type parameter, since the guard never
+  reads `data` and a type argument would assert the payload's type unchecked
+  (ADR-062). A `PayloadEnvelope<T>` still narrows to `ContextEnvelope<T>`
+  inside the guard and to `NoContextEnvelope<T>` in its `else`. Its
+  documentation now says that `false` covers both a value that is not an
+  envelope and an envelope with no journey. Nothing changes at run time.
+
 - **`injectPayload` returns `PayloadEnvelope<T>`, not `ContextEnvelope<T>`.**
   Without a context to inject it produces an envelope with an empty
   `_wayscribe`, which did not satisfy `ContextEnvelope` and which the SDK cast
@@ -713,6 +787,29 @@ What you have to do when upgrading a checkout or a deployment:
 
 These apply to an installation or a host application built from an earlier
 development build of `main`. A new installation can skip them.
+
+- **`rejectedSettings` no longer holds call-time names.** A test or health
+  check that expected `entity`, `context`, `journeyId`, or a `journeyIdSecret`
+  that a call needed but was never configured, in `rejectedSettings` reads
+  `rejectedOptions` instead. A check that stops recording on any refused
+  setting keeps working, and can now let a single `deployment.<field>` through
+  while still stopping on `deployment`.
+
+- **`deployment` problems have new names.** One that was reported as
+  `deployment` is now `deployment.<field>`, `deployment.*`, `deployment`, or
+  several of them, in that order. `{ gitCommit: process.env.GIT_SHA }` with
+  the variable unset now reports `deployment`; it sent nothing before too, in
+  silence. A value that is only whitespace is refused instead of being sent.
+
+- **`hasJourney` takes no type argument.** A call written
+  `hasJourney<Job>(body)` drops the `<Job>`: a typed envelope keeps its payload
+  type through the guard without one, and a body typed `unknown` narrows to
+  `ContextEnvelope<unknown>`, whose `data` is yours to check.
+
+- **`personal_data_in_public_value` has a third `detail.field`.** Besides
+  `journeyLabel` and `displayableAliases` it can be `errorMessage`. A handler
+  that switches on the field exhaustively needs the new case; one that logs it
+  needs nothing.
 
 - **A type annotation on an injected payload.** If you declared a value or a
   queue's job payload as `ContextEnvelope<T>`, annotate it as

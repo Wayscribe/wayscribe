@@ -106,9 +106,10 @@ describe("deployment", () => {
       }
     );
     expect(events[0]?.["deployment"]).toEqual({ image: "registry.example/app:1.4.2" });
+    // The unknown key by the one name all unknown keys share, never its own.
     expect(
       diagnostics.filter((d) => d.kind === "configuration_error").map((d) => d.detail)
-    ).toEqual([{ setting: "deployment" }]);
+    ).toEqual([{ setting: "deployment.*" }]);
   });
 
   it("is left off, and reported, when a field is not a usable string", async () => {
@@ -122,7 +123,12 @@ describe("deployment", () => {
     );
     expect(events[0]).not.toHaveProperty("deployment");
     const reported = diagnostics.filter((d) => d.kind === "configuration_error");
-    expect(reported.map((d) => d.detail)).toEqual([{ setting: "deployment" }]);
+    // Each field by name, then the setting, because nothing of it is sent.
+    expect(reported.map((d) => d.detail)).toEqual([
+      { setting: "deployment.gitCommit" },
+      { setting: "deployment.version" },
+      { setting: "deployment" }
+    ]);
     // The value is never quoted back.
     expect(JSON.stringify(reported)).not.toContain("aaaa");
   });

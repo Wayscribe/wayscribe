@@ -32,9 +32,20 @@ export interface JourneyContext {
 /**
  * An error as `record()` takes it. The wrappers and `fail()` build one from
  * the thrown value: its `message`, its `name` as `type`, and a string `code`.
+ *
+ * Each field is read once, on its own, and only these four are sent: a field
+ * whose read throws is left off and reported as `capture_error`, and never
+ * costs the step. A `message` that cannot be read, or is not a non-empty
+ * string, is sent as `The error's message could not be read.`
  */
 export interface ErrorInput {
-  /** Masked for credential shapes and cut to 4,096 characters before it is queued. */
+  /**
+   * Masked for credential shapes and cut to 4,096 characters before it is
+   * queued. Personal data is not masked: it is stored and shown as given, and
+   * an email address or an international telephone number raises a
+   * `personal_data_in_public_value` warning, once per process and shape for
+   * error messages.
+   */
   message: string;
   /** Cut to 256 characters. */
   type?: string | undefined;
@@ -145,8 +156,14 @@ export interface WrapOptions<T = unknown, I = unknown> {
    * `Retry-After` only exists once the call has returned, so it could not be
    * metadata at all (ADR-060).
    *
-   * Runs once per journey, after the callback has returned or resolved, and
-   * not when the callback throws. Synchronous, and returns a plain object:
+   * Runs after the callback has returned or resolved, on that value whether or
+   * not `isFailure` calls it a failure, so a refused call records the status
+   * that explains it. Not when the callback throws or its promise rejects:
+   * there is no value to read. Once per call; on a group from
+   * `recorder.across()`, once per journey in it, each with that journey's
+   * context. Nothing is remembered between calls (F-040).
+   *
+   * Synchronous, and returns a plain object:
    * one that throws, returns a promise, or returns anything else leaves the
    * static metadata as it is and reports `payload_omitted` with code
    * `projection_failed`, and never reaches your code.
@@ -159,8 +176,20 @@ export interface WrapOptions<T = unknown, I = unknown> {
 /**
  * Why a result that did not throw is a failure. Both fields are optional: a
  * missing `message` records the generic one, and a missing `code` records
- * `result_failed`. The message is masked and bounded like any other error the
- * host gives (ADR-046).
+ * `result_failed`.
+ *
+ * The message becomes the recorded error's message, as `ErrorInput.message`
+ * does: masked for credential shapes (private keys, JSON web tokens, provider
+ * tokens, webhook secrets, URL credentials, `Bearer`, `Basic` and `Digest`
+ * credentials, `name=value` secrets) and cut to 4,096 characters (ADR-046).
+ *
+ * Masking leaves personal data in place. An email address or a telephone
+ * number in the message is stored and shown in plain text wherever the
+ * timeline is, so build the message from what your code composed, such as the
+ * status, and not from a response body that may name a person. One that looks
+ * like either raises a `personal_data_in_public_value` warning, once per
+ * process and shape for error messages, and is sent unchanged (F-041,
+ * ADR-062).
  */
 export interface FailureReason {
   message?: string | undefined;
@@ -184,8 +213,13 @@ export interface FinishOptions {
  * What a wrapper returns, given what its callback returned: the value itself,
  * or a native promise of the resolved value for a promise or any other
  * thenable. One conditional type rather than two call signatures, so a second
- * implementation writes one signature too and needs no cast to be assignable
- * to the four wrappers (F-021, ADR-060).
+ * implementation writes one signature too, and assigning it to the four
+ * wrappers needs no cast (F-021, ADR-060).
+ *
+ * The implementation's own return still does: a conditional type cannot
+ * resolve while `T` is a type parameter, so inside the function neither `T`
+ * nor a promise is assignable to `WrapResult<T>`, and the body ends in
+ * `as WrapResult<T>` (F-037).
  */
 export type WrapResult<T> = T extends PromiseLike<infer Resolved> ? Promise<Awaited<Resolved>> : T;
 
@@ -260,8 +294,8 @@ export interface IdentifyOptions {
    * A displayable alias is stored, shown and searched in plain text, exactly as
    * a journey label is, so do not mark one that holds personal data. A value
    * that looks like an email address or a telephone number raises one
-   * `personal_data_in_public_value` diagnostic per process and shape, and is
-   * never changed (ADR-060).
+   * `personal_data_in_public_value` diagnostic per process and shape for
+   * displayable aliases, and is never changed (ADR-060, ADR-062).
    *
    * @defaultValue none: every alias is masked
    */
@@ -326,7 +360,14 @@ export interface StartJourneyOptions {
  * How to join a journey that started elsewhere: from a context another
  * process propagated, or from a journey id this process already has.
  *
- * The journey id is the context's, else `journeyId`, else a new random one.
+ * The journey id is the context's, else `journeyId`, else the id
+ * `journeyIdFor` would give for the entity when the recorder has a usable
+ * `journeyIdSecret` and the entity is one the server accepts, else a new random
+ * one. So a consumer with a secret passes the entity alone and rejoins the
+ * record's journey, with no `journeyId` of its own (F-005, F-039). A context or
+ * `journeyId` without a non-empty string id is reported and skipped, and the
+ * next step is used.
+ *
  * The entity is the context's, else `entity`, else `{ type: "unknown", id:
  * "unknown" }`. At the default propagation level the entity's id does not
  * cross the boundary, so a consumer passes the entity it has from the message.

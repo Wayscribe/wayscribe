@@ -27,7 +27,11 @@ const fixture = JSON.parse(
     new URL("../../protocol/fixtures/journey-id-derivation.json", import.meta.url),
     "utf8"
   )
-) as { vectors: Vector[]; refused: Omit<Vector, "journeyId">[] };
+) as {
+  vectors: Vector[];
+  refused: Omit<Vector, "journeyId">[];
+  refusedEmpty: Omit<Vector, "journeyId">[];
+};
 
 const base: RecorderConfig = {
   endpoint: "http://127.0.0.1:1",
@@ -176,7 +180,7 @@ describe("journeyIdFor", () => {
       expect(recorder.counters().configurationErrors).toBe(1);
     });
 
-    it.each(fixture.refused.map((one) => [one.name, one] as const))(
+    it.each([...fixture.refused, ...fixture.refusedEmpty].map((one) => [one.name, one] as const))(
       "refuses the fixture's entity: %s",
       (_name, one) => {
         const { recorder } = recorderWith({

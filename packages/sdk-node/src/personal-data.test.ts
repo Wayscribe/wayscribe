@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Diagnostic } from "./diagnostics.js";
 import { createRecorder, type Recorder, type RecorderConfig } from "./index.js";
-import { forgetPersonalDataWarnings } from "./personal-data.js";
+import { forgetPersonalDataWarnings, personalDataShapeOf } from "./personal-data.js";
 
 /**
  * A label and a displayable alias are stored, shown and searched in plain text
@@ -219,15 +219,19 @@ describe("personal data in a displayable alias", () => {
     ]);
   });
 
-  it("shares the once-per-process rule with the label", async () => {
+  it("warns once per field: a label that warned does not silence an alias", async () => {
     const { diagnostics } = await capture((recorder) => {
       const journey = recorder.startJourney({
         entity: { type: "lead", id: "1" },
         label: "Acme · jane@acme.com"
       });
       journey.identify({ email: "john@acme.com" }, { displayableAliases: ["email"] });
+      journey.identify({ email: "jo@acme.com" }, { displayableAliases: ["email"] });
     });
-    expect(warnings(diagnostics)).toHaveLength(1);
+    expect(warnings(diagnostics).map((d) => d.detail)).toEqual([
+      { field: "journeyLabel", shape: "email" },
+      { field: "displayableAliases", shape: "email" }
+    ]);
   });
 
   it("cannot break the call, whatever the aliases hold", async () => {
@@ -242,5 +246,217 @@ describe("personal data in a displayable alias", () => {
       }).not.toThrow();
     });
     expect(events).toHaveLength(1);
+  });
+});
+
+describe("personal data in an error message (F-041)", () => {
+  it("warns for a FailureReason message, and sends it unchanged", async () => {
+    const message = "avery.example@northwind.example is over its limit.";
+    const { events, diagnostics } = await capture(async (recorder) => {
+      await recorder
+        .startJourney({ entity: { type: "lead", id: "1" } })
+        .deliver("push-crm", {}, () => Promise.resolve({ status: 429 }), {
+          isFailure: () => ({ message, code: "http_429" })
+        });
+    });
+    expect((events[0]?.["error"] as { message: string }).message).toBe(message);
+    expect(warnings(diagnostics)).toEqual([
+      {
+        kind: "personal_data_in_public_value",
+        code: "personal_data_shape",
+        reason: expect.stringContaining("An error message") as string,
+        detail: { field: "errorMessage", shape: "email" }
+      }
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain("avery.example");
+  });
+
+  it("warns for a string isFailure returns, a thrown error, record() and fail()", async () => {
+    for (const run of [
+      (recorder: Recorder) => {
+        recorder
+          .startJourney({ entity: { type: "lead", id: "1" } })
+          .transform("t", 1, () => 2, { isFailure: () => "call +44 20 7946 0958 back" });
+      },
+      (recorder: Recorder) => {
+        expect(() =>
+          recorder.startJourney({ entity: { type: "lead", id: "1" } }).transform("t", 1, () => {
+            throw new Error("no account for +44 20 7946 0958");
+          })
+        ).toThrow();
+      },
+      (recorder: Recorder) => {
+        recorder.startJourney({ entity: { type: "lead", id: "1" } }).record({
+          operation: "failed",
+          name: "r",
+          error: { message: "no account for +44 20 7946 0958" }
+        });
+      },
+      (recorder: Recorder) => {
+        recorder
+          .startJourney({ entity: { type: "lead", id: "1" } })
+          .fail("dead-letter", new Error("no account for +44 20 7946 0958"));
+      }
+    ]) {
+      forgetPersonalDataWarnings();
+      const { events, diagnostics } = await capture(run);
+      expect(events).toHaveLength(1);
+      expect(warnings(diagnostics).map((d) => d.detail)).toEqual([
+        { field: "errorMessage", shape: "phone" }
+      ]);
+    }
+  });
+
+  it("says nothing about an error message that looks like neither", async () => {
+    const { diagnostics } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });
+      journey.transform("t", 1, () => 2, { isFailure: () => "HubSpot answered 429 to the create" });
+      journey.record({ operation: "failed", name: "r", error: { message: "timeout after 30s" } });
+    });
+    expect(warnings(diagnostics)).toEqual([]);
+  });
+
+  it("examines the message as it is sent, after masking", async () => {
+    // Masking takes the assignment's value, address and all, so what is sent
+    // holds no address; the raw text would have warned.
+    const message = "login refused for password=jane.doe@acme.com";
+    expect(personalDataShapeOf(message)).toBe("email");
+    const { events, diagnostics } = await capture((recorder) => {
+      recorder
+        .startJourney({ entity: { type: "lead", id: "1" } })
+        .record({ operation: "failed", name: "r", error: { message } });
+    });
+    const sent = (events[0]?.["error"] as { message: string }).message;
+    expect(sent).not.toContain("jane.doe");
+    expect(warnings(diagnostics)).toEqual([]);
+  });
+
+  it("does not examine the stack", async () => {
+    const { diagnostics } = await capture((recorder) => {
+      recorder.startJourney({ entity: { type: "lead", id: "1" } }).record({
+        operation: "failed",
+        name: "r",
+        error: { message: "timeout", stack: "Error: timeout\n    at jane@acme.com" }
+      });
+    });
+    expect(warnings(diagnostics)).toEqual([]);
+  });
+
+  it("warns once per process for error messages, apart from the label", async () => {
+    const { diagnostics } = await capture((recorder) => {
+      const journey = recorder.startJourney({
+        entity: { type: "lead", id: "1" },
+        label: "Acme · jane@acme.com"
+      });
+      journey.record({ operation: "failed", name: "r", error: { message: "for john@acme.com" } });
+      journey.record({ operation: "failed", name: "r", error: { message: "for jo@acme.com" } });
+    });
+    expect(warnings(diagnostics).map((d) => d.detail)).toEqual([
+      { field: "journeyLabel", shape: "email" },
+      { field: "errorMessage", shape: "email" }
+    ]);
+  });
+
+  it("cannot cost the step, whatever the error holds", async () => {
+    const throwing = (): never => {
+      throw new Error("no");
+    };
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const { events } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });
+      // A reason whose message getter throws, and one that is a revoked Proxy.
+      journey.transform("getter", 1, () => 2, {
+        isFailure: () => Object.defineProperty({}, "message", { get: throwing, enumerable: true })
+      });
+      journey.transform("revoked", 1, () => 2, { isFailure: () => revoked.proxy });
+      // A thrown error whose message getter throws. Caught by hand, because
+      // `toThrow` reads the message too.
+      const hostile = Object.defineProperty(new Error("x"), "message", { get: throwing });
+      let caught: unknown;
+      try {
+        journey.transform("thrown", 1, () => {
+          throw hostile;
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(hostile);
+      // A message that is not a string.
+      journey.record({ operation: "failed", name: "number", error: { message: 7 as never } });
+    });
+    expect(events.map((event) => event["name"])).toEqual(["getter", "revoked", "thrown", "number"]);
+  });
+});
+
+describe("what the shapes do not match (F-041 review)", () => {
+  // Error text is full of `@` and `+` that are not personal data, and a false
+  // positive costs more than noise: it spends the warning for its field.
+  it.each([
+    ["the SDK's own masked URL", "connect to postgres://[REDACTED]@db.internal:5432/leads"],
+    ["URL userinfo left unmasked", "connect to postgres://leads@db.internal:5432/leads"],
+    ["a module path", "Cannot find module '/app/node_modules/@aws-sdk/client-s3/dist/index.js'"],
+    ["a versioned package path", "at lodash@4.17.21/fp.js"],
+    [
+      "an npm scoped package with a version",
+      "resolved @babel/core@7.24.0 from @types/node@20.11.5"
+    ],
+    ["a scoped package path", "/srv/node_modules/@scope/pkg@1.2.3/lib/index.js"],
+    ["a git remote", "fatal: could not read from git@github.com:org/repo.git"],
+    ["an ssh target with a path", "scp deploy@build.example.com:/srv/app failed"],
+    ["an ssh error naming user@host", "deploy@build.example.com: Permission denied (publickey)."],
+    [
+      "a Docker image with a digest",
+      "pull registry.example.com/team/app@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    ],
+    ["an image digest after a name", "app@sha256:abc123.def"],
+    ["a JavaScript date", "Fri Sep 18 14:00:00 +0000 2026"],
+    ["a timezone offset in a log line", "at 2026-09-18 14:00:00 +0100 (CET) retrying"]
+  ])("does not flag %s", (_what, text) => {
+    expect(personalDataShapeOf(text)).toBeUndefined();
+  });
+
+  it.each([
+    ["an address alone", "jane.doe@acme.com", "email"],
+    ["an address at the end of a sentence", "no account for jane.doe@acme.com.", "email"],
+    ["an address in angle brackets", "From: Jane <jane.doe@acme.com>", "email"],
+    ["an address after a colon", "email:jane.doe@acme.com refused", "email"],
+    ["an address after an equals sign", "user=jane.doe@acme.com not found", "email"],
+    ["an address in quotes", "unknown recipient 'jane.doe@acme.com'", "email"],
+    ["a number with a dialling code", "call +44 20 7946 0958", "phone"],
+    ["a number written together", "sms to +442079460958 failed", "phone"]
+  ])("still flags %s", (_what, text, shape) => {
+    expect(personalDataShapeOf(text)).toBe(shape);
+  });
+});
+
+describe("one field never silences another (F-041 review)", () => {
+  it("warns for a label after an error message already warned for the same shape", async () => {
+    const { diagnostics } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });
+      journey.record({ operation: "failed", name: "r", error: { message: "for john@acme.com" } });
+      journey.label("Acme · jane@acme.com");
+      journey.identify({ email: "jo@acme.com" }, { displayableAliases: ["email"] });
+      journey.record({ operation: "failed", name: "r", error: { message: "for jo@acme.com" } });
+      journey.label("Acme · jo@acme.com");
+    });
+    expect(warnings(diagnostics).map((d) => d.detail)).toEqual([
+      { field: "errorMessage", shape: "email" },
+      { field: "journeyLabel", shape: "email" },
+      { field: "displayableAliases", shape: "email" }
+    ]);
+  });
+
+  it("prints one line per field and shape with logDiagnostics off", async () => {
+    const { printed } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });
+      journey.record({ operation: "failed", name: "r", error: { message: "for john@acme.com" } });
+      journey.label("Acme · jane@acme.com");
+      journey.label("Acme · jo@acme.com");
+    });
+    const lines = printed.filter((line) => line.includes("personal_data_in_public_value"));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("An error message");
+    expect(lines[1]).toContain("A journey label");
   });
 });

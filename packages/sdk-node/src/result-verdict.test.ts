@@ -237,6 +237,51 @@ describe("metadataFrom", () => {
     expect(events[1]?.["operation"]).toBe("transformed");
   });
 
+  it("runs on a result isFailure calls a failure, and records both (F-040)", async () => {
+    const { events } = await capture(async (recorder) => {
+      await journeyIn(recorder).deliver("push-crm", {}, () => Promise.resolve({ status: 429 }), {
+        isFailure: (result) => ({ message: "refused", code: `http_${String(result.status)}` }),
+        metadataFrom: (result) => ({ status: result.status })
+      });
+    });
+    expect(events[0]?.["metadata"]).toEqual({ status: 429 });
+    expect(events[0]?.["error"]).toMatchObject({ message: "refused", code: "http_429" });
+  });
+
+  it("does not run when the callback's promise rejects", async () => {
+    let ran = 0;
+    const { events } = await capture(async (recorder) => {
+      await expect(
+        journeyIn(recorder).deliver("push-crm", {}, () => Promise.reject(new Error("refused")), {
+          metadataFrom: () => {
+            ran += 1;
+            return { status: 0 };
+          }
+        })
+      ).rejects.toThrow("refused");
+    });
+    expect(ran).toBe(0);
+    expect(events).toHaveLength(1);
+    expect(events[0]).not.toHaveProperty("metadata");
+  });
+
+  it("runs once per call on a single journey, and is not remembered between calls", async () => {
+    const seen: number[] = [];
+    const { events } = await capture((recorder) => {
+      const journey = journeyIn(recorder);
+      const options = {
+        metadataFrom: (result: number) => {
+          seen.push(result);
+          return { result };
+        }
+      };
+      journey.transform("first", 1, () => 1, options);
+      journey.transform("second", 1, () => 2, options);
+    });
+    expect(seen).toEqual([1, 2]);
+    expect(events.map((event) => event["metadata"])).toEqual([{ result: 1 }, { result: 2 }]);
+  });
+
   it("runs once per journey in a group, with that journey's context", async () => {
     const { events } = await capture((recorder) => {
       const one = recorder.startJourney({ entity: { type: "customer", id: "1" } });
@@ -253,6 +298,22 @@ describe("metadataFrom", () => {
 });
 
 describe("a reason on a failed result", () => {
+  it("is masked for credential shapes and not for personal data (F-041)", async () => {
+    const { events } = await capture(async (recorder) => {
+      await journeyIn(recorder).deliver("push-crm", {}, () => Promise.resolve({ status: 401 }), {
+        isFailure: () => ({
+          message:
+            "avery.example@northwind.example was refused with Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789",
+          code: "http_401"
+        })
+      });
+    });
+    const message = (events[0]?.["error"] as { message: string }).message;
+    expect(message).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+    // Sent exactly as given: masking is for credentials, and an address is not one.
+    expect(message).toContain("avery.example@northwind.example was refused");
+  });
+
   it("puts an object's message and code on the recorded error", async () => {
     const { events } = await capture(async (recorder) => {
       await journeyIn(recorder).deliver("push-crm", {}, () => Promise.resolve({ status: 429 }), {

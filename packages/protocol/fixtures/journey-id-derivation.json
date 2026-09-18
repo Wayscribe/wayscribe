@@ -122,5 +122,35 @@
         "id": "a"
       }
     }
+  ],
+  "refusedEmptyComment": "Entities an SDK must not derive an id for because the protocol refuses them: an entity type or id that is empty (SDK-55, ADR-062). Report it and return a random id. Kept apart from `refused`, whose entries are all text that is not well-formed UTF-16.",
+  "refusedEmpty": [
+    {
+      "name": "an empty id",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "customer",
+        "id": ""
+      }
+    },
+    {
+      "name": "an empty type",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "",
+        "id": "a"
+      }
+    },
+    {
+      "name": "an empty type and id",
+      "secret": "journey id test vector secret one, not a real key",
+      "environment": "production",
+      "entity": {
+        "type": "",
+        "id": ""
+      }
+    }
   ]
 }

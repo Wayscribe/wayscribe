@@ -85,8 +85,9 @@ export const recorder = createRecorder({
   propagation: "journey-and-type",
 
   // Which build this process is, sent on every event as `deployment`
-  // (ADR-060). Read and copied once, here; a field the protocol would refuse
-  // is left off and reported.
+  // (ADR-060). Read and copied once, here; a field the protocol would refuse,
+  // or one that is only whitespace, is left off and reported by its own name,
+  // such as `deployment.version` (ADR-062).
   deployment: { version: process.env.APP_VERSION, gitCommit: process.env.GIT_SHA }
 });
 ```
@@ -94,7 +95,13 @@ export const recorder = createRecorder({
 A setting that cannot be used never stops the recorder starting; it is
 reported as `configuration_error` and replaced by its default (SDK-6, SDK-60),
 and printed once per process whether or not `logDiagnostics` is on. Which
-settings were rejected is in `counters().rejectedSettings`.
+settings were rejected is in `counters().rejectedSettings`, which is fixed once
+`createRecorder` returns; an option a later call was refused is in
+`counters().rejectedOptions` instead (F-038, ADR-062). A part of `deployment`
+is named by its path: `deployment.gitCommit`, `deployment.version` or
+`deployment.image` for a field that is not sent, `deployment.*` for keys the
+protocol does not have, and `deployment` when events carry no deployment at
+all (F-031).
 
 ## 4. Public API
 
@@ -143,11 +150,10 @@ journey id is the context's, else `journeyId`, else the id derived from the
 entity when the recorder has a usable `journeyIdSecret` (ADR-060), else a new
 random one; the
 entity is the context's, else `entity`, else `{ type: "unknown", id: "unknown"
-}`. A `journeyId` that is not a non-empty string is reported as
-`configuration_error` with code `journey_id_invalid`, and a new journey is
-started; so is a `context` without a non-empty string id, which is then
-treated as absent (the `journeyId` option is used if there is one, and the
-derived id after that). Deriving reports nothing: a recorder without a secret
+}`. A `context` or a `journeyId` without a non-empty string id is reported as
+`configuration_error` with code `journey_id_invalid` and treated as absent, so
+the next step decides: after a context, the `journeyId` option if there is one;
+after either, the derived id, or a new random one without a secret. Deriving reports nothing: a recorder without a secret
 is the default, and its journey is new, as it has always been. A journey's
 own `context()` is a valid `context`; the journey handle itself is not. Records
 nothing by itself. Used by downstream HTTP handlers and queue consumers.
@@ -277,7 +283,9 @@ type WrapResult<T> = T extends PromiseLike<infer R> ? Promise<Awaited<R>> : T;
 
 One signature, not two: a second implementation that runs the callback and
 forwards its result the same way either time can be typed once and assigned to
-all four wrappers with no cast (F-021, ADR-060).
+all four wrappers with no cast (F-021, ADR-060). Its body still casts its own
+return to `WrapResult<T>`, because a conditional type cannot resolve while `T`
+is a type parameter (F-037).
 
 ### Wrapper options
 
@@ -310,11 +318,20 @@ validation message do not read alike (ADR-060). A field that is not a non-empty
 string falls back to the generic one, and every falsy value, `0` and `NaN`
 included, is not a failure. One that throws costs the verdict alone: the step
 is recorded as a success and a `capture_error` says so, and a reason whose own
-fields throw costs those fields and not the step.
+fields throw costs those fields and not the step. The message is masked for
+credential shapes like any other error message, and personal data in it is
+not masked: an email address or an international telephone number in any
+error message raises the label's `personal_data_in_public_value` warning, with
+`detail.field` `errorMessage`, once per process and shape for error messages,
+so it never silences a label's or an alias's warning, and is sent
+unchanged (F-041, ADR-062).
 
 `metadataFrom` computes metadata from the resolved value, merged over
-`metadata`, which is copied before the callback runs. It runs once per journey,
-not when the callback throws, and follows the projection rules above; anything
+`metadata`, which is copied before the callback runs. It runs on that value
+whether or not `isFailure` calls it a failure, and not when the callback throws
+or its promise rejects; once per call, or once per journey in an `across`
+group, with nothing remembered between calls (F-040). It follows the
+projection rules above; anything
 it returns that is not a plain object, and any getter on it that throws, leaves
 `metadata` exactly as it was and reports `projection_failed` with field
 `metadata` (ADR-060). The wrapper's own `attempt` is applied after the merge,
@@ -368,8 +385,9 @@ copy of the counters at any time.
 `Counters` (experimental: fields may be added) has `recorded`, `sent`,
 `rejected`, `dropped`, `transportErrors`, `captureErrors`, `breakerOpened`,
 `payloadsOmitted`, `payloadsTruncated`, `keysDropped`, `configurationErrors`,
-`rejectedSettings` (the names those reports carried, not a number),
-`unredactedSecretNames` and `personalDataInPublicValues`. Every counter but `recorded` and `sent` counts
+`rejectedSettings` and `rejectedOptions` (the names those reports carried, at
+creation and on later calls, not numbers), `unredactedSecretNames` and
+`personalDataInPublicValues`. Every counter but `recorded` and `sent` counts
 reports of one diagnostic kind. Once `shutdown` has returned,
 `sent + rejected + dropped === recorded` (SDK-38, SDK-42).
 
@@ -455,9 +473,11 @@ const { context, data } = recorder.extractPayload(body); // ExtractedPayload
 context. `PayloadEnvelope<T>` is `ContextEnvelope<T>` or `NoContextEnvelope<T>`,
 the empty envelope a recorder with no context to inject produces, so the value
 the SDK itself makes satisfies its own type (F-014, ADR-060). A nested
-discriminant does not narrow a union, so `hasJourney(envelope)`, an exported
-type guard, is what narrows one to `ContextEnvelope<T>`; the README's
-propagation section states the formulations that work. The header,
+discriminant does not narrow a union, so `hasJourney(value)`, an exported
+type guard, is what narrows one to `ContextEnvelope<T>`. It takes `unknown`, so
+a body off a queue needs no cast to reach it, and its `false` covers both a
+value that is not an envelope and an envelope with no journey (F-034). The
+README's propagation section states the formulations that work. The header,
 attribute and envelope names are not specified in
 `SDK_SPEC.md` yet (its section 1); they wait on the propagation specification.
 

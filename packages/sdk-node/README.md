@@ -131,7 +131,8 @@ timeline should not see: **a displayable alias is stored and searched in plain
 text exactly as a label is**, and the API's `q` filter matches it the same way.
 The SDK raises the same `personal_data_in_public_value` warning for a
 displayable alias whose value looks like an email address or a telephone
-number, once per process and shape, and never changes the value (ADR-060). An
+number, once per process and shape for aliases, and never changes the value
+(ADR-060). An
 alias you do not mark displayable is masked when it is read, so nothing is said
 about it.
 
@@ -186,12 +187,14 @@ redacted.** It is text you wrote to be read. Do not put personal data in it:
 no names of people, email addresses, customer numbers, or anything else a
 reader of the journey list should not see.
 
-The SDK warns when it sees one kind of mistake. A label, or an alias you marked
-displayable, that holds what looks like an email address or an international
-telephone number raises one `personal_data_in_public_value` diagnostic, and
-prints one line even with `logDiagnostics` off, once per process and value
-shape. **The value is never changed**, and the warning is never a refusal: this
-is ADR-055's rule for secret-looking names, applied to personal data (ADR-060).
+The SDK warns when it sees one kind of mistake. A label, an alias you marked
+displayable, or an error's message, that holds what looks like an email
+address or an international telephone number raises one
+`personal_data_in_public_value` diagnostic, and prints one line even with
+`logDiagnostics` off, once per process for each of the three and each value
+shape, so a warning about one never silences another. **The value is never changed**, and the warning is never a
+refusal: this is ADR-055's rule for secret-looking names, applied to personal
+data (ADR-060, ADR-062).
 
 The check is deliberately dumb, an email shape and an international phone shape
 and nothing else, so that it does not print at every deploy for text that is
@@ -218,7 +221,10 @@ operation they record, which is what makes the timeline readable.
 returns a value; one that returns a promise, or any other thenable, returns a
 native promise of its resolved value, which the exported type `WrapResult<T>`
 states in one signature rather than two. So wrapping a synchronous call does not
-change the control flow around it:
+change the control flow around it. (A second implementation of these wrappers,
+such as a recorder that records nothing, is assigned to them with no cast, but
+its body still casts its own return to `WrapResult<T>`: a conditional type
+cannot resolve while `T` is a type parameter.)
 
 ```typescript
 try {
@@ -261,7 +267,13 @@ falls back to the generic text and `result_failed`, so a reason you got wrong
 still records the failure rather than losing it. **Every falsy value is not a
 failure**: `false`, `undefined`, `null`, `""`, `0` and `NaN`, so
 `isFailure: (result) => result.errors.length` means what it has always meant. The message is masked for credential shapes
-and bounded like any other error you give the SDK. An `isFailure` that throws
+and bounded like any other error you give the SDK. **It is not masked for
+personal data**: an email address or a telephone number in it is stored and
+shown in plain text wherever the timeline is, and one that looks like it raises
+the `personal_data_in_public_value` warning described under
+[Name a journey](#name-a-journey). Build the message from what your code knows,
+such as the status, rather than from a response body that may name a person
+(F-041). An `isFailure` that throws
 costs the verdict and nothing else: your value comes back, the step is recorded
 as the success it looked like, and a `capture_error` says so.
 
@@ -280,8 +292,11 @@ const response = await journey.deliver("push-crm", payload, () => post(payload),
 });
 ```
 
-It receives the resolved value and the journey's context, runs once per journey
-in a `recorder.across` group, and is not called when the callback throws. Like
+It receives the resolved value and the journey's context, and runs on that value
+whether or not `isFailure` calls it a failure, so a refused call records the
+status that explains it. It is not called when the callback throws or its
+promise rejects. It runs once per call, or once per journey in a
+`recorder.across` group, and nothing is remembered between calls (F-040). Like
 `captureInput` and `captureOutput` it must be synchronous and cannot break your
 call: one that throws, returns a promise, or returns anything that is not a
 plain object leaves the static metadata exactly as it was and reports
@@ -404,9 +419,9 @@ created, and never used. Because split journeys are easy to miss, a missing or
 short secret also prints one line to stderr, once per process, even with
 `logDiagnostics` off; it is one of the six warnings the SDK prints unasked
 ([It cannot break your application](#it-cannot-break-your-application)). An entity
-whose type or id holds an unpaired surrogate is refused the same way (reported,
-random id, no warning line): it cannot be encoded faithfully, and the server
-refuses such an id anyway. The SDK reads no environment variable for it: the
+whose type or id is empty, or holds an unpaired surrogate, is refused the same
+way (reported, random id, no warning line): the server refuses such an entity,
+and an unpaired surrogate cannot be encoded faithfully either. The SDK reads no environment variable for it: the
 variable name above is your application's. Assert
 `recorder.counters().configurationErrors === 0` in a test to catch a missing
 secret before it ships.
@@ -529,7 +544,8 @@ under this repo's TypeScript settings:
 ```typescript
 import { hasJourney, type PayloadEnvelope } from "@wayscribe/node";
 
-// 1. The exported type guard narrows the envelope itself.
+// 1. The exported type guard narrows the envelope itself. It takes anything,
+//    a body typed `unknown` included, and never throws.
 if (hasJourney(envelope)) {
   const journey = recorder.continueJourney({ context: envelope._wayscribe, entity });
 }
@@ -553,6 +569,11 @@ level, and this one is nested, so inside that block the envelope is still the
 union and assigning it to `ContextEnvelope<T>` is an error. The compiler's
 message talks about assignability and says nothing about narrowing, which is
 why this looks right; use one of the three above.
+
+`hasJourney` answers `false` both for a value that is not an envelope, such as
+`{ a: 1 }`, and for an envelope with no journey, such as `{ _wayscribe: {},
+data }`. A consumer that must tell those apart, to unwrap `data` from the
+second and not the first, checks for `_wayscribe` itself (F-034).
 
 | `propagation` | Emits |
 | --- | --- |
@@ -594,8 +615,8 @@ no library. This one is built so that cannot happen:
   range; a setting under its old name (`maxPayloadBytes`, `propagate`), since
   its value is not read; once per
   name, a field whose name looks like a secret that was sent in plain text; and,
-  once per value shape, a journey label or a displayable alias that looks like
-  personal data. A line names the setting or
+  once per field and value shape, a journey label, a displayable alias or an
+  error message that looks like personal data. A line names the setting or
   the field, never its value. Pass `onDiagnostic` if you want to hear about failures in your own
   logger.
   An optional setting used to be silent unless `logDiagnostics` was on, so a
@@ -642,8 +663,8 @@ await recorder.flush(); // send everything queued now, and wait for it
 const counters = await recorder.shutdown({ timeoutMs: 2_000 }); // the default
 // { recorded, sent, rejected, dropped, transportErrors, captureErrors,
 //   breakerOpened, payloadsOmitted, payloadsTruncated, keysDropped,
-//   configurationErrors, rejectedSettings, unredactedSecretNames,
-//   personalDataInPublicValues }
+//   configurationErrors, rejectedSettings, rejectedOptions,
+//   unredactedSecretNames, personalDataInPublicValues }
 
 recorder.counters(); // the same numbers, at any time
 ```
@@ -660,16 +681,27 @@ diagnostics of one kind, one per report (see the table below). Once
 `shutdown()` has returned, `sent + rejected + dropped === recorded`, which a
 test can assert.
 
-`rejectedSettings` is the exception, and the one entry that is not a number: it
-names what the `configuration_error` reports were about, in the order first
-seen and once each, so a test or a health check can say *which* setting was
-rejected rather than only how many were. It holds recorder settings and the
-options a call named (`entity`, `context`, `journeyId`, `journeyIdSecret`),
-never a value, and at most 50 of them (ADR-060).
+`rejectedSettings` and `rejectedOptions` are the exceptions, and the two
+entries that are not numbers: they name what the `configuration_error` reports
+were about, in the order first seen and once each, so a test or a health check
+can say *which* setting was rejected rather than only how many were. Neither
+holds a value, and each holds at most 50 names (ADR-060, ADR-062).
+
+- `rejectedSettings` is what `createRecorder` refused: a setting, a setting
+  given under its old name, an unusable `journeyIdSecret`, or a part of
+  `deployment` (see [Which build recorded this](#which-build-recorded-this)).
+  It is fixed once `createRecorder` returns, so it gives the same answer
+  whenever you read it. An entry means the process is misconfigured.
+- `rejectedOptions` is what a later call was refused: `entity`, `context`,
+  `journeyId`, `journeyIdSecret` (a call that needed a secret the recorder does
+  not have, or cannot use), and the old option names `entityFallback` and
+  `displayable`. An entry means one call site passed something odd (F-038).
+
+`configurationErrors` counts every report from both.
 
 ```typescript
 // A recorder that started on a default nobody chose is a deploy that is wrong
-// in a way nothing else reports.
+// in a way nothing else reports. Calls never add to this list.
 expect(recorder.counters().rejectedSettings).toEqual([]);
 ```
 
@@ -774,10 +806,10 @@ in `<noun>Errors`, and a bare participle in itself (`dropped`).
 | `key_dropped` | `aliases_not_object`, `alias_invalid`, `displayable_alias_invalid`, `metadata_key_too_long`, `label_invalid` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; or a label was not set; the event is still sent | `{ field, keys }`, `keys` being how many entries this report covers | `keysDropped`, per report |
 | `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it | `{ name, operation }` for `after_shutdown`, otherwise `{}` | `dropped` |
 | `capture_error` | `unexpected_error`, `not_a_journey`, `invalid_options`, `context_missing` | something threw inside the SDK; `across` was given something that is not a journey; a call's options were not an object or held keys it does not read (such as `fail`'s old positional metadata); or an inject helper was given no context; your call was unaffected | `{ error }` for `unexpected_error`, `{ call }` for `invalid_options` and `context_missing` | `captureErrors` |
-| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` |
+| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` when `createRecorder` reported it or `rejectedOptions` when a later call did |
 | `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
-| `personal_data_in_public_value` | `personal_data_shape` | a journey label, or an alias marked displayable, holds what looks like an email address or a telephone number, and both are stored and searched in plain text; once per process and shape; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
+| `personal_data_in_public_value` | `personal_data_shape` | a journey label, an alias marked displayable, or an error message (`field` is `journeyLabel`, `displayableAliases` or `errorMessage`) holds what looks like an email address or a telephone number, and all three are stored and shown in plain text; once per process, field and shape, so at most six; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
 
 ### An endpoint that is not encrypted
 
@@ -1324,7 +1356,7 @@ fleet against one instance. It is clamped to 1-16.
 | `serviceName` | none | required |
 | `environment` | none | required; must match the API key's environment |
 | `captureMode` | `redacted-payload` | or `metadata-only`, `full-payload` |
-| `redact` | `[]` | appended to the built-in secret paths |
+| `redact` | `[]` | appended to the built-in secret paths; at most 1,000 |
 | `propagation` | `journey-and-type` | see [Crossing a process boundary](#crossing-a-process-boundary); experimental |
 | `batchSize` | `50` | at most 100, the server's limit |
 | `flushIntervalMs` | `1000` | |
@@ -1336,7 +1368,7 @@ fleet against one instance. It is clamped to 1-16.
 | `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends); experimental |
 | `journeyIdSecret` | none | at least 32 bytes; see [The same record, the same journey](#the-same-record-the-same-journey); experimental |
 | `deployment` | none | `{ gitCommit?, version?, image? }`, sent on every event; see [Which build recorded this](#which-build-recorded-this) |
-| `knownSafeNames` | `[]` | key names that look like secrets and are not; see [Names no rule covers](#names-no-rule-covers) |
+| `knownSafeNames` | `[]` | key names that look like secrets and are not, at most 1,000; see [Names no rule covers](#names-no-rule-covers) |
 
 The SDK reads no environment variables. A library that changes behaviour based on
 ambient state is a library that behaves differently in your tests.
@@ -1372,13 +1404,26 @@ them straight from the environment compiles. The object is read and copied once,
 when the recorder is created, so changing it afterwards changes no event, and an
 event that carries it costs one property and no per-field work.
 
-A field that is not a non-empty string, or is longer than the protocol accepts
-(128 characters for `gitCommit` and `version`, 512 for `image`), is left off
-rather than cut, because a cut commit names a build that does not exist; a key
-the protocol does not have is left off too, since sending it would have the
-server refuse every event this process records. Either is reported once as a
-`configuration_error` naming `deployment`, never its value, and the rest of the
-deployment is still sent (ADR-060).
+A field that is not a string, is empty or only whitespace, or is longer than
+the protocol accepts (128 characters for `gitCommit` and `version`, 512 for
+`image`), is left off rather than cut or trimmed, because a cut commit names a
+build that does not exist; a key the protocol does not have is left off too,
+since sending it would have the server refuse every event this process records.
+The rest of the deployment is still sent. Each problem is a
+`configuration_error`, never quoting a value, under a name that says what was
+lost (ADR-060, ADR-062):
+
+| `rejectedSettings` entry | Means |
+| --- | --- |
+| `deployment.gitCommit`, `deployment.version`, `deployment.image` | that field was given and is not sent |
+| `deployment.*` | keys other than those three were given, and are not sent; never the key's own name |
+| `deployment` | the setting was given and events carry no deployment: it is not an object, or no field of it could be sent, which includes `{}` and `{ gitCommit: undefined }` from an unset variable |
+
+So `{ gitCommit, version: <too long> }` reports `["deployment.version"]` and
+sends the commit, while `{ gitCommit: "" }` reports
+`["deployment.gitCommit", "deployment"]` and sends nothing. A consumer that
+stops recording on a refused setting can let a field through and still stop on
+`rejectedSettings.includes("deployment")` (F-031).
 
 ## OpenTelemetry
 

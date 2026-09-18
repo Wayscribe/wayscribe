@@ -3512,13 +3512,26 @@ and this guard does not (F-034).
 text that is sent. `PublicValueField`, and so the diagnostic's `detail.field`,
 becomes `"journeyLabel" | "displayableAliases" | "errorMessage"`. It is the same
 mechanism, not a second one: the same diagnostic kind and code, the same
-once-per-process-and-shape rule over the same set, the same printed line with
-logging off, and the value is never changed (ADR-055's pattern). Because the
-rule is per shape and not per field, `personalDataInPublicValues` stays at most
-2, and an email address in an error message after one in a label reports
-nothing more. That is the rule's intent: it brings the rule to someone's
-attention, and does not inventory values. A `stack` is not examined: the SDK
-never sends one of its own, and F-041 is about the message a timeline shows.
+printed line with logging off, and the value is never changed (ADR-055's
+pattern). A `stack` is not examined: the SDK never sends one of its own, and
+F-041 is about the message a timeline shows.
+
+*Amended the same day, after review.* The once-per-process rule is kept per
+field and shape, not per shape alone, so `personalDataInPublicValues` is at
+most 6 (three fields by two shapes) rather than 2. The reason: the fields are
+not equally noisy. An error message carries text nobody chose, library paths,
+URLs, dates, and under a per-shape rule one false positive there spent the
+email warning for the process and silenced a real address in a later journey
+label, which warned before this change. A noisier field must not mute a quieter
+one. Six lines is still few enough that nobody silences them. The shapes were
+tightened in the same change, because error text is where they meet the most
+`@` and `+` that are not personal data: an email's local part holds no `/`,
+`:`, `[` or `]` and starts the text or follows whitespace, a bracket, a quote,
+`,`, `;`, `=` or `:`, and a domain followed by `:`, `/` or `@` is a host, not
+an address; so a module path, a versioned package, the SDK's own masked URL
+userinfo, a git remote, an ssh target and an image digest are not matched. A
+`+` followed by exactly four digits is a timezone offset, not a telephone
+number.
 `FailureReason`'s TSDoc says that masking covers credential shapes and leaves
 personal data in place (F-041).
 
@@ -3555,6 +3568,9 @@ personal data in place (F-041).
 
 ### Consequences
 
+- `personalDataInPublicValues` is at most 6, one per field and shape, and a
+  warning for one field never silences another. A handler that assumed at most
+  two reads the new bound; nothing else about the warning changes.
 - A consumer that refuses to record when the SDK refused a setting, as
   Leadline's `openRecorder` does, reads `rejectedSettings` and gets the same
   answer at any moment, and can let `deployment.version` through while

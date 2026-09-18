@@ -100,13 +100,26 @@ export interface NoContextEnvelope<T> {
 export type PayloadEnvelope<T> = ContextEnvelope<T> | NoContextEnvelope<T>;
 
 /**
- * Whether an envelope carries a journey, narrowing it to `ContextEnvelope`.
+ * Whether a value is an envelope carrying a journey, narrowing it to
+ * `ContextEnvelope`.
  *
  * For a reader holding an envelope, such as a queue consumer typed on its job
- * payload: the nested `journeyId` cannot narrow the union on its own, and this
- * saves the cast that would otherwise be written in its place. Most consumers
- * want `extractPayload` instead, which returns the context and the payload
- * apart and reads a body that is not an envelope at all.
+ * payload, or a body typed `unknown`: the nested `journeyId` cannot narrow the
+ * union on its own, and this saves the cast that would otherwise be written in
+ * its place. Most consumers want `extractPayload` instead, which returns the
+ * context and the payload apart and reads a body that is not an envelope at
+ * all.
+ *
+ * `false` answers two different questions alike: the value is not an envelope
+ * (`{ a: 1 }`), or it is an envelope with no journey (`{ _wayscribe: {}, data
+ * }`). A caller that must tell those apart, to unwrap `data` from the second
+ * but not the first, reads `_wayscribe` itself (F-034).
+ *
+ * There is no type parameter, because `data` is never read and one the caller
+ * set would assert the payload's type unchecked (ADR-062). None is needed: a
+ * `PayloadEnvelope<Job>` narrows to `ContextEnvelope<Job>` inside the guard
+ * and to `NoContextEnvelope<Job>` in its `else`, and a body typed `unknown`
+ * narrows to `ContextEnvelope<unknown>`, whose `data` is the caller's to check.
  *
  * Takes anything, because a body off a queue is whatever was put there, and
  * never throws: a value whose reads fail is a value with no journey, and a
@@ -114,15 +127,12 @@ export type PayloadEnvelope<T> = ContextEnvelope<T> | NoContextEnvelope<T>;
  *
  * @experimental As `PropagationLevel`.
  */
-export function hasJourney<T>(envelope: PayloadEnvelope<T>): envelope is ContextEnvelope<T> {
-  // Read as unknown: the types say this is an envelope, and a JavaScript
-  // caller passing a job body straight off a queue can make it anything.
-  const given: unknown = envelope;
-  if (typeof given !== "object" || given === null) return false;
+export function hasJourney(envelope: unknown): envelope is ContextEnvelope<unknown> {
+  if (typeof envelope !== "object" || envelope === null) return false;
   try {
     // Both reads inside: a getter is the host's own code, and a revoked Proxy,
     // or one whose get trap throws, fails on the first of them.
-    const carried: unknown = (given as { _wayscribe?: unknown })._wayscribe;
+    const carried: unknown = (envelope as { _wayscribe?: unknown })._wayscribe;
     if (typeof carried !== "object" || carried === null) return false;
     const { journeyId } = carried as { journeyId?: unknown };
     return typeof journeyId === "string" && journeyId !== "";

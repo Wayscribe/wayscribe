@@ -240,6 +240,12 @@ function isPropagated(value: unknown): boolean {
 /** What a journey's error becomes when the thrown value cannot be read at all. */
 const UNREADABLE_ERROR = "The thrown value could not be read.";
 
+/**
+ * The message an error record carries when the one it was given could not be
+ * read, or is not a non-empty string, which the protocol would refuse.
+ */
+const UNREADABLE_MESSAGE = "The error's message could not be read.";
+
 /** Duck-typed rather than `instanceof Promise`: a thenable from any library counts. */
 function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
   return (
@@ -1070,23 +1076,47 @@ export function createRecorder(config: RecorderConfig): Recorder {
    *
    * Both fields are bounded to what the protocol accepts, so a megabyte of
    * message costs the host no more than four kilobytes of one.
+   *
+   * The message, as it will be sent, is checked for personal data too, since
+   * masking leaves an email address or a telephone number alone and a
+   * timeline shows the message to every reader: the label's warning, once per
+   * process and shape for error messages, and the value is not changed
+   * (F-041, ADR-062). The stack is not examined: the SDK sends none of its
+   * own.
+   *
+   * The error is the host's object, so each field is read once, inside a
+   * boundary of its own, as `failureFrom` reads a reason: a getter that
+   * throws, or a revoked Proxy, costs that field and not the step, which it
+   * used to (F-041 review). Only the four fields the protocol has are sent,
+   * each a string: a message that cannot be read, or is not a non-empty
+   * string, becomes a fixed text rather than one the server would refuse, and
+   * any other field that is not a string is left off.
    */
   function maskedError(error: ErrorInput): ErrorInput {
-    // Read as unknown: a JavaScript caller can pass anything.
-    const { message, stack, type, code } = error as Record<keyof ErrorInput, unknown>;
+    const read = (field: keyof ErrorInput): unknown =>
+      safely(
+        diagnostics,
+        "capture_error",
+        () => (error as unknown as Record<string, unknown>)[field]
+      );
+    const message = read("message");
+    const type = read("type");
+    const code = read("code");
+    const stack = read("stack");
+    const capped = (text: string): string =>
+      fitsCodePoints(text, MAX_ERROR_FIELD_LENGTH) ? text : fit(text, MAX_ERROR_FIELD_LENGTH);
+    const sent =
+      typeof message === "string" && message !== ""
+        ? boundedMaskedText(message, MAX_ERROR_MESSAGE_LENGTH)
+        : undefined;
+    // Never throws, and costs two lookups once both shapes have warned.
+    warnAboutPersonalData(sent, "errorMessage", diagnostics, resolved.logDiagnostics);
     return {
-      ...error,
+      message: sent ?? UNREADABLE_MESSAGE,
       // A class name or an error code is not free text worth masking, but the
       // protocol caps both, and a long one would cost the event.
-      ...(typeof type === "string" && !fitsCodePoints(type, MAX_ERROR_FIELD_LENGTH)
-        ? { type: fit(type, MAX_ERROR_FIELD_LENGTH) }
-        : {}),
-      ...(typeof code === "string" && !fitsCodePoints(code, MAX_ERROR_FIELD_LENGTH)
-        ? { code: fit(code, MAX_ERROR_FIELD_LENGTH) }
-        : {}),
-      ...(typeof message === "string"
-        ? { message: boundedMaskedText(message, MAX_ERROR_MESSAGE_LENGTH) }
-        : {}),
+      ...(typeof type === "string" ? { type: capped(type) } : {}),
+      ...(typeof code === "string" ? { code: capped(code) } : {}),
       ...(typeof stack === "string"
         ? { stack: boundedMaskedText(stack, MAX_ERROR_STACK_LENGTH) }
         : {})
@@ -1877,11 +1907,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
   /**
    * The context `continueJourney` joins.
    *
-   * The journey id is the context's, else `journeyId`, else a new random one.
-   * The entity is the context's, else `entity`, else the unknown entity. At the
-   * default propagation level the journey id crosses the boundary and the
-   * entity does not, so the consumer supplies the entity it already has from
-   * the message body.
+   * The journey id is the context's, else `journeyId`, else the one derived
+   * from the entity when the secret allows (`derivedJourneyId`), else a new
+   * random one. The entity is the context's, else `entity`, else the unknown
+   * entity. At the default propagation level the journey id crosses the
+   * boundary and the entity does not, so the consumer supplies the entity it
+   * already has from the message body.
    *
    * Anything that cannot be used is reported and treated as absent: a context
    * whose id is not a non-empty string, which used to be recorded as it was
@@ -2036,7 +2067,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     return targets;
   }
 
-  return {
+  const recorder: Recorder = {
     startJourney(options) {
       const entity =
         safely(diagnostics, "capture_error", () => startedEntity(options)) ?? UNKNOWN_ENTITY;
@@ -2088,7 +2119,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
             kind: "configuration_error",
             code: "entity_invalid",
             reason: problem,
-            detail: {}
+            // Named, as startJourney and continueJourney name it, so it
+            // reaches rejectedOptions like theirs (ADR-062).
+            detail: { setting: "entity" }
           });
           return undefined;
         }
@@ -2170,4 +2203,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
     },
     counters: () => diagnostics.counters()
   };
+  // Last, and nothing after it: every configuration problem reported until
+  // now was a setting, and from here on one is a call's option. No call can
+  // reach the recorder before this returns, so the split cannot be wrong
+  // (F-038, ADR-062).
+  diagnostics.endCreation();
+  return recorder;
 }

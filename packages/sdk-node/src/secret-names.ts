@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { normaliseName, type UnredactedObserver } from "@wayscribe/payload-security/redaction";
 import { printDiagnostic, type Diagnostic, type Diagnostics } from "./diagnostics.js";
+import { readHostList } from "./host-list.js";
 
 /**
  * The warning for a value kept under a name that reads as a secret (ADR-055).
@@ -176,19 +177,39 @@ function advice(name: string): string {
  * any entry could not be used. Any non-empty string is a name, including one
  * with `.` or `*` in it: a name the redaction grammar cannot express still has
  * to be quietable.
+ *
+ * The list is copied by index before anything else reads it, at most `max`
+ * entries, so no method, iterator or trap of the host's runs outside the
+ * boundary (SDK-6).
  */
-export function readKnownSafeNames(value: unknown): { names: string[]; problem?: string } {
-  if (value === undefined) return { names: [] };
-  if (!Array.isArray(value)) {
+export function readKnownSafeNames(
+  value: unknown,
+  max: number
+): { names: string[]; problem?: string } {
+  const list = readHostList(value, max);
+  if (list.kind === "absent") return { names: [] };
+  if (list.kind === "unreadable") {
+    return {
+      names: [],
+      problem: "knownSafeNames could not be read; no name is exempt from the warning."
+    };
+  }
+  if (list.kind === "not_a_list") {
     return {
       names: [],
       problem: "knownSafeNames is not a list of key names; no name is exempt from the warning."
     };
   }
-  const names = (value as unknown[])
+  const names = list.entries
     .filter((entry): entry is string => typeof entry === "string" && entry !== "")
     .map((entry) => normaliseName(entry));
-  return names.length === value.length
+  if (list.cut) {
+    return {
+      names,
+      problem: `knownSafeNames holds more than ${String(max)} names; the rest are ignored.`
+    };
+  }
+  return names.length === list.entries.length
     ? { names }
     : { names, problem: "knownSafeNames holds entries that are not key names; they are ignored." };
 }

@@ -70,8 +70,11 @@ export function deriveJourneyId(
  * the id of `"a\uFFFD"`. The server refuses such an entity id anyway.
  */
 export function entityProblem(entity: unknown): string | undefined {
-  if (!isEntity(entity)) {
-    return "journeyIdFor needs an entity whose type and id are strings, so it returned a random journey id.";
+  // Non-empty, as ConfigurationErrorDiagnostic says and the protocol's
+  // entity schema requires: the server refuses an event for such an entity,
+  // and every `{ type, id: "" }` of one type derived the same journey id.
+  if (!isEntity(entity) || entity.type === "" || entity.id === "") {
+    return "journeyIdFor needs an entity whose type and id are non-empty strings, so it returned a random journey id.";
   }
   if (!entity.type.isWellFormed() || !entity.id.isWellFormed()) {
     return "journeyIdFor was given an entity whose type or id holds an unpaired surrogate, which cannot be encoded faithfully, so it returned a random journey id.";
