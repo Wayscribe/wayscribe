@@ -1367,7 +1367,7 @@ marked `@experimental` in the types, and may change in a minor release:
 - **`across` and `JourneyGroup`**: the name, the deduplication and label
   rules, and what an empty group does came from one service instrumented with
   them.
-- **`captureInput` and `captureOutput`**, for the same reason.
+- **`captureInput`, `captureOutput` and `metadataFrom`**, for the same reason.
 - **`journeyIdFor` and `journeyIdSecret`**: the derivation is fixed by test
   vectors, but what surrounds it, such as rotating the secret, is new.
 - **`label`**, the method and the option: it depends on the Journeys page,
