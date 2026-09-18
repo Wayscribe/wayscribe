@@ -337,10 +337,11 @@ What you have to do when upgrading a checkout or a deployment:
   published demo key is active), journeys stored across environments,
   secret-looking names in a sample of stored payloads, and with `--api-key` and
   `--api-url`, whether a key authenticates and the API reports ready. Exits 1
-  when anything failed, and prints no secret beyond an API key's prefix.
-  `doctor` takes the key to check from `WAYSCRIBE_API_KEY` when `--api-key` is
-  absent, so it need not sit in the container's process list; the flag wins when
-  both are given.
+  when anything failed, and prints no secret beyond an API key's prefix. It is
+  in the API image beside `key:create`, and runs as `pnpm run doctor` from a
+  checkout (`docs/OPERATIONS.md` section 12). It takes the key to check from
+  `WAYSCRIBE_API_KEY` when `--api-key` is absent, so the key need not sit in the
+  container's process list; the flag wins when both are given.
 - **`key:create --json`** prints one JSON object with the key, its prefix, the
   project and the environment, and nothing else, so a script capturing a new key
   parses no prose. Without the flag the human form is unchanged.
@@ -360,8 +361,6 @@ What you have to do when upgrading a checkout or a deployment:
   `GET /health` and the web image renders `/login`. Each is probed every two
   seconds during its start period, which returns `--wait` about two seconds
   sooner on a cold start (11.2 s to 8.8 s, measured on a laptop).
-  `pnpm run doctor` from a checkout
-  (`docs/OPERATIONS.md` section 12).
 - **`ENCRYPTION_KEY` rotation without losing data** (ADR-044). Every encrypted
   value names the key that wrote it; `ENCRYPTION_KEY_PREVIOUS` keeps old data
   readable and searchable, and API keys authenticating, through a grace period;
@@ -670,6 +669,19 @@ development build of `main`. A new installation can skip them.
   refused event now leaves no trace. Journeys left behind this way have
   `eventCount` 0; remove any you find with `delete:journey` (OPERATIONS
   section 8).
+
+- **`ADMIN_TOKEN` is trimmed now**, as `ENCRYPTION_KEY` already was. Two
+  consequences for a deployment whose token carries whitespace. A token of 31
+  characters padded to 32 is refused at startup, naming `ADMIN_TOKEN`, where it
+  used to be accepted: set a real 32-character token (`openssl rand -hex 32`).
+  And a token with a space, a newline or a byte-order mark around it is now the
+  trimmed value everywhere: existing web sessions stop verifying once the API
+  and the web app are both on this release, which signs anyone in again at the
+  login form, and a script that sends the admin token to the API has to send
+  the trimmed value in its `authorization` header. Upgrade the two together, as
+  the release expects: a stack running one of each would have the web app
+  signing sessions the API refuses until it catches up. A token with no
+  surrounding whitespace is unaffected.
 
 - **Rename SDK calls and options** as in the table under Changed. Convert
   numeric SDK options before passing them:

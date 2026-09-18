@@ -432,9 +432,10 @@ anywhere else never arrives, and nothing says so.
 | `pnpm` commands in a source checkout | the repository-root `.env`. A variable exported in the shell wins over it. |
 | Either Compose stack, from files | `ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE`, each naming a file the value is read from at startup. See "Secrets the container's environment does not hold" below. |
 
-Surrounding whitespace is trimmed from both keys, so a trailing newline from a
-secrets file does not make a different key. An empty `ENCRYPTION_KEY_PREVIOUS`
-means no rotation is in progress. The same value in both variables stops the
+Surrounding whitespace is trimmed from both keys and from `ADMIN_TOKEN`, so a
+trailing newline from a secrets file, or a space either side of a pasted value,
+does not make a different key or a token nobody can type at the login form. An
+empty `ENCRYPTION_KEY_PREVIOUS` means no rotation is in progress. The same value in both variables stops the
 API at boot with a message saying so, rather than starting a rotation that
 rotates nothing.
 
@@ -466,9 +467,13 @@ export ADMIN_TOKEN_PATH=/etc/wayscribe/admin-token
 docker compose up -d
 ```
 
-Each file holds the value and nothing else. Whitespace at the end is ignored, so
-a file ending in a newline is fine. An empty file is refused rather than read as
-an unset setting, which would otherwise start the stack on a published default.
+Each file holds the value and nothing else. Whitespace around the value is
+ignored, so a file ending in a newline is fine: reading the file drops what is
+at the end, and the setting itself is trimmed at both ends afterwards, exactly
+as it is when it comes from a variable. A file and a variable holding the same
+value therefore give the same key or token, and the length is measured on the
+trimmed value. An empty file is refused rather than read as an unset setting,
+which would otherwise start the stack on a published default.
 Setting both a variable and its `_FILE` is refused at startup, naming the
 setting and printing no value, because nothing on a running container would say
 which had won. `doctor` reports the same refusal as a failed `Secrets from

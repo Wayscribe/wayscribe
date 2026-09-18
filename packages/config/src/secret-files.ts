@@ -47,8 +47,11 @@ const set = (value: string | undefined): string | undefined => {
  *
  * Whitespace at the end of the file is removed, because a secrets file and
  * `kubectl create secret --from-file` both commonly end in a newline and a
- * kept newline changes the key. An empty file is refused rather than read as an
- * unset setting, which would start the API on a published default instead.
+ * kept newline changes the key. Whitespace elsewhere is left to the setting's
+ * own schema, which trims both ends of each of these three, so a value in a
+ * file and the same value in a variable end up identical. An empty file is
+ * refused rather than read as an unset setting, which would start the API on a
+ * published default instead.
  * Giving both `NAME` and `NAME_FILE` is refused rather than silently preferring
  * one, since the two could differ and nothing on a running container would say
  * which had won.
@@ -110,9 +113,14 @@ export function resolveSecretFiles(
       continue;
     }
 
-    // Only the end: whitespace before the value would be as deliberate as the
-    // value, and trimming it would hide a secret pasted with a leading space
-    // rather than fix it.
+    // Only the end here, because that is the part a file mechanically adds: an
+    // editor's final newline, or `kubectl create secret --from-file`'s. What
+    // else to do with whitespace belongs to the setting, not to the file, and
+    // every setting read this way is a `z.string().trim()` in schema.ts, so the
+    // schema takes both ends before it measures the length. Trimming only the
+    // end here is what makes a value given in a file and the same value given
+    // as a variable normalise identically: the variable never went through this
+    // step at all.
     const value = contents.trimEnd();
     if (value === "") {
       problems.push(`${fileVariable} names a file with nothing in it: ${path}`);

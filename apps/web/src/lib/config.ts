@@ -87,11 +87,13 @@ export function sessionAdminToken(
  * bundle. They have to agree: the web app and the API must hold the same token
  * byte for byte, since the web app derives its session signing key from it.
  *
- * Whitespace at the end goes, an empty file is refused rather than read as an
- * unset setting, giving both the variable and the file is refused rather than
- * silently preferring one, and a path that is not a regular file is refused
- * before it is opened, since reading a named pipe would hang this process
- * before it had said anything. No message holds the value.
+ * Whitespace at the end goes, because that is what a file mechanically adds;
+ * the schema above trims both ends afterwards, so a token from a file and the
+ * same token from the variable end up identical. An empty file is refused
+ * rather than read as an unset setting, giving both the variable and the file
+ * is refused rather than silently preferring one, and a path that is not a
+ * regular file is refused before it is opened, since reading a named pipe would
+ * hang this process before it had said anything. No message holds the value.
  */
 function withTokenFromFile(
   source: Record<string, string | undefined>
