@@ -562,6 +562,10 @@ describe("schema constraints", () => {
     });
 
     it("gives up rather than queueing ingestion behind it when the table is busy", async () => {
+      // With no lock_timeout the ALTER waits for the reader below for ever, and
+      // the reader waits for this test: the attempt is raced against a
+      // deadline, so a lost timeout fails here, by name, instead of hanging
+      // the suite.
       await db.migrate.down({ name: MIGRATION });
       let release: () => void = () => undefined;
       const released = new Promise<void>((resolve) => {
@@ -577,14 +581,31 @@ describe("schema constraints", () => {
         await released;
       });
       await held;
+      const started = Date.now();
+      const attempt: Promise<unknown> = db.migrate.up({ name: MIGRATION }).then(
+        () => "applied",
+        (error: unknown) => error
+      );
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      let outcome: unknown;
       try {
-        const started = Date.now();
-        await expect(db.migrate.up({ name: MIGRATION })).rejects.toThrow(/lock timeout/);
-        expect(Date.now() - started).toBeLessThan(15_000);
+        outcome = await Promise.race([
+          attempt,
+          new Promise((resolve) => {
+            deadline = setTimeout(() => {
+              resolve("still waiting after 15 s: the migration has no lock_timeout");
+            }, 15_000);
+          })
+        ]);
       } finally {
+        clearTimeout(deadline);
         release();
         await reader;
+        await attempt;
       }
+      expect(outcome).toBeInstanceOf(Error);
+      expect((outcome as Error).message).toMatch(/lock timeout/);
+      expect(Date.now() - started).toBeLessThan(15_000);
       await db.migrate.up({ name: MIGRATION });
       expect(await column()).toBeDefined();
     }, 30_000);
