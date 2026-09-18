@@ -7,6 +7,10 @@
  * would otherwise refuse the request and the page could only say so. What was
  * set aside is named in `notes`, so the page never silently shows a wider list
  * than the one asked for.
+ *
+ * The helpers that read one value (`single`, `text`, `customRange`) are
+ * exported for the Search page's narrowing (`search-filters.ts`), so both
+ * pages set a value aside the same way.
  */
 
 export const JOURNEY_STATUSES = ["failed", "active", "completed"] as const;
@@ -59,7 +63,7 @@ export interface JourneyFilters {
   notes: string[];
 }
 
-type SearchParams = Record<string, string | string[] | undefined>;
+export type SearchParams = Record<string, string | string[] | undefined>;
 
 export function readJourneyFilters(params: SearchParams, now: Date): JourneyFilters {
   const notes: string[] = [];
@@ -411,7 +415,7 @@ function rangeWords(filters: JourneyFilters): string {
 }
 
 /** `2026-09-10 08:00`, with seconds when there are any. */
-function readable(iso: string): string {
+export function readable(iso: string): string {
   return toDateTimeLocal(iso).replace("T", " ");
 }
 
@@ -419,7 +423,7 @@ function presetSince(preset: JourneyPreset, now: Date): string {
   return new Date(now.getTime() - JOURNEY_PRESETS[preset].milliseconds).toISOString();
 }
 
-type Range = { ok: true; since: string; until: string } | { ok: false; reason: string };
+export type Range = { ok: true; since: string; until: string } | { ok: false; reason: string };
 
 /**
  * A custom range from the form's two `datetime-local` inputs, read as UTC
@@ -427,7 +431,11 @@ type Range = { ok: true; since: string; until: string } | { ok: false; reason: s
  * link carries. Checked against what the API refuses: a start in the future,
  * and an end that is not after the start.
  */
-function customRange(rawSince: string | undefined, rawUntil: string | undefined, now: Date): Range {
+export function customRange(
+  rawSince: string | undefined,
+  rawUntil: string | undefined,
+  now: Date
+): Range {
   if (rawSince === undefined || rawSince === "") return { ok: false, reason: "choose a start" };
   const since = rangeInstant(rawSince);
   if (since === null) return { ok: false, reason: "the start is not a date and time" };
@@ -466,7 +474,7 @@ function rangeInstant(value: string): string | null {
  * Leaves out a text filter the API would refuse, with a note saying so.
  * `check` returns the note for a value outside the API's bounds.
  */
-function text(
+export function text(
   raw: string | undefined,
   name: string,
   notes: string[],
@@ -498,7 +506,7 @@ function codePoints(value: string): number {
  * One value of `key`. A key given more than once is left out with a note:
  * guessing which value was meant could show a wider list than either.
  */
-function single(params: SearchParams, key: string, notes: string[]): string | undefined {
+export function single(params: SearchParams, key: string, notes: string[]): string | undefined {
   const value = params[key];
   if (value === undefined || typeof value === "string") return value;
   notes.push(`${key} was given more than once, so it was left out.`);
@@ -508,7 +516,7 @@ function single(params: SearchParams, key: string, notes: string[]): string | un
 /** How much of an unrecognised value a note repeats. */
 const ECHO_LENGTH = 32;
 
-function echo(value: string): string {
+export function echo(value: string): string {
   const characters = Array.from(value);
   return characters.length <= ECHO_LENGTH ? value : `${characters.slice(0, ECHO_LENGTH).join("")}…`;
 }

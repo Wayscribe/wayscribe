@@ -132,6 +132,24 @@ button {
   flex: 1;
 }
 
+/* Search's narrowing sits under the search box, laid out like the Journeys
+   page's filters. */
+.search-form .search-row {
+  margin-bottom: 0.5rem;
+}
+.search-form .search-narrowing {
+  margin-top: 0;
+}
+/* Which environment a search row came from (F-036). */
+.environment {
+  font-size: 0.75rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .results {
   list-style: none;
   padding: 0;

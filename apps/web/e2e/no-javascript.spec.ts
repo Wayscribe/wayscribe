@@ -46,6 +46,15 @@ async function seed(): Promise<void> {
 
 test.beforeAll(seed);
 
+/** Whether this API's search rows say which environment they came from. */
+async function searchRowsCarryEnvironment(): Promise<boolean> {
+  const response = await fetch(`${API_URL}/v1/search?q=${encodeURIComponent(ENTITY_ID)}`, {
+    headers: { authorization: `Bearer ${API_KEY}` }
+  });
+  const body = (await response.json()) as { data: { items: Record<string, unknown>[] } };
+  return body.data.items.some((item) => "environment" in item);
+}
+
 test.describe("with JavaScript disabled", () => {
   test.use({ javaScriptEnabled: false });
 
@@ -70,6 +79,39 @@ test.describe("with JavaScript disabled", () => {
     await expect(page.getByRole("link", { name: `customer: ${ENTITY_ID}` })).toBeVisible();
     await expect(page.locator("main")).toHaveCount(1);
     await expect(page.getByText("Searching…")).toHaveCount(0);
+  });
+
+  // F-036: search narrows by time and environment in the same plain form.
+  test("search narrows by environment and time, and each row says its environment", async ({
+    page
+  }) => {
+    await signIn(page, JOURNEY_ID);
+    const search = page.getByRole("textbox", { name: "Search" });
+
+    await search.fill(ENTITY_ID);
+    await page.getByLabel("Time").selectOption("1h");
+    await page.getByLabel("Environment").selectOption("development");
+    await page.getByRole("button", { name: "Search" }).click();
+
+    // The empty custom range is dropped from the address, with a real redirect.
+    await expect(page).toHaveURL(`/?q=${ENTITY_ID}&window=1h&environment=development`);
+    const row = page.getByRole("listitem").filter({ hasText: `customer: ${ENTITY_ID}` });
+    await expect(row).toHaveCount(1);
+    await expect(
+      page.getByText("Journeys in development whose last activity is in the last hour.")
+    ).toBeVisible();
+    // Search rows carry their environment from the API release that added
+    // it; against an API from before it, the row shows none rather than a
+    // guess, and there is nothing to assert.
+    if (await searchRowsCarryEnvironment()) {
+      await expect(row.locator(".environment")).toHaveText("development");
+    }
+
+    // An environment the journey is not in finds nothing: the filter reached
+    // the API rather than being dropped on the way.
+    await page.goto(`/?q=${ENTITY_ID}&environment=production`);
+    await expect(page.getByText(`Nothing matched ${ENTITY_ID} here.`)).toBeVisible();
+    await expect(page.getByLabel("Environment")).toHaveValue("production");
   });
 
   test("a missing journey still answers 404", async ({ page }) => {
@@ -130,17 +172,17 @@ test.describe("with JavaScript", () => {
     await signIn(page, JOURNEY_ID);
     await page.route((url) => url.pathname === "/" && url.searchParams.has("q"), hold);
     await page.getByRole("textbox", { name: "Search" }).fill(ENTITY_ID);
-    await hydrated(page, "form.search-row");
+    await hydrated(page, "form.search-form");
 
     // Clicked and read in one step: Playwright's own actions and assertions
     // wait for the held navigation to finish, by which time the old page, and
     // its feedback, are gone. The held response keeps the old page up here.
     const sent = await page.evaluate(async () => {
-      document.querySelector<HTMLButtonElement>("form.search-row button")?.click();
+      document.querySelector<HTMLButtonElement>("form.search-form button")?.click();
       await new Promise((resolve) => setTimeout(resolve, 50));
       return {
         status: document.querySelector("[role=status].pending-status")?.textContent,
-        busy: document.querySelector("form.search-row button")?.getAttribute("aria-busy")
+        busy: document.querySelector("form.search-form button")?.getAttribute("aria-busy")
       };
     });
     expect(sent).toEqual({ status: "Searching…", busy: "true" });

@@ -13,6 +13,12 @@ export interface SearchItem {
   lastStep: string | null;
   /** Only aliases marked displayable (ADR-053), in alias-type order, in plain text. */
   displayableAliases: { type: string; value: string }[];
+  /**
+   * The journey's environment. `/v1/journeys` rows always carry it; `/v1/search`
+   * rows carry it from the release that added it (F-036), and an older API
+   * omits it, so it is optional here and required on `JourneyListRow`.
+   */
+  environment?: string;
 }
 
 export interface JourneyDetail {
@@ -197,11 +203,9 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   return data?.items ?? [];
 }
 
+/** `query` comes from `searchApiQuery`, which owns what the Search page's fields mean. */
 export async function search(query: string, projectId: string): Promise<SearchItem[]> {
-  const data = await get<{ items: SearchItem[] }>(
-    `/v1/search?q=${encodeURIComponent(query)}`,
-    projectId
-  );
+  const data = await get<{ items: SearchItem[] }>(`/v1/search?${query}`, projectId);
   return data?.items ?? [];
 }
 

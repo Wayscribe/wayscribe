@@ -306,6 +306,16 @@ What you have to do when upgrading a checkout or a deployment:
   every journey that ever carried it. No index was needed: measured at 200,000
   journeys, the bounds filter the plan the search already had, and a window
   narrow enough to be worth an index is served by `journeys_project_recent_idx`.
+- **The search box narrows too.** Under the search box, Time (any time, the
+  last hour, day, week or 30 days, or a custom range in UTC) and Environment
+  (all, or one of the project's) send `since`, `until` and `environment` to
+  `GET /v1/search`, in the same plain form, so a narrowed search works without
+  JavaScript and is a link. Time starts on any time, which is what the API
+  searches without a window; a custom range the API would refuse is set aside
+  with a note saying the search spans all time. The page says what the results
+  are narrowed to, and that the window is on a journey's last activity. Each
+  result row names its environment when the API's search rows carry it (F-036);
+  against an API whose rows do not, it shows none.
 - **The journey page.** Headed by the journey's label when it has one, with the
   entity type and identifier beneath, and a back link to the list it was opened
   from. `GET /v1/journeys/:journeyId` returns the environment's name, `label`,
