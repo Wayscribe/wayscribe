@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiUnavailableError, InvalidPageLinkError, listJourneys } from "./api";
+import { ApiUnavailableError, InvalidPageLinkError, getEvent, listJourneys } from "./api";
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -52,5 +52,52 @@ describe("listJourneys", () => {
 
     fetchMock.mockResolvedValueOnce(new Response("{}", { status: 500 }));
     await expect(listJourneys("since=x", "p")).rejects.toBeInstanceOf(ApiUnavailableError);
+  });
+});
+
+describe("getEvent", () => {
+  /**
+   * The event crosses from the server to the browser two ways: as a prop of
+   * the timeline on first load, which React serialises, and as JSON from
+   * /api/events on a later click. A key named `__proto__` in the API's JSON
+   * survived the second and was lost in the first, so the same event showed
+   * different metadata. `getEvent` hands out metadata as lists of plain
+   * strings, which both ways carry intact, and no raw metadata object at all.
+   */
+  const RAW = `{"data":{"id":"evt_1","journeyId":"jrn_1","operation":"delivered","name":"push",
+    "service":"s","eventTimestamp":"2026-09-18T00:00:00.000Z","receivedAt":"2026-09-18T00:00:00.000Z",
+    "durationMs":null,"hasInput":false,"hasOutput":false,"hasError":false,"traceId":null,"messageId":null,
+    "inputPayload":null,"outputPayload":null,"payloadDiff":null,"error":null,
+    "customMetadata":{"__proto__":"kept","queue":"jobs"},
+    "deploymentMetadata":{"version":"2.4.1"},"runtimeMetadata":null}}`;
+
+  const fetched = async (): Promise<Awaited<ReturnType<typeof getEvent>>> => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(RAW, { headers: { "content-type": "application/json" } })
+    );
+    return getEvent("evt_1", "project-1");
+  };
+
+  it("lists a key named __proto__ as the key it is", async () => {
+    const event = await fetched();
+    expect(event?.metadata?.custom.entries).toEqual([
+      { key: "__proto__", value: "kept" },
+      { key: "queue", value: "jobs" }
+    ]);
+    expect(event?.metadata?.deployment.entries).toEqual([{ key: "version", value: "2.4.1" }]);
+    expect(event?.metadata?.runtime.entries).toEqual([]);
+  });
+
+  it("hands out no raw metadata object to be serialised", async () => {
+    const event = await fetched();
+    for (const field of ["customMetadata", "deploymentMetadata", "runtimeMetadata"]) {
+      expect(Object.hasOwn(event ?? {}, field), field).toBe(false);
+    }
+  });
+
+  // What /api/events does to it, and every key is still there.
+  it("comes through a JSON round trip unchanged", async () => {
+    const event = await fetched();
+    expect(JSON.parse(JSON.stringify(event)) as unknown).toEqual(event);
   });
 });

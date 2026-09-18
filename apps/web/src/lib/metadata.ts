@@ -26,6 +26,13 @@ export interface MetadataList {
   omitted: number;
 }
 
+/** An event's three kinds of metadata, each as a list. */
+export interface EventMetadataLists {
+  custom: MetadataList;
+  deployment: MetadataList;
+  runtime: MetadataList;
+}
+
 export function metadataEntries(value: unknown): MetadataList {
   if (value === undefined || value === null) return { entries: [], omitted: 0 };
   if (typeof value !== "object" || Array.isArray(value)) {
@@ -33,7 +40,10 @@ export function metadataEntries(value: unknown): MetadataList {
   }
 
   // Object.keys, not a `for in`: it lists own keys only, and it lists a key
-  // named `__proto__` that JSON.parse created as the own key it is.
+  // named `__proto__` that JSON.parse created as the own key it is. Called on
+  // the server, on the API's parsed JSON (`getEvent`), before the event
+  // crosses to the browser: React's serialisation of a prop drops such a key,
+  // and the lists this returns carry it as text.
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort();
   return {

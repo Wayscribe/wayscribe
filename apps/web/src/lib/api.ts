@@ -1,4 +1,5 @@
 import { webConfig } from "./config";
+import { metadataEntries, type EventMetadataLists } from "./metadata";
 
 export interface SearchItem {
   journeyId: string;
@@ -71,14 +72,11 @@ export interface EventDetailData extends EventListItem {
   payloadDiff: { changes: DiffChange[]; truncated: boolean } | null;
   error: unknown;
   /**
-   * What the instrumented code attached, as stored: `metadata`, `deployment`
-   * and `runtime` on the event it sent. Untrusted text of any shape, so it is
-   * shown only through `metadataEntries`. Optional so a test fixture, or a
-   * different API, may leave them out.
+   * What the instrumented code attached, `metadata`, `deployment` and
+   * `runtime` on the event it sent, as `getEvent` lists it: keys and values
+   * as bounded text. Absent means none was recorded.
    */
-  customMetadata?: unknown;
-  deploymentMetadata?: unknown;
-  runtimeMetadata?: unknown;
+  metadata?: EventMetadataLists;
 }
 
 export interface ProjectSummary {
@@ -262,8 +260,38 @@ export function listEvents(
   );
 }
 
-export const getEvent = (eventId: string, projectId: string): Promise<EventDetailData | null> =>
-  get<EventDetailData>(`/v1/events/${encodeURIComponent(eventId)}`, projectId);
+/** The event as `GET /v1/events/:id` answers it, before its metadata is listed. */
+type ApiEventDetail = Omit<EventDetailData, "metadata"> & {
+  customMetadata?: unknown;
+  deploymentMetadata?: unknown;
+  runtimeMetadata?: unknown;
+};
+
+/**
+ * One event, with its metadata turned into lists of text here, on the server.
+ *
+ * Before it reaches a page, the event crosses to the browser either as a prop
+ * React serialises (first load) or as JSON from /api/events (a later click),
+ * and the two did not agree on a metadata key named `__proto__`: the first
+ * dropped it. Lists of plain strings cross both ways intact, so the raw
+ * metadata objects never leave this function.
+ */
+export async function getEvent(
+  eventId: string,
+  projectId: string
+): Promise<EventDetailData | null> {
+  const raw = await get<ApiEventDetail>(`/v1/events/${encodeURIComponent(eventId)}`, projectId);
+  if (raw === null) return null;
+  const { customMetadata, deploymentMetadata, runtimeMetadata, ...event } = raw;
+  return {
+    ...event,
+    metadata: {
+      custom: metadataEntries(customMetadata),
+      deployment: metadataEntries(deploymentMetadata),
+      runtime: metadataEntries(runtimeMetadata)
+    }
+  };
+}
 
 /**
  * The one write path in this application.

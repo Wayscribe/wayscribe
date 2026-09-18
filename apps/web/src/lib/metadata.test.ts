@@ -64,6 +64,10 @@ describe("metadataEntries", () => {
     expect(entry?.value).toBe(`${"😀".repeat(MAX_METADATA_TEXT)}…`);
   });
 
+  // The function half of it: an own `__proto__` key, as JSON.parse makes one,
+  // is listed. That the key then reaches the page both ways the event is
+  // shown is getEvent's test (api.test.ts) and the browser suite's
+  // (e2e/metadata.spec.ts).
   it("keeps a key that would otherwise be read as the object's prototype", () => {
     const value = JSON.parse('{"__proto__": "kept", "constructor": 1}') as unknown;
     expect(metadataEntries(value).entries).toEqual([

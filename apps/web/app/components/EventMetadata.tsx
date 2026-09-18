@@ -1,21 +1,27 @@
 import { useId, type ReactElement } from "react";
 import type { EventDetailData } from "../../src/lib/api";
-import { metadataEntries, type MetadataList } from "../../src/lib/metadata";
+import type { MetadataList } from "../../src/lib/metadata";
 
 /**
  * An event's metadata as plain keys and values, one group per kind.
  *
- * Every key and value is a text child, which React escapes, so metadata is
+ * The lists come from `getEvent`, which builds them on the server so both ways
+ * the event reaches the browser carry the same keys. Every key and value is a
+ * text child, which React escapes, so metadata is
  * never read as markup and needs nothing from the Content-Security-Policy.
  * A labelled vocabulary for common fields is on the roadmap; until then the
  * keys are the ones the instrumented code chose (F-044).
  */
 export function EventMetadata({ event }: { event: EventDetailData }): ReactElement {
-  const kinds: [string, MetadataList][] = [
-    ["Custom", metadataEntries(event.customMetadata)],
-    ["Deployment", metadataEntries(event.deploymentMetadata)],
-    ["Runtime", metadataEntries(event.runtimeMetadata)]
-  ];
+  const lists = event.metadata;
+  const kinds: [string, MetadataList][] =
+    lists === undefined
+      ? []
+      : [
+          ["Custom", lists.custom],
+          ["Deployment", lists.deployment],
+          ["Runtime", lists.runtime]
+        ];
   const shown = kinds.filter(([, list]) => list.entries.length > 0);
 
   return (

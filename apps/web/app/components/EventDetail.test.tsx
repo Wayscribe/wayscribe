@@ -1,7 +1,22 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { EventDetailData } from "../../src/lib/api";
+import type { EventMetadataLists } from "../../src/lib/metadata";
+import { metadataEntries } from "../../src/lib/metadata";
 import { EventDetail } from "./EventDetail";
+
+/** Metadata as `getEvent` hands it to the page. */
+function metadata(
+  custom: unknown,
+  deployment: unknown = null,
+  runtime: unknown = null
+): EventMetadataLists {
+  return {
+    custom: metadataEntries(custom),
+    deployment: metadataEntries(deployment),
+    runtime: metadataEntries(runtime)
+  };
+}
 
 function event(overrides: Partial<EventDetailData> = {}): EventDetailData {
   return {
@@ -72,9 +87,11 @@ describe("EventDetail metadata", () => {
     render(
       <EventDetail
         event={event({
-          customMetadata: { httpStatus: 429, retryDelayMs: 1200 },
-          deploymentMetadata: { version: "2.4.1", gitCommit: "abc1234" },
-          runtimeMetadata: { language: "node", hostname: "worker-3" }
+          metadata: metadata(
+            { httpStatus: 429, retryDelayMs: 1200 },
+            { version: "2.4.1", gitCommit: "abc1234" },
+            { language: "node", hostname: "worker-3" }
+          )
         })}
       />
     );
@@ -91,7 +108,7 @@ describe("EventDetail metadata", () => {
   });
 
   it("leaves out a kind with nothing in it", () => {
-    render(<EventDetail event={event({ customMetadata: { queue: "jobs" } })} />);
+    render(<EventDetail event={event({ metadata: metadata({ queue: "jobs" }) })} />);
     expect(screen.getByRole("group", { name: "Custom" })).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Deployment" })).toBeNull();
     expect(screen.queryByRole("group", { name: "Runtime" })).toBeNull();
@@ -107,7 +124,9 @@ describe("EventDetail metadata", () => {
   it("renders markup in a key or a value as text, never as elements", () => {
     const markup = '<img src="x" onerror="alert(1)"><script>alert(2)</script>';
     const { container } = render(
-      <EventDetail event={event({ customMetadata: { [markup]: markup, nested: { markup } } })} />
+      <EventDetail
+        event={event({ metadata: metadata({ [markup]: markup, nested: { markup } }) })}
+      />
     );
 
     expect(container.querySelector("img")).toBeNull();
@@ -121,7 +140,7 @@ describe("EventDetail metadata", () => {
     const many = Object.fromEntries(
       Array.from({ length: 60 }, (_, index) => [`k${String(index)}`, index])
     );
-    render(<EventDetail event={event({ customMetadata: many })} />);
+    render(<EventDetail event={event({ metadata: metadata(many) })} />);
     expect(screen.getByText("10 more not shown.")).toBeTruthy();
   });
 });
