@@ -108,7 +108,9 @@ export type PayloadEnvelope<T> = ContextEnvelope<T> | NoContextEnvelope<T>;
  * want `extractPayload` instead, which returns the context and the payload
  * apart and reads a body that is not an envelope at all.
  *
- * Takes anything, because a body off a queue is whatever was put there.
+ * Takes anything, because a body off a queue is whatever was put there, and
+ * never throws: a value whose reads fail is a value with no journey, and a
+ * public entry point does not propagate into the caller's code.
  *
  * @experimental As `PropagationLevel`.
  */
@@ -117,10 +119,17 @@ export function hasJourney<T>(envelope: PayloadEnvelope<T>): envelope is Context
   // caller passing a job body straight off a queue can make it anything.
   const given: unknown = envelope;
   if (typeof given !== "object" || given === null) return false;
-  const carried: unknown = (given as { _wayscribe?: unknown })._wayscribe;
-  if (typeof carried !== "object" || carried === null) return false;
-  const { journeyId } = carried as { journeyId?: unknown };
-  return typeof journeyId === "string" && journeyId !== "";
+  try {
+    // Both reads inside: a getter is the host's own code, and a revoked Proxy,
+    // or one whose get trap throws, fails on the first of them.
+    const carried: unknown = (given as { _wayscribe?: unknown })._wayscribe;
+    if (typeof carried !== "object" || carried === null) return false;
+    const { journeyId } = carried as { journeyId?: unknown };
+    return typeof journeyId === "string" && journeyId !== "";
+  } catch {
+    // Nothing usable is there to read, which is the answer.
+    return false;
+  }
 }
 
 /**

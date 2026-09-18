@@ -152,6 +152,31 @@ describe("the no-context envelope", () => {
     expect(hasJourney({ _wayscribe: { journeyId: "jrn_1" }, data: 1 })).toBe(true);
   });
 
+  it("answers false rather than throwing for a value that cannot be read", () => {
+    // `hasJourney` is a public entry point, and the README promises none of
+    // them propagates into the caller's code. A JSON body off a queue carries
+    // no getters, but the guard takes whatever was put there.
+    const throwing = (): never => {
+      throw new Error("no");
+    };
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const hostile: unknown[] = [
+      // A throwing getter on the envelope.
+      Object.defineProperty({}, "_wayscribe", { get: throwing, enumerable: true }),
+      // A throwing getter on the journey id.
+      { _wayscribe: Object.defineProperty({}, "journeyId", { get: throwing, enumerable: true }) },
+      // A revoked Proxy, whose every read throws.
+      revoked.proxy,
+      // A Proxy whose get trap throws.
+      new Proxy({}, { get: throwing })
+    ];
+    for (const value of hostile) {
+      expect(() => hasJourney(value as PayloadEnvelope<unknown>)).not.toThrow();
+      expect(hasJourney(value as PayloadEnvelope<unknown>)).toBe(false);
+    }
+  });
+
   it("is what injectPayload returns when there is no journey to inject", () => {
     const { recorder } = recorderWith({});
     const envelope: PayloadEnvelope<{ id: string }> = recorder.injectPayload(

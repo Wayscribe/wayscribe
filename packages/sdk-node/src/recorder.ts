@@ -1648,9 +1648,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
     //
     // The one cast left is inside it, on the return: `WrapResult<T>` is a
     // conditional type, and TypeScript cannot check that a value produced at
-    // run time satisfies one. Any implementation of these methods needs it,
-    // including a second SDK's (see second-implementation.test.ts); a consumer
-    // of them needs none.
+    // run time satisfies one, so an assertion of some kind is needed here. An
+    // overload pair compiles without the word `as`, but an overload's
+    // implementation signature is unchecked against its overloads in exactly
+    // the way this cast is unchecked, so it hides the unchecked step rather
+    // than marking it, and it brings back the two-signature shape F-021
+    // objected to. ADR-060 records that choice.
+    //
+    // What is verified either way: a consumer of these methods needs no cast
+    // of its own, and neither does a second implementation at the assignment
+    // (see second-implementation.test.ts).
     const wrapper =
       (operation: Operation) =>
       <T, I = unknown>(
