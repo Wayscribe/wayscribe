@@ -331,14 +331,24 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
 
   const endpoint = text("endpoint").replace(/\/$/, "");
   const redact = readOnce("redact", "only the built-in secret names apply");
-  const paths = Array.isArray(redact)
-    ? (redact as unknown[]).filter((path): path is string => typeof path === "string")
-    : [];
-  if (redact !== undefined && (!Array.isArray(redact) || paths.length !== redact.length)) {
-    problem(
-      "redact",
-      "redact is not a list of paths; the entries that are not strings are ignored."
-    );
+  let paths: string[] = [];
+  try {
+    // Inside the try: `Array.isArray` throws for a revoked Proxy, and reading
+    // the entries runs a Proxy's traps, and either used to throw out of
+    // createRecorder into the host's startup.
+    const listed = Array.isArray(redact);
+    paths = listed
+      ? (redact as unknown[]).filter((path): path is string => typeof path === "string")
+      : [];
+    if (redact !== undefined && (!listed || paths.length !== (redact as unknown[]).length)) {
+      problem(
+        "redact",
+        "redact is not a list of paths; the entries that are not strings are ignored."
+      );
+    }
+  } catch {
+    paths = [];
+    problem("redact", "redact could not be read; only the built-in secret names apply.");
   }
   const onDiagnostic = readOnce("onDiagnostic", "it is not called");
   if (onDiagnostic !== undefined && typeof onDiagnostic !== "function") {

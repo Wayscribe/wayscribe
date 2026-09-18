@@ -367,3 +367,75 @@ describe("deployment, reported by field (F-031)", () => {
     await recorder.shutdown({ timeoutMs: 100 });
   });
 });
+
+describe("a list setting whose reads throw (SDK-6)", () => {
+  const throwing = (): never => {
+    throw new Error("trap");
+  };
+  const lists = (): [string, () => unknown][] => [
+    [
+      "a revoked Proxy",
+      () => {
+        const revoked = Proxy.revocable([], {});
+        revoked.revoke();
+        return revoked.proxy;
+      }
+    ],
+    ["an array Proxy whose reads throw", () => new Proxy(["a"], { get: throwing })]
+  ];
+
+  it.each(["redact", "knownSafeNames"])(
+    "never throws out of createRecorder for %s, and reports it",
+    async (setting) => {
+      for (const [, make] of lists()) {
+        forgetRequiredSettingWarnings();
+        let recorder: Recorder | undefined;
+        expect(() => {
+          recorder = createRecorder({ ...base, [setting]: make() });
+        }).not.toThrow();
+        expect(recorder?.counters().rejectedSettings).toEqual([setting]);
+        await recorder?.shutdown({ timeoutMs: 100 });
+      }
+    }
+  );
+
+  it("still redacts the built-in secret names when redact cannot be read", async () => {
+    const events: Record<string, unknown>[] = [];
+    const server = createServer((incoming, response) => {
+      let body = "";
+      incoming.setEncoding("utf8");
+      incoming.on("data", (chunk: string) => {
+        body += chunk;
+      });
+      incoming.on("end", () => {
+        const parsed = JSON.parse(body) as { events: { event: Record<string, unknown> }[] };
+        events.push(...parsed.events.map((entry) => entry.event));
+        response.writeHead(202, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({ data: { results: parsed.events.map(() => ({ status: "accepted" })) } })
+        );
+      });
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    try {
+      const recorder = createRecorder({
+        ...base,
+        endpoint: `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`,
+        redact: new Proxy(["**.custom"], { get: throwing })
+      });
+      recorder
+        .startJourney({ entity: { type: "customer", id: "1" } })
+        .record({ operation: "received", name: "r", input: { password: "hunter2hunter2" } });
+      await recorder.shutdown({ timeoutMs: 5_000 });
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => {
+          resolve();
+        });
+      });
+    }
+    expect(JSON.stringify(events[0]?.["input"])).not.toContain("hunter2");
+  });
+});

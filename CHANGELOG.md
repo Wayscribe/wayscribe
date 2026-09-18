@@ -454,9 +454,13 @@ What you have to do when upgrading a checkout or a deployment:
   `deployment` means events carry none of it. So a partial refusal no longer
   reads like a total one (F-031, ADR-062). A field that is only whitespace is
   now refused as empty, `{}` and `{ gitCommit: undefined }` are now reported,
-  and `constructor` or `toString` beside a valid field is now caught. A
-  revoked Proxy given as `deployment` no longer throws out of
-  `createRecorder`.
+  and `constructor` or `toString` beside a valid field is now caught.
+
+- **`createRecorder` no longer throws for a list setting it cannot read.** A
+  revoked Proxy given as `deployment`, `redact` or `knownSafeNames`, or an
+  array Proxy whose reads throw, threw out of `createRecorder` into the host's
+  startup, against SDK-6. Each is now reported as that setting, and `redact`
+  keeps the built-in secret names.
 
 - **An error message that looks like personal data is warned about**, as a
   journey label and a displayable alias already were (F-041, ADR-062). A

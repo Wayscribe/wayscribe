@@ -178,6 +178,19 @@ function advice(name: string): string {
  * to be quietable.
  */
 export function readKnownSafeNames(value: unknown): { names: string[]; problem?: string } {
+  try {
+    return readNames(value);
+  } catch {
+    // A revoked Proxy fails `Array.isArray`, and a Proxy's traps can throw on
+    // any read: either used to throw out of createRecorder (SDK-6).
+    return {
+      names: [],
+      problem: "knownSafeNames could not be read; no name is exempt from the warning."
+    };
+  }
+}
+
+function readNames(value: unknown): { names: string[]; problem?: string } {
   if (value === undefined) return { names: [] };
   if (!Array.isArray(value)) {
     return {
