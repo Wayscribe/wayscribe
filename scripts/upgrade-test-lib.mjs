@@ -154,9 +154,10 @@ export function doctorVerdict(exitCode, stdout, required) {
  * Problems with a `GET /v1/journeys` answer that should list journeys an
  * earlier build recorded, before any event reached them after the upgrade.
  *
- * Migration 018 adds the label and last-step columns with no backfill, so each
- * of those journeys must be listed with `label` and `lastStep` null (present
- * and null, not missing) and no displayable aliases: the earlier build had no
+ * Migrations 018 and 021 add the label, last-step and failed-step columns
+ * with no backfill, so each of those journeys must be listed with `label`,
+ * `lastStep` and `failedStep` null (present and null, not missing), the failed
+ * baseline journey included, and no displayable aliases: the earlier build had no
  * `displayableAliases` field, so every alias it stored is masked and has no
  * plain-text copy. A status other than 200, which is what a list that cannot
  * read old rows answers, is a problem on its own.
@@ -186,6 +187,9 @@ export function legacyJourneyListProblems(status, body, { expected = [], absent 
       problems.push(`${id}: label ${JSON.stringify(item.label)}, expected null`);
     if (item.lastStep !== null) {
       problems.push(`${id}: lastStep ${JSON.stringify(item.lastStep)}, expected null`);
+    }
+    if (item.failedStep !== null) {
+      problems.push(`${id}: failedStep ${JSON.stringify(item.failedStep)}, expected null`);
     }
     if (!Array.isArray(item.displayableAliases) || item.displayableAliases.length !== 0) {
       problems.push(

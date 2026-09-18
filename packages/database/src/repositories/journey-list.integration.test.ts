@@ -150,6 +150,7 @@ describe("listJourneys", () => {
       lastEventAt: new Date("2026-09-15T11:00:00Z"),
       label: null,
       lastStep: null,
+      failedStep: null,
       displayableAliases: [],
       environment: "development"
     });

@@ -149,13 +149,19 @@ export const storedJourneySchema = z.object({
     .string()
     .nullable()
     .describe(
-      "The journeyLabel of the event with the latest timestamp that carried one, ties broken by event id. Null until an event carries one."
+      "The journeyLabel of the event last in timeline order, (timestamp, received at, event id), that carried one. Null until an event carries one."
     ),
   lastStep: z
     .string()
     .nullable()
     .describe(
-      "The name of the event with the latest timestamp, ties broken by event id. Null for a journey no event has reached since the server was upgraded to store it."
+      "The name of the event last in timeline order, (timestamp, received at, event id), failing or not. Null for a journey no event has reached since the server was upgraded to store it."
+    ),
+  failedStep: z
+    .string()
+    .nullable()
+    .describe(
+      "The name of the failing event latest in timeline order, (timestamp, received at, event id), among the failures applied since the journey last became failed. Null whenever status is not failed, and for a failed journey whose failure predates the server storing it, where a reader falls back to lastStep."
     ),
   aliases: z.array(storedAliasSchema),
   services: z.array(z.string()),

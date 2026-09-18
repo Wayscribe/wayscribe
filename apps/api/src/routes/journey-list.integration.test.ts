@@ -149,6 +149,7 @@ describe("GET /v1/journeys", () => {
         lastEventAt: expect.any(String),
         label: null,
         lastStep: "step",
+        failedStep: "step",
         displayableAliases: [],
         environment: "development"
       }

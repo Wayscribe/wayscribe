@@ -15,6 +15,11 @@ export interface SearchHit {
   label: string | null;
   /** The step name of the latest event, or null for a journey not written since migration 018. */
   lastStep: string | null;
+  /**
+   * The step that failed the journey (ADR-063); null whenever the status is
+   * not `failed`, and for a failure that predates migration 021.
+   */
+  failedStep: string | null;
   /** Aliases a reader may see in full, in alias type order, then by value. */
   displayableAliases: DisplayableAlias[];
   /**

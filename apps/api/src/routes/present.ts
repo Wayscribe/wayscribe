@@ -49,6 +49,7 @@ export interface PresentedJourneySummary {
   lastEventAt: string;
   label: string | null;
   lastStep: string | null;
+  failedStep: string | null;
   displayableAliases: { type: string; value: string }[];
   /** The name of the journey's environment. */
   environment: string;
@@ -77,6 +78,7 @@ export function presentJourneySummary(
     lastEventAt: hit.lastEventAt.toISOString(),
     label: hit.label,
     lastStep: hit.lastStep,
+    failedStep: hit.failedStep,
     // Already plain text: the repository reads only the copy a displayable
     // alias keeps, so nothing here can unmask a value.
     displayableAliases: hit.displayableAliases.map((alias) => ({
@@ -126,6 +128,7 @@ export function presentJourneyDetail(
     status: detail.status,
     label: detail.label,
     lastStep: detail.lastStep,
+    failedStep: detail.failedStep,
     aliases: presentAliases(keyring, detail.aliases, onUnknownKey),
     services: detail.services,
     eventCount: detail.eventCount,

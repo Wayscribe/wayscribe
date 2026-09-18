@@ -297,6 +297,7 @@ describe("GET /v1/journeys browse filters", () => {
       lastEventAt: expect.any(String),
       label: "Mirantis · Senior SWE, AI Infra",
       lastStep: "identify",
+      failedStep: null,
       displayableAliases: [],
       environment: "browse"
     });

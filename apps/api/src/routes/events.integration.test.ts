@@ -328,6 +328,27 @@ describe("event ingestion", () => {
       ).toBeUndefined();
     });
 
+    it("refuses a journey id holding a NUL as unstorable, and the reads answer 404 for one", async () => {
+      // EVENT_PROTOCOL.md section 4 states both: the schema accepts any 1 to
+      // 128 characters, and PostgreSQL is what refuses the NUL.
+      const journeyId = `jrn_nul${NUL}id`;
+      const response = await send(event({ id: "evt_nul_journey", journeyId }));
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error.code).toBe("unstorable_payload");
+      for (const url of [
+        `/v1/journeys/${encodeURIComponent(journeyId)}`,
+        `/v1/journeys/${encodeURIComponent(journeyId)}/events`
+      ]) {
+        const read = await app.inject({
+          method: "GET",
+          url,
+          headers: { authorization: `Bearer ${apiKey}` }
+        });
+        expect(read.statusCode, url).toBe(404);
+        expect(read.json().error.code).toBe("not_found");
+      }
+    });
+
     it("refuses a lone surrogate from both routes as unstorable", async () => {
       // Sent as a JSON escape, so the parsed string really holds the lone
       // half; a raw one in the body would be replaced by the HTTP layer.

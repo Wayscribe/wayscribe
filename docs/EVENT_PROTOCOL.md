@@ -140,6 +140,16 @@ The journey also keeps its last step: the `name` of the event with the latest
 `timestamp`, under the same tie rule, so an event that arrives late never moves
 it backwards, and it is the step the journey's timeline shows last. `name` is required, so every event is a candidate.
 
+A failed journey also keeps its failed step (ADR-063): the `name` of the
+failing event that comes last in the same order among the failures applied
+since the journey last became failed. A failing event is one that carries an
+`error` or has the operation `failed`. So while a retry is in flight, the last
+step moves on to the retry's steps and the failed step still names the step
+that failed. It is null whenever the journey is not failed: a successful retry
+that clears the failure (section 5, `retried`) and a `completed` that sets the
+status (section 5, `completed`) clear it.
+Reads return it as `failedStep` (`API_SPEC.md` section 5).
+
 ## 4. Required field semantics
 
 ### `id`
@@ -160,11 +170,24 @@ The exact prefix format is presentation guidance, not a protocol requirement.
 
 The stable identifier that joins events across processes and traces.
 
-Recommended format:
+A journey id is an opaque string of 1 to 128 characters. The server checks
+nothing about its shape. One character cannot be stored: an event whose
+journey id contains a NUL is refused `unstorable_payload`, and the read routes
+answer `404` for such an id. The Node SDK makes ids in two shapes:
 
-```text
-jrn_<uuidv7>
-```
+- **random:** `jrn_` and a lowercase hyphenated UUID, 40 characters, such as
+  `jrn_dd37c205-7ea6-4e14-bc8f-c07022f96696`;
+- **derived:** `jrn_` and 32 lowercase hex characters, 36 characters, such as
+  `jrn_5f93deccb9b599e792d560765761bec6`, computed from the entity under a
+  secret the host holds, as `SDK_SPEC.md` SDK-55 says.
+
+Another client may use any unpredictable id. **A reader must not parse or
+validate the shape** of a journey id: both shapes above occur in one
+installation, and a client in another language may make a third. The shapes
+are described so that an id can be recognised in a log, not so that it can be
+checked. The one check that exists is the Node SDK's, when it reads a
+propagated context (section 10): it requires the `jrn_` prefix and the
+characters it accepts in any propagated value, which both shapes satisfy.
 
 **A journey id must be unpredictable.** A journey belongs to the environment
 whose key recorded its first event, and an event for it from any other
@@ -172,8 +195,10 @@ environment is refused with `journey_environment_mismatch` (`API_SPEC.md` §3).
 An id derived from business data, such as `jrn_order_1001`, can be guessed, and a
 key for another environment of the project can record it first: every event the
 rightful environment then sends for that journey is refused, and that journey is
-not recorded. The Node SDK generates a random UUID for every journey it starts.
-An application that chooses its own ids should do the same, and keep business
+not recorded. The Node SDK generates a random UUID for every journey it starts,
+unless the host configures derived ids, which are keyed by a secret the host
+holds and so cannot be guessed without it (ADR-052). An application that
+chooses its own ids should do one or the other, and keep business
 identifiers in `entity` and `aliases`, where they are searchable anyway.
 
 A journey id carried across a boundary between environments is refused the same

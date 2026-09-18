@@ -348,6 +348,16 @@ What you have to do when upgrading a checkout or a deployment:
   stated, written with the event's own insert. Ingestion now stores an event's
   aliases before the event, which costs an event with aliases one more
   statement: 2.3 to 2.7 ms at the median, measured in process.
+- **A failed journey names the step that failed it** (F-047, ADR-063,
+  `docs/API_SPEC.md` section 5). `GET /v1/journeys/:journeyId`, each item of
+  `GET /v1/journeys` and `GET /v1/search`, and a dry run's `stored.journey`
+  gain `failedStep`: the `name` of the failing event last in timeline order
+  among the failures since the journey last became failed, and null whenever
+  `status` is not `failed`. `lastStep` still follows the timeline's last row, so
+  while a retry is in flight it names the retry's latest step and `failedStep`
+  still names the step that failed. A successful retry that clears the failure
+  and a completion clear it. Migration 021 adds the four columns behind it; it
+  costs no statement, being part of the update that sets the status.
 - **A timeline row names the build that recorded it** (F-043, `docs/API_SPEC.md`
   section 8). `GET /v1/journeys/:journeyId/events` rows gain
   `deploymentMetadata`, the event's `deployment` as the event read returns it,
@@ -796,6 +806,26 @@ What you have to do when upgrading a checkout or a deployment:
   and it left out the tolerance that explains a refusal caused by clock skew.
   The check itself is unchanged. The message is built from the tolerance, so
   the two cannot drift apart.
+- **Dry runs that share a journey or an event id wait for each other**
+  (ADR-063, `docs/INGESTION_CONTRACT.md` section 8). Two dry runs naming the
+  same journeys in opposite orders deadlocked, and PostgreSQL cancelled one,
+  which answered `storage_error` for events a real send would store; a
+  reviewer saw it in 50 runs of 50. Two sending the same event ids under
+  different journeys did the same, 20 of 20, because an event id is unique per
+  project whatever the journey. A dry run now takes a transaction-scoped
+  advisory lock per distinct journey id and per distinct event id, the two
+  kinds under different first keys, one statement each, journeys first and
+  each kind in ascending key order, before its first event, so the second
+  waits at its start. On a 100-event dry run with 100 distinct ids the event
+  locks add about 16 ms to about 420 ms. A wait past
+  `DATABASE_STATEMENT_TIMEOUT_MS` answers the request `503 query_timeout`.
+  Batches sent for real take no such lock.
+- **The journey id shapes are documented** (F-049, ADR-063,
+  `docs/EVENT_PROTOCOL.md` section 4). The Node SDK's random ids are `jrn_` and
+  a lowercase hyphenated UUID, 40 characters; its derived ids are `jrn_` and 32
+  lowercase hex characters, 36 characters. The section recommended
+  `jrn_<uuidv7>`, which neither is. A journey id stays an opaque string of 1 to
+  128 characters, and a reader must not parse or validate its shape.
 - **A successful retry clears a failed journey** (ADR-061). A `retried` event
   carrying no error returns the journey's status from `failed` to `active`
   instead of leaving it failed until something else says otherwise. An SDK
@@ -1051,6 +1081,10 @@ development build of `main`. A new installation can skip them.
   `lock_timeout`, as 017 did; run `migrate` again if it gives up behind a long
   transaction (`docs/OPERATIONS.md` section 4). There is no backfill: events
   stored before it read `aliases: null`.
+- **Migration 021 adds four columns to `journeys`** with the same five-second
+  `lock_timeout` (`docs/OPERATIONS.md` section 4). There is no backfill: a
+  journey failed before it reads `failedStep: null` until its next failure;
+  show its `lastStep` meanwhile.
 - **Send `limit` once, as a whole number of at least 1.** A client that sent
   `limit=0` or an empty-looking value such as `limit=abc` to get the default
   now gets `400 invalid_query`; leave `limit` out instead. `limit=1000` still

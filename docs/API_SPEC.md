@@ -243,6 +243,7 @@ Response:
         "lastEventAt": "2026-08-06T18:34:38.000Z",
         "label": "Acme renewal, 2026",
         "lastStep": "sync-account",
+        "failedStep": "push-hubspot",
         "displayableAliases": [{ "type": "postingId", "value": "greenhouse:4567" }],
         "environment": "production"
       }
@@ -259,7 +260,17 @@ with the `environment` parameter it names the one that was asked for.
 
 `label` is the journey's label, or null until an event carries one. `lastStep`
 is the `name` of its latest event, or null for a journey no event has reached
-since the server began storing it. `displayableAliases` lists only the aliases
+since the server began storing it. `failedStep` is the `name` of the step that
+failed the journey (ADR-063): of the failing events applied since the journey
+last became `failed`, the one last in timeline order, `(timestamp, received at,
+event id)`, the order `lastStep` uses. So while a retry is in flight,
+`lastStep` moves on to the retry's steps and `failedStep` still names the step
+that failed. It is null whenever `status` is not `failed`, and so is cleared by
+a successful retry and by a completion. Two failures name the later-stamped
+one whichever arrives first; a failure stamped before a clearing retry but
+applied after it fails the journey again, and is the one named. A failed
+journey whose failure predates the server storing it has `failedStep` null
+until its next failure; show `lastStep` for it, as before. `displayableAliases` lists only the aliases
 a reader may see in full (ADR-053), as `{ type, value }`, ordered by alias type
 and then by value; a masked alias is never listed. A displayable alias written
 before the server kept plain-text copies is listed once an event states it
@@ -318,7 +329,7 @@ otherwise, and every read that returns a journey returns one of three values.
 | --- | --- |
 | `active` | The journey is running, or has been running and nothing has said it ended. |
 | `completed` | The run reached its end: a `completed` operation at or after the newest event's timestamp, which in practice is the SDK's `finish()`. Nothing else sets it. |
-| `failed` | Some event carried an error or the operation `failed`. A failure registers whatever its timestamp says, because a step that fails slowly is stamped before it arrives. |
+| `failed` | Some event carried an error or the operation `failed`. A failure registers whatever its timestamp says, because a step that fails slowly is stamped before it arrives. `failedStep` names the step (section 5). |
 
 A **successful retry clears a failure and does not complete the journey**
 (ADR-061). A `retried` event carrying no error is the success of a step that
@@ -406,6 +417,7 @@ Response items have the same fields as search results (section 5):
         "lastEventAt": "2026-08-06T18:34:38.000Z",
         "label": "Acme renewal, 2026",
         "lastStep": "sync-account",
+        "failedStep": "push-hubspot",
         "displayableAliases": [],
         "environment": "production"
       }
@@ -435,6 +447,7 @@ Response:
     "status": "failed",
     "label": "Acme renewal, 2026",
     "lastStep": "sync-account",
+    "failedStep": "push-hubspot",
     "aliases": [
       { "type": "salesforceAccountId", "displayValue": "0018…ABC", "displayable": false },
       { "type": "postingId", "displayValue": "greenhouse:4567", "displayable": true }
@@ -453,7 +466,9 @@ after the newest event's timestamp, and null when it never has. It is never
 cleared, so it can be set on a journey whose `status` is `failed` or `active`:
 the two fields answer different questions, and section 6 has the rule.
 
-`label` and `lastStep` are as in a search result (section 5). An alias's
+`label`, `lastStep` and `failedStep` are as in a search result (section 5).
+`journeyId` is an opaque string; EVENT_PROTOCOL.md section 4 describes the
+shapes the Node SDK makes, and a client must not parse or validate them. An alias's
 `displayValue` is masked unless `displayable` is true, which it is
 only when every event that stated the alias listed it in `displayableAliases`
 (ADR-053, `docs/SECURITY.md` section 6). It is null when the key that encrypted

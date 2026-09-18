@@ -182,6 +182,40 @@ const TAKES_LABEL = `(e.event_label is not null and (label_at is null or (e.even
 const TAKES_STEP = `(last_step_at is null or (e.event_at, now(), e.event_id collate "C") > (last_step_at, coalesce(last_step_received_at, '-infinity'), last_step_event_id collate "C"))`;
 
 /**
+ * The status this event leaves the journey in, written once because the
+ * status and the failed step both need it and every SET expression reads the
+ * row as it was before the update. The branches are explained where `status`
+ * is set in updateJourneySummary.
+ */
+const NEW_STATUS = `(case
+        when e.event_status = 'failed' then 'failed'
+        when e.event_at >= last_event_at and e.event_status is not null then e.event_status
+        when e.clears_failure and e.event_at >= last_event_at and status = 'failed' then 'active'
+        else status
+      end)`;
+
+/**
+ * Whether this failing event names the failed step (ADR-063): the journey was
+ * not failed, so this failure is the first of the current ones; or no failed
+ * step is stored, as for a journey failed before migration 021; or it comes
+ * after the stored one in timeline order, `(timestamp, received at, id)`,
+ * compared as TAKES_STEP compares. The `status <> 'failed'` branch also
+ * replaces a value a previous build left behind when it cleared a failure
+ * without knowing the column, however that value is stamped, but only when
+ * the journey is not failed at the time: once the previous build has failed
+ * it again, only a later-stamped failure replaces the stale value.
+ */
+const TAKES_FAILED_STEP = `(e.event_status = 'failed' and (status <> 'failed' or failed_step_at is null or (e.event_at, now(), e.event_id collate "C") > (failed_step_at, coalesce(failed_step_received_at, '-infinity'), failed_step_event_id collate "C")))`;
+
+/**
+ * A failed-step column's new value: null when the status is leaving or not
+ * `failed`, this event's value when it takes the failed step, and otherwise
+ * what it was.
+ */
+const failedStepColumn = (column: string, value: string): string =>
+  `case when ${NEW_STATUS} <> 'failed' then null when ${TAKES_FAILED_STEP} then ${value} else ${column} end`;
+
+/**
  * Advance the summary for one newly stored event. Never called for duplicates,
  * so event_count cannot drift.
  *
@@ -199,6 +233,12 @@ const TAKES_STEP = `(last_step_at is null or (e.event_at, now(), e.event_id coll
  * only when its own three are greater; nothing set yet is smaller than any. An event without
  * a label leaves the label as it is. Every event has a step name (`name` is
  * required by the protocol), so every event is a candidate for the last step.
+ *
+ * The failed step (ADR-063, F-047) follows the same order among failing
+ * events only, and only among the failures applied since the journey last
+ * became failed: the latest-stamped current failure, not the latest applied,
+ * so the same events in any delivery order name the same step while the
+ * journey stays failed. It is null whenever the new status is not `failed`.
  *
  * Event ids are compared with the "C" collation, byte by byte. The column's
  * collation is the database's default, which differs between installs, and a
@@ -265,12 +305,7 @@ export async function updateJourneySummary(
       -- evidence the failure was superseded, and the journey is running again.
       -- The status is not the audit trail either way; the 'failed' event stays
       -- in the timeline and is what a reader opens the journey to see.
-      status = case
-        when e.event_status = 'failed' then 'failed'
-        when e.event_at >= last_event_at and e.event_status is not null then e.event_status
-        when e.clears_failure and e.event_at >= last_event_at and status = 'failed' then 'active'
-        else status
-      end,
+      status = ${NEW_STATUS},
       -- Only ever set, never cleared: there is no branch that writes null, so
       -- a journey that completed and then failed, or that was cleared back to
       -- 'active' by ADR-061's branch above, keeps the completion time it was
@@ -288,6 +323,15 @@ export async function updateJourneySummary(
       last_step_at = case when ${TAKES_STEP} then e.event_at else last_step_at end,
       last_step_received_at = case when ${TAKES_STEP} then now() else last_step_received_at end,
       last_step_event_id = case when ${TAKES_STEP} then e.event_id else last_step_event_id end,
+      -- The step that failed the journey (ADR-063): the failing event last in
+      -- timeline order among the failures applied since the journey last
+      -- became failed, and null whenever the new status is not 'failed'. That
+      -- clears it on ADR-061's clearing retry and on a 'completed' at or after
+      -- the watermark, the only ways out of 'failed'.
+      failed_step = ${failedStepColumn("failed_step", "e.event_step")},
+      failed_step_at = ${failedStepColumn("failed_step_at", "e.event_at")},
+      failed_step_received_at = ${failedStepColumn("failed_step_received_at", "now()")},
+      failed_step_event_id = ${failedStepColumn("failed_step_event_id", "e.event_id")},
       updated_at = now()
     from (
       select ?::timestamptz as event_at, ?::text as event_status, ?::text as event_id,
