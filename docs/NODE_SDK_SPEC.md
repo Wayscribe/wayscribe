@@ -274,11 +274,17 @@ transform<T, I = unknown>(name: string, input: I, fn: () => T,
 
 ```typescript
 interface WrapOptions<T = unknown, I = unknown> {
-  isFailure?: ((result: T) => boolean) | undefined;
+  isFailure?: ((result: T) => boolean | string | FailureReason | undefined) | undefined;
   attempt?: number | undefined; // default 1
   metadata?: Record<string, unknown> | undefined;
   captureInput?: ((input: I, journey: JourneyContext) => unknown) | undefined; // experimental
   captureOutput?: ((result: T, journey: JourneyContext) => unknown) | undefined; // experimental
+  metadataFrom?: ((result: T, journey: JourneyContext) => Record<string, unknown>) | undefined; // experimental
+}
+
+interface FailureReason {
+  message?: string | undefined;
+  code?: string | undefined;
 }
 ```
 
@@ -287,6 +293,20 @@ returns a thenable; `I` is inferred from the wrapper's input. An attempt above
 one records `retried` (SDK-13). A projection runs inside the recorder's failure
 boundary: one that throws or returns a promise records `[UNCAPTURABLE]` and a
 `payload_omitted` diagnostic with code `projection_failed` (SDK-53).
+
+`isFailure` returning `true` records the generic `<name> reported a failed
+result.` with code `result_failed`; a string is that message, and a
+`FailureReason` gives the message, the code, or both, so a 429 and a 400 with a
+validation message do not read alike (ADR-060). A field that is not a non-empty
+string falls back to the generic one, and anything falsy is not a failure. One
+that throws costs the verdict alone: the step is recorded as a success and a
+`capture_error` says so.
+
+`metadataFrom` computes metadata from the resolved value, merged over
+`metadata`, which is copied before the callback runs. It runs once per journey,
+not when the callback throws, and follows the projection rules above; anything
+it returns that is not a plain object leaves `metadata` as it was and reports
+`projection_failed` with field `metadata` (ADR-060).
 
 ### `fail` and `finish`
 

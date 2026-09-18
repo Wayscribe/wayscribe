@@ -66,6 +66,7 @@ export type {
   Entity,
   ErrorInput,
   FailOptions,
+  FailureReason,
   FinishOptions,
   IdentifyOptions,
   Journey,
@@ -184,6 +185,7 @@ interface WrapSettings<T> {
   metadata?: Record<string, unknown> | undefined;
   captureInput?: WrapOptions<T>["captureInput"] | undefined;
   captureOutput?: WrapOptions<T>["captureOutput"] | undefined;
+  metadataFrom?: WrapOptions<T>["metadataFrom"] | undefined;
   isFailure?: WrapOptions<T>["isFailure"] | undefined;
 }
 
@@ -489,6 +491,48 @@ async function raceTimeout(promise: Promise<unknown>, ms: number): Promise<void>
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * The metadata an event carries when `metadataFrom` ran: what the projection
+ * returned, over the static metadata, so a status computed from the result
+ * wins over a placeholder set before the call. A projection that could not be
+ * used leaves the static metadata exactly as it was.
+ */
+function metadataOver(
+  metadata: Record<string, unknown> | undefined,
+  computed: Record<string, unknown> | undefined
+): { metadata?: Record<string, unknown> } {
+  if (computed === undefined) return {};
+  return { metadata: metadata === undefined ? computed : { ...metadata, ...computed } };
+}
+
+/**
+ * The error a failed result records, from what `isFailure` returned, or
+ * undefined when it was not a failure.
+ *
+ * `true` keeps the generic text. A string is the message, and an object gives
+ * the message, the code, or both; a field that is not a usable string falls
+ * back, so a reason the host got wrong still records the failure rather than
+ * losing it. Anything else truthy is the generic text too: the verdict was
+ * that it failed, and that is worth recording whatever came with it (ADR-060).
+ */
+function failureFrom(verdict: unknown, name: string): ErrorInput | undefined {
+  if (verdict === undefined || verdict === false || verdict === null || verdict === "") {
+    return undefined;
+  }
+  const generic = `${name} reported a failed result.`;
+  if (typeof verdict === "string") return { message: verdict, code: "result_failed" };
+  if (typeof verdict === "object") {
+    // The host's object: each field read behind the caller's boundary, which
+    // reports a getter that throws as a capture_error.
+    const { message, code } = verdict as { message?: unknown; code?: unknown };
+    return {
+      message: isIdentifier(message) ? message : generic,
+      code: isIdentifier(code) ? code : "result_failed"
+    };
+  }
+  return { message: generic, code: "result_failed" };
 }
 
 /**
@@ -1302,7 +1346,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // Each option read once: a getter is the host's code, and reading it
       // twice can give two answers.
       const given: WrapOptions<T> = options ?? {};
-      const { captureInput, captureOutput, isFailure } = given;
+      const { captureInput, captureOutput, metadataFrom, isFailure } = given;
       const attempt = given.attempt ?? 1;
       const extra = given.metadata;
       const metadata = extra === undefined && attempt === 1 ? undefined : { ...extra, attempt };
@@ -1312,10 +1356,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
         metadata,
         captureInput,
         captureOutput,
+        metadataFrom,
         isFailure
       };
     }) ?? { operation: naturalOperation };
-    const { operation, metadata, captureInput, captureOutput, isFailure } = settings;
+    const { operation, metadata, captureInput, captureOutput, metadataFrom, isFailure } = settings;
 
     // Projected and captured now, before the callback can change what it was
     // given. Capturing copies: a projection usually returns parts of the input
@@ -1342,8 +1387,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
               input,
               startedAt,
               durationMs,
-              ...outcome(target.context),
-              ...(metadata === undefined ? {} : { metadata })
+              // The static metadata first, so a `metadataFrom` the outcome
+              // computed from the result is merged over it rather than under.
+              // Nothing but `recordSuccess` returns metadata, so this changes
+              // no existing call.
+              ...(metadata === undefined ? {} : { metadata }),
+              ...outcome(target.context)
             },
             capturedInputs?.[index]
           );
@@ -1360,15 +1409,24 @@ export function createRecorder(config: RecorderConfig): Recorder {
 
     const recordSuccess = (result: T): void => {
       safely(diagnostics, "capture_error", () => {
-        const failed = isFailure === undefined ? false : isFailure(result);
+        // In its own boundary: a verdict that throws costs the verdict, not
+        // the step. The step is then recorded as the success it looked like,
+        // which is all the SDK knows.
+        const verdict = safely(diagnostics, "capture_error", () =>
+          isFailure === undefined ? false : isFailure(result)
+        );
+        const failure = failureFrom(verdict, name);
         recordAll((context) => ({
           output:
             captureOutput === undefined
               ? result
               : project(captureOutput, result, context, "output"),
-          ...(failed
-            ? { error: { message: `${name} reported a failed result.`, code: "result_failed" } }
-            : {})
+          // Checked once per call, not per field: a wrapper without the option
+          // pays one comparison.
+          ...(metadataFrom === undefined
+            ? {}
+            : metadataOver(metadata, projectMetadata(metadataFrom, result, context))),
+          ...(failure === undefined ? {} : { error: failure })
         }));
       });
     };
@@ -1461,6 +1519,57 @@ export function createRecorder(config: RecorderConfig): Recorder {
       );
     } catch (error) {
       return failed(`The ${option} projection threw, so the ${field} was not captured.`, error);
+    }
+  }
+
+  /**
+   * Metadata computed from a result, run so that nothing it does can reach the
+   * host, as `project` runs the payload projections.
+   *
+   * A throw, a returned promise, or anything that is not a plain object leaves
+   * the static metadata alone and reports one `payload_omitted` with code
+   * `projection_failed`. The projection's own error can quote the payload, so
+   * it goes to `onDiagnostic` in `detail` and never into the reason.
+   */
+  function projectMetadata(
+    projection: (result: never, journey: JourneyContext) => Record<string, unknown>,
+    result: unknown,
+    context: JourneyContext
+  ): Record<string, unknown> | undefined {
+    const failed = (reason: string, error?: unknown): void => {
+      diagnostics.report({
+        kind: "payload_omitted",
+        code: "projection_failed",
+        reason,
+        detail: { field: "metadata", ...(error === undefined ? {} : { error }) }
+      });
+    };
+    try {
+      const computed: unknown = (projection as (r: unknown, j: JourneyContext) => unknown)(
+        result,
+        context
+      );
+      if (typeof computed !== "object" || computed === null || Array.isArray(computed)) {
+        failed(
+          "The metadataFrom projection did not return an object, so no metadata was taken from the result."
+        );
+        return undefined;
+      }
+      // Inside the try: reading `then` runs the value's own getter.
+      if (isThenable(computed)) {
+        computed.then(
+          () => undefined,
+          () => undefined
+        );
+        failed(
+          "The metadataFrom projection returned a promise; projections must be synchronous, so no metadata was taken from the result."
+        );
+        return undefined;
+      }
+      return computed as Record<string, unknown>;
+    } catch (error) {
+      failed("The metadataFrom projection threw, so no metadata was taken from the result.", error);
+      return undefined;
     }
   }
 

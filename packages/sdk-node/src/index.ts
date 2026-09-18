@@ -25,6 +25,7 @@ export type {
   Entity,
   ErrorInput,
   FailOptions,
+  FailureReason,
   FinishOptions,
   IdentifyOptions,
   Journey,

@@ -94,8 +94,18 @@ export interface WrapOptions<T = unknown, I = unknown> {
   /**
    * Marks a result that did not throw but represents a failure, such as an
    * HTTP 422. Receives the resolved value.
+   *
+   * `true` records the generic `<name> reported a failed result.` with code
+   * `result_failed`. A string is that message; a `FailureReason` is its
+   * message and its code, so a 429 and a 400 with a validation message no
+   * longer read alike on the timeline (ADR-060). Anything falsy, including an
+   * empty string, is not a failure, and a reason that cannot be used falls
+   * back to the generic text.
+   *
+   * One that throws costs the verdict and nothing else: the step is recorded
+   * as the success it looked like, and a `capture_error` says so.
    */
-  isFailure?: ((result: T) => boolean) | undefined;
+  isFailure?: ((result: T) => boolean | string | FailureReason | undefined) | undefined;
   /**
    * 1 for a first attempt. Anything higher records `retried` (ADR-022), with
    * the attempt in metadata.
@@ -127,6 +137,32 @@ export interface WrapOptions<T = unknown, I = unknown> {
    * @experimental The projection signature came from one dogfood pass.
    */
   captureOutput?: ((result: T, journey: JourneyContext) => unknown) | undefined;
+  /**
+   * Metadata computed from the callback's resolved value, merged over
+   * `metadata`, which is copied before the callback runs. An HTTP status or a
+   * `Retry-After` only exists once the call has returned, so it could not be
+   * metadata at all (ADR-060).
+   *
+   * Runs once per journey, after the callback has returned or resolved, and
+   * not when the callback throws. Synchronous, and returns a plain object:
+   * one that throws, returns a promise, or returns anything else leaves the
+   * static metadata as it is and reports `payload_omitted` with code
+   * `projection_failed`, and never reaches your code.
+   *
+   * @experimental As `captureOutput`.
+   */
+  metadataFrom?: ((result: T, journey: JourneyContext) => Record<string, unknown>) | undefined;
+}
+
+/**
+ * Why a result that did not throw is a failure. Both fields are optional: a
+ * missing `message` records the generic one, and a missing `code` records
+ * `result_failed`. The message is masked and bounded like any other error the
+ * host gives (ADR-046).
+ */
+export interface FailureReason {
+  message?: string | undefined;
+  code?: string | undefined;
 }
 
 export interface FailOptions {

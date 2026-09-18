@@ -216,6 +216,49 @@ const response = await journey.deliver("send-to-crm", payload, () => post(payloa
 });
 ```
 
+`true` records `send-to-crm reported a failed result.` with the code
+`result_failed`. **Return the reason instead** and the timeline says which
+failure it was, so a 429 and a 400 with a validation message no longer read
+alike (ADR-060):
+
+```typescript
+const response = await journey.deliver("send-to-crm", payload, () => post(payload), {
+  isFailure: (result) =>
+    result.status < 400 ? false : { message: result.body.error, code: `http_${result.status}` }
+});
+```
+
+A string is the message on its own, and `{ message, code }` (the exported type
+`FailureReason`) gives either or both; a field that is not a non-empty string
+falls back to the generic text and `result_failed`, so a reason you got wrong
+still records the failure rather than losing it. Anything falsy, an empty
+string included, is not a failure. The message is masked for credential shapes
+and bounded like any other error you give the SDK. An `isFailure` that throws
+costs the verdict and nothing else: your value comes back, the step is recorded
+as the success it looked like, and a `capture_error` says so.
+
+**Metadata from the result.** `metadata` is copied when the wrapper is called,
+before your callback runs, so an HTTP status or a `Retry-After` does not exist
+yet. `metadataFrom` runs after the callback returned or resolved and is merged
+over `metadata` (ADR-060):
+
+```typescript
+const response = await journey.deliver("push-crm", payload, () => post(payload), {
+  metadata: { host: "api.hubapi.com" },
+  metadataFrom: (result) => ({
+    status: result.status,
+    retryAfter: result.headers["retry-after"]
+  })
+});
+```
+
+It receives the resolved value and the journey's context, runs once per journey
+in a `recorder.across` group, and is not called when the callback throws. Like
+`captureInput` and `captureOutput` it must be synchronous and cannot break your
+call: one that throws, returns a promise, or returns anything that is not a
+plain object leaves the static metadata exactly as it was and reports
+`payload_omitted` with code `projection_failed`.
+
 **Recording a view of the value.** `captureInput` and `captureOutput` choose what
 is recorded, while the wrapper still hands your code the real value. A step that
 returns a PDF can record its size and still return the `Buffer`:
@@ -1204,9 +1247,9 @@ calls take, accepts an explicit `undefined`, so
 `journeyIdSecret: process.env.JOURNEY_ID_SECRET` compiles with
 `exactOptionalPropertyTypes` on. Every option type has a name you can import:
 `RecorderConfig`, `StartJourneyOptions`, `ContinueJourneyOptions`,
-`IdentifyOptions`, `WrapOptions`, `RecordInput`, `ErrorInput`, `FailOptions`,
-`FinishOptions`, `ShutdownOptions`, `Deployment`, and `Entity` for
-`{ type, id }`.
+`IdentifyOptions`, `WrapOptions`, `RecordInput`, `ErrorInput`, `FailureReason`,
+`FailOptions`, `FinishOptions`, `ShutdownOptions`, `Deployment`, and `Entity`
+for `{ type, id }`.
 
 ### Which build recorded this
 
