@@ -115,10 +115,11 @@ export type PayloadEnvelope<T> = ContextEnvelope<T> | NoContextEnvelope<T>;
  * }`). A caller that must tell those apart, to unwrap `data` from the second
  * but not the first, reads `_wayscribe` itself (F-034).
  *
- * `T` is not checked: `data` is never read. A typed envelope narrows to its
- * own `ContextEnvelope<T>`, and a body typed `unknown` to
- * `ContextEnvelope<unknown>`; naming `T` for one is the caller's assertion, as
- * a cast would be.
+ * There is no type parameter, because `data` is never read and one the caller
+ * set would assert the payload's type unchecked (ADR-062). None is needed: a
+ * `PayloadEnvelope<Job>` narrows to `ContextEnvelope<Job>` inside the guard
+ * and to `NoContextEnvelope<Job>` in its `else`, and a body typed `unknown`
+ * narrows to `ContextEnvelope<unknown>`, whose `data` is the caller's to check.
  *
  * Takes anything, because a body off a queue is whatever was put there, and
  * never throws: a value whose reads fail is a value with no journey, and a
@@ -126,7 +127,7 @@ export type PayloadEnvelope<T> = ContextEnvelope<T> | NoContextEnvelope<T>;
  *
  * @experimental As `PropagationLevel`.
  */
-export function hasJourney<T = unknown>(envelope: unknown): envelope is ContextEnvelope<T> {
+export function hasJourney(envelope: unknown): envelope is ContextEnvelope<unknown> {
   if (typeof envelope !== "object" || envelope === null) return false;
   try {
     // Both reads inside: a getter is the host's own code, and a revoked Proxy,

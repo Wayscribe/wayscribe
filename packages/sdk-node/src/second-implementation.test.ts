@@ -166,6 +166,23 @@ describe("the no-context envelope", () => {
     };
     expect(journeyIdOf(JSON.parse('{"_wayscribe":{"journeyId":"jrn_1"},"data":1}'))).toBe("jrn_1");
 
+    // No type parameter: the guard never reads `data`, so one the caller set
+    // would assert the payload's type unchecked, a cast by another name
+    // (ADR-062).
+    // @ts-expect-error TS2558: hasJourney takes no type argument.
+    expect(hasJourney<{ id: string }>({})).toBe(false);
+
+    // A typed envelope keeps its payload type on both sides of the guard.
+    const sides = (envelope: PayloadEnvelope<{ id: string }>): string | undefined => {
+      if (hasJourney(envelope)) {
+        expectTypeOf(envelope).toEqualTypeOf<ContextEnvelope<{ id: string }>>();
+        return envelope.data.id;
+      }
+      expectTypeOf(envelope).toEqualTypeOf<NoContextEnvelope<{ id: string }>>();
+      return undefined;
+    };
+    expect(sides({ _wayscribe: { journeyId: "jrn_1" }, data: { id: "1" } })).toBe("1");
+
     // `false` is both "not an envelope" and "an envelope with no journey":
     // a caller that must tell those apart reads `_wayscribe` itself, or
     // calls `extractPayload`.

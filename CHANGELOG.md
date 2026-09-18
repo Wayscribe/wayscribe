@@ -461,11 +461,13 @@ What you have to do when upgrading a checkout or a deployment:
 - **`hasJourney` takes `unknown`.** It was declared as taking a
   `PayloadEnvelope<T>` while documented as taking anything, so a body off a
   queue, typed `unknown`, needed the cast the guard exists to remove (F-034).
-  It is now `hasJourney<T = unknown>(envelope: unknown): envelope is
-  ContextEnvelope<T>`; a typed envelope still narrows to its own
-  `ContextEnvelope<T>`. Its documentation now says that `false` covers both a
-  value that is not an envelope and an envelope with no journey. Nothing
-  changes at run time, and every call that compiled before still compiles.
+  It is now `hasJourney(envelope: unknown): envelope is
+  ContextEnvelope<unknown>`, with no type parameter, since the guard never
+  reads `data` and a type argument would assert the payload's type unchecked
+  (ADR-062). A `PayloadEnvelope<T>` still narrows to `ContextEnvelope<T>`
+  inside the guard and to `NoContextEnvelope<T>` in its `else`. Its
+  documentation now says that `false` covers both a value that is not an
+  envelope and an envelope with no journey. Nothing changes at run time.
 
 - **`injectPayload` returns `PayloadEnvelope<T>`, not `ContextEnvelope<T>`.**
   Without a context to inject it produces an envelope with an empty
@@ -742,6 +744,11 @@ What you have to do when upgrading a checkout or a deployment:
 
 These apply to an installation or a host application built from an earlier
 development build of `main`. A new installation can skip them.
+
+- **`hasJourney` takes no type argument.** A call written
+  `hasJourney<Job>(body)` drops the `<Job>`: a typed envelope keeps its payload
+  type through the guard without one, and a body typed `unknown` narrows to
+  `ContextEnvelope<unknown>`, whose `data` is yours to check.
 
 - **`personal_data_in_public_value` has a third `detail.field`.** Besides
   `journeyLabel` and `displayableAliases` it can be `errorMessage`. A handler
