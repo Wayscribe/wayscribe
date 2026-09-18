@@ -8,32 +8,37 @@ import { fileURLToPath } from "node:url";
  * `runtime.sdk` (F-046, ADR-063 decision 1).
  *
  * The version is `package.json`'s. The commit is the first of these that gives
- * a value:
+ * a value (ADR-063, as corrected after implementation):
  *
- * 1. `WAYSCRIBE_BUILD_COMMIT`, then `CI_COMMIT_SHA`, the variables
- *    `scripts/publish-image.sh` reads. Empty is unset, as it is there. A value
- *    that is set and is not 7 to 64 lowercase hex characters fails the build,
- *    rather than baking in something that names no commit.
- * 2. `BUILD_COMMIT` beside `package.json`, which holds `$Format:%H$` and is
+ * 1. `BUILD_COMMIT` beside `package.json`, which holds `$Format:%H$` and is
  *    marked `export-subst` in `.gitattributes`, so `git archive` (Leadline's
  *    `pin-sdk.sh`, a GitLab source download) writes the commit into it. Used
- *    when it holds 40 lowercase hex characters, which it does only in an
- *    archive.
+ *    when it holds 40 or 64 lowercase hex characters (SHA-1 or SHA-256), which
+ *    it does only in an archive. First, because it is exact for the tree it
+ *    sits in and is never filled in a checkout, so it cannot be wrong when
+ *    present; an archive packed inside another project's CI job would
+ *    otherwise take that project's `CI_COMMIT_SHA`.
+ * 2. `WAYSCRIBE_BUILD_COMMIT`, then `CI_COMMIT_SHA`, the variables
+ *    `scripts/publish-image.sh` reads. Empty is unset, as it is there.
  * 3. `git rev-parse HEAD`, only when `git rev-parse --show-toplevel`, run in
  *    the package directory, names the repository root that contains the
  *    package: an extracted archive that sits inside another repository must
  *    not take that repository's commit.
  * 4. None: events carry no `commit`.
  *
+ * A variable that is set and is not 7 to 64 lowercase hex characters fails the
+ * build whichever step supplies the commit, rather than being ignored until
+ * the day it is used.
+ *
  * Nothing here is read by the SDK at run time. The values are constants of the
  * build, so nothing in the host's environment or settings can change them.
  */
 
-/** The variables step 1 reads, in order. */
+/** The variables step 2 reads, in order. */
 export const COMMIT_VARIABLES = ["WAYSCRIBE_BUILD_COMMIT", "CI_COMMIT_SHA"];
 
 const VARIABLE_COMMIT = /^[0-9a-f]{7,64}$/;
-const ARCHIVE_COMMIT = /^[0-9a-f]{40}$/;
+const ARCHIVE_COMMIT = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const GIT_COMMIT = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const MAX_VERSION_LENGTH = 64;
 
@@ -55,7 +60,8 @@ export function buildIdentity({
   git = runGit
 } = {}) {
   const version = readVersion(packageRoot);
-  const commit = fromVariables(env) ?? fromArchive(packageRoot) ?? fromGit(packageRoot, git);
+  const variable = fromVariables(env);
+  const commit = fromArchive(packageRoot) ?? variable ?? fromGit(packageRoot, git);
   return commit === undefined ? { version } : { version, commit };
 }
 

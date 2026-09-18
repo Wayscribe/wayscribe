@@ -25,7 +25,6 @@ const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf
 };
 
 const SHA = "27f4d64a3b1c0e9f8d7c6b5a4f3e2d1c0b9a8f7e";
-const OTHER = "0123456789abcdef0123456789abcdef01234567";
 const UNSUBSTITUTED = "$Format:%H$\n";
 
 /** A git that answers as a checkout of this repository would, at `head`. */
@@ -94,14 +93,54 @@ describe("the commit baked in, in order", () => {
     }
   }
 
-  it("1. takes WAYSCRIBE_BUILD_COMMIT, then CI_COMMIT_SHA, before anything else", () => {
-    const file = `${OTHER}\n`;
-    expect(identity({ WAYSCRIBE_BUILD_COMMIT: "27f4d64", CI_COMMIT_SHA: SHA }, file).commit).toBe(
-      "27f4d64"
-    );
-    expect(identity({ CI_COMMIT_SHA: SHA }, file).commit).toBe(SHA);
+  /**
+   * One commit per source, all different, so a step taking precedence it
+   * should not have gives a different answer.
+   */
+  const FROM_FILE = "a".repeat(40);
+  const FROM_WAYSCRIBE = "b".repeat(40);
+  const FROM_CI = "c".repeat(40);
+  const FROM_GIT = "d".repeat(40);
+
+  /** The identity with the package in its own repository, so the git step would answer. */
+  function ordered(env: Record<string, string | undefined>, file: string): string | undefined {
+    const root = scratch();
+    try {
+      const directory = fakePackage(root, "0.1.0", file);
+      return buildIdentity({ packageRoot: directory, env, git: gitAt(root, FROM_GIT) }).commit;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  const everyVariable = { WAYSCRIBE_BUILD_COMMIT: FROM_WAYSCRIBE, CI_COMMIT_SHA: FROM_CI };
+
+  it("1. takes BUILD_COMMIT first, over both variables and git", () => {
+    // An archive packed inside another project's CI job: its CI_COMMIT_SHA
+    // names that project, and BUILD_COMMIT names this tree exactly.
+    expect(ordered(everyVariable, `${FROM_FILE}\n`)).toBe(FROM_FILE);
+    expect(ordered({ CI_COMMIT_SHA: FROM_CI }, `${FROM_FILE}\n`)).toBe(FROM_FILE);
+  });
+
+  it("2. then WAYSCRIBE_BUILD_COMMIT, then CI_COMMIT_SHA, over git", () => {
+    expect(ordered(everyVariable, UNSUBSTITUTED)).toBe(FROM_WAYSCRIBE);
+    expect(ordered({ CI_COMMIT_SHA: FROM_CI }, UNSUBSTITUTED)).toBe(FROM_CI);
     // Empty is unset, as scripts/publish-image.sh reads it.
-    expect(identity({ WAYSCRIBE_BUILD_COMMIT: "", CI_COMMIT_SHA: SHA }, file).commit).toBe(SHA);
+    expect(ordered({ WAYSCRIBE_BUILD_COMMIT: "", CI_COMMIT_SHA: FROM_CI }, UNSUBSTITUTED)).toBe(
+      FROM_CI
+    );
+  });
+
+  it("3. then git's HEAD, when nothing before it gives a commit", () => {
+    expect(ordered({}, UNSUBSTITUTED)).toBe(FROM_GIT);
+  });
+
+  it("takes a SHA-256 commit from BUILD_COMMIT", () => {
+    expect(ordered(everyVariable, `${"e".repeat(64)}\n`)).toBe("e".repeat(64));
+  });
+
+  it("fails the build for a malformed variable even when BUILD_COMMIT gives the commit", () => {
+    expect(() => ordered({ CI_COMMIT_SHA: "main" }, `${FROM_FILE}\n`)).toThrow(/CI_COMMIT_SHA/);
   });
 
   it.each([
@@ -121,20 +160,17 @@ describe("the commit baked in, in order", () => {
     expect(identity({ CI_COMMIT_SHA: "a".repeat(64) }).commit).toBe("a".repeat(64));
   });
 
-  it("2. then takes BUILD_COMMIT when git archive filled it, before git", () => {
-    expect(identity({}, `${SHA}\n`, gitAt("/elsewhere", OTHER)).commit).toBe(SHA);
-  });
-
   it.each([
     ["unsubstituted", UNSUBSTITUTED],
     ["abbreviated", "27f4d64\n"],
+    ["41 characters", `${"a".repeat(41)}\n`],
     ["uppercase", `${SHA.toUpperCase()}\n`],
     ["empty", ""]
   ])("does not take BUILD_COMMIT when it is %s", (_what, file) => {
     expect(identity({}, file).commit).toBeUndefined();
   });
 
-  it("3. then takes git's HEAD when git names this package's repository", () => {
+  it("takes git's HEAD only when git names this package's repository", () => {
     const root = scratch();
     try {
       const directory = fakePackage(root, "0.1.0", UNSUBSTITUTED);
@@ -207,7 +243,22 @@ describe.skipIf(!hasGit)("with a real git", () => {
     }
   });
 
-  it("from this repository, bakes in its HEAD", () => {
+  it("from this tree, bakes in BUILD_COMMIT's commit, or else its HEAD", (context) => {
+    // This tree may be a checkout, or a git archive extracted with no .git,
+    // which is the tree this feature exists for.
+    const file = readFileSync(join(packageRoot, "BUILD_COMMIT"), "utf8").trim();
+    if (/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(file)) {
+      expect(buildIdentity({ packageRoot, env: {} }).commit).toBe(file);
+      return;
+    }
+    const toplevel = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: packageRoot,
+      encoding: "utf8"
+    });
+    if (toplevel.status !== 0 || realpathSync(toplevel.stdout.trim()) !== repositoryRoot) {
+      context.skip();
+      return;
+    }
     const head = execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: repositoryRoot,
       encoding: "utf8"
@@ -219,7 +270,9 @@ describe.skipIf(!hasGit)("with a real git", () => {
 describe("BUILD_COMMIT", () => {
   it("holds git's placeholder, or the commit git archive wrote into it", () => {
     const text = readFileSync(join(packageRoot, "BUILD_COMMIT"), "utf8");
-    expect(text === UNSUBSTITUTED || /^[0-9a-f]{40}\n?$/.test(text), text).toBe(true);
+    expect(text === UNSUBSTITUTED || /^[0-9a-f]{40}(?:[0-9a-f]{24})?\n?$/.test(text), text).toBe(
+      true
+    );
   });
 
   it("is marked export-subst, so git archive fills it", () => {

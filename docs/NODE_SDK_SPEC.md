@@ -108,9 +108,10 @@ ADR-063): `language` `"node"`, `version` `process.versions.node` (left out if
 it cannot be read), and `sdk` `{ name: "@wayscribe/node", version, commit? }`.
 `version` and `commit` are baked into `dist/index.js` when
 `scripts/bundle.mjs` builds it: the version is `package.json`'s, and the commit
-is the first of `WAYSCRIBE_BUILD_COMMIT` then `CI_COMMIT_SHA` (a value that is
-set and is not 7 to 64 lowercase hex characters fails the build),
-`BUILD_COMMIT` when `git archive` filled it through `export-subst`, and
+is the first of `BUILD_COMMIT`, when `git archive` filled it through
+`export-subst` with 40 or 64 lowercase hex characters; `WAYSCRIBE_BUILD_COMMIT`
+then `CI_COMMIT_SHA` (a value that is set and is not 7 to 64 lowercase hex
+characters fails the build, whichever source gives the commit); and
 `git rev-parse HEAD` when git's top level is the repository that contains the
 package; otherwise `commit` is left out. Run from source, where nothing is
 baked in, the version is `0.0.0-development`. The runtime is read once, when
