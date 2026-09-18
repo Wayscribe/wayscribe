@@ -1,4 +1,4 @@
-export type { CaptureMode, RecorderConfig } from "./config.js";
+export type { CaptureMode, Deployment, RecorderConfig } from "./config.js";
 export type {
   BreakerOpenedDiagnostic,
   CaptureErrorDiagnostic,

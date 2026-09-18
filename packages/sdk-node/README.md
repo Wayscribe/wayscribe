@@ -123,6 +123,20 @@ same name. Never
 list an email address, a customer number, or anything else a reader of the
 timeline should not see.
 
+**Name the step when more than one service identifies the record.** An
+`identify` step is called `identify`, which reads well once and badly twice: an
+intake service and a CRM sync both identifying one lead put two steps of the
+same name on its timeline. Give the step its own name instead (ADR-060):
+
+```typescript
+journey.identify({ hubspotContactId: contact.id }, { name: "identify-crm" });
+```
+
+The operation is still `identified`, so the timeline reads the same way. A name
+that is not a non-empty string is reported as `capture_error` with code
+`invalid_options`, and the step is recorded as `identify`: the aliases are the
+point of the call, and losing them over a name would be the worse trade.
+
 ## Name a journey
 
 A label is what the Journeys page shows for a journey, and partial text typed
@@ -1179,6 +1193,7 @@ fleet against one instance. It is clamped to 1-16.
 | `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending) |
 | `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends); experimental |
 | `journeyIdSecret` | none | at least 32 bytes; see [The same record, the same journey](#the-same-record-the-same-journey); experimental |
+| `deployment` | none | `{ gitCommit?, version?, image? }`, sent on every event; see [Which build recorded this](#which-build-recorded-this) |
 | `knownSafeNames` | `[]` | key names that look like secrets and are not; see [Names no rule covers](#names-no-rule-covers) |
 
 The SDK reads no environment variables. A library that changes behaviour based on
@@ -1190,7 +1205,38 @@ calls take, accepts an explicit `undefined`, so
 `exactOptionalPropertyTypes` on. Every option type has a name you can import:
 `RecorderConfig`, `StartJourneyOptions`, `ContinueJourneyOptions`,
 `IdentifyOptions`, `WrapOptions`, `RecordInput`, `ErrorInput`, `FailOptions`,
-`FinishOptions`, `ShutdownOptions`, and `Entity` for `{ type, id }`.
+`FinishOptions`, `ShutdownOptions`, `Deployment`, and `Entity` for
+`{ type, id }`.
+
+### Which build recorded this
+
+A timeline that shows what happened but not which build it happened on leaves
+the first question of any incident unanswered. Set `deployment` once, and every
+event this recorder sends carries it:
+
+```typescript
+const recorder = createRecorder({
+  // ...
+  deployment: {
+    version: process.env.APP_VERSION, // your package's version
+    gitCommit: process.env.GIT_SHA,
+    image: process.env.IMAGE // registry.example/app:1.4.2
+  }
+});
+```
+
+All three fields are optional, and an explicit `undefined` is fine, so reading
+them straight from the environment compiles. The object is read and copied once,
+when the recorder is created, so changing it afterwards changes no event, and an
+event that carries it costs one property and no per-field work.
+
+A field that is not a non-empty string, or is longer than the protocol accepts
+(128 characters for `gitCommit` and `version`, 512 for `image`), is left off
+rather than cut, because a cut commit names a build that does not exist; a key
+the protocol does not have is left off too, since sending it would have the
+server refuse every event this process records. Either is reported once as a
+`configuration_error` naming `deployment`, never its value, and the rest of the
+deployment is still sent (ADR-060).
 
 ## OpenTelemetry
 

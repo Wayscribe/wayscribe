@@ -199,6 +199,17 @@ export interface JourneyOperations {
 
 export interface IdentifyOptions {
   /**
+   * What to call the step on the timeline. Two services identifying one record
+   * would otherwise both record a step called `identify`, and the timeline
+   * would show which service each came from and nothing else (ADR-060).
+   *
+   * Anything that is not a non-empty string is reported as `invalid_options`
+   * and the default is used.
+   *
+   * @defaultValue "identify"
+   */
+  name?: string | undefined;
+  /**
    * Alias types that may be shown in full to a reader. List a type every time
    * you state it, because an alias is shown only while every statement of it
    * says so (ADR-053).

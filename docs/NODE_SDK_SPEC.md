@@ -82,12 +82,19 @@ export const recorder = createRecorder({
   knownSafeNames: [],
 
   // Three levels; the default is the middle one. SDK_SPEC.md section 10.
-  propagation: "journey-and-type"
+  propagation: "journey-and-type",
+
+  // Which build this process is, sent on every event as `deployment`
+  // (ADR-060). Read and copied once, here; a field the protocol would refuse
+  // is left off and reported.
+  deployment: { version: process.env.APP_VERSION, gitCommit: process.env.GIT_SHA }
 });
 ```
 
 A setting that cannot be used never stops the recorder starting; it is
-reported as `configuration_error` and replaced by its default (SDK-6, SDK-60).
+reported as `configuration_error` and replaced by its default (SDK-6, SDK-60),
+and printed once per process whether or not `logDiagnostics` is on. Which
+settings were rejected is in `counters().rejectedSettings`.
 
 ## 4. Public API
 
@@ -167,10 +174,15 @@ journey.identify({
 });
 
 journey.identify({ postingId: posting.id }, { displayableAliases: ["postingId"] });
+
+// Two services identifying one record can name their own steps (ADR-060).
+journey.identify({ hubspotContactId: target.id }, { name: "identify-crm" });
 ```
 
 `identify` emits its own dedicated event, named `identify` (operation
-`identified`). The optional `IdentifyOptions` list alias types a reader may see
+`identified`) unless `IdentifyOptions.name` gives it another name; a name that
+is not a non-empty string is reported as `invalid_options` and the default is
+used. The optional `IdentifyOptions` also list alias types a reader may see
 in full. They are sent as `displayableAliases`, and an alias stays displayable
 only while every statement of it lists it (SDK-57, ADR-053).
 
@@ -323,8 +335,9 @@ copy of the counters at any time.
 
 `Counters` (experimental: fields may be added) has `recorded`, `sent`,
 `rejected`, `dropped`, `transportErrors`, `captureErrors`, `breakerOpened`,
-`payloadsOmitted`, `payloadsTruncated`, `keysDropped`, `configurationErrors`
-and `unredactedSecretNames`. Every counter but `recorded` and `sent` counts
+`payloadsOmitted`, `payloadsTruncated`, `keysDropped`, `configurationErrors`,
+`rejectedSettings` (the names those reports carried, not a number) and
+`unredactedSecretNames`. Every counter but `recorded` and `sent` counts
 reports of one diagnostic kind. Once `shutdown` has returned,
 `sent + rejected + dropped === recorded` (SDK-38, SDK-42).
 

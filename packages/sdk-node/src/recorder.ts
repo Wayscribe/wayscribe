@@ -52,6 +52,7 @@ import type {
   ContinueJourneyOptions,
   Entity,
   ErrorInput,
+  IdentifyOptions,
   Journey,
   JourneyContext,
   JourneyOperations,
@@ -1067,6 +1068,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
       name: input.name,
       timestamp: new Date(input.startedAt ?? Date.now()).toISOString(),
       ...(readTrace() ?? {}),
+      // One property, not a walk: the deployment was read, checked and frozen
+      // once, when the recorder was created, so an event that carries it costs
+      // nothing per field and an event without one costs one comparison.
+      ...(resolved.deployment === undefined ? {} : { deployment: resolved.deployment }),
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
       ...(captured.input === undefined ? {} : { input: captured.input.value }),
       ...(captured.output === undefined ? {} : { output: captured.output.value }),
@@ -1541,7 +1546,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
           reportRenamedOption(options, "displayable", "displayableAliases", "identify");
           enqueue(target, {
             operation: "identified",
-            name: "identify",
+            name: identifyName(options),
             // Top-level, not under metadata: EVENT_PROTOCOL puts aliases on the
             // event itself, and ingestion reads them from there. Nested, they
             // are accepted and then ignored, costing every alias-based search.
@@ -1614,6 +1619,30 @@ export function createRecorder(config: RecorderConfig): Recorder {
       reason,
       detail: { setting }
     });
+  }
+
+  /**
+   * What an `identify` step is called: the name the host gave, or `identify`.
+   *
+   * Read inside its own guard, because the option is the host's object and
+   * reading it runs the host's getter. A name that is not a non-empty string
+   * is reported and the default is used, so the step is still recorded: the
+   * aliases are the point of the call, and losing them over a name would be
+   * the worse half of the trade (ADR-060).
+   */
+  function identifyName(options: unknown): string {
+    const given = safely(diagnostics, "capture_error", (): unknown =>
+      typeof options === "object" && options !== null
+        ? (options as IdentifyOptions).name
+        : undefined
+    );
+    if (given === undefined) return "identify";
+    if (isIdentifier(given)) return given;
+    reportInvalidOptions(
+      "identify",
+      "identify was given a name that is not a non-empty string, so the step is called identify."
+    );
+    return "identify";
   }
 
   /** `fail`'s metadata, reporting options it cannot use. */
