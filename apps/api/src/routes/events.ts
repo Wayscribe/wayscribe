@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   findEventDetail,
   findJourneyDetail,
@@ -235,6 +236,10 @@ interface BatchContext {
  * created by the first event is what the second is checked against, so per-event
  * isolation without a shared outer transaction would answer both differently.
  *
+ * Before the first event it takes every journey the batch names, in one fixed
+ * order (lockDryRunJourneys, ADR-063), so two dry runs sharing journeys cannot
+ * deadlock on each other.
+ *
  * The rollback is unconditional. The results are carried out through a throw so
  * that knex rolls back on every path, including the one where an event threw
  * past the loop's own handler.
@@ -242,6 +247,7 @@ interface BatchContext {
 async function previewBatch(context: BatchContext, events: unknown[]): Promise<BatchResult[]> {
   try {
     await context.app.db.transaction(async (trx) => {
+      await lockDryRunJourneys(trx, context.auth.projectId, events);
       throw new DryRunFinished(await ingestBatch(context, trx, events, true));
     });
   } catch (error) {
@@ -251,6 +257,81 @@ async function previewBatch(context: BatchContext, events: unknown[]): Promise<B
   // knex has already rejected with DryRunFinished by here; this satisfies the
   // return type rather than describing a reachable state.
   throw new Error("The dry-run transaction committed, which it must never do.");
+}
+
+/**
+ * The first key of the two-integer advisory lock a dry run takes for each
+ * journey it names (ADR-063). PostgreSQL keeps the two-integer key space
+ * apart from the single-`bigint` keys retention and rotation take, so these
+ * cannot meet them. Any fixed `int4` would do; this one names the decision.
+ */
+export const DRY_RUN_JOURNEY_LOCK = 49_190_063;
+
+/**
+ * The second key for one journey: the first four bytes of SHA-256 over the
+ * project id, a NUL and the journey id, read big-endian as a signed 32-bit
+ * integer. A collision only makes two unrelated dry runs wait for each other.
+ */
+export function dryRunJourneyLockKey(projectId: string, journeyId: string): number {
+  return createHash("sha256")
+    .update(projectId)
+    .update("\u0000")
+    .update(journeyId)
+    .digest()
+    .readInt32BE(0);
+}
+
+/**
+ * The keys a dry run locks, deduplicated and in ascending order: one per
+ * distinct `event.journeyId` string read from the raw elements, without
+ * parsing them. An element with none, or with one that is not a string,
+ * touches no journey and adds nothing.
+ */
+export function dryRunJourneyLockKeys(projectId: string, elements: readonly unknown[]): number[] {
+  const keys = new Set<number>();
+  for (const element of elements) {
+    const journeyId = rawJourneyId(element);
+    if (journeyId !== undefined) keys.add(dryRunJourneyLockKey(projectId, journeyId));
+  }
+  return [...keys].sort((a, b) => a - b);
+}
+
+function rawJourneyId(element: unknown): string | undefined {
+  if (typeof element !== "object" || element === null) return undefined;
+  const event: unknown = (element as { event?: unknown }).event;
+  if (typeof event !== "object" || event === null) return undefined;
+  const journeyId: unknown = (event as { journeyId?: unknown }).journeyId;
+  return typeof journeyId === "string" ? journeyId : undefined;
+}
+
+/**
+ * Take every journey a dry run names before its first event, in one fixed
+ * order, so that two dry runs sharing journeys acquire them the same way and
+ * the second waits at its start for the first to roll back (ADR-063).
+ *
+ * Without it each event created and locked its journey in the order sent and
+ * held it to the rollback, so two dry runs naming journeys A and B in
+ * opposite orders each held one and waited for the other; PostgreSQL
+ * cancelled one statement, which answered `storage_error` for events a real
+ * send would store. One statement per key, in ascending order: a single
+ * statement over an array would rely on the planner evaluating the calls in
+ * array order, which nothing guarantees. The keys are integers computed here,
+ * inlined rather than bound, as every advisory lock in this repository is.
+ *
+ * A wait is bounded by `DATABASE_STATEMENT_TIMEOUT_MS` like any statement,
+ * and a timeout throws out of the dry run to the error handler, which
+ * answers `503 query_timeout`. Live batches take none of these: each live
+ * event is its own transaction touching one journey, so it cannot close a
+ * cycle, and a statement per event would be a cost on the hot path.
+ */
+async function lockDryRunJourneys(
+  trx: Knex,
+  projectId: string,
+  elements: readonly unknown[]
+): Promise<void> {
+  for (const key of dryRunJourneyLockKeys(projectId, elements)) {
+    await trx.raw(`select pg_advisory_xact_lock(${String(DRY_RUN_JOURNEY_LOCK)}, ${String(key)})`);
+  }
 }
 
 /** Carries a finished dry run's results out through the rollback. */

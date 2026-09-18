@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { buildApp } from "../app.js";
+import { DRY_RUN_JOURNEY_LOCK, dryRunJourneyLockKey, dryRunJourneyLockKeys } from "./events.js";
 import { createApiMetrics, type ApiMetrics } from "../metrics/api-metrics.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -390,6 +391,161 @@ describe("dry-run validation", () => {
       expect(results[0].duplicate).toBe(true);
       expect(results[0].stored).toBeUndefined();
       expect(results[1].stored).toBeUndefined();
+    });
+  });
+
+  describe("dry runs that share journeys (ADR-063)", () => {
+    /** Every statement the pool runs while `work` does, in order. */
+    async function statementsDuring(work: () => Promise<unknown>): Promise<string[]> {
+      const seen: string[] = [];
+      const listener = (query: { sql: string }): void => {
+        seen.push(query.sql);
+      };
+      db.on("query", listener);
+      try {
+        await work();
+      } finally {
+        db.off("query", listener);
+      }
+      return seen;
+    }
+
+    const LOCK = /pg_advisory_xact_lock\((-?\d+), (-?\d+)\)/;
+    const locksIn = (statements: string[]): [number, number][] =>
+      statements.flatMap((sql) => {
+        const match = LOCK.exec(sql);
+        return match === null ? [] : [[Number(match[1]), Number(match[2])] as [number, number]];
+      });
+
+    it("never deadlocks two dry runs over two journeys in opposite orders (the reviewer's reproduction, 50 runs)", async () => {
+      // Each dry run creates and locks its journeys in the order sent and holds
+      // them to its rollback, so without the up-front locks the two wait on
+      // each other, PostgreSQL cancels one, and a preview answered
+      // storage_error for events a real send would store.
+      const a = (id: string) => envelope({ id, journeyId: "jrn_lock_a" });
+      const b = (id: string) => envelope({ id, journeyId: "jrn_lock_b" });
+      const failures: string[] = [];
+      for (let run = 0; run < 50; run += 1) {
+        const [first, second] = await Promise.all([
+          batch([a("evt_lock_1a"), b("evt_lock_1b")]),
+          batch([b("evt_lock_2b"), a("evt_lock_2a")])
+        ]);
+        for (const response of [first, second]) {
+          if (response.statusCode !== 200) {
+            failures.push(`run ${String(run)}: ${String(response.statusCode)} ${response.body}`);
+            continue;
+          }
+          const codes = codesOf(response.json().data.results);
+          if (codes.length > 0) failures.push(`run ${String(run)}: ${codes.join(", ")}`);
+        }
+      }
+      expect(failures).toEqual([]);
+    }, 120_000);
+
+    it("takes one lock per distinct journey, one statement each, in ascending key order, before any event", async () => {
+      const events = [
+        envelope({ id: "evt_keys_1", journeyId: "jrn_keys_c" }),
+        envelope({ id: "evt_keys_2", journeyId: "jrn_keys_a" }),
+        envelope({ id: "evt_keys_3", journeyId: "jrn_keys_c" }),
+        // Elements with no journey id to read touch no journey and add no lock.
+        { protocolVersion: "0.1", event: {} },
+        { protocolVersion: "0.1", event: { journeyId: 42 } },
+        { protocolVersion: "0.1" },
+        "not an object",
+        null,
+        envelope({ id: "evt_keys_4", journeyId: "jrn_keys_b" })
+      ];
+      let response: Awaited<ReturnType<typeof batch>> | undefined;
+      const statements = await statementsDuring(async () => {
+        response = await batch(events);
+      });
+      expect(response?.statusCode, response?.body).toBe(200);
+      const results = response?.json().data.results as Record<string, unknown>[];
+      expect(results.map((one) => one["status"])).toEqual([
+        "accepted",
+        "accepted",
+        "accepted",
+        "rejected",
+        "rejected",
+        "rejected",
+        "rejected",
+        "rejected",
+        "accepted"
+      ]);
+
+      const expected = ["jrn_keys_a", "jrn_keys_b", "jrn_keys_c"]
+        .map((journeyId) => dryRunJourneyLockKey(projectId, journeyId))
+        .sort((x, y) => x - y);
+      const locks = locksIn(statements);
+      expect(locks).toEqual(expected.map((key) => [DRY_RUN_JOURNEY_LOCK, key]));
+      expect(dryRunJourneyLockKeys(projectId, events)).toEqual(expected);
+      // Every lock statement comes before the first write of the batch.
+      const lastLock = statements.findLastIndex((sql) => LOCK.test(sql));
+      const firstWrite = statements.findIndex((sql) => /insert into "journeys"/.test(sql));
+      expect(firstWrite).toBeGreaterThan(lastLock);
+    });
+
+    it("takes no lock for a batch sent for real, however many journeys it names", async () => {
+      const statements = await statementsDuring(async () => {
+        const response = await batch(
+          [
+            envelope({ id: "evt_live_lock_1", journeyId: "jrn_live_lock_a" }),
+            envelope({ id: "evt_live_lock_2", journeyId: "jrn_live_lock_b" })
+          ],
+          "?dryRun=false"
+        );
+        expect(response.statusCode, response.body).toBe(202);
+      });
+      // Not vacuous: the listener saw the batch's own statements.
+      expect(statements.some((sql) => /insert into "journey_events"/.test(sql))).toBe(true);
+      expect(statements.filter((sql) => /advisory/.test(sql))).toEqual([]);
+    });
+
+    it("answers 503 query_timeout when another dry run holds a journey past the statement timeout", async () => {
+      const timed = knex(
+        createKnexConfig(container.getConnectionUri(), { statementTimeoutMs: 500 })
+      );
+      const timedApp = buildApp({
+        db: timed,
+        keyring,
+        adminToken: "admin-token-for-tests-0000000000",
+        logLevel: "silent"
+      });
+      let release: () => void = () => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let holding: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        holding = resolve;
+      });
+      const holder = db.transaction(async (trx) => {
+        await trx.raw(
+          `select pg_advisory_xact_lock(${String(DRY_RUN_JOURNEY_LOCK)}, ${String(
+            dryRunJourneyLockKey(projectId, "jrn_lock_held")
+          )})`
+        );
+        holding();
+        await released;
+      });
+      try {
+        await held;
+        const response = await timedApp.inject({
+          method: "POST",
+          url: "/v1/events/batch?dryRun=true",
+          headers: { authorization: `Bearer ${apiKey}` },
+          payload: {
+            events: [envelope({ id: "evt_lock_held", journeyId: "jrn_lock_held" })]
+          } as object
+        });
+        expect(response.statusCode, response.body).toBe(503);
+        expect(response.json().error.code).toBe("query_timeout");
+      } finally {
+        release();
+        await holder;
+        await timedApp.close();
+        await timed.destroy();
+      }
     });
   });
 
