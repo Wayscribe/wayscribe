@@ -11,7 +11,7 @@ const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 /** U+D800, a high surrogate with no low surrogate after it. */
 const LONE = "\uD800";
 const SENT = `North${LONE}wind`;
-const REPAIRED = "North�wind";
+const REPAIRED = "North\uFFFDwind";
 
 /**
  * Where a lone surrogate is repaired (F-024).
