@@ -364,8 +364,8 @@ copy of the counters at any time.
 `Counters` (experimental: fields may be added) has `recorded`, `sent`,
 `rejected`, `dropped`, `transportErrors`, `captureErrors`, `breakerOpened`,
 `payloadsOmitted`, `payloadsTruncated`, `keysDropped`, `configurationErrors`,
-`rejectedSettings` (the names those reports carried, not a number) and
-`unredactedSecretNames`. Every counter but `recorded` and `sent` counts
+`rejectedSettings` (the names those reports carried, not a number),
+`unredactedSecretNames` and `personalDataInPublicValues`. Every counter but `recorded` and `sent` counts
 reports of one diagnostic kind. Once `shutdown` has returned,
 `sent + rejected + dropped === recorded` (SDK-38, SDK-42).
 

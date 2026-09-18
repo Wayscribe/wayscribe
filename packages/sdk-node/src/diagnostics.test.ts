@@ -288,6 +288,7 @@ describe("logDiagnostics", () => {
       configurationErrors: 0,
       rejectedSettings: [],
       unredactedSecretNames: 0,
+      personalDataInPublicValues: 0,
       sent: 0
     });
   });

@@ -302,7 +302,8 @@ may differ; it should be able to say why.
 
 - **SDK-40.** An SDK MUST be silent by default. Debug output is opt-in. The
   exceptions are the warnings SDK-56 and SDK-60 allow, each at most once per
-  process, and the one SDK-61 allows, at most once per process and name.
+  process, the one SDK-61 allows, at most once per process and name, and the
+  one SDK-63 allows, at most once per process and value shape.
 - **SDK-41.** A printed diagnostic MUST NOT contain a payload, an API key, a
   message from the server, or the endpoint's path or query. A path or a query
   can carry a credential.
@@ -602,6 +603,45 @@ holds the names from real APIs it was checked against.
 | SDK-61 | ADR-055; ADR-007 | sdk/unredacted-secret-name |
 | SDK-62 | ADR-055 | section 14 |
 
+### Personal data in a value a reader sees in full
+
+A journey label (SDK-58) and an alias the host marked displayable (SDK-57) are
+both stored, shown and matched in plain text and are never redacted. SDK-59
+says an SDK documents that for a label, and the same is true of a displayable
+alias, but documentation alone is missed: a design review approved a label of a
+company and a person's full name, and nothing in any SDK would have said a word
+(F-006, F-012).
+
+- **SDK-63.** An SDK SHOULD report a journey label, or an alias value the host
+  marked displayable, that looks like personal data. It MUST NOT change the
+  value, refuse it, or stop marking the alias displayable: this warns on a
+  guess, as SDK-61 does, and a value changed on a guess is the failure ADR-055
+  refuses. The report names which of the two it was and what the value looked
+  like, and MUST NOT include the value. An SDK SHOULD report once per process
+  and value shape, and SHOULD print one warning per process and shape even when
+  debug output is off, for the reason SDK-61 gives: the value is stored in the
+  clear. An SDK SHOULD say nothing about an alias the host did not mark
+  displayable, because it is masked when it is read.
+
+  The rule is deliberately narrow, so that it does not fire on ordinary text:
+
+  1. Something shaped like an email address anywhere in the value: characters
+     that are not whitespace or `@`, an `@`, more of the same, a `.`, and at
+     least two letters.
+  2. Or something shaped like an international telephone number: a `+`
+     followed by 8 to 15 digits (E.164's own bound), with spaces, dashes, dots
+     and parentheses allowed between them.
+
+  Nothing else. A person's name, a customer number, a national telephone
+  number written without a `+` and a postal address are all personal data this
+  does not catch, and an SDK MUST still document the rule that a label and a
+  displayable alias are public text (SDK-59). The Node SDK examines the first
+  1,024 characters of a value.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-63 | ADR-055; ADR-060; ADR-053 | section 14 |
+
 ## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive
@@ -642,3 +682,4 @@ either.
 | SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
 | SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. Repeat with a required setting that is `""` and one that is only whitespace, and assert each is reported and printed as missing. |
 | SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a string is reported; assert a payload the event budget omits reports nothing; record many distinct very long names and assert the memory kept is bounded. |
+| SDK-63 | Set a journey label holding an email address and assert one report naming the label and the shape, with debug output off, one printed line, and neither carrying the value; assert the label the event carries is the one that was set; assert a second label with an email address reports nothing more, and one with an international telephone number reports once; assert a label that looks like neither reports nothing; mark an alias displayable whose value is an email address and assert the same report names the alias, and that an alias not marked displayable reports nothing. |

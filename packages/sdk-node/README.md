@@ -121,7 +121,13 @@ it again for good (ADR-053). `startJourney({ entity, aliases, displayableAliases
 and `record({ ..., aliases, displayableAliases })` take the same list, under the
 same name. Never
 list an email address, a customer number, or anything else a reader of the
-timeline should not see.
+timeline should not see: **a displayable alias is stored and searched in plain
+text exactly as a label is**, and the API's `q` filter matches it the same way.
+The SDK raises the same `personal_data_in_public_value` warning for a
+displayable alias whose value looks like an email address or a telephone
+number, once per process and shape, and never changes the value (ADR-060). An
+alias you do not mark displayable is masked when it is read, so nothing is said
+about it.
 
 **Name the step when more than one service identifies the record.** An
 `identify` step is called `identify`, which reads well once and badly twice: an
@@ -173,6 +179,20 @@ different recorder carries no label.
 redacted.** It is text you wrote to be read. Do not put personal data in it:
 no names of people, email addresses, customer numbers, or anything else a
 reader of the journey list should not see.
+
+The SDK warns when it sees one kind of mistake. A label, or an alias you marked
+displayable, that holds what looks like an email address or an international
+telephone number raises one `personal_data_in_public_value` diagnostic, and
+prints one line even with `logDiagnostics` off, once per process and value
+shape. **The value is never changed**, and the warning is never a refusal: this
+is ADR-055's rule for secret-looking names, applied to personal data (ADR-060).
+
+The check is deliberately dumb, an email shape and an international phone shape
+and nothing else, so that it does not print at every deploy for text that is
+fine. It does not catch a person's name, a customer number, a national
+telephone number written without a `+`, or anything else, so the rule above
+still needs reading. If what it found is not personal data, nothing needs
+doing.
 
 It never throws. A label over 200 characters (Unicode code points, as the
 server counts them) is cut to its first 199 and `…`, never inside a character,
@@ -375,7 +395,7 @@ random id, so recording carries on and the journeys split until the secret is
 set. A secret shorter than 32 bytes is reported once when the recorder is
 created, and never used. Because split journeys are easy to miss, a missing or
 short secret also prints one line to stderr, once per process, even with
-`logDiagnostics` off; it is one of the five warnings the SDK prints unasked
+`logDiagnostics` off; it is one of the six warnings the SDK prints unasked
 ([It cannot break your application](#it-cannot-break-your-application)). An entity
 whose type or id holds an unpaired surrogate is refused the same way (reported,
 random id, no warning line): it cannot be encoded faithfully, and the server
@@ -527,14 +547,16 @@ no library. This one is built so that cannot happen:
   `payloadsOmitted` instead, and one sent with a string cut in
   `payloadsTruncated`, because its event is still sent.
 - Nothing is written to your console unless you set `logDiagnostics`, with
-  five exceptions, each printed once per process: a `journeyIdSecret` that
+  six exceptions, each printed once per process: a `journeyIdSecret` that
   cannot be used; a required setting (`endpoint`, `apiKey`, `serviceName`,
   `environment`) that is missing, empty, blank or not a string, since nothing
   recorded reaches the server until it is fixed; an optional setting the
   recorder could not use, which it replaced with its default or clamped into
   range; a setting under its old name (`maxPayloadBytes`, `propagate`), since
-  its value is not read; and, once per
-  name, a field whose name looks like a secret that was sent in plain text. A line names the setting or
+  its value is not read; once per
+  name, a field whose name looks like a secret that was sent in plain text; and,
+  once per value shape, a journey label or a displayable alias that looks like
+  personal data. A line names the setting or
   the field, never its value. Pass `onDiagnostic` if you want to hear about failures in your own
   logger.
 
@@ -570,7 +592,8 @@ await recorder.flush(); // send everything queued now, and wait for it
 const counters = await recorder.shutdown({ timeoutMs: 2_000 }); // the default
 // { recorded, sent, rejected, dropped, transportErrors, captureErrors,
 //   breakerOpened, payloadsOmitted, payloadsTruncated, keysDropped,
-//   configurationErrors, rejectedSettings, unredactedSecretNames }
+//   configurationErrors, rejectedSettings, unredactedSecretNames,
+//   personalDataInPublicValues }
 
 recorder.counters(); // the same numbers, at any time
 ```
@@ -704,6 +727,7 @@ in `<noun>Errors`, and a bare participle in itself (`dropped`).
 | `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` |
 | `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
+| `personal_data_in_public_value` | `personal_data_shape` | a journey label, or an alias marked displayable, holds what looks like an email address or a telephone number, and both are stored and searched in plain text; once per process and shape; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
 
 ### An endpoint that is not encrypted
 

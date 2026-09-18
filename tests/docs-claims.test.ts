@@ -131,7 +131,7 @@ describe("the Node SDK's documented numbers", () => {
     );
   });
 
-  it("prints unasked only the five warnings the README lists", () => {
+  it("prints unasked only the six warnings the README lists", () => {
     // Every console line the SDK can print without logDiagnostics goes through
     // printDiagnostic, and each call names why it printed.
     const notes = [
@@ -140,11 +140,11 @@ describe("the Node SDK's documented numbers", () => {
       [...read(file).matchAll(/"printed once per process[^"]*"/g)].map((match) => match[0])
     );
     // A required setting, an optional one, a renamed one, the journey id
-    // secret, and a secret-looking name.
-    expect(notes).toHaveLength(5);
+    // secret, a secret-looking name, and personal data in a public value.
+    expect(notes).toHaveLength(6);
     const readme = prose(read("packages/sdk-node/README.md"));
-    expect(readme).toContain("with five exceptions, each printed once per process");
-    expect(prose(read("README.md"))).toContain("apart from five warnings printed once per process");
+    expect(readme).toContain("with six exceptions, each printed once per process");
+    expect(prose(read("README.md"))).toContain("apart from six warnings printed once per process");
   });
 });
 

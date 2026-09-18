@@ -17,7 +17,7 @@ const recorder = createRecorder({
   apiKey: API_KEY,
   serviceName: "example-service",
   environment: "development",
-  // Unasked, the SDK prints only five warnings, each once per process (its
+  // Unasked, the SDK prints only six warnings, each once per process (its
   // README, "It cannot break your application"). This opts in to the rest
   // while you are getting set up: a wrong key or port prints why, and the
   // first batch the server stores prints `delivered_first`. Turn it off once the service is

@@ -273,6 +273,28 @@ export interface UnredactedSecretNameDiagnostic {
 }
 
 /**
+ * A journey label, or an alias the caller marked displayable, holds what looks
+ * like personal data: an email address or an international telephone number.
+ * A warning, exactly as `unredacted_secret_name` is: the value is stored,
+ * shown and searched in plain text and is never changed (ADR-055's pattern,
+ * ADR-060). Reported once per process and shape, so at most two of these exist
+ * for the life of a process. The value is never included. Counted in
+ * `personalDataInPublicValues`.
+ */
+export interface PersonalDataInPublicValueDiagnostic {
+  kind: "personal_data_in_public_value";
+  code: "personal_data_shape";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: {
+    /** Which plain-text value it was: the journey's label, or a displayable alias. */
+    field: "journeyLabel" | "displayableAliases";
+    /** What it looked like. */
+    shape: "email" | "phone";
+  };
+}
+
+/**
  * What `onDiagnostic` receives: `{ kind, code, reason, detail }`. Match on
  * `kind` and `code`; `reason` is prose whose wording may change in any
  * release. New kinds and codes may be added in any minor release, so handle
@@ -290,7 +312,8 @@ export type Diagnostic =
   | CaptureErrorDiagnostic
   | ConfigurationErrorDiagnostic
   | BreakerOpenedDiagnostic
-  | UnredactedSecretNameDiagnostic;
+  | UnredactedSecretNameDiagnostic
+  | PersonalDataInPublicValueDiagnostic;
 
 /**
  * What the recorder has counted since it was created. Every counter except
@@ -351,6 +374,12 @@ export interface Counters {
    * (ADR-055). At most 100.
    */
   unredactedSecretNames: number;
+  /**
+   * `personal_data_in_public_value` reports: journey labels and displayable
+   * aliases that look like personal data and were sent unchanged. At most one
+   * per value shape per process, so at most 2.
+   */
+  personalDataInPublicValues: number;
 }
 
 /**
@@ -372,7 +401,8 @@ const COUNTER_OF: Record<DiagnosticKind, keyof CountedTotals | undefined> = {
   capture_error: "captureErrors",
   configuration_error: "configurationErrors",
   breaker_opened: "breakerOpened",
-  unredacted_secret_name: "unredactedSecretNames"
+  unredacted_secret_name: "unredactedSecretNames",
+  personal_data_in_public_value: "personalDataInPublicValues"
 };
 
 /** The kinds the failure boundary reports a thrown value as. */
@@ -447,7 +477,8 @@ export function createDiagnostics(
     payloadsTruncated: 0,
     keysDropped: 0,
     configurationErrors: 0,
-    unredactedSecretNames: 0
+    unredactedSecretNames: 0,
+    personalDataInPublicValues: 0
   };
   /**
    * Bounded, and only ever a setting name the SDK itself wrote: a host cannot

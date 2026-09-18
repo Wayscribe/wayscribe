@@ -255,6 +255,12 @@ export interface IdentifyOptions {
    * you state it, because an alias is shown only while every statement of it
    * says so (ADR-053).
    *
+   * A displayable alias is stored, shown and searched in plain text, exactly as
+   * a journey label is, so do not mark one that holds personal data. A value
+   * that looks like an email address or a telephone number raises one
+   * `personal_data_in_public_value` diagnostic per process and shape, and is
+   * never changed (ADR-060).
+   *
    * @defaultValue none: every alias is masked
    */
   displayableAliases?: readonly string[] | undefined;
@@ -300,7 +306,8 @@ export interface StartJourneyOptions {
   /** Passed to the `identify` that starting with aliases records. */
   aliases?: Record<string, string> | undefined;
   /**
-   * Passed to that `identify`, as `IdentifyOptions.displayableAliases`.
+   * Passed to that `identify`, as `IdentifyOptions.displayableAliases`, with
+   * the same rule about personal data.
    *
    * @defaultValue none: every alias is masked
    */

@@ -36,6 +36,7 @@ import {
 } from "./propagation.js";
 import type { PayloadEnvelope, PropagatedContext, SqsMessageAttributes } from "./propagation.js";
 import { acceptLabel } from "./label.js";
+import { warnAboutPersonalData } from "./personal-data.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
 import { createSecretNameWarnings, type FoundName, type PayloadField } from "./secret-names.js";
@@ -990,6 +991,32 @@ export function createRecorder(config: RecorderConfig): Recorder {
     return record;
   }
 
+  /**
+   * The warning for personal data in an alias the caller marked displayable,
+   * which is stored and searched in plain text exactly as a label is (F-012).
+   *
+   * Only the values of the types on the displayable list are looked at: every
+   * other alias is masked when read, so what it holds is nobody's business
+   * here. An event that marks none, which is almost all of them, pays one
+   * comparison, and once both shapes have warned the check is skipped for the
+   * life of the process.
+   */
+  function warnAboutDisplayableAliases(
+    aliases: Record<string, string> | undefined,
+    displayableAliases: string[] | undefined
+  ): void {
+    if (aliases === undefined || displayableAliases === undefined) return;
+    for (const type of displayableAliases) {
+      if (!Object.hasOwn(aliases, type)) continue;
+      warnAboutPersonalData(
+        aliases[type],
+        "displayableAliases",
+        diagnostics,
+        resolved.logDiagnostics
+      );
+    }
+  }
+
   /** One `payload_truncated` per payload that reached the event with a string cut. */
   function reportTruncations(
     event: Record<string, unknown>,
@@ -1103,6 +1130,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
       metadata: metadataFor(input.metadata)
     };
 
+    const aliases = aliasesFor(input.aliases);
+    const displayable = displayableFor(input.displayableAliases);
+    warnAboutDisplayableAliases(aliases.aliases, displayable.displayableAliases);
+
     const event: Record<string, unknown> = {
       id: `evt_${randomUUID()}`,
       journeyId,
@@ -1121,8 +1152,8 @@ export function createRecorder(config: RecorderConfig): Recorder {
       ...(captured.input === undefined ? {} : { input: captured.input.value }),
       ...(captured.output === undefined ? {} : { output: captured.output.value }),
       ...(input.error === undefined ? {} : { error: maskedError(input.error) }),
-      ...aliasesFor(input.aliases),
-      ...displayableFor(input.displayableAliases),
+      ...aliases,
+      ...displayable,
       ...(journeyLabel === undefined ? {} : { journeyLabel }),
       ...(captured.metadata === undefined
         ? {}
@@ -1648,7 +1679,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
         safely(diagnostics, "capture_error", () => {
           // A refused label leaves the earlier one: the server never clears a
           // label either, so an empty string cannot remove one by accident.
-          label = acceptLabel(text, diagnostics) ?? label;
+          const accepted = acceptLabel(text, diagnostics);
+          if (accepted === undefined) return;
+          // On the label as it will be sent, and never a reason to refuse it
+          // (ADR-055's pattern): the host wrote this text to be read.
+          warnAboutPersonalData(accepted, "journeyLabel", diagnostics, resolved.logDiagnostics);
+          label = accepted;
         });
       },
       identify(aliases, options) {

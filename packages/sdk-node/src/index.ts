@@ -13,6 +13,7 @@ export type {
   KeyDroppedDiagnostic,
   PayloadOmittedDiagnostic,
   PayloadTruncatedDiagnostic,
+  PersonalDataInPublicValueDiagnostic,
   RejectedDiagnostic,
   TransportErrorDiagnostic,
   UnredactedSecretNameDiagnostic
