@@ -160,6 +160,17 @@ describe("a collector that answers 2xx without verdicts (F-048)", () => {
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ ok: true }));
       }
+    ],
+    [
+      "a 202 whose results are none of them verdicts",
+      (events: number, response: ServerResponse) => {
+        response.writeHead(202, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            data: { results: Array.from({ length: events }, () => ({ status: "queued" })) }
+          })
+        );
+      }
     ]
   ])("opens the breaker after five sends: %s", async (_what, reply) => {
     const stub = await collector(reply);

@@ -435,6 +435,27 @@ describe("a send the server gave no verdict for (F-048, ADR-063, SDK-65)", () =>
     expect(diagnostics.counters().breakerOpened).toBe(0);
   });
 
+  it("is neither counted nor a reset for an empty batch", async () => {
+    const send = vi.fn(silent);
+    const { transport, diagnostics } = harness(send);
+    await transport.send([{ ...envelope }]);
+    await transport.send([{ ...envelope }]);
+    // Not a reset: the next silent send is still the third in a row.
+    await transport.send([]);
+    expect(diagnostics.counters().breakerOpened).toBe(0);
+    await transport.send([{ ...envelope }]);
+    expect(diagnostics.counters().breakerOpened).toBe(1);
+    expect(send).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not count empty batches toward the breaker", async () => {
+    const send = vi.fn(silent);
+    const { transport, diagnostics } = harness(send);
+    for (let i = 0; i < 5; i += 1) await transport.send([]);
+    expect(diagnostics.counters().breakerOpened).toBe(0);
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("leaves the count alone after a whole-request refusal (SDK-31)", async () => {
     const refused = Object.assign(new Error("Ingestion responded 400."), {
       permanent: true,

@@ -130,6 +130,10 @@ export class Transport {
   }
 
   public async send(batch: readonly unknown[]): Promise<void> {
+    // Nothing to send is not a send: it neither counts toward the breaker nor
+    // resets it (ADR-063). flush never sends one, and the rule does not rely
+    // on that.
+    if (batch.length === 0) return;
     const now = this.options.now ?? Date.now;
 
     if (this.openedAt !== null) {
