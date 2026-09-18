@@ -131,7 +131,8 @@ timeline should not see: **a displayable alias is stored and searched in plain
 text exactly as a label is**, and the API's `q` filter matches it the same way.
 The SDK raises the same `personal_data_in_public_value` warning for a
 displayable alias whose value looks like an email address or a telephone
-number, once per process and shape, and never changes the value (ADR-060). An
+number, once per process and shape for aliases, and never changes the value
+(ADR-060). An
 alias you do not mark displayable is masked when it is read, so nothing is said
 about it.
 
@@ -190,8 +191,8 @@ The SDK warns when it sees one kind of mistake. A label, an alias you marked
 displayable, or an error's message, that holds what looks like an email
 address or an international telephone number raises one
 `personal_data_in_public_value` diagnostic, and prints one line even with
-`logDiagnostics` off, once per process and value shape, whichever of the three
-it was found in. **The value is never changed**, and the warning is never a
+`logDiagnostics` off, once per process for each of the three and each value
+shape, so a warning about one never silences another. **The value is never changed**, and the warning is never a
 refusal: this is ADR-055's rule for secret-looking names, applied to personal
 data (ADR-060, ADR-062).
 
@@ -808,7 +809,7 @@ in `<noun>Errors`, and a bare participle in itself (`dropped`).
 | `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` when `createRecorder` reported it or `rejectedOptions` when a later call did |
 | `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
-| `personal_data_in_public_value` | `personal_data_shape` | a journey label, an alias marked displayable, or an error message (`field` is `journeyLabel`, `displayableAliases` or `errorMessage`) holds what looks like an email address or a telephone number, and all three are stored and shown in plain text; once per process and shape; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
+| `personal_data_in_public_value` | `personal_data_shape` | a journey label, an alias marked displayable, or an error message (`field` is `journeyLabel`, `displayableAliases` or `errorMessage`) holds what looks like an email address or a telephone number, and all three are stored and shown in plain text; once per process, field and shape, so at most six; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
 
 ### An endpoint that is not encrypted
 

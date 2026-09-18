@@ -303,7 +303,7 @@ may differ; it should be able to say why.
 - **SDK-40.** An SDK MUST be silent by default. Debug output is opt-in. The
   exceptions are the warnings SDK-56 and SDK-60 allow, each at most once per
   process, the one SDK-61 allows, at most once per process and name, and the
-  one SDK-63 allows, at most once per process and value shape.
+  one SDK-63 allows, at most once per process, field and value shape.
 - **SDK-41.** A printed diagnostic MUST NOT contain a payload, an API key, a
   message from the server, or the endpoint's path or query. A path or a query
   can carry a credential.
@@ -626,10 +626,14 @@ company and a person's full name, and nothing in any SDK would have said a word
   guess, as SDK-61 does, and a value changed on a guess is the failure ADR-055
   refuses. The report names which of the three it was and what the value
   looked like, and MUST NOT include the value. An error message is examined as
-  it is sent, after masking and bounding; a stack is not examined. An SDK SHOULD report once per process
-  and value shape, and SHOULD print one warning per process and shape even when
-  debug output is off, for the reason SDK-61 gives: the value is stored in the
-  clear. An SDK SHOULD say nothing about an alias the host did not mark
+  it is sent, after masking and bounding; a stack is not examined. An SDK SHOULD report once per process,
+  field and value shape, and SHOULD print one warning per process, field and
+  shape even when debug output is off, for the reason SDK-61 gives: the value
+  is stored in the clear. Per field, so that a noisy field, as error text is,
+  never silences a warning about a quieter one (ADR-062). The email shape is
+  narrowed further for this reason: a local part holds no `/`, `:`, `[` or `]`,
+  and a domain followed by `:`, `/` or `@` is a host, not an address; and a
+  `+` followed by exactly four digits is a timezone offset. An SDK SHOULD say nothing about an alias the host did not mark
   displayable, because it is masked when it is read.
 
   The rule is deliberately narrow, so that it does not fire on ordinary text:
@@ -691,4 +695,4 @@ either.
 | SDK-59 | Check that the documentation of the label says it is stored and shown in plain text and must not hold personal data. |
 | SDK-60 | Start a recorder with a required setting missing and an optional one of the wrong type; assert it starts, both are reported without their values, the required one prints once per process with debug output off, and both print with it on. Repeat with a required setting that is `""` and one that is only whitespace, and assert each is reported and printed as missing. Start a recorder with every setting valid, make a call with an unusable option, and assert the settings the host can read are still empty and the option is readable apart from them. Configure a deployment with one field too long and assert that field alone is named and the rest is sent; with every field refused, assert the field and the setting are both named. |
 | SDK-61, SDK-62 | Record a secret-looking name twice from two recorders with debug output off and assert one report per recorder and one printed line in all, without the value; assert a name the redaction rules cover and a known-safe name are not reported, that a known-safe name that is also a rule is still redacted, and that a known-safe entry that is not a string is reported; assert a payload the event budget omits reports nothing; record many distinct very long names and assert the memory kept is bounded. |
-| SDK-63 | Set a journey label holding an email address and assert one report naming the label and the shape, with debug output off, one printed line, and neither carrying the value; assert the label the event carries is the one that was set; assert a second label with an email address reports nothing more, and one with an international telephone number reports once; assert a label that looks like neither reports nothing; mark an alias displayable whose value is an email address and assert the same report names the alias, and that an alias not marked displayable reports nothing; in a fresh process, record a failure whose message holds an email address and assert the same report names the error message, that the message the event carries is unchanged, and that a stack holding one reports nothing. |
+| SDK-63 | Set a journey label holding an email address and assert one report naming the label and the shape, with debug output off, one printed line, and neither carrying the value; assert the label the event carries is the one that was set; assert a second label with an email address reports nothing more, and one with an international telephone number reports once; assert a label that looks like neither reports nothing; mark an alias displayable whose value is an email address and assert the same report names the alias, and that an alias not marked displayable reports nothing; then, in the same process, record a failure whose message holds an email address and assert a report naming the error message although the label already warned for that shape, that the message the event carries is unchanged, and that a stack holding one reports nothing; assert an error message holding a module path under `node_modules/@scope/`, a git remote `git@host:org/repo.git` or a date with `+0000` reports nothing. |

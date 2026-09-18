@@ -1074,7 +1074,8 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * The message, as it will be sent, is checked for personal data too, since
    * masking leaves an email address or a telephone number alone and a
    * timeline shows the message to every reader: the label's warning, once per
-   * process and shape, and the value is not changed (F-041, ADR-062). The
+   * process and shape for error messages, and the value is not changed
+   * (F-041, ADR-062). The
    * stack is not examined: the SDK sends none of its own.
    */
   function maskedError(error: ErrorInput): ErrorInput {

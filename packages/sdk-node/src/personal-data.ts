@@ -26,11 +26,50 @@ export type PublicValueField = "journeyLabel" | "displayableAliases" | "errorMes
 export type PersonalDataShape = "email" | "phone";
 
 /**
- * Something shaped like an email address, anywhere in the value: a label is
- * usually a person or a company beside other text, not the address alone.
- * Linear, with no nested quantifier, so no input makes it expensive.
+ * Something shaped like the start of an email address, anywhere in the value:
+ * a label is usually a person or a company beside other text, not the address
+ * alone. `emailIn` decides whether what follows the `@` is a domain.
+ *
+ * The local part starts the value or follows whitespace, a bracket, a quote,
+ * `,`, `;`, `=` or `:`, and holds none of those, nor `/`, `[` or `]`. That is
+ * what keeps paths and URLs out: `node_modules/@aws-sdk/...`,
+ * `lodash@4.17.21/fp.js`, `@scope/pkg@1.2.3`, `registry/app@sha256:...` and
+ * `postgres://[REDACTED]@db.internal`, the SDK's own masked userinfo, all have
+ * a `/`, `[` or `]` where a local part would be (F-041 review).
+ *
+ * Linear: a match starts only after a delimiter, and a run between two
+ * delimiters is scanned once, so no input makes it expensive.
  */
-const EMAIL_SHAPE = /[^\s@]+@[^\s@]+\.[A-Za-z]{2,}/;
+const EMAIL_CANDIDATE = /(?<![^\s<>()"',;=:])[^\s<>()"',;=:@/[\]]+@([A-Za-z0-9.-]+)/g;
+const TOP_LEVEL_DOMAIN = /^[A-Za-z]{2,}$/;
+
+/**
+ * Whether the text holds an email address: a candidate whose domain has at
+ * least two labels, none empty, ending in letters, and is not followed by `:`,
+ * `/` or `@`. A host followed by one of those is a git remote
+ * (`git@github.com:org/repo.git`), an ssh target (`deploy@build.example.com:
+ * Permission denied`) or a path, not an address.
+ */
+function emailIn(text: string): boolean {
+  EMAIL_CANDIDATE.lastIndex = 0;
+  for (let match = EMAIL_CANDIDATE.exec(text); match !== null;) {
+    const after = text.charAt(match.index + match[0].length);
+    const domain = (match[1] ?? "").replace(/\.+$/, "");
+    const labels = domain.split(".");
+    if (
+      after !== ":" &&
+      after !== "/" &&
+      after !== "@" &&
+      labels.length >= 2 &&
+      !labels.includes("") &&
+      TOP_LEVEL_DOMAIN.test(labels.at(-1) ?? "")
+    ) {
+      return true;
+    }
+    match = EMAIL_CANDIDATE.exec(text);
+  }
+  return false;
+}
 
 /**
  * Something shaped like an international telephone number: a `+` that starts
@@ -45,9 +84,12 @@ const EMAIL_SHAPE = /[^\s@]+@[^\s@]+\.[A-Za-z]{2,}/;
  *
  * A national number written without the `+` is not matched: `555 010 9999` and
  * an order number are the same shape, and warning about every order number
- * would be the default nobody keeps.
+ * would be the default nobody keeps. Nor is a `+` followed by exactly four
+ * digits, which is a timezone offset: `Fri Sep 18 14:00:00 +0000 2026` has
+ * eight digits from `+` to the year (F-041 review).
  */
-const PHONE_SHAPE = /(?<![^\s([<])\+[\d\s().-]{7,20}/;
+const PHONE_SHAPE = /(?<![^\s([<])\+[\d\s().-]{7,20}/g;
+const TIMEZONE_OFFSET = /^\+\d{4}(?!\d)/;
 const DIGIT = /\d/g;
 const MIN_PHONE_DIGITS = 8;
 const MAX_PHONE_DIGITS = 15;
@@ -63,17 +105,23 @@ const MAX_EXAMINED = 1_024;
 /** The shape the value looks like, or undefined. Never throws. */
 export function personalDataShapeOf(value: string): PersonalDataShape | undefined {
   const text = value.length <= MAX_EXAMINED ? value : value.slice(0, MAX_EXAMINED);
-  if (EMAIL_SHAPE.test(text)) return "email";
-  const phone = PHONE_SHAPE.exec(text);
-  if (phone === null) return undefined;
-  const digits = phone[0].match(DIGIT)?.length ?? 0;
-  return digits >= MIN_PHONE_DIGITS && digits <= MAX_PHONE_DIGITS ? "phone" : undefined;
+  if (emailIn(text)) return "email";
+  PHONE_SHAPE.lastIndex = 0;
+  for (let phone = PHONE_SHAPE.exec(text); phone !== null; phone = PHONE_SHAPE.exec(text)) {
+    if (TIMEZONE_OFFSET.test(phone[0])) continue;
+    const digits = phone[0].match(DIGIT)?.length ?? 0;
+    if (digits >= MIN_PHONE_DIGITS && digits <= MAX_PHONE_DIGITS) return "phone";
+  }
+  return undefined;
 }
 
-const warned = new Set<PersonalDataShape>();
-const printedShapes = new Set<PersonalDataShape>();
+/** A field and a shape: the unit the warning is given once for. */
+type WarningKey = `${PublicValueField}:${PersonalDataShape}`;
 
-/** For tests: every shape warns again. */
+const warned = new Set<WarningKey>();
+const printedShapes = new Set<WarningKey>();
+
+/** For tests: every field and shape warns again. */
 export function forgetPersonalDataWarnings(): void {
   warned.clear();
   printedShapes.clear();
@@ -106,12 +154,17 @@ const WHERE: Record<PublicValueField, { subject: string; exposure: string }> = {
 };
 
 /**
- * Warns if `value` looks like personal data, once per process and shape.
+ * Warns if `value` looks like personal data, once per process, field and
+ * shape.
  *
- * Once per process and shape, not per value or per field: at most two lines
- * exist for the life of a process, which is enough to bring the rule to
- * somebody's attention and few enough that nobody silences it. The value is
- * never part of the report, and never changed.
+ * Once per field and shape, not per value: at most six lines exist for the
+ * life of a process, three fields by two shapes, which is enough to bring the
+ * rule to somebody's attention and few enough that nobody silences it. Per
+ * field and not per shape alone, because the fields are not equally noisy: an
+ * error message holds far more text nobody chose than a label does, and one
+ * warning spent on an error message must not silence a label or an alias that
+ * holds an address later (F-041 review, ADR-062). The value is never part of
+ * the report, and never changed.
  *
  * Never throws: this runs inside recording a step, and a warning must not cost
  * the event it is about.
@@ -123,12 +176,15 @@ export function warnAboutPersonalData(
   logDiagnostics: boolean
 ): void {
   try {
-    // The cheap gate first: once both shapes have warned, nothing is examined
-    // again for the life of the process.
-    if (warned.size === 2 || typeof value !== "string" || value === "") return;
+    // The cheap gate first: once both shapes have warned for this field,
+    // nothing of it is examined again for the life of the process.
+    if (warned.has(`${field}:email`) && warned.has(`${field}:phone`)) return;
+    if (typeof value !== "string" || value === "") return;
     const shape = personalDataShapeOf(value);
-    if (shape === undefined || warned.has(shape)) return;
-    warned.add(shape);
+    if (shape === undefined) return;
+    const key: WarningKey = `${field}:${shape}`;
+    if (warned.has(key)) return;
+    warned.add(key);
 
     const where = WHERE[field];
     const diagnostic: Diagnostic = {
@@ -141,14 +197,14 @@ export function warnAboutPersonalData(
       detail: { field, shape }
     };
     diagnostics.report(diagnostic, undefined, { unlimited: true });
-    // Printed once per process and shape even with logging off, as ADR-055's
-    // secret-name warning is: the value is stored in the clear, and nothing
-    // else brings the rule to anybody's attention (SDK-40, SDK-63).
-    if (printedShapes.has(shape) || logDiagnostics) return;
-    printedShapes.add(shape);
+    // Printed once per process, field and shape even with logging off, as
+    // ADR-055's secret-name warning is: the value is stored in the clear, and
+    // nothing else brings the rule to anybody's attention (SDK-40, SDK-63).
+    if (printedShapes.has(key) || logDiagnostics) return;
+    printedShapes.add(key);
     printDiagnostic(
       diagnostic,
-      "printed once per process and value shape, whether or not logDiagnostics is on, because the value is stored in plain text"
+      "printed once per process, field and value shape, whether or not logDiagnostics is on, because the value is stored in plain text"
     );
   } catch {
     // The label is set, and the event is sent, whatever happens here.

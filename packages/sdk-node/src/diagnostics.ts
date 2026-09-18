@@ -285,9 +285,9 @@ export interface UnredactedSecretNameDiagnostic {
  * (a label and a displayable alias are searched too), and is never changed
  * (ADR-055's pattern, ADR-060, ADR-062). An error message is masked for
  * credential shapes only, so masking does not cover this. Reported once per
- * process and shape, whichever field it was found in, so at most two of these
- * exist for the life of a process. The value is never included. Counted in
- * `personalDataInPublicValues`.
+ * process, field and shape, so at most six of these exist for the life of a
+ * process, and one field's warning never silences another's. The value is
+ * never included. Counted in `personalDataInPublicValues`.
  */
 export interface PersonalDataInPublicValueDiagnostic {
   kind: "personal_data_in_public_value";
@@ -412,7 +412,8 @@ export interface Counters {
   /**
    * `personal_data_in_public_value` reports: journey labels, displayable
    * aliases and error messages that look like personal data and were sent
-   * unchanged. At most one per value shape per process, so at most 2.
+   * unchanged. At most one per field and value shape per process, so at most
+   * 6.
    */
   personalDataInPublicValues: number;
 }

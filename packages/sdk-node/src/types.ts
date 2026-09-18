@@ -38,7 +38,8 @@ export interface ErrorInput {
    * Masked for credential shapes and cut to 4,096 characters before it is
    * queued. Personal data is not masked: it is stored and shown as given, and
    * an email address or an international telephone number raises a
-   * `personal_data_in_public_value` warning, once per process and shape.
+   * `personal_data_in_public_value` warning, once per process and shape for
+   * error messages.
    */
   message: string;
   /** Cut to 256 characters. */
@@ -182,7 +183,8 @@ export interface WrapOptions<T = unknown, I = unknown> {
  * timeline is, so build the message from what your code composed, such as the
  * status, and not from a response body that may name a person. One that looks
  * like either raises a `personal_data_in_public_value` warning, once per
- * process and shape, and is sent unchanged (F-041, ADR-062).
+ * process and shape for error messages, and is sent unchanged (F-041,
+ * ADR-062).
  */
 export interface FailureReason {
   message?: string | undefined;
@@ -287,8 +289,8 @@ export interface IdentifyOptions {
    * A displayable alias is stored, shown and searched in plain text, exactly as
    * a journey label is, so do not mark one that holds personal data. A value
    * that looks like an email address or a telephone number raises one
-   * `personal_data_in_public_value` diagnostic per process and shape, and is
-   * never changed (ADR-060).
+   * `personal_data_in_public_value` diagnostic per process and shape for
+   * displayable aliases, and is never changed (ADR-060, ADR-062).
    *
    * @defaultValue none: every alias is masked
    */

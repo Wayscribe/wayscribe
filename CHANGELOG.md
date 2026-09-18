@@ -471,10 +471,14 @@ What you have to do when upgrading a checkout or a deployment:
   thrown error's, a `FailureReason`'s, `fail()`'s and `record()`'s message is
   masked for credential shapes only, and a timeline shows it to every reader;
   an email address or an international telephone number in it now raises
-  `personal_data_in_public_value` with `detail.field` `errorMessage`. The same
-  once-per-process-and-shape rule applies across all three fields, so
-  `personalDataInPublicValues` is still at most 2, and the message is sent
-  unchanged. A stack is not examined.
+  `personal_data_in_public_value` with `detail.field` `errorMessage`, and the
+  message is sent unchanged. A stack is not examined. The warning is now given
+  once per process, field and shape, so `personalDataInPublicValues` is at most
+  6 rather than 2, and a warning about an error message never silences a
+  later one about a label or an alias. The email shape no longer matches a
+  module path, a versioned package, a masked URL, a git remote, an ssh target
+  or an image digest, and a timezone offset such as `+0000` is not a telephone
+  number.
 
 - **Four SDK declarations say what the code does.** `WrapResult` says the
   assignment of a second implementation needs no cast and its body's return

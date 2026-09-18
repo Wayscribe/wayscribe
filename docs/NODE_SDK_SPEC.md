@@ -322,7 +322,8 @@ fields throw costs those fields and not the step. The message is masked for
 credential shapes like any other error message, and personal data in it is
 not masked: an email address or an international telephone number in any
 error message raises the label's `personal_data_in_public_value` warning, with
-`detail.field` `errorMessage`, once per process and shape, and is sent
+`detail.field` `errorMessage`, once per process and shape for error messages,
+so it never silences a label's or an alias's warning, and is sent
 unchanged (F-041, ADR-062).
 
 `metadataFrom` computes metadata from the resolved value, merged over
