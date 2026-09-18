@@ -15,6 +15,7 @@ import {
   JOURNEY_LIST_PARAMETERS,
   parseJourneyListQuery
 } from "../apps/api/src/routes/journey-list-query.js";
+import { SEARCH_PARAMETERS } from "../apps/api/src/routes/search-query.js";
 import { filesEndingWith, findSection, markdownFiles, read, root } from "./docs-helpers.js";
 
 /** The text of a `## ` section of a markdown document, up to the next one. */
@@ -261,6 +262,75 @@ describe("the documentation's checkable claims", () => {
       ...section(read("docs/REPLAY_SPEC.md"), "6. Replay request").matchAll(/^\s*(\w+)\??: /gm)
     ].map((match) => match[1]);
     expect(documented, "REPLAY_SPEC section 6 does not list the route's fields").toEqual(declared);
+  });
+
+  describe("GET /v1/search in API_SPEC.md", () => {
+    const section = (): string => {
+      const match = /## 5\. Search\n([\s\S]*?)\n## 6\./.exec(read("docs/API_SPEC.md"));
+      expect(match, "API_SPEC.md has no section 5 for search").not.toBeNull();
+      return match?.[1] ?? "";
+    };
+
+    it("documents exactly the query parameters the route reads", () => {
+      // The parser refuses every other key, so its list is the route's. F-028
+      // found the endpoint with no window at all; the table is what tells a
+      // caller there is one to give.
+      const documented = [...section().matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((m) => m[1] ?? "");
+      expect(documented).toEqual([...SEARCH_PARAMETERS]);
+    });
+
+    it("says plainly that a search with no window spans the whole history", () => {
+      expect(section()).toContain("spans the project's whole history");
+    });
+  });
+
+  describe("who may read, in API_SPEC.md section 1", () => {
+    const conventions = (): string => section(read("docs/API_SPEC.md"), "1. Conventions");
+
+    it("says an API key may read, which is what the code does", () => {
+      // F-013: section 1 listed the admin token alone as "authentication for
+      // reads", while section 6 and resolvePrincipal both say an API key reads
+      // its own environment. resolvePrincipal returns a principal for either
+      // credential and every query route resolves its scope from whichever it
+      // got, so the narrower statement was the wrong one.
+      expect(read("apps/api/src/principal.ts")).toContain('kind: "apiKey"');
+      expect(read("apps/api/src/routes/queries.ts")).toContain("resolvePrincipal");
+      expect(conventions()).toContain("Authentication for reads, with an API key");
+      expect(conventions()).toContain("Either credential may read");
+    });
+
+    it("names the routes that take the admin token alone, and they do", () => {
+      for (const route of ["projects", "replays", "deletions"]) {
+        const source = read(`apps/api/src/routes/${route}.ts`);
+        // A call, not the word: projects.ts explains in a comment why it
+        // cannot go through resolvePrincipal.
+        expect(source, route).not.toMatch(/\bresolvePrincipal\(/);
+      }
+      expect(conventions()).toContain("take the admin token alone");
+    });
+  });
+
+  describe("GET /v1/journeys/:journeyId/events in API_SPEC.md", () => {
+    it("shows every field the route sends in its example item", () => {
+      // F-025: the example omitted `receivedAt`, which the endpoint always
+      // sends and which the section's own ordering rule names, so a caller
+      // building a schema from the example alone landed one field short.
+      const declared = [
+        ...(
+          /export interface EventListItem \{([\s\S]*?)\n\}/.exec(
+            read("packages/database/src/repositories/event-reads.ts")
+          )?.[1] ?? ""
+        ).matchAll(/^ {2}(\w+):/gm)
+      ].map((match) => match[1]);
+      expect(declared).toContain("receivedAt");
+
+      const example = /## 8\. List journey events[\s\S]*?```json\n([\s\S]*?)```/.exec(
+        read("docs/API_SPEC.md")
+      )?.[1];
+      expect(example, "API_SPEC.md section 8 has no example").toBeDefined();
+      const shown = [...(example ?? "").matchAll(/^\s{8}"(\w+)":/gm)].map((match) => match[1]);
+      expect(shown).toEqual(declared);
+    });
   });
 
   describe("GET /v1/journeys in API_SPEC.md", () => {

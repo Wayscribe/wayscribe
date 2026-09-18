@@ -20,19 +20,36 @@ Authentication for SDK ingestion:
 Authorization: Bearer <project-environment-api-key>
 ```
 
-Authentication for reads:
+Authentication for reads, with the admin token:
 
 ```text
 Authorization: Bearer <admin-token>
 x-wayscribe-project-id: <project-id>
 ```
 
+Authentication for reads, with an API key:
+
+```text
+Authorization: Bearer <project-environment-api-key>
+```
+
 The header is exactly the scheme, one space, and the token. The scheme is read in
 any case; anything after the token, a trailing space included, is `401`.
 
-An API key is scoped to one project and one environment and may ingest. An admin
-token reads across every environment of one **named** project and may not ingest
-(ADR-029).
+**Either credential may read.** An API key is scoped to one project and one
+environment: it may ingest, and it reads its own environment and nothing else.
+An admin token reads across every environment of one **named** project and may
+not ingest, because ingestion writes into a specific environment and an admin
+token names none (ADR-029). A key names its own project, so it sends no
+`x-wayscribe-project-id`; the header is how an admin names one.
+
+The reads both credentials serve are search (section 5), the journey list
+(section 6), a journey (section 7), its events (section 8) and an event
+(section 9). The rest take the admin token alone: `GET /v1/projects` below,
+every replay route (sections 10 to 13, 19) because replay sends stored data to
+a destination and an API key must be refused outright rather than resolved
+(ADR-032), and every deletion (sections 17 and 18) because keys ingest and
+never delete (ADR-045).
 
 `x-wayscribe-project-id` selects that project. It may be omitted when the
 installation has exactly one project, in which case the API resolves it; with
@@ -427,6 +444,7 @@ Response:
         "name": "receive-salesforce-webhook",
         "service": "customer-integration",
         "eventTimestamp": "2026-08-06T18:31:02.000Z",
+        "receivedAt": "2026-08-06T18:31:02.140Z",
         "durationMs": 18,
         "hasInput": true,
         "hasOutput": false,
@@ -437,6 +455,12 @@ Response:
   }
 }
 ```
+
+Every item carries all ten fields. `receivedAt` is when the server received the
+event, as opposed to `eventTimestamp`, which is when the instrumented service
+says it happened; it is the second term of the ordering above, so a caller that
+reproduces the order needs it. `durationMs` is null when the event recorded no
+duration.
 
 ## 9. Get event details
 
