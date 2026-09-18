@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { ConfigError } from "./config-error.js";
 
 /**
@@ -20,6 +20,21 @@ export const SECRET_FILE_SETTINGS = [
   "ADMIN_TOKEN"
 ] as const;
 
+/**
+ * The most a setting may be read from.
+ *
+ * Every setting this reads is a key or a token of well under a hundred bytes.
+ * The cap is generous enough that no real secrets file meets it and small
+ * enough that a path naming something else is refused rather than read.
+ */
+export const MAX_SECRET_FILE_BYTES = 65_536;
+
+/** A file system error's code in parentheses, for a message that names a path. */
+const code = (error: unknown): string => {
+  const value = (error as { code?: unknown }).code;
+  return typeof value === "string" ? ` (${value})` : "";
+};
+
 /** Blank counts as unset: Compose passes an unset variable through as "". */
 const set = (value: string | undefined): string | undefined => {
   const trimmed = value?.trim() ?? "";
@@ -38,12 +53,18 @@ const set = (value: string | undefined): string | undefined => {
  * one, since the two could differ and nothing on a running container would say
  * which had won.
  *
+ * The path has to name a regular file of at most {@link MAX_SECRET_FILE_BYTES}.
+ * Anything else is refused before it is opened: a `_FILE` pointing at a named
+ * pipe, a socket or a character device would otherwise block `readFileSync`
+ * forever, and the process would hang before it had logged anything at all,
+ * which is harder to diagnose than any message. The size cap is the same idea
+ * for a path that happens to name something enormous.
+ *
  * No message ever holds a value. The path is named, because that is what the
  * operator has to fix and it is not itself a secret.
  */
 export function resolveSecretFiles(
-  source: Record<string, string | undefined>,
-  readFile: (path: string) => string = (path) => readFileSync(path, "utf8")
+  source: Record<string, string | undefined>
 ): Record<string, string | undefined> {
   const resolved = { ...source };
   const problems: string[] = [];
@@ -60,14 +81,32 @@ export function resolveSecretFiles(
       continue;
     }
 
+    let stats;
+    try {
+      stats = statSync(path);
+    } catch (error) {
+      problems.push(`${fileVariable} names a file that could not be read${code(error)}: ${path}`);
+      continue;
+    }
+    if (!stats.isFile()) {
+      // Checked before the open, not after: reading a named pipe or a device
+      // blocks until something writes, and a process hung there has said
+      // nothing about why.
+      problems.push(`${fileVariable} does not name a regular file: ${path}`);
+      continue;
+    }
+    if (stats.size > MAX_SECRET_FILE_BYTES) {
+      problems.push(
+        `${fileVariable} names a file of ${String(stats.size)} bytes, more than the ${String(MAX_SECRET_FILE_BYTES)} a setting may be read from: ${path}`
+      );
+      continue;
+    }
+
     let contents: string;
     try {
-      contents = readFile(path);
+      contents = readFileSync(path, "utf8");
     } catch (error) {
-      const reason = (error as { code?: unknown }).code;
-      problems.push(
-        `${fileVariable} names a file that could not be read${typeof reason === "string" ? ` (${reason})` : ""}: ${path}`
-      );
+      problems.push(`${fileVariable} names a file that could not be read${code(error)}: ${path}`);
       continue;
     }
 

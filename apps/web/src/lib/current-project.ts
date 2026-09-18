@@ -24,8 +24,14 @@ import { SESSION_COOKIE_NAME, verifySession } from "./session";
  */
 export async function requireProjectId(returnTo?: string): Promise<string> {
   const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+  // No token means nothing can be verified, so nothing is: verifying against an
+  // empty key would admit a cookie signed with an empty key, turning a
+  // misconfiguration into a way in.
   const adminToken = sessionAdminToken();
-  const session = cookie === undefined ? null : verifySession(adminToken, cookie, Date.now());
+  const session =
+    adminToken === null || cookie === undefined
+      ? null
+      : verifySession(adminToken, cookie, Date.now());
 
   if (session === null) redirect("/login");
   if (session.projectId !== "") return session.projectId;

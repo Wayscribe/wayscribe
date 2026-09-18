@@ -16,6 +16,13 @@ const env = {
   REPLAY_ALLOWED_HOSTS: "localhost"
 };
 
+/** A file holding `contents`, in a directory of this test's own. */
+const fileHolding = (contents: string, name = "secret"): string => {
+  const path = join(mkdtempSync(join(tmpdir(), "wayscribe-startup-")), name);
+  writeFileSync(path, contents, "utf8");
+  return path;
+};
+
 describe("prepareStartup", () => {
   it("returns the configuration and a keyring holding both keys during a rotation", () => {
     const startup = prepareStartup({ ...env, ENCRYPTION_KEY_PREVIOUS: KEY_A });
@@ -84,6 +91,50 @@ describe("prepareStartup", () => {
     expect(startup.ok).toBe(false);
     if (startup.ok) return;
     expect(startup.message).toContain("ADMIN_TOKEN_FILE names a file with nothing in it");
+  });
+
+  it("warns at boot about a published default that reached it through a file", () => {
+    // The warning used to be looked for in process.env, where a setting read
+    // from a file never appears, so a stack pointed at a file holding the
+    // published default started in silence. It is looked for in the values the
+    // API runs on instead.
+    const published = "replace-for-local-development-0000";
+    const startup = prepareStartup({
+      ...env,
+      ENCRYPTION_KEY: undefined,
+      ADMIN_TOKEN: undefined,
+      ENCRYPTION_KEY_FILE: fileHolding(`${published}\n`, "encryption-key"),
+      ADMIN_TOKEN_FILE: fileHolding(published, "admin-token")
+    });
+    if (!startup.ok) throw new Error(startup.message);
+    expect(startup.insecureDefaults.map((finding) => finding.variable).sort()).toEqual([
+      "ADMIN_TOKEN",
+      "ENCRYPTION_KEY"
+    ]);
+  });
+
+  it("finds the same defaults whether they arrive as variables or as files", () => {
+    const published = "replace-for-local-development-0000";
+    const fromVariables = prepareStartup({
+      ...env,
+      ENCRYPTION_KEY: published,
+      ADMIN_TOKEN: published
+    });
+    const fromFiles = prepareStartup({
+      ...env,
+      ENCRYPTION_KEY: undefined,
+      ADMIN_TOKEN: undefined,
+      ENCRYPTION_KEY_FILE: fileHolding(published, "encryption-key"),
+      ADMIN_TOKEN_FILE: fileHolding(published, "admin-token")
+    });
+    if (!fromVariables.ok || !fromFiles.ok) throw new Error("expected both to start");
+    expect(fromFiles.insecureDefaults).toEqual(fromVariables.insecureDefaults);
+  });
+
+  it("warns about nothing when the configured values are the operator's own", () => {
+    const startup = prepareStartup(env);
+    if (!startup.ok) throw new Error(startup.message);
+    expect(startup.insecureDefaults).toEqual([]);
   });
 
   it("refuses an invalid environment with the variables named", () => {

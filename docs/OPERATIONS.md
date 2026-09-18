@@ -85,11 +85,15 @@ and the web image renders `/login`, the one page that needs no session. A
 passing probe therefore means the server answered a request, not that a process
 started.
 
-Each check is probed every two seconds during its start period and every thirty
-seconds afterwards, so `--wait` returns as soon as the stack is actually
-serving. On the bundled overlay, a cold start with no volume and no containers,
-measured on a laptop, takes about nine seconds end to end: PostgreSQL
-initialising, `migrate` applying the schema, then both servers answering.
+Each check is probed every two seconds during its start period, so `--wait`
+returns as soon as the stack is actually serving. Afterwards the cadence
+depends on which health check is in force: the images declare thirty seconds,
+which is what `compose.published.yaml` runs on, while `compose.yaml`, the
+source stack, overrides the API's with its own ten second one. Either way the
+start period is the same and `--wait` behaves identically. On the bundled
+overlay, a cold start with no volume and no containers, measured on a laptop,
+takes about nine seconds end to end: PostgreSQL initialising, `migrate`
+applying the schema, then both servers answering.
 
 An older release's images have no health check on `web` and none of these
 timings, so a stack running one reports `web` as `Healthy` on nothing more than
@@ -474,6 +478,16 @@ This keeps the values out of `docker inspect`. It does not hide them from
 anything that can read the files or enter the running container, which Docker
 access to the host also allows.
 
+**A rotation on this path is started and ended by the setting, not by the
+file.** To start one, add `ENCRYPTION_KEY_PREVIOUS_FILE` pointing at a file
+holding the outgoing key, beside `ENCRYPTION_KEY_FILE` holding the new one. To
+end it, at step 6 of the procedure below, **unset
+`ENCRYPTION_KEY_PREVIOUS_FILE`** and recreate the containers. Emptying the file
+it names does not end the rotation: an empty file is refused, by design, so the
+API would stop instead of starting without the previous key. With the overlay,
+remove the `encryption_key_previous` secret and its two lines rather than
+truncating the file the host holds.
+
 ### Running the commands
 
 `rotate:reencrypt` and `rotate:status` read the keys the way the API does, so
@@ -530,7 +544,10 @@ services.
    under the new key. Until then, work through what it lists (below) and run it
    again.
 6. Remove `ENCRYPTION_KEY_PREVIOUS` and recreate the API containers again, the
-   same way as in step 3.
+   same way as in step 3. On the file path, unset `ENCRYPTION_KEY_PREVIOUS_FILE`
+   rather than emptying the file it names: an empty file is refused, so the API
+   would stop instead of starting without the previous key ("Secrets the
+   container's environment does not hold", above).
 7. Run `rotate:status` once more. It should report `Previous key: not set` and
    `Complete`, and the API's boot log should carry no warning about unreadable
    data.

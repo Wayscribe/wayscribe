@@ -338,6 +338,28 @@ What you have to do when upgrading a checkout or a deployment:
   secret-looking names in a sample of stored payloads, and with `--api-key` and
   `--api-url`, whether a key authenticates and the API reports ready. Exits 1
   when anything failed, and prints no secret beyond an API key's prefix.
+  `doctor` takes the key to check from `WAYSCRIBE_API_KEY` when `--api-key` is
+  absent, so it need not sit in the container's process list; the flag wins when
+  both are given.
+- **`key:create --json`** prints one JSON object with the key, its prefix, the
+  project and the environment, and nothing else, so a script capturing a new key
+  parses no prose. Without the flag the human form is unchanged.
+- **`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and
+  `ADMIN_TOKEN_FILE`** read each value from a file at startup instead of from
+  the environment, the way Docker's own secrets mechanism mounts one.
+  `infrastructure/compose.secret-files.yaml` is an overlay that wires this up
+  for either Compose stack. The API, the web app, `doctor` and the key rotation
+  commands all read them. Whitespace at the end of the file is ignored, an empty
+  file is refused rather than read as an unset setting, and a setting given both
+  as a variable and as a file is refused by name with no value printed.
+- **`APP_URL` and `API_URL` read from the environment in the Compose files**,
+  with the same localhost defaults, so a second stack on other ports can say
+  where it is reached. Every other setting in those files already did.
+- **Both images declare a health check**, so `docker compose up -d --wait`
+  waits on a served request rather than a started process: the API answers
+  `GET /health` and the web image renders `/login`. Each is probed every two
+  seconds during its start period, which returns `--wait` about two seconds
+  sooner on a cold start (11.2 s to 8.8 s, measured on a laptop).
   `pnpm run doctor` from a checkout
   (`docs/OPERATIONS.md` section 12).
 - **`ENCRYPTION_KEY` rotation without losing data** (ADR-044). Every encrypted
@@ -509,6 +531,17 @@ What you have to do when upgrading a checkout or a deployment:
 
 ### Security
 
+- **Secrets need not sit in the container's environment.** With the Compose
+  paths `ENCRYPTION_KEY` and `ADMIN_TOKEN` are part of the container's
+  `Config.Env`, so anything able to run `docker inspect` on the host can read
+  the key that decrypts every stored payload and the token that signs every
+  admin session, which is the access starting the stack already needs. The
+  trade-off is stated next to the settings table (`docs/OPERATIONS.md` section
+  6) and in `docs/SECURITY.md` section 7, and the `_FILE` settings above are the
+  Compose equivalent of the `existingSecret` a Helm install already has. The
+  boot warning about published default secrets is found in the values the API
+  is running on, so a default that arrives through a file warns exactly as one
+  in the environment does.
 - **The secrets scanner is pinned.** The `secrets` job ran
   `zricethezav/gitleaks:latest`, so a new gitleaks release could change the
   gate without anyone choosing it. It now runs `v8.30.1`, pinned by digest, as

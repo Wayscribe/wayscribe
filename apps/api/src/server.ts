@@ -1,4 +1,3 @@
-import { findInsecureDefaults } from "@wayscribe/config";
 import { createKnexConfig } from "@wayscribe/database";
 import knex from "knex";
 import { buildApp } from "./app.js";
@@ -38,8 +37,10 @@ const retention = startRetentionJob(app);
 
 // Warned at every boot, not once: an operator who scrolls past this on day one
 // should meet it again on day thirty. It does not refuse to start, because the
-// demo has to run with nothing configured.
-for (const finding of findInsecureDefaults(process.env)) {
+// demo has to run with nothing configured. These are found in the values the
+// API is running on, so a default reaching it through ENCRYPTION_KEY_FILE or
+// ADMIN_TOKEN_FILE warns exactly as one in the environment does.
+for (const finding of startup.insecureDefaults) {
   app.log.warn({ variable: finding.variable }, finding.message);
 }
 

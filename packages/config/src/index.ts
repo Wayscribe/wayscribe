@@ -1,6 +1,6 @@
 export { ConfigError } from "./config-error.js";
 export { loadEncryptionKeys, loadServerEnv, loadStatementTimeoutMs } from "./load.js";
-export { resolveSecretFiles, SECRET_FILE_SETTINGS } from "./secret-files.js";
+export { MAX_SECRET_FILE_BYTES, resolveSecretFiles, SECRET_FILE_SETTINGS } from "./secret-files.js";
 export {
   findInsecureDefaults,
   LEGACY_PUBLISHED_DEMO_API_KEY,

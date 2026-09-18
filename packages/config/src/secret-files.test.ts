@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ConfigError } from "./config-error.js";
-import { resolveSecretFiles } from "./secret-files.js";
+import { MAX_SECRET_FILE_BYTES, resolveSecretFiles } from "./secret-files.js";
 
 const KEY = "an-encryption-key-of-enough-length-00";
 const TOKEN = "an-admin-token-of-enough-length-00000";
@@ -47,6 +47,32 @@ describe("resolveSecretFiles", () => {
     expect(() => resolveSecretFiles({ ENCRYPTION_KEY_FILE: path })).toThrow(
       new RegExp(`ENCRYPTION_KEY_FILE[\\s\\S]*${path}`)
     );
+  });
+
+  it("refuses a path that is not a regular file, before opening it", () => {
+    // A named pipe, a socket or a device would block readFileSync until
+    // something wrote to it, and the process would hang before logging why.
+    // A directory stands in for all of them here: it is the same check, and a
+    // test that opened a real pipe would hang for its own reasons if the check
+    // were ever removed.
+    const directory = mkdtempSync(join(tmpdir(), "wayscribe-secret-files-"));
+    const attempt = (): unknown => resolveSecretFiles({ ENCRYPTION_KEY_FILE: directory });
+    expect(attempt).toThrow(ConfigError);
+    expect(attempt).toThrow(/ENCRYPTION_KEY_FILE does not name a regular file/);
+  });
+
+  it("refuses a file larger than the cap, naming the setting and the size", () => {
+    const path = fileHolding("x".repeat(MAX_SECRET_FILE_BYTES + 1));
+    const attempt = (): unknown => resolveSecretFiles({ ADMIN_TOKEN_FILE: path });
+    expect(attempt).toThrow(ConfigError);
+    expect(attempt).toThrow(
+      new RegExp(`ADMIN_TOKEN_FILE names a file of ${String(MAX_SECRET_FILE_BYTES + 1)} bytes`)
+    );
+  });
+
+  it("accepts a file right at the cap", () => {
+    const value = "x".repeat(MAX_SECRET_FILE_BYTES);
+    expect(resolveSecretFiles({ ADMIN_TOKEN_FILE: fileHolding(value) })["ADMIN_TOKEN"]).toBe(value);
   });
 
   it("refuses both the variable and its file, naming the setting", () => {
