@@ -466,7 +466,9 @@ after the newest event's timestamp, and null when it never has. It is never
 cleared, so it can be set on a journey whose `status` is `failed` or `active`:
 the two fields answer different questions, and section 6 has the rule.
 
-`label`, `lastStep` and `failedStep` are as in a search result (section 5). An alias's
+`label`, `lastStep` and `failedStep` are as in a search result (section 5).
+`journeyId` is an opaque string; EVENT_PROTOCOL.md section 4 describes the
+shapes the Node SDK makes, and a client must not parse or validate them. An alias's
 `displayValue` is masked unless `displayable` is true, which it is
 only when every event that stated the alias listed it in `displayableAliases`
 (ADR-053, `docs/SECURITY.md` section 6). It is null when the key that encrypted

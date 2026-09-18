@@ -764,6 +764,12 @@ What you have to do when upgrading a checkout or a deployment:
   and it left out the tolerance that explains a refusal caused by clock skew.
   The check itself is unchanged. The message is built from the tolerance, so
   the two cannot drift apart.
+- **The journey id shapes are documented** (F-049, ADR-063,
+  `docs/EVENT_PROTOCOL.md` section 4). The Node SDK's random ids are `jrn_` and
+  a lowercase hyphenated UUID, 40 characters; its derived ids are `jrn_` and 32
+  lowercase hex characters, 36 characters. The section recommended
+  `jrn_<uuidv7>`, which neither is. A journey id stays an opaque string of 1 to
+  128 characters, and a reader must not parse or validate its shape.
 - **A successful retry clears a failed journey** (ADR-061). A `retried` event
   carrying no error returns the journey's status from `failed` to `active`
   instead of leaving it failed until something else says otherwise. An SDK
