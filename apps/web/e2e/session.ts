@@ -1,6 +1,17 @@
 import { expect, type Page } from "@playwright/test";
+import { sessionAdminToken } from "../src/lib/config";
 
-export const ADMIN_TOKEN = process.env["ADMIN_TOKEN"] ?? "";
+/**
+ * The admin token the suite signs in with, read the way the app reads it.
+ *
+ * Through the app's own resolver rather than `process.env` directly, so a run
+ * against a stack configured with `ADMIN_TOKEN_FILE`, or with a token carrying
+ * a newline or a byte-order mark, presents the same string the app holds. Read
+ * raw and untrimmed, the suite would type a token the login form refuses and
+ * report it as a product failure. "" when there is none, which fails the sign-in
+ * with a message about the token rather than about a type.
+ */
+export const ADMIN_TOKEN = sessionAdminToken() ?? "";
 export const API_URL = process.env["API_URL"] ?? "http://localhost:8080";
 export const API_KEY = process.env["WAYSCRIBE_API_KEY"] ?? "";
 

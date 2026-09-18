@@ -22,8 +22,14 @@ repository and commit the tarball to your application:
 # In the clone. `pack:release` builds first and prints the tarball's path. Give
 # it an absolute directory: it runs from packages/sdk-node.
 pnpm install
-pnpm --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
+pnpm --silent --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
 ```
+
+`--silent` is there so that capturing stdout gives the tarball's path and
+nothing else. `pack.mjs` itself prints only the path, and the build's output goes
+to stderr; `--silent` also drops the announcement line `pnpm run` prints for the
+script, which lands on stderr with pnpm 11 and has not always. Capture the whole
+of stdout rather than its last line.
 
 ```json
 {
@@ -592,10 +598,21 @@ no library. This one is built so that cannot happen:
   personal data. A line names the setting or
   the field, never its value. Pass `onDiagnostic` if you want to hear about failures in your own
   logger.
-
   An optional setting used to be silent unless `logDiagnostics` was on, so a
   recorder could run on a default nobody chose while every event it was meant
   to bound or enrich kept flowing and the counters read healthy (ADR-060).
+- **Those six exceptions are not turned off by anything.** Neither
+  `logDiagnostics: false` nor an `onDiagnostic` of your own suppresses them:
+  they print to `console.error` regardless, and they reach `onDiagnostic` as
+  well, so a caller with both set sees one of them twice, once as structured
+  output and once as a raw line. The two options decide whether and how the
+  SDK's ordinary diagnostics are seen; these six stand outside them
+  deliberately. Four of them mean a setting is not being used as you wrote it,
+  and the first two of those mean nothing you record is reaching the server at
+  all. The other two mean a value that looks like a credential, or like
+  personal data, is now stored in plain text, which no later configuration
+  change undoes. An operator looking for any of them goes to the container's
+  logs, which is where the line lands whatever the SDK was configured with.
 - A bad configuration value never stops your application starting. It is
   reported as a `configuration_error` and replaced by its default, or clamped
   into range. Values are not converted: `maxBufferedEvents: "5000"`, as read
@@ -1314,8 +1331,8 @@ fleet against one instance. It is clamped to 1-16.
 | `requestTimeoutMs` | `1500` | |
 | `maxBufferedEvents` | `1000` | oldest are dropped past this |
 | `maxEventBytes` | `262144` | the byte budget of one whole event; set it to the server's `MAX_EVENT_PAYLOAD_BYTES` |
-| `onDiagnostic` | none | |
-| `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending) |
+| `onDiagnostic` | none | does not suppress the four unasked console warnings; `unredacted_secret_name` reaches it as well as the console |
+| `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending); `false` does not silence the four unasked warnings, including `unredacted_secret_name` |
 | `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends); experimental |
 | `journeyIdSecret` | none | at least 32 bytes; see [The same record, the same journey](#the-same-record-the-same-journey); experimental |
 | `deployment` | none | `{ gitCommit?, version?, image? }`, sent on every event; see [Which build recorded this](#which-build-recorded-this) |

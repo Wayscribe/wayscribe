@@ -78,8 +78,12 @@ services:
     image: registry.gitlab.com/jojithedev/wayscribe/api:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag to run, such as v0.1.0}
     environment:
       <<: *database
-      APP_URL: http://localhost:3000
-      API_URL: http://localhost:8080
+      # Where this stack is reached from outside. A second stack on other
+      # ports, or one behind a name, has to be able to say so, and every other
+      # setting here already reads its own variable. Set both when you change
+      # API_PORT or WEB_PORT below: the API builds links with them.
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      API_URL: ${API_URL:-http://localhost:8080}
       PORT: "8080"
       LOG_LEVEL: info
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-for-local-development-0000}

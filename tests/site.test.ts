@@ -248,8 +248,10 @@ describe("the landing page", () => {
     expect(landing).toContain("is **not published on npm yet**");
     const install = findSection(readme, "Instrument your own service") ?? "";
     expect(install).toContain("The SDK is not published to npm yet.");
+    // --silent, so capturing stdout gives the tarball's path and nothing else
+    // (F-018). The SDK's own README says the same, and says why.
     expect(install).toContain(
-      "pnpm --filter @wayscribe/node run pack:release /path/to/your-app/vendor/"
+      "pnpm --silent --filter @wayscribe/node run pack:release /path/to/your-app/vendor/"
     );
   });
 

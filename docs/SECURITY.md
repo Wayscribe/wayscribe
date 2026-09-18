@@ -147,6 +147,15 @@ A replacement keeps the evidence that a value existed:
 }
 ```
 
+**A diff holds a changed value twice.** Where a value changed is computed from
+the payloads as they were stored, and a change keeps both the value before and
+the value after, which is the whole point of a diff. A redacted value compares
+as `[REDACTED]` against `[REDACTED]`, so a rotated secret leaks neither side.
+Personal data is not redacted the way a secret is (section 6), so a payload
+carrying it produces a diff carrying it twice rather than once. Nothing new is
+exposed, since both payloads are already stored, but a capture mode chosen for
+how much a payload holds should be read as saying how much a diff holds as well.
+
 ### What a name rule reaches
 
 A built-in secret name, or a configured `**.name` rule, is matched against the
@@ -493,6 +502,29 @@ encrypted, and this is a settled decision rather than an interim state
 (ADR-040): redaction, not encryption, is the payload control.
 
 Encryption keys must not be stored in the same database as ciphertext.
+
+### Where the key and the admin token live at runtime
+
+On the Compose install paths `ENCRYPTION_KEY` and `ADMIN_TOKEN` are container
+environment variables, which means they are in the container's `Config.Env` and
+readable by anything that can run `docker inspect` or `docker compose config` on
+the host. That is the same access needed to start the stack at all, so on those
+paths Docker access to the host is equivalent to holding the encryption key and
+the admin token. Read "not a published default", which `doctor` checks, as
+saying the value is not public, not that it is not exposed.
+
+`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE`
+read each value from a file at startup instead, and
+`infrastructure/compose.secret-files.yaml` mounts those files with Docker's own
+secrets mechanism (docs/OPERATIONS.md §6). A Helm install does the equivalent
+with `existingSecret`. Either way the value is still readable by anything that
+can read the mounted file or enter the running container: this narrows what an
+inspection of the container's configuration reveals, and narrows nothing else.
+
+Giving both a variable and its `_FILE` is refused at startup, by name and with
+no value printed, rather than one silently winning. An empty file is refused
+too, because reading it as an unset setting would start the stack on a published
+development default.
 
 ### Key identifiers and rotation
 

@@ -61,6 +61,44 @@ unsuitable for production except that it is invisible to whoever is
 responsible for your data: no backup schedule, no monitoring, and a `docker
 compose down -v` away from gone.
 
+### Ports, URLs, and a second stack
+
+`API_PORT` and `WEB_PORT` move the published ports, and `APP_URL` and `API_URL`
+say where the stack is reached from outside. The API builds links with the last
+two, so set them alongside the ports rather than only moving the ports:
+
+```bash
+export API_PORT=8085 WEB_PORT=3005
+export API_URL=http://localhost:8085 APP_URL=http://localhost:3005
+docker compose -p wayscribe-staging up -d
+```
+
+Both default to `http://localhost:8080` and `http://localhost:3000`, which is
+what a single stack on the documented ports wants. Behind a reverse proxy they
+are the names a browser uses, not the container's own.
+
+### What `up --wait` waits for
+
+`docker compose up -d --wait` returns when every container is healthy. Both
+images declare a health check: the API answers `GET /health` on its own port,
+and the web image renders `/login`, the one page that needs no session. A
+passing probe therefore means the server answered a request, not that a process
+started.
+
+Each check is probed every two seconds during its start period, so `--wait`
+returns as soon as the stack is actually serving. Afterwards the cadence
+depends on which health check is in force: the images declare thirty seconds,
+which is what `compose.published.yaml` runs on, while `compose.yaml`, the
+source stack, overrides the API's with its own ten second one. Either way the
+start period is the same and `--wait` behaves identically. On the bundled
+overlay, a cold start with no volume and no containers, measured on a laptop,
+takes about nine seconds end to end: PostgreSQL initialising, `migrate`
+applying the schema, then both servers answering.
+
+An older release's images have no health check on `web` and none of these
+timings, so a stack running one reports `web` as `Healthy` on nothing more than
+its process having started.
+
 ### Schema changes
 
 The `migrate` service applies migrations on boot, against your database, and it
@@ -352,6 +390,22 @@ once and is not recoverable: issue another rather than hunting for it.
 `key:create` and `key:revoke` each write an audit row, `api_key.created` or
 `api_key.revoked`, naming the key by its prefix (`SECURITY.md` section 13).
 
+For a script, `key:create … --json` prints one JSON object on one line and
+nothing else, so nothing has to be parsed by position:
+
+```bash
+docker compose run --rm --entrypoint node api \
+  packages/database/dist/cli.js key:create acme production checkout-worker --json
+```
+
+```json
+{"apiKey":"wsk_…","keyPrefix":"wsk_…","projectSlug":"acme","environmentName":"production"}
+```
+
+The flag may appear anywhere in the arguments. Without it the human form above
+is unchanged. Either way the key reaches stdout, so redirect it into the place
+it belongs rather than leaving it in a terminal's scrollback or a CI job's log.
+
 A slug is lowercase letters, digits and hyphens, because it reaches project
 selection, the CLI, and the interface. It cannot be changed afterwards without
 touching everywhere an operator has written it down.
@@ -382,12 +436,68 @@ anywhere else never arrives, and nothing says so.
 | `compose.published.yaml` | the shell, or a `.env` beside `compose.published.yaml`. A shell export wins over that file. |
 | Helm | `secrets.encryptionKey` and `secrets.encryptionKeyPrevious`, or the `ENCRYPTION_KEY` and `ENCRYPTION_KEY_PREVIOUS` keys of your `existingSecret`. |
 | `pnpm` commands in a source checkout | the repository-root `.env`. A variable exported in the shell wins over it. |
+| Either Compose stack, from files | `ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE`, each naming a file the value is read from at startup. See "Secrets the container's environment does not hold" below. |
 
-Surrounding whitespace is trimmed from both keys, so a trailing newline from a
-secrets file does not make a different key. An empty `ENCRYPTION_KEY_PREVIOUS`
-means no rotation is in progress. The same value in both variables stops the
+Surrounding whitespace is trimmed from both keys and from `ADMIN_TOKEN`, so a
+trailing newline from a secrets file, or a space either side of a pasted value,
+does not make a different key or a token nobody can type at the login form. An
+empty `ENCRYPTION_KEY_PREVIOUS` means no rotation is in progress. The same value in both variables stops the
 API at boot with a message saying so, rather than starting a rotation that
 rotates nothing.
+
+### Secrets the container's environment does not hold
+
+With the Compose paths above, `ENCRYPTION_KEY` and `ADMIN_TOKEN` are ordinary
+container environment variables. They are part of the container's
+`Config.Env`, so anyone who can run `docker inspect` or `docker compose config`
+on the host can read them, and that is exactly the access starting the stack
+requires. Holding Docker access to that host is therefore equivalent to holding
+the key that decrypts every stored payload and the token that signs every admin
+session. That is an ordinary trade-off rather than a defect, and it is worth
+knowing before deciding who gets that access. A Helm install already avoids it
+with `existingSecret`, a Kubernetes Secret rather than a container environment
+variable.
+
+`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE` are
+the Compose equivalent. When one is set, the value is read from that file at
+startup by the API, the web app, `doctor`, and the key rotation commands. The
+plain variables stay supported and unchanged.
+
+`infrastructure/compose.secret-files.yaml` is an overlay that wires this up with
+Docker's own secrets mechanism:
+
+```bash
+export COMPOSE_FILE=compose.published.yaml:compose.secret-files.yaml
+export ENCRYPTION_KEY_PATH=/etc/wayscribe/encryption-key
+export ADMIN_TOKEN_PATH=/etc/wayscribe/admin-token
+docker compose up -d
+```
+
+Each file holds the value and nothing else. Whitespace around the value is
+ignored, so a file ending in a newline is fine: reading the file drops what is
+at the end, and the setting itself is trimmed at both ends afterwards, exactly
+as it is when it comes from a variable. A file and a variable holding the same
+value therefore give the same key or token, and the length is measured on the
+trimmed value. An empty file is refused rather than read as an unset setting,
+which would otherwise start the stack on a published default.
+Setting both a variable and its `_FILE` is refused at startup, naming the
+setting and printing no value, because nothing on a running container would say
+which had won. `doctor` reports the same refusal as a failed `Secrets from
+files` check.
+
+This keeps the values out of `docker inspect`. It does not hide them from
+anything that can read the files or enter the running container, which Docker
+access to the host also allows.
+
+**A rotation on this path is started and ended by the setting, not by the
+file.** To start one, add `ENCRYPTION_KEY_PREVIOUS_FILE` pointing at a file
+holding the outgoing key, beside `ENCRYPTION_KEY_FILE` holding the new one. To
+end it, at step 6 of the procedure below, **unset
+`ENCRYPTION_KEY_PREVIOUS_FILE`** and recreate the containers. Emptying the file
+it names does not end the rotation: an empty file is refused, by design, so the
+API would stop instead of starting without the previous key. With the overlay,
+remove the `encryption_key_previous` secret and its two lines rather than
+truncating the file the host holds.
 
 ### Running the commands
 
@@ -445,7 +555,10 @@ services.
    under the new key. Until then, work through what it lists (below) and run it
    again.
 6. Remove `ENCRYPTION_KEY_PREVIOUS` and recreate the API containers again, the
-   same way as in step 3.
+   same way as in step 3. On the file path, unset `ENCRYPTION_KEY_PREVIOUS_FILE`
+   rather than emptying the file it names: an empty file is refused, so the API
+   would stop instead of starting without the previous key ("Secrets the
+   container's environment does not hold", above).
 7. Run `rotate:status` once more. It should report `Previous key: not set` and
    `Complete`, and the API's boot log should carry no warning about unreadable
    data.
@@ -1428,6 +1541,20 @@ docker compose run --rm --entrypoint node api \
 From a checkout, `pnpm run doctor --api-url http://localhost:8080 --api-key wsk_…`
 reads the repository-root `.env`.
 
+A key passed as `--api-key` is part of the command line, so it is visible to
+anything that can read the process list, which inside a container is anything
+with Docker access to the host. `doctor` reads `WAYSCRIBE_API_KEY` instead when
+the flag is absent, which is the safer route:
+
+```bash
+docker compose run --rm --entrypoint node \
+  -e WAYSCRIBE_API_KEY api packages/database/dist/cli.js doctor --api-url http://api:8080
+```
+
+A blank value counts as unset, and the value is trimmed, so a key read from a
+file that ends in a newline works. `--api-key` wins when both are given, for
+checking one key while the environment holds another.
+
 Run it with the API's environment, because that is what it checks: the same
 `DATABASE_URL`, `ENCRYPTION_KEY`, `ADMIN_TOKEN`, and
 `DATABASE_STATEMENT_TIMEOUT_MS`. `docker compose run … api` gives it exactly
@@ -1446,7 +1573,7 @@ beneath it:
 | Projects and keys | | no project, no unrevoked API key, or the published demo key (`wsk_demo0000`) is unrevoked |
 | Journey environments | an event was written by another environment's API key than its journey's own, which ingestion now refuses (ADR-038, amendment) and earlier builds did not | |
 | Secret-looking names | | a recently stored payload holds a plain value under a key name that looks like a secret, or the sample did not finish within 5 seconds or could not run |
-| API key (`--api-key`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
+| API key (`--api-key` or `WAYSCRIBE_API_KEY`) | the key is unknown, revoked, belongs to a removed project, or does not verify under the configured keys | |
 | API reachable (`--api-url`) | `GET /ready` does not answer 200; its `reason` is printed | |
 | Statement timeout | the value is invalid | it is 0 |
 

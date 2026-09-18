@@ -1,7 +1,8 @@
 import {
   findInsecureDefaults,
   loadStatementTimeoutMs,
-  PUBLISHED_DEMO_API_KEYS
+  PUBLISHED_DEMO_API_KEYS,
+  resolveSecretFiles
 } from "@wayscribe/config";
 import {
   API_KEY_PREFIX_LENGTH,
@@ -87,8 +88,22 @@ const SQLSTATE_FIXES: Record<string, string> = {
  * secret is scrubbed from every line before it is returned.
  */
 export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> {
-  const { db, env } = options;
+  const { db } = options;
   const results: CheckResult[] = [];
+
+  // The API reads ENCRYPTION_KEY, ENCRYPTION_KEY_PREVIOUS and ADMIN_TOKEN from
+  // the files their _FILE settings name, so doctor has to read them the same
+  // way or it would report an installation using them as having no key and no
+  // token. A refusal is a check of its own rather than a throw: it is exactly
+  // what stops the API starting, and the rest of the checks still run.
+  let env = options.env;
+  let secretFilesProblem: string | null = null;
+  try {
+    env = resolveSecretFiles(options.env);
+  } catch (error) {
+    secretFilesProblem =
+      error instanceof Error ? error.message.replace(/\s*\n\s*/g, " ") : "invalid";
+  }
 
   const database = await checkDatabase(db);
   results.push(database.result);
@@ -110,6 +125,16 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
         : migrations.detail.includes("pending")
           ? "migrations are pending"
           : "this build does not know the database's migrations";
+  }
+
+  if (secretFilesProblem !== null) {
+    results.push(
+      fail(
+        "Secrets from files",
+        secretFilesProblem.replace(/^Invalid environment configuration:\s*/, ""),
+        "Fix the setting named above; the API refuses to start on this configuration."
+      )
+    );
   }
 
   results.push(...defaultSecretResults(env));
@@ -266,10 +291,28 @@ export function formatDoctor(results: readonly CheckResult[]): string[] {
 export type DoctorArgs =
   { ok: true; apiUrl?: string; apiKey?: string } | { ok: false; message: string };
 
-export const DOCTOR_USAGE = "Usage: doctor [--api-url <url>] [--api-key <key>]";
+export const DOCTOR_USAGE =
+  "Usage: doctor [--api-url <url>] [--api-key <key>]\n" +
+  "       The key may come from WAYSCRIBE_API_KEY instead, which keeps it out of\n" +
+  "       the process list; --api-key wins when both are given.";
 
-/** `--api-url <url>` and `--api-key <key>`, each at most once, as `--flag value` or `--flag=value`. */
-export function parseDoctorArgs(args: readonly string[]): DoctorArgs {
+/**
+ * `--api-url <url>` and `--api-key <key>`, each at most once, as `--flag value`
+ * or `--flag=value`.
+ *
+ * The key may also arrive as `WAYSCRIBE_API_KEY`, the variable the SDK already
+ * reads it from. A key on the command line is visible to anything that can read
+ * the process list, which inside a container is anything with Docker access to
+ * the host, so the environment is the safer route (docs/OPERATIONS.md §12). The
+ * flag still wins, for an operator checking one key while the environment holds
+ * another. A blank value counts as unset, the way every other setting treats
+ * one, and the value is trimmed because a secrets file commonly ends in a
+ * newline.
+ */
+export function parseDoctorArgs(
+  args: readonly string[],
+  env: Record<string, string | undefined> = {}
+): DoctorArgs {
   const values: { "--api-url"?: string; "--api-key"?: string } = {};
 
   const remaining = [...args];
@@ -294,10 +337,12 @@ export function parseDoctorArgs(args: readonly string[]): DoctorArgs {
   if (apiUrl !== undefined && !isHttpUrl(apiUrl)) {
     return { ok: false, message: `--api-url must be an http:// or https:// URL.\n${DOCTOR_USAGE}` };
   }
+  const fromEnvironment = (env["WAYSCRIBE_API_KEY"] ?? "").trim();
+  const apiKey = values["--api-key"] ?? (fromEnvironment === "" ? undefined : fromEnvironment);
   return {
     ok: true,
     ...(apiUrl === undefined ? {} : { apiUrl }),
-    ...(values["--api-key"] === undefined ? {} : { apiKey: values["--api-key"] })
+    ...(apiKey === undefined ? {} : { apiKey })
   };
 }
 

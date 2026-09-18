@@ -66,7 +66,13 @@ export const serverEnvSchema = z
     APP_URL: z.url(),
     API_URL: z.url(),
     ...encryptionKeys,
-    ADMIN_TOKEN: z.string().min(32),
+    // Trimmed for the reason ENCRYPTION_KEY is: a token read from a file, or
+    // pasted, commonly carries a trailing newline or a leading byte-order mark.
+    // Kept, it would make a token the API compares against the Authorization
+    // header, and the web app signs sessions with, that nobody could type at
+    // the login form, with nothing said about why. apps/web/src/lib/config.ts
+    // trims it the same way, and the two have to stay identical.
+    ADMIN_TOKEN: z.string().trim().min(32),
     DEFAULT_RETENTION_DAYS: z.coerce.number().int().positive().default(7),
     MAX_EVENT_PAYLOAD_BYTES: z.coerce.number().int().positive().default(262_144),
     ALLOW_FULL_PAYLOAD_CAPTURE: z

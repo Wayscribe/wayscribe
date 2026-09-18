@@ -1,4 +1,6 @@
 import type { z } from "zod";
+import { ConfigError } from "./config-error.js";
+import { resolveSecretFiles } from "./secret-files.js";
 import {
   encryptionKeysSchema,
   serverEnvSchema,
@@ -7,9 +9,7 @@ import {
   type ServerEnv
 } from "./schema.js";
 
-export class ConfigError extends Error {
-  public override readonly name = "ConfigError";
-}
+export { ConfigError };
 
 /**
  * Parse and validate the server environment.
@@ -17,9 +17,13 @@ export class ConfigError extends Error {
  * Throws {@link ConfigError} listing every invalid variable rather than stopping
  * at the first, so a misconfigured deployment is fixed in one pass instead of
  * one restart per mistake.
+ *
+ * `ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE`
+ * are read first, so a setting mounted as a file is validated exactly as one
+ * given in the environment (`secret-files.ts`).
  */
 export function loadServerEnv(source: Record<string, string | undefined>): ServerEnv {
-  return parse(serverEnvSchema, source);
+  return parse(serverEnvSchema, resolveSecretFiles(source));
 }
 
 /**
@@ -30,7 +34,7 @@ export function loadServerEnv(source: Record<string, string | undefined>): Serve
  * treat a blank previous key exactly as the API does.
  */
 export function loadEncryptionKeys(source: Record<string, string | undefined>): EncryptionKeys {
-  return parse(encryptionKeysSchema, source);
+  return parse(encryptionKeysSchema, resolveSecretFiles(source));
 }
 
 /**

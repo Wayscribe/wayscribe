@@ -62,4 +62,18 @@ COPY --from=build /app/LICENSE /app/NOTICE /licenses/
 
 USER node
 EXPOSE 3000
+
+# Without this the container has no health check at all, so `docker compose up
+# -d --wait` reported it `Healthy` on nothing more than the process having
+# started, while the same word next to the API rested on a served request
+# (F-022). /login is the one page that renders without a session, so a passing
+# probe means Next is answering and rendering, not merely listening.
+#
+# 127.0.0.1 rather than localhost, for the reason the API image gives: the
+# server binds 0.0.0.0 and localhost resolves to ::1 first here. The body goes
+# to /dev/null because Docker keeps the last probes' output in the container's
+# state and a rendered page is not worth storing there.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --start-interval=2s --retries=3 \
+  CMD wget -qO /dev/null http://127.0.0.1:3000/login || exit 1
+
 CMD ["node", "apps/web/server.js"]

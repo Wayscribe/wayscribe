@@ -119,7 +119,15 @@ ENV WAYSCRIBE_BUILD_COMMIT=$WAYSCRIBE_BUILD_COMMIT
 USER node
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+# --start-interval is what decides how soon `docker compose up -d --wait`
+# returns: inside the start period the probe runs on that cadence rather than
+# the 30 second one a healthy container settles into. Docker Engine 25 and
+# later default it to 5 seconds, so the first probe already landed about 5
+# seconds in rather than after 30 (measured; F-017 expected 30, F-022 did not
+# reproduce that, and this is why). Naming 2 seconds makes it explicit, holds
+# on an older engine that has no default, and returns `--wait` about three
+# seconds sooner.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --start-interval=2s --retries=3 \
   # 127.0.0.1, not localhost: localhost resolves to ::1 first here and the
   # server binds 0.0.0.0, so the check is refused and the container reports
   # unhealthy while serving traffic perfectly.

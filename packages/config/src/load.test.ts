@@ -127,6 +127,28 @@ describe("loadServerEnv", () => {
   });
 });
 
+describe("ADMIN_TOKEN", () => {
+  // A token file, or a paste, commonly carries a newline at the end or a
+  // byte-order mark at the start. Kept, the API would compare the Authorization
+  // header against a token nobody could type, and the web app would sign
+  // sessions with it. apps/web/src/lib/config.ts trims it identically.
+  it.each([
+    [`${validEnv.ADMIN_TOKEN}\n`, "a trailing newline"],
+    [`  ${validEnv.ADMIN_TOKEN}  `, "surrounding spaces"],
+    [`\uFEFF${validEnv.ADMIN_TOKEN}`, "a byte-order mark"]
+  ])("trims %j (%s)", (presented) => {
+    expect(loadServerEnv({ ...validEnv, ADMIN_TOKEN: presented }).ADMIN_TOKEN).toBe(
+      validEnv.ADMIN_TOKEN
+    );
+  });
+
+  it("measures the length after trimming, so a padded short token is still refused", () => {
+    expect(() => loadServerEnv({ ...validEnv, ADMIN_TOKEN: `   ${"x".repeat(31)}   ` })).toThrow(
+      /ADMIN_TOKEN/
+    );
+  });
+});
+
 describe("loadEncryptionKeys", () => {
   // The database CLI and the demo bootstrap read the keys without the rest of
   // the server's environment. They must normalise them exactly as the API does,
