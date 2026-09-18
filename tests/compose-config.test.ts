@@ -75,4 +75,23 @@ describe("the Compose stacks built from source", () => {
     }
     expect(checked).toBeGreaterThan(0);
   });
+
+  // A second stack on other ports has to be able to say so. Every other
+  // setting in the published file already reads `${NAME:-default}`; APP_URL and
+  // API_URL were literal, so the links the API builds pointed at the first
+  // stack's ports whatever the operator set (F-015).
+  it.each([
+    ["APP_URL", "http://localhost:3000"],
+    ["API_URL", "http://localhost:8080"]
+  ])("reads %s from the environment, keeping its localhost default", (name, fallback) => {
+    for (const file of composeFiles) {
+      const api = services(file).find(([service]) => service === "api");
+      if (api === undefined) continue;
+      const value = environmentValue(api[1], name);
+      if (value === undefined) continue;
+      expect(value, `${file}: api sets ${name} to a literal value`).toBe(
+        `\${${name}:-${fallback}}`
+      );
+    }
+  });
 });

@@ -61,6 +61,40 @@ unsuitable for production except that it is invisible to whoever is
 responsible for your data: no backup schedule, no monitoring, and a `docker
 compose down -v` away from gone.
 
+### Ports, URLs, and a second stack
+
+`API_PORT` and `WEB_PORT` move the published ports, and `APP_URL` and `API_URL`
+say where the stack is reached from outside. The API builds links with the last
+two, so set them alongside the ports rather than only moving the ports:
+
+```bash
+export API_PORT=8085 WEB_PORT=3005
+export API_URL=http://localhost:8085 APP_URL=http://localhost:3005
+docker compose -p wayscribe-staging up -d
+```
+
+Both default to `http://localhost:8080` and `http://localhost:3000`, which is
+what a single stack on the documented ports wants. Behind a reverse proxy they
+are the names a browser uses, not the container's own.
+
+### What `up --wait` waits for
+
+`docker compose up -d --wait` returns when every container is healthy. Both
+images declare a health check: the API answers `GET /health` on its own port,
+and the web image renders `/login`, the one page that needs no session. A
+passing probe therefore means the server answered a request, not that a process
+started.
+
+Each check is probed every two seconds during its start period and every thirty
+seconds afterwards, so `--wait` returns as soon as the stack is actually
+serving. On the bundled overlay, a cold start with no volume and no containers,
+measured on a laptop, takes about nine seconds end to end: PostgreSQL
+initialising, `migrate` applying the schema, then both servers answering.
+
+An older release's images have no health check on `web` and none of these
+timings, so a stack running one reports `web` as `Healthy` on nothing more than
+its process having started.
+
 ### Schema changes
 
 The `migrate` service applies migrations on boot, against your database, and it

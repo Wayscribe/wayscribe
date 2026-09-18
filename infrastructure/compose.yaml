@@ -40,8 +40,10 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql://wayscribe:wayscribe@postgres:5432/wayscribe
-      APP_URL: http://localhost:3000
-      API_URL: http://localhost:8080
+      # Interpolated from the shell or infrastructure/.env, like API_PORT
+      # below, so a second stack on other ports can say where it is reached.
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      API_URL: ${API_URL:-http://localhost:8080}
       PORT: "8080"
       LOG_LEVEL: info
       DEFAULT_RETENTION_DAYS: "7"
@@ -65,6 +67,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      # This block replaces the image's HEALTHCHECK rather than adding to it, so
+      # it has to name the start period and the start interval itself or a
+      # `up -d --wait` here waits longer than the published stack does.
+      start_period: 10s
+      start_interval: 2s
 
   web:
     build:
