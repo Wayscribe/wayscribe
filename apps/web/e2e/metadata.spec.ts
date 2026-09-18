@@ -45,7 +45,7 @@ test("the event detail lists the step's metadata, and markup in it stays text", 
   await signIn(page, JOURNEY_ID);
   await page.goto(`/journeys/${JOURNEY_ID}`);
 
-  await expect(page.getByRole("heading", { name: "Metadata" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Metadata", exact: true })).toBeVisible();
   const custom = page.getByRole("group", { name: "Custom" });
   await expect(custom.getByRole("term")).toHaveText(["httpStatus", "note", "retryDelayMs"]);
   await expect(custom.getByRole("definition")).toHaveText(["429", MARKUP, "1200"]);
