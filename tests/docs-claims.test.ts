@@ -222,11 +222,11 @@ describe("the server's documented numbers", () => {
   });
 
   it("states the list endpoints' page sizes and the journey list's bounds", () => {
-    const queries = read("apps/api/src/routes/queries.ts");
-    expect(queries).toContain("const DEFAULT_LIMIT = 25;");
-    expect(queries).toContain("const MAX_LIMIT = 100;");
+    const params = read("apps/api/src/routes/query-params.ts");
+    expect(params).toContain("export const DEFAULT_PAGE_LIMIT = 25;");
+    expect(params).toContain("export const MAX_PAGE_LIMIT = 100;");
     const api = prose(read("docs/API_SPEC.md"));
-    expect(api).toContain("Page size, 25 by default, at most 100.");
+    expect(api).toContain("Page size: a whole number from 1 to 100, 25 when omitted or empty.");
     expect(api).toContain("List endpoints return 25 items by default and at most 100.");
     expect(api).toContain("Text of 2 to 200 characters");
     expect(api).toContain("at most 128 characters");
