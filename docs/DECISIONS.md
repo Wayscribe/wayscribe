@@ -2932,7 +2932,10 @@ package to the first published set or moves a release date.
 ADR-056 settled before the first release. Every addition is optional and
 additive: no call that exists today changes its shape, its meaning or what it
 puts on the wire, and the server needs no change for any of them. Follows
-Leadline's first pass over the SDK, findings F-001 to F-005, F-014 and F-021.
+Leadline's first pass over the SDK: findings F-001 to F-006, F-010, F-012,
+F-014 and F-021. Amended 2026-09-17, after the implementation, where the
+envelope and the wrapper signatures are recorded as they were built rather than
+as they were first specified.
 
 ### Context
 
@@ -3022,24 +3025,86 @@ behaves exactly as it does today when it is not used.
   stays documented. The diagnostics ADR-056 settled for an unusable context, an
   unusable id and an unusable entity are unchanged and are reported before the
   fallback, so nothing that was visible becomes silent.
-- **An envelope type that admits its own no-context shape.** In
-  `ContextEnvelope<T>`, `journeyId` becomes optional inside `_wayscribe`. The
-  `_wayscribe` key itself stays required, because the envelope always carries it
-  and its empty form is how `extractPayload` reads the absence of a journey.
-  The value `injectPayload` returns then satisfies its own declared type, and
-  the SDK's `as unknown as` cast goes. Runtime behaviour is unchanged.
+- **An envelope type that admits its own no-context shape.**
+  `ContextEnvelope<T>` is unchanged: its `journeyId` stays required, so a reader
+  who has a real context still reads a `string`. A second interface,
+  `NoContextEnvelope<T>`, describes the shape `injectPayload` emits when there
+  is nothing to inject, with `_wayscribe: { journeyId?: undefined }`, and
+  `PayloadEnvelope<T>` is the union of the two. `injectPayload` returns the
+  union. The `_wayscribe` key is required in both, because the envelope always
+  carries it and its empty form is how `extractPayload` reads the absence of a
+  journey. The SDK's `as unknown as` cast goes, and anything that reproduces
+  the no-context shape, such as a recorder that records nothing, now has a type
+  to name. Runtime behaviour is unchanged: the values on the wire are exactly
+  what they were.
+
+  **How the union narrows, which is not obvious.** TypeScript does not narrow a
+  union on a discriminant reached through another property, so
+  `if (envelope._wayscribe.journeyId !== undefined)` does not make `envelope` a
+  `ContextEnvelope<T>`. An earlier draft of this decision claimed it did, and
+  the review disproved it. Compiled under tsc 5.9.3 with this repository's own
+  settings (`strict`, `exactOptionalPropertyTypes`), the assignment inside that
+  `if` is `error TS2322: Type 'PayloadEnvelope<T>' is not assignable to type
+  'ContextEnvelope<T>'`. Three things are true instead, each compiled before
+  this was written:
+
+  - **To read the journey id, the plain check is enough.** It narrows the value
+    read even though it does not narrow the envelope: inside
+    `if (envelope._wayscribe.journeyId !== undefined)`, the expression
+    `envelope._wayscribe.journeyId` is `string`.
+  - **To hold the envelope as a `ContextEnvelope<T>`, use a type guard.**
+    `function hasJourney<T>(e: PayloadEnvelope<T>): e is ContextEnvelope<T>`,
+    returning that same comparison. Inside `if (hasJourney(envelope))` the
+    envelope is a `ContextEnvelope<T>`, assignable with no cast.
+  - **Destructuring first also narrows**, because the discriminant is then at
+    the top level of the value being tested: after
+    `const { _wayscribe } = envelope`, `if (_wayscribe.journeyId !== undefined)`
+    gives `_wayscribe` the context's own shape, with `entityType` and
+    `entityId` reachable on it.
+
+  The README carries this, because a reader who tries the obvious thing meets a
+  compiler error about assignability that says nothing about narrowing. Whether
+  the package also exports a ready-made guard is the SDK's call; if it does, it
+  is listed here with the rest of the surface.
 - **Wrapper signatures a second implementation can satisfy.** Each of
   `transform`, `persist`, `publish` and `deliver` is declared so that one plain,
   non-overloaded function satisfies it without a cast: one signature over
   `() => T | PromiseLike<T>` with a conditional return type. If that is found to
   lose inference at a call site, the overloads stay and a non-overloaded alias
   is exported beside them, and the README says which one an implementer writes
-  against. Either way the acceptance test is the same and is checkable: the
-  SDK's own `operationsOn` stops casting its four wrappers, and a small
-  hand-written object satisfies `JourneyOperations` with no cast. This is a
+  against. The acceptance test is the external property, because that is what
+  a second implementation needs: a small hand-written object satisfies
+  `JourneyOperations` with no cast, proved by a type-level test. A cast that
+  remains inside the SDK's own factory, where one generic implementation is
+  assigned to four differently typed methods, does not fail that test and is
+  acceptable where it is genuinely unavoidable, with the reason written at the
+  cast. What is not acceptable is a declaration that forces a caller outside
+  the package to cast. This is a
   declaration change; what the wrappers do at runtime is untouched, and a
   callback returning a thenable still comes back as a native promise of its
   resolved value.
+
+Two more public additions arrive with fixes recorded elsewhere in this pass.
+They are listed here because ADR-056 settled the surface, and every addition to
+it belongs in one place.
+
+- **A diagnostic for personal data in a plain-text value.** A new diagnostic
+  kind, `personal_data_in_public_value`, with the single code
+  `personal_data_shape` and `detail` of
+  `{ field: "journeyLabel" | "displayableAliases", shape: "email" | "phone" }`,
+  and a `personalDataInPublicValues` counter beside it (F-006, F-012). It
+  follows ADR-055's secret-name pattern exactly: it warns, once per process and
+  shape, and never changes the value. `DiagnosticKind` is a closed union
+  (ADR-056), so adding a kind is a public change, and the README's advice to
+  keep a `default` branch in a `switch` is what makes it a safe one.
+- **The rejected settings by name.** `counters()` gains `rejectedSettings`, the
+  names a configuration report carried in `detail.setting`, in the order first
+  seen, once each, capped at 50 (F-010). `configurationErrors` says how many
+  settings were rejected and never which, so a recorder running on a default
+  nobody chose was invisible to an operator who reads counters rather than
+  diagnostics. This does not reopen ADR-056's rule that every counter counts
+  reports of one kind: `rejectedSettings` is a list rather than a counter, and
+  `configurationErrors` still counts the reports.
 
 These are additions. No existing call changes meaning, nothing already released
 changes shape, and the surface is settled again once they land: ADR-056's rule
@@ -3065,9 +3130,15 @@ holds, and this decision is its amendment rather than a standing licence to add.
 - **Deriving a journey id from the entity without a secret.** ADR-052 settled
   this: an unkeyed derivation is guessable by anyone who knows the entity and
   the scheme, which is what `INGESTION_CONTRACT.md` section 5 warns about.
-- **Making `_wayscribe` itself optional on `ContextEnvelope`.** That would also
-  admit `{ data }`, which `injectPayload` never emits, and it would hide from
-  the reader the one case the type exists to make visible.
+- **Making `journeyId` optional on `ContextEnvelope` itself.** This is what this
+  decision first specified, and the implementation was right to go the other
+  way. One optional property on the one envelope type is a smaller diff, and it
+  puts the narrowing burden on every reader of a real context, including hosts
+  that never disable their recorder and never see a no-context envelope. A
+  union charges that cost only to the code that can actually meet both shapes.
+- **Making `_wayscribe` itself optional.** That would also admit `{ data }`,
+  which `injectPayload` never emits, and it would hide from the reader the one
+  case the type exists to make visible.
 
 ### Consequences
 
@@ -3082,14 +3153,23 @@ holds, and this decision is its amendment rather than a standing licence to add.
   which is why F-002 is an SDK gap and not a protocol one.
 - A host that matches the error code `result_failed` keeps matching it, unless
   its own `isFailure` supplies a code.
-- A host reading `envelope._wayscribe.journeyId` now reads `string | undefined`
-  and has to narrow. That is the point of the change, and `ContextEnvelope` is
-  marked experimental (ADR-056), so the type may move.
-- The surface grows by five options, one optional property and one signature
-  shape, each of which is a thing to keep documented, tested and honest in two
-  places once a second recorder exists (ADR-059).
+- `injectPayload` returns `PayloadEnvelope<T>` rather than `ContextEnvelope<T>`,
+  so a caller who annotated the result, `const job: ContextEnvelope<T> =
+  recorder.injectPayload(...)`, no longer compiles and changes the annotation to
+  `PayloadEnvelope<T>`. The review found this, and it is the whole migration.
+  Nothing is published yet, so no compatibility promise is broken, and
+  `ContextEnvelope` is marked experimental (ADR-056) in any case. A caller who
+  passes the result straight on, or reads `.data`, changes nothing, and a
+  caller that reads `_wayscribe.journeyId` under the usual check changes
+  nothing either. A caller that needs the envelope itself typed as a
+  `ContextEnvelope<T>` writes the guard the decision describes.
+- The surface grows by five options, two exported envelope types, one signature
+  shape, one diagnostic kind with its counter, and one field on `counters()`,
+  each of which is a thing to keep documented, tested and honest in two places
+  once a second recorder exists (ADR-059).
 
 ---
+
 ## ADR-061: A successful retry clears a failure rather than completing the journey
 
 **Status:** Accepted, 2026-09-17. Changes how the server derives a journey's
