@@ -55,6 +55,51 @@ export function single(
   return { ok: true, value: raw };
 }
 
+/** The page size a list endpoint returns when `limit` is omitted or empty. */
+export const DEFAULT_PAGE_LIMIT = 25;
+
+/** The largest page size a list endpoint returns. */
+export const MAX_PAGE_LIMIT = 100;
+
+/** Digits only: no sign, no point, no exponent, no white space. */
+const WHOLE_NUMBER = /^\d+$/;
+
+/**
+ * `limit`, on every list endpoint: `GET /v1/search`, `GET /v1/journeys` and a
+ * journey's timeline.
+ *
+ * It was the one parameter exempt from the rules every other value follows
+ * (F-029). `Number.parseInt` stops at the first character that is not a
+ * digit, so a NUL, or the comma a repeated parameter's array stringifies to,
+ * cut the value short instead of being refused: `limit=1&limit=99` returned
+ * one row, `limit=99&limit=1` ninety-nine, and `limit=2%005` two. It now goes
+ * through `single`, like every other value, so a repeat and a NUL are refused
+ * with the same words.
+ *
+ * A value that is not a whole number from 1 to MAX_PAGE_LIMIT is refused too,
+ * where it used to be replaced: `abc`, `0` and `-1` became the default and
+ * `1000` became the maximum, silently. These endpoints refuse a misspelt key by
+ * name, so a nonsense value passing without a word was the odd one out, and a
+ * page size that came out of a computation gone wrong read back as a full page
+ * with nothing to say it had been ignored. Empty is still omitted, because that
+ * is what a plain GET form sends for a field left blank.
+ */
+export function pageLimit(params: Record<string, unknown>): Validated<number> {
+  const raw = single(params, "limit");
+  if (!raw.ok) return raw;
+  if (raw.value === undefined) return { ok: true, value: DEFAULT_PAGE_LIMIT };
+  // Digits are checked before conversion: `Number` would also take " 5",
+  // "1e2" and "0x10".
+  const value = WHOLE_NUMBER.test(raw.value) ? Number(raw.value) : Number.NaN;
+  if (!(value >= 1 && value <= MAX_PAGE_LIMIT)) {
+    return {
+      ok: false,
+      message: `limit must be a whole number from 1 to ${String(MAX_PAGE_LIMIT)}.`
+    };
+  }
+  return { ok: true, value };
+}
+
 /** One optional instant parameter, validated as `since` always was. */
 export function instant(
   params: Record<string, unknown>,

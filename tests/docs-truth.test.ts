@@ -16,6 +16,7 @@ import {
   parseJourneyListQuery
 } from "../apps/api/src/routes/journey-list-query.js";
 import { SEARCH_PARAMETERS } from "../apps/api/src/routes/search-query.js";
+import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "../apps/api/src/routes/query-params.js";
 import { filesEndingWith, findSection, markdownFiles, read, root } from "./docs-helpers.js";
 
 /** The text of a `## ` section of a markdown document, up to the next one. */
@@ -336,6 +337,34 @@ describe("the documentation's checkable claims", () => {
     });
   });
 
+  describe("limit in API_SPEC.md", () => {
+    // F-029: limit was read with parseInt, so a repeat or a NUL cut it short
+    // and nonsense clamped silently. Every list endpoint now reads it through
+    // pageLimit, and each section states the rule pageLimit enforces.
+    const rule = `a whole number from 1 to ${String(MAX_PAGE_LIMIT)}, ${String(DEFAULT_PAGE_LIMIT)} when omitted or empty`;
+
+    it.each(["5. Search", "6. List journeys", "8. List journey events"])(
+      "section %s states the rule the parser enforces",
+      (heading) => {
+        // White space folded, so a line break inside the sentence does not matter.
+        expect(section(read("docs/API_SPEC.md"), heading).replace(/\s+/g, " ")).toContain(rule);
+      }
+    );
+
+    it("is read through pageLimit on every route that takes it", () => {
+      const routes = read("apps/api/src/routes/queries.ts");
+      expect(routes.match(/pageLimit\(queryParams\(request\.query\)\)/g)).toHaveLength(3);
+      expect(routes).not.toContain("parseInt");
+    });
+
+    it("states the default and the maximum in the request limits", () => {
+      const limits = section(read("docs/API_SPEC.md"), "16. Request limits");
+      expect(limits.replace(/\s+/g, " ")).toContain(
+        `List endpoints return ${String(DEFAULT_PAGE_LIMIT)} items by default and at most ${String(MAX_PAGE_LIMIT)}`
+      );
+    });
+  });
+
   describe("GET /v1/journeys/:journeyId/events in API_SPEC.md", () => {
     it("shows every field the route sends in its example item", () => {
       // F-025: the example omitted `receivedAt`, which the endpoint always
@@ -403,7 +432,7 @@ describe("the documentation's checkable claims", () => {
       const route = /app\.get\("\/v1\/journeys", [\s\S]*?\n {2}\}\);/.exec(
         read("apps/api/src/routes/queries.ts")
       );
-      expect(route?.[0]).toContain("parseLimit(request.query)");
+      expect(route?.[0]).toContain("pageLimit(queryParams(request.query))");
       expect(route?.[0]).toContain("cursorParam(request.query)");
     });
 

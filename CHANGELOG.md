@@ -543,6 +543,17 @@ What you have to do when upgrading a checkout or a deployment:
   only `q`, `limit` and `cursor`, which is every caller in this repository, sees
   no change; one that sends anything else now sees a refusal. A parameter name
   holding a NUL is refused without being echoed back.
+- **`limit` is refused, not reinterpreted** (F-029), on `GET /v1/search`,
+  `GET /v1/journeys` and a journey's timeline. It was read with `parseInt`,
+  which stops at the first character that is not a digit, so a repeated
+  `limit=1&limit=99` returned one row and `limit=99&limit=1` ninety-nine, and
+  `limit=2%005` returned two. Now `limit` given more than once, or holding a
+  NUL, is `400 invalid_query` with the words every other parameter gets
+  (`limit must be given once.`, `limit must not contain a null byte.`). **This
+  changes an answer:** a value that is not a whole number from 1 to 100 is
+  refused with `limit must be a whole number from 1 to 100.`, where `abc`, `0`
+  and `-1` used to become 25 and anything over 100 became 100, without a word.
+  Omitted or empty is still 25.
 - **A successful retry clears a failed journey** (ADR-061). A `retried` event
   carrying no error returns the journey's status from `failed` to `active`
   instead of leaving it failed until something else says otherwise. An SDK
@@ -748,6 +759,9 @@ development build of `main`. A new installation can skip them.
 - **Rename SDK calls and options** as in the table under Changed. Convert
   numeric SDK options before passing them:
   `maxBufferedEvents: Number(process.env.MAX_BUFFERED)`, not the string.
+- **Send a `limit` from 1 to 100, once.** A client that sent `limit=1000` to
+  get the largest page, or `limit=0` for the default, now gets
+  `400 invalid_query`; send `100`, or leave `limit` out.
 - **Drop unknown query keys.** A client that sends keys `GET /v1/journeys` does
   not read, or any query parameter to the ingestion routes other than `dryRun`
   on the batch route, gets `400 invalid_query`. A client that branched on the

@@ -196,7 +196,7 @@ Resolves one value against every identifier it could be, project-scoped:
 | `since` | An ISO 8601 instant with a time zone, such as `2026-08-06T18:00:00Z`. Journeys whose last activity is at or after it. Omitted or empty means no lower bound. |
 | `until` | An ISO 8601 instant with a time zone, after `since`. Journeys whose last activity is before it. Omitted or empty means no upper bound. |
 | `environment` | An environment name. Omitted or empty means every environment the caller can read. |
-| `limit` | Page size, 25 by default, at most 100. |
+| `limit` | Page size: a whole number from 1 to 100, 25 when omitted or empty. Anything else is refused, not clamped. |
 | `cursor` | `nextCursor` from the previous page. |
 
 **Without a window the search spans the project's whole history.** There is no
@@ -265,9 +265,10 @@ when `since` or `until` is not a full instant with a time zone (the message
 gives an example of one) or names an impossible date; when `since` is more than
 60 seconds ahead of the API's clock (a minute of skew between the caller and
 the API is tolerated); when `until` is not after `since`; when any value holds
-a NUL; when `since`, `until` or `environment` is given more than once; or when
-the query names a parameter this search does not have, so that a misspelt
-filter is not silently ignored. `until` has no clock check: a range that ends
+a NUL; when `since`, `until`, `environment` or `limit` is given more than once;
+when `limit` is not a whole number from 1 to 100; or when the query names a
+parameter this search does not have, so that a misspelt filter is not silently
+ignored. `until` has no clock check: a range that ends
 after now still searches everything up to now, whereas a future `since` could
 only find nothing. A `cursor` given more than once, or a malformed one, is
 `400` `invalid_cursor`, on every list endpoint.
@@ -301,7 +302,7 @@ where. Journeys are ordered by last activity, newest first (`lastEventAt`, then
 | `service` | An exact service name. Journeys with at least one event recorded by that service. |
 | `entityType` | An exact entity type, at most 128 characters, after surrounding white space is removed. Omitted, empty or white space alone means any entity type. A type stored with surrounding white space cannot be matched. |
 | `q` | Text of 2 to 200 characters, after surrounding white space is removed. Journeys whose label, or the value of one of whose displayable aliases, contains it, ignoring case. Omitted, empty or white space alone means no text filter. |
-| `limit` | Page size, 25 by default, at most 100. |
+| `limit` | Page size: a whole number from 1 to 100, 25 when omitted or empty. Anything else is refused, not clamped. |
 | `cursor` | `nextCursor` from the previous page. |
 
 **What a journey's status means.** A journey is `active` until an event says
@@ -361,7 +362,8 @@ clock (a minute of skew between the caller and the API is tolerated); when
 `until` is not a full instant, names an impossible date, or is not after
 `since`; when `status` is not one of the three values; when `entityType` is
 longer than 128 characters; when `q` is shorter than 2 or longer than 200
-characters; when any value holds a NUL; when any parameter is given more than
+characters; when `limit` is not a whole number from 1 to 100; when any value
+holds a NUL; when any parameter is given more than
 once; or when the query names a parameter this list does not have, so that a
 misspelt filter is not silently ignored. `until` has no clock check: a range
 that ends after now lists everything up to now, whereas a future `since` could
@@ -456,6 +458,11 @@ it is no longer held.
 ```http
 GET /v1/journeys/:journeyId/events?limit=100&cursor=<cursor>
 ```
+
+`limit` is the page size: a whole number from 1 to 100, 25 when omitted or
+empty. `400 invalid_query` when it is anything else, holds a NUL, or is given
+more than once; a malformed cursor, or one given more than once, is
+`400 invalid_cursor`.
 
 Ordering:
 
