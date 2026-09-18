@@ -390,10 +390,12 @@ What you have to do when upgrading a checkout or a deployment:
   no flags now refuses one, as `key:create` and `doctor` already did, rather
   than ignoring it, and a name that begins with a dash goes after `--` for
   `project:create` and `key:create` as it does for the deletion commands.
-  `help <command>` prints a command's help, as does a bare `help` for a command
-  none of whose arguments it could be. An argument containing an em or en
-  dash, which smart punctuation makes of a typed `--`, is refused, and so is an
-  argument beyond those a command declares. With the `--` of `--help` turned
+  `help <command>` prints a command's help, as does a bare `help`, in any letter
+  case, on every command but `project:create`, `key:create` and `key:list`; on
+  the deletion commands a value that is really `help` goes after `--`. An
+  argument containing a dash other than the ASCII hyphen, which smart
+  punctuation or a full-width keyboard makes of a typed `--`, is refused, and so
+  is an argument beyond those a command declares. With the `--` of `--help` turned
   into an em dash, `rollback` used to roll back and `key:revoke <prefix>` to
   revoke.
 - **`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and

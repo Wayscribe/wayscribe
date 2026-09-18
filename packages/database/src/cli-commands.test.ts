@@ -153,6 +153,68 @@ describe("the command registry", () => {
   });
 });
 
+/**
+ * Each declared flag, given to its parser and left out: the two results must
+ * differ, so a flag that is read and then dropped cannot pass.
+ */
+const DB_URL = "postgresql://localhost:5432/wayscribe";
+const RANGE = ["acme", "production", "--before", "2030-01-01"];
+const FLAG_EFFECTS: Record<string, [() => unknown, () => unknown]> = {
+  "reset --yes": [
+    () => parseResetArgs([], {}, DB_URL),
+    () => parseResetArgs(["--yes"], {}, DB_URL)
+  ],
+  "key:create --json": [
+    () => parseKeyCreateArgs(["acme", "production"]),
+    () => parseKeyCreateArgs(["acme", "production", "--json"])
+  ],
+  "delete:identifier --environment": [
+    () => parseIdentifierArgs(["acme", "value"]),
+    () => parseIdentifierArgs(["acme", "value", "--environment", "production"])
+  ],
+  "delete:identifier --dry-run": [
+    () => parseIdentifierArgs(["acme", "value"]),
+    () => parseIdentifierArgs(["acme", "value", "--dry-run"])
+  ],
+  "delete:range --before": [
+    () => parseRangeArgs(RANGE),
+    () => parseRangeArgs(["acme", "production", "--before", "2031-01-01"])
+  ],
+  "delete:range --after": [
+    () => parseRangeArgs(RANGE),
+    () => parseRangeArgs([...RANGE, "--after", "2020-01-01"])
+  ],
+  "delete:range --dry-run": [
+    () => parseRangeArgs(RANGE),
+    () => parseRangeArgs([...RANGE, "--dry-run"])
+  ],
+  "doctor --api-url": [
+    () => parseDoctorArgs([], {}),
+    () => parseDoctorArgs(["--api-url", "http://api:8080"], {})
+  ],
+  "doctor --api-key": [
+    () => parseDoctorArgs([], {}),
+    () => parseDoctorArgs(["--api-key", "wsk_abcdefghijklmnop"], {})
+  ]
+};
+
+describe("every declared flag", () => {
+  it("has an effect entry, so a new flag must show what it changes", () => {
+    expect(Object.keys(FLAG_EFFECTS).sort()).toEqual(
+      COMMANDS.flatMap((command) => command.flags.map((f) => `${command.name} ${f.flag}`)).sort()
+    );
+  });
+
+  it.each(Object.entries(FLAG_EFFECTS))(
+    "%s changes what its parser returns",
+    (_, [without, with_]) => {
+      const withFlag = with_();
+      expect(withFlag).toMatchObject({ ok: true });
+      expect(withFlag).not.toEqual(without());
+    }
+  );
+});
+
 describe("key:create --help", () => {
   it("lists --json and every field the JSON form prints", () => {
     const help = commandHelp("key:create").join("\n");
@@ -319,12 +381,44 @@ describe("preflight", () => {
 
   const EM = "\u2014";
   const EN = "\u2013";
+  /**
+   * Every dash but the hyphen that smart punctuation or an input method may
+   * make of a typed one: hyphen, non-breaking hyphen, figure dash, horizontal
+   * bar, minus sign, small em dash, small and full-width hyphen-minus.
+   */
+  const OTHER_DASHES = [
+    "\u2010",
+    "\u2011",
+    "\u2012",
+    "\u2015",
+    "\u2212",
+    "\uFE58",
+    "\uFE63",
+    "\uFF0D"
+  ];
+
+  it("names the argument that holds the dash, not the one after it", () => {
+    const result = preflight("key:revoke", ["\u2011\u2011help", "wsk_abcdefgh"]);
+    expect(result.run).toBe(false);
+    if (!result.run) {
+      expect(result.stderr[0]).toMatch(
+        /^\u2011\u2011help contains a dash that is not a hyphen \(U\+2011\)/
+      );
+    }
+  });
 
   it.each(COMMANDS.map((command) => command.name))(
     "refuses a long dash where %s expects -- , before and after its arguments",
     (name) => {
       const runnable = RUNNABLE[name];
-      for (const dashed of [`${EM}help`, `${EN}help`, `${EM}h`, `${EM}dry-run`, `${EN}${EN}yes`]) {
+      for (const dashed of [
+        `${EM}help`,
+        `${EN}help`,
+        `${EM}h`,
+        `${EM}dry-run`,
+        `${EN}${EN}yes`,
+        ...OTHER_DASHES.map((dash) => `${dash}${dash}help`)
+      ]) {
         for (const args of [
           [...runnable, dashed],
           [dashed, ...runnable],
@@ -368,11 +462,37 @@ describe("preflight", () => {
     }
   );
 
-  it("reads a bare help as a value where it could be one", () => {
-    expect(preflight("delete:identifier", ["acme", "help"])).toEqual({
+  it.each(COMMANDS.filter((command) => command.name.startsWith("delete:")).map((c) => c.name))(
+    "reads help in any case as a request for %s's help, and help after -- as a value",
+    (name) => {
+      const runnable = RUNNABLE[name];
+      for (const word of ["help", "HELP", "Help"]) {
+        for (const args of [
+          [...runnable, word],
+          [word, ...runnable],
+          ["--", ...runnable.slice(0, 1), word]
+        ]) {
+          expect(preflight(name, args), `${name} ${args.join(" ")}`).toEqual({
+            run: false,
+            stdout: commandHelp(name),
+            stderr: [],
+            code: 0
+          });
+        }
+      }
+      expect(preflight(name, ["acme", "--", "help"])).toEqual({
+        run: true,
+        command: name,
+        args: ["acme", "--", "help"]
+      });
+    }
+  );
+
+  it("reads a bare help as a value where it could be one and nothing is deleted", () => {
+    expect(preflight("key:list", ["help"])).toEqual({
       run: true,
-      command: "delete:identifier",
-      args: ["acme", "help"]
+      command: "key:list",
+      args: ["help"]
     });
     expect(preflight("project:create", ["beta", "Help", "help"])).toEqual({
       run: true,

@@ -10,7 +10,7 @@ import {
   type Keyring
 } from "@wayscribe/payload-security";
 import type { Knex } from "knex";
-import { commandUsage, flag, parseCommandArgs, type FlagsRead } from "./cli-commands.js";
+import { commandUsage, everyFlagRead, flag, parseCommandArgs } from "./cli-commands.js";
 import { keyringFromEnvironment } from "./keyring-env.js";
 import { migrationStatusReadOnly, SchemaUsageError } from "./migration-status.js";
 import { findUnreadableData } from "./repositories/rotation.js";
@@ -347,18 +347,15 @@ export function parseDoctorArgs(
       return { ok: false, message: `${name} was given twice.\n${DOCTOR_USAGE}` };
     }
   }
-  const read = {
-    "api-url": parsed.values["api-url"],
-    "api-key": parsed.values["api-key"]
-  } satisfies FlagsRead<"doctor">;
+  const { "api-url": apiUrl, "api-key": apiKeyFlag, ...unread } = parsed.values;
+  everyFlagRead(unread);
   for (const [name, value] of [
-    [API_URL, read["api-url"]],
-    [API_KEY, read["api-key"]]
+    [API_URL, apiUrl],
+    [API_KEY, apiKeyFlag]
   ] as const) {
     if (value === "") return { ok: false, message: `${name} needs a value.\n${DOCTOR_USAGE}` };
   }
 
-  const apiUrl = read["api-url"];
   if (apiUrl !== undefined && !isHttpUrl(apiUrl)) {
     return {
       ok: false,
@@ -366,7 +363,7 @@ export function parseDoctorArgs(
     };
   }
   const fromEnvironment = env["WAYSCRIBE_API_KEY"]?.trim();
-  const apiKey = read["api-key"] ?? (fromEnvironment === "" ? undefined : fromEnvironment);
+  const apiKey = apiKeyFlag ?? (fromEnvironment === "" ? undefined : fromEnvironment);
   const apiKeyNotChecked =
     apiKey === undefined && fromEnvironment === ""
       ? "WAYSCRIBE_API_KEY is set but empty"

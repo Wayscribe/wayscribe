@@ -199,6 +199,26 @@ describe("--help against a real database", () => {
     // The identifiers a help flag would erase if it were read as a value.
     await journey("jrn_help", "--help", new Date().toISOString());
     await journey("jrn_h", "-h", new Date().toISOString());
+    // What a bare `help` would delete if it were read as a value: a journey
+    // whose id is "help", one whose identifier is "help", and an environment
+    // named "help" with a journey in it.
+    await journey("help", "journey-called-help", new Date().toISOString());
+    await journey("jrn_help_value", "help", new Date().toISOString());
+    const helpEnvironment = await insertReturningId(db, "environments", {
+      project_id: projectId,
+      name: "help"
+    });
+    await db("journeys").insert({
+      id: "jrn_in_help_environment",
+      project_id: projectId,
+      environment_id: helpEnvironment,
+      entity_type: "customer",
+      primary_entity_id_hash: tokenFor("in-help-environment"),
+      status: "active",
+      started_at: new Date("2026-01-01T00:00:00Z"),
+      last_event_at: new Date("2026-01-01T00:00:00Z"),
+      event_count: 1
+    });
     revocablePrefix = (
       await issueKey(db, helpKeyring, {
         projectSlug: "acme",
@@ -254,7 +274,12 @@ describe("--help against a real database", () => {
         [name, ...args, "\u2014help"],
         [name, "\u2014help", ...args],
         [name, ...args, "\u2013help"],
-        [name, "\u2013help", ...args]
+        [name, "\u2013help", ...args],
+        // Hyphen, non-breaking hyphen, figure dash, horizontal bar, minus
+        // sign, small em dash, small and full-width hyphen-minus.
+        ...["\u2010", "\u2011", "\u2012", "\u2015", "\u2212", "\uFE58", "\uFE63", "\uFF0D"].map(
+          (dash) => [name, ...args, `${dash}${dash}help`]
+        )
       ]) {
         const run = await cli(form);
         expect(run.code, `${form.join(" ")}\n${run.stdout}`).toBe(1);
@@ -298,6 +323,32 @@ describe("--help against a real database", () => {
     120_000
   );
 
+  // help, in any case, where a delete command would read a journey id, an
+  // identifier, an environment or a destination id: each of those can be
+  // "help", and the fixtures hold one of each.
+  it.each(["delete:journey", "delete:identifier", "delete:range", "delete:destination"] as const)(
+    "prints %s's help for help, HELP and Help, and deletes nothing",
+    async (name) => {
+      const before = await fingerprint();
+      const full = runnable()[name];
+      for (const word of ["help", "HELP", "Help"]) {
+        const asValue =
+          name === "delete:range" ? ["acme", word, "--before", "2030-01-01"] : ["acme", word];
+        for (const form of [
+          [name, ...asValue],
+          [name, word, ...full],
+          [name, "--", ...asValue]
+        ]) {
+          const run = await cli(form);
+          expect(run.code, `${form.join(" ")}\n${run.stderr}`).toBe(0);
+          expect(lines(run.stdout), form.join(" ")).toEqual(commandHelp(name));
+          expect(await fingerprint(), form.join(" ")).toBe(before);
+        }
+      }
+    },
+    120_000
+  );
+
   it("refuses --help and -h after delete:identifier's separator, and erases neither", async () => {
     const before = await fingerprint();
     for (const form of [
@@ -329,5 +380,18 @@ describe("--help against a real database", () => {
     const run = await cli([name, "--", ...runnable()[name]]);
     expect(run.code, run.stderr).toBe(0);
     expect(await fingerprint()).not.toBe(before);
+  });
+
+  // The way to name a value that really is "help": after --, as for a value
+  // beginning with a dash.
+  it("reads help after -- as a value, and deletes the journey whose id it is", async () => {
+    const run = await cli(["delete:journey", "acme", "--", "help"]);
+    expect(run.code, run.stderr).toBe(0);
+    expect(run.stdout).toContain("Deleted journey help");
+    expect(await db("journeys").where({ id: "help" }).first()).toBeUndefined();
+
+    const erased = await cli(["delete:identifier", "acme", "--", "help"]);
+    expect(erased.code, erased.stderr).toBe(0);
+    expect(await db("journeys").where({ id: "jrn_help_value" }).first()).toBeUndefined();
   });
 });

@@ -107,6 +107,18 @@ export default tseslint.config(
     files: ["packages/database/src/**/*.ts"],
     ignores: ["packages/database/src/cli-commands.ts", "packages/database/src/**/*.test.ts"],
     rules: {
+      // A parser destructures every flag it reads beside a rest it hands to
+      // everyFlagRead; a flag destructured there and never used must fail,
+      // which the project-wide ignoreRestSiblings would let pass.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          ignoreRestSiblings: false
+        }
+      ],
       // parseCommandArgs is the only caller of parseArgs, so a parser's options
       // can only be the registry's: spreading extra ones into them let a
       // parser accept a flag its help did not list.
@@ -122,6 +134,11 @@ export default tseslint.config(
       ],
       "no-restricted-syntax": [
         "error",
+        {
+          // await import("node:util"), which no-restricted-imports does not see.
+          selector: "ImportExpression[source.value=/^(node:)?util$/]",
+          message: "Read a command's arguments with parseCommandArgs from cli-commands.ts."
+        },
         {
           selector: "MemberExpression[property.name='parseArgs']",
           message: "Read a command's arguments with parseCommandArgs from cli-commands.ts."

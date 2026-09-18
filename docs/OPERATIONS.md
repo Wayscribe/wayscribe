@@ -395,15 +395,22 @@ commands and how to run them in the image and in a checkout. Neither needs
 anywhere before a `--` that follows an argument prints the help, including
 after the `--` that `pnpm run <script> -- --help` adds. After such a `--`,
 where every argument is otherwise a value, either one is refused and nothing
-runs. `help <command>` prints the same help, and so does a bare `help` given to
-a command none of whose arguments it could be: one that takes no arguments, and
-`key:revoke`. Where `help` could be an argument (a slug, a name, an identifier,
-an id) it is read as one.
+runs. `help <command>` prints the same help, and so does a bare `help`, in any
+letter case, before a `--` on every command except `project:create`,
+`key:create` and `key:list`, where it is read as a slug or a name. On a command
+that deletes or revokes, `help` is always a request for help, even where a
+journey id, an identifier, an environment or a destination could be called
+`help`; a value that really is `help` goes after `--`, as in
+`delete:journey acme -- help`, as a value beginning with a dash does.
 
-An argument containing an em dash or an en dash is refused before a `--`, since
-it is most likely a `--` that macOS, Slack or a word processor auto-corrected:
-`rollback --help` with its `--` turned into an em dash used to roll back. Type `--`, or put a value that really
-contains such a dash after a `--`. An argument beyond those a command declares
+An argument containing a dash other than the ASCII hyphen is refused before a
+`--`, since it is most likely a `--` that macOS, Slack, a word processor or a
+full-width keyboard turned into an en or em dash, a non-breaking hyphen, a minus
+sign or a full-width hyphen-minus: `rollback --help` with its `--` turned into
+an em dash used to roll back. Type `--` with two hyphens. A name or value that
+genuinely contains such a dash, such as a customer name with an en dash between
+two surnames, goes after `--`. An
+argument beyond those a command declares
 is refused rather than ignored; `project:create` and `key:create` are the
 exception, because their name takes the rest of the arguments, as in
 `project:create acme Acme Payments`.
@@ -847,7 +854,8 @@ otherwise remove the line afterwards (`history -d <number>` in bash). Run it on 
 host whose process list only operators can read.
 
 A value or id that begins with a dash goes after `--`, so it is not read as an
-option: `pnpm delete:identifier acme -- -A1`. The one exception is `--help` or
+option: `pnpm delete:identifier acme -- -A1`. So does a value that is the word
+`help`, which before a `--` asks for help. The one exception is `--help` or
 `-h`, which the CLI refuses as a value, so that asking for help can never
 delete anything; erase such a value through the admin API
 (`POST /v1/erasures`, `docs/API_SPEC.md`).

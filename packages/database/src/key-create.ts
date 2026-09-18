@@ -1,4 +1,4 @@
-import { commandUsage, parseCommandArgs, type FlagsRead } from "./cli-commands.js";
+import { commandUsage, everyFlagRead, parseCommandArgs } from "./cli-commands.js";
 import type { IssuedKey } from "./repositories/key-admin.js";
 
 /**
@@ -29,7 +29,8 @@ export type KeyCreateArgs =
 export function parseKeyCreateArgs(args: readonly string[]): KeyCreateArgs {
   const parsed = parseCommandArgs("key:create", args);
   if (!parsed.ok) return { ok: false, message: parsed.message };
-  const read = { json: parsed.values.json === true } satisfies FlagsRead<"key:create">;
+  const { json, ...unread } = parsed.values;
+  everyFlagRead(unread);
 
   const [projectSlug, environmentName, ...nameParts] = parsed.positionals;
   if (projectSlug === undefined || environmentName === undefined) {
@@ -42,7 +43,7 @@ export function parseKeyCreateArgs(args: readonly string[]): KeyCreateArgs {
     projectSlug,
     environmentName,
     name: name === "" ? `${environmentName}-key` : name,
-    json: read.json
+    json: json === true
   };
 }
 

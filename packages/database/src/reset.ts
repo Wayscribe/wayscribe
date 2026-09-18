@@ -15,7 +15,7 @@
  * reached from a laptop; the flag is what does.
  */
 
-import { commandUsage, flag, parseCommandArgs, type FlagsRead } from "./cli-commands.js";
+import { commandUsage, everyFlagRead, flag, parseCommandArgs } from "./cli-commands.js";
 
 export const RESET_USAGE = commandUsage("reset");
 
@@ -33,7 +33,8 @@ export function parseResetArgs(
   const YES = flag("reset", "--yes");
   const parsed = parseCommandArgs("reset", args);
   if (!parsed.ok) return { ok: false, message: parsed.message };
-  const read = { yes: parsed.values.yes === true } satisfies FlagsRead<"reset">;
+  const { yes, ...unread } = parsed.values;
+  everyFlagRead(unread);
   if (env["NODE_ENV"] === "production") {
     return {
       ok: false,
@@ -42,7 +43,7 @@ export function parseResetArgs(
         "every recorded journey, and is for a local development database only."
     };
   }
-  if (!read.yes) {
+  if (yes !== true) {
     return {
       ok: false,
       message:

@@ -1,4 +1,4 @@
-import { commandUsage, flag, parseCommandArgs, type FlagsRead } from "./cli-commands.js";
+import { commandUsage, everyFlagRead, flag, parseCommandArgs } from "./cli-commands.js";
 import type {
   BatchProgress,
   DestinationDeletion,
@@ -71,9 +71,22 @@ export function parseIdArgs(
   command: "delete:journey" | "delete:destination",
   args: readonly string[]
 ): { ok: true; projectSlug: string; id: string } | { ok: false; message: string } {
-  const parsed = parseCommandArgs(command, args);
+  // One call per command, each checked on its own: a union of the two would
+  // only require the flags they share to be read.
+  if (command === "delete:journey") {
+    const parsed = parseCommandArgs("delete:journey", args);
+    if (!parsed.ok) return { ok: false, message: parsed.message };
+    everyFlagRead(parsed.values);
+    return idArgs(parsed.positionals);
+  }
+  const parsed = parseCommandArgs("delete:destination", args);
   if (!parsed.ok) return { ok: false, message: parsed.message };
-  const [projectSlug = "", id = ""] = parsed.positionals;
+  everyFlagRead(parsed.values);
+  return idArgs(parsed.positionals);
+}
+
+function idArgs(positionals: readonly string[]): { ok: true; projectSlug: string; id: string } {
+  const [projectSlug = "", id = ""] = positionals;
   return { ok: true, projectSlug, id };
 }
 
@@ -90,18 +103,16 @@ export type IdentifierArgs =
 export function parseIdentifierArgs(args: readonly string[]): IdentifierArgs {
   const parsed = parseCommandArgs("delete:identifier", args);
   if (!parsed.ok) return { ok: false, message: parsed.message };
-  const read = {
-    environment: parsed.values.environment,
-    "dry-run": parsed.values["dry-run"] === true
-  } satisfies FlagsRead<"delete:identifier">;
+  const { environment, "dry-run": dryRun, ...unread } = parsed.values;
+  everyFlagRead(unread);
 
   const [projectSlug = "", value = ""] = parsed.positionals;
   return {
     ok: true,
     projectSlug,
     value,
-    environment: read.environment,
-    dryRun: read["dry-run"]
+    environment,
+    dryRun: dryRun === true
   };
 }
 
@@ -119,24 +130,21 @@ export type RangeArgs =
 export function parseRangeArgs(args: readonly string[]): RangeArgs {
   const parsed = parseCommandArgs("delete:range", args);
   if (!parsed.ok) return { ok: false, message: parsed.message };
-  const read = {
-    before: parsed.values.before,
-    after: parsed.values.after,
-    "dry-run": parsed.values["dry-run"] === true
-  } satisfies FlagsRead<"delete:range">;
+  const { before: beforeValue, after: afterValue, "dry-run": dryRun, ...unread } = parsed.values;
+  everyFlagRead(unread);
 
   const [projectSlug = "", environment = ""] = parsed.positionals;
   const BEFORE = flag("delete:range", "--before");
   const AFTER = flag("delete:range", "--after");
-  if (read.before === undefined) {
+  if (beforeValue === undefined) {
     return { ok: false, message: `${BEFORE} is required.\n${commandUsage("delete:range")}` };
   }
 
-  const before = parseTimestamp(BEFORE, read.before);
+  const before = parseTimestamp(BEFORE, beforeValue);
   if (!before.ok) return before;
   let after: Date | undefined;
-  if (read.after !== undefined) {
-    const parsedAfter = parseTimestamp(AFTER, read.after);
+  if (afterValue !== undefined) {
+    const parsedAfter = parseTimestamp(AFTER, afterValue);
     if (!parsedAfter.ok) return parsedAfter;
     after = parsedAfter.date;
     if (after.getTime() >= before.date.getTime()) {
@@ -153,7 +161,7 @@ export function parseRangeArgs(args: readonly string[]): RangeArgs {
     environment,
     before: before.date,
     after,
-    dryRun: read["dry-run"]
+    dryRun: dryRun === true
   };
 }
 

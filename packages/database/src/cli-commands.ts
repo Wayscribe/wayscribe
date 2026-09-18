@@ -57,10 +57,14 @@ export interface CommandSpec {
    */
   restArgument?: true;
   /**
-   * Whether the word `help` could be one of the command's arguments: a project
-   * slug, a name, an identifier, a journey id. Where it could not (a command
-   * with no arguments, or `key:revoke`, whose prefix begins wsk_), a bare `help`
-   * is read as a request for help, since that is what someone typing it means.
+   * Whether a bare `help` before `--` is read as an argument rather than as a
+   * request for help. Only where reading it as an argument cannot delete or
+   * revoke anything: `project:create`, `key:create` and `key:list`, whose
+   * slugs and names could be "help". Every command that deletes or revokes
+   * reads `help`, in any letter case, as a request for help, since a journey
+   * id, an identifier, an environment or a destination can be "help" too
+   * and deleting it is not what someone typing `help` means. A value that
+   * really is `help` goes after `--`, as a value beginning with a dash does.
    */
   helpCanBeAValue: boolean;
 }
@@ -261,7 +265,7 @@ export const COMMANDS = [
     note: ["An id beginning with a dash goes after --."],
     checkoutScript: "delete:journey",
     parsesOwnArguments: true,
-    helpCanBeAValue: true
+    helpCanBeAValue: false
   },
   {
     name: "delete:identifier",
@@ -289,7 +293,7 @@ export const COMMANDS = [
     ],
     checkoutScript: "delete:identifier",
     parsesOwnArguments: true,
-    helpCanBeAValue: true
+    helpCanBeAValue: false
   },
   {
     name: "delete:range",
@@ -320,7 +324,7 @@ export const COMMANDS = [
     ],
     checkoutScript: "delete:range",
     parsesOwnArguments: true,
-    helpCanBeAValue: true
+    helpCanBeAValue: false
   },
   {
     name: "delete:destination",
@@ -331,7 +335,7 @@ export const COMMANDS = [
     note: ["An id beginning with a dash goes after --."],
     checkoutScript: "delete:destination",
     parsesOwnArguments: true,
-    helpCanBeAValue: true
+    helpCanBeAValue: false
   },
   {
     name: "doctor",
@@ -418,19 +422,39 @@ export function flag<N extends CommandName, F extends FlagOf<N>>(name: N, declar
 }
 
 /** The parsed value of each of a command's flags, typed from the registry. */
-export type ValuesOf<N extends CommandName> = {
-  [K in keyof ParseArgsOptionsOf<N>]?: ParseArgsOptionsOf<N>[K] extends { type: "string" }
+export type ValuesOf<N extends CommandName> = [FlagSpecOf<N>] extends [never]
+  ? NoFlags
+  : ValuesOfFlags<N>;
+
+/**
+ * A command with no flags has no values. Spelled out because a mapped type
+ * over no flags reports string keys, which everyFlagRead would take for an
+ * unread flag.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty record is the point.
+type NoFlags = {};
+
+type ValuesOfFlags<N extends CommandName> = {
+  [F in FlagSpecOf<N> as F["flag"] extends `--${infer Option}` ? Option : never]?: F extends {
+    value: string;
+  }
     ? string
     : boolean;
 };
 
 /**
- * A record every one of the command's flags must appear in. A parser builds
- * what it read from the flags as `{ ... } satisfies FlagsRead<"delete:range">`,
- * so a flag declared in the registry that the parser never reads is a type
- * error rather than a flag the help advertises and nothing implements.
+ * Takes what is left of a command's parsed values once the parser has
+ * destructured every flag it reads: `const { before, after, "dry-run": dryRun,
+ * ...unread } = parsed.values; everyFlagRead(unread);`. A flag declared in the
+ * registry and not destructured is left in `unread` and fails to compile
+ * here, and one destructured and never used fails the no-unused-vars rule, so
+ * a flag the help advertises and nothing implements cannot pass either.
  */
-export type FlagsRead<N extends CommandName> = Record<keyof ParseArgsOptionsOf<N>, unknown>;
+export function everyFlagRead<T extends object>(
+  _unread: T & ([keyof T] extends [never] ? unknown : { unreadFlag: keyof T })
+): void {
+  // The check is the parameter's type.
+}
 
 /** How many positional arguments a command takes, from its declared arguments. */
 export function arityOf(name: CommandName): { min: number; max: number } {
@@ -652,12 +676,17 @@ export type Preflight =
   | { run: false; stdout: string[]; stderr: string[]; code: 0 | 1 };
 
 const HELP_FLAGS = new Set(["--help", "-h"]);
-/** An em dash or an en dash, which smart punctuation makes of a typed `--`. */
-const TYPOGRAPHIC_DASH = /[\u2013\u2014]/;
+/**
+ * Any dash but the ASCII hyphen: every Unicode dash punctuation character
+ * (en and em dashes, the non-breaking hyphen, the small and full-width
+ * hyphen-minus a full-width keyboard types) and the minus sign. Smart
+ * punctuation and input methods make these of a typed `--`.
+ */
+const OTHER_DASH = /(?!-)[\p{Pd}\u2212]/u;
 
 /** `--help` and `-h`, and the forms smart punctuation makes of them. */
 function looksLikeHelp(arg: string): boolean {
-  return HELP_FLAGS.has(arg) || /^[\u2013\u2014]+-*(help|h)$/.test(arg);
+  return HELP_FLAGS.has(arg) || (OTHER_DASH.test(arg) && /^[-\p{Pd}\u2212]+(help|h)$/iu.test(arg));
 }
 
 function refused(command: CommandName, first: string): Preflight {
@@ -685,12 +714,12 @@ function refused(command: CommandName, first: string): Preflight {
  * Before that separator:
  *
  * - `--help` or `-h` prints the command's help and runs nothing, and so does
- *   a bare `help` where the command has no argument it could be
- *   (`helpCanBeAValue`).
- * - An argument containing an em or en dash is refused. Smart punctuation
- *   turns the `--` of a typed `--help` into an em dash, and the result was
- *   read as an extra argument and ignored, so the command ran: a rollback, a
- *   sweep, a revocation.
+ *   a bare `help` in any letter case, except where it is read as an argument
+ *   (`helpCanBeAValue`, never on a command that deletes or revokes).
+ * - An argument containing a dash other than the ASCII hyphen is refused.
+ *   Smart punctuation turns the `--` of a typed `--help` into an em dash, and
+ *   the result was read as an extra argument and ignored, so the command ran:
+ *   a rollback, a sweep, a revocation.
  * - For a command that parses no arguments of its own, a flag is refused, and
  *   so is an argument beyond those it declares, which was ignored before.
  *
@@ -713,7 +742,7 @@ export function preflight(command: string | undefined, given: readonly string[])
   }
   if (command === undefined) return { run: false, stdout: [], stderr: cliHelp(), code: 1 };
   if (!isCommand(command)) {
-    const hint = TYPOGRAPHIC_DASH.test(command)
+    const hint = OTHER_DASH.test(command)
       ? [`${command} begins with a dash that was auto-corrected; type -- (two hyphens).`]
       : [];
     return {
@@ -732,17 +761,19 @@ export function preflight(command: string | undefined, given: readonly string[])
   const options = end === -1 ? args : args.slice(0, end);
   const values = end === -1 ? [] : args.slice(end + 1);
 
-  const helpWord = !spec.helpCanBeAValue && options.includes("help");
+  const helpWord = !spec.helpCanBeAValue && options.some((arg) => arg.toLowerCase() === "help");
   if (options.some((arg) => HELP_FLAGS.has(arg)) || helpWord) {
     return { run: false, stdout: commandHelp(command), stderr: [], code: 0 };
   }
-  const dashed = options.find((arg) => TYPOGRAPHIC_DASH.test(arg));
+  const dashed = options.find((arg) => OTHER_DASH.test(arg));
   if (dashed !== undefined) {
+    const character = OTHER_DASH.exec(dashed)?.[0] ?? "";
+    const code = `U+${(character.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, "0")}`;
     return refused(
       command,
-      `${dashed.split("=")[0] ?? ""} contains a long dash, which looks like a -- that was ` +
-        "auto-corrected. Nothing was changed. Type -- (two hyphens) for a flag, or " +
-        "put a value that really contains the dash after a --."
+      `${dashed.split("=")[0] ?? ""} contains a dash that is not a hyphen (${code}), which ` +
+        "looks like a -- that was auto-corrected. Nothing was changed. Type -- (two " +
+        "hyphens) for a flag, or put a value that really contains the dash after a --."
     );
   }
   const helpAsValue = values.find(looksLikeHelp);
