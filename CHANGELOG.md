@@ -374,6 +374,18 @@ What you have to do when upgrading a checkout or a deployment:
 - **`key:create --json`** prints one JSON object with the key, its prefix, the
   project and the environment, and nothing else, so a script capturing a new key
   parses no prose. Without the flag the human form is unchanged.
+- **`--help`** for the database CLI and for each of its commands, listing the
+  arguments and flags, including `key:create --json` and the four fields it
+  prints (`apiKey`, `keyPrefix`, `projectSlug`, `environmentName`). The
+  top-level help names both ways to run the CLI:
+  `node packages/database/dist/cli.js` in the API image, and
+  `pnpm run <script>` in a checkout. It replaces a usage line that named
+  `tsx src/cli.ts`, which the image does not have and which appeared only for
+  an unknown command (F-033).
+  Help needs no `DATABASE_URL`, and every usage line and help text is built
+  from the one list of flags the parsers accept. A command that takes no flags
+  now refuses one, as `key:create` and `doctor` already did, rather than
+  ignoring it.
 - **`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and
   `ADMIN_TOKEN_FILE`** read each value from a file at startup instead of from
   the environment, the way Docker's own secrets mechanism mounts one.
@@ -586,6 +598,10 @@ What you have to do when upgrading a checkout or a deployment:
 - **The Helm migrate Job says why a migration failed, and is bounded.** It
   printed `database not ready` after every failed attempt and retried every
   failure 30 times. See the upgrade notes for its deadline.
+- **Database CLI commands that take no flags refuse one.** `migrate --dry-run`,
+  for one, used to ignore the flag and migrate; it now prints
+  `Unknown argument: --dry-run` with the command's usage and exits 1, changing
+  nothing. A script passing such a flag should drop it.
 
 ### Security
 

@@ -1,3 +1,4 @@
+import { commandUsage, flagNames } from "./cli-commands.js";
 import type { IssuedKey } from "./repositories/key-admin.js";
 
 /**
@@ -9,10 +10,8 @@ import type { IssuedKey } from "./repositories/key-admin.js";
  * object on one line and nothing else (F-016).
  */
 
-export const KEY_CREATE_USAGE =
-  "Usage: key:create <project-slug> <environment> [name] [--json]\n" +
-  "       --json prints one JSON object with the key, its prefix, the project " +
-  "and the environment, and nothing else.";
+/** From the command registry, which `key:create --help` also reads, with the JSON fields. */
+export const KEY_CREATE_USAGE = commandUsage("key:create");
 
 export type KeyCreateArgs =
   | { ok: true; projectSlug: string; environmentName: string; name: string; json: boolean }
@@ -26,8 +25,9 @@ export type KeyCreateArgs =
  * form the caller did not ask for.
  */
 export function parseKeyCreateArgs(args: readonly string[]): KeyCreateArgs {
-  const json = args.includes("--json");
-  const rest = args.filter((arg) => arg !== "--json");
+  const flags = flagNames("key:create");
+  const json = flags.includes("--json") && args.includes("--json");
+  const rest = args.filter((arg) => !flags.includes(arg));
 
   const unknownFlag = rest.find((arg) => arg.startsWith("--"));
   if (unknownFlag !== undefined) {
@@ -54,7 +54,8 @@ export function formatIssuedKey(issued: IssuedKey, json: boolean): string[] {
   if (json) {
     // One line, one object, no id: the id names a row nothing outside the
     // database has any use for, and printing it would only widen what a
-    // capturing script holds.
+    // capturing script holds. `key:create --help` names these four fields,
+    // and a test fails if it stops naming one of them.
     return [
       JSON.stringify({
         apiKey: issued.apiKey,

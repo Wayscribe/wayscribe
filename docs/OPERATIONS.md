@@ -387,6 +387,11 @@ docker compose run --rm --entrypoint node api \
 
 `project:list`, `key:list`, and `key:revoke` do what they say. A key is printed
 once and is not recoverable: issue another rather than hunting for it.
+
+Every command prints its arguments and options with `--help`, as in
+`packages/database/dist/cli.js key:create --help`, and `--help` alone lists the
+commands and how to run them in the image and in a checkout. Neither needs
+`DATABASE_URL`.
 `key:create` and `key:revoke` each write an audit row, `api_key.created` or
 `api_key.revoked`, naming the key by its prefix (`SECURITY.md` section 13).
 
@@ -401,6 +406,9 @@ docker compose run --rm --entrypoint node api \
 ```json
 {"apiKey":"wsk_…","keyPrefix":"wsk_…","projectSlug":"acme","environmentName":"production"}
 ```
+
+Those four fields are all it prints, and `key:create --help` names them. The
+key's database id is left out.
 
 The flag may appear anywhere in the arguments. Without it the human form above
 is unchanged. Either way the key reaches stdout, so redirect it into the place

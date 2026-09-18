@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { commandUsage, parseArgsOptions } from "./cli-commands.js";
 import type {
   BatchProgress,
   DestinationDeletion,
@@ -30,11 +31,8 @@ export interface ReportContext {
   command: string;
 }
 
-const IDENTIFIER_USAGE =
-  "Usage: delete:identifier <project-slug> <value> [--environment <name>] [--dry-run]\n" +
-  "A value beginning with a dash goes after --, as in: delete:identifier acme -- -A1";
-const RANGE_USAGE =
-  "Usage: delete:range <project-slug> <environment> --before <iso-8601> [--after <iso-8601>] [--dry-run]";
+const IDENTIFIER_USAGE = commandUsage("delete:identifier");
+const RANGE_USAGE = commandUsage("delete:range");
 
 const TIMESTAMP_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
@@ -105,7 +103,7 @@ export function parseIdentifierArgs(args: readonly string[]): IdentifierArgs {
   try {
     parsed = parseArgs({
       args: [...args],
-      options: { environment: { type: "string" }, "dry-run": { type: "boolean" } },
+      options: parseArgsOptions("delete:identifier"),
       allowPositionals: true,
       strict: true
     });
@@ -121,8 +119,8 @@ export function parseIdentifierArgs(args: readonly string[]): IdentifierArgs {
     ok: true,
     projectSlug,
     value,
-    environment: parsed.values.environment,
-    dryRun: parsed.values["dry-run"] ?? false
+    environment: stringOption(parsed.values, "environment"),
+    dryRun: parsed.values["dry-run"] === true
   };
 }
 
@@ -142,11 +140,7 @@ export function parseRangeArgs(args: readonly string[]): RangeArgs {
   try {
     parsed = parseArgs({
       args: [...args],
-      options: {
-        before: { type: "string" },
-        after: { type: "string" },
-        "dry-run": { type: "boolean" }
-      },
+      options: parseArgsOptions("delete:range"),
       allowPositionals: true,
       strict: true
     });
@@ -158,15 +152,17 @@ export function parseRangeArgs(args: readonly string[]): RangeArgs {
   if (projectSlug === undefined || environment === undefined || extra.length > 0) {
     return { ok: false, message: RANGE_USAGE };
   }
-  if (parsed.values.before === undefined) {
+  const beforeValue = stringOption(parsed.values, "before");
+  if (beforeValue === undefined) {
     return { ok: false, message: `--before is required.\n${RANGE_USAGE}` };
   }
 
-  const before = parseTimestamp("--before", parsed.values.before);
+  const before = parseTimestamp("--before", beforeValue);
   if (!before.ok) return before;
   let after: Date | undefined;
-  if (parsed.values.after !== undefined) {
-    const parsedAfter = parseTimestamp("--after", parsed.values.after);
+  const afterValue = stringOption(parsed.values, "after");
+  if (afterValue !== undefined) {
+    const parsedAfter = parseTimestamp("--after", afterValue);
     if (!parsedAfter.ok) return parsedAfter;
     after = parsedAfter.date;
     if (after.getTime() >= before.date.getTime()) {
@@ -183,8 +179,20 @@ export function parseRangeArgs(args: readonly string[]): RangeArgs {
     environment,
     before: before.date,
     after,
-    dryRun: parsed.values["dry-run"] ?? false
+    dryRun: parsed.values["dry-run"] === true
   };
+}
+
+/**
+ * A string flag's value. The options come from the command registry, so
+ * `parseArgs` cannot type them; a string flag's value is a string or absent.
+ */
+function stringOption(
+  values: Record<string, string | boolean | (string | boolean)[] | undefined>,
+  name: string
+): string | undefined {
+  const value = values[name];
+  return typeof value === "string" ? value : undefined;
 }
 
 /** One line as each batch commits, so a long run shows it is moving. */

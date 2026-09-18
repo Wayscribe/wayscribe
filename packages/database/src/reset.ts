@@ -15,7 +15,9 @@
  * reached from a laptop; the flag is what does.
  */
 
-export const RESET_USAGE = "Usage: reset --yes";
+import { commandUsage, flagNames } from "./cli-commands.js";
+
+export const RESET_USAGE = commandUsage("reset");
 
 export type ResetArgs = { ok: true } | { ok: false; message: string };
 
@@ -28,7 +30,8 @@ export function parseResetArgs(
   env: Record<string, string | undefined>,
   databaseUrl: string
 ): ResetArgs {
-  const unknown = args.filter((arg) => arg !== "--yes");
+  const flags = flagNames("reset");
+  const unknown = args.filter((arg) => !flags.includes(arg));
   if (unknown.length > 0) {
     return { ok: false, message: `Unknown argument: ${unknown[0] ?? ""}\n${RESET_USAGE}` };
   }

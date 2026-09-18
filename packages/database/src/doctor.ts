@@ -10,6 +10,7 @@ import {
   type Keyring
 } from "@wayscribe/payload-security";
 import type { Knex } from "knex";
+import { commandUsage, flagNames } from "./cli-commands.js";
 import { keyringFromEnvironment } from "./keyring-env.js";
 import { migrationStatusReadOnly, SchemaUsageError } from "./migration-status.js";
 import { findUnreadableData } from "./repositories/rotation.js";
@@ -301,10 +302,8 @@ export type DoctorArgs =
   | { ok: true; apiUrl?: string; apiKey?: string; apiKeyNotChecked?: string }
   | { ok: false; message: string };
 
-export const DOCTOR_USAGE =
-  "Usage: doctor [--api-url <url>] [--api-key <key>]\n" +
-  "       The key may come from WAYSCRIBE_API_KEY instead, which keeps it out of\n" +
-  "       the process list; --api-key wins when both are given.";
+/** From the command registry; `doctor --help` says where else the key may come from. */
+export const DOCTOR_USAGE = commandUsage("doctor");
 
 /**
  * `--api-url <url>` and `--api-key <key>`, each at most once, as `--flag value`
@@ -332,13 +331,14 @@ export function parseDoctorArgs(
   args: readonly string[],
   env: Record<string, string | undefined> = {}
 ): DoctorArgs {
-  const values: { "--api-url"?: string; "--api-key"?: string } = {};
+  const values: Partial<Record<string, string>> = {};
+  const flags = flagNames("doctor");
 
   const remaining = [...args];
   while (remaining.length > 0) {
     const arg = remaining.shift() ?? "";
     const [flag, inline] = arg.startsWith("--") ? splitOnce(arg, "=") : [arg, undefined];
-    if (flag !== "--api-url" && flag !== "--api-key") {
+    if (!flags.includes(flag)) {
       // Never echo the argument: it may be a key pasted without its flag.
       return { ok: false, message: `Unknown argument.\n${DOCTOR_USAGE}` };
     }

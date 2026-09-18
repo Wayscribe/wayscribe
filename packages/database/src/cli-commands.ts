@@ -1,0 +1,545 @@
+/**
+ * Every command the database CLI runs, its arguments and flags, and the help
+ * and usage text built from them.
+ *
+ * This is the one place a flag is declared. The parsers that take flags read
+ * their accepted set from here (`flagNames`, `parseArgsOptions`), the commands
+ * that take none have their flags refused here (`preflight`), and every usage
+ * line and `--help` is generated from the same entries. A test holds the two
+ * together from the outside (cli-commands.test.ts): it gives each parser every
+ * flag the help lists, which it must accept, and every flag any command
+ * declares plus a list of plausible others, which it must refuse unless its
+ * help names them. A flag hand-written into a parser outside that list is the
+ * gap it leaves.
+ *
+ * Nothing here touches the database or the environment: `--help` works with
+ * neither, which is when an operator most needs it.
+ */
+
+/** How the published API image runs the CLI, from its working directory /app. */
+export const IMAGE_INVOCATION = "node packages/database/dist/cli.js";
+
+export interface FlagSpec {
+  flag: `--${string}`;
+  /** The value's placeholder, for a flag that takes one. A flag without one is a switch. */
+  value?: string;
+  /** Shown without brackets in the usage line. */
+  required?: boolean;
+  description: string;
+}
+
+export interface CommandSpec {
+  name: string;
+  /** The positional arguments, as the usage line shows them. */
+  arguments: string;
+  summary: string;
+  /**
+   * Paragraphs for `--help`, after the summary, wrapped to fit. One that
+   * begins with two spaces is an example, printed as it is.
+   */
+  details: readonly string[];
+  flags: readonly FlagSpec[];
+  /** Lines that belong under the usage line wherever it is printed, as they are. */
+  note?: readonly string[];
+  /** The repository root's script for it, run as `pnpm run <script>`. */
+  checkoutScript: string;
+  /**
+   * Whether the command's own parser reads its arguments. Those that do refuse
+   * an unknown flag themselves; for the rest `preflight` refuses any flag.
+   */
+  parsesOwnArguments: boolean;
+}
+
+export const COMMANDS = [
+  {
+    name: "migrate",
+    arguments: "",
+    summary: "Apply every pending migration.",
+    details: [],
+    flags: [],
+    checkoutScript: "db:migrate",
+    parsesOwnArguments: false
+  },
+  {
+    name: "migrate:unlock",
+    arguments: "",
+    summary: "Release the migration lock a killed migrate left set.",
+    details: [
+      "Run it only when no migrate is running anywhere: it does not check, and " +
+        "releasing the lock under a running migrate lets two run at once. Then run " +
+        "migrate again."
+    ],
+    flags: [],
+    checkoutScript: "db:migrate:unlock",
+    parsesOwnArguments: false
+  },
+  {
+    name: "rollback",
+    arguments: "",
+    summary: "Roll back the last batch of migrations.",
+    details: [],
+    flags: [],
+    checkoutScript: "db:rollback",
+    parsesOwnArguments: false
+  },
+  {
+    name: "reset",
+    arguments: "",
+    summary: "Drop every table, then migrate and seed a local database.",
+    details: [
+      "Every recorded journey is deleted. Without --yes it changes nothing and " +
+        "names the host it would have reset. It refuses under NODE_ENV=production, " +
+        "which the API image sets, with or without the flag."
+    ],
+    flags: [
+      {
+        flag: "--yes",
+        required: true,
+        description: "Confirm that this is the local development database you mean."
+      }
+    ],
+    checkoutScript: "db:reset",
+    parsesOwnArguments: true
+  },
+  {
+    name: "seed",
+    arguments: "",
+    summary: "Create the local project, and issue it an API key.",
+    details: [
+      "The project is local and the environment development. Running it again " +
+        "keeps them and issues another key. The key is printed once. Needs " +
+        "ENCRYPTION_KEY."
+    ],
+    flags: [],
+    checkoutScript: "db:seed",
+    parsesOwnArguments: false
+  },
+  {
+    name: "seed-demo",
+    arguments: "",
+    summary: "Create the demo project, with the key in DEMO_API_KEY.",
+    details: ["Running it again with the same key changes nothing. Needs ENCRYPTION_KEY."],
+    flags: [],
+    checkoutScript: "db:seed-demo",
+    parsesOwnArguments: false
+  },
+  {
+    name: "project:create",
+    arguments: "<slug> <name>",
+    summary: "Create a project.",
+    details: [
+      "The slug is lowercase letters, digits and hyphens, and cannot be changed " +
+        "afterwards. The name is the rest of the arguments:",
+      '  project:create acme "Acme Payments"'
+    ],
+    flags: [],
+    checkoutScript: "project:create",
+    parsesOwnArguments: false
+  },
+  {
+    name: "project:list",
+    arguments: "",
+    summary: "List projects.",
+    details: [],
+    flags: [],
+    checkoutScript: "project:list",
+    parsesOwnArguments: false
+  },
+  {
+    name: "key:create",
+    arguments: "<project-slug> <environment> [name]",
+    summary: "Issue an API key for a project's environment.",
+    details: [
+      "The environment is created if it does not exist. The name defaults to " +
+        "<environment>-key. The key is printed once and cannot be recovered, so " +
+        "redirect it to where it belongs. Needs ENCRYPTION_KEY."
+    ],
+    flags: [
+      {
+        flag: "--json",
+        description:
+          "Print one JSON object on one line and nothing else, with the fields " +
+          "apiKey, keyPrefix, projectSlug and environmentName. It may appear anywhere " +
+          "in the arguments."
+      }
+    ],
+    checkoutScript: "key:create",
+    parsesOwnArguments: true
+  },
+  {
+    name: "key:revoke",
+    arguments: "<key-prefix>",
+    summary: "Revoke an API key by its prefix, which key:list shows.",
+    details: ["Requests presenting the key are refused from then on."],
+    flags: [],
+    checkoutScript: "key:revoke",
+    parsesOwnArguments: false
+  },
+  {
+    name: "key:list",
+    arguments: "[project-slug]",
+    summary: "List API keys, with when each was last used.",
+    details: ["Revoked keys are listed and marked."],
+    flags: [],
+    checkoutScript: "key:list",
+    parsesOwnArguments: false
+  },
+  {
+    name: "retention:sweep",
+    arguments: "",
+    summary: "Delete the journeys past their retention, now.",
+    details: [
+      "The API runs the same sweep every hour. Only one sweep runs at a time: " +
+        "while another holds the lock, this one examines nothing and says so."
+    ],
+    flags: [],
+    checkoutScript: "retention:sweep",
+    parsesOwnArguments: false
+  },
+  {
+    name: "rotate:reencrypt",
+    arguments: "",
+    summary: "Re-encrypt stored values under ENCRYPTION_KEY.",
+    details: [
+      "With ENCRYPTION_KEY_PREVIOUS set this is a rotation; without it, values in " +
+        "a format from before key ids are upgraded under the one key. API keys " +
+        "move when they next authenticate. Exits 1 when another run holds the " +
+        "lock or the lock was lost."
+    ],
+    flags: [],
+    checkoutScript: "rotate:reencrypt",
+    parsesOwnArguments: false
+  },
+  {
+    name: "rotate:status",
+    arguments: "",
+    summary: "Show what is still stored under another key.",
+    details: ["Exits 1 until nothing is left, so a script can wait on it. Read-only."],
+    flags: [],
+    checkoutScript: "rotate:status",
+    parsesOwnArguments: false
+  },
+  {
+    name: "delete:journey",
+    arguments: "<project-slug> <journey-id>",
+    summary: "Delete one journey.",
+    details: ["Exits 1 when the project or the journey does not exist."],
+    flags: [],
+    note: ["An id beginning with a dash goes after --."],
+    checkoutScript: "delete:journey",
+    parsesOwnArguments: true
+  },
+  {
+    name: "delete:identifier",
+    arguments: "<project-slug> <value>",
+    summary: "Delete every journey whose entity id or alias is a value.",
+    details: [
+      "It finds what search finds, not values inside payloads. The value is " +
+        "never printed. Needs ENCRYPTION_KEY, and ENCRYPTION_KEY_PREVIOUS during a " +
+        "rotation. Exits 1 whenever what was asked did not fully happen."
+    ],
+    flags: [
+      {
+        flag: "--environment",
+        value: "<name>",
+        description: "Only this environment's journeys. Without it, every environment's."
+      },
+      {
+        flag: "--dry-run",
+        description: "List what would be deleted, and delete nothing."
+      }
+    ],
+    note: [
+      "A value beginning with a dash goes after --, as in:",
+      "  delete:identifier acme -- -A1"
+    ],
+    checkoutScript: "delete:identifier",
+    parsesOwnArguments: true
+  },
+  {
+    name: "delete:range",
+    arguments: "<project-slug> <environment>",
+    summary: "Delete an environment's journeys in a window of time.",
+    details: [
+      "The window is [--after, --before). A date is ISO-8601, read as midnight " +
+        "UTC, or a timestamp with an offset such as 2026-09-01T00:00:00Z; one " +
+        "without an offset is refused. Exits 1 while the retention sweep holds " +
+        "its lock, and whenever what was asked did not fully happen."
+    ],
+    flags: [
+      {
+        flag: "--before",
+        value: "<iso-8601>",
+        required: true,
+        description: "The end of the window, not included."
+      },
+      {
+        flag: "--after",
+        value: "<iso-8601>",
+        description: "The start of the window. Without it, the beginning of time."
+      },
+      {
+        flag: "--dry-run",
+        description: "List what would be deleted, and delete nothing."
+      }
+    ],
+    checkoutScript: "delete:range",
+    parsesOwnArguments: true
+  },
+  {
+    name: "delete:destination",
+    arguments: "<project-slug> <destination-id>",
+    summary: "Delete a replay destination and its replay runs.",
+    details: ["Exits 1 when the project or the destination does not exist."],
+    flags: [],
+    note: ["An id beginning with a dash goes after --."],
+    checkoutScript: "delete:destination",
+    parsesOwnArguments: true
+  },
+  {
+    name: "doctor",
+    arguments: "",
+    summary: "Check an installation end to end, and say what to fix.",
+    details: [
+      "Run it with the API's environment, since that is what it checks. It " +
+        "changes nothing. Exits 1 when a check failed; warnings and skipped " +
+        "checks do not fail it."
+    ],
+    flags: [
+      {
+        flag: "--api-url",
+        value: "<url>",
+        description: "Check that GET /ready answers 200 there."
+      },
+      {
+        flag: "--api-key",
+        value: "<key>",
+        description:
+          "Check this key against the database. Without the flag, the key in " +
+          "WAYSCRIBE_API_KEY is checked, which keeps it out of the process list; " +
+          "the flag wins when both are given. A WAYSCRIBE_API_KEY that is set but " +
+          "empty is reported as a skipped check."
+      }
+    ],
+    checkoutScript: "doctor",
+    parsesOwnArguments: true
+  }
+] as const satisfies readonly CommandSpec[];
+
+export type CommandName = (typeof COMMANDS)[number]["name"];
+
+const WIDTH = 80;
+
+export function isCommand(name: string): name is CommandName {
+  return COMMANDS.some((command) => command.name === name);
+}
+
+function specOf(name: CommandName): CommandSpec {
+  const spec: CommandSpec | undefined = COMMANDS.find((command) => command.name === name);
+  if (spec === undefined) throw new Error(`No command named ${name}.`);
+  return spec;
+}
+
+/** The flags a command's parser accepts. */
+export function flagNames(name: CommandName): string[] {
+  return specOf(name).flags.map((flag) => flag.flag);
+}
+
+/** The same flags, in the shape `node:util`'s `parseArgs` takes. */
+export function parseArgsOptions(
+  name: CommandName
+): Record<string, { type: "string" | "boolean" }> {
+  return Object.fromEntries(
+    specOf(name).flags.map((flag) => [
+      flag.flag.slice(2),
+      { type: flag.value === undefined ? "boolean" : "string" }
+    ])
+  );
+}
+
+function flagSynopsis(flag: FlagSpec): string {
+  const text = flag.value === undefined ? flag.flag : `${flag.flag} ${flag.value}`;
+  return flag.required === true ? text : `[${text}]`;
+}
+
+/** The usage line's parts, a flag and its value being one part. */
+function synopsisParts(name: CommandName): string[] {
+  const spec = specOf(name);
+  return [
+    spec.name,
+    ...spec.arguments.split(" ").filter((part) => part !== ""),
+    ...spec.flags.map(flagSynopsis)
+  ];
+}
+
+/** `key:create <project-slug> <environment> [name] [--json]` */
+export function commandSynopsis(name: CommandName): string {
+  return synopsisParts(name).join(" ");
+}
+
+/** What a command prints under its refusal of an argument. */
+export function commandUsage(name: CommandName): string {
+  const spec = specOf(name);
+  return [
+    `Usage: ${commandSynopsis(name)}`,
+    ...(spec.note ?? []),
+    `Run ${name} --help for what each argument does.`
+  ].join("\n");
+}
+
+/** Text into lines of at most `WIDTH`, each after `indent`. */
+function wrap(text: string, indent: string, firstIndent = indent): string[] {
+  return wrapWords(text.split(/\s+/), indent, firstIndent);
+}
+
+/** Words, never broken, into lines of at most `WIDTH` where they fit. */
+function wrapWords(words: readonly string[], indent: string, firstIndent = indent): string[] {
+  const lines: string[] = [];
+  let line = firstIndent;
+  let lineIndent = firstIndent;
+  for (const word of words) {
+    if (line.length > lineIndent.length && line.length + 1 + word.length > WIDTH) {
+      lines.push(line);
+      line = indent;
+      lineIndent = indent;
+    }
+    line += line.length > lineIndent.length ? ` ${word}` : word;
+  }
+  lines.push(line);
+  return lines;
+}
+
+const OPTION_COLUMN = 24;
+
+function optionLines(label: string, description: string): string[] {
+  const indent = " ".repeat(OPTION_COLUMN);
+  const head = `  ${label}`;
+  if (head.length >= OPTION_COLUMN - 1) return [head, ...wrap(description, indent)];
+  return wrap(description, indent, head.padEnd(OPTION_COLUMN));
+}
+
+/** `<command> --help`. */
+export function commandHelp(name: CommandName): string[] {
+  const spec = specOf(name);
+  return [
+    // A long usage line continues under the command's first argument.
+    ...wrapWords(
+      ["Usage:", ...synopsisParts(name)],
+      " ".repeat("Usage: ".length + name.length + 1),
+      ""
+    ),
+    ...(spec.note ?? []),
+    "",
+    ...wrap(spec.summary, ""),
+    ...spec.details.flatMap((paragraph) =>
+      paragraph.startsWith("  ") ? [paragraph] : ["", ...wrap(paragraph, "")]
+    ),
+    "",
+    "Options:",
+    ...spec.flags.flatMap((flag) =>
+      optionLines(
+        flag.value === undefined ? flag.flag : `${flag.flag} ${flag.value}`,
+        flag.description
+      )
+    ),
+    ...optionLines("-h, --help", "Print this help."),
+    "",
+    "Run it as:",
+    `  ${IMAGE_INVOCATION} ${name} ...`,
+    "      in the API image",
+    `  pnpm run ${spec.checkoutScript} ...`,
+    "      in a source checkout, from the repository root"
+  ];
+}
+
+/** `--help`, and what an unknown command or no command prints. */
+export function cliHelp(): string[] {
+  const renamed = COMMANDS.filter((command) => command.checkoutScript !== command.name);
+  const commandColumn = Math.max(...COMMANDS.map((command) => command.name.length)) + 4;
+  return [
+    ...wrap(
+      "Wayscribe's database CLI: migrations, projects and API keys, retention, " +
+        "key rotation, deletion, and doctor. Every command reads DATABASE_URL.",
+      ""
+    ),
+    "",
+    "Usage:",
+    `  ${IMAGE_INVOCATION} <command> [arguments]`,
+    ...wrap(
+      "in the API image, whose working directory is /app, as in: docker compose " +
+        "run --rm --entrypoint node api packages/database/dist/cli.js <command>",
+      "      "
+    ),
+    "  pnpm run <script> [arguments]",
+    ...wrap(
+      "in a source checkout, from the repository root. The script is the " +
+        "command's name, except " +
+        listed(renamed.map((command) => `${command.checkoutScript} for ${command.name}`)) +
+        ".",
+      "      "
+    ),
+    "",
+    "Commands:",
+    ...COMMANDS.flatMap((command) =>
+      wrap(command.summary, " ".repeat(commandColumn), `  ${command.name}`.padEnd(commandColumn))
+    ),
+    "",
+    "Run <command> --help for a command's arguments and options."
+  ];
+}
+
+/** `a, b and c`. */
+function listed(items: readonly string[]): string {
+  return items.length < 2
+    ? items.join("")
+    : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1] ?? ""}`;
+}
+
+export type Preflight =
+  | { run: true; command: CommandName }
+  | { run: false; stdout: string[]; stderr: string[]; code: 0 | 1 };
+
+const HELP_FLAGS = new Set(["--help", "-h"]);
+
+/**
+ * What to do before connecting to anything: print help, refuse an unknown
+ * command, refuse a flag on a command that takes none, or run the command.
+ *
+ * `--help` or `-h` anywhere before a `--` asks for the command's help; after
+ * one it is a value, as `delete:identifier acme -- --help` means.
+ */
+export function preflight(command: string | undefined, args: readonly string[]): Preflight {
+  if (command !== undefined && HELP_FLAGS.has(command)) {
+    return { run: false, stdout: cliHelp(), stderr: [], code: 0 };
+  }
+  if (command === undefined) return { run: false, stdout: [], stderr: cliHelp(), code: 1 };
+  if (!isCommand(command)) {
+    return {
+      run: false,
+      stdout: [],
+      stderr: [`Unknown command: ${command}`, ...cliHelp()],
+      code: 1
+    };
+  }
+
+  const end = args.indexOf("--");
+  const options = end === -1 ? args : args.slice(0, end);
+  if (options.some((arg) => HELP_FLAGS.has(arg))) {
+    return { run: false, stdout: commandHelp(command), stderr: [], code: 0 };
+  }
+
+  if (!specOf(command).parsesOwnArguments) {
+    const flag = options.find((arg) => arg.startsWith("-") && arg !== "-");
+    if (flag !== undefined) {
+      // Only the part before any `=`: the value may be a key typed as a flag.
+      const [name] = flag.split("=");
+      return {
+        run: false,
+        stdout: [],
+        stderr: [`Unknown argument: ${name ?? ""}`, ...commandUsage(command).split("\n")],
+        code: 1
+      };
+    }
+  }
+  return { run: true, command };
+}

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { commandHelp } from "./cli-commands.js";
 import {
   apiKeyShapeProblem,
   doctorExitCode,
@@ -85,8 +86,12 @@ describe("parseDoctorArgs", () => {
     });
   });
 
-  it("says in its usage text that the key may come from the environment", () => {
-    expect(DOCTOR_USAGE).toContain("WAYSCRIBE_API_KEY");
+  it("says in its help that the key may come from the environment", () => {
+    expect(commandHelp("doctor").join("\n")).toContain("WAYSCRIBE_API_KEY");
+  });
+
+  it("points a refusal at the help", () => {
+    expect(DOCTOR_USAGE).toContain("Run doctor --help");
   });
 });
 
