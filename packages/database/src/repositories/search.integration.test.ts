@@ -115,7 +115,7 @@ describe("searchJourneys", () => {
   });
 
   const find = (q: string, limit = 25, cursor?: string) =>
-    searchJourneys(db, scope, q, searchTokens(keyring, q), limit, cursor);
+    searchJourneys(db, scope, q, searchTokens(keyring, q), {}, limit, cursor);
 
   it("finds a journey by primary entity id", async () => {
     const page = await find("0018Z00002ABC");
@@ -175,7 +175,7 @@ describe("searchJourneys", () => {
     // Rows written under A keep A's tokens until they are re-encrypted. After
     // the switch to B, a search has to match either token or those rows vanish.
     const rotated = createKeyring(KEY_B, KEY_A);
-    const underB = (q: string) => searchJourneys(db, scope, q, searchTokens(rotated, q), 25);
+    const underB = (q: string) => searchJourneys(db, scope, q, searchTokens(rotated, q), {}, 25);
     const bOnly = createKeyring(KEY_B);
 
     // In afterEach rather than at the end of a test body, so a failing assertion
@@ -217,6 +217,7 @@ describe("searchJourneys", () => {
         scope,
         "0018Z00002XYZ",
         searchTokens(bOnly, "0018Z00002XYZ"),
+        {},
         25
       );
       expect(page.items).toEqual([]);

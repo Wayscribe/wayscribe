@@ -18,6 +18,7 @@ import {
 } from "../principal.js";
 import { presentEvent, presentJourneyDetail, presentJourneySummary } from "./present.js";
 import { parseJourneyListQuery } from "./journey-list-query.js";
+import { parseSearchQuery } from "./search-query.js";
 
 const DEFAULT_LIMIT = 25;
 const NULL_BYTE = String.fromCharCode(0);
@@ -70,25 +71,24 @@ export function registerQueryRoutes(
     };
   }
 
+  /**
+   * One identifier, resolved against every kind of identifier it could be.
+   *
+   * `since`, `until` and `environment` are optional and narrow the same
+   * journeys the list endpoint's bounds narrow. Without them the search spans
+   * the project's whole history, which is what it has always done and what
+   * F-028 found surprising: an alias value reused across runs returns every
+   * journey that ever carried it.
+   */
   app.get("/v1/search", async (request, reply) => {
     const principal = await authenticate(request, reply);
     if (principal === undefined) return reply;
 
-    // A repeated parameter arrives as an array, which `.trim()` threw on.
-    const raw = (request.query as { q?: unknown }).q;
-    if (Array.isArray(raw)) {
-      return reply.code(400).send(errorBody("invalid_query", "q may be given once.", request.id));
+    const parsed = parseSearchQuery(request.query, new Date());
+    if (!parsed.ok) {
+      return reply.code(400).send(errorBody("invalid_query", parsed.message, request.id));
     }
-    const query = typeof raw === "string" ? raw.trim() : undefined;
-    if (query === undefined || query === "") {
-      return reply.code(400).send(errorBody("invalid_query", "q is required.", request.id));
-    }
-    if (query.includes(NULL_BYTE)) {
-      // Nothing stored can hold one, and PostgreSQL refuses it in a comparison.
-      return reply
-        .code(400)
-        .send(errorBody("invalid_query", "q must not contain a null byte.", request.id));
-    }
+    const query = parsed.query;
 
     try {
       const page = await searchJourneys(
@@ -98,6 +98,7 @@ export function registerQueryRoutes(
         // Both keys' tokens during a rotation, so rows not yet re-encrypted
         // are still found.
         searchTokens(keyring, query),
+        parsed.filters,
         parseLimit(request.query),
         cursorParam(request.query)
       );

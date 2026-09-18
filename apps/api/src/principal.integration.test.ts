@@ -127,6 +127,7 @@ describe("principal resolution", () => {
       { projectId: principalProjectId(result.principal), environmentId: devEnv },
       "SHARED-ID",
       searchTokens(keyring, "SHARED-ID"),
+      {},
       25
     );
     expect(page.items.map((i) => i.journeyId)).toEqual(["jrn_dev"]);
@@ -145,6 +146,7 @@ describe("principal resolution", () => {
       },
       "SHARED-ID",
       searchTokens(keyring, "SHARED-ID"),
+      {},
       25
     );
     expect(page.items.map((i) => i.journeyId).sort()).toEqual(["jrn_dev", "jrn_staging"]);
@@ -164,6 +166,7 @@ describe("principal resolution", () => {
       },
       "SHARED-ID",
       searchTokens(keyring, "SHARED-ID"),
+      {},
       25
     );
     expect(page.items.map((i) => i.journeyId)).not.toContain("jrn_other_project");

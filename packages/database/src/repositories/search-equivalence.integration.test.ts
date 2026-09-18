@@ -300,7 +300,7 @@ describe("searchJourneys matches the reference query", () => {
     let cursor: string | undefined;
     for (;;) {
       const expected = await referenceSearch(db, scope, value, tokens, limit, cursor);
-      const actual = await searchJourneys(db, scope, value, tokens, limit, cursor);
+      const actual = await searchJourneys(db, scope, value, tokens, {}, limit, cursor);
       expect(actual).toEqual(expected);
       seen.push(...expected.items.map((item) => item.journeyId));
       if (expected.nextCursor === null) return seen;
@@ -348,7 +348,7 @@ describe("searchJourneys matches the reference query", () => {
   it("returns a journey found through every branch once", async () => {
     for (const { scope } of scopes) {
       const tokens = searchTokens(underA, "multi-branch");
-      const page = await searchJourneys(db, scope, "multi-branch", tokens, 25);
+      const page = await searchJourneys(db, scope, "multi-branch", tokens, {}, 25);
       const visible =
         scope.environmentId === undefined ||
         scope.environmentId === multiBranchEnvironment.get(scope.projectId);

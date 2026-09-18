@@ -160,10 +160,10 @@ ingestion, so that the two documents cannot answer the same question differently
 ## 5. Search
 
 ```http
-GET /v1/search?q=<query>&limit=25&cursor=<cursor>
+GET /v1/search?q=<query>&since=<instant>&until=<instant>&environment=<name>&limit=25&cursor=<cursor>
 ```
 
-Searches project-scoped:
+Resolves one value against every identifier it could be, project-scoped:
 
 - primary entity ID
 - alias
@@ -172,6 +172,41 @@ Searches project-scoped:
 - span ID
 - message ID
 - correlation ID
+
+| Parameter | Meaning |
+| --- | --- |
+| `q` | Required. The value to resolve. Surrounding white space is removed. |
+| `since` | An ISO 8601 instant with a time zone, such as `2026-08-06T18:00:00Z`. Journeys whose last activity is at or after it. Omitted or empty means no lower bound. |
+| `until` | An ISO 8601 instant with a time zone, after `since`. Journeys whose last activity is before it. Omitted or empty means no upper bound. |
+| `environment` | An environment name. Omitted or empty means every environment the caller can read. |
+| `limit` | Page size, 25 by default, at most 100. |
+| `cursor` | `nextCursor` from the previous page. |
+
+**Without a window the search spans the project's whole history.** There is no
+default: `since` and `until` are optional here, unlike the journey list's
+required `since` (section 6), because search is the endpoint a caller reaches
+for with an identifier in hand and usually wants every trace of it. That is
+safe for a value that never repeats, such as a journey ID or a trace ID, and
+surprising for one that does. An alias drawn from a fixed set, an email address
+or a phone number, is recorded again on every run, so searching for it returns
+every journey that ever carried it, not the one from the run in hand. Give the
+run's own `since` and `until` when that matters; they are the same bounds, on
+the same `lastEventAt`, that section 6 takes, so one pair narrows both
+endpoints.
+
+The window selects journeys, not events: a journey whose matching event falls
+inside the window but whose last activity is after `until` is outside it. The
+bounds are half-open, `since` inclusive and `until` exclusive, so two adjacent
+windows neither overlap nor skip a journey.
+
+**What `environment` means depends on who is asking.** It is applied on top of
+the caller's scope, never instead of it (ADR-029). An API key already reads its
+own environment and nothing else, so naming that environment restates the
+scope and changes nothing, and naming any other returns an empty page rather
+than an error, because outside its scope nothing exists. It cannot widen what a
+key can see. For the admin token, which reads every environment of the named
+project, it picks one of them. Scope is otherwise the same as the journey
+list's.
 
 Response:
 
@@ -208,8 +243,21 @@ before the server kept plain-text copies is listed once an event states it
 again. A displayable value containing a NUL is never listed or matched by `q`,
 because the server keeps no plain-text copy of it; the journey read shows it.
 
-A missing or empty `q`, or `q` given more than once, is `400` `invalid_query`. A
-`cursor` given more than once is `400` `invalid_cursor`, on every list endpoint.
+`400 invalid_query` when `q` is missing or empty, or is given more than once;
+when `since` or `until` is not a full instant with a time zone (the message
+gives an example of one) or names an impossible date; when `since` is more than
+60 seconds ahead of the API's clock (a minute of skew between the caller and
+the API is tolerated); when `until` is not after `since`; when any value holds
+a NUL; when `since`, `until` or `environment` is given more than once; or when
+the query names a parameter this search does not have, so that a misspelt
+filter is not silently ignored. `until` has no clock check: a range that ends
+after now still searches everything up to now, whereas a future `since` could
+only find nothing. A `cursor` given more than once, or a malformed one, is
+`400` `invalid_cursor`, on every list endpoint.
+
+A cursor holds a position only, `lastEventAt` and `journeyId`, and never the
+filters, which always come from the request, so keep the window fixed while
+paging, exactly as section 6 says.
 
 ## 6. List journeys
 

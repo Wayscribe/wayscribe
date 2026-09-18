@@ -100,7 +100,12 @@ export {
   type EventCursor,
   type SearchCursor
 } from "./repositories/cursors.js";
-export { searchJourneys, type SearchHit, type SearchPage } from "./repositories/search.js";
+export {
+  searchJourneys,
+  type SearchFilters,
+  type SearchHit,
+  type SearchPage
+} from "./repositories/search.js";
 export type { DisplayableAlias } from "./repositories/journey-summary.js";
 export {
   JOURNEY_STATUSES,
