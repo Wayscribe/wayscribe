@@ -3090,14 +3090,20 @@ holds, and this decision is its amendment rather than a standing licence to add.
   places once a second recorder exists (ADR-059).
 
 ---
-
-## ADR-061: A retried step that succeeds completes the journey
+## ADR-061: A successful retry clears a failure rather than completing the journey
 
 **Status:** Accepted, 2026-09-17. Changes how the server derives a journey's
 status from one event. ADR-022 is unchanged: a retried attempt still records the
-operation `retried`, because that is what happened. Nothing in the SDK changes,
-nothing on the wire changes, and the ordering rules in `updateJourneySummary`
-are untouched. Follows finding F-008.
+operation `retried`, because that is what happened. Nothing in the SDK changes
+and nothing on the wire changes. `completed` keeps the meaning it has today.
+Follows finding F-008.
+
+This decision is narrower than the one Task 2 of
+`docs/superpowers/plans/2026-09-17-leadline-findings-fixes.md` described. That
+plan said a successful `retried` should count as a completion "the same way
+`completed` does". It should not, for the reason recorded under the rejected
+alternatives, and the plan's wording in Task 2 and Task 8 is corrected to match
+this decision. Where the two disagree, this decision governs.
 
 ### Context
 
@@ -3125,61 +3131,92 @@ Only `finish()`, which records a plain `completed` or `failed` whatever the
 attempt, can, and a reader looking at the journey between the retry and the
 `finish()` sees a failed journey whose most recent event succeeded.
 
-The asymmetry is the defect. Every operation is already read at journey level
-when it fails, because `hasError` is checked before the operation is. No
-operation but `completed` is read at journey level when it succeeds. For
-`retried` that asymmetry is wrong rather than merely incomplete, because a
-`retried` event is the only one whose meaning is "this is another attempt at
-something already recorded": when it succeeds, it is evidence that an earlier
-failure was superseded.
+There is a general asymmetry underneath this. Every operation is already read at
+journey level when it fails, because `hasError` is checked before the operation
+is: a first-attempt `delivered` that fails sets the journey failed with no retry
+involved. No operation but `completed` is read at journey level when it
+succeeds. So any failing step leaves its journey failed until `finish()`, and
+F-008 is the case where that is most obviously wrong, not the only case.
+
+What makes `retried` the one operation to act on is that it is the only one
+whose meaning is "this is another attempt at something already recorded". Its
+success is evidence about the earlier attempt: that attempt's error has been
+superseded. A successful `delivered` or `persisted` of some other step carries
+no such evidence, because it says nothing about the step that failed. That is
+the whole of the argument, and it reaches exactly as far as clearing the
+failure.
 
 ### Decision
 
-`deriveStatus` treats a `retried` event that carries no error as a completion,
-exactly as it treats the operation `completed`. A `retried` event that carries
-an error is a failure, as it already is.
+A `retried` event that carries no error clears an existing `failed` status,
+returning the journey to `active`. It does not mark the journey `completed`.
+
+`completed` keeps the meaning it has today: the operation `completed`, at or
+after the watermark, which in practice is `finish()`. A journey is completed
+when the run that owns it says it finished, and nothing else says that.
+
+A `retried` event that carries an error is a failure, as it already is.
 
 The event itself is not touched. Its operation stays `retried` on the wire, in
 storage and on the timeline. This decision is about what the server derives from
 an event, not about what the SDK records.
 
-The SQL in `updateJourneySummary` needs no edit. Both the status case and the
-`completed_at` case read `e.event_status`, which is the value `deriveStatus`
-returns, so changing the mapping is the whole change. The watermark comparison,
-the branch that lets a failure win whatever its timestamp, and the label and
-last-step rules are all untouched.
-
-What follows from the mapping, stated so the implementation is not guessed at:
+What follows, stated so the implementation is not guessed at:
 
 - A journey whose step fails on attempt one and succeeds as `retried` on attempt
-  two reads completed, with no `finish()`, once the retry is applied.
+  two, with no `finish()`, reads `active`. The run is in progress again, which
+  is what is true of it. It is not completed, because nothing has said the run
+  reached its end.
+- A journey whose only event is a successful `retried` reads `active`, which is
+  what it reads today. There is no failure to clear, and a lone retry is not an
+  ending.
 - A journey whose last retry failed is still failed. The retry carries an error,
   `deriveStatus` returns `failed`, and that branch wins whatever the timestamp.
-- A journey whose only event is a successful `retried` reads completed, where
-  today it reads active, and its `completed_at` is that event's timestamp. That
-  falls out of treating the event as a completion, and it is what a lone
-  `completed` event does today.
+- The clearing obeys the watermark, like every status change but a failure: a
+  successful retry clears the failure only when it is at or after the newest
+  event the journey has seen. Without that, a retry stamped before a later
+  failure would clear it.
 - If the successful retry is applied before the earlier failure, the failure
   still wins and the journey reads failed. That is the existing rule and it is
-  deliberate. It is rare in practice: attempt two cannot start until attempt one
-  has finished, and the SDK's queue does not reorder one journey's events.
+  deliberately conservative. It is rare in practice: attempt two cannot start
+  until attempt one has finished, and the SDK's queue does not reorder one
+  journey's events.
+
+**The shape of the implementation is the implementer's call.** Clearing a
+failure is not a pure per-event mapping, because it reads the status the journey
+already has, so `deriveStatus` alone is unlikely to carry it and the status case
+in `updateJourneySummary` will probably need a branch of its own. Whether the
+successful retry arrives there as a new value from `deriveStatus` that the case
+interprets, or as a separate fact passed beside it, does not matter. What must
+hold is this:
+
+- the failure branch still wins whatever the event's timestamp says;
+- the clearing applies only at or after the watermark, by the same comparison
+  every other status change uses;
+- a successful retry never sets `completed` and never writes `completed_at`;
+- the label and last-step rules are untouched.
 
 ### Alternatives rejected
 
+- **A successful retry completes the journey, the same way `completed` does.**
+  This was the plan's wording and the first draft of this decision. It is
+  rejected because "completed" has to mean the journey finished. Under that rule
+  a run that retries successfully and then dies before finishing reads
+  `completed`, and `completed_at` gets set mid-run by a step that was not an
+  ending. A falsely reassuring status is worse than a stale alarming one: a
+  failed journey that has really recovered costs someone a look, while a
+  completed journey that really died is never looked at. It would also have made
+  a journey whose only event is a successful retry read completed, which is
+  plainly untrue of it.
 - **Renaming a successful retry to `completed` in the SDK.** The status would
   then fall out with no server change, and the timeline would lose the fact that
   the attempt was a retry, which is the thing ADR-022 exists to keep. A second
-  attempt would read like a first.
-- **Clearing only an existing `failed` status, and leaving `active` alone.** It
-  keeps `completed_at` meaning the time of `finish()`, at the price of a branch
-  that reads the journey's current status rather than the event in front of it,
-  so the answer would depend on the order two events were applied in. A rule
-  that reads one event the same way every time is worth the wider
-  `completed_at`.
-- **Treating every successful operation as a completion.** `delivered` and
-  `persisted` say a step finished, not that the journey did, and a successful
-  step says nothing about a different step that failed. `retried` is the
-  exception because it is a second attempt at something already recorded.
+  attempt would read like a first. It also has the defect above, one layer down.
+- **Treating every successful operation as clearing a failure.** `delivered` and
+  `persisted` say a step finished, and say nothing about a different step that
+  failed, so a later success would erase a failure it has no evidence about.
+  `retried` is the exception because it is a second attempt at something already
+  recorded.
 - **Leaving it, on the grounds that `finish()` resolves it.** F-008 says as much
   for Leadline, which calls `finish()` on every run. It holds only for a host
   that always reaches its own end, and it leaves the status wrong for as long as
@@ -3188,24 +3225,26 @@ What follows from the mapping, stated so the implementation is not guessed at:
 
 ### Consequences
 
-- `deriveStatus` changes. The SQL in `updateJourneySummary` does not, and a
-  change to it would be a sign that this decision was misread.
-- `completed_at` can now be set before `finish()`, by a successful retry that is
-  the newest status-bearing event. A later `finish()` advances it, because the
-  case takes the newest completing event. A run that retries successfully and
-  then dies without finishing therefore reads completed at the retry, where it
-  used to read failed at the first attempt. The status is a claim made by the
-  newest event that had an opinion, and `lastEventAt` and the timeline still
-  show that the run stopped.
-- The general asymmetry stays: any step that fails leaves its journey failed
-  until a `completed` or a successful `retried` lands. That is deliberate. A
-  failure is the thing a reader wants to see, and this decision narrows the case
-  where it is left standing by evidence that superseded it.
+- The general asymmetry is untouched. Any operation that carries an error still
+  fails its journey, and only a `completed` operation still completes one. This
+  decision adds one way for a failure to be cleared, by the one operation whose
+  success is evidence about the failure, and changes nothing else about how a
+  journey's status is reached.
+- `completed_at` is untouched and keeps meaning what it means today. This is the
+  main thing the narrower rule buys over the rejected one.
+- A journey that failed and then retried successfully moves out of a
+  `status=failed` filter on the journeys list and into `status=active`. That is
+  the point of the change, and it is what a reader scanning for failures wants:
+  the ones still listed are the ones nothing has superseded.
+- `active` after a cleared failure is not distinguishable from `active` that
+  never failed. The failure is still in the journey's own timeline, which is
+  where the evidence belongs; the status is a summary, not a history.
 - Existing rows are not rewritten. A journey recorded before this change keeps
   the status it was given; there is no backfill and no migration.
 - The status is the server's derivation, so the behaviour follows the server's
   version and not the recorder's. A recorder at 0.1.0 against a newer server
   gets the new status for free.
 - `docs/EVENT_PROTOCOL.md` section 5's `retried` entry and the journey status
-  vocabulary in `docs/API_SPEC.md` say what a successful retry does, so the
-  status a reader sees is documented where they look it up.
+  vocabulary in `docs/API_SPEC.md` say what a successful retry does, and say
+  that `completed` means the run reached its end, so the status a reader sees is
+  documented where they look it up.
