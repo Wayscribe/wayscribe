@@ -36,12 +36,15 @@ export type {
   Recorder,
   ShutdownOptions,
   StartJourneyOptions,
-  WrapOptions
+  WrapOptions,
+  WrapResult
 } from "./types.js";
 export type {
   ContextEnvelope,
   ExtractedPayload,
   HttpHeadersInput,
+  NoContextEnvelope,
+  PayloadEnvelope,
   PropagatedContext,
   PropagationLevel,
   SqsMessageAttributes,

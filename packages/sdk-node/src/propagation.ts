@@ -70,6 +70,33 @@ export interface ContextEnvelope<T> {
 }
 
 /**
+ * The envelope a payload goes out in when there was no journey to inject: the
+ * same shape with nothing in it, so `extractPayload` can read the absence of a
+ * journey later rather than guess at it.
+ *
+ * It exists because the value the SDK itself produces did not satisfy
+ * `ContextEnvelope`, and the SDK's own source cast it to get past the type
+ * checker; anything reproducing the shape, such as a recorder that records
+ * nothing, needed the same cast (F-014, ADR-060).
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export interface NoContextEnvelope<T> {
+  _wayscribe: { journeyId?: undefined };
+  data: T;
+}
+
+/**
+ * What `injectPayload` returns: the envelope with the journey, or the one
+ * without. `journeyId` discriminates them, so
+ * `if (envelope._wayscribe.journeyId !== undefined)` narrows to
+ * `ContextEnvelope` with no cast.
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export type PayloadEnvelope<T> = ContextEnvelope<T> | NoContextEnvelope<T>;
+
+/**
  * What `extractPayload` returns: the payload, and the journey when the body
  * was an envelope that carried a usable one.
  *

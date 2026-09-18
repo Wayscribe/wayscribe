@@ -34,7 +34,7 @@ import {
   injectPayload,
   injectSqsAttributes
 } from "./propagation.js";
-import type { ContextEnvelope, PropagatedContext, SqsMessageAttributes } from "./propagation.js";
+import type { PayloadEnvelope, PropagatedContext, SqsMessageAttributes } from "./propagation.js";
 import { acceptLabel } from "./label.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
@@ -77,7 +77,8 @@ export type {
   Recorder,
   ShutdownOptions,
   StartJourneyOptions,
-  WrapOptions
+  WrapOptions,
+  WrapResult
 } from "./types.js";
 
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
@@ -1883,9 +1884,34 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
 
     return {
-      journeyId: journeyId ?? `jrn_${randomUUID()}`,
+      // Derived from the entity before a random id, when a secret makes that
+      // possible: a job whose message carried no context would otherwise start
+      // a journey of its own on every redelivery, and the record's timeline
+      // would be one journey per run (F-005, ADR-060).
+      journeyId: journeyId ?? derivedJourneyId(entity) ?? `jrn_${randomUUID()}`,
       entity: entity ?? UNKNOWN_ENTITY
     };
+  }
+
+  /**
+   * The journey id for an entity, for a `continueJourney` that found none in a
+   * context or in its options, or undefined when one cannot be derived.
+   *
+   * Only when the recorder has a secret it can use and the entity is one the
+   * server would accept. Without a secret this reports nothing and the journey
+   * is new: a recorder without one is the default, not a misconfiguration, and
+   * `journeyIdFor` already warns for a caller who asked for a derived id.
+   */
+  function derivedJourneyId(entity: Entity | undefined): string | undefined {
+    const secret = resolved.journeyIdSecret;
+    if (entity === undefined || secret === undefined || secretProblem !== undefined) {
+      return undefined;
+    }
+    return safely(diagnostics, "capture_error", () =>
+      entityProblem(entity) === undefined
+        ? deriveJourneyId(secret, resolved.environment, entity)
+        : undefined
+    );
   }
 
   /**
@@ -2026,11 +2052,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
     // Without a context there is no envelope to fill, so the payload goes out
     // in one with no journey, which extractPayload reads as no context.
     injectPayload: (payload, context) =>
-      safely(diagnostics, "capture_error", () =>
-        hasContext(context, "injectPayload")
-          ? injectPayload(payload, context, resolved.propagation)
-          : undefined
-      ) ?? ({ _wayscribe: {}, data: payload } as unknown as ContextEnvelope<typeof payload>),
+      safely(
+        diagnostics,
+        "capture_error",
+        () =>
+          hasContext(context, "injectPayload")
+            ? injectPayload(payload, context, resolved.propagation)
+            : undefined
+        // No cast: the no-context envelope has a type of its own, which is
+        // half of what injectPayload returns (F-014, ADR-060).
+      ) ?? ({ _wayscribe: {}, data: payload } satisfies PayloadEnvelope<typeof payload>),
     extractPayload: (body) =>
       safely(diagnostics, "capture_error", () => extractPayload(body)) ?? { data: body },
     async flush() {

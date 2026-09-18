@@ -1,9 +1,9 @@
 import type { Counters } from "./diagnostics.js";
 import type { Operation } from "./operations.js";
 import type {
-  ContextEnvelope,
   ExtractedPayload,
   HttpHeadersInput,
+  PayloadEnvelope,
   PropagatedContext,
   SqsMessageAttributes
 } from "./propagation.js";
@@ -179,6 +179,15 @@ export interface FinishOptions {
 }
 
 /**
+ * What a wrapper returns, given what its callback returned: the value itself,
+ * or a native promise of the resolved value for a promise or any other
+ * thenable. One conditional type rather than two call signatures, so a second
+ * implementation writes one signature too and needs no cast to be assignable
+ * to the four wrappers (F-021, ADR-060).
+ */
+export type WrapResult<T> = T extends PromiseLike<infer Resolved> ? Promise<Awaited<Resolved>> : T;
+
+/**
  * What a journey and a group of journeys both do. On a group, each call
  * records one event per journey, with its own id and the same timing, and a
  * wrapper runs its callback once.
@@ -195,34 +204,30 @@ export interface JourneyOperations {
   transform<T, I = unknown>(
     name: string,
     input: I,
-    fn: () => PromiseLike<T>,
+    fn: () => T,
     options?: WrapOptions<Awaited<T>, I>
-  ): Promise<Awaited<T>>;
-  transform<T, I = unknown>(name: string, input: I, fn: () => T, options?: WrapOptions<T, I>): T;
+  ): WrapResult<T>;
   /** Runs `fn` and records `persisted`. */
   persist<T, I = unknown>(
     name: string,
     input: I,
-    fn: () => PromiseLike<T>,
+    fn: () => T,
     options?: WrapOptions<Awaited<T>, I>
-  ): Promise<Awaited<T>>;
-  persist<T, I = unknown>(name: string, input: I, fn: () => T, options?: WrapOptions<T, I>): T;
+  ): WrapResult<T>;
   /** Runs `fn` and records `published`. */
   publish<T, I = unknown>(
     name: string,
     message: I,
-    fn: () => PromiseLike<T>,
+    fn: () => T,
     options?: WrapOptions<Awaited<T>, I>
-  ): Promise<Awaited<T>>;
-  publish<T, I = unknown>(name: string, message: I, fn: () => T, options?: WrapOptions<T, I>): T;
+  ): WrapResult<T>;
   /** Runs `fn` and records `delivered`. */
   deliver<T, I = unknown>(
     name: string,
     payload: I,
-    fn: () => PromiseLike<T>,
+    fn: () => T,
     options?: WrapOptions<Awaited<T>, I>
-  ): Promise<Awaited<T>>;
-  deliver<T, I = unknown>(name: string, payload: I, fn: () => T, options?: WrapOptions<T, I>): T;
+  ): WrapResult<T>;
   /**
    * Records `failed`, for a terminal failure such as a dead-letter move. A
    * failed attempt that will be retried is the attempt's own operation with an
@@ -410,7 +415,7 @@ export interface Recorder {
    *
    * @experimental The envelope's key waits on the propagation specification.
    */
-  injectPayload<T>(payload: T, context: PropagatedContext): ContextEnvelope<T>;
+  injectPayload<T>(payload: T, context: PropagatedContext): PayloadEnvelope<T>;
   /**
    * The payload from an envelope, and its journey. A body that is not an
    * envelope comes back as `data`, with no context.

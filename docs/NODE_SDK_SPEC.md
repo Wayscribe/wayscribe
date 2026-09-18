@@ -138,12 +138,16 @@ const journey = recorder.continueJourney({ journeyId, entity });
 ```
 
 `ContinueJourneyOptions`: `{ context?, journeyId?, entity?, label? }`. The
-journey id is the context's, else `journeyId`, else a new random one; the
+journey id is the context's, else `journeyId`, else the id derived from the
+entity when the recorder has a usable `journeyIdSecret` (ADR-060), else a new
+random one; the
 entity is the context's, else `entity`, else `{ type: "unknown", id: "unknown"
 }`. A `journeyId` that is not a non-empty string is reported as
 `configuration_error` with code `journey_id_invalid`, and a new journey is
 started; so is a `context` without a non-empty string id, which is then
-treated as absent (the `journeyId` option is used if there is one). A journey's
+treated as absent (the `journeyId` option is used if there is one, and the
+derived id after that). Deriving reports nothing: a recorder without a secret
+is the default, and its journey is new, as it has always been. A journey's
 own `context()` is a valid `context`; the journey handle itself is not. Records
 nothing by itself. Used by downstream HTTP handlers and queue consumers.
 
@@ -264,11 +268,15 @@ value, the time the callback started and its duration, and:
 - never replaces the application's error with a recorder error.
 
 ```typescript
-transform<T, I = unknown>(name: string, input: I, fn: () => PromiseLike<T>,
-  options?: WrapOptions<Awaited<T>, I>): Promise<Awaited<T>>;
 transform<T, I = unknown>(name: string, input: I, fn: () => T,
-  options?: WrapOptions<T, I>): T;
+  options?: WrapOptions<Awaited<T>, I>): WrapResult<T>;
+
+type WrapResult<T> = T extends PromiseLike<infer R> ? Promise<Awaited<R>> : T;
 ```
+
+One signature, not two: a second implementation that runs the callback and
+forwards its result the same way either time can be typed once and assigned to
+all four wrappers with no cast (F-021, ADR-060).
 
 ### Wrapper options
 
@@ -435,12 +443,15 @@ envelope around the payload. The helpers are always available; nothing enables
 them.
 
 ```typescript
-const envelope = recorder.injectPayload(order, journey.context()); // ContextEnvelope<Order>
+const envelope = recorder.injectPayload(order, journey.context()); // PayloadEnvelope<Order>
 const { context, data } = recorder.extractPayload(body); // ExtractedPayload
 ```
 
 `extractPayload` returns a body that is not an envelope as `data`, with no
-context. The header, attribute and envelope names are not specified in
+context. `PayloadEnvelope<T>` is `ContextEnvelope<T>` or `NoContextEnvelope<T>`,
+the empty envelope a recorder with no context to inject produces, so the value
+the SDK itself makes satisfies its own type (F-014, ADR-060). The header,
+attribute and envelope names are not specified in
 `SDK_SPEC.md` yet (its section 1); they wait on the propagation specification.
 
 ## 8. Batching, transport and shutdown

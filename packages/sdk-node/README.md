@@ -190,7 +190,8 @@ operation they record, which is what makes the timeline readable.
 
 **They preserve the shape of your callback.** A callback that returns a value
 returns a value; one that returns a promise, or any other thenable, returns a
-native promise of its resolved value. So wrapping a synchronous call does not
+native promise of its resolved value, which the exported type `WrapResult<T>`
+states in one signature rather than two. So wrapping a synchronous call does not
 change the control flow around it:
 
 ```typescript
@@ -351,6 +352,23 @@ one; keep it like any other credential, and do not reuse the API key.
 **Rotating the secret starts new journeys** for every record. The old ones are
 kept, and nothing links them to the new ones.
 
+**A consumer with no propagated context can derive the id too.** When a
+recorder has a usable `journeyIdSecret`, `continueJourney` that finds no
+journey id, in a context or in its own options, derives one from the entity
+rather than starting a random journey, so a redelivered message rejoins the
+record's timeline instead of opening one per run (ADR-060):
+
+```typescript
+// The same journey as journeyIdFor(entity) would give.
+const journey = recorder.continueJourney({ entity });
+```
+
+A journey id you pass wins over the derived one, and a context's wins over
+both. **Without a secret this is unchanged: the journey is new, with a random
+id, and nothing is reported**, because a recorder without a secret is the
+default and not a misconfiguration. An entity the server would refuse starts a
+new journey too, and is reported as it already was.
+
 **Without a usable secret, `journeyIdFor` does not throw.** It reports a
 `configuration_error`, counts it in `configurationErrors`, and returns a fresh
 random id, so recording carries on and the journeys split until the secret is
@@ -469,6 +487,13 @@ const journey = recorder.continueJourney({ context, entity: { type: "order", id:
 
 `extractPayload` returns a body that is not an envelope as `data`, with no
 context, so a consumer can read old and new messages alike.
+
+`injectPayload` returns `PayloadEnvelope<T>`: `ContextEnvelope<T>` when there
+was a journey to inject, and `NoContextEnvelope<T>`, whose `_wayscribe` is
+empty, when there was not, which is what a recorder given no context produces.
+Both are exported, so a queue typed on its job payload names the union and
+needs no cast, and `_wayscribe.journeyId` reads as `string | undefined` on it
+(ADR-060).
 
 | `propagation` | Emits |
 | --- | --- |
