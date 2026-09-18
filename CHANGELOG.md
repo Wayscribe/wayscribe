@@ -446,7 +446,9 @@ What you have to do when upgrading a checkout or a deployment:
   `rejected settings: journeyId` after one odd call (F-038, ADR-062).
   `configurationErrors` still counts every report. `journeyIdFor` now names
   `entity` when it refuses one, and refuses an entity whose type or id is
-  empty, as its documentation and the protocol already said.
+  empty, as its documentation and the protocol already said. The derivation
+  fixture lists those entities under a new `refusedEmpty`, so another SDK's
+  conformance run checks it too.
 
 - **`deployment` is reported by field.** A refused field is named
   `deployment.gitCommit`, `deployment.version` or `deployment.image`; keys the
