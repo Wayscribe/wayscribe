@@ -34,6 +34,11 @@ export interface DoctorOptions {
   apiUrl?: string;
   /** Verifies this key against the database when given. Only its prefix is ever printed. */
   apiKey?: string;
+  /**
+   * Why a key the operator meant to check was not checked, reported as SKIP
+   * in the API key check's place. Ignored when `apiKey` is given.
+   */
+  apiKeyNotChecked?: string;
   /** Injected for tests. */
   fetch?: typeof fetch;
   /** How long `GET /ready` may take. */
@@ -179,6 +184,10 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
       const verifying = keyring;
       results.push(await guarded("API key", () => apiKeyResult(db, verifying, apiKey)));
     }
+  } else if (options.apiKeyNotChecked !== undefined) {
+    // A check that cannot run says so, as every other one does, rather than
+    // vanishing from a report that would then read as all passed (F-032).
+    results.push(skip("API key", options.apiKeyNotChecked));
   }
 
   if (options.apiUrl !== undefined) {
@@ -289,7 +298,8 @@ export function formatDoctor(results: readonly CheckResult[]): string[] {
 }
 
 export type DoctorArgs =
-  { ok: true; apiUrl?: string; apiKey?: string } | { ok: false; message: string };
+  | { ok: true; apiUrl?: string; apiKey?: string; apiKeyNotChecked?: string }
+  | { ok: false; message: string };
 
 export const DOCTOR_USAGE =
   "Usage: doctor [--api-url <url>] [--api-key <key>]\n" +
@@ -305,9 +315,18 @@ export const DOCTOR_USAGE =
  * the process list, which inside a container is anything with Docker access to
  * the host, so the environment is the safer route (docs/OPERATIONS.md §12). The
  * flag still wins, for an operator checking one key while the environment holds
- * another. A blank value counts as unset, the way every other setting treats
- * one, and the value is trimmed because a secrets file commonly ends in a
+ * another. The value is trimmed because a secrets file commonly ends in a
  * newline.
+ *
+ * A variable that is set but blank is not treated as unset. A Compose file's
+ * `WAYSCRIBE_API_KEY: ${WAYSCRIBE_API_KEY}` sets it empty on a host that has
+ * none, and so does `-e WAYSCRIBE_API_KEY` from a shell that set it empty, so
+ * a blank value usually means a key the operator meant to pass went missing
+ * on the way. (`-e` alone, from a shell without the variable, leaves it
+ * unset.) It comes back as `apiKeyNotChecked`, which doctor
+ * reports as SKIP, rather than as no key at all, which left the check out of
+ * the report and let it read as all passed (F-032). An unset variable asks
+ * for no key check and gets none.
  */
 export function parseDoctorArgs(
   args: readonly string[],
@@ -337,12 +356,17 @@ export function parseDoctorArgs(
   if (apiUrl !== undefined && !isHttpUrl(apiUrl)) {
     return { ok: false, message: `--api-url must be an http:// or https:// URL.\n${DOCTOR_USAGE}` };
   }
-  const fromEnvironment = (env["WAYSCRIBE_API_KEY"] ?? "").trim();
+  const fromEnvironment = env["WAYSCRIBE_API_KEY"]?.trim();
   const apiKey = values["--api-key"] ?? (fromEnvironment === "" ? undefined : fromEnvironment);
+  const apiKeyNotChecked =
+    apiKey === undefined && fromEnvironment === ""
+      ? "WAYSCRIBE_API_KEY is set but empty"
+      : undefined;
   return {
     ok: true,
     ...(apiUrl === undefined ? {} : { apiUrl }),
-    ...(apiKey === undefined ? {} : { apiKey })
+    ...(apiKey === undefined ? {} : { apiKey }),
+    ...(apiKeyNotChecked === undefined ? {} : { apiKeyNotChecked })
   };
 }
 

@@ -520,6 +520,21 @@ describe("doctor", () => {
     expectNoSecrets(run, apiKey);
   });
 
+  it("reports SKIP for the API key when WAYSCRIBE_API_KEY is set but empty, rather than dropping the check", async () => {
+    // A Compose file's `WAYSCRIBE_API_KEY: ${WAYSCRIBE_API_KEY}` sets it
+    // empty on a host without it, so this is what a wrapper that lost the key
+    // on the way produces.
+    const empty = await doctor([], { WAYSCRIBE_API_KEY: "" });
+    const unset = await doctor([], { WAYSCRIBE_API_KEY: undefined });
+
+    expect(statusOf(empty, "API key"), empty.output).toBe("SKIP");
+    expect(lineOf(empty, "API key")).toContain("Not checked: WAYSCRIBE_API_KEY is set but empty.");
+    expect(empty.output).toContain("1 skipped.");
+    expect(empty.code, empty.output).toBe(0);
+    // Unset is not a request for a key check, so nothing is reported for it.
+    expect(statusOf(unset, "API key"), unset.output).toBeUndefined();
+  });
+
   it("lets --api-key win over WAYSCRIBE_API_KEY", async () => {
     const run = await doctor(["--api-key", revokedKey], { WAYSCRIBE_API_KEY: apiKey });
 

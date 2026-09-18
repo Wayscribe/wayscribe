@@ -366,7 +366,11 @@ What you have to do when upgrading a checkout or a deployment:
   in the API image beside `key:create`, and runs as `pnpm run doctor` from a
   checkout (`docs/OPERATIONS.md` section 12). It takes the key to check from
   `WAYSCRIBE_API_KEY` when `--api-key` is absent, so the key need not sit in the
-  container's process list; the flag wins when both are given.
+  container's process list; the flag wins when both are given. A variable that
+  is set but empty, which is what a Compose file's
+  `WAYSCRIBE_API_KEY: ${WAYSCRIBE_API_KEY}` gives it on a host without one,
+  reports the key check as `SKIP` with that reason rather than leaving it out
+  of a report that then read as all passed (F-032).
 - **`key:create --json`** prints one JSON object with the key, its prefix, the
   project and the environment, and nothing else, so a script capturing a new key
   parses no prose. Without the flag the human form is unchanged.

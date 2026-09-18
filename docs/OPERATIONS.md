@@ -1551,9 +1551,18 @@ docker compose run --rm --entrypoint node \
   -e WAYSCRIBE_API_KEY api packages/database/dist/cli.js doctor --api-url http://api:8080
 ```
 
-A blank value counts as unset, and the value is trimmed, so a key read from a
-file that ends in a newline works. `--api-key` wins when both are given, for
-checking one key while the environment holds another.
+The value is trimmed, so a key read from a file that ends in a newline works.
+`--api-key` wins when both are given, for checking one key while the environment
+holds another.
+
+A variable that is set but empty is reported as
+`SKIP  API key  Not checked: WAYSCRIBE_API_KEY is set but empty.` rather than
+left out, so the summary counts it as skipped and says the check did not
+happen. That is what a Compose file's `WAYSCRIBE_API_KEY: ${WAYSCRIBE_API_KEY}`
+passes on a host without the variable, and what `-e WAYSCRIBE_API_KEY` passes
+from a shell that has it set empty. Like every `SKIP`, it does not change the
+exit code. With the variable unset and no flag, which is what `-e` passes from a
+shell without it, doctor checks no key and prints no line for one.
 
 Run it with the API's environment, because that is what it checks: the same
 `DATABASE_URL`, `ENCRYPTION_KEY`, `ADMIN_TOKEN`, and

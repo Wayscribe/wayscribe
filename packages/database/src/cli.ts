@@ -335,7 +335,10 @@ try {
         db,
         env: process.env,
         ...(parsed.apiUrl === undefined ? {} : { apiUrl: parsed.apiUrl }),
-        ...(parsed.apiKey === undefined ? {} : { apiKey: parsed.apiKey })
+        ...(parsed.apiKey === undefined ? {} : { apiKey: parsed.apiKey }),
+        ...(parsed.apiKeyNotChecked === undefined
+          ? {}
+          : { apiKeyNotChecked: parsed.apiKeyNotChecked })
       });
       for (const line of formatDoctor(results)) console.log(line);
       process.exitCode = doctorExitCode(results);
