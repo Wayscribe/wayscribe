@@ -384,7 +384,8 @@ e2e:
     - node apps/api/dist/server.js &
     - pnpm --filter @wayscribe/web start &
     # A bounded wait: a server that dies at boot must fail the job, not hang it.
-    - npx wait-on --timeout 120000 http://localhost:8080/health http://localhost:3000/login
+    # The web app's /health answers only when its configuration loads.
+    - npx wait-on --timeout 120000 http://localhost:8080/health http://localhost:3000/health
     - export WAYSCRIBE_API_KEY=$(pnpm db:seed | grep -oE 'wsk_[A-Za-z0-9_-]+' | tail -1)
     - pnpm test:e2e
 

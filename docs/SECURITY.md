@@ -521,8 +521,9 @@ with `existingSecret`. Either way the value is still readable by anything that
 can read the mounted file or enter the running container: this narrows what an
 inspection of the container's configuration reveals, and narrows nothing else.
 
-Giving both a variable and its `_FILE` is refused at startup, by name and with
-no value printed, rather than one silently winning. An empty file is refused
+Giving both a variable and its `_FILE` is refused at startup, by the API and the
+web app alike, by name and with no value printed, rather than one silently
+winning. An empty file is refused
 too, because reading it as an unset setting would start the stack on a published
 development default.
 

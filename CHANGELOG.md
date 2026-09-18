@@ -383,9 +383,19 @@ What you have to do when upgrading a checkout or a deployment:
   where it is reached. Every other setting in those files already did.
 - **Both images declare a health check**, so `docker compose up -d --wait`
   waits on a served request rather than a started process: the API answers
-  `GET /health` and the web image renders `/login`. Each is probed every two
-  seconds during its start period, which returns `--wait` about two seconds
-  sooner on a cold start (11.2 s to 8.8 s, measured on a laptop).
+  `GET /health` and the web app answers its own `GET /health`, which loads its
+  configuration and answers 503 when that fails, so for the web app "healthy"
+  also means configured. Each is probed every two seconds during its start
+  period, which returns `--wait` about two seconds sooner on a cold start
+  (11.2 s to 8.8 s, measured on a laptop).
+- **The web app refuses to start misconfigured**, as the API does. It loads its
+  configuration once when the server starts and, when that fails, writes the
+  reason naming the setting and never its value, and exits 1. Before this, a
+  web container given both `ADMIN_TOKEN` and `ADMIN_TOKEN_FILE`, or a token file
+  that was not there, started, passed a health check that probed `/login`, and
+  failed the first sign-in with a 500; `up --wait` reported it `Healthy`. It now
+  reports `container <name> exited (1)` within a second (F-030, measured on the
+  built image in both cases).
 - **`ENCRYPTION_KEY` rotation without losing data** (ADR-044). Every encrypted
   value names the key that wrote it; `ENCRYPTION_KEY_PREVIOUS` keeps old data
   readable and searchable, and API keys authenticating, through a grace period;

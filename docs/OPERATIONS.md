@@ -81,9 +81,18 @@ are the names a browser uses, not the container's own.
 
 `docker compose up -d --wait` returns when every container is healthy. Both
 images declare a health check: the API answers `GET /health` on its own port,
-and the web image renders `/login`, the one page that needs no session. A
-passing probe therefore means the server answered a request, not that a process
-started.
+and the web app answers `GET /health` on its port, which loads its
+configuration and answers 503 when that fails. A passing probe therefore means
+the server answered a request, not that a process started, and for the web app
+that it is configured.
+
+Both servers also refuse to start on a configuration they cannot load, such as
+`ADMIN_TOKEN` and `ADMIN_TOKEN_FILE` given together or a token file that is not
+there. The process writes the reason to its log, naming the setting and never
+its value, and exits 1, so `up --wait` fails at once with `container
+<name> exited (1)` rather than reporting it `Healthy`. Earlier images of the web
+app started anyway, passed their health check on `/login`, which reads no
+configuration, and failed the first sign-in with a 500.
 
 Each check is probed every two seconds during its start period, so `--wait`
 returns as soon as the stack is actually serving. Afterwards the cadence
@@ -480,8 +489,8 @@ as it is when it comes from a variable. A file and a variable holding the same
 value therefore give the same key or token, and the length is measured on the
 trimmed value. An empty file is refused rather than read as an unset setting,
 which would otherwise start the stack on a published default.
-Setting both a variable and its `_FILE` is refused at startup, naming the
-setting and printing no value, because nothing on a running container would say
+Setting both a variable and its `_FILE` is refused at startup, by the API and
+the web app alike, naming the setting and printing no value, because nothing on a running container would say
 which had won. `doctor` reports the same refusal as a failed `Secrets from
 files` check.
 
