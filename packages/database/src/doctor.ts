@@ -1,7 +1,8 @@
 import {
   findInsecureDefaults,
   loadStatementTimeoutMs,
-  PUBLISHED_DEMO_API_KEYS
+  PUBLISHED_DEMO_API_KEYS,
+  resolveSecretFiles
 } from "@wayscribe/config";
 import {
   API_KEY_PREFIX_LENGTH,
@@ -87,8 +88,22 @@ const SQLSTATE_FIXES: Record<string, string> = {
  * secret is scrubbed from every line before it is returned.
  */
 export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> {
-  const { db, env } = options;
+  const { db } = options;
   const results: CheckResult[] = [];
+
+  // The API reads ENCRYPTION_KEY, ENCRYPTION_KEY_PREVIOUS and ADMIN_TOKEN from
+  // the files their _FILE settings name, so doctor has to read them the same
+  // way or it would report an installation using them as having no key and no
+  // token. A refusal is a check of its own rather than a throw: it is exactly
+  // what stops the API starting, and the rest of the checks still run.
+  let env = options.env;
+  let secretFilesProblem: string | null = null;
+  try {
+    env = resolveSecretFiles(options.env);
+  } catch (error) {
+    secretFilesProblem =
+      error instanceof Error ? error.message.replace(/\s*\n\s*/g, " ") : "invalid";
+  }
 
   const database = await checkDatabase(db);
   results.push(database.result);
@@ -110,6 +125,16 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
         : migrations.detail.includes("pending")
           ? "migrations are pending"
           : "this build does not know the database's migrations";
+  }
+
+  if (secretFilesProblem !== null) {
+    results.push(
+      fail(
+        "Secrets from files",
+        secretFilesProblem.replace(/^Invalid environment configuration:\s*/, ""),
+        "Fix the setting named above; the API refuses to start on this configuration."
+      )
+    );
   }
 
   results.push(...defaultSecretResults(env));

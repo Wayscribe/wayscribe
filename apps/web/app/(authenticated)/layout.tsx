@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactElement, ReactNode } from "react";
+import { sessionAdminToken } from "../../src/lib/config";
 import { SESSION_COOKIE_NAME, verifySession } from "../../src/lib/session";
 import { SiteNav } from "../components/SiteNav";
 
@@ -22,7 +23,7 @@ export default async function AuthenticatedLayout({
   children: ReactNode;
 }): Promise<ReactElement> {
   const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
-  const adminToken = process.env["ADMIN_TOKEN"] ?? "";
+  const adminToken = sessionAdminToken();
   const session = cookie === undefined ? null : verifySession(adminToken, cookie, Date.now());
 
   if (session === null) redirect("/login");

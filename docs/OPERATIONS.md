@@ -426,12 +426,53 @@ anywhere else never arrives, and nothing says so.
 | `compose.published.yaml` | the shell, or a `.env` beside `compose.published.yaml`. A shell export wins over that file. |
 | Helm | `secrets.encryptionKey` and `secrets.encryptionKeyPrevious`, or the `ENCRYPTION_KEY` and `ENCRYPTION_KEY_PREVIOUS` keys of your `existingSecret`. |
 | `pnpm` commands in a source checkout | the repository-root `.env`. A variable exported in the shell wins over it. |
+| Either Compose stack, from files | `ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE`, each naming a file the value is read from at startup. See "Secrets the container's environment does not hold" below. |
 
 Surrounding whitespace is trimmed from both keys, so a trailing newline from a
 secrets file does not make a different key. An empty `ENCRYPTION_KEY_PREVIOUS`
 means no rotation is in progress. The same value in both variables stops the
 API at boot with a message saying so, rather than starting a rotation that
 rotates nothing.
+
+### Secrets the container's environment does not hold
+
+With the Compose paths above, `ENCRYPTION_KEY` and `ADMIN_TOKEN` are ordinary
+container environment variables. They are part of the container's
+`Config.Env`, so anyone who can run `docker inspect` or `docker compose config`
+on the host can read them, and that is exactly the access starting the stack
+requires. Holding Docker access to that host is therefore equivalent to holding
+the key that decrypts every stored payload and the token that signs every admin
+session. That is an ordinary trade-off rather than a defect, and it is worth
+knowing before deciding who gets that access. A Helm install already avoids it
+with `existingSecret`, a Kubernetes Secret rather than a container environment
+variable.
+
+`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE` are
+the Compose equivalent. When one is set, the value is read from that file at
+startup by the API, the web app, `doctor`, and the key rotation commands. The
+plain variables stay supported and unchanged.
+
+`infrastructure/compose.secret-files.yaml` is an overlay that wires this up with
+Docker's own secrets mechanism:
+
+```bash
+export COMPOSE_FILE=compose.published.yaml:compose.secret-files.yaml
+export ENCRYPTION_KEY_PATH=/etc/wayscribe/encryption-key
+export ADMIN_TOKEN_PATH=/etc/wayscribe/admin-token
+docker compose up -d
+```
+
+Each file holds the value and nothing else. Whitespace at the end is ignored, so
+a file ending in a newline is fine. An empty file is refused rather than read as
+an unset setting, which would otherwise start the stack on a published default.
+Setting both a variable and its `_FILE` is refused at startup, naming the
+setting and printing no value, because nothing on a running container would say
+which had won. `doctor` reports the same refusal as a failed `Secrets from
+files` check.
+
+This keeps the values out of `docker inspect`. It does not hide them from
+anything that can read the files or enter the running container, which Docker
+access to the host also allows.
 
 ### Running the commands
 

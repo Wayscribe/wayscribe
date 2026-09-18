@@ -494,6 +494,29 @@ encrypted, and this is a settled decision rather than an interim state
 
 Encryption keys must not be stored in the same database as ciphertext.
 
+### Where the key and the admin token live at runtime
+
+On the Compose install paths `ENCRYPTION_KEY` and `ADMIN_TOKEN` are container
+environment variables, which means they are in the container's `Config.Env` and
+readable by anything that can run `docker inspect` or `docker compose config` on
+the host. That is the same access needed to start the stack at all, so on those
+paths Docker access to the host is equivalent to holding the encryption key and
+the admin token. Read "not a published default", which `doctor` checks, as
+saying the value is not public, not that it is not exposed.
+
+`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE`
+read each value from a file at startup instead, and
+`infrastructure/compose.secret-files.yaml` mounts those files with Docker's own
+secrets mechanism (docs/OPERATIONS.md §6). A Helm install does the equivalent
+with `existingSecret`. Either way the value is still readable by anything that
+can read the mounted file or enter the running container: this narrows what an
+inspection of the container's configuration reveals, and narrows nothing else.
+
+Giving both a variable and its `_FILE` is refused at startup, by name and with
+no value printed, rather than one silently winning. An empty file is refused
+too, because reading it as an unset setting would start the stack on a published
+development default.
+
 ### Key identifiers and rotation
 
 Every encrypted value is stored as `fr1.<keyId>.<ciphertext>`. The key id is a

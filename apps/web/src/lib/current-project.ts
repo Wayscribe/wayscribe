@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { listProjects } from "./api";
+import { sessionAdminToken } from "./config";
 import { SESSION_COOKIE_NAME, verifySession } from "./session";
 
 /**
@@ -23,7 +24,7 @@ import { SESSION_COOKIE_NAME, verifySession } from "./session";
  */
 export async function requireProjectId(returnTo?: string): Promise<string> {
   const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
-  const adminToken = process.env["ADMIN_TOKEN"] ?? "";
+  const adminToken = sessionAdminToken();
   const session = cookie === undefined ? null : verifySession(adminToken, cookie, Date.now());
 
   if (session === null) redirect("/login");

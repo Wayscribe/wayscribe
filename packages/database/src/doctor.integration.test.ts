@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { LEGACY_PUBLISHED_DEMO_API_KEY, PUBLISHED_DEMO_API_KEY } from "@wayscribe/config";
@@ -52,23 +55,26 @@ describe("doctor", () => {
 
   const doctor = (
     args: string[],
-    env: Record<string, string>,
+    env: Record<string, string | undefined>,
     database = "installed"
   ): Promise<Run> =>
     new Promise((resolve) => {
+      const merged: Record<string, string | undefined> = {
+        PATH: process.env["PATH"] ?? "",
+        NODE_OPTIONS: "--conditions=development",
+        DATABASE_URL: urlFor(database),
+        ENCRYPTION_KEY,
+        ADMIN_TOKEN,
+        ...env
+      };
       execFile(
         tsx,
         ["src/cli.ts", "doctor", ...args],
         {
           cwd: packageRoot,
-          env: {
-            PATH: process.env["PATH"] ?? "",
-            NODE_OPTIONS: "--conditions=development",
-            DATABASE_URL: urlFor(database),
-            ENCRYPTION_KEY,
-            ADMIN_TOKEN,
-            ...env
-          }
+          // A key given as undefined is a key the child does not have, which is
+          // how a test says "unset", rather than the string "undefined".
+          env: Object.fromEntries(Object.entries(merged).filter(([, value]) => value !== undefined))
         },
         (error, stdout, stderr) => {
           const code = error === null ? 0 : typeof error.code === "number" ? error.code : -1;
@@ -469,6 +475,42 @@ describe("doctor", () => {
     expect(both.output).toContain(
       "revoke them: key:revoke wsk_demo0000, then key:revoke fr_demo00000."
     );
+  });
+
+  it("reads the key and the token from the files their _FILE settings name", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "wayscribe-doctor-secret-files-"));
+    const keyFile = join(directory, "encryption-key");
+    const tokenFile = join(directory, "admin-token");
+    writeFileSync(keyFile, `${ENCRYPTION_KEY}\n`, "utf8");
+    writeFileSync(tokenFile, `${ADMIN_TOKEN}\n`, "utf8");
+
+    const run = await doctor(["--api-key", apiKey], {
+      ENCRYPTION_KEY: undefined,
+      ADMIN_TOKEN: undefined,
+      ENCRYPTION_KEY_FILE: keyFile,
+      ADMIN_TOKEN_FILE: tokenFile
+    });
+
+    expect(run.code, run.output).toBe(0);
+    expect(statusOf(run, "ADMIN_TOKEN")).toBe("PASS");
+    expect(statusOf(run, "Keys readable")).toBe("PASS");
+    expect(statusOf(run, "API key")).toBe("PASS");
+    expectNoSecrets(run, apiKey);
+  });
+
+  it("fails a setting given both as a variable and as a file, printing neither value", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "wayscribe-doctor-secret-files-"));
+    const keyFile = join(directory, "encryption-key");
+    writeFileSync(keyFile, ENCRYPTION_KEY, "utf8");
+
+    const run = await doctor([], { ENCRYPTION_KEY_FILE: keyFile });
+
+    expect(run.code).toBe(1);
+    expect(statusOf(run, "Secrets from files")).toBe("FAIL");
+    expect(lineOf(run, "Secrets from files")).toContain(
+      "ENCRYPTION_KEY and ENCRYPTION_KEY_FILE are both set"
+    );
+    expectNoSecrets(run);
   });
 
   it("checks the key from WAYSCRIBE_API_KEY when no flag is given", async () => {
