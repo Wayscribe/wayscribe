@@ -316,6 +316,21 @@ describe("personal data in an error message (F-041)", () => {
     expect(warnings(diagnostics)).toEqual([]);
   });
 
+  it("examines the message as it is sent, after masking", async () => {
+    // Masking takes the assignment's value, address and all, so what is sent
+    // holds no address; the raw text would have warned.
+    const message = "login refused for password=jane.doe@acme.com";
+    expect(personalDataShapeOf(message)).toBe("email");
+    const { events, diagnostics } = await capture((recorder) => {
+      recorder
+        .startJourney({ entity: { type: "lead", id: "1" } })
+        .record({ operation: "failed", name: "r", error: { message } });
+    });
+    const sent = (events[0]?.["error"] as { message: string }).message;
+    expect(sent).not.toContain("jane.doe");
+    expect(warnings(diagnostics)).toEqual([]);
+  });
+
   it("does not examine the stack", async () => {
     const { diagnostics } = await capture((recorder) => {
       recorder.startJourney({ entity: { type: "lead", id: "1" } }).record({
