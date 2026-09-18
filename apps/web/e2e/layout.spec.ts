@@ -190,3 +190,59 @@ test.describe("the Journeys table", () => {
     });
   }
 });
+
+/**
+ * A metadata key may be 128 characters (packages/protocol). A review found a
+ * key column sized to its longest key squeezed every value to about 35 px, and
+ * one event's metadata list grew to 17,646 px tall.
+ */
+const METADATA_JOURNEY_ID = `jrn_e2e_layout_metadata_${VERSION}`;
+const LONG_KEY = `key-${"k".repeat(124)}`;
+
+test.describe("metadata with a long key", () => {
+  test.beforeAll(async () => {
+    const response = await fetch(`${API_URL}/v1/events`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        protocolVersion: "0.1",
+        event: {
+          id: `evt_layout_metadata_${VERSION}`,
+          journeyId: METADATA_JOURNEY_ID,
+          environment: "development",
+          service: "job-sweep",
+          entity: { type: "job_posting", id: `layout-metadata-${VERSION}` },
+          operation: "delivered",
+          name: "push-hubspot",
+          timestamp: "2026-09-16T08:00:00.000Z",
+          metadata: {
+            [LONG_KEY]: "a value that is a sentence long, so it needs room to be read",
+            httpStatus: 429
+          }
+        }
+      })
+    });
+    expect(response.ok, `seeding answered ${String(response.status)}`).toBe(true);
+  });
+
+  for (const width of [400, 1280]) {
+    test(`keeps the value column usably wide at ${String(width)} px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await signIn(page, METADATA_JOURNEY_ID);
+      await page.goto(`/journeys/${METADATA_JOURNEY_ID}`);
+      const list = page.getByRole("group", { name: "Custom" }).locator("dl");
+      await expect(list.getByRole("term")).toHaveText(["httpStatus", LONG_KEY]);
+
+      expect(await horizontalOverflow(page)).toBe(0);
+      const listBox = await list.boundingBox();
+      // At least half the list for every value, however long a key is: the
+      // grid sizes the column once for all rows.
+      for (const value of await list.getByRole("definition").all()) {
+        const valueBox = await value.boundingBox();
+        expect(valueBox?.width ?? 0).toBeGreaterThanOrEqual((listBox?.width ?? 0) * 0.5);
+      }
+      // Two entries, a long key wrapped over a few lines: nowhere near a page.
+      expect(listBox?.height ?? Infinity).toBeLessThan(400);
+    });
+  }
+});

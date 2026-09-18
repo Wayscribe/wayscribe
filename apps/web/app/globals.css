@@ -592,8 +592,10 @@ button[aria-busy="true"] {
 }
 
 /* An event's metadata: one group per kind, each a list of keys and values.
-   Values are whatever the instrumented code sent and may be long and
-   unbroken, so they wrap anywhere rather than widen the page. */
+   Keys and values are whatever the instrumented code sent and may be long and
+   unbroken, so they wrap anywhere rather than widen the page. The key column
+   is as wide as its keys up to 40% of the list and no wider: sized to its
+   longest key, one 128-character key squeezed every value to about 35 px. */
 .metadata {
   display: flex;
   flex-direction: column;
@@ -601,7 +603,7 @@ button[aria-busy="true"] {
 }
 .metadata-list {
   display: grid;
-  grid-template-columns: minmax(8rem, max-content) 1fr;
+  grid-template-columns: fit-content(40%) 1fr;
   margin: 0;
   background: var(--panel);
   border: 1px solid var(--line);
