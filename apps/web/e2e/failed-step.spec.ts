@@ -4,12 +4,9 @@ import { API_KEY, API_URL, signIn } from "./session";
 /**
  * ADR-063, F-047: a failed journey names the step that failed it, which a
  * later successful step no longer hides, in the Journeys table, on the
- * journey page and in search.
- *
- * The API names it from the release that adds `failedStep`. Against an older
- * API the pages show what they showed before, the last step and a bare
- * `failed`, so every assertion here asks the API which it is talking to and
- * checks the matching page. Stamped per run: the list shows recent activity.
+ * journey page and in search. What an API without `failedStep` shows is the
+ * unit tests' (JourneyRow, JourneyListItem, the events proxy). Stamped per
+ * run: the list shows recent activity.
  */
 const RUN = Date.now().toString(36);
 const SERVICE = `e2e-failed-step-${RUN}`;
@@ -74,37 +71,15 @@ test.beforeAll(async () => {
   }
 });
 
-/**
- * The failed step this API gives the journey, or undefined when its search
- * rows have no such field, which is an API from before ADR-063.
- */
-async function apiFailedStep(entityId: string): Promise<string | null | undefined> {
-  const response = await fetch(`${API_URL}/v1/search?q=${encodeURIComponent(entityId)}`, {
-    headers: { authorization: `Bearer ${API_KEY}` }
-  });
-  expect(response.ok).toBe(true);
-  const body = (await response.json()) as { data: { items: Record<string, unknown>[] } };
-  const [item] = body.data.items;
-  if (item === undefined) throw new Error(`search found no journey for ${entityId}`);
-  return "failedStep" in item ? (item["failedStep"] as string | null) : undefined;
-}
-
 async function checkRows(page: Page): Promise<void> {
-  const failedStep = await apiFailedStep(RETRIED.entityId);
   await page.goto(`/journeys?service=${SERVICE}`);
   await expect(page.getByRole("columnheader").nth(5)).toHaveAccessibleName("Step");
 
   const retried = page.locator("tbody tr", { hasText: `lead: ${RETRIED.entityId}` });
   const step = retried.locator("td.col-step");
-  if (failedStep === undefined) {
-    await expect(step).toHaveText("map-hubspot");
-    await expect(step).toHaveAttribute("class", "col-step");
-  } else {
-    expect(failedStep).toBe("push-hubspot");
-    await expect(step).toHaveText("push-hubspot");
-    await expect(step).toHaveAttribute("class", "col-step failed");
-    await expect(step).toHaveAttribute("title", "Failed at push-hubspot; last step map-hubspot");
-  }
+  await expect(step).toHaveText("push-hubspot");
+  await expect(step).toHaveAttribute("class", "col-step failed");
+  await expect(step).toHaveAttribute("title", "Failed at push-hubspot; last step map-hubspot");
 
   const completed = page
     .locator("tbody tr", { hasText: `lead: ${COMPLETED.entityId}` })
@@ -115,25 +90,21 @@ async function checkRows(page: Page): Promise<void> {
 }
 
 async function checkSummary(page: Page): Promise<void> {
-  const failedStep = await apiFailedStep(RETRIED.entityId);
   await page.goto(`/journeys/${RETRIED.journeyId}`);
-  const expected = failedStep === undefined ? "failed" : `failed at ${String(failedStep)}`;
+  const expected = "failed at push-hubspot";
   await expect(page.locator("p[aria-live=polite]")).toHaveText(
     `${expected} · 5 events · ${SERVICE}`
   );
 }
 
 async function checkSearch(page: Page): Promise<void> {
-  const failedStep = await apiFailedStep(RETRIED.entityId);
   await page.goto(`/?q=${RETRIED.entityId}`);
   const status = page
     .getByRole("listitem")
     .filter({ hasText: `lead: ${RETRIED.entityId}` })
     .locator(".status");
   await expect(status).toHaveAttribute("class", "status failed");
-  await expect(status).toHaveText(
-    failedStep === undefined ? "failed" : `failed at ${String(failedStep)}`
-  );
+  await expect(status).toHaveText("failed at push-hubspot");
 }
 
 test("the Journeys table names the step that failed a journey", async ({ page }) => {
@@ -190,13 +161,12 @@ test("a followed journey's summary line learns the failed step with its status",
   await post(live, 1, "push-hubspot", "failed", now + 1000);
   await post(live, 2, "take-job", "received", now + 2000);
 
-  const failedStep = await apiFailedStep(live.entityId);
-  const expected = failedStep === undefined ? "failed" : "failed at push-hubspot";
+  const expected = "failed at push-hubspot";
   // One text, so the status and the count came from the same render.
   await expect(line).toHaveText(`${expected} · 3 events · ${SERVICE}`, { timeout: 15_000 });
 
   const bodies = (await Promise.all(polled)) as Record<string, unknown>[];
   const last = bodies.at(-1);
   expect(last?.["journeyStatus"]).toBe("failed");
-  expect(last?.["journeyFailedStep"]).toBe(failedStep === undefined ? null : "push-hubspot");
+  expect(last?.["journeyFailedStep"]).toBe("push-hubspot");
 });

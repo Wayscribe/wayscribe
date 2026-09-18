@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { ADMIN_TOKEN, API_KEY, API_URL, projectHolding, signIn } from "./session";
+import { API_KEY, API_URL, signIn } from "./session";
 
 /**
  * F-044: the event detail shows the metadata the API returns, as text.
@@ -176,11 +176,7 @@ test.describe("a payload key named __proto__", () => {
 
 /**
  * ADR-063, F-046: the Runtime group names the SDK that recorded the event as
- * one line, `<name> <version> at <commit>`.
- *
- * An API from before `runtime.sdk` strips it as an unknown key and stores the
- * rest of `runtime`, so the entry is then absent; the test asks the API what
- * it stored and checks the page against that. Shapes the protocol refuses (a
+ * one line, `<name> <version> at <commit>`. Shapes the protocol refuses (a
  * name that is not text, an oversized value) cannot be stored through the
  * API, so they are the unit tests' (`event-display.test.ts`).
  */
@@ -235,28 +231,10 @@ test.describe("the Runtime group's sdk entry", () => {
     expect(bare.ok, `seeding answered ${String(bare.status)}`).toBe(true);
   });
 
-  /** Whether the API kept `runtime.sdk`, which an API from before ADR-063 strips. */
-  async function storedSdk(): Promise<boolean> {
-    const projectId = await projectHolding(SDK_JOURNEY_ID);
-    const response = await fetch(`${API_URL}/v1/events/${SDK_EVENT_ID}`, {
-      headers: {
-        authorization: `Bearer ${ADMIN_TOKEN}`,
-        ...(projectId === null ? {} : { "x-wayscribe-project-id": projectId })
-      }
-    });
-    expect(response.ok).toBe(true);
-    const body = (await response.json()) as { data: { runtimeMetadata: Record<string, unknown> } };
-    return "sdk" in body.data.runtimeMetadata;
-  }
-
   async function expectRuntime(page: Page): Promise<void> {
     const runtime = page.getByRole("group", { name: "Runtime" });
-    if (await storedSdk()) {
-      await expect(runtime.getByRole("term")).toHaveText(["language", "sdk", "version"]);
-      await expect(runtime.getByRole("definition")).toHaveText(["node", SDK_TEXT, "24.19.0"]);
-    } else {
-      await expect(runtime.getByRole("term")).toHaveText(["language", "version"]);
-    }
+    await expect(runtime.getByRole("term")).toHaveText(["language", "sdk", "version"]);
+    await expect(runtime.getByRole("definition")).toHaveText(["node", SDK_TEXT, "24.19.0"]);
   }
 
   test("reads as one line", async ({ page }) => {
