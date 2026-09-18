@@ -425,6 +425,57 @@ describe("key rotation commands", () => {
       for (const row of rows) expect(keyIdOf(row.encrypted ?? "")).toBe(keyringB.current.id);
     });
 
+    it("points an event that stated the stale alias row at the row that stays", async () => {
+      // Migration 020: an event names the alias rows it stated by id. The stale
+      // copy is deleted, so an event naming it would otherwise lose the alias
+      // it stated; the survivor carries the same value and the folded flag.
+      await journeyUnder(keyringB, "jrn_1", "E-1");
+      await aliasUnder(keyringA, "jrn_1", "salesforceAccountId", "SF-1");
+      await aliasUnder(keyringB, "jrn_1", "salesforceAccountId", "SF-1");
+      await aliasUnder(keyringA, "jrn_1", "internalId", "SF-1");
+      const idOf = async (aliasType: string, hash: string): Promise<string> => {
+        const row: unknown = await db("entity_aliases")
+          .where({ journey_id: "jrn_1", alias_type: aliasType, alias_value_hash: hash })
+          .first("id");
+        return (row as { id: string }).id;
+      };
+      const stale = await idOf("salesforceAccountId", token(keyringA, "SF-1"));
+      const survivor = await idOf("salesforceAccountId", token(keyringB, "SF-1"));
+      const internal = await idOf("internalId", token(keyringA, "SF-1"));
+      const statedBy = async (eventId: string, ids: string[]): Promise<void> => {
+        await db("journey_events").insert({
+          id: eventId,
+          project_id: projectId,
+          environment_id: environmentId,
+          journey_id: "jrn_1",
+          protocol_version: "0.1",
+          content_hash: "h",
+          operation: "identified",
+          name: "identify",
+          service: "s",
+          event_timestamp: db.fn.now(),
+          stated_alias_ids: ids
+        });
+      };
+      await statedBy("evt_stale", [internal, stale]);
+      await statedBy("evt_current", [survivor]);
+      await statedBy("evt_none", []);
+
+      const result = await reencryptValues(db, rotated);
+      expect(table(result, "entity_aliases")).toMatchObject({ duplicatesRemoved: 1 });
+
+      const stated: unknown = await db("journey_events")
+        .where({ journey_id: "jrn_1" })
+        .orderBy("id")
+        .select("id", "stated_alias_ids as ids");
+      expect(stated).toEqual([
+        { id: "evt_current", ids: [survivor] },
+        { id: "evt_none", ids: [] },
+        // The rewritten internalId row keeps its id, so that entry is untouched.
+        { id: "evt_stale", ids: [internal, survivor] }
+      ]);
+    });
+
     it.each([
       [true, false],
       [false, true],

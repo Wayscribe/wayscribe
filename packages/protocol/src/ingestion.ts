@@ -62,6 +62,26 @@ export const eventAcceptedSchema = z.object({
 const storedEventPayload = z.unknown();
 
 /**
+ * One alias as a read returns it: on a journey, every alias it holds, and on
+ * an event, the ones that event stated. One schema, because the two reads
+ * present the same rows the same way.
+ */
+const storedAliasSchema = z.object({
+  type: z.string(),
+  displayValue: z
+    .string()
+    .nullable()
+    .describe(
+      "Masked, because an alias may be an identifier the caller is not entitled to see in full, unless displayable is true. Null when the key that encrypted it is no longer held."
+    ),
+  displayable: z
+    .boolean()
+    .describe(
+      "True when every event that stated this alias listed it in displayableAliases; displayValue is then the whole value."
+    )
+});
+
+/**
  * One event as `GET /v1/events/:eventId` returns it, which is what a dry run
  * previews.
  *
@@ -104,7 +124,13 @@ export const storedEventSchema = z.object({
   ),
   runtimeMetadata: storedEventPayload,
   deploymentMetadata: storedEventPayload,
-  customMetadata: storedEventPayload
+  customMetadata: storedEventPayload,
+  aliases: z
+    .array(storedAliasSchema)
+    .nullable()
+    .describe(
+      "The aliases this event stated, each as the journey read shows it, masked the same way. Empty when it stated none. Null when the server did not record which aliases it stated, as for an event stored before that was recorded."
+    )
 });
 
 /** One journey as `GET /v1/journeys/:journeyId` returns it. */
@@ -131,22 +157,7 @@ export const storedJourneySchema = z.object({
     .describe(
       "The name of the event with the latest timestamp, ties broken by event id. Null for a journey no event has reached since the server was upgraded to store it."
     ),
-  aliases: z.array(
-    z.object({
-      type: z.string(),
-      displayValue: z
-        .string()
-        .nullable()
-        .describe(
-          "Masked, because an alias may be an identifier the caller is not entitled to see in full, unless displayable is true. Null when the key that encrypted it is no longer held."
-        ),
-      displayable: z
-        .boolean()
-        .describe(
-          "True when every event that stated this alias listed it in displayableAliases; displayValue is then the whole value."
-        )
-    })
-  ),
+  aliases: z.array(storedAliasSchema),
   services: z.array(z.string()),
   eventCount: z.number().int(),
   startedAt: z.string(),

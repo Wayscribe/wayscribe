@@ -50,6 +50,8 @@ export interface PresentedJourneySummary {
   label: string | null;
   lastStep: string | null;
   displayableAliases: { type: string; value: string }[];
+  /** The name of the journey's environment. */
+  environment: string;
 }
 
 /**
@@ -80,7 +82,8 @@ export function presentJourneySummary(
     displayableAliases: hit.displayableAliases.map((alias) => ({
       type: alias.type,
       value: alias.value
-    }))
+    })),
+    environment: hit.environment
   };
 }
 
@@ -132,11 +135,22 @@ export function presentJourneyDetail(
   };
 }
 
-/** One event as `GET /v1/events/:eventId` returns it, for the same reason. */
-export function presentEvent(detail: EventDetail): Record<string, unknown> {
+/**
+ * One event as `GET /v1/events/:eventId` returns it, for the same reason.
+ *
+ * `aliases` goes through `presentAliases`, the journey detail's own, so an
+ * event cannot show an alias differently from its journey: masked unless the
+ * stored flag says displayable (ADR-053), null where the key is gone.
+ */
+export function presentEvent(
+  keyring: Keyring,
+  detail: EventDetail,
+  onUnknownKey?: (keyId: string) => void
+): Record<string, unknown> {
   return {
     ...detail,
     eventTimestamp: detail.eventTimestamp.toISOString(),
-    receivedAt: detail.receivedAt.toISOString()
+    receivedAt: detail.receivedAt.toISOString(),
+    aliases: detail.aliases === null ? null : presentAliases(keyring, detail.aliases, onUnknownKey)
   };
 }

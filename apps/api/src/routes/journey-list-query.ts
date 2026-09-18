@@ -5,7 +5,8 @@ import {
   instant,
   single,
   unknownKey,
-  SINCE_CLOCK_TOLERANCE_MS
+  SINCE_CLOCK_TOLERANCE_MS,
+  FUTURE_SINCE_MESSAGE
 } from "./query-params.js";
 
 export type ParsedJourneyListQuery =
@@ -66,7 +67,7 @@ export function parseJourneyListQuery(query: unknown, now: Date): ParsedJourneyL
   // A future bound can only return nothing, which reads as "nothing failed".
   // Saying so is more useful than an empty page.
   if (since.value.getTime() > now.getTime() + SINCE_CLOCK_TOLERANCE_MS) {
-    return { ok: false, message: "since must not be in the future." };
+    return { ok: false, message: FUTURE_SINCE_MESSAGE };
   }
 
   // No clock check: a range that ends after now still lists everything up to

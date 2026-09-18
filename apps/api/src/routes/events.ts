@@ -361,7 +361,7 @@ async function previewStored(
   ]);
   if (event === undefined || journey === undefined) return {};
 
-  const { receivedAt: _omitted, ...previewed } = presentEvent(event);
+  const { receivedAt: _omitted, ...previewed } = presentEvent(context.keyring, event);
   return {
     stored: {
       event: previewed,

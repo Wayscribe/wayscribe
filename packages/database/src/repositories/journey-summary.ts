@@ -8,7 +8,8 @@ export interface DisplayableAlias {
 
 /**
  * The columns of one journey list row, aliased to `SearchHit`'s field names,
- * for a query that names the journeys table `j`.
+ * for a query that names the journeys table `j` and joins its environment as
+ * `env`.
  *
  * Shared by search and the recent list so the two cannot select different
  * fields for what the API presents as the same row.
@@ -33,6 +34,7 @@ export function journeySummaryColumns(db: Knex): (string | Knex.Raw)[] {
     "j.last_event_at as lastEventAt",
     "j.label as label",
     "j.last_step as lastStep",
+    "env.name as environment",
     db.raw(
       `coalesce(
          (select json_agg(json_build_object('type', a.alias_type, 'value', a.display_value)

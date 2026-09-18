@@ -29,10 +29,8 @@ export interface JourneyListFilters {
   text?: string | undefined;
 }
 
-/** A search hit plus where it ran, since this list spans environments. */
-export interface ListedJourney extends SearchHit {
-  environment: string;
-}
+/** One row of the list: the same fields as a search hit, environment included. */
+export type ListedJourney = SearchHit;
 
 export type JourneyListPage = JourneyPage<ListedJourney>;
 
@@ -63,7 +61,7 @@ export async function listJourneys(
   cursor?: string
 ): Promise<JourneyListPage> {
   const query = db
-    .select(...journeySummaryColumns(db), "env.name as environment")
+    .select(...journeySummaryColumns(db))
     .from({ j: "journeys" })
     // On id alone: the composite foreign key (environment_id, project_id) on
     // journeys already guarantees the environment belongs to the same project.

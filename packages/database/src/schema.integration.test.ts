@@ -489,6 +489,128 @@ describe("schema constraints", () => {
     }, 30_000);
   });
 
+  describe("the aliases each event stated (020)", () => {
+    const MIGRATION = "020_event_stated_aliases.js";
+
+    const column = async (): Promise<
+      { udt_name: string; is_nullable: string; column_default: string | null } | undefined
+    > => {
+      const result: unknown = await db.raw(
+        `select udt_name, is_nullable, column_default from information_schema.columns
+         where table_name = 'journey_events' and column_name = 'stated_alias_ids'`
+      );
+      return (
+        result as {
+          rows: { udt_name: string; is_nullable: string; column_default: string | null }[];
+        }
+      ).rows[0];
+    };
+
+    it("adds a nullable uuid array with no default, and removes it on the way down", async () => {
+      // No default: an event stored before it, or by the previous API during an
+      // upgrade, must read null ("not recorded"), never an empty list, which
+      // would say it stated nothing.
+      expect(await column()).toEqual({
+        udt_name: "_uuid",
+        is_nullable: "YES",
+        column_default: null
+      });
+      await db.migrate.down({ name: MIGRATION });
+      expect(await column()).toBeUndefined();
+      await db.migrate.up({ name: MIGRATION });
+      expect(await column()).toBeDefined();
+    });
+
+    it("leaves events written before it null, without rewriting the table", async () => {
+      const journeyId = "jrn_020";
+      await db("journeys").insert({
+        id: journeyId,
+        project_id: projectId,
+        environment_id: environmentId,
+        entity_type: "customer",
+        primary_entity_id_hash: "hash-020",
+        status: "active",
+        started_at: db.fn.now(),
+        last_event_at: db.fn.now(),
+        event_count: 1
+      });
+      await db.migrate.down({ name: MIGRATION });
+      await db("journey_events").insert({
+        id: "evt_020",
+        project_id: projectId,
+        environment_id: environmentId,
+        journey_id: journeyId,
+        protocol_version: "0.1",
+        content_hash: "h",
+        operation: "identified",
+        name: "identify",
+        service: "s",
+        event_timestamp: db.fn.now()
+      });
+      const fileBefore: unknown = await db.raw(
+        "select pg_relation_filenode('journey_events') as f"
+      );
+      await db.migrate.up({ name: MIGRATION });
+      const fileAfter: unknown = await db.raw("select pg_relation_filenode('journey_events') as f");
+      expect((fileAfter as { rows: unknown[] }).rows).toEqual(
+        (fileBefore as { rows: unknown[] }).rows
+      );
+      expect(await db("journey_events").where({ id: "evt_020" }).pluck("stated_alias_ids")).toEqual(
+        [null]
+      );
+      await db("journeys").where({ id: journeyId }).delete();
+    });
+
+    it("gives up rather than queueing ingestion behind it when the table is busy", async () => {
+      // With no lock_timeout the ALTER waits for the reader below for ever, and
+      // the reader waits for this test: the attempt is raced against a
+      // deadline, so a lost timeout fails here, by name, instead of hanging
+      // the suite.
+      await db.migrate.down({ name: MIGRATION });
+      let release: () => void = () => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let holding: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        holding = resolve;
+      });
+      const reader = db.transaction(async (trx) => {
+        await trx("journey_events").select("id").limit(1);
+        holding();
+        await released;
+      });
+      await held;
+      const started = Date.now();
+      const attempt: Promise<unknown> = db.migrate.up({ name: MIGRATION }).then(
+        () => "applied",
+        (error: unknown) => error
+      );
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      let outcome: unknown;
+      try {
+        outcome = await Promise.race([
+          attempt,
+          new Promise((resolve) => {
+            deadline = setTimeout(() => {
+              resolve("still waiting after 15 s: the migration has no lock_timeout");
+            }, 15_000);
+          })
+        ]);
+      } finally {
+        clearTimeout(deadline);
+        release();
+        await reader;
+        await attempt;
+      }
+      expect(outcome).toBeInstanceOf(Error);
+      expect((outcome as Error).message).toMatch(/lock timeout/);
+      expect(Date.now() - started).toBeLessThan(15_000);
+      await db.migrate.up({ name: MIGRATION });
+      expect(await column()).toBeDefined();
+    }, 30_000);
+  });
+
   describe("the journey browse columns (018)", () => {
     const MIGRATION = "018_journey_browse.js";
     const ADDED: [table: string, column: string, type: string][] = [

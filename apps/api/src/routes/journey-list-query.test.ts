@@ -110,7 +110,10 @@ describe("parseJourneyListQuery", () => {
       "since must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
     ],
     // Past the clock tolerance.
-    [{ since: "2026-09-15T12:01:01Z" }, "since must not be in the future."],
+    [
+      { since: "2026-09-15T12:01:01Z" },
+      "since must not be more than 60 seconds ahead of the API's clock."
+    ],
     [
       { since: "2026-09-14T12:00:00Z", status: "any" },
       "status must be one of active, completed, failed."

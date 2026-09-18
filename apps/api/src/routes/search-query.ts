@@ -1,5 +1,11 @@
 import type { SearchFilters } from "@wayscribe/database";
-import { instant, single, unknownKey, SINCE_CLOCK_TOLERANCE_MS } from "./query-params.js";
+import {
+  FUTURE_SINCE_MESSAGE,
+  instant,
+  single,
+  unknownKey,
+  SINCE_CLOCK_TOLERANCE_MS
+} from "./query-params.js";
 
 export type ParsedSearchQuery =
   { ok: true; query: string; filters: SearchFilters } | { ok: false; message: string };
@@ -55,7 +61,7 @@ export function parseSearchQuery(query: unknown, now: Date): ParsedSearchQuery {
     since.value !== undefined &&
     since.value.getTime() > now.getTime() + SINCE_CLOCK_TOLERANCE_MS
   ) {
-    return { ok: false, message: "since must not be in the future." };
+    return { ok: false, message: FUTURE_SINCE_MESSAGE };
   }
 
   // No clock check: a range that ends after now still searches everything up to

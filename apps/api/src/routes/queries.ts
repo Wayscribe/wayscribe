@@ -19,10 +19,9 @@ import {
 import { presentEvent, presentJourneyDetail, presentJourneySummary } from "./present.js";
 import { parseJourneyListQuery } from "./journey-list-query.js";
 import { parseSearchQuery } from "./search-query.js";
+import { TIMELINE_PARAMETERS, pageLimit, unknownKey } from "./query-params.js";
 
-const DEFAULT_LIMIT = 25;
 const NULL_BYTE = String.fromCharCode(0);
-const MAX_LIMIT = 100;
 
 export function registerQueryRoutes(
   app: FastifyInstance,
@@ -89,6 +88,10 @@ export function registerQueryRoutes(
       return reply.code(400).send(errorBody("invalid_query", parsed.message, request.id));
     }
     const query = parsed.query;
+    const limit = pageLimit(queryParams(request.query));
+    if (!limit.ok) {
+      return reply.code(400).send(errorBody("invalid_query", limit.message, request.id));
+    }
 
     try {
       const page = await searchJourneys(
@@ -99,7 +102,7 @@ export function registerQueryRoutes(
         // are still found.
         searchTokens(keyring, query),
         parsed.filters,
-        parseLimit(request.query),
+        limit.value,
         cursorParam(request.query)
       );
 
@@ -129,22 +132,25 @@ export function registerQueryRoutes(
     if (!parsed.ok) {
       return reply.code(400).send(errorBody("invalid_query", parsed.message, request.id));
     }
+    const limit = pageLimit(queryParams(request.query));
+    if (!limit.ok) {
+      return reply.code(400).send(errorBody("invalid_query", limit.message, request.id));
+    }
 
     try {
       const page = await listJourneys(
         app.db,
         readScope(principal),
         parsed.filters,
-        parseLimit(request.query),
+        limit.value,
         cursorParam(request.query)
       );
 
       return await reply.send({
         data: {
-          items: page.items.map((journey) => ({
-            ...presentJourneySummary(keyring, journey, warnUnknownKey),
-            environment: journey.environment
-          })),
+          items: page.items.map((journey) =>
+            presentJourneySummary(keyring, journey, warnUnknownKey)
+          ),
           nextCursor: page.nextCursor
         }
       });
@@ -181,6 +187,14 @@ export function registerQueryRoutes(
     if (journeyId.includes(NULL_BYTE)) {
       return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
     }
+    const unknown = unknownKey(queryParams(request.query), TIMELINE_PARAMETERS, "this timeline");
+    if (unknown !== undefined) {
+      return reply.code(400).send(errorBody("invalid_query", unknown, request.id));
+    }
+    const limit = pageLimit(queryParams(request.query));
+    if (!limit.ok) {
+      return reply.code(400).send(errorBody("invalid_query", limit.message, request.id));
+    }
     const journey = await findJourneyDetail(app.db, readScope(principal), journeyId);
     if (journey === undefined) {
       return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
@@ -191,7 +205,7 @@ export function registerQueryRoutes(
         app.db,
         readScope(principal),
         journeyId,
-        parseLimit(request.query),
+        limit.value,
         cursorParam(request.query)
       );
 
@@ -223,15 +237,13 @@ export function registerQueryRoutes(
       return reply.code(404).send(errorBody("not_found", "Event not found.", request.id));
     }
 
-    return reply.send({ data: presentEvent(detail) });
+    return reply.send({ data: presentEvent(keyring, detail, warnUnknownKey) });
   });
 }
 
-function parseLimit(query: unknown): number {
-  const raw = (query as { limit?: string }).limit;
-  const parsed = raw === undefined ? DEFAULT_LIMIT : Number.parseInt(raw, 10);
-  if (Number.isNaN(parsed) || parsed < 1) return DEFAULT_LIMIT;
-  return Math.min(parsed, MAX_LIMIT);
+/** The parsed query string, as the parameter readers take it. */
+function queryParams(query: unknown): Record<string, unknown> {
+  return (query ?? {}) as Record<string, unknown>;
 }
 
 /**

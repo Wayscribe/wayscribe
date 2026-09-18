@@ -176,6 +176,7 @@ An alias value may intentionally map to more than one journey over time. Do not 
 | `runtime_metadata` | jsonb | Nullable |
 | `deployment_metadata` | jsonb | Nullable |
 | `custom_metadata` | jsonb | Nullable |
+| `stated_alias_ids` | uuid[] | Nullable, no default. The `entity_aliases` ids of the aliases this event stated, written with the insert; empty when it stated none, null for an event stored before migration `020_event_stated_aliases.js` or by the build before it (F-042) |
 | `created_at` | timestamptz | Required |
 
 Constraints and indexes:
@@ -190,7 +191,11 @@ Constraints and indexes:
 - optional index `(project_id, operation, event_timestamp desc)`
 - check `duration_ms >= 0`
 
-The event row is immutable after insertion.
+The event row is immutable after insertion. Ingestion writes it once, the alias
+ids included, because it stores the event's aliases before the event. The one
+later write is key rotation's to `stated_alias_ids`: when it deletes a stale
+duplicate alias row it points the ids that named that row at the row that
+stays, which holds the same value. What the event recorded never changes.
 
 ### `replay_destinations`
 

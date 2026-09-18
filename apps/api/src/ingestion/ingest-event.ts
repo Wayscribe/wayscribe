@@ -1,6 +1,8 @@
 import {
+  aliasIds,
   ensureJourney,
   insertEvent,
+  lockJourney,
   updateJourneySummary,
   upsertAliases,
   type ApiKeyContext
@@ -149,6 +151,65 @@ export async function ingestEvent(
       );
     }
 
+    // Aliases before the event, so the event row can name the alias rows it
+    // stated in its own insert and is never updated afterwards (migration
+    // 020). A duplicate states exactly what the original stated, so repeating
+    // the upsert for one changes nothing (ADR-053: a repeat never raises the
+    // flag, and lowers it only for a statement that masks, which the original
+    // already was). A refusal below rolls the aliases back with everything
+    // else.
+    //
+    // Lock order. Every writer takes a journey's row lock before any of its
+    // alias rows: this build through `lockJourney` just below, and the build
+    // before migration 020, which may still be ingesting during a rolling
+    // deploy, through `updateJourneySummary`, which it ran before its alias
+    // upsert. It is taken for every event, with aliases or without, before
+    // anything else is written: `updateJourneySummary` would take it anyway,
+    // and an event that took it later than another of its journey could hold
+    // the event row the other needs while waiting on the lock the other holds.
+    // Deadlocks this prevents, both in `event-aliases.integration.test.ts`: a
+    // dry-run batch of several events of one journey racing real events for
+    // it, and two events with one id and different content, one stating
+    // aliases, which must end in a 409, not a 500.
+    //
+    // One case no order in this build avoids: during a rolling deploy, the
+    // same event delivered to an old and a new instance at once can deadlock,
+    // because the old build inserts the event row before it locks the journey.
+    // It costs a 500 and a retry, only during a deploy, and only for a
+    // duplicate of an event that states aliases.
+    //
+    // Reading the ids back is one more statement for an event that carries
+    // aliases, and none for one that does not. Measured through the route
+    // (Fastify's inject, PostgreSQL 17 in a local container, 1,200 events per
+    // case, two runs): an event with two aliases went from 2.3 to 2.7 ms at
+    // the median and from 3.0 to 3.4 ms at p95; one without aliases stayed at
+    // 1.9 to 2.0 ms.
+    //
+    // A type listed here and absent from `aliases` is ignored: it can only
+    // mask, so refusing the event over it would be the worse trade (ADR-053).
+    const displayable = new Set(event.displayableAliases ?? []);
+    const aliases = Object.entries(event.aliases ?? {}).map(([aliasType, value]) => {
+      const tokens = storedTokens(keyring, value);
+      return {
+        journeyId: event.journeyId,
+        aliasType,
+        aliasValueHash: tokens.current,
+        encryptedDisplayValue: encryptValue(keyring, value),
+        // Kept in plain text only while the alias is displayable; see
+        // upsertAliases. A text column cannot hold a NUL, and the value is
+        // valid on the wire, so such a value gets no copy rather than
+        // costing the event.
+        value: value.includes("\u0000") ? null : value,
+        displayable: displayable.has(aliasType),
+        // During a rotation, a repeat of an alias stored under the previous
+        // key's token moves that row rather than adding a second one.
+        supersedesValueHash: tokens.previous
+      };
+    });
+    await lockJourney(trx, context.projectId, event.journeyId);
+    await upsertAliases(trx, context.projectId, aliases);
+    const statedAliasIds = await aliasIds(trx, context.projectId, aliases);
+
     const outcome = await insertEvent(
       trx,
       context.projectId,
@@ -174,7 +235,8 @@ export async function ingestEvent(
         error: redactAlways(storedError(event.error, policy), policy),
         runtimeMetadata: redactAlways(event.runtime, policy),
         deploymentMetadata: redactAlways(event.deployment, policy),
-        customMetadata: redactAlways(event.metadata, policy)
+        customMetadata: redactAlways(event.metadata, policy),
+        statedAliasIds
       },
       (storedHash) => contentHashMatches(keyring, event, storedHash)
     );
@@ -188,7 +250,9 @@ export async function ingestEvent(
     }
 
     if (outcome.kind === "duplicate") {
-      // Idempotent: derived updates are not repeated, so event_count stays right.
+      // Idempotent: the journey summary is not updated again, so event_count
+      // stays right. The alias upsert above repeated the original's statement,
+      // which changes nothing.
       return {
         eventId: event.id,
         journeyId: event.journeyId,
@@ -199,32 +263,6 @@ export async function ingestEvent(
     }
 
     await updateJourneySummary(trx, context.projectId, journeyFacts);
-
-    // A type listed here and absent from `aliases` is ignored: it can only
-    // mask, so refusing the event over it would be the worse trade (ADR-053).
-    const displayable = new Set(event.displayableAliases ?? []);
-    await upsertAliases(
-      trx,
-      context.projectId,
-      Object.entries(event.aliases ?? {}).map(([aliasType, value]) => {
-        const tokens = storedTokens(keyring, value);
-        return {
-          journeyId: event.journeyId,
-          aliasType,
-          aliasValueHash: tokens.current,
-          encryptedDisplayValue: encryptValue(keyring, value),
-          // Kept in plain text only while the alias is displayable; see
-          // upsertAliases. A text column cannot hold a NUL, and the value is
-          // valid on the wire, so such a value gets no copy rather than
-          // costing the event.
-          value: value.includes("\u0000") ? null : value,
-          displayable: displayable.has(aliasType),
-          // During a rotation, a repeat of an alias stored under the previous
-          // key's token moves that row rather than adding a second one.
-          supersedesValueHash: tokens.previous
-        };
-      })
-    );
 
     return {
       eventId: event.id,

@@ -103,6 +103,34 @@ export async function upsertAliases(
     );
 }
 
+/**
+ * The ids of the rows `upsertAliases` just wrote or found for one event's
+ * aliases, in alias type order.
+ *
+ * Read after the upsert and in the same transaction, because the upsert
+ * returns nothing for a repeat it leaves alone, which is most of them. Looked
+ * up by the current token: during a rotation a row still under the previous
+ * token has just been moved onto it, or, when a row under the current token
+ * already existed, the upsert used that one.
+ */
+export async function aliasIds(
+  db: Knex,
+  projectId: string,
+  aliases: readonly Pick<AliasRow, "journeyId" | "aliasType" | "aliasValueHash">[]
+): Promise<string[]> {
+  const [first] = aliases;
+  if (first === undefined) return [];
+  const rows: unknown = await db("entity_aliases")
+    .where({ project_id: projectId, journey_id: first.journeyId })
+    .whereIn(
+      ["alias_type", "alias_value_hash"],
+      aliases.map((alias) => [alias.aliasType, alias.aliasValueHash])
+    )
+    .orderBy("alias_type")
+    .select("id");
+  return (rows as { id: string }[]).map((row) => row.id);
+}
+
 /** PostgreSQL's unique_violation. */
 const UNIQUE_VIOLATION = "23505";
 

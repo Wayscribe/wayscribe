@@ -328,6 +328,35 @@ What you have to do when upgrading a checkout or a deployment:
   than one project and none chosen, the search box still shows, with only "all"
   environments and a link to choose a project; a search goes to the project
   picker and back, as before.
+- **A search row names its environment** (F-036, `docs/API_SPEC.md` section 5):
+  `environment`, the environment's name, as a `GET /v1/journeys` row already
+  had. The admin token's search spans every environment of the project, so the
+  same identifier recorded in development and in production came back as two
+  rows with nothing to tell them apart, and a search narrowed by `environment`
+  could not say which one it gave. Both lists now build their rows from one
+  presenter, so the two cannot drift again. Measured at 200,000 journeys, the
+  join this needs on every search costs nothing outside the run-to-run spread.
+- **An event read says which aliases it stated** (F-042, `docs/API_SPEC.md`
+  section 9). `GET /v1/events/:eventId` gains `aliases`, each as the journey
+  read shows it, `{ type, displayValue, displayable }`, from the same stored
+  alias and masked the same way (ADR-053), so an `identified` event read on its
+  own finally says what it identified. `[]` means the event stated none;
+  `null` means the server did not record it, which is every event stored
+  before this release. A dry run's `stored.event` carries the same field.
+  Aliases are still stored once per journey; migration 020 adds
+  `journey_events.stated_alias_ids`, the ids of the alias rows the event
+  stated, written with the event's own insert. Ingestion now stores an event's
+  aliases before the event, which costs an event with aliases one more
+  statement: 2.3 to 2.7 ms at the median, measured in process.
+- **A timeline row names the build that recorded it** (F-043, `docs/API_SPEC.md`
+  section 8). `GET /v1/journeys/:journeyId/events` rows gain
+  `deploymentMetadata`, the event's `deployment` as the event read returns it,
+  or null. Whether a journey's events all came from one build used to take one
+  full event read per event, each carrying its whole payloads. Measured at
+  10,000 events in one journey, a page of 100 goes from 0.068 to 0.100 ms in
+  the database and from 15 to 28 kB; listing the distinct builds on the
+  journey read instead would have read every event of the journey on every
+  read, 5.0 ms at that length.
 - **The journey page.** Headed by the journey's label when it has one, with the
   entity type and identifier beneath, and a back link to the list it was opened
   from. `GET /v1/journeys/:journeyId` returns the environment's name, `label`,
@@ -668,6 +697,35 @@ What you have to do when upgrading a checkout or a deployment:
   only `q`, `limit` and `cursor`, which is every caller in this repository, sees
   no change; one that sends anything else now sees a refusal. A parameter name
   holding a NUL is refused without being echoed back.
+- **`limit` is refused, not reinterpreted** (F-029), on `GET /v1/search`,
+  `GET /v1/journeys` and a journey's timeline. It was read with `parseInt`,
+  which stops at the first character that is not a digit, so a repeated
+  `limit=1&limit=99` returned one row and `limit=99&limit=1` ninety-nine, and
+  `limit=2%005` returned two. Now `limit` given more than once, or holding a
+  NUL, is `400 invalid_query` with the words every other parameter gets
+  (`limit must be given once.`, `limit must not contain a null byte.`). **This
+  changes an answer:** a value that is not a whole number of at least 1, such as
+  `abc`, `0`, `-1` or `5abc`, is refused with `limit must be a whole number of
+  at least 1; above 100 it is read as 100.`, where it used to become 25 without
+  a word. A whole number above 100 is still read as 100, as before, and
+  `nextCursor` says whether more remains. Omitted or empty is still 25.
+- **A journey's timeline refuses a query key it does not read**, as search and
+  the journey list do: `GET /v1/journeys/:journeyId/events?limt=5` is
+  `400 invalid_query` naming the key and listing `limit` and `cursor`, where it
+  returned the default page as if the key had been understood. This lands with
+  the `limit` change, so the route changes its error behaviour once.
+- **The read-only CLI reads `--limit` strictly.** `wayscribe search x --limit
+  5abc` sent a limit of 5, because it too was read with `parseInt`. A value
+  that is not a whole number of at least 1 is now refused before anything is
+  sent, with `--limit must be a whole number of at least 1`, and `--help` says
+  the server reads one above 100 as 100.
+- **The refusal of a future `since` states the real rule** (F-035), on
+  `GET /v1/search` and `GET /v1/journeys`: `since must not be more than 60
+  seconds ahead of the API's clock.` It said `since must not be in the future.`,
+  which a caller whose clock ran 30 seconds fast saw contradicted by a `200`,
+  and it left out the tolerance that explains a refusal caused by clock skew.
+  The check itself is unchanged. The message is built from the tolerance, so
+  the two cannot drift apart.
 - **A successful retry clears a failed journey** (ADR-061). A `retried` event
   carrying no error returns the journey's status from `failed` to `active`
   instead of leaving it failed until something else says otherwise. An SDK
@@ -896,6 +954,14 @@ development build of `main`. A new installation can skip them.
 - **Rename SDK calls and options** as in the table under Changed. Convert
   numeric SDK options before passing them:
   `maxBufferedEvents: Number(process.env.MAX_BUFFERED)`, not the string.
+- **Migration 020 adds a column to `journey_events`** with a five-second
+  `lock_timeout`, as 017 did; run `migrate` again if it gives up behind a long
+  transaction (`docs/OPERATIONS.md` section 4). There is no backfill: events
+  stored before it read `aliases: null`.
+- **Send `limit` once, as a whole number of at least 1.** A client that sent
+  `limit=0` or an empty-looking value such as `limit=abc` to get the default
+  now gets `400 invalid_query`; leave `limit` out instead. `limit=1000` still
+  works and is read as 100.
 - **Drop unknown query keys.** A client that sends keys `GET /v1/journeys` does
   not read, or any query parameter to the ingestion routes other than `dryRun`
   on the batch route, gets `400 invalid_query`. A client that branched on the

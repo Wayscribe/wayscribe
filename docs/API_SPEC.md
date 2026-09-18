@@ -196,7 +196,7 @@ Resolves one value against every identifier it could be, project-scoped:
 | `since` | An ISO 8601 instant with a time zone, such as `2026-08-06T18:00:00Z`. Journeys whose last activity is at or after it. Omitted or empty means no lower bound. |
 | `until` | An ISO 8601 instant with a time zone, after `since`. Journeys whose last activity is before it. Omitted or empty means no upper bound. |
 | `environment` | An environment name. Omitted or empty means every environment the caller can read. |
-| `limit` | Page size, 25 by default, at most 100. |
+| `limit` | Page size: a whole number of at least 1, 25 when omitted or empty; above 100 it is read as 100, and `nextCursor` says whether more remains. Anything else is refused. |
 | `cursor` | `nextCursor` from the previous page. |
 
 **Without a window the search spans the project's whole history.** There is no
@@ -243,13 +243,19 @@ Response:
         "lastEventAt": "2026-08-06T18:34:38.000Z",
         "label": "Acme renewal, 2026",
         "lastStep": "sync-account",
-        "displayableAliases": [{ "type": "postingId", "value": "greenhouse:4567" }]
+        "displayableAliases": [{ "type": "postingId", "value": "greenhouse:4567" }],
+        "environment": "production"
       }
     ],
     "nextCursor": null
   }
 }
 ```
+
+`environment` is the name of the journey's environment. A search spans every
+environment the caller can read, which for the admin token is every environment
+of the project, so this is what tells two rows for the same identifier apart;
+with the `environment` parameter it names the one that was asked for.
 
 `label` is the journey's label, or null until an event carries one. `lastStep`
 is the `name` of its latest event, or null for a journey no event has reached
@@ -265,9 +271,10 @@ when `since` or `until` is not a full instant with a time zone (the message
 gives an example of one) or names an impossible date; when `since` is more than
 60 seconds ahead of the API's clock (a minute of skew between the caller and
 the API is tolerated); when `until` is not after `since`; when any value holds
-a NUL; when `since`, `until` or `environment` is given more than once; or when
-the query names a parameter this search does not have, so that a misspelt
-filter is not silently ignored. `until` has no clock check: a range that ends
+a NUL; when `since`, `until`, `environment` or `limit` is given more than once;
+when `limit` is not a whole number of at least 1; or when the query names a
+parameter this search does not have, so that a misspelt filter is not silently
+ignored. `until` has no clock check: a range that ends
 after now still searches everything up to now, whereas a future `since` could
 only find nothing. A `cursor` given more than once, or a malformed one, is
 `400` `invalid_cursor`, on every list endpoint.
@@ -301,7 +308,7 @@ where. Journeys are ordered by last activity, newest first (`lastEventAt`, then
 | `service` | An exact service name. Journeys with at least one event recorded by that service. |
 | `entityType` | An exact entity type, at most 128 characters, after surrounding white space is removed. Omitted, empty or white space alone means any entity type. A type stored with surrounding white space cannot be matched. |
 | `q` | Text of 2 to 200 characters, after surrounding white space is removed. Journeys whose label, or the value of one of whose displayable aliases, contains it, ignoring case. Omitted, empty or white space alone means no text filter. |
-| `limit` | Page size, 25 by default, at most 100. |
+| `limit` | Page size: a whole number of at least 1, 25 when omitted or empty; above 100 it is read as 100, and `nextCursor` says whether more remains. Anything else is refused. |
 | `cursor` | `nextCursor` from the previous page. |
 
 **What a journey's status means.** A journey is `active` until an event says
@@ -361,7 +368,8 @@ clock (a minute of skew between the caller and the API is tolerated); when
 `until` is not a full instant, names an impossible date, or is not after
 `since`; when `status` is not one of the three values; when `entityType` is
 longer than 128 characters; when `q` is shorter than 2 or longer than 200
-characters; when any value holds a NUL; when any parameter is given more than
+characters; when `limit` is not a whole number of at least 1; when any value
+holds a NUL; when any parameter is given more than
 once; or when the query names a parameter this list does not have, so that a
 misspelt filter is not silently ignored. `until` has no clock check: a range
 that ends after now lists everything up to now, whereas a future `since` could
@@ -380,7 +388,7 @@ that receives an event between two page requests moves to the top of the list,
 above the cursor, and does not appear on later pages. Search pages behave the
 same way.
 
-Response items are search results with the environment added:
+Response items have the same fields as search results (section 5):
 
 ```json
 {
@@ -457,6 +465,12 @@ it is no longer held.
 GET /v1/journeys/:journeyId/events?limit=100&cursor=<cursor>
 ```
 
+`limit` is the page size: a whole number of at least 1, 25 when omitted or
+empty; above 100 it is read as 100, and `nextCursor` says whether more
+remains. `400 invalid_query` when it is anything else, holds a NUL, or is given
+more than once, and when the query names a parameter this route does not have;
+a malformed `cursor`, or one given more than once, is `400 invalid_cursor`.
+
 Ordering:
 
 1. event timestamp
@@ -479,7 +493,8 @@ Response:
         "durationMs": 18,
         "hasInput": true,
         "hasOutput": false,
-        "hasError": false
+        "hasError": false,
+        "deploymentMetadata": { "version": "1.4.2", "gitCommit": "3f9c2e1" }
       }
     ],
     "nextCursor": null
@@ -487,11 +502,17 @@ Response:
 }
 ```
 
-Every item carries all ten fields. `receivedAt` is when the server received the
-event, as opposed to `eventTimestamp`, which is when the instrumented service
-says it happened; it is the second term of the ordering above, so a caller that
-reproduces the order needs it. `durationMs` is null when the event recorded no
-duration.
+Every item carries all eleven fields. `receivedAt` is when the server received
+the event, as opposed to `eventTimestamp`, which is when the instrumented
+service says it happened; it is the second term of the ordering above, so a
+caller that reproduces the order needs it. `durationMs` is null when the event
+recorded no duration.
+
+`deploymentMetadata` is the build that recorded the event, the same value
+section 9 returns: the event's `deployment` as stored (`gitCommit`, `version`
+and `image`, each optional), or null when the event carried none. It is on the row so that whether a
+journey's events all came from one build can be read from the timeline, rather
+than from one full event read per event. The payloads stay off the row.
 
 ## 9. Get event details
 
@@ -505,8 +526,18 @@ describes it: its ids (`id`, `journeyId`, `parentEventId`, `traceId`, `spanId`,
 `messageId`, `correlationId`), `operation`, `name`, `service`,
 `eventTimestamp`, `receivedAt`, `durationMs`, `hasInput`, `hasOutput`,
 `hasError`, `inputPayload` and `outputPayload` as the capture mode stored them,
-`payloadDiff`, `error`, and the runtime, deployment and custom metadata. An API
-key reads events of its own environment only.
+`payloadDiff`, `error`, the runtime, deployment and custom metadata, and
+`aliases`. An API key reads events of its own environment only.
+
+`aliases` is what the event stated, which is what an `identified` event exists
+to record: each alias as section 7 shows it, `{ type, displayValue,
+displayable }`, from the same stored alias and masked the same way, in alias
+type order. An alias is stored once per journey, so its display flag is the
+journey's: when a later event masks an alias, every event that stated it shows
+it masked (ADR-053). `aliases` is `[]` for an event that stated none, and
+`null` for an event stored before the server recorded which aliases an event
+stated (`docs/OPERATIONS.md` section 4, migration 020); the journey still has
+those aliases.
 
 ## 10. Create replay destination
 

@@ -9,13 +9,21 @@ import {
   INGESTION_REFUSALS,
   MAX_BATCH_EVENTS,
   PROTOCOL_ERROR_CODES,
-  TRANSPORT_REFUSALS
+  TRANSPORT_REFUSALS,
+  storedEventSchema
 } from "../packages/protocol/src/index.js";
 import {
   JOURNEY_LIST_PARAMETERS,
   parseJourneyListQuery
 } from "../apps/api/src/routes/journey-list-query.js";
 import { SEARCH_PARAMETERS } from "../apps/api/src/routes/search-query.js";
+import {
+  DEFAULT_PAGE_LIMIT,
+  FUTURE_SINCE_MESSAGE,
+  MAX_PAGE_LIMIT,
+  SINCE_CLOCK_TOLERANCE_MS,
+  TIMELINE_PARAMETERS
+} from "../apps/api/src/routes/query-params.js";
 import { filesEndingWith, findSection, markdownFiles, read, root } from "./docs-helpers.js";
 
 /** The text of a `## ` section of a markdown document, up to the next one. */
@@ -36,6 +44,22 @@ const section = (markdown: string, heading: string): string => {
 const firstTableKeys = (text: string): string[] => {
   const table = /^(\|.*\n)+/m.exec(text)?.[0] ?? "";
   return [...table.matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((match) => match[1] ?? "");
+};
+
+/** The fields `presentJourneySummary` returns, in the order it declares them. */
+const summaryFields = (): string[] =>
+  [
+    ...(
+      /export interface PresentedJourneySummary \{([\s\S]*?)\n\}/.exec(
+        read("apps/api/src/routes/present.ts")
+      )?.[1] ?? ""
+    ).matchAll(/^ {2}(\w+):/gm)
+  ].map((match) => match[1] ?? "");
+
+/** The top-level keys of the first item in a section's first JSON example. */
+const exampleItemKeys = (text: string): string[] => {
+  const example = /```json\n([\s\S]*?)```/.exec(text)?.[1] ?? "";
+  return [...example.matchAll(/^\s{8}"(\w+)":/gm)].map((match) => match[1] ?? "");
 };
 
 /**
@@ -294,6 +318,15 @@ describe("the documentation's checkable claims", () => {
     it("says plainly that a search with no window spans the whole history", () => {
       expect(section()).toContain("spans the project's whole history");
     });
+
+    it("shows every field a search row carries in its example item", () => {
+      // F-036: a journey list row carried `environment` and a search row did
+      // not. Both are presentJourneySummary's output, so its declared fields
+      // are the example's, in both sections.
+      const declared = summaryFields();
+      expect(declared).toContain("environment");
+      expect(exampleItemKeys(section())).toEqual(declared);
+    });
   });
 
   describe("the retried operation in EVENT_PROTOCOL.md", () => {
@@ -333,6 +366,80 @@ describe("the documentation's checkable claims", () => {
         expect(source, route).not.toMatch(/\bresolvePrincipal\(/);
       }
       expect(conventions()).toContain("take the admin token alone");
+    });
+  });
+
+  describe("limit in API_SPEC.md", () => {
+    // F-029: limit was read with parseInt, so a repeat or a NUL cut it short
+    // and nonsense became the default silently. Above the maximum it is still
+    // read as the maximum, which each section has to say. Every list endpoint
+    // now reads it through pageLimit, and each section states its rule.
+    const rule = `a whole number of at least 1, ${String(DEFAULT_PAGE_LIMIT)} when omitted or empty; above ${String(MAX_PAGE_LIMIT)} it is read as ${String(MAX_PAGE_LIMIT)}`;
+
+    it.each(["5. Search", "6. List journeys", "8. List journey events"])(
+      "section %s states the rule the parser enforces",
+      (heading) => {
+        // White space folded, so a line break inside the sentence does not matter.
+        expect(section(read("docs/API_SPEC.md"), heading).replace(/\s+/g, " ")).toContain(rule);
+      }
+    );
+
+    it("is read through pageLimit on every route that takes it", () => {
+      const routes = read("apps/api/src/routes/queries.ts");
+      expect(routes.match(/pageLimit\(queryParams\(request\.query\)\)/g)).toHaveLength(3);
+      expect(routes).not.toContain("parseInt");
+    });
+
+    it("states the default and the maximum in the request limits", () => {
+      const limits = section(read("docs/API_SPEC.md"), "16. Request limits");
+      expect(limits.replace(/\s+/g, " ")).toContain(
+        `List endpoints return ${String(DEFAULT_PAGE_LIMIT)} items by default and at most ${String(MAX_PAGE_LIMIT)}`
+      );
+    });
+  });
+
+  describe("the clock tolerance on since", () => {
+    // F-035: the refusal said "since must not be in the future." while the
+    // check tolerates a minute. The message is built from the constant; these
+    // hold the documents that quote the rule and the message to it.
+    const seconds = String(SINCE_CLOCK_TOLERANCE_MS / 1000);
+
+    it.each(["5. Search", "6. List journeys"])(
+      "API_SPEC section %s states the tolerance",
+      (heading) => {
+        expect(section(read("docs/API_SPEC.md"), heading).replace(/\s+/g, " ")).toContain(
+          `more than ${seconds} seconds ahead of the API's clock`
+        );
+      }
+    );
+
+    it("TROUBLESHOOTING quotes the refusal as the API sends it", () => {
+      expect(FUTURE_SINCE_MESSAGE).toContain(`${seconds} seconds`);
+      const row = read("docs/TROUBLESHOOTING.md")
+        .split("\n")
+        .find((line) => line.startsWith(`| a \`since\` more than ${seconds} seconds ahead`));
+      expect(row, "TROUBLESHOOTING has no row for a future since").toBeDefined();
+      expect(row).toContain(`\`${FUTURE_SINCE_MESSAGE}\``);
+    });
+  });
+
+  describe("GET /v1/events/:eventId in API_SPEC.md", () => {
+    it("names the aliases an event stated, and what null means", () => {
+      // F-042: an identified event read on its own did not say what it
+      // identified. The stored-event schema is what section 9 points to.
+      expect(Object.keys(storedEventSchema.shape)).toContain("aliases");
+      const text = section(read("docs/API_SPEC.md"), "9. Get event details").replace(/\s+/g, " ");
+      expect(text).toContain("`aliases`");
+      expect(text).toContain("`[]` for an event that stated none");
+      expect(text).toContain("`null` for an event stored before the server recorded");
+    });
+  });
+
+  describe("the timeline's parameters in API_SPEC.md", () => {
+    it("names every key the route reads and says any other is refused", () => {
+      const text = section(read("docs/API_SPEC.md"), "8. List journey events").replace(/\s+/g, " ");
+      for (const key of TIMELINE_PARAMETERS) expect(text).toContain(`\`${key}\``);
+      expect(text).toContain("when the query names a parameter this route does not have");
     });
   });
 
@@ -403,7 +510,7 @@ describe("the documentation's checkable claims", () => {
       const route = /app\.get\("\/v1\/journeys", [\s\S]*?\n {2}\}\);/.exec(
         read("apps/api/src/routes/queries.ts")
       );
-      expect(route?.[0]).toContain("parseLimit(request.query)");
+      expect(route?.[0]).toContain("pageLimit(queryParams(request.query))");
       expect(route?.[0]).toContain("cursorParam(request.query)");
     });
 
@@ -432,6 +539,10 @@ describe("the documentation's checkable claims", () => {
       const text = section();
       expect(text).toContain("`completedAt` does not track the status");
       expect(text).toContain("never cleared");
+    });
+
+    it("shows the same fields as a search row in its example item", () => {
+      expect(exampleItemKeys(section())).toEqual(summaryFields());
     });
 
     it("lists the statuses the database allows", () => {

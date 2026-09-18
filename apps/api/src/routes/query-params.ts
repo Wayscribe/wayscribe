@@ -32,6 +32,18 @@ const instantMessage = (name: string): string =>
 export const SINCE_CLOCK_TOLERANCE_MS = 60_000;
 
 /**
+ * The refusal of a `since` past the tolerance, in the style of the format
+ * message: it states the rule the check applies. It said "since must not be
+ * in the future." (F-035), which a caller whose clock runs 30 seconds fast
+ * sees contradicted by a 200, and which leaves out the one number that
+ * explains a refusal caused by clock skew. Built from the constant, so the
+ * words cannot drift from the check.
+ */
+export const FUTURE_SINCE_MESSAGE = `since must not be more than ${String(
+  SINCE_CLOCK_TOLERANCE_MS / 1000
+)} seconds ahead of the API's clock.`;
+
+/**
  * How much of an unknown key a refusal repeats. Enough to recognise a typo; a
  * key of any length would otherwise be copied back whole into the response and
  * the request log.
@@ -53,6 +65,63 @@ export function single(
     return { ok: false, message: `${name} must not contain a null byte.` };
   }
   return { ok: true, value: raw };
+}
+
+/**
+ * Every key a journey's timeline (`GET /v1/journeys/:journeyId/events`)
+ * reads. Anything else is refused, as search and the journey list refuse
+ * one: `?limt=5` returned the default page as if it had been understood.
+ */
+export const TIMELINE_PARAMETERS = ["limit", "cursor"] as const;
+
+/** The page size a list endpoint returns when `limit` is omitted or empty. */
+export const DEFAULT_PAGE_LIMIT = 25;
+
+/** The largest page size a list endpoint returns. */
+export const MAX_PAGE_LIMIT = 100;
+
+/** The refusal of a malformed `limit`, which also states the clamp. */
+export const LIMIT_MESSAGE = `limit must be a whole number of at least 1; above ${String(
+  MAX_PAGE_LIMIT
+)} it is read as ${String(MAX_PAGE_LIMIT)}.`;
+
+/** Digits only: no sign, no point, no exponent, no white space. */
+const WHOLE_NUMBER = /^\d+$/;
+
+/**
+ * `limit`, on every list endpoint: `GET /v1/search`, `GET /v1/journeys` and a
+ * journey's timeline.
+ *
+ * It was the one parameter exempt from the rules every other value follows
+ * (F-029). `Number.parseInt` stops at the first character that is not a
+ * digit, so a NUL, or the comma a repeated parameter's array stringifies to,
+ * cut the value short instead of being refused: `limit=1&limit=99` returned
+ * one row, `limit=99&limit=1` ninety-nine, and `limit=2%005` two. It now goes
+ * through `single`, like every other value, so a repeat and a NUL are refused
+ * with the same words.
+ *
+ * A malformed value is refused too, where it used to be replaced: `abc`, `0`
+ * and `-1` became the default, silently. These endpoints refuse a misspelt key
+ * by name, so a nonsense value passing without a word was the odd one out, and
+ * a page size that came out of a computation gone wrong read back as a full
+ * page with nothing to say it had been ignored.
+ *
+ * A whole number above MAX_PAGE_LIMIT is still read as MAX_PAGE_LIMIT. That is
+ * a well-formed request for more than one page holds, not a mistake, and the
+ * answer says so: `nextCursor` is set while more rows remain, so a caller that
+ * pages by the cursor reads everything. Existing callers rely on it, the
+ * read-only CLI's `--limit 500` among them. Empty is still omitted, because
+ * that is what a plain GET form sends for a field left blank.
+ */
+export function pageLimit(params: Record<string, unknown>): Validated<number> {
+  const raw = single(params, "limit");
+  if (!raw.ok) return raw;
+  if (raw.value === undefined) return { ok: true, value: DEFAULT_PAGE_LIMIT };
+  // Digits are checked before conversion: `Number` would also take " 5",
+  // "1e2" and "0x10".
+  const value = WHOLE_NUMBER.test(raw.value) ? Number(raw.value) : Number.NaN;
+  if (!(value >= 1)) return { ok: false, message: LIMIT_MESSAGE };
+  return { ok: true, value: Math.min(value, MAX_PAGE_LIMIT) };
 }
 
 /** One optional instant parameter, validated as `since` always was. */

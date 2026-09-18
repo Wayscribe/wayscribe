@@ -11,6 +11,7 @@ export {
 export { keyringFromEnvironment } from "./keyring-env.js";
 export {
   ALIAS_DISPLAY_VALUE_CONSTRAINT,
+  aliasIds,
   upsertAliases,
   type AliasRow
 } from "./repositories/aliases.js";
@@ -18,6 +19,7 @@ export { insertEvent, type EventRow, type InsertOutcome } from "./repositories/e
 export {
   applyJourneyEvent,
   ensureJourney,
+  lockJourney,
   findJourney,
   updateJourneySummary,
   type JourneyEventFacts,
