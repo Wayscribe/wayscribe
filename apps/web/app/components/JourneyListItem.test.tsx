@@ -71,4 +71,35 @@ describe("JourneyListItem", () => {
     renderRow({ item: { ...item, status: "completed" } });
     expect(screen.getByText("completed").className).toBe("status");
   });
+
+  // ADR-063, F-047: a failed result names the step that failed it.
+  it("says which step a failed journey failed at", () => {
+    renderRow({ item: { ...item, lastStep: "map-hubspot", failedStep: "push-hubspot" } });
+    const status = screen.getByRole("listitem").querySelector(".status");
+    expect(status?.className).toBe("status failed");
+    expect(status?.textContent).toBe("failed at push-hubspot");
+    // The step keeps its case under the status's capitals.
+    expect(screen.getByText("push-hubspot").className).toBe("status-step");
+    expect(screen.getByRole("listitem").textContent).not.toContain("map-hubspot");
+  });
+
+  // An older API omits the field; a failure from before migration 021 has it null.
+  it("says only failed when the API names no failed step", () => {
+    // `item` has no such field, as an older API sends it.
+    for (const row of [{ ...item, failedStep: null }, item]) {
+      const { unmount } = render(
+        <ul>
+          <JourneyListItem item={row} />
+        </ul>
+      );
+      expect(screen.getByText("failed").className).toBe("status failed");
+      unmount();
+    }
+  });
+
+  it("ignores a failed step on a journey that is not failed", () => {
+    renderRow({ item: { ...item, status: "completed", failedStep: "push-hubspot" } });
+    expect(screen.getByText("completed").className).toBe("status");
+    expect(screen.getByRole("listitem").textContent).not.toContain("push-hubspot");
+  });
 });

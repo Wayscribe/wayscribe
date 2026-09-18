@@ -68,8 +68,46 @@ describe("GET /api/journeys/[journeyId]/events", () => {
       items: [],
       nextCursor: null,
       journeyStatus: "failed",
-      journeyEventCount: 0
+      journeyEventCount: 0,
+      // The journey came from an API older than ADR-063, which omits it.
+      journeyFailedStep: null
     });
     expect(listEventsMock).toHaveBeenCalledWith("jrn_1", "proj_1", "abc");
+  });
+
+  // ADR-063: the failed step rides along with the status, so live mode's
+  // summary line learns both from the same poll.
+  describe("the journey's failed step", () => {
+    const answer = async (journey: Record<string, unknown>): Promise<unknown> => {
+      listEventsMock.mockResolvedValue({ items: [], nextCursor: null });
+      getJourneyMock.mockResolvedValue({ eventCount: 5, ...journey });
+      const cookie = signSession(ADMIN_TOKEN, {
+        projectId: "proj_1",
+        expiresAt: Date.now() + 60_000
+      });
+      const response = await GET(requestFor(cookie), {
+        params: Promise.resolve({ journeyId: "jrn_1" })
+      });
+      return ((await response.json()) as Record<string, unknown>)["journeyFailedStep"];
+    };
+
+    it("is the journey's failed step", async () => {
+      await expect(answer({ status: "failed", failedStep: "push-hubspot" })).resolves.toBe(
+        "push-hubspot"
+      );
+    });
+
+    it("is null when the journey has none, or is not failed", async () => {
+      await expect(answer({ status: "failed", failedStep: null })).resolves.toBeNull();
+      await expect(answer({ status: "active", failedStep: "push-hubspot" })).resolves.toBeNull();
+    });
+
+    // Only text crosses to the browser.
+    it("is null when the API sent something other than text", async () => {
+      await expect(
+        answer({ status: "failed", failedStep: { name: "push-hubspot" } })
+      ).resolves.toBeNull();
+      await expect(answer({ status: "failed", failedStep: 7 })).resolves.toBeNull();
+    });
   });
 });

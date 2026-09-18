@@ -171,6 +171,12 @@ button {
 .status.failed {
   color: var(--failed);
 }
+/* A step name inside a status (`failed at <step>`) is an identifier: it keeps
+   its own case and spacing under the status's capitals. */
+.status .status-step {
+  text-transform: none;
+  letter-spacing: normal;
+}
 
 /* The two ways in, above every signed-in page. */
 .site-nav {
@@ -379,6 +385,10 @@ button[aria-busy="true"] {
 }
 .journey-table .col-step {
   width: 20%;
+}
+/* The step that failed a failed journey (ADR-063). */
+.journey-table .col-step.failed {
+  color: var(--failed);
 }
 .journey-table .col-events {
   width: 4.5rem;

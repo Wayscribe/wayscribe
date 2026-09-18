@@ -178,3 +178,71 @@ describe("JourneyRow", () => {
     expect(within(row).getByText("completed").className).toBe("status");
   });
 });
+
+/**
+ * ADR-063, F-047: a failed journey's last step can be a later step that
+ * succeeded, so the Step column names the step that failed it when the API
+ * says which one did.
+ */
+describe("JourneyRow's step", () => {
+  const stepCell = (row: HTMLElement): HTMLElement => {
+    const cell = within(row).getAllByRole("cell")[4];
+    if (cell === undefined) throw new Error("no step cell");
+    return cell;
+  };
+
+  it("shows the failed step of a failed journey, in the failed style, with both steps as a title", () => {
+    const cell = stepCell(
+      renderRow({ ...item, lastStep: "map-hubspot", failedStep: "push-hubspot" })
+    );
+    expect(cell.textContent).toBe("push-hubspot");
+    expect(cell.className).toBe("col-step failed");
+    expect(cell.getAttribute("title")).toBe("Failed at push-hubspot; last step map-hubspot");
+  });
+
+  it("shows the last step of a failed journey when the API sends no failed step", () => {
+    // Null, and absent (`item` has no such field), as an older API sends it.
+    for (const row of [{ ...item, failedStep: null }, item]) {
+      const { unmount } = render(
+        <table>
+          <tbody>
+            <JourneyRow item={{ ...row, lastStep: "map-hubspot" }} />
+          </tbody>
+        </table>
+      );
+      const cell = stepCell(screen.getByRole("row"));
+      expect(cell.textContent).toBe("map-hubspot");
+      expect(cell.className).toBe("col-step");
+      expect(cell.getAttribute("title")).toBe("map-hubspot");
+      unmount();
+    }
+  });
+
+  // The API nulls it outside `failed`, and the row does not rely on that.
+  it("shows the last step of a journey that is not failed, whatever failedStep holds", () => {
+    const cell = stepCell(
+      renderRow({
+        ...item,
+        status: "completed",
+        lastStep: "finish",
+        failedStep: "push-hubspot"
+      })
+    );
+    expect(cell.textContent).toBe("finish");
+    expect(cell.className).toBe("col-step");
+    expect(cell.getAttribute("title")).toBe("finish");
+  });
+
+  it("titles a failed step with no last step by the failure alone", () => {
+    const cell = stepCell(renderRow({ ...item, lastStep: null, failedStep: "push-hubspot" }));
+    expect(cell.textContent).toBe("push-hubspot");
+    expect(cell.getAttribute("title")).toBe("Failed at push-hubspot");
+  });
+
+  it("shows a step name holding markup as text", () => {
+    const markup = '<img src="x" onerror="alert(1)">';
+    const cell = stepCell(renderRow({ ...item, failedStep: markup }));
+    expect(cell.textContent).toBe(markup);
+    expect(cell.querySelector("img")).toBeNull();
+  });
+});

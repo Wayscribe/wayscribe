@@ -4,6 +4,7 @@ import { AliasList } from "../../../components/AliasList";
 import { JourneyHeading } from "../../../components/JourneyHeading";
 import { JourneyTimeline } from "../../../components/JourneyTimeline";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
+import { failedStepOf } from "../../../../src/lib/failed-step";
 import { requireProjectId } from "../../../../src/lib/current-project";
 import { backFromJourney, toQueryString } from "../../../../src/lib/journey-filters";
 import { isRecent } from "../../../../src/lib/timeline";
@@ -58,6 +59,7 @@ export default async function JourneyPage({
         <JourneyTimeline
           journeyId={journeyId}
           initialStatus={journey.status}
+          initialFailedStep={failedStepOf(journey)}
           initialEvents={page.items}
           initialCursor={page.nextCursor}
           initialSelectedId={activeId}

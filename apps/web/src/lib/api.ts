@@ -13,6 +13,12 @@ export interface SearchItem {
   label: string | null;
   /** The step name of the latest event, or null for a journey recorded before it was kept. */
   lastStep: string | null;
+  /**
+   * The step that failed the journey, null when it is not failed or its
+   * failure predates the field (ADR-063). An older API omits it, which reads
+   * as null. Read it through `failedStepOf`.
+   */
+  failedStep?: string | null;
   /** Only aliases marked displayable (ADR-053), in alias-type order, in plain text. */
   displayableAliases: { type: string; value: string }[];
   /**
@@ -30,6 +36,8 @@ export interface JourneyDetail {
   status: string;
   /** Public display text the instrumenting code set, or null. An older API omits it. */
   label?: string | null;
+  /** As on `SearchItem`: the step that failed the journey. An older API omits it. */
+  failedStep?: string | null;
   /**
    * `displayValue` is masked unless `displayable` is true. An API that
    * predates the flag omits it, and its values are masked.
@@ -246,6 +254,8 @@ export interface EventsPage {
 export interface EventsPageResponse extends EventsPage {
   journeyStatus: string;
   journeyEventCount: number;
+  /** The step that failed the journey, or null (ADR-063); from `failedStepOf`. */
+  journeyFailedStep: string | null;
 }
 
 /**

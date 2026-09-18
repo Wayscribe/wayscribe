@@ -44,7 +44,7 @@ export function JourneyTable({
             Shown as
           </th>
           <th scope="col" className="col-step">
-            Last step
+            Step
           </th>
           <th scope="col" className="col-events" title="Events">
             <HeaderLabel full="Events" short="#" />
