@@ -59,7 +59,8 @@ import type {
   JourneyOperations,
   RecordInput,
   Recorder,
-  WrapOptions
+  WrapOptions,
+  WrapResult
 } from "./types.js";
 
 export type {
@@ -185,6 +186,8 @@ function defineOwn(target: Record<string, unknown>, key: string, value: unknown)
 interface WrapSettings<T> {
   operation: Operation;
   metadata?: Record<string, unknown> | undefined;
+  /** The attempt the wrapper counted, kept apart so it can be applied last. */
+  attempt?: number | undefined;
   captureInput?: WrapOptions<T>["captureInput"] | undefined;
   captureOutput?: WrapOptions<T>["captureOutput"] | undefined;
   metadataFrom?: WrapOptions<T>["metadataFrom"] | undefined;
@@ -496,20 +499,6 @@ async function raceTimeout(promise: Promise<unknown>, ms: number): Promise<void>
 }
 
 /**
- * The metadata an event carries when `metadataFrom` ran: what the projection
- * returned, over the static metadata, so a status computed from the result
- * wins over a placeholder set before the call. A projection that could not be
- * used leaves the static metadata exactly as it was.
- */
-function metadataOver(
-  metadata: Record<string, unknown> | undefined,
-  computed: Record<string, unknown> | undefined
-): { metadata?: Record<string, unknown> } {
-  if (computed === undefined) return {};
-  return { metadata: metadata === undefined ? computed : { ...metadata, ...computed } };
-}
-
-/**
  * The error a failed result records, from what `isFailure` returned, or
  * undefined when it was not a failure.
  *
@@ -519,22 +508,40 @@ function metadataOver(
  * losing it. Anything else truthy is the generic text too: the verdict was
  * that it failed, and that is worth recording whatever came with it (ADR-060).
  */
-function failureFrom(verdict: unknown, name: string): ErrorInput | undefined {
-  if (verdict === undefined || verdict === false || verdict === null || verdict === "") {
-    return undefined;
-  }
+function failureFrom(
+  verdict: unknown,
+  name: string,
+  diagnostics: Diagnostics
+): ErrorInput | undefined {
+  // Every falsy value is not a failure, 0 and NaN included: `(r) =>
+  // r.errors.length` is how a host writes this, and before the reason existed
+  // `if (failed)` read both as no failure. Narrowing that would change what a
+  // caller who already wrote it records (ADR-060).
+  if (!isTruthy(verdict)) return undefined;
   const generic = `${name} reported a failed result.`;
   if (typeof verdict === "string") return { message: verdict, code: "result_failed" };
   if (typeof verdict === "object") {
-    // The host's object: each field read behind the caller's boundary, which
-    // reports a getter that throws as a capture_error.
-    const { message, code } = verdict as { message?: unknown; code?: unknown };
+    // The host's object, and its fields may be getters, or it may be a revoked
+    // Proxy: each read goes through its own boundary, so a throw costs that
+    // field and not the step the call is there to record.
+    const read = (field: "message" | "code"): unknown =>
+      safely(diagnostics, "capture_error", () => (verdict as Record<string, unknown>)[field]);
+    const message = read("message");
+    const code = read("code");
     return {
       message: isIdentifier(message) ? message : generic,
       code: isIdentifier(code) ? code : "result_failed"
     };
   }
   return { message: generic, code: "result_failed" };
+}
+
+/**
+ * Whether a value is truthy, written once rather than as `!value` at the call,
+ * so the rule has a name and the lint rules have a boolean.
+ */
+function isTruthy(value: unknown): boolean {
+  return Boolean(value);
 }
 
 /**
@@ -1386,13 +1393,15 @@ export function createRecorder(config: RecorderConfig): Recorder {
         // ADR-022: a retry records as `retried` rather than the natural verb.
         operation: attempt > 1 ? ("retried" as const) : naturalOperation,
         metadata,
+        attempt,
         captureInput,
         captureOutput,
         metadataFrom,
         isFailure
       };
     }) ?? { operation: naturalOperation };
-    const { operation, metadata, captureInput, captureOutput, metadataFrom, isFailure } = settings;
+    const { operation, metadata, attempt, captureInput, captureOutput, metadataFrom, isFailure } =
+      settings;
 
     // Projected and captured now, before the callback can change what it was
     // given. Capturing copies: a projection usually returns parts of the input
@@ -1447,7 +1456,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         const verdict = safely(diagnostics, "capture_error", () =>
           isFailure === undefined ? false : isFailure(result)
         );
-        const failure = failureFrom(verdict, name);
+        const failure = failureFrom(verdict, name, diagnostics);
         recordAll((context) => ({
           output:
             captureOutput === undefined
@@ -1457,7 +1466,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
           // pays one comparison.
           ...(metadataFrom === undefined
             ? {}
-            : metadataOver(metadata, projectMetadata(metadataFrom, result, context))),
+            : projectMetadata(metadataFrom, result, context, metadata, attempt)),
           ...(failure === undefined ? {} : { error: failure })
         }));
       });
@@ -1566,8 +1575,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
   function projectMetadata(
     projection: (result: never, journey: JourneyContext) => Record<string, unknown>,
     result: unknown,
-    context: JourneyContext
-  ): Record<string, unknown> | undefined {
+    context: JourneyContext,
+    statik: Record<string, unknown> | undefined,
+    attempt: number | undefined
+  ): { metadata?: Record<string, unknown> } {
     const failed = (reason: string, error?: unknown): void => {
       diagnostics.report({
         kind: "payload_omitted",
@@ -1576,6 +1587,9 @@ export function createRecorder(config: RecorderConfig): Recorder {
         detail: { field: "metadata", ...(error === undefined ? {} : { error }) }
       });
     };
+    // Nothing: the event keeps the static metadata exactly as it was, which is
+    // what the option promises.
+    const unchanged = {};
     try {
       const computed: unknown = (projection as (r: unknown, j: JourneyContext) => unknown)(
         result,
@@ -1585,7 +1599,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
         failed(
           "The metadataFrom projection did not return an object, so no metadata was taken from the result."
         );
-        return undefined;
+        return unchanged;
       }
       // Inside the try: reading `then` runs the value's own getter.
       if (isThenable(computed)) {
@@ -1596,12 +1610,21 @@ export function createRecorder(config: RecorderConfig): Recorder {
         failed(
           "The metadataFrom projection returned a promise; projections must be synchronous, so no metadata was taken from the result."
         );
-        return undefined;
+        return unchanged;
       }
-      return computed as Record<string, unknown>;
+      // Merged here, inside the boundary: spreading the projection's object
+      // runs the host's own getters, and doing it at the call site lost the
+      // whole event when one threw. The static metadata is already a plain
+      // object by now, read once when the wrapper was called.
+      const merged = { ...statik, ...(computed as Record<string, unknown>) };
+      // The wrapper's own attempt last (ADR-060). It counted the attempt and
+      // the operation follows from it, so a projection cannot rename it; a
+      // projection that names no attempt adds none.
+      if (attempt !== undefined && Object.hasOwn(merged, "attempt")) merged["attempt"] = attempt;
+      return { metadata: merged };
     } catch (error) {
       failed("The metadataFrom projection threw, so no metadata was taken from the result.", error);
-      return undefined;
+      return unchanged;
     }
   }
 
@@ -1620,22 +1643,40 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   function operationsOn(targets: readonly Target[]): JourneyOperations {
-    // One untyped implementation behind the four overloaded wrappers: the
-    // overloads describe what `wrap` does with each shape of callback.
+    // One implementation behind the four wrappers, written to their own
+    // signature, so each is assigned with no cast at the assignment.
+    //
+    // The one cast left is inside it, on the return: `WrapResult<T>` is a
+    // conditional type, and TypeScript cannot check that a value produced at
+    // run time satisfies one. Any implementation of these methods needs it,
+    // including a second SDK's (see second-implementation.test.ts); a consumer
+    // of them needs none.
     const wrapper =
       (operation: Operation) =>
-      (name: string, input: unknown, fn: () => unknown, options?: WrapOptions): unknown =>
-        wrap(targets, operation, name, input, fn, options);
+      <T, I = unknown>(
+        name: string,
+        input: I,
+        fn: () => T,
+        options?: WrapOptions<Awaited<T>, I>
+      ): WrapResult<T> =>
+        wrap(
+          targets,
+          operation,
+          name,
+          input,
+          fn as () => unknown,
+          options as WrapOptions | undefined
+        ) as WrapResult<T>;
     return {
       record(input) {
         safely(diagnostics, "capture_error", () => {
           recordOn(targets, input);
         });
       },
-      transform: wrapper("transformed") as JourneyOperations["transform"],
-      persist: wrapper("persisted") as JourneyOperations["persist"],
-      publish: wrapper("published") as JourneyOperations["publish"],
-      deliver: wrapper("delivered") as JourneyOperations["deliver"],
+      transform: wrapper("transformed"),
+      persist: wrapper("persisted"),
+      publish: wrapper("published"),
+      deliver: wrapper("delivered"),
       fail(name, error, options) {
         // The options apart from the event: options that cannot be read cost
         // their metadata, not the failure being recorded.

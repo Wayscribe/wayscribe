@@ -88,13 +88,40 @@ export interface NoContextEnvelope<T> {
 
 /**
  * What `injectPayload` returns: the envelope with the journey, or the one
- * without. `journeyId` discriminates them, so
- * `if (envelope._wayscribe.journeyId !== undefined)` narrows to
- * `ContextEnvelope` with no cast.
+ * without.
+ *
+ * TypeScript does not narrow a union on a nested property, so reading
+ * `envelope._wayscribe.journeyId` leaves the value typed as the union, however
+ * the check is written. `hasJourney` is the narrowing; the usual path is
+ * `extractPayload`, which hands back the context and the payload apart.
  *
  * @experimental As `PropagationLevel`.
  */
 export type PayloadEnvelope<T> = ContextEnvelope<T> | NoContextEnvelope<T>;
+
+/**
+ * Whether an envelope carries a journey, narrowing it to `ContextEnvelope`.
+ *
+ * For a reader holding an envelope, such as a queue consumer typed on its job
+ * payload: the nested `journeyId` cannot narrow the union on its own, and this
+ * saves the cast that would otherwise be written in its place. Most consumers
+ * want `extractPayload` instead, which returns the context and the payload
+ * apart and reads a body that is not an envelope at all.
+ *
+ * Takes anything, because a body off a queue is whatever was put there.
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export function hasJourney<T>(envelope: PayloadEnvelope<T>): envelope is ContextEnvelope<T> {
+  // Read as unknown: the types say this is an envelope, and a JavaScript
+  // caller passing a job body straight off a queue can make it anything.
+  const given: unknown = envelope;
+  if (typeof given !== "object" || given === null) return false;
+  const carried: unknown = (given as { _wayscribe?: unknown })._wayscribe;
+  if (typeof carried !== "object" || carried === null) return false;
+  const { journeyId } = carried as { journeyId?: unknown };
+  return typeof journeyId === "string" && journeyId !== "";
+}
 
 /**
  * What `extractPayload` returns: the payload, and the journey when the body

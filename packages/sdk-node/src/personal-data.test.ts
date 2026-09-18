@@ -125,6 +125,34 @@ describe("personal data in a journey label", () => {
     expect(warnings(diagnostics)).toEqual([]);
   });
 
+  it.each([
+    // A `+` that follows other characters is not a dialling code: semver build
+    // metadata, a digest, and a long digit run after a dot all have one.
+    ["semver build metadata", "release 1.2.3+20130313144700"],
+    ["a digest", "image sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"],
+    ["a base64 digest with a plus", "sha256:aB+cdEfGhIjKlMnOpQrStUvWxYz0123456789+/aB"],
+    ["a long digit run after a dot", "batch 4.20130313144700"],
+    ["an offset timestamp", "started 2026-09-17T12:00:00+01:00"],
+    ["an order total", "order 4008 · 12 items · 1 999 000 cents"]
+  ])("says nothing about %s", async (_what, label) => {
+    const { diagnostics } = await capture((recorder) => {
+      recorder.startJourney({ entity: { type: "lead", id: "1" }, label });
+    });
+    expect(warnings(diagnostics)).toEqual([]);
+  });
+
+  it("still warns for a dialling code at the start, after a space, or in brackets", async () => {
+    for (const label of ["+44 20 7946 0958", "call +44 20 7946 0958", "(+44 20 7946 0958)"]) {
+      forgetPersonalDataWarnings();
+      const { diagnostics } = await capture((recorder) => {
+        recorder.startJourney({ entity: { type: "lead", id: "1" }, label });
+      });
+      expect(warnings(diagnostics).map((d) => d.detail)).toEqual([
+        { field: "journeyLabel", shape: "phone" }
+      ]);
+    }
+  });
+
   it("warns once per process and shape, however many labels hold one", async () => {
     const { diagnostics } = await capture((recorder) => {
       const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });

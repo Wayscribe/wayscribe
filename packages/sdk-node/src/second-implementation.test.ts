@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type { Diagnostic } from "./diagnostics.js";
 import {
   createRecorder,
+  hasJourney,
   type ContextEnvelope,
   type JourneyOperations,
   type NoContextEnvelope,
@@ -118,6 +119,37 @@ describe("the no-context envelope", () => {
     };
     expect(journeyIdOf(withJourney)).toBe("jrn_1");
     expect(journeyIdOf(withoutJourney)).toBeUndefined();
+
+    // TypeScript does not narrow a union on a nested property, so checking
+    // `_wayscribe.journeyId` leaves the value typed as the union. `hasJourney`
+    // is the narrowing, and needs no cast of the caller's own.
+    const contextOf = (
+      envelope: PayloadEnvelope<{ id: string }>
+    ): ContextEnvelope<{ id: string }> | undefined => {
+      if (!hasJourney(envelope)) return undefined;
+      expectTypeOf(envelope).toEqualTypeOf<ContextEnvelope<{ id: string }>>();
+      expectTypeOf(envelope._wayscribe.journeyId).toEqualTypeOf<string>();
+      return envelope;
+    };
+    expect(contextOf(withJourney)).toBe(withJourney);
+    expect(contextOf(withoutJourney)).toBeUndefined();
+  });
+
+  it("says no journey for anything that is not an envelope with one", () => {
+    // A host can pass anything, and this runs on a body from the network.
+    for (const value of [
+      { _wayscribe: {}, data: 1 },
+      { _wayscribe: { journeyId: "" }, data: 1 },
+      { _wayscribe: { journeyId: 7 }, data: 1 },
+      { _wayscribe: null, data: 1 },
+      { data: 1 },
+      null,
+      "no",
+      undefined
+    ]) {
+      expect(hasJourney(value as PayloadEnvelope<unknown>)).toBe(false);
+    }
+    expect(hasJourney({ _wayscribe: { journeyId: "jrn_1" }, data: 1 })).toBe(true);
   });
 
   it("is what injectPayload returns when there is no journey to inject", () => {

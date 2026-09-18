@@ -252,8 +252,9 @@ const response = await journey.deliver("send-to-crm", payload, () => post(payloa
 A string is the message on its own, and `{ message, code }` (the exported type
 `FailureReason`) gives either or both; a field that is not a non-empty string
 falls back to the generic text and `result_failed`, so a reason you got wrong
-still records the failure rather than losing it. Anything falsy, an empty
-string included, is not a failure. The message is masked for credential shapes
+still records the failure rather than losing it. **Every falsy value is not a
+failure**: `false`, `undefined`, `null`, `""`, `0` and `NaN`, so
+`isFailure: (result) => result.errors.length` means what it has always meant. The message is masked for credential shapes
 and bounded like any other error you give the SDK. An `isFailure` that throws
 costs the verdict and nothing else: your value comes back, the step is recorded
 as the success it looked like, and a `capture_error` says so.
@@ -512,8 +513,40 @@ context, so a consumer can read old and new messages alike.
 was a journey to inject, and `NoContextEnvelope<T>`, whose `_wayscribe` is
 empty, when there was not, which is what a recorder given no context produces.
 Both are exported, so a queue typed on its job payload names the union and
-needs no cast, and `_wayscribe.journeyId` reads as `string | undefined` on it
-(ADR-060).
+needs no cast (ADR-060).
+
+**Reading a journey back out of an envelope.** `extractPayload` is the usual
+way, and the only one that also reads a body that is not an envelope at all.
+For a reader holding the envelope itself, three formulations work, checked
+under this repo's TypeScript settings:
+
+```typescript
+import { hasJourney, type PayloadEnvelope } from "@wayscribe/node";
+
+// 1. The exported type guard narrows the envelope itself.
+if (hasJourney(envelope)) {
+  const journey = recorder.continueJourney({ context: envelope._wayscribe, entity });
+}
+
+// 2. Destructuring first narrows too: the journey id is then a top-level
+//    discriminant, and entityType and entityId are reachable beside it.
+const { _wayscribe } = envelope;
+if (_wayscribe.journeyId !== undefined) {
+  const { journeyId, entityType } = _wayscribe;
+}
+
+// 3. Reading the id alone needs no narrowing: it is `string | undefined`, and
+//    inside the check it is `string`.
+const journeyId = envelope._wayscribe.journeyId;
+```
+
+**What does not work is the obvious fourth:**
+`if (envelope._wayscribe.journeyId !== undefined)` does **not** narrow
+`envelope`. TypeScript narrows a union on a discriminant it can see at the top
+level, and this one is nested, so inside that block the envelope is still the
+union and assigning it to `ContextEnvelope<T>` is an error. The compiler's
+message talks about assignability and says nothing about narrowing, which is
+why this looks right; use one of the three above.
 
 | `propagation` | Emits |
 | --- | --- |

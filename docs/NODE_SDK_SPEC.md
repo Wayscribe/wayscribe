@@ -98,7 +98,8 @@ settings were rejected is in `counters().rejectedSettings`.
 
 ## 4. Public API
 
-The package exports two values, `createRecorder` and `OPERATIONS`, and types.
+The package exports three values, `createRecorder`, `OPERATIONS` and
+`hasJourney`, and types.
 Everything below is a method of the recorder or of a journey. ADR-056 records
 why the surface has this shape.
 
@@ -306,15 +307,18 @@ boundary: one that throws or returns a promise records `[UNCAPTURABLE]` and a
 result.` with code `result_failed`; a string is that message, and a
 `FailureReason` gives the message, the code, or both, so a 429 and a 400 with a
 validation message do not read alike (ADR-060). A field that is not a non-empty
-string falls back to the generic one, and anything falsy is not a failure. One
-that throws costs the verdict alone: the step is recorded as a success and a
-`capture_error` says so.
+string falls back to the generic one, and every falsy value, `0` and `NaN`
+included, is not a failure. One that throws costs the verdict alone: the step
+is recorded as a success and a `capture_error` says so, and a reason whose own
+fields throw costs those fields and not the step.
 
 `metadataFrom` computes metadata from the resolved value, merged over
 `metadata`, which is copied before the callback runs. It runs once per journey,
 not when the callback throws, and follows the projection rules above; anything
-it returns that is not a plain object leaves `metadata` as it was and reports
-`projection_failed` with field `metadata` (ADR-060).
+it returns that is not a plain object, and any getter on it that throws, leaves
+`metadata` exactly as it was and reports `projection_failed` with field
+`metadata` (ADR-060). The wrapper's own `attempt` is applied after the merge,
+so a projection cannot rename the attempt the wrapper counted.
 
 ### `fail` and `finish`
 
@@ -450,7 +454,10 @@ const { context, data } = recorder.extractPayload(body); // ExtractedPayload
 `extractPayload` returns a body that is not an envelope as `data`, with no
 context. `PayloadEnvelope<T>` is `ContextEnvelope<T>` or `NoContextEnvelope<T>`,
 the empty envelope a recorder with no context to inject produces, so the value
-the SDK itself makes satisfies its own type (F-014, ADR-060). The header,
+the SDK itself makes satisfies its own type (F-014, ADR-060). A nested
+discriminant does not narrow a union, so `hasJourney(envelope)`, an exported
+type guard, is what narrows one to `ContextEnvelope<T>`; the README's
+propagation section states the formulations that work. The header,
 attribute and envelope names are not specified in
 `SDK_SPEC.md` yet (its section 1); they wait on the propagation specification.
 

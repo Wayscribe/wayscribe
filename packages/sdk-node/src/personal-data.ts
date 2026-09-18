@@ -31,16 +31,21 @@ export type PersonalDataShape = "email" | "phone";
 const EMAIL_SHAPE = /[^\s@]+@[^\s@]+\.[A-Za-z]{2,}/;
 
 /**
- * Something shaped like an international telephone number: a `+`, then at
- * least eight and at most fifteen digits (E.164's own bound), with the spaces,
- * dashes, dots and parentheses people write between them.
+ * Something shaped like an international telephone number: a `+` that starts
+ * the value or follows whitespace or an opening bracket, then at least eight
+ * and at most fifteen digits (E.164's own bound), with the spaces, dashes,
+ * dots and parentheses people write between them.
  *
- * The digit count is what keeps `+3 more` and `2026-09-17T12:00:00+01:00` out
- * of it. A national number written without the `+` is not matched: `555 010
- * 9999` and an order number are the same shape, and warning about every order
- * number would be the default nobody keeps.
+ * Where the `+` sits is what keeps version and digest text out of it: a `+`
+ * after other characters is not a dialling code, as `1.2.3+20130313144700` and
+ * a base64 digest show. The digit count keeps `+3 more` and
+ * `2026-09-17T12:00:00+01:00` out too.
+ *
+ * A national number written without the `+` is not matched: `555 010 9999` and
+ * an order number are the same shape, and warning about every order number
+ * would be the default nobody keeps.
  */
-const PHONE_SHAPE = /\+[\d\s().-]{7,20}/;
+const PHONE_SHAPE = /(?<![^\s([<])\+[\d\s().-]{7,20}/;
 const DIGIT = /\d/g;
 const MIN_PHONE_DIGITS = 8;
 const MAX_PHONE_DIGITS = 15;

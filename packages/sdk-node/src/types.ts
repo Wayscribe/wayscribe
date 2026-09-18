@@ -98,9 +98,11 @@ export interface WrapOptions<T = unknown, I = unknown> {
    * `true` records the generic `<name> reported a failed result.` with code
    * `result_failed`. A string is that message; a `FailureReason` is its
    * message and its code, so a 429 and a 400 with a validation message no
-   * longer read alike on the timeline (ADR-060). Anything falsy, including an
-   * empty string, is not a failure, and a reason that cannot be used falls
-   * back to the generic text.
+   * longer read alike on the timeline (ADR-060). Every falsy value is not a
+   * failure, `0`, `NaN` and `""` included, so `(result) =>
+   * result.errors.length` means what it always did; a reason that cannot be
+   * read, from a getter that throws or a revoked Proxy, falls back to the
+   * generic text and never costs the step.
    *
    * One that throws costs the verdict and nothing else: the step is recorded
    * as the success it looked like, and a `capture_error` says so.
