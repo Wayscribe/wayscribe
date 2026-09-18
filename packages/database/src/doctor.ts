@@ -10,7 +10,7 @@ import {
   type Keyring
 } from "@wayscribe/payload-security";
 import type { Knex } from "knex";
-import { commandUsage, flagNames } from "./cli-commands.js";
+import { commandUsage, flag, isFlagOf, type FlagOf } from "./cli-commands.js";
 import { keyringFromEnvironment } from "./keyring-env.js";
 import { migrationStatusReadOnly, SchemaUsageError } from "./migration-status.js";
 import { findUnreadableData } from "./repositories/rotation.js";
@@ -331,33 +331,37 @@ export function parseDoctorArgs(
   args: readonly string[],
   env: Record<string, string | undefined> = {}
 ): DoctorArgs {
-  const values: Partial<Record<string, string>> = {};
-  const flags = flagNames("doctor");
+  const API_URL = flag("doctor", "--api-url");
+  const API_KEY = flag("doctor", "--api-key");
+  const values: Partial<Record<FlagOf<"doctor">, string>> = {};
 
   const remaining = [...args];
   while (remaining.length > 0) {
     const arg = remaining.shift() ?? "";
-    const [flag, inline] = arg.startsWith("--") ? splitOnce(arg, "=") : [arg, undefined];
-    if (!flags.includes(flag)) {
+    const [given, inline] = arg.startsWith("--") ? splitOnce(arg, "=") : [arg, undefined];
+    if (!isFlagOf("doctor", given)) {
       // Never echo the argument: it may be a key pasted without its flag.
       return { ok: false, message: `Unknown argument.\n${DOCTOR_USAGE}` };
     }
-    if (values[flag] !== undefined) {
-      return { ok: false, message: `${flag} was given twice.\n${DOCTOR_USAGE}` };
+    if (values[given] !== undefined) {
+      return { ok: false, message: `${given} was given twice.\n${DOCTOR_USAGE}` };
     }
     const value = inline ?? remaining.shift();
     if (value === undefined || value === "") {
-      return { ok: false, message: `${flag} needs a value.\n${DOCTOR_USAGE}` };
+      return { ok: false, message: `${given} needs a value.\n${DOCTOR_USAGE}` };
     }
-    values[flag] = value;
+    values[given] = value;
   }
 
-  const apiUrl = values["--api-url"];
+  const apiUrl = values[API_URL];
   if (apiUrl !== undefined && !isHttpUrl(apiUrl)) {
-    return { ok: false, message: `--api-url must be an http:// or https:// URL.\n${DOCTOR_USAGE}` };
+    return {
+      ok: false,
+      message: `${API_URL} must be an http:// or https:// URL.\n${DOCTOR_USAGE}`
+    };
   }
   const fromEnvironment = env["WAYSCRIBE_API_KEY"]?.trim();
-  const apiKey = values["--api-key"] ?? (fromEnvironment === "" ? undefined : fromEnvironment);
+  const apiKey = values[API_KEY] ?? (fromEnvironment === "" ? undefined : fromEnvironment);
   const apiKeyNotChecked =
     apiKey === undefined && fromEnvironment === ""
       ? "WAYSCRIBE_API_KEY is set but empty"
@@ -488,6 +492,7 @@ function defaultSecretResults(env: Record<string, string | undefined>): CheckRes
         warn(
           "ADMIN_TOKEN",
           "Not set where doctor runs, so it was not checked.",
+          // eslint-disable-next-line no-restricted-syntax -- Docker's --rm, not a flag of this CLI.
           "Run doctor with the API's environment, for example with `docker compose run --rm api`."
         )
       );

@@ -133,6 +133,7 @@ export const COMMANDS = [
       '  project:create acme "Acme Payments"'
     ],
     flags: [],
+    note: ["A name beginning with a dash goes after --, as in:", "  project:create beta -- -Beta"],
     checkoutScript: "project:create",
     parsesOwnArguments: false
   },
@@ -154,6 +155,7 @@ export const COMMANDS = [
         "<environment>-key. The key is printed once and cannot be recovered, so " +
         "redirect it to where it belongs. Needs ENCRYPTION_KEY."
     ],
+    note: ["A name beginning with a dash goes after --."],
     flags: [
       {
         flag: "--json",
@@ -340,21 +342,53 @@ function specOf(name: CommandName): CommandSpec {
   return spec;
 }
 
+type FlagSpecOf<N extends CommandName> = Extract<
+  (typeof COMMANDS)[number],
+  { name: N }
+>["flags"][number];
+
+/** A flag the command declares, as a type: `FlagOf<"key:create">` is `"--json"`. */
+export type FlagOf<N extends CommandName> = FlagSpecOf<N>["flag"];
+
+/**
+ * `parseArgs` options for a command, typed from the registry, so the parsed
+ * values carry exactly the declared names: reading one the registry does not
+ * declare is a type error, and so is a flag renamed in only one place.
+ */
+export type ParseArgsOptionsOf<N extends CommandName> = {
+  [F in FlagSpecOf<N> as F["flag"] extends `--${infer Option}` ? Option : never]: {
+    type: F extends { value: string } ? "string" : "boolean";
+  };
+};
+
 /** The flags a command's parser accepts. */
-export function flagNames(name: CommandName): string[] {
-  return specOf(name).flags.map((flag) => flag.flag);
+export function flagNames<N extends CommandName>(name: N): FlagOf<N>[] {
+  return specOf(name).flags.map((flag) => flag.flag as FlagOf<N>);
+}
+
+/** Whether an argument is one of the command's flags, narrowing it to that type. */
+export function isFlagOf<N extends CommandName>(name: N, arg: string): arg is FlagOf<N> {
+  return (flagNames(name) as string[]).includes(arg);
+}
+
+/**
+ * One of the command's flags, by name. Parsers and their messages name a flag
+ * through this rather than as a string literal (an ESLint rule holds that), so
+ * a flag renamed in the registry is a type error wherever it is still used.
+ */
+export function flag<N extends CommandName, F extends FlagOf<N>>(name: N, declared: F): F {
+  if (!isFlagOf(name, declared)) throw new Error(`${name} declares no ${declared}.`);
+  return declared;
 }
 
 /** The same flags, in the shape `node:util`'s `parseArgs` takes. */
-export function parseArgsOptions(
-  name: CommandName
-): Record<string, { type: "string" | "boolean" }> {
+export function parseArgsOptions<N extends CommandName>(name: N): ParseArgsOptionsOf<N> {
   return Object.fromEntries(
-    specOf(name).flags.map((flag) => [
-      flag.flag.slice(2),
-      { type: flag.value === undefined ? "boolean" : "string" }
+    specOf(name).flags.map((declared) => [
+      declared.flag.slice(2),
+      { type: declared.value === undefined ? "boolean" : "string" }
     ])
-  );
+  ) as ParseArgsOptionsOf<N>;
 }
 
 function flagSynopsis(flag: FlagSpec): string {
@@ -496,19 +530,36 @@ function listed(items: readonly string[]): string {
 }
 
 export type Preflight =
-  | { run: true; command: CommandName }
+  | { run: true; command: CommandName; args: string[] }
   | { run: false; stdout: string[]; stderr: string[]; code: 0 | 1 };
 
 const HELP_FLAGS = new Set(["--help", "-h"]);
 
 /**
  * What to do before connecting to anything: print help, refuse an unknown
- * command, refuse a flag on a command that takes none, or run the command.
+ * command, refuse a flag on a command that takes none, or run the command
+ * with its arguments.
  *
- * `--help` or `-h` anywhere before a `--` asks for the command's help; after
- * one it is a value, as `delete:identifier acme -- --help` means.
+ * Every `--` before the first argument is dropped. pnpm forwards the `--` a
+ * root script ends with, and an operator who adds the usual one of their own
+ * sends a second; keeping that one made it the value separator, so a `--help`
+ * after it was read as a value and the command ran (a sweep, a re-encryption,
+ * a deletion of the identifier "--help"). No command's first argument can
+ * begin with a dash, so nothing is lost. The first `--` after an argument is
+ * the operator's, marking where values that begin with a dash start.
+ *
+ * `--help` or `-h` before that separator prints the command's help and runs
+ * nothing. After it, either one is refused rather than read as a value: a
+ * help flag must never run anything, and an identifier or a name that is
+ * literally `--help` or `-h` is not worth the risk. The admin API still
+ * accepts such a value (`POST /v1/erasures`).
+ *
+ * For a command that parses no arguments of its own, anything beginning with
+ * a dash before the separator is refused, and the separator itself is taken
+ * out, so `project:create beta -- -Beta` names the project "-Beta" as
+ * `delete:identifier acme -- -A1` erases "-A1".
  */
-export function preflight(command: string | undefined, args: readonly string[]): Preflight {
+export function preflight(command: string | undefined, given: readonly string[]): Preflight {
   if (command !== undefined && HELP_FLAGS.has(command)) {
     return { run: false, stdout: cliHelp(), stderr: [], code: 0 };
   }
@@ -522,24 +573,43 @@ export function preflight(command: string | undefined, args: readonly string[]):
     };
   }
 
+  let start = 0;
+  while (given[start] === "--") start += 1;
+  const args = given.slice(start);
   const end = args.indexOf("--");
   const options = end === -1 ? args : args.slice(0, end);
+  const values = end === -1 ? [] : args.slice(end + 1);
+
   if (options.some((arg) => HELP_FLAGS.has(arg))) {
     return { run: false, stdout: commandHelp(command), stderr: [], code: 0 };
   }
-
-  if (!specOf(command).parsesOwnArguments) {
-    const flag = options.find((arg) => arg.startsWith("-") && arg !== "-");
-    if (flag !== undefined) {
-      // Only the part before any `=`: the value may be a key typed as a flag.
-      const [name] = flag.split("=");
-      return {
-        run: false,
-        stdout: [],
-        stderr: [`Unknown argument: ${name ?? ""}`, ...commandUsage(command).split("\n")],
-        code: 1
-      };
-    }
+  const helpAsValue = values.find((arg) => HELP_FLAGS.has(arg));
+  if (helpAsValue !== undefined) {
+    return {
+      run: false,
+      stdout: [],
+      stderr: [
+        `${helpAsValue} after -- is refused, not read as a value, so that a request ` +
+          "for help never runs anything. Nothing was changed. For the command's help, " +
+          `put ${helpAsValue} before the --.`,
+        ...commandUsage(command).split("\n")
+      ],
+      code: 1
+    };
   }
-  return { run: true, command };
+
+  if (specOf(command).parsesOwnArguments) return { run: true, command, args };
+
+  const unknown = options.find((arg) => arg.startsWith("-") && arg !== "-");
+  if (unknown !== undefined) {
+    // Only the part before any `=`: the value may be a key typed as a flag.
+    const [name] = unknown.split("=");
+    return {
+      run: false,
+      stdout: [],
+      stderr: [`Unknown argument: ${name ?? ""}`, ...commandUsage(command).split("\n")],
+      code: 1
+    };
+  }
+  return { run: true, command, args: [...options, ...values] };
 }

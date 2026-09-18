@@ -1,29 +1,23 @@
 import type { Keyring } from "@wayscribe/payload-security";
 import knex from "knex";
-import { preflight, type CommandName } from "./cli-commands.js";
+import { commandUsage, preflight, type CommandName } from "./cli-commands.js";
 import { createKnexConfig } from "./knex-config.js";
 
-// pnpm forwards a literal `--` separator through to the script when a run is
-// filtered to one package, so it arrives as the first argument rather than as
-// syntax. Only that one is dropped: a later `--` is the operator's own, marking
-// where values that begin with a dash start, and removing every one of them
-// made a value such as `-A1` impossible to pass.
 const given = process.argv[2];
-const forwarded = process.argv.slice(3);
-const args = forwarded[0] === "--" ? forwarded.slice(1) : forwarded;
 
 // Help, an unknown command, and a flag on a command that takes none are
 // answered before DATABASE_URL is read: none of them needs a database.
-const early = preflight(given, args);
+// preflight also takes out the `--` separators pnpm forwards; see there.
+const early = preflight(given, process.argv.slice(3));
 if (!early.run) {
   for (const line of early.stdout) console.log(line);
   for (const line of early.stderr) console.error(line);
   process.exitCode = early.code;
 } else {
-  await run(early.command);
+  await run(early.command, early.args);
 }
 
-async function run(command: CommandName): Promise<void> {
+async function run(command: CommandName, args: readonly string[]): Promise<void> {
   const databaseUrl = process.env["DATABASE_URL"];
 
   if (databaseUrl === undefined || databaseUrl === "") {
@@ -162,9 +156,7 @@ async function run(command: CommandName): Promise<void> {
         const [slug, ...nameParts] = args;
         const name = nameParts.join(" ");
         if (slug === undefined || name === "") {
-          console.error(
-            'Usage: project:create <slug> <name>    e.g. project:create acme "Acme Payments"'
-          );
+          console.error(commandUsage("project:create"));
           process.exitCode = 1;
           break;
         }
@@ -226,7 +218,7 @@ async function run(command: CommandName): Promise<void> {
       case "key:revoke": {
         const keyPrefix = args[0];
         if (keyPrefix === undefined) {
-          console.error("Usage: key:revoke <key-prefix>    (see `key:list`)");
+          console.error(commandUsage("key:revoke"));
           process.exitCode = 1;
           break;
         }

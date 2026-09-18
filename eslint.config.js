@@ -98,6 +98,33 @@ export default tseslint.config(
     }
   },
   {
+    // A flag of the database CLI is named through its command registry
+    // (packages/database/src/cli-commands.ts: `flag`, `isFlagOf`,
+    // `parseArgsOptions`), never written out as a string, so renaming one
+    // there is a type error wherever it is still used. Before this, renaming
+    // delete:range's --dry-run in the registry alone compiled, passed the unit
+    // tests, and made the flag the help calls "delete nothing" delete.
+    files: ["packages/database/src/**/*.ts"],
+    ignores: ["packages/database/src/cli-commands.ts", "packages/database/src/**/*.test.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          // flag("delete:range", "--before") is the one place a flag's name
+          // is written, and the registry's type checks it.
+          selector: "Literal[value=/--[a-z]/]:not(CallExpression[callee.name='flag'] > Literal)",
+          message:
+            "Name a CLI flag with flag() from cli-commands.ts, not as a string, so a rename there is a type error."
+        },
+        {
+          selector: "TemplateElement[value.raw=/--[a-z]/]",
+          message:
+            "Name a CLI flag with flag() from cli-commands.ts, not as a string, so a rename there is a type error."
+        }
+      ]
+    }
+  },
+  {
     // React components return JSX and the ecosystem conventionally omits the
     // annotation. Requiring it here buys nothing and fights every example a
     // contributor will have seen.

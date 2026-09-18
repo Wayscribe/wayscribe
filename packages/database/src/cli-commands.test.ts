@@ -45,6 +45,33 @@ const PARSERS: Record<CommandName, (flags: string[]) => Parsed> = {
   doctor: (flags) => parseDoctorArgs(flags, {})
 };
 
+/**
+ * Arguments with which each command would run and, for the destructive ones,
+ * change something: the help tests add `--help` to them and expect nothing
+ * to run.
+ */
+const RUNNABLE: Record<CommandName, string[]> = {
+  migrate: [],
+  "migrate:unlock": [],
+  rollback: [],
+  reset: ["--yes"],
+  seed: [],
+  "seed-demo": [],
+  "project:create": ["beta", "Beta"],
+  "project:list": [],
+  "key:create": ["acme", "staging", "worker"],
+  "key:revoke": ["wsk_abcdefgh"],
+  "key:list": [],
+  "retention:sweep": [],
+  "rotate:reencrypt": [],
+  "rotate:status": [],
+  "delete:journey": ["acme", "jrn_1"],
+  "delete:identifier": ["acme", "customer-42"],
+  "delete:range": ["acme", "production", "--before", "2030-01-01"],
+  "delete:destination": ["acme", "dst_1"],
+  doctor: []
+};
+
 function preflightParse(command: CommandName, args: string[]): Parsed {
   const result = preflight(command, args);
   return result.run ? { ok: true } : { ok: false, message: result.stderr.join("\n") };
@@ -66,6 +93,14 @@ function accepts(command: CommandName, flag: string): boolean {
 const ALL_FLAGS = [...new Set(COMMANDS.flatMap((command) => command.flags.map((f) => f.flag)))];
 /** Flags nothing accepts today, which a parser might grow without its help. */
 const PLAUSIBLE_FLAGS = [
+  "-x",
+  "-j",
+  "-n",
+  "-f",
+  "-v",
+  "-y",
+  "-e",
+  "-A1",
   "--force",
   "--verbose",
   "--quiet",
@@ -213,11 +248,73 @@ describe("preflight", () => {
     });
   });
 
-  it("reads --help after -- as a value, not a request for help", () => {
-    expect(preflight("delete:identifier", ["acme", "--", "--help"])).toEqual({
-      run: true,
-      command: "delete:identifier"
+  it.each(COMMANDS.map((command) => command.name))(
+    "prints %s's help and runs nothing, however many -- come before --help",
+    (name) => {
+      const runnable = RUNNABLE[name];
+      for (const args of [
+        ["--help"],
+        ["--", "--help"],
+        ["--", "--", "--help"],
+        ["--", ...runnable, "--help"],
+        ["--", "--", ...runnable, "-h"],
+        [...runnable, "--help"]
+      ]) {
+        expect(preflight(name, args), `${name} ${args.join(" ")}`).toEqual({
+          run: false,
+          stdout: commandHelp(name),
+          stderr: [],
+          code: 0
+        });
+      }
+    }
+  );
+
+  it("prints delete:identifier's help for the arguments pnpm run delete:identifier -- acme --help sends", () => {
+    expect(preflight("delete:identifier", ["--", "acme", "--help"])).toEqual({
+      run: false,
+      stdout: commandHelp("delete:identifier"),
+      stderr: [],
+      code: 0
     });
+  });
+
+  // With no argument before it, a -- is a leading one, dropped, and the help
+  // flag after it asks for help: the test above covers those commands.
+  it.each(COMMANDS.map((command) => command.name).filter((name) => RUNNABLE[name].length > 0))(
+    "refuses --help and -h after %s's value separator, and runs nothing",
+    (name) => {
+      for (const help of ["--help", "-h"]) {
+        const result = preflight(name, ["--", ...RUNNABLE[name], "--", help]);
+        expect(result.run, `${name} -- ${help}`).toBe(false);
+        if (result.run) continue;
+        expect(result.code).toBe(1);
+        expect(result.stdout).toEqual([]);
+        expect(result.stderr[0]).toContain(`${help} after -- is refused`);
+      }
+    }
+  );
+
+  it("drops every leading --, and keeps the first -- after an argument as the separator", () => {
+    expect(preflight("delete:identifier", ["--", "--", "acme", "--", "-A1"])).toEqual({
+      run: true,
+      command: "delete:identifier",
+      args: ["acme", "--", "-A1"]
+    });
+  });
+
+  it("takes a name beginning with a dash after -- on a command that parses no arguments", () => {
+    expect(preflight("project:create", ["--", "beta", "--", "-Beta"])).toEqual({
+      run: true,
+      command: "project:create",
+      args: ["beta", "-Beta"]
+    });
+    const unmarked = preflight("project:create", ["beta", "-Beta"]);
+    expect(unmarked.run).toBe(false);
+    if (!unmarked.run) {
+      expect(unmarked.stderr[0]).toBe("Unknown argument: -Beta");
+      expect(unmarked.stderr.join("\n")).toContain("project:create beta -- -Beta");
+    }
   });
 
   it("refuses a flag on a command that takes none, naming only the flag", () => {
@@ -233,7 +330,8 @@ describe("preflight", () => {
   it("leaves a command that parses its own arguments to its parser", () => {
     expect(preflight("key:create", ["acme", "production", "--jsonl"])).toEqual({
       run: true,
-      command: "key:create"
+      command: "key:create",
+      args: ["acme", "production", "--jsonl"]
     });
   });
 });

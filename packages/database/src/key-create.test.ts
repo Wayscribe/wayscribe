@@ -51,6 +51,27 @@ describe("parseKeyCreateArgs", () => {
     }
   );
 
+  it.each([["-j"], ["-x"], ["-A1"], ["--jsonl=1"]])(
+    "refuses %s before -- rather than issuing a key named after it",
+    (arg) => {
+      const parsed = parseKeyCreateArgs(["acme", "production", arg]);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.ok ? "" : parsed.message).toContain(
+        `Unknown argument: ${arg.split("=")[0] ?? ""}`
+      );
+    }
+  );
+
+  it("takes a name beginning with a dash after --, and --json after it as a word of the name", () => {
+    expect(parseKeyCreateArgs(["acme", "production", "--json", "--", "-x", "--json"])).toEqual({
+      ok: true,
+      projectSlug: "acme",
+      environmentName: "production",
+      name: "-x --json",
+      json: true
+    });
+  });
+
   it("refuses an unknown flag rather than taking it as a name", () => {
     const parsed = parseKeyCreateArgs(["acme", "production", "--jsonl"]);
     expect(parsed.ok).toBe(false);

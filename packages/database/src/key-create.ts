@@ -1,4 +1,4 @@
-import { commandUsage, flagNames } from "./cli-commands.js";
+import { commandUsage, flag } from "./cli-commands.js";
 import type { IssuedKey } from "./repositories/key-admin.js";
 
 /**
@@ -18,21 +18,28 @@ export type KeyCreateArgs =
   | { ok: false; message: string };
 
 /**
- * The positional arguments and `--json`, which may appear anywhere.
+ * The positional arguments and `--json`, which may appear anywhere before a
+ * `--`.
  *
- * An unknown flag is refused rather than folded into the name: a mistyped
- * `--jsonl` would otherwise issue a key named `--jsonl` and print it in the
- * form the caller did not ask for.
+ * Anything else that begins with a dash is refused rather than folded into
+ * the name: a mistyped `--jsonl` or `-j` would otherwise issue a key named
+ * after it and print it in the form the caller did not ask for. A name that
+ * really begins with a dash goes after `--`, where every argument is a value.
  */
 export function parseKeyCreateArgs(args: readonly string[]): KeyCreateArgs {
-  const flags = flagNames("key:create");
-  const json = flags.includes("--json") && args.includes("--json");
-  const rest = args.filter((arg) => !flags.includes(arg));
+  const JSON_FLAG = flag("key:create", "--json");
+  const end = args.indexOf("--");
+  const options = end === -1 ? args : args.slice(0, end);
+  const values = end === -1 ? [] : args.slice(end + 1);
 
-  const unknownFlag = rest.find((arg) => arg.startsWith("--"));
+  const unknownFlag = options.find((arg) => arg !== JSON_FLAG && looksLikeFlag(arg));
   if (unknownFlag !== undefined) {
-    return { ok: false, message: `Unknown argument: ${unknownFlag}\n${KEY_CREATE_USAGE}` };
+    // Only the part before any `=`, as for the other commands.
+    const [name] = unknownFlag.split("=");
+    return { ok: false, message: `Unknown argument: ${name ?? ""}\n${KEY_CREATE_USAGE}` };
   }
+  const json = options.includes(JSON_FLAG);
+  const rest = [...options.filter((arg) => arg !== JSON_FLAG), ...values];
 
   const [projectSlug, environmentName, ...nameParts] = rest;
   if (projectSlug === undefined || environmentName === undefined) {
@@ -47,6 +54,10 @@ export function parseKeyCreateArgs(args: readonly string[]): KeyCreateArgs {
     name: name === "" ? `${environmentName}-key` : name,
     json
   };
+}
+
+function looksLikeFlag(arg: string): boolean {
+  return arg.startsWith("-") && arg !== "-";
 }
 
 /** The lines `key:create` prints for a key it issued, in the form asked for. */

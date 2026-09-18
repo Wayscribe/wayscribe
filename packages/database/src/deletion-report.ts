@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { commandUsage, parseArgsOptions } from "./cli-commands.js";
+import { commandUsage, flag, parseArgsOptions } from "./cli-commands.js";
 import type {
   BatchProgress,
   DestinationDeletion,
@@ -119,7 +119,7 @@ export function parseIdentifierArgs(args: readonly string[]): IdentifierArgs {
     ok: true,
     projectSlug,
     value,
-    environment: stringOption(parsed.values, "environment"),
+    environment: parsed.values.environment,
     dryRun: parsed.values["dry-run"] === true
   };
 }
@@ -152,23 +152,25 @@ export function parseRangeArgs(args: readonly string[]): RangeArgs {
   if (projectSlug === undefined || environment === undefined || extra.length > 0) {
     return { ok: false, message: RANGE_USAGE };
   }
-  const beforeValue = stringOption(parsed.values, "before");
+  const BEFORE = flag("delete:range", "--before");
+  const AFTER = flag("delete:range", "--after");
+  const beforeValue = parsed.values.before;
   if (beforeValue === undefined) {
-    return { ok: false, message: `--before is required.\n${RANGE_USAGE}` };
+    return { ok: false, message: `${BEFORE} is required.\n${RANGE_USAGE}` };
   }
 
-  const before = parseTimestamp("--before", beforeValue);
+  const before = parseTimestamp(BEFORE, beforeValue);
   if (!before.ok) return before;
   let after: Date | undefined;
-  const afterValue = stringOption(parsed.values, "after");
+  const afterValue = parsed.values.after;
   if (afterValue !== undefined) {
-    const parsedAfter = parseTimestamp("--after", afterValue);
+    const parsedAfter = parseTimestamp(AFTER, afterValue);
     if (!parsedAfter.ok) return parsedAfter;
     after = parsedAfter.date;
     if (after.getTime() >= before.date.getTime()) {
       return {
         ok: false,
-        message: `--after (${after.toISOString()}) must be earlier than --before (${before.date.toISOString()}).`
+        message: `${AFTER} (${after.toISOString()}) must be earlier than ${BEFORE} (${before.date.toISOString()}).`
       };
     }
   }
@@ -181,18 +183,6 @@ export function parseRangeArgs(args: readonly string[]): RangeArgs {
     after,
     dryRun: parsed.values["dry-run"] === true
   };
-}
-
-/**
- * A string flag's value. The options come from the command registry, so
- * `parseArgs` cannot type them; a string flag's value is a string or absent.
- */
-function stringOption(
-  values: Record<string, string | boolean | (string | boolean)[] | undefined>,
-  name: string
-): string | undefined {
-  const value = values[name];
-  return typeof value === "string" ? value : undefined;
 }
 
 /** One line as each batch commits, so a long run shows it is moving. */
@@ -331,7 +321,8 @@ export function reportDestination(
 }
 
 const LATE_ARRIVALS =
-  "Journeys recorded after the run started were left alone; run it again with --dry-run to check for any.";
+  "Journeys recorded after the run started were left alone; run it again with " +
+  `${flag("delete:identifier", "--dry-run")} to check for any.`;
 
 function refusal(reason: "environment_not_found" | "empty_value", context: ReportContext): Report {
   return {
