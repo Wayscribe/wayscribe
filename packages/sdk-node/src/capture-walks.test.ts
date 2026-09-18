@@ -96,10 +96,12 @@ describe("capture's walks over a payload", () => {
     journey.record({ operation: "transformed", name: "t", input: "x".repeat(300) });
     expect(checkLimits.mock.calls.filter(([value]) => isEnvelope(value))).toHaveLength(0);
 
+    // The input is sized so the event fits once the output is omitted: every
+    // event also carries about 150 bytes of `runtime` (ADR-063).
     journey.record({
       operation: "transformed",
       name: "t",
-      input: "x".repeat(600),
+      input: "x".repeat(450),
       output: "y".repeat(600)
     });
     // Over budget: checked, the output omitted, and checked again.

@@ -20,7 +20,7 @@ function harness(
       send: async (batch) => {
         const outcome = await send(batch);
         if (typeof outcome === "object") return outcome;
-        return { accepted: outcome ?? batch.length, retry: [] };
+        return { accepted: outcome ?? batch.length, retry: [], noVerdict: 0 };
       },
       maxAttempts: 3,
       baseBackoffMs: 10,
@@ -192,6 +192,7 @@ describe("Transport, when the server refuses some events for now", () => {
         return Promise.resolve({
           accepted: batch.length - retry.length,
           retry,
+          noVerdict: 0,
           reason: "storage_error: The event could not be stored."
         });
       }
@@ -218,7 +219,12 @@ describe("Transport, when the server refuses some events for now", () => {
         batches.push(idsOf(batch));
         const retry = refuseB > 0 ? batch.filter((entry) => idsOf([entry])[0] === "b") : [];
         refuseB -= 1;
-        return Promise.resolve({ accepted: batch.length - retry.length, retry, reason: "x" });
+        return Promise.resolve({
+          accepted: batch.length - retry.length,
+          retry,
+          noVerdict: 0,
+          reason: "x"
+        });
       },
       {
         sleep: (ms: number) => {
@@ -334,11 +340,139 @@ describe("Transport, when the server refuses some events for now", () => {
     const send = vi
       .fn<(batch: readonly unknown[]) => Promise<SendOutcome>>()
       .mockImplementationOnce((batch) =>
-        Promise.resolve({ accepted: 3, retry: batch.slice(1, 2), reason: "x" })
+        Promise.resolve({ accepted: 3, retry: batch.slice(1, 2), noVerdict: 0, reason: "x" })
       )
       .mockRejectedValue(new Error("network"));
     const { transport } = harness(send);
 
     expect(await unsentAfter(transport.send(events))).toEqual(["b"]);
+  });
+});
+
+describe("a send the server gave no verdict for (F-048, ADR-063, SDK-65)", () => {
+  /** A reply that is 2xx and says nothing about any event: a proxy's body. */
+  const silent = (batch: readonly unknown[]): Promise<SendOutcome> =>
+    Promise.resolve({ accepted: 0, retry: [], noVerdict: batch.length });
+
+  it("counts toward the breaker, and opens it at the threshold without a transport error", async () => {
+    const send = vi.fn(silent);
+    const seen: Diagnostic[] = [];
+    const { transport, diagnostics } = harness(send, {}, seen);
+
+    for (let i = 0; i < 3; i += 1) await transport.send([{ ...envelope }]);
+
+    expect(diagnostics.counters().breakerOpened).toBe(1);
+    expect(seen.filter((d) => d.kind === "breaker_opened").map((d) => d.detail)).toEqual([
+      { failures: 3, cooldownMs: 1_000 }
+    ]);
+    // Its events are already reported as dropped with no_verdict, by the sender.
+    expect(seen.filter((d) => d.kind === "transport_error")).toEqual([]);
+
+    send.mockClear();
+    await expect(transport.send([{ ...envelope }])).rejects.toThrow(/circuit open/i);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("is not a failure when some verdicts came back, as today", async () => {
+    // Two events, one verdict: a server speaking the protocol badly, not a
+    // wrong collector. It resets the count.
+    const partial = (batch: readonly unknown[]): Promise<SendOutcome> =>
+      Promise.resolve({ accepted: 0, retry: [], noVerdict: batch.length - 1 });
+    const send = vi
+      .fn(silent)
+      .mockImplementationOnce(silent)
+      .mockImplementationOnce(silent)
+      .mockImplementationOnce(partial);
+    const { transport, diagnostics } = harness(send);
+
+    await transport.send([{ ...envelope }]);
+    await transport.send([{ ...envelope }]);
+    await transport.send([{ ...envelope }, { ...envelope }]);
+    await transport.send([{ ...envelope }]);
+    await transport.send([{ ...envelope }]);
+    // Two, reset, two: never three in a row.
+    expect(diagnostics.counters().breakerOpened).toBe(0);
+    await transport.send([{ ...envelope }]);
+    expect(diagnostics.counters().breakerOpened).toBe(1);
+  });
+
+  it("is not a failure when an earlier attempt of the send got a verdict", async () => {
+    const event = { ...envelope };
+    const send = vi
+      .fn<(batch: readonly unknown[]) => Promise<SendOutcome>>()
+      .mockImplementation((batch) =>
+        // Refused for now, then silent: the first attempt was answered.
+        send.mock.calls.length % 2 === 1
+          ? Promise.resolve({ accepted: 0, retry: [...batch], noVerdict: 0, reason: "x" })
+          : silent(batch)
+      );
+    const { transport, diagnostics } = harness(send);
+    for (let i = 0; i < 4; i += 1) await transport.send([{ ...event }]);
+    expect(diagnostics.counters().breakerOpened).toBe(0);
+  });
+
+  it("is a failure when every attempt failed or was silent", async () => {
+    const send = vi
+      .fn<(batch: readonly unknown[]) => Promise<SendOutcome>>()
+      .mockImplementation((batch) =>
+        send.mock.calls.length % 2 === 1 ? Promise.reject(new Error("network")) : silent(batch)
+      );
+    const { transport, diagnostics } = harness(send);
+    for (let i = 0; i < 3; i += 1) await transport.send([{ ...envelope }]);
+    expect(diagnostics.counters().breakerOpened).toBe(1);
+  });
+
+  it("is reset by a send that stored something (SDK-32)", async () => {
+    const send = vi
+      .fn(silent)
+      .mockImplementationOnce(silent)
+      .mockImplementationOnce(silent)
+      .mockImplementationOnce((batch) =>
+        Promise.resolve({ accepted: 1, retry: [], noVerdict: batch.length - 1 })
+      );
+    const { transport, diagnostics } = harness(send);
+    for (let i = 0; i < 5; i += 1) await transport.send([{ ...envelope }, { ...envelope }]);
+    expect(diagnostics.counters().breakerOpened).toBe(0);
+  });
+
+  it("is neither counted nor a reset for an empty batch", async () => {
+    const send = vi.fn(silent);
+    const { transport, diagnostics } = harness(send);
+    await transport.send([{ ...envelope }]);
+    await transport.send([{ ...envelope }]);
+    // Not a reset: the next silent send is still the third in a row.
+    await transport.send([]);
+    expect(diagnostics.counters().breakerOpened).toBe(0);
+    await transport.send([{ ...envelope }]);
+    expect(diagnostics.counters().breakerOpened).toBe(1);
+    expect(send).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not count empty batches toward the breaker", async () => {
+    const send = vi.fn(silent);
+    const { transport, diagnostics } = harness(send);
+    for (let i = 0; i < 5; i += 1) await transport.send([]);
+    expect(diagnostics.counters().breakerOpened).toBe(0);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("leaves the count alone after a whole-request refusal (SDK-31)", async () => {
+    const refused = Object.assign(new Error("Ingestion responded 400."), {
+      permanent: true,
+      httpStatus: 400
+    });
+    const send = vi
+      .fn(silent)
+      .mockImplementationOnce(silent)
+      .mockImplementationOnce(silent)
+      .mockImplementationOnce(() => Promise.reject(refused));
+    const { transport, diagnostics } = harness(send);
+    await transport.send([{ ...envelope }]);
+    await transport.send([{ ...envelope }]);
+    await transport.send([{ ...envelope }]);
+    expect(diagnostics.counters().breakerOpened).toBe(0);
+    // Not reset either: the next silent send is the third failure.
+    await transport.send([{ ...envelope }]);
+    expect(diagnostics.counters().breakerOpened).toBe(1);
   });
 });

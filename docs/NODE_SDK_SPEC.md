@@ -103,6 +103,21 @@ is named by its path: `deployment.gitCommit`, `deployment.version` or
 protocol does not have, and `deployment` when events carry no deployment at
 all (F-031).
 
+Every event also carries `runtime`, which no setting controls (SDK-64,
+ADR-063): `language` `"node"`, `version` `process.versions.node` (left out if
+it cannot be read), and `sdk` `{ name: "@wayscribe/node", version, commit? }`.
+`version` and `commit` are baked into `dist/index.js` when
+`scripts/bundle.mjs` builds it: the version is `package.json`'s, and the commit
+is the first of `BUILD_COMMIT`, when `git archive` filled it through
+`export-subst` with 40 or 64 lowercase hex characters; `WAYSCRIBE_BUILD_COMMIT`
+then `CI_COMMIT_SHA` (a value that is set and is not 7 to 64 lowercase hex
+characters fails the build, whichever source gives the commit); and
+`git rev-parse HEAD` when git's top level is the repository that contains the
+package; otherwise `commit` is left out. Run from source, where nothing is
+baked in, the version is `0.0.0-development`. The runtime is read once, when
+the recorder is created, and frozen, so an event carries it as one property.
+`hostname` and `processId` are not sent.
+
 ## 4. Public API
 
 The package exports three values, `createRecorder`, `OPERATIONS` and
@@ -383,13 +398,19 @@ counters; it never throws or hangs (SDK-37 to SDK-39). `counters` returns a
 copy of the counters at any time.
 
 `Counters` (experimental: fields may be added) has `recorded`, `sent`,
-`rejected`, `dropped`, `transportErrors`, `captureErrors`, `breakerOpened`,
+`rejected`, `dropped`, `droppedByCause`, `transportErrors`, `captureErrors`, `breakerOpened`,
 `payloadsOmitted`, `payloadsTruncated`, `keysDropped`, `configurationErrors`,
 `rejectedSettings` and `rejectedOptions` (the names those reports carried, at
 creation and on later calls, not numbers), `unredactedSecretNames` and
 `personalDataInPublicValues`. Every counter but `recorded` and `sent` counts
-reports of one diagnostic kind. Once `shutdown` has returned,
-`sent + rejected + dropped === recorded` (SDK-38, SDK-42).
+reports of one diagnostic kind. `droppedByCause` is a
+`Readonly<Record<DroppedCause, number>>`, where the exported type `DroppedCause`
+is `DroppedDiagnostic["code"]`: `queue_full`, `after_shutdown`, `shutdown`,
+`retry_budget` and `no_verdict`. Every key is present from creation at zero,
+each `dropped` report increments its key beside `dropped`, and every read is a
+fresh copy, so `dropped` is always the sum of `droppedByCause` (ADR-063). Once
+`shutdown` has returned, `sent + rejected + dropped === recorded` (SDK-38,
+SDK-42).
 
 ### Diagnostics
 

@@ -197,7 +197,10 @@ What you have to do when upgrading a checkout or a deployment:
   processor time per call without pacing. The SDK README's "What it costs" has
   the numbers and the machine they came from. `src/capture-walks.test.ts`
   counts how often capture checks, redacts and stores a payload, and
-  `src/overhead.test.ts` trips on a gross slowdown of a wrapped call.
+  `src/overhead.test.ts` counts the entries capture lists and the characters it
+  serialises for each property and byte of a payload, holds that work
+  linear in the payload's size, and holds a wrapped call to 11 times a plain
+  copy of its payloads in processor time.
 
 #### The server and the contract
 
@@ -363,6 +366,16 @@ What you have to do when upgrading a checkout or a deployment:
   stated, written with the event's own insert. Ingestion now stores an event's
   aliases before the event, which costs an event with aliases one more
   statement: 2.3 to 2.7 ms at the median, measured in process.
+- **A failed journey names the step that failed it** (F-047, ADR-063,
+  `docs/API_SPEC.md` section 5). `GET /v1/journeys/:journeyId`, each item of
+  `GET /v1/journeys` and `GET /v1/search`, and a dry run's `stored.journey`
+  gain `failedStep`: the `name` of the failing event last in timeline order
+  among the failures since the journey last became failed, and null whenever
+  `status` is not `failed`. `lastStep` still follows the timeline's last row, so
+  while a retry is in flight it names the retry's latest step and `failedStep`
+  still names the step that failed. A successful retry that clears the failure
+  and a completion clear it. Migration 021 adds the four columns behind it; it
+  costs no statement, being part of the update that sets the status.
 - **A timeline row names the build that recorded it** (F-043, `docs/API_SPEC.md`
   section 8). `GET /v1/journeys/:journeyId/events` rows gain
   `deploymentMetadata`, the event's `deployment` as the event read returns it,
@@ -614,6 +627,48 @@ What you have to do when upgrading a checkout or a deployment:
   or an image digest, and a timezone offset such as `+0000` is not a telephone
   number.
 
+- **Every event names the SDK that recorded it.** The protocol's `runtime`
+  block gains an optional `sdk: { name, version, commit? }`, exported as
+  `runtimeSdkSchema` (limits 128, 64 and 128), and the Node SDK now sends
+  `runtime` on every event: `language` `"node"`, `version` the Node version, and
+  `sdk` with `@wayscribe/node`, the package version and the commit it was built
+  from, both baked in when the bundle is built. So during an upgrade, which
+  services still run the old SDK is on every event, where both builds used to
+  say `0.1.0` and send no `runtime` at all (F-046, ADR-063, SDK-64). The commit
+  comes first from `packages/sdk-node/BUILD_COMMIT`, which `git archive` fills
+  through a new `export-subst` rule in `.gitattributes`, then from
+  `WAYSCRIBE_BUILD_COMMIT` or `CI_COMMIT_SHA` (a malformed one fails the
+  build), then from `git rev-parse HEAD` in the package's own repository. Nothing is read from
+  host settings, and `hostname` and `processId` are not sent. The protocol
+  version stays `0.1`: a server from before this strips `runtime.sdk` and
+  stores the rest, and each event is about 152 bytes larger with a commit and
+  about 100 without one.
+
+- **`dropped` names its cause, and a reply with no verdict counts toward the
+  breaker.** `counters().droppedByCause` counts `dropped` by the diagnostic's
+  code, `queue_full`, `after_shutdown`, `shutdown`, `retry_budget` and
+  `no_verdict`, every key present from creation at zero and summing to
+  `dropped`; the type of its keys is exported as `DroppedCause`. Four faults
+  that ended with the same `recorded 12, dropped 12` now read apart (F-048). A
+  send in which no reply gave a verdict for any event now counts toward the
+  circuit breaker, so a proxy answering 2xx with the wrong body opens it after
+  five sends instead of losing every event with the breaker shut: Leadline
+  measured `recorded 16000, dropped 16000` and `breakerOpened` 0. Such a send
+  reports no `transport_error`. A reply with some verdicts resets the count as
+  before (ADR-063, SDK-65).
+
+- **The telephone shape finds a number in a field and not a signed count.**
+  The `+` of a telephone number may now follow `=`, `:`, a quote, `,`, `;`,
+  `>` or `)` as well as whitespace, `(`, `[` and `<`, so `phone=+19195551234`,
+  `tel:+19195551234` and `{"phone":"+19195551234"}` raise
+  `personal_data_in_public_value`, which they did not. Digits written as one
+  unbroken run now need 10 to 15 rather than 8 to 15, so
+  `Received +12345678 bytes` no longer does; a number with separators still
+  needs 8. A number of 8 or 9 digits written with no separator is no longer
+  found. A `+` and four digits is skipped as a timezone offset only when it is
+  one, hours 00 to 14 and minutes 00, 15, 30 or 45, so `+0530 2026` is still
+  skipped and `+4930 1234567` is now found (ADR-063).
+
 - **Four SDK declarations say what the code does.** `WrapResult` says the
   assignment of a second implementation needs no cast and its body's return
   still does (F-037). `ContinueJourneyOptions` names all four steps of the
@@ -769,6 +824,26 @@ What you have to do when upgrading a checkout or a deployment:
   and it left out the tolerance that explains a refusal caused by clock skew.
   The check itself is unchanged. The message is built from the tolerance, so
   the two cannot drift apart.
+- **Dry runs that share a journey or an event id wait for each other**
+  (ADR-063, `docs/INGESTION_CONTRACT.md` section 8). Two dry runs naming the
+  same journeys in opposite orders deadlocked, and PostgreSQL cancelled one,
+  which answered `storage_error` for events a real send would store; a
+  reviewer saw it in 50 runs of 50. Two sending the same event ids under
+  different journeys did the same, 20 of 20, because an event id is unique per
+  project whatever the journey. A dry run now takes a transaction-scoped
+  advisory lock per distinct journey id and per distinct event id, the two
+  kinds under different first keys, one statement each, journeys first and
+  each kind in ascending key order, before its first event, so the second
+  waits at its start. On a 100-event dry run with 100 distinct ids the event
+  locks add about 16 ms to about 420 ms. A wait past
+  `DATABASE_STATEMENT_TIMEOUT_MS` answers the request `503 query_timeout`.
+  Batches sent for real take no such lock.
+- **The journey id shapes are documented** (F-049, ADR-063,
+  `docs/EVENT_PROTOCOL.md` section 4). The Node SDK's random ids are `jrn_` and
+  a lowercase hyphenated UUID, 40 characters; its derived ids are `jrn_` and 32
+  lowercase hex characters, 36 characters. The section recommended
+  `jrn_<uuidv7>`, which neither is. A journey id stays an opaque string of 1 to
+  128 characters, and a reader must not parse or validate its shape.
 - **A successful retry clears a failed journey** (ADR-061). A `retried` event
   carrying no error returns the journey's status from `failed` to `active`
   instead of leaving it failed until something else says otherwise. An SDK
@@ -949,6 +1024,20 @@ What you have to do when upgrading a checkout or a deployment:
 These apply to an installation or a host application built from an earlier
 development build of `main`. A new installation can skip them.
 
+- **Upgrade the server before the services.** A new SDK sends `runtime.sdk`,
+  which a server from before ADR-063 strips before it takes the event's content
+  hash. An event whose first delivery reached the old server and whose response
+  was lost, resent after the server was upgraded, is answered
+  `event_id_conflict`: it is stored, and the SDK counts it `rejected`. Upgrading
+  the server first never meets this.
+
+- **`counters()` has `droppedByCause`, and a proxy that answers without verdicts
+  opens the breaker.** A test that compares the whole counters object adds the
+  new key. A service behind a proxy that rewrites the API's replies now shows
+  `breakerOpened` above zero and loses events as `queue_full` or `shutdown`
+  once the queue fills or the process ends, where it lost them all as
+  `no_verdict` before.
+
 - **`rejectedSettings` no longer holds call-time names.** A test or health
   check that expected `entity`, `context`, `journeyId`, or a `journeyIdSecret`
   that a call needed but was never configured, in `rejectedSettings` reads
@@ -1010,6 +1099,10 @@ development build of `main`. A new installation can skip them.
   `lock_timeout`, as 017 did; run `migrate` again if it gives up behind a long
   transaction (`docs/OPERATIONS.md` section 4). There is no backfill: events
   stored before it read `aliases: null`.
+- **Migration 021 adds four columns to `journeys`** with the same five-second
+  `lock_timeout` (`docs/OPERATIONS.md` section 4). There is no backfill: a
+  journey failed before it reads `failedStep: null` until its next failure;
+  show its `lastStep` meanwhile.
 - **Send `limit` once, as a whole number of at least 1.** A client that sent
   `limit=0` or an empty-looking value such as `limit=abc` to get the default
   now gets `400 invalid_query`; leave `limit` out instead. `limit=1000` still

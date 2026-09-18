@@ -1,7 +1,7 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "../testing/postgres.js";
 import { createKeyring } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";
 import { issueKey } from "./key-admin.js";
 import { ProjectAdminError, createProject, listProjects } from "./project-admin.js";
@@ -15,11 +15,11 @@ const keyring = createKeyring("0123456789abcdef0123456789abcdef");
  * database had an empty installation and nothing to point the SDK at.
  */
 describe("project administration", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
   });

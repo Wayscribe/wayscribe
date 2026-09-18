@@ -1,9 +1,9 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { checkKeysAtBoot } from "../key-warnings.js";
 import { startRetentionJob } from "../retention-job.js";
@@ -21,7 +21,7 @@ const JOURNEY_ID = "jrn_metrics_journey_0042";
 const SENT_AT = new Date().toISOString();
 
 describe("metrics, scraped from METRICS_PORT after real traffic", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let app: FastifyInstance;
   let apiKey: string;
@@ -31,7 +31,7 @@ describe("metrics, scraped from METRICS_PORT after real traffic", () => {
   let metricsUrl: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri(), { statementTimeoutMs: 15_000 }));
     await db.migrate.latest();
 

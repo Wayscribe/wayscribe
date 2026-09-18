@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { compare, describeComparison } from "../../../../tests/support/timing";
 import { LoginLimiter, MAX_TRACKED_ADDRESSES } from "./login-limiter";
 
 const options = { maxFailures: 3, windowMs: 60_000, cooldownMs: 300_000 };
@@ -86,39 +87,37 @@ describe("LoginLimiter under many addresses", () => {
     // the second about fifty times slower; constant work keeps them close.
     //
     // Timing consecutive batches of one run compared two wall-clock samples, so
-    // one batch slowed by an unrelated process failed the test. The fastest of
-    // several runs of each is the least noisy estimate of the work, and a
-    // difference under the noise floor is not complexity.
+    // one batch slowed by an unrelated process failed the test, and so did the
+    // fastest of five batches with a 2 ms floor once the machine was busy. The
+    // two are now timed alternately in the thread's processor time, until the
+    // fastest of each is a clean estimate of the work (tests/support/timing.ts).
     const SMALL = 1_000;
-    const CALLS = 5_000;
-    const RUNS = 5;
+    const CALLS = 1_000;
     const RATIO = 5;
-    const NOISE_FLOOR_MS = 2;
     let next = 0;
     const filled = (held: number): LoginLimiter => {
       const limiter = new LoginLimiter(options, held);
       for (let n = 0; n < held; n += 1, next += 1) limiter.recordFailure(address(next), NOW);
       return limiter;
     };
-    const timed = (limiter: LoginLimiter): number => {
-      const started = performance.now();
-      for (let n = 0; n < CALLS; n += 1, next += 1) limiter.recordFailure(address(next), NOW);
-      return performance.now() - started;
-    };
+    const failures =
+      (limiter: LoginLimiter): (() => void) =>
+      () => {
+        for (let n = 0; n < CALLS; n += 1, next += 1) limiter.recordFailure(address(next), NOW);
+      };
     const small = filled(SMALL);
     const large = filled(MAX_TRACKED_ADDRESSES);
-    let fastestSmall = Number.POSITIVE_INFINITY;
-    let fastestLarge = Number.POSITIVE_INFINITY;
-    for (let run = 0; run < RUNS; run += 1) {
-      fastestSmall = Math.min(fastestSmall, timed(small));
-      fastestLarge = Math.min(fastestLarge, timed(large));
-    }
+    const measured = compare(
+      { run: failures(large), units: CALLS },
+      { run: failures(small), units: CALLS },
+      RATIO
+    );
     expect(small.size).toBe(SMALL);
     expect(large.size).toBe(MAX_TRACKED_ADDRESSES);
     expect(
-      fastestLarge,
-      `${fastestSmall.toFixed(2)} ms at ${String(SMALL)}, ${fastestLarge.toFixed(2)} ms at the cap`
-    ).toBeLessThan(Math.max(fastestSmall, NOISE_FLOOR_MS) * RATIO);
+      measured.ratio,
+      `at the cap against ${String(SMALL)} addresses: ${describeComparison(measured)}`
+    ).toBeLessThan(RATIO);
   }, 60_000);
 
   it("forgets addresses whose failures and locks have expired", () => {

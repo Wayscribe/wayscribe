@@ -1,0 +1,57 @@
+{
+  "id": "wire/runtime-sdk",
+  "title": "An event may name the SDK that recorded it inside runtime, and the event reads it back",
+  "source": "ADR-063; docs/EVENT_PROTOCOL.md section 3",
+  "layer": "wire",
+  "languages": ["*"],
+  "send": {
+    "events": [
+      {
+        "protocolVersion": "0.1",
+        "event": {
+          "id": "evt_{{run}}",
+          "journeyId": "jrn_{{run}}",
+          "environment": "conformance",
+          "service": "customer-integration",
+          "entity": {
+            "type": "customer",
+            "id": "0018Z00002ABC"
+          },
+          "operation": "received",
+          "name": "receive-salesforce-webhook",
+          "timestamp": "2026-08-06T18:31:02.000Z",
+          "runtime": {
+            "language": "node",
+            "version": "24.19.0",
+            "sdk": {
+              "name": "@wayscribe/node",
+              "version": "0.1.0",
+              "commit": "27f4d64a3b1c0e9f8d7c6b5a4f3e2d1c0b9a8f7e"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "expect": {
+    "results": [
+      {
+        "status": "accepted",
+        "duplicate": false,
+        "stored": {
+          "event": {
+            "runtimeMetadata": {
+              "language": "node",
+              "version": "24.19.0",
+              "sdk": {
+                "name": "@wayscribe/node",
+                "version": "0.1.0",
+                "commit": "27f4d64a3b1c0e9f8d7c6b5a4f3e2d1c0b9a8f7e"
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

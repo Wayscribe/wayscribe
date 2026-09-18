@@ -9,5 +9,10 @@ declare module "vitest" {
     postgresVersion: string;
     /** The image Testcontainers starts, `postgres:<version>-alpine`. */
     postgresImage: string;
+    /**
+     * The run's shared server, as a superuser URL, set by
+     * packages/database/src/testing/postgres-global-setup.ts.
+     */
+    postgresServerUri: string;
   }
 }

@@ -158,17 +158,43 @@ describe("checkLimits", () => {
     if (!result.ok) expect(result.reason).toBe("unserialisable_payload");
   });
 
-  it("stops measuring once a payload is certainly over the limit", () => {
+  it("stops measuring once a payload is certainly over the limit, reading at most four properties a byte of the limit", () => {
     // Shared references, 24 levels: 26 objects, and 16 million leaves once
     // expanded. Serialising all of it to measure it took about 2 seconds and
-    // 245 MB on an Apple M3 Pro.
-    let dag: unknown = "x";
-    for (let level = 0; level < 24; level += 1) dag = { l: dag, r: dag };
-    const started = performance.now();
-    const result = checkLimits(dag, DEFAULT_LIMITS);
-    const elapsed = performance.now() - started;
-    expect(result).toEqual({ ok: false, reason: "payload_too_large" });
-    expect(elapsed).toBeLessThan(250);
+    // 245 MB on an Apple M3 Pro. Every object is a Proxy that counts the
+    // reads made of it, so the work is counted rather than timed: an absolute
+    // 250 ms here was a limit a loaded machine could exceed. Stopping early
+    // reads the same number at 16 levels as at 24 (about 459,000, 1.75 a byte
+    // of the 256 KiB limit); measuring all of it reads over 100 million.
+    const reads = { n: 0 };
+    const counting = (target: object): object =>
+      new Proxy(target, {
+        get(object, key, receiver) {
+          reads.n += 1;
+          return Reflect.get(object, key, receiver) as unknown;
+        },
+        ownKeys(object) {
+          reads.n += 1;
+          return Reflect.ownKeys(object);
+        },
+        getOwnPropertyDescriptor(object, key) {
+          reads.n += 1;
+          return Reflect.getOwnPropertyDescriptor(object, key);
+        }
+      });
+    const readsAt = (levels: number): number => {
+      let dag: unknown = "x";
+      for (let level = 0; level < levels; level += 1) dag = counting({ l: dag, r: dag });
+      reads.n = 0;
+      expect(checkLimits(dag, DEFAULT_LIMITS)).toEqual({ ok: false, reason: "payload_too_large" });
+      return reads.n;
+    };
+
+    const atSixteen = readsAt(16);
+    const atTwentyFour = readsAt(24);
+    expect(atTwentyFour).toBeLessThanOrEqual(4 * DEFAULT_LIMITS.maxBytes);
+    // 256 times the leaves, and no more work: it stopped at the limit.
+    expect(atTwentyFour).toBeLessThanOrEqual(atSixteen * 1.01);
   });
 
   it("measures exactly at the limit, with keys, escapes and wide characters", () => {

@@ -1,7 +1,7 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "../testing/postgres.js";
 import { createKeyring, searchTokens } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
 import { orderJourneysAfter, toJourneyPage } from "./journey-keyset.js";
@@ -118,7 +118,7 @@ const SQL_SIGNIFICANT = [
 ];
 
 describe("searchJourneys matches the reference query", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   const scopes: { name: string; scope: ReadScope }[] = [];
   const values: string[] = [];
@@ -126,7 +126,7 @@ describe("searchJourneys matches the reference query", () => {
   const multiBranchEnvironment = new Map<string, string>();
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

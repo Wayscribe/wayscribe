@@ -1,9 +1,9 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -19,14 +19,16 @@ interface LogLine {
 const WARN = 40;
 
 describe("DATABASE_STATEMENT_TIMEOUT_MS through a route", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   /** Migrations and fixtures, with no timeout. */
   let db: Knex;
   let apiKey: string;
   const opened: { app: FastifyInstance; pool: Knex }[] = [];
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    // A server of its own: it creates a role, which would outlive this file on
+    // the suite's shared server.
+    container = await startPostgres({ dedicated: true });
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

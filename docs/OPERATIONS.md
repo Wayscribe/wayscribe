@@ -265,6 +265,32 @@ before it locks the journey: one delivery gets a 500 and the SDK retries it.
 It happens only during the deploy, and only for a duplicate of an event that
 states aliases.
 
+### Migration 021 records the step that failed a journey
+
+`021_journey_failed_step.js` adds four columns to `journeys`, `failed_step`,
+`failed_step_at`, `failed_step_received_at` and `failed_step_event_id`, all
+nullable with no default and no index (ADR-063, F-047). Like 020 it is a
+catalogue change with no table rewrite, holds its exclusive lock for an
+instant, and sets `lock_timeout` to five seconds, so behind a long-running
+transaction it fails with `canceling statement due to lock timeout`, changes
+nothing, and succeeds when `migrate` runs again; check
+`'journeys'::regclass` in the query above. Rolling it back drops the four
+columns under the same timeout.
+
+There is no backfill. A journey failed before the migration, or failed by the
+previous API between migrate and deploy, reads `failedStep: null` until its
+next failure, and the web app shows its last step for it, as before.
+
+The previous API does not know the columns, so when it clears or completes a
+failed journey it leaves them as they were. The reads show `failedStep` only
+while the status is `failed`, which hides that stale value while the journey
+is out of `failed`. If the previous API then fails the journey again, the read
+can name the earlier, cleared step until a failure applied by this build and
+stamped later replaces it; a failure this build applies while the journey is
+not failed replaces it however it is stamped. This happens only while the
+previous API still writes, so it ends with the deploy, and it only ever names
+a step that did fail in that journey.
+
 ### Upgrading to the journey browsing release (migrations 018 and 019)
 
 This release adds journey labels, last steps and partial text matching on
@@ -1997,4 +2023,9 @@ limit. If you raised `MAX_EVENT_PAYLOAD_BYTES`, raise the SDK's
 not delivered: the bounded queue shed them under backpressure, the server kept
 refusing them for now past the retry budget, its reply gave no verdict for them,
 or `shutdown()` finished with them undelivered. Each diagnostic's `code` says
-which (`packages/sdk-node/README.md`, "Is it sending?").
+which (`packages/sdk-node/README.md`, "Is it sending?"), and `droppedByCause`
+counts them by that code, every cause present at zero, so a health endpoint can
+tell a collector slower than the shutdown timeout (`shutdown`) from a proxy
+answering with the wrong body (`no_verdict`). Five sends in a row whose replies
+gave no verdict at all open the breaker, so `breakerOpened` rises for that
+proxy too (ADR-063).

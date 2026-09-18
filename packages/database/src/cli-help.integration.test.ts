@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createKeyring, searchTokens } from "@wayscribe/payload-security";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "./testing/postgres.js";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { cliHelp, commandHelp, COMMANDS, type CommandName } from "./cli-commands.js";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig } from "./knex-config.js";
@@ -102,7 +102,7 @@ const tokenFor = (value: string): string => {
  * so an unchanged database means the command did not run.
  */
 describe("--help against a real database", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let revocablePrefix = "";
   let destinationId = "";
@@ -170,7 +170,7 @@ describe("--help against a real database", () => {
   });
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     const projectId = await insertReturningId(db, "projects", { name: "Acme", slug: "acme" });

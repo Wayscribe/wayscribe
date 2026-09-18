@@ -8,10 +8,10 @@ import {
   loadConformanceCases,
   type ConformanceCase
 } from "@wayscribe/protocol/conformance";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
 /**
@@ -43,7 +43,7 @@ interface Provisioned {
 }
 
 describe("wire conformance cases", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   /** Two apps, because full capture is a process-level setting and not a per-key one. */
   let apps: { plain: FastifyInstance; fullCapture: FastifyInstance };
@@ -54,7 +54,7 @@ describe("wire conformance cases", () => {
   const cases = loadConformanceCases(wireDirectory);
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     const options = { db, keyring, adminToken: "admin-token-for-tests-0000000000" } as const;

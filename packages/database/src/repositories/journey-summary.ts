@@ -34,6 +34,11 @@ export function journeySummaryColumns(db: Knex): (string | Knex.Raw)[] {
     "j.last_event_at as lastEventAt",
     "j.label as label",
     "j.last_step as lastStep",
+    // Shown only while the journey is failed (ADR-063). That hides a value a
+    // previous-build instance left when it cleared a failure, while the
+    // journey stays out of failed; ADR-063's corrections say what it does not
+    // hide during a rolling deploy.
+    db.raw(`case when j.status = 'failed' then j.failed_step end as ??`, ["failedStep"]),
     "env.name as environment",
     db.raw(
       `coalesce(

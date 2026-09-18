@@ -1,6 +1,6 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "../testing/postgres.js";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
 import { InvalidCursorError, encodeCursor } from "./cursors.js";
@@ -8,7 +8,7 @@ import { listJourneys, type JourneyListFilters } from "./journey-list.js";
 import type { ReadScope } from "./read-scope.js";
 
 describe("listJourneys", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   /** The admin's view: every environment of the project. */
   let project: ReadScope;
@@ -18,7 +18,7 @@ describe("listJourneys", () => {
   const SINCE = new Date("2026-09-15T00:00:00.000Z");
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 
@@ -150,6 +150,7 @@ describe("listJourneys", () => {
       lastEventAt: new Date("2026-09-15T11:00:00Z"),
       label: null,
       lastStep: null,
+      failedStep: null,
       displayableAliases: [],
       environment: "development"
     });

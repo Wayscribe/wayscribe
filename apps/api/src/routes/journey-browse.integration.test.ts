@@ -1,9 +1,9 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -28,7 +28,7 @@ interface Row {
  * what ingestion writes, and masked values are real ciphertext and tokens.
  */
 describe("GET /v1/journeys browse filters", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let app: FastifyInstance;
   let projectId: string;
@@ -38,7 +38,7 @@ describe("GET /v1/journeys browse filters", () => {
   let since: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 
@@ -297,6 +297,7 @@ describe("GET /v1/journeys browse filters", () => {
       lastEventAt: expect.any(String),
       label: "Mirantis · Senior SWE, AI Infra",
       lastStep: "identify",
+      failedStep: null,
       displayableAliases: [],
       environment: "browse"
     });

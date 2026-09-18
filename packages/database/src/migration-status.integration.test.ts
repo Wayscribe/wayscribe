@@ -1,15 +1,17 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "./testing/postgres.js";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKnexConfig } from "./knex-config.js";
 import { migrationStatusReadOnly, pendingMigrationCount } from "./migration-status.js";
 
 describe("migrations", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    // A server of its own: a test creates a role and a database by name, which
+    // would outlive this file on the suite's shared server.
+    container = await startPostgres({ dedicated: true });
     db = knex(createKnexConfig(container.getConnectionUri()));
   });
 
@@ -31,7 +33,7 @@ describe("migrations", () => {
     // Exact, not greater-than: a loose assertion here hid a defect where
     // declaration files were counted as migrations, because `.d.ts` ends in
     // `.ts`. Update this number when a migration is added.
-    expect(await pendingMigrationCount(db)).toBe(20);
+    expect(await pendingMigrationCount(db)).toBe(21);
   });
 
   it("applies migrations and creates the projects table", async () => {

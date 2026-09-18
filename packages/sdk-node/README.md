@@ -198,7 +198,10 @@ data (ADR-060, ADR-062).
 
 The check is deliberately dumb, an email shape and an international phone shape
 and nothing else, so that it does not print at every deploy for text that is
-fine. It does not catch a person's name, a customer number, a national
+fine. A telephone number is a `+` at the start or after a space, a bracket, a
+quote, `,`, `;`, `=` or `:`, so `phone=+19195551234` counts, followed by 8 to
+15 digits with separators between them, or 10 to 15 written as one run, so a
+signed count such as `Received +12345678 bytes` does not. It does not catch a person's name, a customer number, a national
 telephone number written without a `+`, or anything else, so the rule above
 still needs reading. If what it found is not personal data, nothing needs
 doing.
@@ -661,7 +664,7 @@ waits. Three calls control that:
 await recorder.flush(); // send everything queued now, and wait for it
 
 const counters = await recorder.shutdown({ timeoutMs: 2_000 }); // the default
-// { recorded, sent, rejected, dropped, transportErrors, captureErrors,
+// { recorded, sent, rejected, dropped, droppedByCause, transportErrors, captureErrors,
 //   breakerOpened, payloadsOmitted, payloadsTruncated, keysDropped,
 //   configurationErrors, rejectedSettings, rejectedOptions,
 //   unredactedSecretNames, personalDataInPublicValues }
@@ -680,6 +683,22 @@ built, and `sent` every event the server stored. Every other counter counts the
 diagnostics of one kind, one per report (see the table below). Once
 `shutdown()` has returned, `sent + rejected + dropped === recorded`, which a
 test can assert.
+
+`droppedByCause` breaks `dropped` down by the `dropped` diagnostic's code:
+`queue_full`, `after_shutdown`, `shutdown`, `retry_budget` and `no_verdict`
+(the type is exported as `DroppedCause`). Every key is there from creation at
+zero, so a health check reads it without a guard, and `dropped` is always their
+sum. A collector that hangs or is slower than the shutdown timeout ends in
+`shutdown`. One that answers with the wrong body ends in `no_verdict`, and,
+once five such sends have opened the breaker, in `queue_full` or `shutdown`
+for what waited behind it; `breakerOpened` says which it was (F-048,
+ADR-063).
+
+```typescript
+const { dropped, droppedByCause } = recorder.counters();
+// dropped === 12, droppedByCause === { queue_full: 0, after_shutdown: 0,
+//   shutdown: 0, retry_budget: 0, no_verdict: 12 }: a proxy is rewriting replies
+```
 
 `rejectedSettings` and `rejectedOptions` are the exceptions, and the two
 entries that are not numbers: they name what the `configuration_error` reports
@@ -804,10 +823,10 @@ in `<noun>Errors`, and a bare participle in itself (`dropped`).
 | `payload_omitted` | `too_large`, `too_deep`, `too_wide`, `unserialisable`, `projection_failed` | a payload could not fit the server's limits, could not be read (a getter or `toJSON` threw), or a projection failed, and was replaced by a marker; the event is still sent | `{ field }`, and `error` for `unserialisable` and `projection_failed`, never printed | `payloadsOmitted` |
 | `payload_truncated` | `strings_cut`, `label_cut` | strings in a payload were longer than the server accepts and were cut, or a label was; the event is still sent | `{ field, strings, charactersRemoved }` | `payloadsTruncated` |
 | `key_dropped` | `aliases_not_object`, `alias_invalid`, `displayable_alias_invalid`, `metadata_key_too_long`, `label_invalid` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; or a label was not set; the event is still sent | `{ field, keys }`, `keys` being how many entries this report covers | `keysDropped`, per report |
-| `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it | `{ name, operation }` for `after_shutdown`, otherwise `{}` | `dropped` |
+| `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it | `{ name, operation }` for `after_shutdown`, otherwise `{}` | `dropped`, and `droppedByCause[code]` |
 | `capture_error` | `unexpected_error`, `not_a_journey`, `invalid_options`, `context_missing` | something threw inside the SDK; `across` was given something that is not a journey; a call's options were not an object or held keys it does not read (such as `fail`'s old positional metadata); or an inject helper was given no context; your call was unaffected | `{ error }` for `unexpected_error`, `{ call }` for `invalid_options` and `context_missing` | `captureErrors` |
 | `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` when `createRecorder` reported it or `rejectedOptions` when a later call did |
-| `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
+| `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row; a send whose replies gave no verdict for any of its events counts as failed | `{ failures, cooldownMs }` | `breakerOpened` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
 | `personal_data_in_public_value` | `personal_data_shape` | a journey label, an alias marked displayable, or an error message (`field` is `journeyLabel`, `displayableAliases` or `errorMessage`) holds what looks like an email address or a telephone number, and all three are stored and shown in plain text; once per process, field and shape, so at most six; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
 
@@ -884,7 +903,18 @@ result is counted as `dropped` with code `no_verdict`, and **not sent again**.
 The request did succeed, so the server may well have stored those events, and
 sending them again could store them twice; the SDK cannot tell which, so it
 counts them as not known to be stored. This is what a proxy that rewrites
-responses produces. The body of such a response is never printed or passed to
+responses produces.
+
+A send in which no reply gave a verdict for any of its events also counts
+toward the circuit breaker, as a failed send does, though it reports no
+`transport_error` (its events are already `dropped`). So five such sends in a
+row open the breaker, events wait in the queue for the 30-second cooldown
+rather than being sent into a reply that loses them, and `breakerOpened` says
+something is wrong. A reply with some verdicts and some missing is a server
+answering, and does not count (SDK-65, ADR-063). Sends already in flight when
+the breaker opens, at most `maxConcurrentSends` minus one, still complete, and
+each that gets no verdict opens it again and restarts the cooldown, so one
+episode can show `breakerOpened` above 1. The body of such a response is never printed or passed to
 `onDiagnostic`: the line says `unparseable response body`, not what the body
 was.
 
@@ -1258,8 +1288,15 @@ shows in detail.
 `src/capture-walks.test.ts` counts the calls instead of timing them: each payload
 is checked, redacted and stored once, and an event within budget skips the
 server's check, so the extra walks fail on any machine. `src/overhead.test.ts`
-only trips on a gross slowdown, a ratio of 11 to plain work (7.2 to 8.0 on
-2026-09-16, 9.31 to 10.05 before the fix). Run the benchmark above before a release all the same.
+counts the work instead of timing it: a 1 KiB `transform` lists 2.6 entries for
+each property of its input and output (4.9 before the fix; the limit is 3.5)
+and serialises 2.1 characters for each byte of them (the limit is 3), and the
+work per unit is the same at 8 KiB and 64 KiB. Work that avoids those counts,
+such as a walk written as a `for...in` loop, is held by a ratio of a wrapped
+call to a plain copy of its input and output, at most 11, measured in
+processor time so that a busy machine does not stretch it (8 to 10 on
+2026-09-18; a second masking walk read 14.6). Run the benchmark above before a
+release all the same.
 
 **Sustained load:** 2,000 wrapped calls a second for 60 seconds, 1 KiB,
 alternating `transform` and `persist`, with the cores idle between calls.
@@ -1424,6 +1461,34 @@ sends the commit, while `{ gitCommit: "" }` reports
 `["deployment.gitCommit", "deployment"]` and sends nothing. A consumer that
 stops recording on a refused setting can let a field through and still stop on
 `rejectedSettings.includes("deployment")` (F-031).
+
+`deployment` is your build. The SDK's own build is on every event too, as
+`runtime`, with nothing to configure (ADR-063):
+
+```json
+{
+  "language": "node",
+  "version": "24.19.0",
+  "sdk": {
+    "name": "@wayscribe/node",
+    "version": "0.1.0",
+    "commit": "27f4d64a3b1c0e9f8d7c6b5a4f3e2d1c0b9a8f7e"
+  }
+}
+```
+
+The event detail shows it as `@wayscribe/node 0.1.0 at 27f4d64...`, so during
+an upgrade you can tell which services still run the old SDK. The version and
+commit are fixed when the package is built, never read from your settings or
+environment. The commit is the one the build came from, taken from the first of these
+that has one: the commit `git archive` wrote into
+`packages/sdk-node/BUILD_COMMIT`, which is exact for the tree it is in;
+`WAYSCRIBE_BUILD_COMMIT`, then `CI_COMMIT_SHA`; and, in a checkout,
+`git rev-parse HEAD`.
+Without any of those it is left out, and an SDK run from source rather than
+built reports `0.0.0-development`. An event with no `runtime.sdk` was recorded
+by an SDK from before this, or by another client. The hostname and process id,
+which the protocol also has, are not sent.
 
 ## OpenTelemetry
 

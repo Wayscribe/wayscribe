@@ -598,11 +598,12 @@ async function replayThroughEcho(image, destinationId, label) {
 
 /**
  * The journey list and read over journeys the baseline recorded, before any
- * event reaches them through this build. Migration 018 adds the label and
- * last-step columns with no backfill, so the list must read those rows, every
- * new parameter must work against them, and each must come back with `label`
- * and `lastStep` null and no displayable aliases. A list that fails on old rows
- * answers 500, which fails here.
+ * event reaches them through this build. Migrations 018 and 021 add the label,
+ * last-step and failed-step columns with no backfill, so the list must read
+ * those rows, every new parameter must work against them, and each must come
+ * back with `label`, `lastStep` and `failedStep` null and no displayable
+ * aliases, J1, which the baseline failed, included. A list that fails on old
+ * rows answers 500, which fails here.
  */
 async function checkLegacyJourneyList() {
   step("Current: the journey list reads the baseline's journeys");
@@ -640,7 +641,7 @@ async function checkLegacyJourneyList() {
     const problems = legacyJourneyListProblems(response.status, response.json, journeys);
     check(
       problems.length === 0,
-      `GET /v1/journeys, ${name}: ${journeys.expected === undefined ? "lists none of the baseline's journeys" : "lists the baseline's journeys with label and lastStep null"}`,
+      `GET /v1/journeys, ${name}: ${journeys.expected === undefined ? "lists none of the baseline's journeys" : "lists the baseline's journeys with label, lastStep and failedStep null"}`,
       problems.join("\n")
     );
   }
@@ -657,8 +658,9 @@ async function checkLegacyJourneyList() {
     check(
       detail.status === 200 &&
         detail.json.data.label === null &&
-        detail.json.data.lastStep === null,
-      `GET /v1/journeys/${journeyId} reads with label and lastStep null`,
+        detail.json.data.lastStep === null &&
+        detail.json.data.failedStep === null,
+      `GET /v1/journeys/${journeyId} reads with label, lastStep and failedStep null`,
       detail.json
     );
   }

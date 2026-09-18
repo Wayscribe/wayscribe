@@ -1,6 +1,6 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "./testing/postgres.js";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { formatDoctor } from "./doctor.js";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig } from "./knex-config.js";
@@ -24,11 +24,11 @@ const SESSION_VALUE = "stored-session-value-93a2e6f5";
 const OLD_VALUE = "stored-old-value-1c55ab30";
 
 describe("doctor's secret-name sample", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 
@@ -205,12 +205,12 @@ describe("doctor's secret-name sample", () => {
 });
 
 describe("doctor's secret-name sample across a large installation", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   const environmentNames: string[] = [];
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

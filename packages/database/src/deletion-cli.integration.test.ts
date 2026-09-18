@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createKeyring, searchTokens } from "@wayscribe/payload-security";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "./testing/postgres.js";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { insertReturningId } from "./insert.js";
 import { createKnexConfig } from "./knex-config.js";
 import { createDestination } from "./repositories/replay.js";
@@ -25,7 +25,7 @@ interface Run {
 }
 
 describe("deletion CLI", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let projectId: string;
   let productionId: string;
@@ -60,7 +60,7 @@ describe("deletion CLI", () => {
     });
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectId = await insertReturningId(db, "projects", { name: "Acme", slug: "acme" });

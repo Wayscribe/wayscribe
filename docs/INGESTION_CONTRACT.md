@@ -453,6 +453,22 @@ processing:
   journeys a live service is writing to. **An SDK must not use this in normal
   operation.** It is for conformance suites, for a setup check, and for a
   mapping under development.
+- **Dry runs that share a journey or an event id wait for each other**
+  (ADR-063). Before its first event, a dry run takes a lock for every distinct
+  `event.journeyId` and every distinct `event.id` its elements carry, one at a
+  time in a fixed order, journeys first, and holds them until its rollback; an
+  element without a readable journey id or event id takes no lock for it.
+  Event ids get their own locks because an event id is unique per project
+  whatever the journey, so two dry runs sending the same ids under different
+  journeys contend on the ids alone. So two dry runs that share either run one
+  after the other, the second waiting at its start, instead of each holding
+  one and waiting for the other, which answered `storage_error` for events a
+  real send would store. The wait
+  is bounded by `DATABASE_STATEMENT_TIMEOUT_MS`; past it the whole request is
+  answered `503 query_timeout`, which a client retries. A batch sent for real
+  takes none of these locks: each of its events is its own transaction and
+  touches one journey and one event id. A real event can still wait on a
+  journey or an event id a dry run holds, as the item above says.
 
 ---
 

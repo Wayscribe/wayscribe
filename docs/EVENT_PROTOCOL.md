@@ -77,10 +77,15 @@ interface JourneyEventV01 {
   };
 
   runtime?: {
-    language?: string;
-    version?: string;
-    hostname?: string;
+    language?: string; // at most 64
+    version?: string; // at most 64
+    hostname?: string; // at most 256
     processId?: number;
+    sdk?: {
+      name: string; // 1 to 128 characters
+      version: string; // 1 to 64 characters
+      commit?: string; // 1 to 128 characters
+    };
   };
 
   deployment?: {
@@ -112,9 +117,38 @@ that arrives later therefore never replaces a newer label, and a replayed event
 can at worst leave a stale one. The label is shown and searchable in full and is
 not redacted, so it must not hold personal data.
 
+`runtime` says what was running when the event was recorded, and `runtime.sdk`
+names the recorder itself: the SDK's package name, its version, and the commit
+it was built from when it knows one, for example
+`{ "name": "@wayscribe/node", "version": "0.1.0", "commit": "27f4d64..." }`
+with the full commit. It answers which services run which SDK build, which
+matters most during an upgrade (F-046, ADR-063). `name` and `version` are
+required inside `sdk`, because an `sdk` without them says nothing; a value over
+a limit, or an empty one, is `invalid_event` with the path
+`event.runtime.sdk.<field>`. The field is optional and was added in `0.1`
+(section 11): an event without it was recorded by an SDK from before it or by
+another client, and a server from before it strips it as an unknown key and
+stores the rest of `runtime`. The server stores `runtime` as the event's
+`runtimeMetadata` and returns it on the event read. Like every protocol field,
+`runtime.sdk` is covered by the event's content hash, so an event first
+delivered to a server from before it (which stripped the field), whose response
+was lost, and resent after that server was upgraded, is answered
+`event_id_conflict`: it is stored, and the SDK counts it `rejected`. Upgrading
+the server before the services, as the upgrade notes advise, never meets this.
+
 The journey also keeps its last step: the `name` of the event with the latest
 `timestamp`, under the same tie rule, so an event that arrives late never moves
 it backwards, and it is the step the journey's timeline shows last. `name` is required, so every event is a candidate.
+
+A failed journey also keeps its failed step (ADR-063): the `name` of the
+failing event that comes last in the same order among the failures applied
+since the journey last became failed. A failing event is one that carries an
+`error` or has the operation `failed`. So while a retry is in flight, the last
+step moves on to the retry's steps and the failed step still names the step
+that failed. It is null whenever the journey is not failed: a successful retry
+that clears the failure (section 5, `retried`) and a `completed` that sets the
+status (section 5, `completed`) clear it.
+Reads return it as `failedStep` (`API_SPEC.md` section 5).
 
 ## 4. Required field semantics
 
@@ -136,11 +170,24 @@ The exact prefix format is presentation guidance, not a protocol requirement.
 
 The stable identifier that joins events across processes and traces.
 
-Recommended format:
+A journey id is an opaque string of 1 to 128 characters. The server checks
+nothing about its shape. One character cannot be stored: an event whose
+journey id contains a NUL is refused `unstorable_payload`, and the read routes
+answer `404` for such an id. The Node SDK makes ids in two shapes:
 
-```text
-jrn_<uuidv7>
-```
+- **random:** `jrn_` and a lowercase hyphenated UUID, 40 characters, such as
+  `jrn_dd37c205-7ea6-4e14-bc8f-c07022f96696`;
+- **derived:** `jrn_` and 32 lowercase hex characters, 36 characters, such as
+  `jrn_5f93deccb9b599e792d560765761bec6`, computed from the entity under a
+  secret the host holds, as `SDK_SPEC.md` SDK-55 says.
+
+Another client may use any unpredictable id. **A reader must not parse or
+validate the shape** of a journey id: both shapes above occur in one
+installation, and a client in another language may make a third. The shapes
+are described so that an id can be recognised in a log, not so that it can be
+checked. The one check that exists is the Node SDK's, when it reads a
+propagated context (section 10): it requires the `jrn_` prefix and the
+characters it accepts in any propagated value, which both shapes satisfy.
 
 **A journey id must be unpredictable.** A journey belongs to the environment
 whose key recorded its first event, and an event for it from any other
@@ -148,8 +195,10 @@ environment is refused with `journey_environment_mismatch` (`API_SPEC.md` §3).
 An id derived from business data, such as `jrn_order_1001`, can be guessed, and a
 key for another environment of the project can record it first: every event the
 rightful environment then sends for that journey is refused, and that journey is
-not recorded. The Node SDK generates a random UUID for every journey it starts.
-An application that chooses its own ids should do the same, and keep business
+not recorded. The Node SDK generates a random UUID for every journey it starts,
+unless the host configures derived ids, which are keyed by a secret the host
+holds and so cannot be guessed without it (ADR-052). An application that
+chooses its own ids should do one or the other, and keep business
 identifiers in `entity` and `aliases`, where they are searchable anyway.
 
 A journey id carried across a boundary between environments is refused the same

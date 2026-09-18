@@ -3747,16 +3747,19 @@ created and frozen as `deployment` is:
   that; containers and npm both run `dist/`), it is `"0.0.0-development"`,
   which cannot be mistaken for a release.
 - `runtime.sdk.commit`: the commit the bundle was built from, baked in the same
-  way, from the first of these that gives a value:
-  1. `WAYSCRIBE_BUILD_COMMIT`, then `CI_COMMIT_SHA`, the variables
-     `scripts/publish-image.sh` already reads. A value that is set and is not
-     7 to 64 lowercase hex characters fails the build rather than baking in
-     something that names no commit.
-  2. A new file, `packages/sdk-node/BUILD_COMMIT`, holding `$Format:%H$` and
+  way, from the first of these that gives a value (order corrected after
+  implementation, see the note at the end):
+  1. A new file, `packages/sdk-node/BUILD_COMMIT`, holding `$Format:%H$` and
      marked `export-subst` in `.gitattributes`, so that `git archive`, which is
      how Leadline's `pin-sdk.sh` and a GitLab source download make a tree,
-     writes the commit into it. Used when it holds 40 lowercase hex characters,
-     which it does only in an archive.
+     writes the commit into it. Used when it holds 40 or 64 lowercase hex
+     characters (a SHA-1 or a SHA-256 repository), which it does only in an
+     archive. First, because it is exact for the tree it sits in and is never
+     filled in a checkout, so it cannot be wrong when present.
+  2. `WAYSCRIBE_BUILD_COMMIT`, then `CI_COMMIT_SHA`, the variables
+     `scripts/publish-image.sh` already reads. A value that is set and is not
+     7 to 64 lowercase hex characters fails the build rather than baking in
+     something that names no commit, whichever source gives the commit.
   3. `git rev-parse HEAD`, only when `git rev-parse --show-toplevel` run in
      the package directory names the repository root that contains it, so an
      extracted archive that happens to sit inside another repository does not
@@ -3813,9 +3816,11 @@ the status, so it costs no statement:
 
 So the answer to "latest-stamped or latest-applied" is latest-stamped, among
 the failures that are current. Latest-applied would name whichever failure
-happened to arrive last, which depends on delivery order and would differ
-between a live send and a replay of the same events; every other summary field
-is order-independent and this one must be too. "Among the failures that are
+happened to arrive last, which depends on delivery order within one failed
+episode; latest-stamped does not. It is not independent of arrival order
+altogether, because the status is not: which failures belong to the current
+episode depends on where a clearing retry fell in arrival order (see the
+server half's corrections below). "Among the failures that are
 current" is what the clearing buys: a failure that a successful retry cleared
 cannot come back as the named step. Two consequences follow from rules already
 decided, and are intended:
@@ -3850,10 +3855,14 @@ Old rows, and rows the previous API writes between migrate and deploy, have
 null columns. The reads, `journeySummaryColumns` in `journey-summary.ts`,
 which both lists use, and `findJourneyDetail` in `journey-reads.ts`, select the
 column as
-`case when status = 'failed' then failed_step end as "failedStep"`, so a stale
-value left by a previous-build instance that cleared a failure without knowing
-the column is never shown; and `TAKES_FAILED_STEP`'s `status <> 'failed'`
-branch means the next failure replaces such a value however it is stamped.
+`case when status = 'failed' then failed_step end as "failedStep"`, which hides
+a stale value left by a previous-build instance that cleared or completed a
+failure without knowing the column, while the journey stays out of `failed`;
+and `TAKES_FAILED_STEP`'s `status <> 'failed'` branch replaces such a value
+however it is stamped, when a failure is applied while the journey is not
+failed. During a rolling deploy the previous build can fail the journey again
+and make the stale step visible; the server half's corrections below say
+exactly when.
 A failed journey with a null `failedStep` is one whose failure predates the
 column, and a reader falls back to `lastStep`, which is what it shows today.
 
@@ -3899,7 +3908,8 @@ the shutdown timeout end in `shutdown`, the two wrong bodies in `no_verdict`.
 gave a verdict for none of its events. Exactly:
 
 - `SendOutcome` gains `noVerdict: number`, the events of that request the reply
-  gave no verdict for, which `readOutcome` already counts as it reports them.
+  gave no verdict for, which `readOutcome` counts as it reports each
+  `no_verdict` drop.
 - An attempt **gave a verdict** when `noVerdict` is less than the number of
   events it sent: at least one event was accepted, refused for good, or
   refused for now.
@@ -3914,6 +3924,12 @@ gave a verdict for none of its events. Exactly:
   (30 seconds), with the existing `breaker_opened` report and code
   `consecutive_failures`. A verdictless send reports no `transport_error`: its
   events are already reported as `dropped` with `no_verdict`.
+- Sends already in flight when the breaker opens, at most
+  `maxConcurrentSends` minus 1, still complete. Each that fails counts, reports
+  `breaker_opened` again and restarts the cooldown, so `breakerOpened` can
+  exceed 1 for one episode.
+- A send of no events neither counts toward the breaker nor resets it. `flush`
+  never sends one, and the rule does not depend on that.
 
 What resets it: a send that stored something, or a send that got at least one
 verdict and left nothing unsent, and the cooldown ending, as today. A reply
@@ -3960,8 +3976,10 @@ not one (review).**
    already accepted. A `+` after a letter, a digit or `.` is still not a
    dialling code (`1.2.3+20130313144700`, `12:00:00+01:00`).
 2. **The candidate:** the `+` and the run of digits, spaces, `(`, `)`, `.` and
-   `-` after it, at most 20 characters as today, cut after its last digit.
-3. **A timezone offset is skipped**, as today: `+` and exactly four digits.
+   `-` after it, at most 20 characters as today.
+3. **A real timezone offset is skipped:** `+`, hours 00 to 14, minutes 00, 15,
+   30 or 45, and no fifth digit. So `+0000 2026` and `+0530` are skipped, and
+   `+1234 5678`, `+4930 1234567` and `+3531 234 5678` are found.
 4. **Digits:** 8 to 15 when a separator stands between two of the digits;
    **10 to 15 when the digits are one unbroken run.**
 
@@ -4034,8 +4052,10 @@ run's journey, which ADR-050 already says.
   row would join to `journey_events` and find the right failure among them,
   which is the cost 018 avoided for `lastStep` by storing it.
 - **`failedStep` as the latest-applied failure, one column.** It depends on
-  arrival order, so the same events delivered differently would name different
-  steps, and a dry run could disagree with the send that follows it.
+  arrival order within one failed episode, so the same failures delivered
+  differently would name different steps even where the status does not
+  differ. Latest-stamped removes that dependence; the one that remains comes
+  from the status itself (the server half's corrections below).
 - **Replacing `lastStep` with the failed step on a failed journey.** The field
   would mean two things depending on another field, and the timeline's last
   row would no longer be `lastStep`, which EVENT_PROTOCOL.md section 3 says it
@@ -4102,7 +4122,8 @@ run's journey, which ADR-050 already says.
   `event_id_conflict`. The event is stored; the SDK counts it `rejected`. It
   needs the upgrade to land between an event's two deliveries, and the order
   Leadline followed, server first, never meets it.
-- Every Node SDK event grows by about 130 bytes of `runtime`, stored in
+- Every Node SDK event grows by about 150 bytes of `runtime` with a
+  40-character commit, and about 100 without one, stored in
   `runtime_metadata`. The event budget is unchanged and the SDK's fitting
   (ADR-051) counts it like any field.
 - Leadline's `pin-sdk.sh` gets the commit with no change, through
@@ -4138,3 +4159,35 @@ run's journey, which ADR-050 already says.
   `DroppedDiagnostic`, and the CHANGELOG. Two wire conformance cases cover
   `runtime.sdk`: one stored and read back, one refused with the path
   `event.runtime.sdk.name`.
+
+### Corrections after implementation (2026-09-18)
+
+Made while implementing and reviewing the SDK half, and folded into the text
+above:
+
+- **The commit order.** `BUILD_COMMIT` comes first, before the two variables.
+  Packing an archive inside another project's GitLab CI job baked in that
+  project's `CI_COMMIT_SHA`, which names nothing here; `BUILD_COMMIT` is exact
+  for the tree it sits in and is never filled in a checkout.
+- **`BUILD_COMMIT`'s format** is 40 or 64 lowercase hex characters, so a
+  SHA-256 repository's archive is read too.
+- **`readOutcome`** reported missing verdicts and did not count them; it now
+  counts one as it reports each `no_verdict` drop.
+- **Decision 5.** The step that cut the candidate after its last digit is gone:
+  a separator after the last digit is not between two digits, and a fuzz of 2
+  million cases found it changed no outcome. The timezone step skipped any
+  `+` and four digits, which also skipped numbers such as `+4930 1234567`; it
+  now skips a real offset only.
+- **The breaker under concurrency** and **an empty batch** are stated above.
+- **Event size.** About 150 bytes with a 40-character commit and about 100
+  without one, not about 130.
+- **The SDK specification.** SDK-64 and SDK-65 sit at the end of section 13 of
+  `docs/SDK_SPEC.md`, not in the event and transport sections, because
+  requirement numbers must follow document order (`tests/docs-truth.test.ts`).
+
+### Corrections after implementation, the server half (2026-09-18)
+
+- **Status is not independent of arrival order, so `failedStep` is not either once a clearing retry is involved.** Decision 2 said every other summary field is independent of the order events arrive in. `status` is not, by ADR-061's design: a failure registers whatever its timestamp says, and a clearing retry applies only when it arrives while the journey is failed and at or after the watermark. Failures stamped t10 and t11 with a clearing retry stamped t12 end `active` when the retry is applied last, and `failed` in the other four orders. `completed_at` depends on arrival order the same way. What the latest-stamped rule guarantees is narrower. Among the failures of one failed episode, the later-stamped one is named whichever arrives first, and a dry run names what the send that follows it in the same order will name. Which failures belong to the current episode depends on where a clearing retry fell in arrival order, so the same events can name different steps: t11, t12, t10 ends failed at t10's step, and t12, t10, t11 ends failed at t11's. Latest-stamped is still the choice, because latest-applied would add a second dependence on order within an episode. The summary fields that are independent of arrival order are `started_at`, `last_event_at`, `event_count`, `label` and `lastStep`.
+- **A previous build can make a stale value visible during a rolling deploy.** The reads' `case when status = 'failed'` hides a value the previous build left when it cleared or completed a failed journey, but only while the journey stays out of `failed`. If the previous build then fails the journey again, the read names the earlier, cleared step until a failure applied by this build, and stamped later, replaces it. `TAKES_FAILED_STEP`'s `status <> 'failed'` branch replaces a stale value only when the journey is not failed at the time. Likewise, a failure the previous build applies to a journey this build already failed is not recorded as the failed step. All of this needs the previous build to write the journey after the migration, so it ends with the deploy, and it can only name a step that did fail in that journey.
+- **Decision 6 now orders event ids as well as journeys.** Two dry runs that send the same event ids under different journeys, in opposite orders, deadlocked on the `journey_events` insert, because an event id is unique per project whatever the journey and an insert waits on another transaction's uncommitted row with the same id; the journey locks did not order them, and the reviewer measured 20 `storage_error` runs of 20. A dry run now also takes one lock per distinct `event.id` string read from the raw elements without parsing, keyed `pg_advisory_xact_lock(DRY_RUN_EVENT_LOCK, <key>)` with the same SHA-256 derivation over the project id, a NUL and the event id. `DRY_RUN_EVENT_LOCK` is `49_190_064` and `DRY_RUN_JOURNEY_LOCK` `49_190_063`, so a journey id and an event id with the same text never share a lock. Every lock is taken one statement each in one order, ascending by the pair: all journey keys ascending, then all event keys ascending, before the first event. The reproduction is an integration test in `dry-run.integration.test.ts` that fails 20 of 20 without the event locks. On a 100-event dry run with 100 distinct ids the 100 event-id lock statements measured 15.5 to 17.3 ms at the median against a dry run of about 420 ms; the before and after medians of the whole dry run were within run-to-run noise. Live batches still take no lock. The key is the first four bytes read big-endian, which decision 6 left unstated.
+- **A journey id containing a NUL.** The protocol accepts any 1 to 128 characters, but PostgreSQL refuses a NUL in text: such an event is refused `unstorable_payload`, and the read routes answer `404` for such an id. EVENT_PROTOCOL.md section 4 says so.

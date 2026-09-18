@@ -1,9 +1,9 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "./testing/postgres.js";
 import { execFile } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createKnexConfig, migrationsDirectory } from "./knex-config.js";
 import { pendingMigrationCount } from "./migration-status.js";
 
@@ -15,7 +15,7 @@ interface Run {
 const ENCRYPTION_KEY = "reset-test-encryption-key-5c1e9a7f02d4b836";
 
 describe("the reset command", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
 
   const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -54,7 +54,7 @@ describe("the reset command", () => {
     Number((await db("projects").where({ slug: "keep-me" }).count({ n: "*" }))[0]?.["n"]);
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
   });
 

@@ -33,6 +33,7 @@ export {
   journeyEventSchema,
   journeyOperationSchema,
   runtimeSchema,
+  runtimeSdkSchema,
   type JourneyEvent,
   type JourneyOperation
 } from "./event.js";

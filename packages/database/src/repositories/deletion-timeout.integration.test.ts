@@ -1,6 +1,6 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "../testing/postgres.js";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKnexConfig } from "../knex-config.js";
 import { deleteJourney } from "./deletion.js";
 import { sweepExpiredJourneys } from "./retention.js";
@@ -20,7 +20,7 @@ const REPLAY_RUNS = 20_000;
  * environments after it.
  */
 describe("deletions under the API's statement timeout", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   /** Fixtures and migrations, with no timeout. */
   let db: Knex;
   /** The API's pool, as server.ts builds it. */
@@ -28,7 +28,7 @@ describe("deletions under the API's statement timeout", () => {
   let projectId = "";
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     timed = knex(
       createKnexConfig(container.getConnectionUri(), { statementTimeoutMs: TIMEOUT_MS })
