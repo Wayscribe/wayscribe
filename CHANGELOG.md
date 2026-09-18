@@ -316,6 +316,15 @@ What you have to do when upgrading a checkout or a deployment:
   Aliases are still stored once per journey; migration 020 adds
   `journey_events.stated_alias_ids`, the ids of the alias rows the event
   stated, written with the event's own insert.
+- **A timeline row names the build that recorded it** (F-043, `docs/API_SPEC.md`
+  section 8). `GET /v1/journeys/:journeyId/events` rows gain
+  `deploymentMetadata`, the event's `deployment` as the event read returns it,
+  or null. Whether a journey's events all came from one build used to take one
+  full event read per event, each carrying its whole payloads. Measured at
+  10,000 events in one journey, a page of 100 goes from 0.068 to 0.100 ms in
+  the database and from 15 to 28 kB; listing the distinct builds on the
+  journey read instead would have read every event of the journey on every
+  read, 5.0 ms at that length.
 - **The journey page.** Headed by the journey's label when it has one, with the
   entity type and identifier beneath, and a back link to the list it was opened
   from. `GET /v1/journeys/:journeyId` returns the environment's name, `label`,

@@ -492,7 +492,8 @@ Response:
         "durationMs": 18,
         "hasInput": true,
         "hasOutput": false,
-        "hasError": false
+        "hasError": false,
+        "deploymentMetadata": { "version": "1.4.2", "gitCommit": "3f9c2e1" }
       }
     ],
     "nextCursor": null
@@ -500,11 +501,17 @@ Response:
 }
 ```
 
-Every item carries all ten fields. `receivedAt` is when the server received the
-event, as opposed to `eventTimestamp`, which is when the instrumented service
-says it happened; it is the second term of the ordering above, so a caller that
-reproduces the order needs it. `durationMs` is null when the event recorded no
-duration.
+Every item carries all eleven fields. `receivedAt` is when the server received
+the event, as opposed to `eventTimestamp`, which is when the instrumented
+service says it happened; it is the second term of the ordering above, so a
+caller that reproduces the order needs it. `durationMs` is null when the event
+recorded no duration.
+
+`deploymentMetadata` is the build that recorded the event, the same value
+section 9 returns: the event's `deployment` as stored (`gitCommit`, `version`
+and `image`, each optional), or null when the event carried none. It is on the row so that whether a
+journey's events all came from one build can be read from the timeline, rather
+than from one full event read per event. The payloads stay off the row.
 
 ## 9. Get event details
 
