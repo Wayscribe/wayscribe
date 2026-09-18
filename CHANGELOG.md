@@ -392,6 +392,16 @@ What you have to do when upgrading a checkout or a deployment:
 
 ### Changed
 
+- **`injectPayload` returns `PayloadEnvelope<T>`, not `ContextEnvelope<T>`.**
+  Without a context to inject it produces an envelope with an empty
+  `_wayscribe`, which did not satisfy `ContextEnvelope` and which the SDK cast
+  its own value to get past (ADR-060). `PayloadEnvelope<T>` is
+  `ContextEnvelope<T>` or the new `NoContextEnvelope<T>`, so the declared type
+  is now what the call can actually return. A new exported type guard,
+  `hasJourney(envelope)`, narrows one to `ContextEnvelope<T>`: a nested
+  `journeyId` check does not narrow a union, which the SDK README's propagation
+  section explains.
+
 - **Capture is about a quarter faster.** Fitting an event to the server's limits
   (ADR-051) had made a wrapped call about 40 percent slower: it checked the whole
   event a second time and walked each payload again to cut long strings. The
@@ -626,6 +636,13 @@ What you have to do when upgrading a checkout or a deployment:
 
 These apply to an installation or a host application built from an earlier
 development build of `main`. A new installation can skip them.
+
+- **A type annotation on an injected payload.** If you declared a value or a
+  queue's job payload as `ContextEnvelope<T>`, annotate it as
+  `PayloadEnvelope<T>` instead, which is what `injectPayload` returns and what
+  the consumer can actually receive. Nothing changes at run time, and
+  `extractPayload` takes either. To narrow one to `ContextEnvelope<T>`, use the
+  exported `hasJourney` guard.
 
 - **`compose.published.yaml` needs `FLIGHT_RECORDER_VERSION`.** It used to fall
   back to `latest`. Export the release tag, such as

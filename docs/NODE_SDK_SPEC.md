@@ -82,16 +82,24 @@ export const recorder = createRecorder({
   knownSafeNames: [],
 
   // Three levels; the default is the middle one. SDK_SPEC.md section 10.
-  propagation: "journey-and-type"
+  propagation: "journey-and-type",
+
+  // Which build this process is, sent on every event as `deployment`
+  // (ADR-060). Read and copied once, here; a field the protocol would refuse
+  // is left off and reported.
+  deployment: { version: process.env.APP_VERSION, gitCommit: process.env.GIT_SHA }
 });
 ```
 
 A setting that cannot be used never stops the recorder starting; it is
-reported as `configuration_error` and replaced by its default (SDK-6, SDK-60).
+reported as `configuration_error` and replaced by its default (SDK-6, SDK-60),
+and printed once per process whether or not `logDiagnostics` is on. Which
+settings were rejected is in `counters().rejectedSettings`.
 
 ## 4. Public API
 
-The package exports two values, `createRecorder` and `OPERATIONS`, and types.
+The package exports three values, `createRecorder`, `OPERATIONS` and
+`hasJourney`, and types.
 Everything below is a method of the recorder or of a journey. ADR-056 records
 why the surface has this shape.
 
@@ -131,12 +139,16 @@ const journey = recorder.continueJourney({ journeyId, entity });
 ```
 
 `ContinueJourneyOptions`: `{ context?, journeyId?, entity?, label? }`. The
-journey id is the context's, else `journeyId`, else a new random one; the
+journey id is the context's, else `journeyId`, else the id derived from the
+entity when the recorder has a usable `journeyIdSecret` (ADR-060), else a new
+random one; the
 entity is the context's, else `entity`, else `{ type: "unknown", id: "unknown"
 }`. A `journeyId` that is not a non-empty string is reported as
 `configuration_error` with code `journey_id_invalid`, and a new journey is
 started; so is a `context` without a non-empty string id, which is then
-treated as absent (the `journeyId` option is used if there is one). A journey's
+treated as absent (the `journeyId` option is used if there is one, and the
+derived id after that). Deriving reports nothing: a recorder without a secret
+is the default, and its journey is new, as it has always been. A journey's
 own `context()` is a valid `context`; the journey handle itself is not. Records
 nothing by itself. Used by downstream HTTP handlers and queue consumers.
 
@@ -167,10 +179,15 @@ journey.identify({
 });
 
 journey.identify({ postingId: posting.id }, { displayableAliases: ["postingId"] });
+
+// Two services identifying one record can name their own steps (ADR-060).
+journey.identify({ hubspotContactId: target.id }, { name: "identify-crm" });
 ```
 
 `identify` emits its own dedicated event, named `identify` (operation
-`identified`). The optional `IdentifyOptions` list alias types a reader may see
+`identified`) unless `IdentifyOptions.name` gives it another name; a name that
+is not a non-empty string is reported as `invalid_options` and the default is
+used. The optional `IdentifyOptions` also list alias types a reader may see
 in full. They are sent as `displayableAliases`, and an alias stays displayable
 only while every statement of it lists it (SDK-57, ADR-053).
 
@@ -252,21 +269,31 @@ value, the time the callback started and its duration, and:
 - never replaces the application's error with a recorder error.
 
 ```typescript
-transform<T, I = unknown>(name: string, input: I, fn: () => PromiseLike<T>,
-  options?: WrapOptions<Awaited<T>, I>): Promise<Awaited<T>>;
 transform<T, I = unknown>(name: string, input: I, fn: () => T,
-  options?: WrapOptions<T, I>): T;
+  options?: WrapOptions<Awaited<T>, I>): WrapResult<T>;
+
+type WrapResult<T> = T extends PromiseLike<infer R> ? Promise<Awaited<R>> : T;
 ```
+
+One signature, not two: a second implementation that runs the callback and
+forwards its result the same way either time can be typed once and assigned to
+all four wrappers with no cast (F-021, ADR-060).
 
 ### Wrapper options
 
 ```typescript
 interface WrapOptions<T = unknown, I = unknown> {
-  isFailure?: ((result: T) => boolean) | undefined;
+  isFailure?: ((result: T) => boolean | string | FailureReason | undefined) | undefined;
   attempt?: number | undefined; // default 1
   metadata?: Record<string, unknown> | undefined;
   captureInput?: ((input: I, journey: JourneyContext) => unknown) | undefined; // experimental
   captureOutput?: ((result: T, journey: JourneyContext) => unknown) | undefined; // experimental
+  metadataFrom?: ((result: T, journey: JourneyContext) => Record<string, unknown>) | undefined; // experimental
+}
+
+interface FailureReason {
+  message?: string | undefined;
+  code?: string | undefined;
 }
 ```
 
@@ -275,6 +302,23 @@ returns a thenable; `I` is inferred from the wrapper's input. An attempt above
 one records `retried` (SDK-13). A projection runs inside the recorder's failure
 boundary: one that throws or returns a promise records `[UNCAPTURABLE]` and a
 `payload_omitted` diagnostic with code `projection_failed` (SDK-53).
+
+`isFailure` returning `true` records the generic `<name> reported a failed
+result.` with code `result_failed`; a string is that message, and a
+`FailureReason` gives the message, the code, or both, so a 429 and a 400 with a
+validation message do not read alike (ADR-060). A field that is not a non-empty
+string falls back to the generic one, and every falsy value, `0` and `NaN`
+included, is not a failure. One that throws costs the verdict alone: the step
+is recorded as a success and a `capture_error` says so, and a reason whose own
+fields throw costs those fields and not the step.
+
+`metadataFrom` computes metadata from the resolved value, merged over
+`metadata`, which is copied before the callback runs. It runs once per journey,
+not when the callback throws, and follows the projection rules above; anything
+it returns that is not a plain object, and any getter on it that throws, leaves
+`metadata` exactly as it was and reports `projection_failed` with field
+`metadata` (ADR-060). The wrapper's own `attempt` is applied after the merge,
+so a projection cannot rename the attempt the wrapper counted.
 
 ### `fail` and `finish`
 
@@ -323,8 +367,9 @@ copy of the counters at any time.
 
 `Counters` (experimental: fields may be added) has `recorded`, `sent`,
 `rejected`, `dropped`, `transportErrors`, `captureErrors`, `breakerOpened`,
-`payloadsOmitted`, `payloadsTruncated`, `keysDropped`, `configurationErrors`
-and `unredactedSecretNames`. Every counter but `recorded` and `sent` counts
+`payloadsOmitted`, `payloadsTruncated`, `keysDropped`, `configurationErrors`,
+`rejectedSettings` (the names those reports carried, not a number),
+`unredactedSecretNames` and `personalDataInPublicValues`. Every counter but `recorded` and `sent` counts
 reports of one diagnostic kind. Once `shutdown` has returned,
 `sent + rejected + dropped === recorded` (SDK-38, SDK-42).
 
@@ -402,12 +447,18 @@ envelope around the payload. The helpers are always available; nothing enables
 them.
 
 ```typescript
-const envelope = recorder.injectPayload(order, journey.context()); // ContextEnvelope<Order>
+const envelope = recorder.injectPayload(order, journey.context()); // PayloadEnvelope<Order>
 const { context, data } = recorder.extractPayload(body); // ExtractedPayload
 ```
 
 `extractPayload` returns a body that is not an envelope as `data`, with no
-context. The header, attribute and envelope names are not specified in
+context. `PayloadEnvelope<T>` is `ContextEnvelope<T>` or `NoContextEnvelope<T>`,
+the empty envelope a recorder with no context to inject produces, so the value
+the SDK itself makes satisfies its own type (F-014, ADR-060). A nested
+discriminant does not narrow a union, so `hasJourney(envelope)`, an exported
+type guard, is what narrows one to `ContextEnvelope<T>`; the README's
+propagation section states the formulations that work. The header,
+attribute and envelope names are not specified in
 `SDK_SPEC.md` yet (its section 1); they wait on the propagation specification.
 
 ## 8. Batching, transport and shutdown

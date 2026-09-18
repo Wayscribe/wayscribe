@@ -1,4 +1,4 @@
-export type { CaptureMode, RecorderConfig } from "./config.js";
+export type { CaptureMode, Deployment, RecorderConfig } from "./config.js";
 export type {
   BreakerOpenedDiagnostic,
   CaptureErrorDiagnostic,
@@ -13,6 +13,7 @@ export type {
   KeyDroppedDiagnostic,
   PayloadOmittedDiagnostic,
   PayloadTruncatedDiagnostic,
+  PersonalDataInPublicValueDiagnostic,
   RejectedDiagnostic,
   TransportErrorDiagnostic,
   UnredactedSecretNameDiagnostic
@@ -20,11 +21,13 @@ export type {
 export { OPERATIONS } from "./operations.js";
 export type { Operation } from "./operations.js";
 export { createRecorder } from "./recorder.js";
+export { hasJourney } from "./propagation.js";
 export type {
   ContinueJourneyOptions,
   Entity,
   ErrorInput,
   FailOptions,
+  FailureReason,
   FinishOptions,
   IdentifyOptions,
   Journey,
@@ -35,12 +38,15 @@ export type {
   Recorder,
   ShutdownOptions,
   StartJourneyOptions,
-  WrapOptions
+  WrapOptions,
+  WrapResult
 } from "./types.js";
 export type {
   ContextEnvelope,
   ExtractedPayload,
   HttpHeadersInput,
+  NoContextEnvelope,
+  PayloadEnvelope,
   PropagatedContext,
   PropagationLevel,
   SqsMessageAttributes,

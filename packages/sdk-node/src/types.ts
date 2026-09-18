@@ -1,9 +1,9 @@
 import type { Counters } from "./diagnostics.js";
 import type { Operation } from "./operations.js";
 import type {
-  ContextEnvelope,
   ExtractedPayload,
   HttpHeadersInput,
+  PayloadEnvelope,
   PropagatedContext,
   SqsMessageAttributes
 } from "./propagation.js";
@@ -94,8 +94,20 @@ export interface WrapOptions<T = unknown, I = unknown> {
   /**
    * Marks a result that did not throw but represents a failure, such as an
    * HTTP 422. Receives the resolved value.
+   *
+   * `true` records the generic `<name> reported a failed result.` with code
+   * `result_failed`. A string is that message; a `FailureReason` is its
+   * message and its code, so a 429 and a 400 with a validation message no
+   * longer read alike on the timeline (ADR-060). Every falsy value is not a
+   * failure, `0`, `NaN` and `""` included, so `(result) =>
+   * result.errors.length` means what it always did; a reason that cannot be
+   * read, from a getter that throws or a revoked Proxy, falls back to the
+   * generic text and never costs the step.
+   *
+   * One that throws costs the verdict and nothing else: the step is recorded
+   * as the success it looked like, and a `capture_error` says so.
    */
-  isFailure?: ((result: T) => boolean) | undefined;
+  isFailure?: ((result: T) => boolean | string | FailureReason | undefined) | undefined;
   /**
    * 1 for a first attempt. Anything higher records `retried` (ADR-022), with
    * the attempt in metadata.
@@ -127,6 +139,32 @@ export interface WrapOptions<T = unknown, I = unknown> {
    * @experimental The projection signature came from one dogfood pass.
    */
   captureOutput?: ((result: T, journey: JourneyContext) => unknown) | undefined;
+  /**
+   * Metadata computed from the callback's resolved value, merged over
+   * `metadata`, which is copied before the callback runs. An HTTP status or a
+   * `Retry-After` only exists once the call has returned, so it could not be
+   * metadata at all (ADR-060).
+   *
+   * Runs once per journey, after the callback has returned or resolved, and
+   * not when the callback throws. Synchronous, and returns a plain object:
+   * one that throws, returns a promise, or returns anything else leaves the
+   * static metadata as it is and reports `payload_omitted` with code
+   * `projection_failed`, and never reaches your code.
+   *
+   * @experimental As `captureOutput`.
+   */
+  metadataFrom?: ((result: T, journey: JourneyContext) => Record<string, unknown>) | undefined;
+}
+
+/**
+ * Why a result that did not throw is a failure. Both fields are optional: a
+ * missing `message` records the generic one, and a missing `code` records
+ * `result_failed`. The message is masked and bounded like any other error the
+ * host gives (ADR-046).
+ */
+export interface FailureReason {
+  message?: string | undefined;
+  code?: string | undefined;
 }
 
 export interface FailOptions {
@@ -141,6 +179,15 @@ export interface FinishOptions {
    */
   status?: "completed" | "failed" | undefined;
 }
+
+/**
+ * What a wrapper returns, given what its callback returned: the value itself,
+ * or a native promise of the resolved value for a promise or any other
+ * thenable. One conditional type rather than two call signatures, so a second
+ * implementation writes one signature too and needs no cast to be assignable
+ * to the four wrappers (F-021, ADR-060).
+ */
+export type WrapResult<T> = T extends PromiseLike<infer Resolved> ? Promise<Awaited<Resolved>> : T;
 
 /**
  * What a journey and a group of journeys both do. On a group, each call
@@ -159,34 +206,30 @@ export interface JourneyOperations {
   transform<T, I = unknown>(
     name: string,
     input: I,
-    fn: () => PromiseLike<T>,
+    fn: () => T,
     options?: WrapOptions<Awaited<T>, I>
-  ): Promise<Awaited<T>>;
-  transform<T, I = unknown>(name: string, input: I, fn: () => T, options?: WrapOptions<T, I>): T;
+  ): WrapResult<T>;
   /** Runs `fn` and records `persisted`. */
   persist<T, I = unknown>(
     name: string,
     input: I,
-    fn: () => PromiseLike<T>,
+    fn: () => T,
     options?: WrapOptions<Awaited<T>, I>
-  ): Promise<Awaited<T>>;
-  persist<T, I = unknown>(name: string, input: I, fn: () => T, options?: WrapOptions<T, I>): T;
+  ): WrapResult<T>;
   /** Runs `fn` and records `published`. */
   publish<T, I = unknown>(
     name: string,
     message: I,
-    fn: () => PromiseLike<T>,
+    fn: () => T,
     options?: WrapOptions<Awaited<T>, I>
-  ): Promise<Awaited<T>>;
-  publish<T, I = unknown>(name: string, message: I, fn: () => T, options?: WrapOptions<T, I>): T;
+  ): WrapResult<T>;
   /** Runs `fn` and records `delivered`. */
   deliver<T, I = unknown>(
     name: string,
     payload: I,
-    fn: () => PromiseLike<T>,
+    fn: () => T,
     options?: WrapOptions<Awaited<T>, I>
-  ): Promise<Awaited<T>>;
-  deliver<T, I = unknown>(name: string, payload: I, fn: () => T, options?: WrapOptions<T, I>): T;
+  ): WrapResult<T>;
   /**
    * Records `failed`, for a terminal failure such as a dead-letter move. A
    * failed attempt that will be retried is the attempt's own operation with an
@@ -199,9 +242,26 @@ export interface JourneyOperations {
 
 export interface IdentifyOptions {
   /**
+   * What to call the step on the timeline. Two services identifying one record
+   * would otherwise both record a step called `identify`, and the timeline
+   * would show which service each came from and nothing else (ADR-060).
+   *
+   * Anything that is not a non-empty string is reported as `invalid_options`
+   * and the default is used.
+   *
+   * @defaultValue "identify"
+   */
+  name?: string | undefined;
+  /**
    * Alias types that may be shown in full to a reader. List a type every time
    * you state it, because an alias is shown only while every statement of it
    * says so (ADR-053).
+   *
+   * A displayable alias is stored, shown and searched in plain text, exactly as
+   * a journey label is, so do not mark one that holds personal data. A value
+   * that looks like an email address or a telephone number raises one
+   * `personal_data_in_public_value` diagnostic per process and shape, and is
+   * never changed (ADR-060).
    *
    * @defaultValue none: every alias is masked
    */
@@ -248,7 +308,8 @@ export interface StartJourneyOptions {
   /** Passed to the `identify` that starting with aliases records. */
   aliases?: Record<string, string> | undefined;
   /**
-   * Passed to that `identify`, as `IdentifyOptions.displayableAliases`.
+   * Passed to that `identify`, as `IdentifyOptions.displayableAliases`, with
+   * the same rule about personal data.
    *
    * @defaultValue none: every alias is masked
    */
@@ -363,7 +424,7 @@ export interface Recorder {
    *
    * @experimental The envelope's key waits on the propagation specification.
    */
-  injectPayload<T>(payload: T, context: PropagatedContext): ContextEnvelope<T>;
+  injectPayload<T>(payload: T, context: PropagatedContext): PayloadEnvelope<T>;
   /**
    * The payload from an envelope, and its journey. A body that is not an
    * envelope comes back as `data`, with no context.

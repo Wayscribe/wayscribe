@@ -411,6 +411,59 @@ describe("fail", () => {
   });
 });
 
+describe("naming an identify step", () => {
+  it("records the name given, and keeps identify as the default", async () => {
+    const { events } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });
+      journey.identify({ leadId: "1" });
+      journey.identify({ crmContactId: "c1" }, { name: "identify-crm" });
+      journey.identify(
+        { boardId: "b1" },
+        { name: "identify-board", displayableAliases: ["boardId"] }
+      );
+    });
+    // Two services identifying one record no longer both record a step called
+    // `identify` (F-001).
+    expect(events.map((event) => [event["name"], event["operation"]])).toEqual([
+      ["identify", "identified"],
+      ["identify-crm", "identified"],
+      ["identify-board", "identified"]
+    ]);
+    expect(events[2]?.["displayableAliases"]).toEqual(["boardId"]);
+  });
+
+  it("falls back to identify, and reports, when the name cannot be used", async () => {
+    const { events, diagnostics } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });
+      journey.identify({ a: "1" }, { name: "" });
+      journey.identify({ a: "2" }, { name: 7 as unknown as string });
+    });
+    expect(events.map((event) => event["name"])).toEqual(["identify", "identify"]);
+    expect(diagnostics.filter((d) => d.code === "invalid_options").map((d) => d.detail)).toEqual([
+      { call: "identify" },
+      { call: "identify" }
+    ]);
+  });
+
+  it("cannot break the call when the name's getter throws", async () => {
+    const { events } = await capture((recorder) => {
+      const journey = recorder.startJourney({ entity: { type: "lead", id: "1" } });
+      expect(() => {
+        journey.identify(
+          { a: "1" },
+          Object.defineProperty({}, "name", {
+            get() {
+              throw new Error("no");
+            },
+            enumerable: true
+          })
+        );
+      }).not.toThrow();
+    });
+    expect(events.map((event) => event["name"])).toEqual(["identify"]);
+  });
+});
+
 describe("displayableAliases", () => {
   it("is the one name, on identify, startJourney and record", async () => {
     const { events } = await capture((recorder) => {

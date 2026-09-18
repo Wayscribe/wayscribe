@@ -273,6 +273,28 @@ export interface UnredactedSecretNameDiagnostic {
 }
 
 /**
+ * A journey label, or an alias the caller marked displayable, holds what looks
+ * like personal data: an email address or an international telephone number.
+ * A warning, exactly as `unredacted_secret_name` is: the value is stored,
+ * shown and searched in plain text and is never changed (ADR-055's pattern,
+ * ADR-060). Reported once per process and shape, so at most two of these exist
+ * for the life of a process. The value is never included. Counted in
+ * `personalDataInPublicValues`.
+ */
+export interface PersonalDataInPublicValueDiagnostic {
+  kind: "personal_data_in_public_value";
+  code: "personal_data_shape";
+  /** A sentence for a person. Its wording may change in any release. */
+  reason: string;
+  detail: {
+    /** Which plain-text value it was: the journey's label, or a displayable alias. */
+    field: "journeyLabel" | "displayableAliases";
+    /** What it looked like. */
+    shape: "email" | "phone";
+  };
+}
+
+/**
  * What `onDiagnostic` receives: `{ kind, code, reason, detail }`. Match on
  * `kind` and `code`; `reason` is prose whose wording may change in any
  * release. New kinds and codes may be added in any minor release, so handle
@@ -290,7 +312,8 @@ export type Diagnostic =
   | CaptureErrorDiagnostic
   | ConfigurationErrorDiagnostic
   | BreakerOpenedDiagnostic
-  | UnredactedSecretNameDiagnostic;
+  | UnredactedSecretNameDiagnostic
+  | PersonalDataInPublicValueDiagnostic;
 
 /**
  * What the recorder has counted since it was created. Every counter except
@@ -335,11 +358,28 @@ export interface Counters {
   /** `configuration_error` reports. */
   configurationErrors: number;
   /**
+   * What those reports named, in `detail.setting`, in the order first seen and
+   * once each however many times it was reported: recorder settings that could
+   * not be used or were given under an old name, and the options a call named
+   * (`entity`, `context`, `journeyId`, `journeyIdSecret`). At most 50.
+   *
+   * `configurationErrors` alone says how many settings were rejected and never
+   * which, so a recorder running on a default nobody chose was invisible to an
+   * operator who reads counters rather than diagnostics (ADR-060).
+   */
+  rejectedSettings: readonly string[];
+  /**
    * `unredacted_secret_name` reports: distinct key names, folded as redaction
    * folds them, sent in plain text although they look like secrets
    * (ADR-055). At most 100.
    */
   unredactedSecretNames: number;
+  /**
+   * `personal_data_in_public_value` reports: journey labels and displayable
+   * aliases that look like personal data and were sent unchanged. At most one
+   * per value shape per process, so at most 2.
+   */
+  personalDataInPublicValues: number;
 }
 
 /**
@@ -347,7 +387,9 @@ export interface Counters {
  * counts in `<nouns><Participle>`, `<noun>_error` in `<noun>Errors`, and a
  * bare participle in itself.
  */
-const COUNTER_OF: Record<DiagnosticKind, keyof Counters | undefined> = {
+type CountedTotals = Omit<Counters, "rejectedSettings">;
+
+const COUNTER_OF: Record<DiagnosticKind, keyof CountedTotals | undefined> = {
   delivered_first: undefined,
   insecure_endpoint: undefined,
   rejected: "rejected",
@@ -359,7 +401,8 @@ const COUNTER_OF: Record<DiagnosticKind, keyof Counters | undefined> = {
   capture_error: "captureErrors",
   configuration_error: "configurationErrors",
   breaker_opened: "breakerOpened",
-  unredacted_secret_name: "unredactedSecretNames"
+  unredacted_secret_name: "unredactedSecretNames",
+  personal_data_in_public_value: "personalDataInPublicValues"
 };
 
 /** The kinds the failure boundary reports a thrown value as. */
@@ -395,6 +438,12 @@ export interface DiagnosticsOptions {
   log?: boolean;
 }
 
+/**
+ * How many rejected setting names `counters()` keeps. More than the SDK has
+ * settings, and small enough that the list stays readable.
+ */
+const MAX_REJECTED_SETTINGS = 50;
+
 const PREFIX = "[wayscribe]";
 const LOG_WINDOW_MS = 60_000;
 /**
@@ -416,7 +465,7 @@ export function createDiagnostics(
   onDiagnostic?: (diagnostic: Diagnostic) => void,
   options: DiagnosticsOptions = {}
 ): Diagnostics {
-  const counters: Counters = {
+  const counters: CountedTotals = {
     recorded: 0,
     sent: 0,
     dropped: 0,
@@ -428,8 +477,14 @@ export function createDiagnostics(
     payloadsTruncated: 0,
     keysDropped: 0,
     configurationErrors: 0,
-    unredactedSecretNames: 0
+    unredactedSecretNames: 0,
+    personalDataInPublicValues: 0
   };
+  /**
+   * Bounded, and only ever a setting name the SDK itself wrote: a host cannot
+   * grow it, because `detail.setting` is never a value the host passed in.
+   */
+  const rejectedSettings = new Set<string>();
   const log = options.log === true;
   const lastPrinted = new Map<DiagnosticKind, number>();
   const suppressed = new Map<DiagnosticKind, number>();
@@ -456,10 +511,19 @@ export function createDiagnostics(
     );
   }
 
+  /** The setting a configuration problem named, kept once and at most 50 of them. */
+  function rememberSetting(diagnostic: ConfigurationErrorDiagnostic): void {
+    const { setting } = diagnostic.detail;
+    if (typeof setting !== "string" || setting === "") return;
+    if (rejectedSettings.size >= MAX_REJECTED_SETTINGS) return;
+    rejectedSettings.add(setting);
+  }
+
   return {
     report(diagnostic, logLine, options) {
       const counter = COUNTER_OF[diagnostic.kind];
       if (counter !== undefined) counters[counter] += 1;
+      if (diagnostic.kind === "configuration_error") rememberSetting(diagnostic);
 
       if (log) {
         try {
@@ -483,7 +547,7 @@ export function createDiagnostics(
     countRecorded() {
       counters.recorded += 1;
     },
-    counters: () => ({ ...counters }),
+    counters: () => ({ ...counters, rejectedSettings: [...rejectedSettings] }),
     flushLog() {
       if (!log) return;
       for (const [kind, repeats] of suppressed) {

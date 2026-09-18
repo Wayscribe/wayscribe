@@ -11,7 +11,12 @@ import {
   type TruncationStats
 } from "@wayscribe/payload-security/redaction";
 import { fitsCodePoints } from "./code-points.js";
-import { firstRequiredSettingWarning, resolveConfig, type RecorderConfig } from "./config.js";
+import {
+  firstRequiredSettingWarning,
+  resolveConfig,
+  type ConfigProblem,
+  type RecorderConfig
+} from "./config.js";
 import {
   createDiagnostics,
   printDiagnostic,
@@ -29,8 +34,9 @@ import {
   injectPayload,
   injectSqsAttributes
 } from "./propagation.js";
-import type { ContextEnvelope, PropagatedContext, SqsMessageAttributes } from "./propagation.js";
+import type { PayloadEnvelope, PropagatedContext, SqsMessageAttributes } from "./propagation.js";
 import { acceptLabel } from "./label.js";
+import { warnAboutPersonalData } from "./personal-data.js";
 import { BoundedQueue } from "./queue.js";
 import { safely, safelyAsync } from "./safely.js";
 import { createSecretNameWarnings, type FoundName, type PayloadField } from "./secret-names.js";
@@ -47,12 +53,14 @@ import type {
   ContinueJourneyOptions,
   Entity,
   ErrorInput,
+  IdentifyOptions,
   Journey,
   JourneyContext,
   JourneyOperations,
   RecordInput,
   Recorder,
-  WrapOptions
+  WrapOptions,
+  WrapResult
 } from "./types.js";
 
 export type {
@@ -60,6 +68,7 @@ export type {
   Entity,
   ErrorInput,
   FailOptions,
+  FailureReason,
   FinishOptions,
   IdentifyOptions,
   Journey,
@@ -70,7 +79,8 @@ export type {
   Recorder,
   ShutdownOptions,
   StartJourneyOptions,
-  WrapOptions
+  WrapOptions,
+  WrapResult
 } from "./types.js";
 
 const TOO_LARGE = "[PAYLOAD_TOO_LARGE]";
@@ -176,8 +186,11 @@ function defineOwn(target: Record<string, unknown>, key: string, value: unknown)
 interface WrapSettings<T> {
   operation: Operation;
   metadata?: Record<string, unknown> | undefined;
+  /** The attempt the wrapper counted, kept apart so it can be applied last. */
+  attempt?: number | undefined;
   captureInput?: WrapOptions<T>["captureInput"] | undefined;
   captureOutput?: WrapOptions<T>["captureOutput"] | undefined;
+  metadataFrom?: WrapOptions<T>["metadataFrom"] | undefined;
   isFailure?: WrapOptions<T>["isFailure"] | undefined;
 }
 
@@ -485,6 +498,67 @@ async function raceTimeout(promise: Promise<unknown>, ms: number): Promise<void>
   }
 }
 
+/**
+ * The error a failed result records, from what `isFailure` returned, or
+ * undefined when it was not a failure.
+ *
+ * `true` keeps the generic text. A string is the message, and an object gives
+ * the message, the code, or both; a field that is not a usable string falls
+ * back, so a reason the host got wrong still records the failure rather than
+ * losing it. Anything else truthy is the generic text too: the verdict was
+ * that it failed, and that is worth recording whatever came with it (ADR-060).
+ */
+function failureFrom(
+  verdict: unknown,
+  name: string,
+  diagnostics: Diagnostics
+): ErrorInput | undefined {
+  // Every falsy value is not a failure, 0 and NaN included: `(r) =>
+  // r.errors.length` is how a host writes this, and before the reason existed
+  // `if (failed)` read both as no failure. Narrowing that would change what a
+  // caller who already wrote it records (ADR-060).
+  if (!isTruthy(verdict)) return undefined;
+  const generic = `${name} reported a failed result.`;
+  if (typeof verdict === "string") return { message: verdict, code: "result_failed" };
+  if (typeof verdict === "object") {
+    // The host's object, and its fields may be getters, or it may be a revoked
+    // Proxy: each read goes through its own boundary, so a throw costs that
+    // field and not the step the call is there to record.
+    const read = (field: "message" | "code"): unknown =>
+      safely(diagnostics, "capture_error", () => (verdict as Record<string, unknown>)[field]);
+    const message = read("message");
+    const code = read("code");
+    return {
+      message: isIdentifier(message) ? message : generic,
+      code: isIdentifier(code) ? code : "result_failed"
+    };
+  }
+  return { message: generic, code: "result_failed" };
+}
+
+/**
+ * Whether a value is truthy, written once rather than as `!value` at the call,
+ * so the rule has a name and the lint rules have a boolean.
+ */
+function isTruthy(value: unknown): boolean {
+  return Boolean(value);
+}
+
+/**
+ * Why one line about a rejected setting is printed although `logDiagnostics`
+ * is off. Each reason is different, and the line is the only sign an operator
+ * who reads no diagnostics will get (SDK-56, SDK-60, ADR-060).
+ */
+function whyPrinted(required: boolean, code: ConfigProblem["code"]): string {
+  if (required) {
+    return "printed once per process, whether or not logDiagnostics is on, because nothing recorded reaches the server until it is fixed";
+  }
+  if (code === "setting_renamed") {
+    return "printed once per process, whether or not logDiagnostics is on, because the setting is otherwise lost unseen";
+  }
+  return "printed once per process, whether or not logDiagnostics is on, because the setting was replaced by its default while the recorder went on looking healthy";
+}
+
 export function createRecorder(config: RecorderConfig): Recorder {
   const resolved = resolveConfig(config);
   const diagnostics = createDiagnostics(resolved.onDiagnostic, { log: resolved.logDiagnostics });
@@ -500,6 +574,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
   // fixed, silently to anybody not reading diagnostics. Like an unusable
   // secret, it prints one line per process and setting even with
   // logDiagnostics off, the other exception to SDK-40 that SDK-56 allows.
+  //
+  // So does an optional one (ADR-060): it was replaced by its default, and
+  // with logDiagnostics off and no onDiagnostic read nothing else said so,
+  // while the recorder went on looking healthy (F-010).
   safely(diagnostics, "capture_error", () => {
     for (const { setting, code, reason, required, printed } of resolved.problems) {
       const diagnostic: Diagnostic = {
@@ -510,12 +588,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       };
       diagnostics.report(diagnostic, undefined, { unlimited: true });
       if (!printed || resolved.logDiagnostics || !firstRequiredSettingWarning(setting)) continue;
-      printDiagnostic(
-        diagnostic,
-        required
-          ? "printed once per process, whether or not logDiagnostics is on, because nothing recorded reaches the server until it is fixed"
-          : "printed once per process, whether or not logDiagnostics is on, because the setting is otherwise lost unseen"
-      );
+      printDiagnostic(diagnostic, whyPrinted(required, code));
     }
   });
   // A secret that was configured and cannot be used is reported now, once, so
@@ -925,6 +998,32 @@ export function createRecorder(config: RecorderConfig): Recorder {
     return record;
   }
 
+  /**
+   * The warning for personal data in an alias the caller marked displayable,
+   * which is stored and searched in plain text exactly as a label is (F-012).
+   *
+   * Only the values of the types on the displayable list are looked at: every
+   * other alias is masked when read, so what it holds is nobody's business
+   * here. An event that marks none, which is almost all of them, pays one
+   * comparison, and once both shapes have warned the check is skipped for the
+   * life of the process.
+   */
+  function warnAboutDisplayableAliases(
+    aliases: Record<string, string> | undefined,
+    displayableAliases: string[] | undefined
+  ): void {
+    if (aliases === undefined || displayableAliases === undefined) return;
+    for (const type of displayableAliases) {
+      if (!Object.hasOwn(aliases, type)) continue;
+      warnAboutPersonalData(
+        aliases[type],
+        "displayableAliases",
+        diagnostics,
+        resolved.logDiagnostics
+      );
+    }
+  }
+
   /** One `payload_truncated` per payload that reached the event with a string cut. */
   function reportTruncations(
     event: Record<string, unknown>,
@@ -1038,6 +1137,10 @@ export function createRecorder(config: RecorderConfig): Recorder {
       metadata: metadataFor(input.metadata)
     };
 
+    const aliases = aliasesFor(input.aliases);
+    const displayable = displayableFor(input.displayableAliases);
+    warnAboutDisplayableAliases(aliases.aliases, displayable.displayableAliases);
+
     const event: Record<string, unknown> = {
       id: `evt_${randomUUID()}`,
       journeyId,
@@ -1048,12 +1151,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
       name: input.name,
       timestamp: new Date(input.startedAt ?? Date.now()).toISOString(),
       ...(readTrace() ?? {}),
+      // One property, not a walk: the deployment was read, checked and frozen
+      // once, when the recorder was created, so an event that carries it costs
+      // nothing per field and an event without one costs one comparison.
+      ...(resolved.deployment === undefined ? {} : { deployment: resolved.deployment }),
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
       ...(captured.input === undefined ? {} : { input: captured.input.value }),
       ...(captured.output === undefined ? {} : { output: captured.output.value }),
       ...(input.error === undefined ? {} : { error: maskedError(input.error) }),
-      ...aliasesFor(input.aliases),
-      ...displayableFor(input.displayableAliases),
+      ...aliases,
+      ...displayable,
       ...(journeyLabel === undefined ? {} : { journeyLabel }),
       ...(captured.metadata === undefined
         ? {}
@@ -1278,7 +1385,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
       // Each option read once: a getter is the host's code, and reading it
       // twice can give two answers.
       const given: WrapOptions<T> = options ?? {};
-      const { captureInput, captureOutput, isFailure } = given;
+      const { captureInput, captureOutput, metadataFrom, isFailure } = given;
       const attempt = given.attempt ?? 1;
       const extra = given.metadata;
       const metadata = extra === undefined && attempt === 1 ? undefined : { ...extra, attempt };
@@ -1286,12 +1393,15 @@ export function createRecorder(config: RecorderConfig): Recorder {
         // ADR-022: a retry records as `retried` rather than the natural verb.
         operation: attempt > 1 ? ("retried" as const) : naturalOperation,
         metadata,
+        attempt,
         captureInput,
         captureOutput,
+        metadataFrom,
         isFailure
       };
     }) ?? { operation: naturalOperation };
-    const { operation, metadata, captureInput, captureOutput, isFailure } = settings;
+    const { operation, metadata, attempt, captureInput, captureOutput, metadataFrom, isFailure } =
+      settings;
 
     // Projected and captured now, before the callback can change what it was
     // given. Capturing copies: a projection usually returns parts of the input
@@ -1318,8 +1428,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
               input,
               startedAt,
               durationMs,
-              ...outcome(target.context),
-              ...(metadata === undefined ? {} : { metadata })
+              // The static metadata first, so a `metadataFrom` the outcome
+              // computed from the result is merged over it rather than under.
+              // Nothing but `recordSuccess` returns metadata, so this changes
+              // no existing call.
+              ...(metadata === undefined ? {} : { metadata }),
+              ...outcome(target.context)
             },
             capturedInputs?.[index]
           );
@@ -1336,15 +1450,24 @@ export function createRecorder(config: RecorderConfig): Recorder {
 
     const recordSuccess = (result: T): void => {
       safely(diagnostics, "capture_error", () => {
-        const failed = isFailure === undefined ? false : isFailure(result);
+        // In its own boundary: a verdict that throws costs the verdict, not
+        // the step. The step is then recorded as the success it looked like,
+        // which is all the SDK knows.
+        const verdict = safely(diagnostics, "capture_error", () =>
+          isFailure === undefined ? false : isFailure(result)
+        );
+        const failure = failureFrom(verdict, name, diagnostics);
         recordAll((context) => ({
           output:
             captureOutput === undefined
               ? result
               : project(captureOutput, result, context, "output"),
-          ...(failed
-            ? { error: { message: `${name} reported a failed result.`, code: "result_failed" } }
-            : {})
+          // Checked once per call, not per field: a wrapper without the option
+          // pays one comparison.
+          ...(metadataFrom === undefined
+            ? {}
+            : projectMetadata(metadataFrom, result, context, metadata, attempt)),
+          ...(failure === undefined ? {} : { error: failure })
         }));
       });
     };
@@ -1441,6 +1564,71 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   /**
+   * Metadata computed from a result, run so that nothing it does can reach the
+   * host, as `project` runs the payload projections.
+   *
+   * A throw, a returned promise, or anything that is not a plain object leaves
+   * the static metadata alone and reports one `payload_omitted` with code
+   * `projection_failed`. The projection's own error can quote the payload, so
+   * it goes to `onDiagnostic` in `detail` and never into the reason.
+   */
+  function projectMetadata(
+    projection: (result: never, journey: JourneyContext) => Record<string, unknown>,
+    result: unknown,
+    context: JourneyContext,
+    statik: Record<string, unknown> | undefined,
+    attempt: number | undefined
+  ): { metadata?: Record<string, unknown> } {
+    const failed = (reason: string, error?: unknown): void => {
+      diagnostics.report({
+        kind: "payload_omitted",
+        code: "projection_failed",
+        reason,
+        detail: { field: "metadata", ...(error === undefined ? {} : { error }) }
+      });
+    };
+    // Nothing: the event keeps the static metadata exactly as it was, which is
+    // what the option promises.
+    const unchanged = {};
+    try {
+      const computed: unknown = (projection as (r: unknown, j: JourneyContext) => unknown)(
+        result,
+        context
+      );
+      if (typeof computed !== "object" || computed === null || Array.isArray(computed)) {
+        failed(
+          "The metadataFrom projection did not return an object, so no metadata was taken from the result."
+        );
+        return unchanged;
+      }
+      // Inside the try: reading `then` runs the value's own getter.
+      if (isThenable(computed)) {
+        computed.then(
+          () => undefined,
+          () => undefined
+        );
+        failed(
+          "The metadataFrom projection returned a promise; projections must be synchronous, so no metadata was taken from the result."
+        );
+        return unchanged;
+      }
+      // Merged here, inside the boundary: spreading the projection's object
+      // runs the host's own getters, and doing it at the call site lost the
+      // whole event when one threw. The static metadata is already a plain
+      // object by now, read once when the wrapper was called.
+      const merged = { ...statik, ...(computed as Record<string, unknown>) };
+      // The wrapper's own attempt last (ADR-060). It counted the attempt and
+      // the operation follows from it, so a projection cannot rename it; a
+      // projection that names no attempt adds none.
+      if (attempt !== undefined && Object.hasOwn(merged, "attempt")) merged["attempt"] = attempt;
+      return { metadata: merged };
+    } catch (error) {
+      failed("The metadataFrom projection threw, so no metadata was taken from the result.", error);
+      return unchanged;
+    }
+  }
+
+  /**
    * `input` on every journey in `targets`, with one timestamp for all of them.
    * Each event goes through its own boundary, so one that cannot be recorded
    * does not cost the others.
@@ -1455,22 +1643,47 @@ export function createRecorder(config: RecorderConfig): Recorder {
   }
 
   function operationsOn(targets: readonly Target[]): JourneyOperations {
-    // One untyped implementation behind the four overloaded wrappers: the
-    // overloads describe what `wrap` does with each shape of callback.
+    // One implementation behind the four wrappers, written to their own
+    // signature, so each is assigned with no cast at the assignment.
+    //
+    // The one cast left is inside it, on the return: `WrapResult<T>` is a
+    // conditional type, and TypeScript cannot check that a value produced at
+    // run time satisfies one, so an assertion of some kind is needed here. An
+    // overload pair compiles without the word `as`, but an overload's
+    // implementation signature is unchecked against its overloads in exactly
+    // the way this cast is unchecked, so it hides the unchecked step rather
+    // than marking it, and it brings back the two-signature shape F-021
+    // objected to. ADR-060 records that choice.
+    //
+    // What is verified either way: a consumer of these methods needs no cast
+    // of its own, and neither does a second implementation at the assignment
+    // (see second-implementation.test.ts).
     const wrapper =
       (operation: Operation) =>
-      (name: string, input: unknown, fn: () => unknown, options?: WrapOptions): unknown =>
-        wrap(targets, operation, name, input, fn, options);
+      <T, I = unknown>(
+        name: string,
+        input: I,
+        fn: () => T,
+        options?: WrapOptions<Awaited<T>, I>
+      ): WrapResult<T> =>
+        wrap(
+          targets,
+          operation,
+          name,
+          input,
+          fn as () => unknown,
+          options as WrapOptions | undefined
+        ) as WrapResult<T>;
     return {
       record(input) {
         safely(diagnostics, "capture_error", () => {
           recordOn(targets, input);
         });
       },
-      transform: wrapper("transformed") as JourneyOperations["transform"],
-      persist: wrapper("persisted") as JourneyOperations["persist"],
-      publish: wrapper("published") as JourneyOperations["publish"],
-      deliver: wrapper("delivered") as JourneyOperations["deliver"],
+      transform: wrapper("transformed"),
+      persist: wrapper("persisted"),
+      publish: wrapper("published"),
+      deliver: wrapper("delivered"),
       fail(name, error, options) {
         // The options apart from the event: options that cannot be read cost
         // their metadata, not the failure being recorded.
@@ -1514,7 +1727,12 @@ export function createRecorder(config: RecorderConfig): Recorder {
         safely(diagnostics, "capture_error", () => {
           // A refused label leaves the earlier one: the server never clears a
           // label either, so an empty string cannot remove one by accident.
-          label = acceptLabel(text, diagnostics) ?? label;
+          const accepted = acceptLabel(text, diagnostics);
+          if (accepted === undefined) return;
+          // On the label as it will be sent, and never a reason to refuse it
+          // (ADR-055's pattern): the host wrote this text to be read.
+          warnAboutPersonalData(accepted, "journeyLabel", diagnostics, resolved.logDiagnostics);
+          label = accepted;
         });
       },
       identify(aliases, options) {
@@ -1522,7 +1740,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
           reportRenamedOption(options, "displayable", "displayableAliases", "identify");
           enqueue(target, {
             operation: "identified",
-            name: "identify",
+            name: identifyName(options),
             // Top-level, not under metadata: EVENT_PROTOCOL puts aliases on the
             // event itself, and ingestion reads them from there. Nested, they
             // are accepted and then ignored, costing every alias-based search.
@@ -1595,6 +1813,30 @@ export function createRecorder(config: RecorderConfig): Recorder {
       reason,
       detail: { setting }
     });
+  }
+
+  /**
+   * What an `identify` step is called: the name the host gave, or `identify`.
+   *
+   * Read inside its own guard, because the option is the host's object and
+   * reading it runs the host's getter. A name that is not a non-empty string
+   * is reported and the default is used, so the step is still recorded: the
+   * aliases are the point of the call, and losing them over a name would be
+   * the worse half of the trade (ADR-060).
+   */
+  function identifyName(options: unknown): string {
+    const given = safely(diagnostics, "capture_error", (): unknown =>
+      typeof options === "object" && options !== null
+        ? (options as IdentifyOptions).name
+        : undefined
+    );
+    if (given === undefined) return "identify";
+    if (isIdentifier(given)) return given;
+    reportInvalidOptions(
+      "identify",
+      "identify was given a name that is not a non-empty string, so the step is called identify."
+    );
+    return "identify";
   }
 
   /** `fail`'s metadata, reporting options it cannot use. */
@@ -1726,9 +1968,34 @@ export function createRecorder(config: RecorderConfig): Recorder {
     }
 
     return {
-      journeyId: journeyId ?? `jrn_${randomUUID()}`,
+      // Derived from the entity before a random id, when a secret makes that
+      // possible: a job whose message carried no context would otherwise start
+      // a journey of its own on every redelivery, and the record's timeline
+      // would be one journey per run (F-005, ADR-060).
+      journeyId: journeyId ?? derivedJourneyId(entity) ?? `jrn_${randomUUID()}`,
       entity: entity ?? UNKNOWN_ENTITY
     };
+  }
+
+  /**
+   * The journey id for an entity, for a `continueJourney` that found none in a
+   * context or in its options, or undefined when one cannot be derived.
+   *
+   * Only when the recorder has a secret it can use and the entity is one the
+   * server would accept. Without a secret this reports nothing and the journey
+   * is new: a recorder without one is the default, not a misconfiguration, and
+   * `journeyIdFor` already warns for a caller who asked for a derived id.
+   */
+  function derivedJourneyId(entity: Entity | undefined): string | undefined {
+    const secret = resolved.journeyIdSecret;
+    if (entity === undefined || secret === undefined || secretProblem !== undefined) {
+      return undefined;
+    }
+    return safely(diagnostics, "capture_error", () =>
+      entityProblem(entity) === undefined
+        ? deriveJourneyId(secret, resolved.environment, entity)
+        : undefined
+    );
   }
 
   /**
@@ -1869,11 +2136,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
     // Without a context there is no envelope to fill, so the payload goes out
     // in one with no journey, which extractPayload reads as no context.
     injectPayload: (payload, context) =>
-      safely(diagnostics, "capture_error", () =>
-        hasContext(context, "injectPayload")
-          ? injectPayload(payload, context, resolved.propagation)
-          : undefined
-      ) ?? ({ _wayscribe: {}, data: payload } as unknown as ContextEnvelope<typeof payload>),
+      safely(
+        diagnostics,
+        "capture_error",
+        () =>
+          hasContext(context, "injectPayload")
+            ? injectPayload(payload, context, resolved.propagation)
+            : undefined
+        // No cast: the no-context envelope has a type of its own, which is
+        // half of what injectPayload returns (F-014, ADR-060).
+      ) ?? ({ _wayscribe: {}, data: payload } satisfies PayloadEnvelope<typeof payload>),
     extractPayload: (body) =>
       safely(diagnostics, "capture_error", () => extractPayload(body)) ?? { data: body },
     async flush() {

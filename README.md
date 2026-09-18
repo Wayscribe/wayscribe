@@ -278,10 +278,12 @@ no library. This one is built so that cannot happen:
 - The transport retries behind a circuit breaker and gives up rather than piling
   up.
 - `shutdown()` races the final flush against a timeout and never hangs.
-- Nothing is written to your console unless you ask for it, apart from four
+- Nothing is written to your console unless you ask for it, apart from six
   warnings printed once per process: a required setting that is missing or
-  empty, a setting under its old name, a `journeyIdSecret` that cannot be used,
-  and a field whose name looks like a secret that was sent in plain text
+  empty, an optional setting the recorder could not use, a setting under its
+  old name, a `journeyIdSecret` that cannot be used,
+  a field whose name looks like a secret that was sent in plain text, and a
+  journey label or displayable alias that looks like personal data
   ([SDK README](packages/sdk-node/README.md#it-cannot-break-your-application)).
 
 ---

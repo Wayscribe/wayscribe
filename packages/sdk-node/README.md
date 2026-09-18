@@ -121,7 +121,27 @@ it again for good (ADR-053). `startJourney({ entity, aliases, displayableAliases
 and `record({ ..., aliases, displayableAliases })` take the same list, under the
 same name. Never
 list an email address, a customer number, or anything else a reader of the
-timeline should not see.
+timeline should not see: **a displayable alias is stored and searched in plain
+text exactly as a label is**, and the API's `q` filter matches it the same way.
+The SDK raises the same `personal_data_in_public_value` warning for a
+displayable alias whose value looks like an email address or a telephone
+number, once per process and shape, and never changes the value (ADR-060). An
+alias you do not mark displayable is masked when it is read, so nothing is said
+about it.
+
+**Name the step when more than one service identifies the record.** An
+`identify` step is called `identify`, which reads well once and badly twice: an
+intake service and a CRM sync both identifying one lead put two steps of the
+same name on its timeline. Give the step its own name instead (ADR-060):
+
+```typescript
+journey.identify({ hubspotContactId: contact.id }, { name: "identify-crm" });
+```
+
+The operation is still `identified`, so the timeline reads the same way. A name
+that is not a non-empty string is reported as `capture_error` with code
+`invalid_options`, and the step is recorded as `identify`: the aliases are the
+point of the call, and losing them over a name would be the worse trade.
 
 ## Name a journey
 
@@ -160,6 +180,20 @@ redacted.** It is text you wrote to be read. Do not put personal data in it:
 no names of people, email addresses, customer numbers, or anything else a
 reader of the journey list should not see.
 
+The SDK warns when it sees one kind of mistake. A label, or an alias you marked
+displayable, that holds what looks like an email address or an international
+telephone number raises one `personal_data_in_public_value` diagnostic, and
+prints one line even with `logDiagnostics` off, once per process and value
+shape. **The value is never changed**, and the warning is never a refusal: this
+is ADR-055's rule for secret-looking names, applied to personal data (ADR-060).
+
+The check is deliberately dumb, an email shape and an international phone shape
+and nothing else, so that it does not print at every deploy for text that is
+fine. It does not catch a person's name, a customer number, a national
+telephone number written without a `+`, or anything else, so the rule above
+still needs reading. If what it found is not personal data, nothing needs
+doing.
+
 It never throws. A label over 200 characters (Unicode code points, as the
 server counts them) is cut to its first 199 and `…`, never inside a character,
 and reported once as `payload_truncated`. A label that is empty, is only
@@ -176,7 +210,8 @@ operation they record, which is what makes the timeline readable.
 
 **They preserve the shape of your callback.** A callback that returns a value
 returns a value; one that returns a promise, or any other thenable, returns a
-native promise of its resolved value. So wrapping a synchronous call does not
+native promise of its resolved value, which the exported type `WrapResult<T>`
+states in one signature rather than two. So wrapping a synchronous call does not
 change the control flow around it:
 
 ```typescript
@@ -201,6 +236,50 @@ const response = await journey.deliver("send-to-crm", payload, () => post(payloa
   isFailure: (result) => result.status >= 400
 });
 ```
+
+`true` records `send-to-crm reported a failed result.` with the code
+`result_failed`. **Return the reason instead** and the timeline says which
+failure it was, so a 429 and a 400 with a validation message no longer read
+alike (ADR-060):
+
+```typescript
+const response = await journey.deliver("send-to-crm", payload, () => post(payload), {
+  isFailure: (result) =>
+    result.status < 400 ? false : { message: result.body.error, code: `http_${result.status}` }
+});
+```
+
+A string is the message on its own, and `{ message, code }` (the exported type
+`FailureReason`) gives either or both; a field that is not a non-empty string
+falls back to the generic text and `result_failed`, so a reason you got wrong
+still records the failure rather than losing it. **Every falsy value is not a
+failure**: `false`, `undefined`, `null`, `""`, `0` and `NaN`, so
+`isFailure: (result) => result.errors.length` means what it has always meant. The message is masked for credential shapes
+and bounded like any other error you give the SDK. An `isFailure` that throws
+costs the verdict and nothing else: your value comes back, the step is recorded
+as the success it looked like, and a `capture_error` says so.
+
+**Metadata from the result.** `metadata` is copied when the wrapper is called,
+before your callback runs, so an HTTP status or a `Retry-After` does not exist
+yet. `metadataFrom` runs after the callback returned or resolved and is merged
+over `metadata` (ADR-060):
+
+```typescript
+const response = await journey.deliver("push-crm", payload, () => post(payload), {
+  metadata: { host: "api.hubapi.com" },
+  metadataFrom: (result) => ({
+    status: result.status,
+    retryAfter: result.headers["retry-after"]
+  })
+});
+```
+
+It receives the resolved value and the journey's context, runs once per journey
+in a `recorder.across` group, and is not called when the callback throws. Like
+`captureInput` and `captureOutput` it must be synchronous and cannot break your
+call: one that throws, returns a promise, or returns anything that is not a
+plain object leaves the static metadata exactly as it was and reports
+`payload_omitted` with code `projection_failed`.
 
 **Recording a view of the value.** `captureInput` and `captureOutput` choose what
 is recorded, while the wrapper still hands your code the real value. A step that
@@ -294,13 +373,30 @@ one; keep it like any other credential, and do not reuse the API key.
 **Rotating the secret starts new journeys** for every record. The old ones are
 kept, and nothing links them to the new ones.
 
+**A consumer with no propagated context can derive the id too.** When a
+recorder has a usable `journeyIdSecret`, `continueJourney` that finds no
+journey id, in a context or in its own options, derives one from the entity
+rather than starting a random journey, so a redelivered message rejoins the
+record's timeline instead of opening one per run (ADR-060):
+
+```typescript
+// The same journey as journeyIdFor(entity) would give.
+const journey = recorder.continueJourney({ entity });
+```
+
+A journey id you pass wins over the derived one, and a context's wins over
+both. **Without a secret this is unchanged: the journey is new, with a random
+id, and nothing is reported**, because a recorder without a secret is the
+default and not a misconfiguration. An entity the server would refuse starts a
+new journey too, and is reported as it already was.
+
 **Without a usable secret, `journeyIdFor` does not throw.** It reports a
 `configuration_error`, counts it in `configurationErrors`, and returns a fresh
 random id, so recording carries on and the journeys split until the secret is
 set. A secret shorter than 32 bytes is reported once when the recorder is
 created, and never used. Because split journeys are easy to miss, a missing or
 short secret also prints one line to stderr, once per process, even with
-`logDiagnostics` off; it is one of the four warnings the SDK prints unasked
+`logDiagnostics` off; it is one of the six warnings the SDK prints unasked
 ([It cannot break your application](#it-cannot-break-your-application)). An entity
 whose type or id holds an unpaired surrogate is refused the same way (reported,
 random id, no warning line): it cannot be encoded faithfully, and the server
@@ -413,6 +509,45 @@ const journey = recorder.continueJourney({ context, entity: { type: "order", id:
 `extractPayload` returns a body that is not an envelope as `data`, with no
 context, so a consumer can read old and new messages alike.
 
+`injectPayload` returns `PayloadEnvelope<T>`: `ContextEnvelope<T>` when there
+was a journey to inject, and `NoContextEnvelope<T>`, whose `_wayscribe` is
+empty, when there was not, which is what a recorder given no context produces.
+Both are exported, so a queue typed on its job payload names the union and
+needs no cast (ADR-060).
+
+**Reading a journey back out of an envelope.** `extractPayload` is the usual
+way, and the only one that also reads a body that is not an envelope at all.
+For a reader holding the envelope itself, three formulations work, checked
+under this repo's TypeScript settings:
+
+```typescript
+import { hasJourney, type PayloadEnvelope } from "@wayscribe/node";
+
+// 1. The exported type guard narrows the envelope itself.
+if (hasJourney(envelope)) {
+  const journey = recorder.continueJourney({ context: envelope._wayscribe, entity });
+}
+
+// 2. Destructuring first narrows too: the journey id is then a top-level
+//    discriminant, and entityType and entityId are reachable beside it.
+const { _wayscribe } = envelope;
+if (_wayscribe.journeyId !== undefined) {
+  const { journeyId, entityType } = _wayscribe;
+}
+
+// 3. Reading the id alone needs no narrowing: it is `string | undefined`, and
+//    inside the check it is `string`.
+const journeyId = envelope._wayscribe.journeyId;
+```
+
+**What does not work is the obvious fourth:**
+`if (envelope._wayscribe.journeyId !== undefined)` does **not** narrow
+`envelope`. TypeScript narrows a union on a discriminant it can see at the top
+level, and this one is nested, so inside that block the envelope is still the
+union and assigning it to `ContextEnvelope<T>` is an error. The compiler's
+message talks about assignability and says nothing about narrowing, which is
+why this looks right; use one of the three above.
+
 | `propagation` | Emits |
 | --- | --- |
 | `journey-only` | journey ID |
@@ -445,14 +580,22 @@ no library. This one is built so that cannot happen:
   `payloadsOmitted` instead, and one sent with a string cut in
   `payloadsTruncated`, because its event is still sent.
 - Nothing is written to your console unless you set `logDiagnostics`, with
-  four exceptions, each printed once per process: a `journeyIdSecret` that
+  six exceptions, each printed once per process: a `journeyIdSecret` that
   cannot be used; a required setting (`endpoint`, `apiKey`, `serviceName`,
   `environment`) that is missing, empty, blank or not a string, since nothing
-  recorded reaches the server until it is fixed; a setting under its old name
-  (`maxPayloadBytes`, `propagate`), since its value is not read; and, once per
-  name, a field whose name looks like a secret that was sent in plain text. A line names the setting or
+  recorded reaches the server until it is fixed; an optional setting the
+  recorder could not use, which it replaced with its default or clamped into
+  range; a setting under its old name (`maxPayloadBytes`, `propagate`), since
+  its value is not read; once per
+  name, a field whose name looks like a secret that was sent in plain text; and,
+  once per value shape, a journey label or a displayable alias that looks like
+  personal data. A line names the setting or
   the field, never its value. Pass `onDiagnostic` if you want to hear about failures in your own
   logger.
+
+  An optional setting used to be silent unless `logDiagnostics` was on, so a
+  recorder could run on a default nobody chose while every event it was meant
+  to bound or enrich kept flowing and the counters read healthy (ADR-060).
 - A bad configuration value never stops your application starting. It is
   reported as a `configuration_error` and replaced by its default, or clamped
   into range. Values are not converted: `maxBufferedEvents: "5000"`, as read
@@ -482,7 +625,8 @@ await recorder.flush(); // send everything queued now, and wait for it
 const counters = await recorder.shutdown({ timeoutMs: 2_000 }); // the default
 // { recorded, sent, rejected, dropped, transportErrors, captureErrors,
 //   breakerOpened, payloadsOmitted, payloadsTruncated, keysDropped,
-//   configurationErrors, unredactedSecretNames }
+//   configurationErrors, rejectedSettings, unredactedSecretNames,
+//   personalDataInPublicValues }
 
 recorder.counters(); // the same numbers, at any time
 ```
@@ -498,6 +642,19 @@ built, and `sent` every event the server stored. Every other counter counts the
 diagnostics of one kind, one per report (see the table below). Once
 `shutdown()` has returned, `sent + rejected + dropped === recorded`, which a
 test can assert.
+
+`rejectedSettings` is the exception, and the one entry that is not a number: it
+names what the `configuration_error` reports were about, in the order first
+seen and once each, so a test or a health check can say *which* setting was
+rejected rather than only how many were. It holds recorder settings and the
+options a call named (`entity`, `context`, `journeyId`, `journeyIdSecret`),
+never a value, and at most 50 of them (ADR-060).
+
+```typescript
+// A recorder that started on a default nobody chose is a deploy that is wrong
+// in a way nothing else reports.
+expect(recorder.counters().rejectedSettings).toEqual([]);
+```
 
 ## Is it sending?
 
@@ -600,9 +757,10 @@ in `<noun>Errors`, and a bare participle in itself (`dropped`).
 | `key_dropped` | `aliases_not_object`, `alias_invalid`, `displayable_alias_invalid`, `metadata_key_too_long`, `label_invalid` | a metadata key or alias the server would refuse was left off: a key or alias type over 128 characters, or an alias value that is not a string of at most 512; or a label was not set; the event is still sent | `{ field, keys }`, `keys` being how many entries this report covers | `keysDropped`, per report |
 | `dropped` | `queue_full`, `after_shutdown`, `shutdown`, `retry_budget`, `no_verdict` | an event was not delivered: the queue was full, it was recorded after shutdown or still undelivered when shutdown finished, the server was still refusing it after 30 seconds or 10 sends, or the server's reply gave no verdict for it | `{ name, operation }` for `after_shutdown`, otherwise `{}` | `dropped` |
 | `capture_error` | `unexpected_error`, `not_a_journey`, `invalid_options`, `context_missing` | something threw inside the SDK; `across` was given something that is not a journey; a call's options were not an object or held keys it does not read (such as `fail`'s old positional metadata); or an inject helper was given no context; your call was unaffected | `{ error }` for `unexpected_error`, `{ call }` for `invalid_options` and `context_missing` | `captureErrors` |
-| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors` |
+| `configuration_error` | `setting_unusable`, `required_setting_unusable`, `setting_renamed`, `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid`, `journey_id_invalid` | a configured setting could not be used, or was given under its old name; a call needed a setting the recorder does not have, such as `journeyIdFor` without a usable `journeyIdSecret`; or a call was given an entity or journey id it cannot record; the call returned something safe | `{ setting }`, naming what could not be used | `configurationErrors`, and the name in `rejectedSettings` |
 | `breaker_opened` | `consecutive_failures` | sends pause for 30 seconds after five failed in a row | `{ failures, cooldownMs }` | `breakerOpened` |
 | `unredacted_secret_name` | `secret_like_name` | a field whose name looks like a secret was sent in plain text because no redaction rule covers it; once per name; the event is sent unchanged. See [Names no rule covers](#names-no-rule-covers) | `{ field, name, path }`, never the value, with the name as written, cut to 128 characters | `unredactedSecretNames` |
+| `personal_data_in_public_value` | `personal_data_shape` | a journey label, or an alias marked displayable, holds what looks like an email address or a telephone number, and both are stored and searched in plain text; once per process and shape; the value is never changed. See [Name a journey](#name-a-journey) | `{ field, shape }`, never the value | `personalDataInPublicValues` |
 
 ### An endpoint that is not encrypted
 
@@ -1160,6 +1318,7 @@ fleet against one instance. It is clamped to 1-16.
 | `logDiagnostics` | `false` | see [Is it sending?](#is-it-sending) |
 | `maxConcurrentSends` | `4` | 1-16; see [Sizing](#sizing-maxconcurrentsends); experimental |
 | `journeyIdSecret` | none | at least 32 bytes; see [The same record, the same journey](#the-same-record-the-same-journey); experimental |
+| `deployment` | none | `{ gitCommit?, version?, image? }`, sent on every event; see [Which build recorded this](#which-build-recorded-this) |
 | `knownSafeNames` | `[]` | key names that look like secrets and are not; see [Names no rule covers](#names-no-rule-covers) |
 
 The SDK reads no environment variables. A library that changes behaviour based on
@@ -1170,8 +1329,39 @@ calls take, accepts an explicit `undefined`, so
 `journeyIdSecret: process.env.JOURNEY_ID_SECRET` compiles with
 `exactOptionalPropertyTypes` on. Every option type has a name you can import:
 `RecorderConfig`, `StartJourneyOptions`, `ContinueJourneyOptions`,
-`IdentifyOptions`, `WrapOptions`, `RecordInput`, `ErrorInput`, `FailOptions`,
-`FinishOptions`, `ShutdownOptions`, and `Entity` for `{ type, id }`.
+`IdentifyOptions`, `WrapOptions`, `RecordInput`, `ErrorInput`, `FailureReason`,
+`FailOptions`, `FinishOptions`, `ShutdownOptions`, `Deployment`, and `Entity`
+for `{ type, id }`.
+
+### Which build recorded this
+
+A timeline that shows what happened but not which build it happened on leaves
+the first question of any incident unanswered. Set `deployment` once, and every
+event this recorder sends carries it:
+
+```typescript
+const recorder = createRecorder({
+  // ...
+  deployment: {
+    version: process.env.APP_VERSION, // your package's version
+    gitCommit: process.env.GIT_SHA,
+    image: process.env.IMAGE // registry.example/app:1.4.2
+  }
+});
+```
+
+All three fields are optional, and an explicit `undefined` is fine, so reading
+them straight from the environment compiles. The object is read and copied once,
+when the recorder is created, so changing it afterwards changes no event, and an
+event that carries it costs one property and no per-field work.
+
+A field that is not a non-empty string, or is longer than the protocol accepts
+(128 characters for `gitCommit` and `version`, 512 for `image`), is left off
+rather than cut, because a cut commit names a build that does not exist; a key
+the protocol does not have is left off too, since sending it would have the
+server refuse every event this process records. Either is reported once as a
+`configuration_error` naming `deployment`, never its value, and the rest of the
+deployment is still sent (ADR-060).
 
 ## OpenTelemetry
 
@@ -1210,7 +1400,7 @@ marked `@experimental` in the types, and may change in a minor release:
 - **`across` and `JourneyGroup`**: the name, the deduplication and label
   rules, and what an empty group does came from one service instrumented with
   them.
-- **`captureInput` and `captureOutput`**, for the same reason.
+- **`captureInput`, `captureOutput` and `metadataFrom`**, for the same reason.
 - **`journeyIdFor` and `journeyIdSecret`**: the derivation is fixed by test
   vectors, but what surrounds it, such as rotating the secret, is new.
 - **`label`**, the method and the option: it depends on the Journeys page,

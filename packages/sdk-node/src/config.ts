@@ -12,6 +12,32 @@ import { readKnownSafeNames } from "./secret-names.js";
 export type CaptureMode = "metadata-only" | "redacted-payload" | "full-payload";
 
 /**
+ * Which build of a service recorded an event. The wire protocol has carried
+ * these three fields since the first release and the API stores them, so a
+ * timeline can answer "which build did this?" (F-002, ADR-060).
+ *
+ * Every field is optional, and one that is not a usable string is left off and
+ * reported, as any other setting is. A field longer than the protocol accepts
+ * (128 characters for `gitCommit` and `version`, 512 for `image`) is left off
+ * rather than cut: a cut commit or version names a build that does not exist.
+ */
+export interface Deployment {
+  /** The commit this build was made from. At most 128 characters. */
+  gitCommit?: string | undefined;
+  /** The service's own version, such as its package version. At most 128. */
+  version?: string | undefined;
+  /** The container image and tag, such as `registry.example/app:1.4.2`. At most 512. */
+  image?: string | undefined;
+}
+
+/** What the protocol accepts, by field (`packages/protocol` `deploymentSchema`). */
+const DEPLOYMENT_LIMITS: Readonly<Record<keyof Deployment, number>> = {
+  gitCommit: 128,
+  version: 128,
+  image: 512
+};
+
+/**
  * The recorder's settings. The four without a default are required. A value
  * that cannot be used never stops the recorder starting: it is reported as a
  * `configuration_error` and replaced by its default, or clamped into range.
@@ -103,6 +129,14 @@ export interface RecorderConfig {
    */
   journeyIdSecret?: string | undefined;
   /**
+   * Which build this process is, sent on every event it records. Read once,
+   * when the recorder is created, and copied, so a later change to the object
+   * changes no event.
+   *
+   * @defaultValue none: events carry no deployment
+   */
+  deployment?: Deployment | undefined;
+  /**
    * Key names that look like secrets and are not, such as a `sessionId` that
    * is an analytics id. The `unredacted_secret_name` warning skips them. Plain
    * names only, compared with case, `-` and `_` ignored. Redaction is
@@ -130,6 +164,12 @@ export interface ResolvedConfig {
   logDiagnostics: boolean;
   maxConcurrentSends: number;
   journeyIdSecret: string | undefined;
+  /**
+   * The deployment as every event will carry it, frozen, or undefined when
+   * none was configured or none of it could be used. Resolved once here so
+   * that recording an event costs one property and no per-field work.
+   */
+  deployment: Readonly<Deployment> | undefined;
   /** Folded. */
   knownSafeNames: readonly string[];
   /**
@@ -150,9 +190,12 @@ export interface ConfigProblem {
    */
   required: boolean;
   /**
-   * Printed once per process whatever `logDiagnostics` says: a required
-   * setting, because nothing reaches the server without it, and a renamed
-   * one, because the value is otherwise lost unseen (SDK-60).
+   * Printed once per process whatever `logDiagnostics` says. Every rejected
+   * setting is: a required one because nothing reaches the server without it,
+   * a renamed one because the value is otherwise lost unseen (SDK-60), and an
+   * optional one because it was replaced by its default and the recorder goes
+   * on looking healthy while the setting the operator chose is not in force
+   * (ADR-060).
    */
   printed: boolean;
 }
@@ -210,7 +253,12 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
       code: required ? "required_setting_unusable" : "setting_unusable",
       reason,
       required,
-      printed: required
+      // Every rejected setting prints, not only a required one. Gating this on
+      // `required` left an optional setting silent with logDiagnostics off and
+      // no onDiagnostic read: the recorder ran with a value the operator never
+      // chose, and every event it was meant to bound or enrich kept flowing
+      // (F-010, ADR-060).
+      printed: true
     });
   };
   const read = (key: keyof RecorderConfig): unknown => {
@@ -292,6 +340,7 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     problem("logDiagnostics", "logDiagnostics is not true or false; logging stays off.");
   }
   const secret = readOnce("journeyIdSecret", "journeyIdFor returns random journey ids");
+  const deployment = readDeployment(readOnce("deployment", "events carry no deployment"), problem);
   const knownSafe = readKnownSafeNames(
     readOnce("knownSafeNames", "no name is exempt from the warning")
   );
@@ -339,6 +388,7 @@ export function resolveConfig(config: RecorderConfig): ResolvedConfig {
     ),
     // Checked, and reported, by journeyIdSecretProblem, which accepts anything.
     journeyIdSecret: secret as string | undefined,
+    deployment,
     knownSafeNames: knownSafe.names,
     problems
   };
@@ -430,4 +480,64 @@ function clampConcurrentSends(configured: unknown, report: Report): number {
     );
   }
   return clamped;
+}
+
+/**
+ * The deployment as events will carry it: the fields the protocol has, each a
+ * string the protocol accepts, frozen and copied.
+ *
+ * Anything else is left off and reported once, naming the setting and never
+ * its value: a field that is not a usable string, one longer than the
+ * protocol's limit, and a key the protocol does not have, which would make the
+ * server refuse every event of this process. Reading each field is guarded
+ * separately, because the object is the host's and its getters are the host's
+ * code (SDK-6).
+ */
+function readDeployment(configured: unknown, report: Report): Readonly<Deployment> | undefined {
+  if (configured === undefined) return undefined;
+  if (typeof configured !== "object" || configured === null || Array.isArray(configured)) {
+    report(
+      "deployment",
+      "deployment is not an object of gitCommit, version and image; events carry no deployment."
+    );
+    return undefined;
+  }
+  const kept: Deployment = {};
+  let unusable = false;
+  for (const field of Object.keys(DEPLOYMENT_LIMITS) as (keyof Deployment)[]) {
+    let value: unknown;
+    try {
+      value = (configured as Deployment)[field];
+    } catch {
+      unusable = true;
+      continue;
+    }
+    if (value === undefined) continue;
+    // Measured in UTF-16 code units, which is never more permissive than the
+    // protocol's own count, so a value kept here is one the server accepts.
+    if (typeof value === "string" && value !== "" && value.length <= DEPLOYMENT_LIMITS[field]) {
+      kept[field] = value;
+    } else {
+      unusable = true;
+    }
+  }
+  let extra = false;
+  try {
+    extra = Object.keys(configured).some((key) => !(key in DEPLOYMENT_LIMITS));
+  } catch {
+    unusable = true;
+  }
+  if (unusable || extra) {
+    report(
+      "deployment",
+      `deployment holds ${
+        extra
+          ? "keys other than gitCommit, version and image"
+          : "a field that is not a string the protocol accepts"
+      }, which are not sent; ${
+        Object.keys(kept).length === 0 ? "events carry no deployment" : "the rest of it is sent"
+      }.`
+    );
+  }
+  return Object.keys(kept).length === 0 ? undefined : Object.freeze(kept);
 }

@@ -70,6 +70,69 @@ export interface ContextEnvelope<T> {
 }
 
 /**
+ * The envelope a payload goes out in when there was no journey to inject: the
+ * same shape with nothing in it, so `extractPayload` can read the absence of a
+ * journey later rather than guess at it.
+ *
+ * It exists because the value the SDK itself produces did not satisfy
+ * `ContextEnvelope`, and the SDK's own source cast it to get past the type
+ * checker; anything reproducing the shape, such as a recorder that records
+ * nothing, needed the same cast (F-014, ADR-060).
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export interface NoContextEnvelope<T> {
+  _wayscribe: { journeyId?: undefined };
+  data: T;
+}
+
+/**
+ * What `injectPayload` returns: the envelope with the journey, or the one
+ * without.
+ *
+ * TypeScript does not narrow a union on a nested property, so reading
+ * `envelope._wayscribe.journeyId` leaves the value typed as the union, however
+ * the check is written. `hasJourney` is the narrowing; the usual path is
+ * `extractPayload`, which hands back the context and the payload apart.
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export type PayloadEnvelope<T> = ContextEnvelope<T> | NoContextEnvelope<T>;
+
+/**
+ * Whether an envelope carries a journey, narrowing it to `ContextEnvelope`.
+ *
+ * For a reader holding an envelope, such as a queue consumer typed on its job
+ * payload: the nested `journeyId` cannot narrow the union on its own, and this
+ * saves the cast that would otherwise be written in its place. Most consumers
+ * want `extractPayload` instead, which returns the context and the payload
+ * apart and reads a body that is not an envelope at all.
+ *
+ * Takes anything, because a body off a queue is whatever was put there, and
+ * never throws: a value whose reads fail is a value with no journey, and a
+ * public entry point does not propagate into the caller's code.
+ *
+ * @experimental As `PropagationLevel`.
+ */
+export function hasJourney<T>(envelope: PayloadEnvelope<T>): envelope is ContextEnvelope<T> {
+  // Read as unknown: the types say this is an envelope, and a JavaScript
+  // caller passing a job body straight off a queue can make it anything.
+  const given: unknown = envelope;
+  if (typeof given !== "object" || given === null) return false;
+  try {
+    // Both reads inside: a getter is the host's own code, and a revoked Proxy,
+    // or one whose get trap throws, fails on the first of them.
+    const carried: unknown = (given as { _wayscribe?: unknown })._wayscribe;
+    if (typeof carried !== "object" || carried === null) return false;
+    const { journeyId } = carried as { journeyId?: unknown };
+    return typeof journeyId === "string" && journeyId !== "";
+  } catch {
+    // Nothing usable is there to read, which is the answer.
+    return false;
+  }
+}
+
+/**
  * What `extractPayload` returns: the payload, and the journey when the body
  * was an envelope that carried a usable one.
  *
