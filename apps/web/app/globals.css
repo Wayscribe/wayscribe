@@ -163,6 +163,11 @@ button {
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
 }
+/* An entity type may be 128 characters and an identifier 512, with no space
+   to break at; the link wraps rather than widening the page. */
+.results li > a {
+  overflow-wrap: anywhere;
+}
 .status {
   font-size: 0.75rem;
   text-transform: uppercase;
@@ -176,6 +181,9 @@ button {
 .status .status-step {
   text-transform: none;
   letter-spacing: normal;
+  /* A step name may be 256 characters with no space to break at; without this
+     one widens the Search page past the screen. */
+  overflow-wrap: anywhere;
 }
 
 /* The two ways in, above every signed-in page. */

@@ -189,6 +189,24 @@ test.describe("the Journeys table", () => {
       }
     });
   }
+
+  // The same failed journeys found by search, whose status reads
+  // `failed at <step>` (ADR-063). A review measured a 256-character step name
+  // making Search 1,747 px wide on a 400 px screen.
+  for (const width of [400, 1280]) {
+    test(`a search row with a long failed step does not scroll sideways at ${String(width)} px`, async ({
+      page
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await signIn(page, JOURNEY_ID);
+      const entityId = `layout-list-labelled-${LIST_RUN}`;
+      await page.goto(`/?q=${entityId}`);
+      const status = page.getByRole("listitem").filter({ hasText: entityId }).locator(".status");
+      await expect(status).toHaveText(`failed at ${STEP}`);
+
+      expect(await horizontalOverflow(page)).toBe(0);
+    });
+  }
 });
 
 /**
