@@ -7,10 +7,13 @@
  * omits it and a failure recorded before migration 021 has it null; both
  * read as no failed step, and the page shows what it showed before.
  *
- * Only a string is a failed step: the value reaches the browser (the events
- * proxy and the search rows), and nothing but text crosses there
- * (`event-display.ts`). The status is checked here too rather than trusting
- * the API to null the field outside `failed`.
+ * Only a string is a failed step. Two paths send the value to the browser as
+ * data: the events proxy's `journeyFailedStep` and JourneyTimeline's
+ * `initialFailedStep` prop, and nothing but text crosses there
+ * (`event-display.ts`). The Journeys table and search rows are server
+ * components that render it into HTML, where anything but a string could
+ * crash the render. The status is checked here too rather than trusting the
+ * API to null the field outside `failed`.
  */
 export function failedStepOf(journey: { status: string; failedStep?: unknown }): string | null {
   return journey.status === "failed" && typeof journey.failedStep === "string"

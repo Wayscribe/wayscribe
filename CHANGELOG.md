@@ -292,17 +292,20 @@ What you have to do when upgrading a checkout or a deployment:
   failed journey's last step can be a later step that succeeded, such as a
   retry's first steps after a failed push. The Journeys table's "Last step"
   column is now "Step": a failed row shows the step that failed it, in the
-  failed style, with the title `Failed at <failedStep>; last step <lastStep>`.
-  The journey page's summary line and a search result read
+  failed style, with the title `Failed at <failedStep>; last step <lastStep>`,
+  or `Failed at <failedStep>` when the journey has no last step. The journey
+  page's summary line and a search result read
   `failed at <failedStep>`, and a followed journey's summary line learns it on
   the same poll as its status. Against an API without `failedStep`, and for a
   failure recorded before migration 021, every one of them shows what it
   showed before.
 - **The event detail names the SDK that recorded the event** (ADR-063,
-  F-046). The Runtime group shows `runtime.sdk` as one entry,
-  `@wayscribe/node 0.1.0 at <commit>`, with the commit left out when there is
-  none; any other shape under `sdk` is shown as compact JSON, like every other
-  entry.
+  F-046). When `runtime.sdk` is an object whose own `name` and `version` are
+  text, the Runtime group shows it as one entry, `<name> <version>`, followed
+  by ` at <commit>` when its `commit` is text, such as
+  `@wayscribe/node 0.1.0 at <commit>`; a commit that is missing or not text is
+  left out. Any other value under `sdk` is shown as every other entry is: text
+  as it is, anything else as compact JSON.
 - **The Journeys page** (ADR-054). `/journeys` lists what happened in a period,
   any status and the last 24 hours by default, as a table of last activity,
   status, entity type, what the journey is shown as, last step and events. It
