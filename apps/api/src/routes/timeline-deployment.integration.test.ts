@@ -1,9 +1,9 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId, issueKey } from "@wayscribe/database";
 import { createKeyring } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -19,13 +19,13 @@ const BUILD_2 = { version: "1.4.3", gitCommit: "fedcba9876543210" };
  * deployment, as it carries its service.
  */
 describe("the deployment on a timeline row", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let app: FastifyInstance;
   let apiKey: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     await insertReturningId(db, "projects", { name: "Acme", slug: "acme" });

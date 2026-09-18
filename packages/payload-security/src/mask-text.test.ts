@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { compare, describeComparison, growth } from "../../../tests/support/timing.js";
 import { maskSecretsInText } from "./mask-text.js";
 
 /**
@@ -620,27 +621,24 @@ describe("maskSecretsInText", () => {
     // protocol allows a 16 KiB stack. A pattern that backtracks quadratically
     // on near-matches would let one event hold the ingestion thread.
     //
-    // Each case is timed at 16 KiB and at 64 KiB. Linear work takes about four
-    // times as long at four times the size; quadratic work takes sixteen. A
-    // wall-clock limit alone passed a callback that was quadratic on a run of
-    // dots, because 16 KiB of it still fit under the limit on a fast machine.
+    // Each case is timed at 16 KiB and at 64 KiB, per character. Linear work
+    // costs the same per character at both sizes; quadratic work costs four
+    // times as much at the larger. A wall-clock limit alone passed a callback
+    // that was quadratic on a run of dots, because 16 KiB of it still fit under
+    // the limit on a fast machine. The two sizes are timed alternately in the
+    // thread's processor time, and their fastest samples compared
+    // (tests/support/timing.ts): timed on the wall clock one after the other,
+    // with a 10 ms floor, a busy machine failed a linear case at 12.7 ms.
     const KIB = 1024;
     const fill = (unit: string, size: number): string =>
       unit.repeat(Math.ceil(size / unit.length)).slice(0, size);
 
-    /** The fastest of several runs, which is the least noisy estimate of the work. */
-    const fastest = (text: string): number => {
-      let best = Number.POSITIVE_INFINITY;
-      for (let run = 0; run < 5; run += 1) {
-        const started = performance.now();
-        maskSecretsInText(text);
-        best = Math.min(best, performance.now() - started);
-      }
-      return best;
-    };
-
-    /** Below this, a difference is scheduler and collector noise, not complexity. */
-    const NOISE_FLOOR_MS = 10;
+    /** Per character, how much dearer 64 KiB may be than 16 KiB: linear reads about 1, quadratic 4. */
+    const GROWTH_LIMIT = 2;
+    /** One pass of a plain global pattern that touches every word: the unit of the mixture's ceiling. */
+    const PLAIN_PATTERN = /[A-Za-z0-9]+/g;
+    /** The mixture read 0.7 of that pass on 2026-09-18, in processor time. */
+    const MIXTURE_LIMIT = 8;
 
     const adversarial: Record<string, (size: number) => string> = {
       "JWT-like segments with no dot": (size) => fill("eyJa-", size),
@@ -692,25 +690,38 @@ describe("maskSecretsInText", () => {
     );
 
     for (const [name, build] of cases) {
-      it(`masks ${name} in time proportional to its length`, () => {
+      it(`masks ${name} in time proportional to its length, at most ${String(GROWTH_LIMIT)} times dearer a character at four times the size`, () => {
         const small = build(16 * KIB);
         const large = build(64 * KIB);
-        // Warm, so the first measurement is the matching and not compilation.
-        maskSecretsInText(small);
-        const atSmall = fastest(small);
-        const atLarge = fastest(large);
-        expect(atLarge).toBeLessThan(Math.max(8 * atSmall, NOISE_FLOOR_MS));
+        const measured = growth(
+          maskSecretsInText,
+          { input: small, units: small.length },
+          { input: large, units: large.length },
+          GROWTH_LIMIT
+        );
+        expect(measured.ratio, describeComparison(measured)).toBeLessThanOrEqual(GROWTH_LIMIT);
       });
     }
 
-    it("masks 64 KiB of every adversarial case together in well under a second", () => {
-      // The one absolute ceiling, generous enough for a loaded CI runner.
+    it(`masks 64 KiB of every adversarial case together at most ${String(MIXTURE_LIMIT)} times as slowly as one pass of a plain pattern`, () => {
+      // The ceiling on the constant, which the growth checks above do not
+      // hold: the whole mixture against a single global pattern over the same
+      // text, timed alternately. It was an absolute 250 ms, about 500 times
+      // what the masker takes, which a loaded runner can still exceed and a
+      // slow machine can meet with a masker ten times dearer.
       const all = Object.values(adversarial)
         .map((build) => build(4 * KIB))
         .join(" ");
       const text = fill(all, 64 * KIB);
-      maskSecretsInText(text.slice(0, KIB));
-      expect(fastest(text)).toBeLessThan(250);
+      const measured = compare(
+        { run: () => maskSecretsInText(text), units: text.length },
+        {
+          run: () => text.replace(PLAIN_PATTERN, (word) => word.toUpperCase()),
+          units: text.length
+        },
+        MIXTURE_LIMIT
+      );
+      expect(measured.ratio, describeComparison(measured)).toBeLessThanOrEqual(MIXTURE_LIMIT);
     });
   });
 });

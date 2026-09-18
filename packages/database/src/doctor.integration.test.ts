@@ -7,7 +7,8 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { LEGACY_PUBLISHED_DEMO_API_KEY, PUBLISHED_DEMO_API_KEY } from "@wayscribe/config";
 import { createKeyring, encryptValue, searchTokens } from "@wayscribe/payload-security";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import type { StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startContainer } from "./testing/postgres.js";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { insertReturningId } from "./insert.js";
@@ -116,9 +117,11 @@ describe("doctor", () => {
   let revokedKey = "";
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage"))
-      .withPassword(DB_PASSWORD)
-      .start();
+    // A server of its own: it creates databases and roles by name, which
+    // would outlive this file on the suite's shared server (testing/postgres.ts).
+    container = await startContainer(inject("postgresImage"), (created) =>
+      created.withPassword(DB_PASSWORD)
+    );
 
     readyServer = createServer((request, response) => {
       readyRequests.push(request.url ?? "");

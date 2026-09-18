@@ -2,6 +2,7 @@ import { createServer, request } from "node:http";
 import { connect as connectHttp2, createServer as createHttp2Server } from "node:http2";
 import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
+import { describeComparison, growth } from "../../../tests/support/timing.js";
 import { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
 import { REDACTED, redact } from "./redact.js";
 
@@ -159,21 +160,15 @@ describe("headers filed inside an HTTP header block string", () => {
 
 describe("header recognition scales linearly", () => {
   // Payload strings and arrays are reachable from public HTTP, so the new
-  // checks are timed at two sizes as the error-text masker is: linear work
-  // takes about four times as long at four times the size.
+  // checks are timed at two sizes as the error-text masker is, per unit of
+  // input and in the thread's processor time (tests/support/timing.ts):
+  // linear work costs the same per unit at 16 KiB and at 64 KiB, and
+  // quadratic work four times as much at the larger.
   const KIB = 1024;
-  const NOISE_FLOOR_MS = 10;
+  /** Per unit, how much dearer 64 KiB may be than 16 KiB. */
+  const GROWTH_LIMIT = 2;
   const fill = (unit: string, size: number): string =>
     unit.repeat(Math.ceil(size / unit.length)).slice(0, size);
-  const fastest = (value: unknown): number => {
-    let best = Number.POSITIVE_INFINITY;
-    for (let run = 0; run < 5; run += 1) {
-      const started = performance.now();
-      builtIn(value);
-      best = Math.min(best, performance.now() - started);
-    }
-    return best;
-  };
 
   const adversarial: Record<string, (size: number) => unknown> = {
     "secret header lines": (size) => "GET / HTTP/1.1\r\n" + fill("Authorization: x\r\n", size),
@@ -185,11 +180,14 @@ describe("header recognition scales linearly", () => {
   };
 
   for (const [name, build] of Object.entries(adversarial)) {
-    it(`handles ${name} in time proportional to its length`, () => {
-      const small = build(16 * KIB);
-      const large = build(64 * KIB);
-      builtIn(small);
-      expect(fastest(large)).toBeLessThan(Math.max(8 * fastest(small), NOISE_FLOOR_MS));
+    it(`handles ${name} in time proportional to its length, at most ${String(GROWTH_LIMIT)} times dearer a unit at four times the size`, () => {
+      const measured = growth(
+        builtIn,
+        { input: build(16 * KIB), units: 16 * KIB },
+        { input: build(64 * KIB), units: 64 * KIB },
+        GROWTH_LIMIT
+      );
+      expect(measured.ratio, describeComparison(measured)).toBeLessThanOrEqual(GROWTH_LIMIT);
     });
   }
 });

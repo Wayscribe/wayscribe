@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Diagnostic } from "./diagnostics.js";
@@ -533,69 +533,100 @@ describe("the telephone shape (ADR-063 decision 5)", () => {
     expect(personalDataShapeOf(text)).toBe("phone");
   });
 
-  it("stays linear on adversarial input of the examined length", async () => {
-    const perCall = await timedInChild(ADVERSARIAL);
-    for (const [index, input] of ADVERSARIAL.entries()) {
-      // Measured at under 0.6 ms a call on the worst of these, and usually far
-      // less once the expression is compiled. The bound is loose so a busy
-      // machine does not fail it: what it catches is backtracking, which over
-      // 1,024 characters costs seconds, not milliseconds.
-      expect(perCall[index], JSON.stringify(input.slice(0, 16))).toBeLessThan(5);
+  it(`stays linear on adversarial input up to the examined length, at most ${String(GROWTH_LIMIT)} times dearer a character at four times the size`, async () => {
+    const results = await growthInChild(
+      ADVERSARIAL.map(([, build]) => ({ small: build(256), large: build(1_024) }))
+    );
+    for (const [index, [name]] of ADVERSARIAL.entries()) {
+      // Linear reads about 1; backtracking over the candidate reads 4 or more,
+      // or runs out of the child's budget. Measured in processor time, with
+      // the two sizes alternating (tests/support/timing.ts), so a busy machine
+      // stretches neither: this was a wall-clock bound of 5 ms a call.
+      const result = results[index];
+      expect(result?.error, name).toBeUndefined();
+      expect(result?.ratio, `${name}: ${result?.detail ?? ""}`).toBeLessThanOrEqual(GROWTH_LIMIT);
     }
   }, 60_000);
 });
 
-/** Inputs of the examined length that would make a backtracking rule slow. */
-const ADVERSARIAL = [
-  "+".repeat(1_024),
-  "=+".repeat(512),
-  "(+1 ".repeat(256),
-  `+${"1 ".repeat(511)}x`,
-  `+${"(".repeat(1_023)}`,
-  ":+1234567".repeat(113),
-  `${"a".repeat(1_000)}=+1234567890123`.slice(0, 1_024),
-  "+- ".repeat(341)
+/** Per character, how much dearer 1,024 characters may be than 256. */
+const GROWTH_LIMIT = 2;
+
+/** Inputs up to the examined length that would make a backtracking rule slow, by size. */
+const ADVERSARIAL: [string, (size: number) => string][] = [
+  ["a run of plus signs", (size) => "+".repeat(size)],
+  ["equals and plus", (size) => "=+".repeat(size / 2)],
+  ["opened groups", (size) => "(+1 ".repeat(size / 4)],
+  ["spaced digits ending in a letter", (size) => `+${"1 ".repeat((size - 2) / 2)}x`],
+  ["a plus and opening brackets", (size) => `+${"(".repeat(size - 1)}`],
+  ["colon-led short numbers", (size) => ":+1234567".repeat(Math.floor(size / 9))],
+  [
+    "a long word before a number",
+    (size) => `${"a".repeat(size - 24)}=+1234567890123`.slice(0, size)
+  ],
+  ["plus, hyphen and space", (size) => "+- ".repeat(Math.floor(size / 3))]
 ];
+
+/** Wall-clock budget of each comparison in the child. */
+const COMPARISON_BUDGET_MS = 2_000;
 
 /** How long the whole timed run may take before the child is killed. */
 const CHILD_DEADLINE_MS = 20_000;
 
+interface ChildResult {
+  ratio?: number;
+  detail?: string;
+  error?: string;
+}
+
 /**
- * Milliseconds per call of `personalDataShapeOf` on each input, measured in a
- * child process that is killed at a deadline.
+ * The growth of `personalDataShapeOf` from each `small` input to its `large`
+ * one, measured in a child process that is killed at a deadline.
  *
  * In a child, not here: a regular expression that backtracks cannot be
  * interrupted from the thread running it, so a regression timed in-process
- * hangs the suite rather than failing it. The module is bundled from source
- * with esbuild, as `bench/build.mjs` does, so the child runs this code.
+ * hangs the suite rather than failing it. The module and the timing helper
+ * are bundled from source with esbuild, as `bench/build.mjs` does, so the
+ * child runs this code.
  */
-async function timedInChild(inputs: readonly string[]): Promise<number[]> {
+async function growthInChild(
+  inputs: readonly { small: string; large: string }[]
+): Promise<ChildResult[]> {
   const directory = mkdtempSync(join(tmpdir(), "wayscribe-phone-"));
   try {
-    const module = join(directory, "personal-data.mjs");
-    await build({
-      entryPoints: [fileURLToPath(new URL("./personal-data.ts", import.meta.url))],
-      bundle: true,
-      platform: "node",
-      format: "esm",
-      conditions: ["development"],
-      outfile: module,
-      logLevel: "error"
-    });
-    const runner = join(directory, "run.mjs");
+    const entry = join(directory, "entry.mjs");
     writeFileSync(
-      runner,
-      `import { personalDataShapeOf } from ${JSON.stringify(pathToFileURL(module).href)};
+      entry,
+      `import { personalDataShapeOf } from ${JSON.stringify(fileURLToPath(new URL("./personal-data.ts", import.meta.url)))};
+import { describeComparison, growth } from ${JSON.stringify(fileURLToPath(new URL("../../../tests/support/timing.ts", import.meta.url)))};
 const inputs = JSON.parse(process.argv[2]);
-const out = inputs.map((input) => {
-  for (let i = 0; i < 20; i += 1) personalDataShapeOf(input);
-  const started = performance.now();
-  for (let i = 0; i < 100; i += 1) personalDataShapeOf(input);
-  return (performance.now() - started) / 100;
+const out = inputs.map(({ small, large }) => {
+  try {
+    const result = growth(
+      personalDataShapeOf,
+      { input: small, units: small.length },
+      { input: large, units: large.length },
+      ${String(GROWTH_LIMIT)},
+      ${String(COMPARISON_BUDGET_MS)}
+    );
+    return { ratio: result.ratio, detail: describeComparison(result) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
 });
 process.stdout.write(JSON.stringify(out));
 `
     );
+    const runner = join(directory, "run.mjs");
+    await build({
+      entryPoints: [entry],
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      conditions: ["development"],
+      outfile: runner,
+      logLevel: "error"
+    });
     const result = spawnSync(process.execPath, [runner, JSON.stringify(inputs)], {
       encoding: "utf8",
       timeout: CHILD_DEADLINE_MS,
@@ -603,11 +634,11 @@ process.stdout.write(JSON.stringify(out));
     });
     if (result.error !== undefined || result.signal !== null) {
       throw new Error(
-        `The telephone shape did not finish ${String(inputs.length)} inputs within ${String(CHILD_DEADLINE_MS)} ms (${String(result.signal ?? result.error?.message)}): it backtracks.`
+        `The telephone shape did not finish ${String(inputs.length)} comparisons within ${String(CHILD_DEADLINE_MS)} ms (${String(result.signal ?? result.error?.message)}): it backtracks.`
       );
     }
     expect(result.status, result.stderr).toBe(0);
-    return JSON.parse(result.stdout) as number[];
+    return JSON.parse(result.stdout) as ChildResult[];
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

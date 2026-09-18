@@ -1,5 +1,10 @@
 {
   "extends": "./tsconfig.json",
+  // Here and not in tsconfig.json: tests import shared helpers from
+  // tests/support, outside src, and only the build needs src as the root.
+  "compilerOptions": {
+    "rootDir": "src"
+  },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "src/**/*.integration.test.ts"]
 }

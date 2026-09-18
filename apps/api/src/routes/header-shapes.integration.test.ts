@@ -1,11 +1,11 @@
 import { connect as connectHttp2, createServer as createHttp2Server } from "node:http2";
 import type { AddressInfo } from "node:net";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -61,14 +61,14 @@ async function http2RawHeaders(): Promise<{ request: string[]; response: string[
  * and the row.
  */
 describe("header credentials in array and header-block shapes", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let app: FastifyInstance;
   let apiKey: string;
   let projectId: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

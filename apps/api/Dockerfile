@@ -56,7 +56,12 @@ RUN find . -name node_modules -type d -prune -exec rm -rf {} + \
 # drive the real recorder and send what it produced to the dry run, and the
 # `...` filter above then built it into the image. A recorder meant for other
 # people's applications has no business inside a server image.
-RUN rm -rf apps/demo apps/web packages/protocol/conformance packages/sdk-node \
+#
+# `tests` is the repository-wide test folder: its tests and the helpers the
+# packages' tests import (tests/support). Removed here rather than kept out by
+# .dockerignore, which the web image's build shares and whose type check reads
+# test files that import those helpers.
+RUN rm -rf apps/demo apps/web packages/protocol/conformance packages/sdk-node tests \
  && find . -path ./node_modules -prune -o -type d -name src -print0 \
       | xargs -0 -r rm -rf \
  && find . -path ./node_modules -prune -o -type f \

@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Diagnostic } from "./diagnostics.js";
+import { compare, describeComparison } from "../../../tests/support/timing.js";
 import { createRecorder, type Journey } from "./recorder.js";
 
 // Port 1 refuses connections: the contract assertions below all hold with a dead
@@ -256,31 +257,15 @@ describe("recorded events", () => {
     // Timed against a message of the same shape with only 4 KiB after the
     // credential, rather than against a fixed limit. Masking all of 1 MiB took
     // about 11 ms on the machine this was written on, so the 50 ms limit this
-    // test once had passed an SDK that masked the whole message, and a single
-    // wall-clock sample can fail whenever the machine is busy. The fastest of
-    // several calls is the least noisy estimate of the work. Bounded, both
-    // calls mask the same window and take about 0.2 ms; masking the whole
-    // message made the large one about fifty times slower.
+    // test once had passed an SDK that masked the whole message. Bounded, both
+    // calls mask the same window and cost about the same; masking the whole
+    // message made the large one about fifty times dearer. The two are timed
+    // alternately in the thread's processor time (tests/support/timing.ts),
+    // so a busy machine slows both or neither.
     const short = `${head}${password}@db.internal:5432/orders ${"y".repeat(4 * 1024)}`;
-    const RUNS = 7;
     const RATIO = 5;
-    const NOISE_FLOOR_MS = 0.5;
-    const fastest = (journey: Journey, text: string): number => {
-      let best = Number.POSITIVE_INFINITY;
-      for (let run = 0; run < RUNS; run += 1) {
-        const error = new Error(text);
-        const started = performance.now();
-        journey.fail("timed", error);
-        best = Math.min(best, performance.now() - started);
-      }
-      return best;
-    };
-    let small = 0;
-    let large = 0;
     const events = await recordAnd((journey) => {
       journey.fail("load", new Error(message));
-      small = fastest(journey, short);
-      large = fastest(journey, message);
     });
 
     const stored = (events.find((e) => e["name"] === "load")?.["error"] as { message: string })
@@ -289,10 +274,33 @@ describe("recorded events", () => {
     expect(stored.endsWith("[TRUNCATED]")).toBe(true);
     expect(stored).not.toContain("hunter");
     expect(stored.startsWith("x".repeat(4063) + " postgres://")).toBe(true);
-    expect(
-      large,
-      `${small.toFixed(2)} ms for 4 KiB, ${large.toFixed(2)} ms for 1 MiB`
-    ).toBeLessThan(Math.max(small, NOISE_FLOOR_MS) * RATIO);
+
+    const timed = createRecorder({
+      ...base,
+      logDiagnostics: false,
+      flushIntervalMs: 3_600_000,
+      // Every timed call is captured and kept, never dropped for a full queue.
+      maxBufferedEvents: 1_000_000
+    });
+    try {
+      const journey = timed.startJourney({ entity: { type: "customer", id: "1" } });
+      const failing = (text: string): (() => void) => {
+        const error = new Error(text);
+        return () => {
+          journey.fail("timed", error);
+        };
+      };
+      const measured = compare(
+        { run: failing(message), units: 1 },
+        { run: failing(short), units: 1 },
+        RATIO
+      );
+      expect(measured.ratio, `1 MiB against 4 KiB: ${describeComparison(measured)}`).toBeLessThan(
+        RATIO
+      );
+    } finally {
+      await timed.shutdown({ timeoutMs: 50 });
+    }
   });
 
   it("bounds a string stack to the protocol's limit", async () => {
@@ -346,17 +354,27 @@ describe("recorded events", () => {
     // Cross-service ordering is by timestamp. Stamping at completion inverts
     // causality whenever the work a step triggers finishes faster than the step
     // itself: a publish that takes 50ms sorts after the consume it caused.
+    //
+    // Held by the clock readings around the callback, not by a margin: a
+    // stamp taken at completion is at least 80 ms after the callback began,
+    // and a fixed 50 ms margin from before the recorder existed failed
+    // whenever a busy machine took that long to reach the callback.
+    let callbackBegan = Number.NaN;
+    let callbackEnded = Number.NaN;
     const startedAt = Date.now();
     const events = await recordAnd((journey) =>
       journey.publish("p", {}, async () => {
+        callbackBegan = Date.now();
         await new Promise((resolve) => setTimeout(resolve, 80));
+        callbackEnded = Date.now();
       })
     );
 
     const published = events.find((e) => e["operation"] === "published");
     const stamped = new Date(String(published?.["timestamp"])).getTime();
     expect(stamped).toBeGreaterThanOrEqual(startedAt);
-    expect(stamped).toBeLessThan(startedAt + 50);
+    expect(stamped).toBeLessThanOrEqual(callbackBegan);
+    expect(callbackEnded - callbackBegan).toBeGreaterThanOrEqual(75);
   });
 });
 
@@ -671,16 +689,40 @@ describe("payloads the application cannot serialize", () => {
 });
 
 describe("burst behaviour", () => {
-  /** Counts concurrent requests, so fan-out is measured rather than assumed. */
+  /** How long the server keeps a full set of requests before answering them. */
+  const GRACE_MS = 100;
+  /** The longest the server keeps the first requests, so a short set is still answered. */
+  const HOLD_MS = 1_000;
+
+  /**
+   * Counts concurrent requests, so fan-out is measured rather than assumed.
+   *
+   * The burst's first sends all start in one turn of the event loop. The
+   * server answers none of them until `cap` requests are in, and then waits
+   * `GRACE_MS` more, so a send beyond the cap arrives while the others are
+   * still open and raises the peak; after that it answers each request 15 ms
+   * after its body arrives. It used to do that from the start, and on a busy
+   * machine the first request was answered before the fourth one connected,
+   * so a burst the SDK sent four at a time read as three.
+   */
   async function burst(
     count: number,
     extra: { maxConcurrentSends?: number } = {},
     flushFirst = false
   ): Promise<{ peak: number; requests: number; received: number }> {
+    const cap = extra.maxConcurrentSends ?? 4;
     let inFlight = 0;
     let peak = 0;
     let requests = 0;
     let received = 0;
+    let held: (() => void)[] = [];
+    let gated = true;
+    let releasing = false;
+    const releaseHeld = (): void => {
+      gated = false;
+      for (const answer of held) answer();
+      held = [];
+    };
 
     const server = createServer((request, response) => {
       inFlight += 1;
@@ -693,8 +735,10 @@ describe("burst behaviour", () => {
       request.on("end", () => {
         const parsed = JSON.parse(body) as { events: unknown[] };
         received += parsed.events.length;
-        // A real send takes time; resolving instantly would hide the fan-out.
-        setTimeout(() => {
+        let answered = false;
+        const answer = (): void => {
+          if (answered) return;
+          answered = true;
           inFlight -= 1;
           response.writeHead(202, { "content-type": "application/json" });
           response.end(
@@ -702,7 +746,17 @@ describe("burst behaviour", () => {
               data: { results: parsed.events.map(() => ({ status: "accepted" })) }
             })
           );
-        }, 15);
+        };
+        if (!gated) {
+          setTimeout(answer, 15);
+          return;
+        }
+        held.push(answer);
+        if (held.length === 1) setTimeout(releaseHeld, HOLD_MS);
+        if (held.length >= cap && !releasing) {
+          releasing = true;
+          setTimeout(releaseHeld, GRACE_MS);
+        }
       });
     });
     await new Promise<void>((resolve) => {

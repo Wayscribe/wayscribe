@@ -1,4 +1,4 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import {
   createKeyring,
@@ -9,7 +9,7 @@ import {
 } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { checkKeysAtBoot } from "./key-warnings.js";
 
@@ -30,14 +30,16 @@ interface LogLine {
 const WARN = 40;
 
 describe("key warnings", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let projectId: string;
   let environmentId: string;
   const apps: FastifyInstance[] = [];
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    // A server of its own: a test creates a database by name, which would
+    // outlive this file on the suite's shared server.
+    container = await startPostgres({ dedicated: true });
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     projectId = await insertReturningId(db, "projects", { name: "P", slug: "p" });

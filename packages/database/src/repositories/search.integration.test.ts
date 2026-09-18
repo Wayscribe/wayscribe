@@ -1,7 +1,7 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "../testing/postgres.js";
 import { createKeyring, searchTokens } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { insertReturningId } from "../insert.js";
 import { createKnexConfig } from "../knex-config.js";
 import { InvalidCursorError, encodeCursor } from "./cursors.js";
@@ -15,13 +15,13 @@ const keyring = createKeyring(KEY_A);
 const token = (value: string): string => searchTokens(keyring, value)[0] ?? "";
 
 describe("searchJourneys", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let scope: ReadScope;
   let otherScope: ReadScope;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

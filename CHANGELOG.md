@@ -197,7 +197,10 @@ What you have to do when upgrading a checkout or a deployment:
   processor time per call without pacing. The SDK README's "What it costs" has
   the numbers and the machine they came from. `src/capture-walks.test.ts`
   counts how often capture checks, redacts and stores a payload, and
-  `src/overhead.test.ts` trips on a gross slowdown of a wrapped call.
+  `src/overhead.test.ts` counts the entries capture lists and the characters it
+  serialises for each property and byte of a payload, holds that work
+  linear in the payload's size, and holds a wrapped call to 11 times a plain
+  copy of its payloads in processor time.
 
 #### The server and the contract
 

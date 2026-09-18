@@ -35,6 +35,9 @@ export default defineConfig({
       "@wayscribe/node/conformance-harness": fileURLToPath(
         new URL("./packages/sdk-node/src/conformance-harness.ts", import.meta.url)
       ),
+      "@wayscribe/database/testing": fileURLToPath(
+        new URL("./packages/database/src/testing/postgres.ts", import.meta.url)
+      ),
       "@wayscribe/config": packageSource("config"),
       "@wayscribe/database": packageSource("database"),
       "@wayscribe/node": packageSource("sdk-node")
@@ -46,7 +49,10 @@ export default defineConfig({
     environment: "node",
     testTimeout: 120_000,
     hookTimeout: 120_000,
+    // One file at a time: they share one PostgreSQL server, each in a database
+    // of its own (packages/database/src/testing/postgres.ts).
     fileParallelism: false,
+    globalSetup: ["packages/database/src/testing/postgres-global-setup.ts"],
     provide: {
       postgresVersion,
       postgresImage: `postgres:${postgresVersion}-alpine`

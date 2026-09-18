@@ -1,9 +1,9 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId, issueKey } from "@wayscribe/database";
 import { createKeyring } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -30,7 +30,7 @@ const ALIAS = "shared@example.test";
  * it that sends a key this route does not read will now see a refusal.
  */
 describe("narrowing a search", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let app: FastifyInstance;
   let projectId: string;
@@ -38,7 +38,7 @@ describe("narrowing a search", () => {
   let prodKey: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

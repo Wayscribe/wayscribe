@@ -1,11 +1,11 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { buildJsonSchemas } from "@wayscribe/protocol";
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -31,14 +31,14 @@ function event(overrides: Record<string, unknown> = {}): unknown {
 }
 
 describe("event ingestion", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let app: FastifyInstance;
   let apiKey: string;
   let projectId: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 

@@ -1,8 +1,8 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
@@ -17,12 +17,12 @@ const ROW_VALUE = "row-value-" + "that-must-not-be-logged";
  * migration 018's check logged the value it was masking.
  */
 describe("a storage error in the log", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let apiKey: string;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
     const projectId = await insertReturningId(db, "projects", { name: "P", slug: "p" });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import {
   createKeyring,
@@ -10,7 +10,7 @@ import {
 import { parseEnvelope } from "@wayscribe/protocol";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 
 const KEY_A = "0123456789abcdef0123456789abcdef";
@@ -51,14 +51,14 @@ function body(id: string, overrides: Record<string, unknown> = {}): Record<strin
  * over the same database, so a resend straddling a rotation is the real path.
  */
 describe("keyed content hash", () => {
-  let container: StartedPostgreSqlContainer;
+  let container: TestDatabase;
   let db: Knex;
   let projectId: string;
   const apiKeys = new Map<Keyring, string>();
   let app: FastifyInstance | undefined;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer(inject("postgresImage")).start();
+    container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
 
