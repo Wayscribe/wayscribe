@@ -6,8 +6,8 @@
 #
 # Under GitLab's docker-in-docker service, that loopback is the *dind
 # container's* loopback, and the job running the test lives in a different
-# container. The two ports the test needs are republished on all interfaces so
-# it can reach them at the `docker` host, and nothing else is.
+# container. The API, demo source and web health check ports are republished
+# on all interfaces so the job can reach them at the `docker` host.
 
 name: wayscribe
 
@@ -18,6 +18,10 @@ services:
   api:
     ports: !override
       - "8080:8080"
+
+  web:
+    ports: !override
+      - "3000:3000"
 
   demo-source:
     ports: !override

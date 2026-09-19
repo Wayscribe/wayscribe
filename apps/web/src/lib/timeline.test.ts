@@ -64,6 +64,13 @@ describe("applyFilters", () => {
       applyFilters(EVENTS, { service: "sync-worker", failuresOnly: true }).map((e) => e.id)
     ).toEqual(["evt_3"]);
   });
+
+  it("includes an explicit failed operation even without an error object", () => {
+    const explicit = event("evt_failed", { operation: "failed", hasError: false });
+    expect(applyFilters([evt1, explicit], { service: null, failuresOnly: true })).toEqual([
+      explicit
+    ]);
+  });
 });
 
 describe("neighbour", () => {

@@ -21,6 +21,12 @@ export interface JourneyListFilters {
   service?: string | undefined;
   /** An exact entity type. */
   entityType?: string | undefined;
+  /** First-to-last recorded event span must be strictly greater than this many milliseconds. */
+  minDurationMs?: number | undefined;
+  /** Some stored event duration must be strictly greater than this many milliseconds. */
+  minStepDurationMs?: number | undefined;
+  /** Only active journeys whose last event is strictly before this instant. */
+  inactiveBefore?: Date | undefined;
   /**
    * Text the journey's label or one of its displayable alias values contains,
    * ignoring case. Never compared with masked aliases or entity ids, which are
@@ -80,6 +86,30 @@ export async function listJourneys(
       }
       if (filters.status !== undefined) {
         void builder.andWhere("j.status", filters.status);
+      }
+      if (filters.minDurationMs !== undefined) {
+        // Recorded event-start span, not a sum of step durations. Interval
+        // comparison keeps the threshold exact at the millisecond boundary.
+        void builder.whereRaw("j.last_event_at - j.started_at > ? * interval '1 millisecond'", [
+          filters.minDurationMs
+        ]);
+      }
+      if (filters.minStepDurationMs !== undefined) {
+        const threshold = filters.minStepDurationMs;
+        // Project and journey are both correlated: journey ids are caller
+        // supplied and may be reused by another project.
+        void builder.whereExists((exists) => {
+          void exists
+            .select(db.raw("1"))
+            .from({ e: "journey_events" })
+            .whereRaw("e.project_id = j.project_id and e.journey_id = j.id")
+            .andWhere("e.duration_ms", ">", threshold);
+        });
+      }
+      if (filters.inactiveBefore !== undefined) {
+        void builder
+          .andWhere("j.status", "active")
+          .andWhere("j.last_event_at", "<", filters.inactiveBefore);
       }
       if (filters.service !== undefined) {
         const service = filters.service;

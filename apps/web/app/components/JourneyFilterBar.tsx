@@ -152,9 +152,59 @@ export function JourneyFilterBar({
           placeholder="any"
         />
       </div>
+      <div className="field">
+        <label htmlFor="journeys-min-duration" className="label">
+          Recorded span over (ms)
+        </label>
+        <input
+          id="journeys-min-duration"
+          name="minDurationMs"
+          type="number"
+          min={0}
+          max={2147483647}
+          step={1}
+          defaultValue={filters.minDurationMs}
+          placeholder="any"
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="journeys-min-step-duration" className="label">
+          Any step over (ms)
+        </label>
+        <input
+          id="journeys-min-step-duration"
+          name="minStepDurationMs"
+          type="number"
+          min={0}
+          max={2147483647}
+          step={1}
+          defaultValue={filters.minStepDurationMs}
+          placeholder="any"
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="journeys-inactive-for" className="label">
+          Active and inactive for (ms)
+        </label>
+        <input
+          id="journeys-inactive-for"
+          name="inactiveForMs"
+          type="number"
+          min={0}
+          max={2147483647}
+          step={1}
+          defaultValue={filters.inactiveForMs}
+          placeholder="any"
+          aria-describedby="journeys-inactive-hint"
+        />
+      </div>
       <PendingSubmit>Show</PendingSubmit>
       <p id="journeys-range-hint" className="muted hint">
         The range applies when Time is set to custom range; leave To empty for up to now.
+      </p>
+      <p id="journeys-inactive-hint" className="muted hint">
+        Inactivity is a debugging clue, not proof a job is stuck. The activity window still applies;
+        widen Time if older active journeys are outside it.
       </p>
     </PendingForm>
   );

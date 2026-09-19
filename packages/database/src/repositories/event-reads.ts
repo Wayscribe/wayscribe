@@ -33,6 +33,10 @@ export interface EventListItem {
    * `version` and `image`, of at most 128, 128 and 512 characters.
    */
   deploymentMetadata: unknown;
+  /** Known custom-metadata keys only; interpreted at the API boundary. */
+  timingMetadata: unknown;
+  /** The already-redacted runtime.hostname value; interpreted at the API boundary. */
+  recordedHostname: unknown;
 }
 
 export interface EventPage {
@@ -123,7 +127,8 @@ export async function listJourneyEvents(
       db.raw('input_payload is not null as "hasInput"'),
       db.raw('output_payload is not null as "hasOutput"'),
       db.raw('error is not null as "hasError"'),
-      "deployment_metadata as deploymentMetadata"
+      "deployment_metadata as deploymentMetadata",
+      ...timingProjection(db)
     )
     .orderBy([{ column: "event_timestamp" }, { column: "received_at" }, { column: "id" }])
     .limit(limit + 1);
@@ -178,7 +183,8 @@ export async function findEventDetail(
       db.raw('input_payload is not null as "hasInput"'),
       db.raw('output_payload is not null as "hasOutput"'),
       db.raw('error is not null as "hasError"'),
-      "stated_alias_ids as statedAliasIds"
+      "stated_alias_ids as statedAliasIds",
+      ...timingProjection(db)
     );
   if (row === undefined) return undefined;
 
@@ -186,6 +192,30 @@ export async function findEventDetail(
     statedAliasIds: string[] | null;
   };
   return { ...detail, aliases: await statedAliases(db, scope, detail, statedAliasIds) };
+}
+
+/**
+ * The bounded row projection: only public timing vocabulary keys, never the
+ * event's arbitrary metadata object or either payload.
+ */
+function timingProjection(db: Knex): Knex.Raw[] {
+  return [
+    db.raw(
+      `jsonb_build_object(
+         'queue', custom_metadata -> 'queue',
+         'queueWaitMs', custom_metadata -> 'queueWaitMs',
+         'queueWaitBasis', custom_metadata -> 'queueWaitBasis',
+         'deliveryCount', custom_metadata -> 'deliveryCount',
+         'targetHost', custom_metadata -> 'targetHost',
+         'httpStatusCode', custom_metadata -> 'httpStatusCode',
+         'retryAfterMs', custom_metadata -> 'retryAfterMs',
+         'attempt', custom_metadata -> 'attempt',
+         'retryGroup', custom_metadata -> 'retryGroup'
+       ) as ??`,
+      ["timingMetadata"]
+    ),
+    db.raw(`runtime_metadata -> 'hostname' as ??`, ["recordedHostname"])
+  ];
 }
 
 /**

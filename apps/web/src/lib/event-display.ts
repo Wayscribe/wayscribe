@@ -1,5 +1,6 @@
-import type { DiffChange, EventDetailData } from "./api";
-import { metadataEntries, runtimeFormat } from "./metadata";
+import type { DiffChange, EventDetailData, EventListItem, RowBuild } from "./api";
+import { bounded, metadataEntries, runtimeFormat } from "./metadata";
+import { readRecordedHost, readTimingContext } from "./timing-context";
 
 /**
  * An event as the page shows it, made on the server from the API's answer.
@@ -30,7 +31,15 @@ export interface DisplayedChange {
 /** The event as `GET /v1/events/:id` answers it. */
 export type ApiEventDetail = Omit<
   EventDetailData,
-  "inputText" | "outputText" | "errorText" | "payloadsCaptured" | "payloadDiff" | "metadata"
+  | "inputText"
+  | "outputText"
+  | "errorText"
+  | "payloadsCaptured"
+  | "payloadDiff"
+  | "metadata"
+  | "statedAliases"
+  | "timingContext"
+  | "recordedHost"
 > & {
   inputPayload: unknown;
   outputPayload: unknown;
@@ -39,6 +48,10 @@ export type ApiEventDetail = Omit<
   customMetadata?: unknown;
   deploymentMetadata?: unknown;
   runtimeMetadata?: unknown;
+  /** `[]`, null for an event stored before migration 020, absent from an older API. */
+  aliases?: unknown;
+  timingContext?: unknown;
+  recordedHost?: unknown;
 };
 
 /** Markers the SDK stores in place of a payload it could not capture. */
@@ -53,6 +66,9 @@ export function eventForDisplay(raw: ApiEventDetail): EventDetailData {
     customMetadata,
     deploymentMetadata,
     runtimeMetadata,
+    aliases,
+    timingContext,
+    recordedHost,
     ...event
   } = raw;
   return {
@@ -72,8 +88,48 @@ export function eventForDisplay(raw: ApiEventDetail): EventDetailData {
       deployment: metadataEntries(deploymentMetadata),
       // `sdk` reads as `<name> <version> at <commit>` (ADR-063).
       runtime: metadataEntries(runtimeMetadata, runtimeFormat)
-    }
+    },
+    statedAliases: statedAliases(aliases),
+    timingContext: readTimingContext(timingContext),
+    recordedHost: readRecordedHost(recordedHost)
   };
+}
+
+/** One alias an event stated, as the page shows it. */
+export interface StatedAlias {
+  type: string;
+  /** The value as the API gave it, masked or not, or `(no value)` when it gave none. */
+  value: string;
+  /** True unless the API said the alias is displayable (ADR-053). */
+  masked: boolean;
+}
+
+/**
+ * The aliases an event stated, from `GET /v1/events/:id` (F-042), as text.
+ *
+ * The API masks them the way the journey read does, so nothing is masked
+ * here; a value it did not mark displayable is only marked as masked, as
+ * `AliasList` marks the journey's. Null when the API did not record them (an
+ * event stored before migration 020 reads `null`) or did not send the field.
+ * An entry without a string `type` is left out rather than guessed at.
+ */
+function statedAliases(value: unknown): StatedAlias[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.flatMap((entry: unknown): StatedAlias[] => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const own = (field: string): unknown =>
+      Object.hasOwn(entry, field) ? (entry as Record<string, unknown>)[field] : undefined;
+    const type = own("type");
+    if (typeof type !== "string") return [];
+    const displayValue = own("displayValue");
+    return [
+      {
+        type: bounded(type),
+        value: typeof displayValue === "string" ? bounded(displayValue) : "(no value)",
+        masked: own("displayable") !== true
+      }
+    ];
+  });
 }
 
 /** One diff change as text. Also used for a replay's comparison. */
@@ -93,4 +149,64 @@ function pretty(value: unknown): string {
 
 function compact(value: unknown): string {
   return value === undefined ? "—" : JSON.stringify(value);
+}
+
+/** A timeline row as `GET /v1/journeys/:id/events` answers it. */
+export type ApiEventRow = Omit<EventListItem, "build" | "timingContext" | "recordedHost"> & {
+  deploymentMetadata?: unknown;
+  timingContext?: unknown;
+  recordedHost?: unknown;
+};
+
+/**
+ * A timeline row as the page shows it (F-043): the row, with the build that
+ * recorded it as text in place of the raw `deploymentMetadata`. Made on the
+ * server by `listEvents`, which the journey page and the timeline's polls
+ * both read rows through, for the reason `eventForDisplay` gives.
+ */
+export function rowForDisplay(raw: ApiEventRow): EventListItem {
+  const { deploymentMetadata, timingContext, recordedHost, ...row } = raw;
+  return {
+    ...row,
+    build: buildOf(deploymentMetadata),
+    timingContext: readTimingContext(timingContext),
+    recordedHost: readRecordedHost(recordedHost)
+  };
+}
+
+/** Characters of a commit a row shows; the whole of it is in the title. */
+const SHORT_COMMIT = 12;
+
+/**
+ * The version and commit a deployment names, or null when it names neither.
+ * The image alone is left to the event detail's Deployment group, where it
+ * is shown in full: on a one-line row it would only ever be cut. Read with
+ * `Object.hasOwn`, as `runtimeFormat` reads the sdk entry.
+ */
+function buildOf(deployment: unknown): RowBuild | null {
+  if (typeof deployment !== "object" || deployment === null || Array.isArray(deployment)) {
+    return null;
+  }
+  const text = (field: string): string | null => {
+    const value = Object.hasOwn(deployment, field)
+      ? (deployment as Record<string, unknown>)[field]
+      : undefined;
+    return typeof value === "string" && value.trim() !== "" ? bounded(value) : null;
+  };
+  const version = text("version");
+  const commit = text("gitCommit");
+  if (version === null && commit === null) return null;
+
+  const shortCommit = commit === null ? null : Array.from(commit).slice(0, SHORT_COMMIT).join("");
+  const label =
+    version === null
+      ? `commit ${shortCommit ?? ""}`
+      : shortCommit === null
+        ? version
+        : `${version} · ${shortCommit}`;
+  const named = [
+    ...(version === null ? [] : [`version ${version}`]),
+    ...(commit === null ? [] : [`commit ${commit}`])
+  ];
+  return { label, title: `Recorded by ${named.join(", ")}` };
 }

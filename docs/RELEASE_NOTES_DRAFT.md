@@ -1,7 +1,8 @@
 # Wayscribe 0.x preview: release notes
 
-**Draft, 2026-09-16, renamed 2026-09-17.** Nothing described here is published
-yet. The version number and the install commands will be filled in when the
+**Draft, updated 2026-09-18.** No usable release is published yet. npm's
+deprecated `0.0.1-placeholder.0` reserves the name and contains no SDK.
+The version number and the install commands will be filled in when the
 release is cut. The full list of changes is in [CHANGELOG.md](../CHANGELOG.md).
 
 ## What it is
@@ -41,8 +42,9 @@ and keys issued before the rename, which start `fr_`, keep working. The
   `shutdown()` is bounded by a timeout. `counters()` reports what happened, and
   `sent + rejected + dropped` equals `recorded` after `shutdown()`.
 - **Each event is fitted to the server's limits** before it is sent, by the same
-  check ingestion runs, so an oversized payload is cut or replaced and the event
-  still arrives.
+  check ingestion runs, so an oversized payload is cut or replaced before
+  sending. Capture limits, transport failures and server refusals can still
+  prevent storage; the counters distinguish those outcomes.
 - **Journeys can carry more than an id:** aliases (other identifiers the record
   answers to), a public label, a stable id derived from the entity under a
   secret you hold (`journeyIdFor`), and one operation recorded on many journeys
@@ -53,9 +55,15 @@ and keys issued before the rename, which start `fr_`, keep working. The
 - **Diagnostics go to `onDiagnostic` and counters; printing is opt-in.**
   `logDiagnostics: true` prints at most one line per kind a minute, including
   `delivered_first` when the server first stores a batch. A few problems print
-  once regardless: a missing or unusable required setting, a renamed option, a
-  missing journey-id secret, and a secret-looking field name no redaction rule
-  covers. Each diagnostic has a stable `code` to match on.
+  regardless: a missing or unusable required setting, an unusable optional
+  setting, a renamed option, a missing journey-id secret, a secret-looking
+  field name no redaction rule covers, and personal data in a public label,
+  displayable alias or error message. Personal-data warnings print once per
+  process, field and shape. Each diagnostic has a stable `code` to match on.
+- **Events identify their recorder and deployment.** The SDK stamps its own
+  name and version, and accepts a deployment commit, version and image.
+  Drop counters name the cause; zero transport errors and zero `no_verdict`
+  drops alone do not establish collector health.
 - **What it costs is measured.** On 2026-09-17, on an Apple M3 Pro, wrapping a
   call with a 1 KiB payload added 89 µs at p50 and 1,341 µs at p99 for
   `transform`, and 67 µs and 1,507 µs for `persist`, with the processor idle
@@ -107,7 +115,21 @@ and keys issued before the rename, which start `fr_`, keep working. The
   p95 with about 90,000 journeys in the window (OPERATIONS section 10, "Listing journeys").
 - **The timeline** shows every event of a journey across services. It can be
   filtered to one service or to failures, navigated with the arrow keys, and set
-  to follow a journey that is still recording.
+  to follow a journey that is still recording. Rows name recorded deployment
+  versions and commits. Event detail shows the aliases that event stated,
+  preserving masking and distinguishing an empty list from older events whose
+  aliases were not recorded. Failed journeys identify the failed step.
+- **Per-record timing** names the measured span between operation starts,
+  queue wait and processing time, application attempt and retry group, broker
+  delivery count, HTTP target and status, and requested retry delay. Unknown
+  measurements are absent rather than shown as zero. Initial-enqueue wait is
+  reported only for the first broker delivery; later deliveries require an
+  explicit ready instant. Cross-host elapsed values are labelled with the
+  clock qualification.
+- **Timing filters** find journeys by total span, slowest step, active
+  inactivity and retry state. Filtered timelines keep the original loaded
+  neighbors so a hidden row cannot turn two nonadjacent steps into a measured
+  gap.
 - **The diff** shows, field by field, what a step received against what it
   produced.
 - **Replay** sends a step's recorded input to a configured development
@@ -134,9 +156,14 @@ and keys issued before the rename, which start `fr_`, keep working. The
   section 7).
 - **Upgrades** are gated on a test that records data with an earlier build and
   reads it back with the new one (OPERATIONS section 4).
-- **Signed images with an SBOM.** Released `api` and `web` images are signed
-  with Sigstore keyless signing and carry a CycloneDX SBOM per platform; the SDK
-  is published with npm provenance (OPERATIONS section 11).
+- **Release signing and SBOM jobs are implemented.** The release path is
+  configured to sign `api` and `web` images with Sigstore keyless signing,
+  attach a CycloneDX SBOM per platform, and publish the SDK with npm provenance
+  (OPERATIONS section 11). No real release has verified that complete path yet.
+- **The source quick start is covered by CI configuration.** The `demo` and
+  `release-verify` jobs copy `.env.example`, build and boot the stack, wait for
+  API, demo source and web health, and run the demo acceptance suite. A timed
+  installation on a new user's machine remains a separate check.
 
 ### Security
 
@@ -196,12 +223,6 @@ and keys issued before the rename, which start `fr_`, keep working. The
 
 From the [roadmap](ROADMAP.md), briefly:
 
-- **Per-record timing and context:** gaps between steps with queue waits called
-  out, journey duration and stuck journeys, retry detail, a small standard
-  metadata vocabulary, the deployment on each event, and duration filters on the
-  Journeys page.
 - **OpenTelemetry log ingest** (`POST /v1/logs`, OTLP over HTTP).
-- **The quick start run literally in CI**, from a clean clone and a copied
-  `.env`.
 - **The propagation specification and its test vectors**, now that the rename
   has settled the header and attribute names.

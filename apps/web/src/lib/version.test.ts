@@ -162,7 +162,8 @@ describe("describeVersions", () => {
     ).toEqual({
       web: "Web v0.1.0, commit 27f4d64e0b5a",
       api: "API v0.1.0, commit 27f4d64e0b5a",
-      mismatch: false
+      mismatch: false,
+      unverified: null
     });
   });
 
@@ -171,7 +172,8 @@ describe("describeVersions", () => {
     expect(describeVersions(source, source)).toEqual({
       web: "Web 0.0.0, not a release build",
       api: "API 0.0.0, not a release build",
-      mismatch: false
+      mismatch: false,
+      unverified: null
     });
   });
 
@@ -179,7 +181,8 @@ describe("describeVersions", () => {
     expect(describeVersions(build("v0.1.0"), null)).toEqual({
       web: "Web v0.1.0",
       api: "API version unknown",
-      mismatch: false
+      mismatch: false,
+      unverified: null
     });
   });
 
@@ -188,5 +191,28 @@ describe("describeVersions", () => {
     expect(describeVersions(build("v0.2.0"), build("v0.1.0")).mismatch).toBe(true);
     expect(describeVersions(build("v0.1.0", "aaaa"), build("v0.1.0", "bbbb")).mismatch).toBe(true);
     expect(describeVersions(build("v0.1.0", "aaaa"), build("v0.1.0")).mismatch).toBe(false);
+  });
+
+  // F-051: a web image built without its build arguments reads 0.0.0 from its
+  // package, which differs from any release, so it was called a different
+  // build from an API built from the same commit.
+  it("does not call a web app with no build identity a different build, and says it cannot tell", () => {
+    const hand = { version: "0.0.0", source: "package" as const };
+    const versions = describeVersions(hand, build("local-3cd2c20", "3cd2c2034c6d3607"));
+    expect(versions.mismatch).toBe(false);
+    expect(versions.unverified).toBe("web");
+  });
+
+  it("does not call an API with no build identity a different build, and says it cannot tell", () => {
+    const hand = { version: "0.0.0", source: "package" as const };
+    const versions = describeVersions(build("v0.1.0", "27f4d64e0b5a"), hand);
+    expect(versions.mismatch).toBe(false);
+    expect(versions.unverified).toBe("api");
+  });
+
+  it("has nothing to say when neither side carries a build identity", () => {
+    const web = { version: "0.0.0", source: "package" as const };
+    const api = { version: "0.1.0", source: "package" as const };
+    expect(describeVersions(web, api)).toMatchObject({ mismatch: false, unverified: null });
   });
 });

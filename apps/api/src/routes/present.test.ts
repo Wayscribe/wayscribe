@@ -1,6 +1,7 @@
 import { createKeyring, encryptValue } from "@wayscribe/payload-security";
+import type { EventListItem } from "@wayscribe/database";
 import { describe, expect, it } from "vitest";
-import { presentAliases, presentEntityId } from "./present.js";
+import { presentAliases, presentEntityId, presentEventListItem } from "./present.js";
 
 const KEY_A = "0123456789abcdef0123456789abcdef";
 const KEY_B = "fedcba9876543210fedcba9876543210";
@@ -128,5 +129,45 @@ describe("presentAliases", () => {
       { aliasType: "t", encryptedDisplayValue: null, displayable: true }
     ]);
     expect(result[0]?.displayValue).toBeNull();
+  });
+});
+
+describe("presentEventListItem", () => {
+  const row: EventListItem = {
+    id: "evt_1",
+    operation: "received",
+    name: "receive-order",
+    service: "orders",
+    eventTimestamp: new Date("2026-09-18T12:00:00.000Z"),
+    receivedAt: new Date("2026-09-18T12:00:00.100Z"),
+    durationMs: null,
+    hasInput: false,
+    hasOutput: false,
+    hasError: false,
+    deploymentMetadata: null,
+    timingMetadata: { retryAfterMs: 0, unrelated: "not public" },
+    recordedHostname: null
+  };
+
+  it("keeps a measured zero and never emits the arbitrary metadata projection", () => {
+    const presented = presentEventListItem(row);
+    expect(presented).toMatchObject({ timingContext: { retryAfterMs: 0 }, recordedHost: null });
+    expect(presented.timingMetadata).toBeUndefined();
+    expect(presented.recordedHostname).toBeUndefined();
+    expect(presented.unrelated).toBeUndefined();
+  });
+
+  it("bounds recordedHost by Unicode code points and rejects stored markers", () => {
+    const clef = "\u{1D11E}";
+    expect(presentEventListItem({ ...row, recordedHostname: clef.repeat(256) }).recordedHost).toBe(
+      clef.repeat(256)
+    );
+    for (const recordedHostname of [
+      clef.repeat(257),
+      "[REDACTED]",
+      "host-prefix[TRUNCATED: 12 characters removed]"
+    ]) {
+      expect(presentEventListItem({ ...row, recordedHostname }).recordedHost).toBeNull();
+    }
   });
 });

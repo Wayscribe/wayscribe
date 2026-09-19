@@ -392,7 +392,43 @@ text before storage (SECURITY.md section 4, ADR-046).
 
 ## 9. Metadata
 
-`metadata` is for additional structured context.
+`metadata` is for additional structured context. Its wire type stays arbitrary:
+an invalid value under a recognized name does not refuse the event, and unknown
+keys are accepted as before. Readers may project this optional timing vocabulary
+from the already-redacted stored metadata (ADR-064):
+
+| Key | Meaning and valid value |
+| --- | --- |
+| `queue` | Queue name, nonempty string up to 256 Unicode code points. |
+| `queueWaitMs` | Whole milliseconds, 0 through 2,147,483,647, from the stated readiness boundary to this attempt starting. |
+| `queueWaitBasis` | `initial-enqueue` or `retry-ready`. |
+| `deliveryCount` | Positive safe integer explicitly reported by the broker or caller. |
+| `targetHost` | Destination hostname with optional port, up to 256 code points; no URL userinfo, path or query. |
+| `httpStatusCode` | Integer 100 through 599. |
+| `retryAfterMs` | Whole milliseconds, 0 through 2,147,483,647, requested by the remote system before another call. |
+| `attempt` | Caller-supplied positive safe integer. Wrapper ownership and operation rules are unchanged. |
+| `retryGroup` | Nonempty caller-supplied retry identity up to 256 code points, grouped only within one journey, service and step name. It must contain no secrets. |
+
+`queueWaitMs` is presented only with consistent evidence: `initial-enqueue`
+requires attempt 1 and no explicit `deliveryCount` above 1, while `retry-ready`
+requires an attempt above 1. A second broker delivery can happen before any
+application attempt finishes, so explicit redelivery evidence suppresses an
+initial-enqueue wait. The original enqueue timestamp is not a retry-readiness
+boundary. Missing, invalid,
+negative, fractional, non-finite, out-of-range or redacted values are unknown
+and are omitted from the projection, never replaced with zero. A valid measured
+zero remains zero. Redaction and capture markers are not queue, host or retry
+identity: grouping records under `[REDACTED]`, for example, would join unrelated
+work.
+
+The protocol package exports `TimingContext` and `timingContext(metadata)`. The
+parser returns a new object holding only valid recognized fields, validates each
+stored JSON field independently, and never mutates the event. Raw metadata is
+still returned on event detail. Timeline rows project only these named keys;
+they do not copy arbitrary metadata or payloads. A timeline may expose
+`recordedHost` separately from an already-redacted `runtime.hostname`, bounded
+to 256 code points, to explain clock uncertainty. A redaction marker is not
+host evidence.
 
 Examples:
 
@@ -400,7 +436,10 @@ Examples:
 {
   "attempt": 2,
   "queue": "customer-updates",
-  "httpStatus": 422,
+  "queueWaitMs": 120,
+  "queueWaitBasis": "retry-ready",
+  "httpStatusCode": 429,
+  "retryAfterMs": 2000,
   "sourceSystem": "salesforce"
 }
 ```

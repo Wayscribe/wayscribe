@@ -15,13 +15,16 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. Counted on 2026-09-17: 2,416 unit
-tests, 747 integration tests against a real PostgreSQL, 7 acceptance tests
-against a running stack and 40 browser tests.
+the step against a development destination. Counted on 2026-09-18: 3,280 unit
+tests, 969 integration tests against a real PostgreSQL, 7 acceptance tests
+against a running stack and 64 browser tests. All passed locally in the
+[Round 3 verification](reviews/2026-09-18-round-3-and-release-readiness.md);
+that run does not establish a remote CI result or a published release.
 
-Nothing is published. There is no npm package and no image in any registry, so
-every install today is `git clone` and `docker compose up`. That is deliberate
-and not currently a priority; see *If this goes public*.
+No usable release is published. npm holds only the deprecated
+`@wayscribe/node@0.0.1-placeholder.0`, which reserves the name and contains no
+SDK. Until the first release, install from `git clone` and `docker compose up`;
+see *If this goes public* for the publishing work.
 
 ---
 
@@ -40,13 +43,13 @@ Presenting the work, and closing what the last review opened.
   [What running it found](WHAT_RUNNING_IT_FOUND.md).
 - ~~**A CLI**~~ **Built:** `packages/cli`: `search`, `journey`, `event --diff`,
   `projects`, over HTTP, with `--json` on everything (`pnpm cli`).
-- **`docker compose up` from a clean clone, verified in CI.** Partly built: the
-  `demo` job, and `release-verify` on a release tag, build and boot the demo stack
-  from the pipeline's checkout and run `pnpm test:demo`. Neither follows the
-  README literally, so neither copies `.env.example` to `.env`, which is how a
-  literal run on 2026-09-15 found a web container listening on the wrong port.
-  Every onboarding defect on the record was found by a person running the README
-  literally. That is a job, not a habit.
+- **`docker compose up` from a clean clone, verified in CI.** The `demo` job,
+  and `release-verify` on a release tag, copy `.env.example` to `.env`, build
+  and boot the demo stack from the pipeline's checkout, wait for the API,
+  demo source and web health endpoints, and run `pnpm test:demo`. This covers
+  the configuration step that found a web container listening on the wrong
+  port on 2026-09-15. Timing a first installation on a new user's machine
+  remains a separate release check.
 - **A contract somebody else can build against.** JSON Schema generated from the
   Zod schemas and checked for drift, `docs/INGESTION_CONTRACT.md` for the routes,
   limits, refusals and idempotency, `docs/SDK_SPEC.md` for what a recorder in any
@@ -78,50 +81,39 @@ Presenting the work, and closing what the last review opened.
   condition and sets the order: Python, then OpenTelemetry log ingest, then
   further languages by what pilot teams ask for.
 
-- **Per-record timing and context, before the first release.**
-  Wayscribe already stores when each step started and how long it took, so most
-  of this is presentation. All of it answers a question about one record;
-  aggregate latency and throughput across records stays with Prometheus,
-  Grafana or an OpenTelemetry backend. Each item is exercised by the Leadline
-  dogfood project (a local lead-sync system with queues, retries and rate
-  limits) before it counts as done.
-  - **Gaps on the timeline:** the idle time between consecutive steps, with
-    queue waits (a `published` step followed by a `consumed` one) called out,
-    and a note when the two steps ran on different hosts whose clocks may
-    differ.
-  - **Journey duration and stuck journeys:** total time from first to last
-    event on the journey page and the Journeys table, and a filter for active
-    journeys with no event for longer than a chosen threshold.
-  - **Retry detail:** for each step, the attempts, the delay between them, and
-    which attempt succeeded.
-  - **A small standard metadata vocabulary:** agreed names for queue name,
-    queue wait, delivery count, target host, HTTP status and rate-limit retry
-    time, shown as labelled fields rather than anonymous metadata, and set by
-    the SDK where it can (for example the queue wait when it extracts context
-    from a job). Needs a decision on names, and belongs in the contract.
-    Two things the names alone do not settle, both found by instrumenting a
-    real queue (F-019, F-027):
-    - **A value that could not be measured has to be marked, not defaulted.**
-      A missing or corrupt queue field read as `0` is indistinguishable on the
-      timeline from a job that truly waited no time, and reads with the same
-      confidence. The vocabulary needs a way to say "not measured" for every
-      field it defines, or a rule that an unmeasurable field is left off the
-      event entirely. Two independent computations over the same job, one
-      defaulting to `0` and one dropping the record, disagreed about exactly
-      this case, and only comparing them showed it.
-    - **A retried attempt's queue wait is not the same measurement.** BullMQ,
-      for one, has no "ready again" timestamp: `processedOn` is when the
-      current attempt began, so the gap before it includes that attempt's own
-      backoff rather than time spent waiting for a worker. Either the
-      vocabulary defines queue wait for a retried attempt explicitly, or it
-      says plainly that the two are not comparable and the presentation keeps
-      them apart.
-  - **The deployment on each event:** the existing `deployment` field shown on
-    the timeline, so a field that changed after a deploy is easy to spot. The
-    event detail already lists it, with the custom and runtime metadata, as
-    plain keys and values (F-044); this item puts it on the timeline's rows.
-  - **Duration filters** on the Journeys page: journeys that took longer than
-    a given time, and journeys with a step longer than a given time.
+- ~~**Per-record timing and context, before the first release.**~~ **Built:**
+  Wayscribe presents bounded evidence about one record; aggregate latency and
+  throughput stay with Prometheus, Grafana or an OpenTelemetry backend. The
+  implementation was exercised by the Leadline dogfood project with actual
+  intake and worker processes, dedicated Redis, retries, a controlled slow
+  target and the real Wayscribe API. Run `dogfood-a4d2cc02` passed all six
+  scenarios; the scoped Task 4 re-review accepted the delivery-aware manifest
+  comparison at Leadline `f65d3e0`. The full evidence and remaining release
+  limits are in the
+  [release-readiness review](reviews/2026-09-18-round-3-and-release-readiness.md).
+  - ~~**Gaps on the timeline**~~ **Built:** consecutive operation-start gaps,
+    explicit queue waits, overlap, and the cross-host clock qualification.
+    Filtering retains original loaded neighbors rather than inventing
+    adjacency.
+  - ~~**Journey duration and stuck journeys**~~ **Built:** the recorded span
+    appears on journey detail and the Journeys table; active inactivity uses a
+    frozen cutoff preserved through detail and back navigation.
+  - ~~**Retry detail**~~ **Built:** explicitly grouped attempts show outcomes,
+    observed delay and which attempt succeeded, with partial-history scope
+    stated.
+  - ~~**A small standard metadata vocabulary**~~ **Built:** ADR-064 and the
+    event/SDK contracts define queue name and wait basis, delivery count,
+    attempt and retry group, target host, HTTP status and requested retry
+    delay. Unknown evidence is omitted and a measured zero remains zero.
+    Initial-enqueue wait belongs only to broker delivery 1; a later delivery
+    needs its own explicit ready instant. Leadline's independent comparator
+    validates those rules without using the SDK as its oracle.
+  - **The deployment on each event. Built:** each timeline row shows its
+    recorded version and commit, when present (F-043), and the event detail
+    lists the full deployment with custom and runtime metadata (F-044).
+  - ~~**Duration filters**~~ **Built:** the Journeys page filters by strict
+    recorded-span and step-duration thresholds and active inactivity while
+    preserving scope, pagination and no-JavaScript navigation.
 
 ### Known open, and honest about it
 

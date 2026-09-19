@@ -121,6 +121,7 @@ describe("JourneyRow", () => {
     const row = renderRow(item);
     expect(cells(row)).toEqual([
       "2026-09-15 10:34",
+      "3m 36s",
       "failed",
       "job_posting",
       "Mirantis · Senior SWE, AI Infra",
@@ -131,7 +132,7 @@ describe("JourneyRow", () => {
 
   it("adds the environment after the status only when asked", () => {
     const row = renderRow(item, true);
-    expect(cells(row).slice(1, 4)).toEqual(["failed", "production", "job_posting"]);
+    expect(cells(row).slice(2, 5)).toEqual(["failed", "production", "job_posting"]);
   });
 
   it("gives the exact time on the time element", () => {
@@ -170,7 +171,7 @@ describe("JourneyRow", () => {
   it("marks a failure, and leaves the last step empty when there is none", () => {
     const row = renderRow({ ...item, lastStep: null });
     expect(within(row).getByText("failed").className).toBe("status failed");
-    expect(cells(row)[4]).toBe("");
+    expect(cells(row)[5]).toBe("");
   });
 
   it("does not mark a status that is not a failure", () => {
@@ -186,7 +187,7 @@ describe("JourneyRow", () => {
  */
 describe("JourneyRow's step", () => {
   const stepCell = (row: HTMLElement): HTMLElement => {
-    const cell = within(row).getAllByRole("cell")[4];
+    const cell = within(row).getAllByRole("cell")[5];
     if (cell === undefined) throw new Error("no step cell");
     return cell;
   };

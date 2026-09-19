@@ -1,5 +1,12 @@
 import { webConfig } from "./config";
-import { eventForDisplay, type ApiEventDetail, type DisplayedChange } from "./event-display";
+import {
+  eventForDisplay,
+  rowForDisplay,
+  type ApiEventDetail,
+  type ApiEventRow,
+  type DisplayedChange,
+  type StatedAlias
+} from "./event-display";
 import type { EventMetadataLists } from "./metadata";
 
 export interface SearchItem {
@@ -62,6 +69,38 @@ export interface EventListItem {
   hasInput: boolean;
   hasOutput: boolean;
   hasError: boolean;
+  /** Bounded optional timing evidence projected by newer APIs (ADR-064). */
+  timingContext?: TimingContext;
+  /** Bounded hostname that recorded the event; null/absent means unknown. */
+  recordedHost?: string | null;
+  /**
+   * The build that recorded the event, from the row's `deploymentMetadata`,
+   * as text made by `rowForDisplay` (F-043). Null when the event named no
+   * version or commit; absent where nothing made one, such as an event's
+   * detail, which shows its deployment in full instead.
+   */
+  build?: RowBuild | null;
+}
+
+/** The web's copy of the additive public read contract; it has no protocol runtime dependency. */
+export interface TimingContext {
+  queue?: string;
+  queueWaitMs?: number;
+  queueWaitBasis?: "initial-enqueue" | "retry-ready";
+  deliveryCount?: number;
+  targetHost?: string;
+  httpStatusCode?: number;
+  retryAfterMs?: number;
+  attempt?: number;
+  retryGroup?: string;
+}
+
+/** A timeline row's build: a short label, and every part of it in full. */
+export interface RowBuild {
+  /** `<version> · <commit cut to 12>`, or whichever of the two there is. */
+  label: string;
+  /** `Recorded by version <version>, commit <commit>`, for the row's title. */
+  title: string;
 }
 
 export interface DiffChange {
@@ -94,6 +133,12 @@ export interface EventDetailData extends EventListItem {
    * Absent means none was recorded.
    */
   metadata?: EventMetadataLists;
+  /**
+   * The aliases the event stated (F-042), as text, from `eventForDisplay`.
+   * `[]` when it stated none; null when the API did not record them or did
+   * not send them.
+   */
+  statedAliases: StatedAlias[] | null;
 }
 
 export interface ProjectSummary {
@@ -266,17 +311,22 @@ export interface EventsPageResponse extends EventsPage {
  * pagination and follows the cursor on demand, so the server fetches the first
  * page and hands the cursor over.
  */
-export function listEvents(
+export async function listEvents(
   journeyId: string,
   projectId: string,
   cursor: string | null = null
 ): Promise<EventsPage | null> {
   const query = new URLSearchParams({ limit: "100" });
   if (cursor !== null) query.set("cursor", cursor);
-  return get<EventsPage>(
+  const page = await get<{ items: ApiEventRow[]; nextCursor: string | null }>(
     `/v1/journeys/${encodeURIComponent(journeyId)}/events?${query.toString()}`,
     projectId
   );
+  // Each row's build as text, here on the server: the journey page and the
+  // timeline's polls both read rows through this function (F-043).
+  return page === null
+    ? null
+    : { items: page.items.map(rowForDisplay), nextCursor: page.nextCursor };
 }
 
 /**

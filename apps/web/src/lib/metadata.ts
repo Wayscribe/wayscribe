@@ -89,8 +89,11 @@ function asText(value: unknown): string {
   return value === undefined ? "undefined" : JSON.stringify(value);
 }
 
-/** Cut by code point, so a character outside the BMP is never split in half. */
-function bounded(text: string): string {
+/**
+ * Cut by code point, so a character outside the BMP is never split in half.
+ * Also bounds the aliases an event stated (`event-display.ts`).
+ */
+export function bounded(text: string): string {
   // A string's length counts UTF-16 units, never fewer than its code points.
   if (text.length <= MAX_METADATA_TEXT) return text;
   const characters = Array.from(text);

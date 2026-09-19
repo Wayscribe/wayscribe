@@ -45,3 +45,27 @@ test("the version line names the web app's version and the API's", async ({ page
     await expect(footer).not.toContainText("unknown");
   }
 });
+
+/**
+ * F-051: a web app with no build identity cannot know whether it and the API
+ * are the same build, so it never says they differ; it says it cannot tell
+ * when the API has an identity, and nothing when neither side has one, as in
+ * a run from a checkout.
+ */
+test("the version line claims no mismatch it cannot know", async ({ page }) => {
+  const ready = (await (await fetch(`${API_URL}/ready`)).json()) as { source: string };
+
+  await signIn(page, JOURNEY_ID);
+  await page.goto("/journeys");
+  const footer = page.getByRole("contentinfo");
+  await expect(footer).toContainText(/^Web \S+/);
+  const webHasNoBuild = /^Web \S+, not a release build/.test((await footer.textContent()) ?? "");
+  if (!webHasNoBuild) test.skip(true, "this web app was built with its build arguments");
+
+  await expect(footer).not.toContainText("different builds");
+  const note = footer.getByText(
+    "The web image was built without WAYSCRIBE_BUILD_VERSION, so this page cannot tell whether the web app and the API are the same build."
+  );
+  if (ready.source === "build") await expect(note).toBeVisible();
+  else await expect(note).toHaveCount(0);
+});

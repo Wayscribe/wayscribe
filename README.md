@@ -114,11 +114,19 @@ No identifier yet, only an alert that deliveries are failing? The Journeys page
 lists what happened in the last hour, day, week or month, or in a range you
 choose, narrowed by status, entity type, environment, service, or part of a
 journey's label or displayable alias. Its Failures shortcut shows only what
-failed, and each row opens the same timeline.
+failed. Recorded journey and step duration thresholds narrow slow work; the
+active-inactivity threshold is a debugging clue within the selected activity
+window, not proof a job is stuck. Each row shows the recorded first-to-last
+event span and opens the same timeline.
+
+The timeline separates recorded gaps from broker-measured queue waits, keeps
+missing duration and clock uncertainty visible, and groups attempts only when
+the recorder supplied an explicit retry identity. Requested Retry-After and
+observed delay between attempts remain separate evidence.
 
 ![The Journeys page: a filter bar above a table of journeys with their last
-activity, status, entity type, what each is shown as, their step (the step a
-failed journey failed at, in red, else its last step) and event
+activity, recorded span, status, entity type, what each is shown as, their step
+(the step a failed journey failed at, in red, else its last step) and event
 count](docs/images/journeys.png)
 
 ---
@@ -204,8 +212,10 @@ the newest one CI tests.
 
 For a common stack, start from a [recipe](docs/recipes/README.md).
 
-The SDK is not published to npm yet. Until it is, pack it from a clone of this
-repository, commit the tarball to your application, and depend on it by path:
+No usable SDK release is published to npm yet. The deprecated
+`0.0.1-placeholder.0` only reserves the package name and contains no SDK.
+Until the first release, pack it from a clone of this repository, commit the
+tarball to your application, and depend on it by path:
 
 ```bash
 pnpm install
@@ -393,19 +403,20 @@ service**: no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md): 63 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md): 64 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
 
 ## Status
 
-**Pre-release. It runs from a clone; nothing is published yet.**
+**Pre-release. It runs from a clone; no usable release is published yet.**
 
 Ingestion, search, journey timelines, field-level diffs, the Node SDK,
 cross-process propagation, retention, the demo, development replay, and a
-read-only CLI are built, tested, and running. Container images and the npm
-package are not published, so today you install by cloning this repository.
+read-only CLI are built, tested, and running. Release images and a usable npm
+SDK are not published, so today you install by cloning this repository. npm's
+deprecated `0.0.1-placeholder.0` reserves the package name only.
 
 An adversarial audit of the first-contact experience on 2026-08-09 found that
 the demo which verified all of it was systematically narrow: ten flat
@@ -435,8 +446,9 @@ instructions.
 
 ### Installing without a checkout, once the images are published
 
-**This does not work yet.** The container images and the npm package are not
-published. Until they are, use [Try it](#try-it), which runs from a clone.
+**This does not work yet.** Release images and a usable SDK are not published.
+The npm placeholder contains no SDK. Until the first release, use
+[Try it](#try-it), which runs from a clone.
 
 [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
 will pull the images, migrate on first boot, and need no checkout.
@@ -630,7 +642,7 @@ site/                   wayscribe.dev: the landing page, and these docs rendered
 
 AI agents write most of the code in this repository. Jorge, the owner, makes the
 decisions, and each one is recorded with its reasoning in
-[the decision log](docs/DECISIONS.md), which holds 63 ADRs.
+[the decision log](docs/DECISIONS.md), which holds 64 ADRs.
 [What running it found](docs/WHAT_RUNNING_IT_FOUND.md) lists the defects the
 agents' tests missed and running the software found, and what changed in the
 testing because of them.

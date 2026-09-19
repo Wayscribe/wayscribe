@@ -23,6 +23,15 @@ export { OPERATIONS } from "./operations.js";
 export type { Operation } from "./operations.js";
 export { createRecorder } from "./recorder.js";
 export { hasJourney } from "./propagation.js";
+export { httpMetadata, queueMetadata } from "./timing-metadata.js";
+export type {
+  HttpMetadataOptions,
+  HttpMetadataResponse,
+  HttpTimingMetadata,
+  QueueMetadataJob,
+  QueueMetadataOptions,
+  QueueTimingMetadata
+} from "./timing-metadata.js";
 export type {
   ContinueJourneyOptions,
   Entity,

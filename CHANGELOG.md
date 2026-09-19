@@ -279,6 +279,25 @@ What you have to do when upgrading a checkout or a deployment:
   disappeared from the screen (F-044). Keys and values are shown as escaped
   text, never as markup; at most 50 entries per kind and 300 characters per key
   or value are shown, and the page says how many entries it left out.
+- **The event detail shows the aliases an event stated** (F-042). An
+  `identified` event's detail used to say nothing about what it identified,
+  although the event read returns it. Under "Aliases stated" the detail lists
+  each alias's type and value as the API masked it, with a masked one marked
+  as masked, as the journey's own list marks it. An `identified` event that
+  stated none says so, and one whose aliases the API did not record, stored
+  before migration 020 or read from an older API, says that instead; for any
+  other step the section appears only when it stated some. Types and values
+  are shown as escaped text, at most 300 characters each, and read the same
+  on first load, after choosing the step, and with JavaScript off.
+- **Each timeline row names the build that recorded it** (F-043). After the
+  service, a row shows the event's deployment version and commit, the commit
+  cut to 12 characters, as `1.4.2 · 3cd2c2034c6d`, with both in full in its
+  title, so a journey recorded by one build reads the same label down the
+  list and a second build stands out. A row whose event named no version or
+  commit shows none; an image alone is left to the event's Deployment group.
+  The label is made as escaped text on the server from the row's
+  `deploymentMetadata`, is cut on the row rather than widening it, and is in
+  the page with JavaScript off.
 - **An event shows the same payload keys however it is reached.** On an
   event's first load, with or without JavaScript, a payload or diff value key
   named `__proto__`, at any depth, was dropped, so a stored `{"__proto__":1}`
@@ -435,7 +454,13 @@ What you have to do when upgrading a checkout or a deployment:
   `WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT` build arguments as the
   API image; without them it says "not a release build". An API that does not
   answer leaves the line saying its version is unknown, and the page renders
-  as usual.
+  as usual. Only two build identities are compared: when one side was built
+  without the arguments, the line says, in the muted style, that the page
+  cannot tell whether the two are the same build, where a hand-built web image
+  beside its own API used to read "The web app and the API are different
+  builds." in red on every page (F-051). `docs/OPERATIONS.md` section 1 now
+  gives the commands that pass both arguments to both images, and
+  `docs/API_SPEC.md` section 14 names both Dockerfiles.
 - **Bring your own database** (ADR-037). `DATABASE_URL` points at a PostgreSQL
   15 or later that your team already runs. Migrations need privileges on their
   own schema only and install no extensions. `infrastructure/compose.bundled.yaml`
@@ -659,6 +684,27 @@ What you have to do when upgrading a checkout or a deployment:
   measured `recorded 16000, dropped 16000` and `breakerOpened` 0. Such a send
   reports no `transport_error`. A reply with some verdicts resets the count as
   before (ADR-063, SDK-65).
+- **The counters say how to tell a collector's faults apart** (F-050). Under a
+  fault that lasts, `droppedByCause` is mostly `queue_full` and `shutdown`
+  whatever the collector did, because a cause names where an event was lost,
+  not why: Leadline's paced runs of 16,000 events read `queue_full` 14,750 to
+  15,000 in every fault it tried. `droppedByCause`'s TSDoc, the SDK README and
+  `docs/TROUBLESHOOTING.md` now give the rule that does read them apart:
+  `no_verdict` above zero is a collector answering 2xx without verdicts,
+  `transportErrors` above zero is one refused, reset, answering 5xx, slower
+  than `requestTimeoutMs` or unable to store events for now. Both at zero are
+  inconclusive: a collector may be slow, or shutdown may end a send before its
+  attempts finish, even if the collector is unreachable. `after_shutdown`
+  drops say only that recording was attempted after shutdown. A test holds
+  each case to what the recorder does. Documentation only.
+- **`doctor`'s statement timeout row says whose setting it read** (F-052). It
+  reads `DATABASE_STATEMENT_TIMEOUT_MS` from doctor's own environment and never
+  asks the running API, yet it read `The API cancels a statement after 15000
+  ms.`, so it passed even when `API reachable` failed. It now reads
+  `DATABASE_STATEMENT_TIMEOUT_MS here is 15000 ms, so an API started with this
+  environment cancels a statement after 15000 ms.`, or says the default
+  applies when the variable is not set; its `WARN` and `FAIL` lines are worded
+  the same way. Statuses are unchanged.
 
 - **The telephone shape finds a number in a field and not a signed count.**
   The `+` of a telephone number may now follow `=`, `:`, a quote, `,`, `;`,

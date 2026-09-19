@@ -73,7 +73,7 @@ test.beforeAll(async () => {
 
 async function checkRows(page: Page): Promise<void> {
   await page.goto(`/journeys?service=${SERVICE}`);
-  await expect(page.getByRole("columnheader").nth(5)).toHaveAccessibleName("Step");
+  await expect(page.getByRole("columnheader", { name: "Step", exact: true })).toBeVisible();
 
   const retried = page.locator("tbody tr", { hasText: `lead: ${RETRIED.entityId}` });
   const step = retried.locator("td.col-step");

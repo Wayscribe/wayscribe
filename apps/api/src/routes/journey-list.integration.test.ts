@@ -93,7 +93,16 @@ describe("GET /v1/journeys", () => {
       journeyId: "jrn_dev_active",
       service: "billing",
       operation: "received",
-      timestamp: hoursAgo(2)
+      timestamp: hoursAgo(2),
+      durationMs: 1_500
+    });
+    await ingest(developmentKey, "development", {
+      id: "evt_dev_3",
+      journeyId: "jrn_dev_active",
+      service: "billing",
+      operation: "transformed",
+      timestamp: hoursAgo(1.5),
+      durationMs: 0
     });
     await ingest(productionKey, "production", {
       id: "evt_prod_1",
@@ -195,6 +204,39 @@ describe("GET /v1/journeys", () => {
       `/v1/journeys?since=${dayAgo()}&status=failed&environment=production&service=${service}`;
     expect(ids(await get(url("sync-worker"), ADMIN_TOKEN))).toEqual(["jrn_prod_failed"]);
     expect(ids(await get(url("billing"), ADMIN_TOKEN))).toEqual([]);
+  });
+
+  it("filters by strict journey and step duration thresholds", async () => {
+    expect(ids(await get(`/v1/journeys?since=${dayAgo()}&minDurationMs=0`))).toEqual([
+      "jrn_dev_active"
+    ]);
+    expect(ids(await get(`/v1/journeys?since=${dayAgo()}&minStepDurationMs=1499`))).toEqual([
+      "jrn_dev_active"
+    ]);
+    expect(ids(await get(`/v1/journeys?since=${dayAgo()}&minStepDurationMs=1500`))).toEqual([]);
+  });
+
+  it("uses inactiveBefore as a strict active-only cutoff", async () => {
+    const cutoff = encodeURIComponent(hoursAgo(1));
+    expect(ids(await get(`/v1/journeys?since=${dayAgo()}&inactiveBefore=${cutoff}`))).toEqual([
+      "jrn_dev_active"
+    ]);
+  });
+
+  it("refuses contradictory and repeated timing filters through the route", async () => {
+    const cutoff = encodeURIComponent(hoursAgo(1));
+    const cases: [string, string][] = [
+      [
+        `inactiveBefore=${cutoff}&status=failed`,
+        "inactiveBefore can only be used with status active."
+      ],
+      ["minDurationMs=1&minDurationMs=2", "minDurationMs must be given once."]
+    ];
+    for (const [query, message] of cases) {
+      const response = await get(`/v1/journeys?since=${dayAgo()}&${query}`);
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.message).toBe(message);
+    }
   });
 
   it("bounds the list by since", async () => {

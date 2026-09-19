@@ -113,16 +113,35 @@ function describe(name: string, running: RunningVersion): string {
  * The version line's two halves, and whether they name different builds: a
  * different version, or the same version from a different commit when both
  * recorded one. That is what a partial upgrade looks like (F-045).
+ *
+ * Only two build identities can be compared. A side with `source: "package"`
+ * was built without `WAYSCRIBE_BUILD_VERSION`, so its version is the
+ * workspace's own, `0.0.0`, whatever commit it came from, and it would differ
+ * from any release: a hand-built web image beside its own API was called a
+ * different build on every page (F-051). When exactly one side has no
+ * identity, `unverified` names it and `mismatch` is false, because the page
+ * cannot know. When neither has one, as in a run from a checkout, both halves
+ * already say "not a release build" and there is nothing to compare.
  */
 export function describeVersions(
   web: RunningVersion,
   api: RunningVersion | null
-): { web: string; api: string; mismatch: boolean } {
+): { web: string; api: string; mismatch: boolean; unverified: "web" | "api" | null } {
   if (api === null) {
-    return { web: describe("Web", web), api: "API version unknown", mismatch: false };
+    return {
+      web: describe("Web", web),
+      api: "API version unknown",
+      mismatch: false,
+      unverified: null
+    };
+  }
+  const halves = { web: describe("Web", web), api: describe("API", api) };
+  if (web.source === "package" || api.source === "package") {
+    const unverified = web.source === api.source ? null : web.source === "package" ? "web" : "api";
+    return { ...halves, mismatch: false, unverified };
   }
   const mismatch =
     web.version !== api.version ||
     (web.commit !== undefined && api.commit !== undefined && web.commit !== api.commit);
-  return { web: describe("Web", web), api: describe("API", api), mismatch };
+  return { ...halves, mismatch, unverified: null };
 }

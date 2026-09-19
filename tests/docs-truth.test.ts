@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { serverEnvSchema, statementTimeoutSchema } from "../packages/config/src/schema.js";
+import { formatDoctor, statementTimeoutResult } from "../packages/database/src/doctor.js";
 import { JOURNEY_STATUSES } from "../packages/database/src/repositories/journey-list.js";
 import { DEFAULT_SECRET_PATHS } from "../packages/payload-security/src/default-secrets.js";
 import { DEFAULT_LIMITS } from "../packages/payload-security/src/limits.js";
@@ -448,13 +449,23 @@ describe("the documentation's checkable claims", () => {
       // F-025: the example omitted `receivedAt`, which the endpoint always
       // sends and which the section's own ordering rule names, so a caller
       // building a schema from the example alone landed one field short.
-      const declared = [
+      const repositoryFields = [
         ...(
           /export interface EventListItem \{([\s\S]*?)\n\}/.exec(
             read("packages/database/src/repositories/event-reads.ts")
           )?.[1] ?? ""
         ).matchAll(/^ {2}(\w+):/gm)
       ].map((match) => match[1]);
+      // The repository carries already-redacted raw values under internal
+      // names so the API can apply the protocol parser without making the
+      // database package depend on protocol runtime code.
+      const declared = repositoryFields.map((field) =>
+        field === "timingMetadata"
+          ? "timingContext"
+          : field === "recordedHostname"
+            ? "recordedHost"
+            : field
+      );
       expect(declared).toContain("receivedAt");
 
       const example = /## 8\. List journey events[\s\S]*?```json\n([\s\S]*?)```/.exec(
@@ -486,25 +497,36 @@ describe("the documentation's checkable claims", () => {
         "service",
         "entityType",
         "q",
+        "minDurationMs",
+        "minStepDurationMs",
+        "inactiveBefore",
         "limit",
         "cursor"
       ]);
     });
 
-    it.each(["since", "until", "status", "environment", "service", "entityType", "q"])(
-      "documents %s, which the parser validates",
-      (name) => {
-        // A repeated parameter is refused by name only if the parser reads it.
-        const query: Record<string, unknown> = {
-          since: "2026-01-01T00:00:00Z",
-          [name]: ["a", "b"]
-        };
-        expect(parseJourneyListQuery(query, new Date("2026-09-15T00:00:00Z"))).toEqual({
-          ok: false,
-          message: `${name} must be given once.`
-        });
-      }
-    );
+    it.each([
+      "since",
+      "until",
+      "status",
+      "environment",
+      "service",
+      "entityType",
+      "q",
+      "minDurationMs",
+      "minStepDurationMs",
+      "inactiveBefore"
+    ])("documents %s, which the parser validates", (name) => {
+      // A repeated parameter is refused by name only if the parser reads it.
+      const query: Record<string, unknown> = {
+        since: "2026-01-01T00:00:00Z",
+        [name]: ["a", "b"]
+      };
+      expect(parseJourneyListQuery(query, new Date("2026-09-15T00:00:00Z"))).toEqual({
+        ok: false,
+        message: `${name} must be given once.`
+      });
+    });
 
     it("documents limit and cursor, which the route reads as other lists do", () => {
       const route = /app\.get\("\/v1\/journeys", [\s\S]*?\n {2}\}\);/.exec(
@@ -842,5 +864,104 @@ describe("docs/SDK_SPEC.md", () => {
         `SDK_SPEC.md names ${name}, which belongs to the pending propagation specification`
       ).not.toContain(name);
     }
+  });
+});
+
+describe("telling collector faults apart from the SDK's counters (F-050)", () => {
+  // Under a fault that lasts, droppedByCause is mostly queue_full whatever the
+  // collector did, so a dashboard of the largest cause says "queue full" for
+  // every fault. packages/sdk-node/src/fault-fingerprints.test.ts holds the
+  // rule to the recorder; these hold the places that state it to the rule.
+  const timeout = `${resolveConfig({
+    endpoint: "http://localhost:8080",
+    apiKey: "wsk_test",
+    serviceName: "svc",
+    environment: "development"
+  }).requestTimeoutMs.toLocaleString("en-US")} ms`;
+  const flat = (text: string): string => text.replace(/\s+/g, " ");
+
+  it("states the rule in the SDK README's section on sending", () => {
+    const text = flat(section(read("packages/sdk-node/README.md"), "Sending and shutting down"));
+    expect(text).toContain("where an event was lost, not why");
+    expect(text).toContain("`droppedByCause.no_verdict` above zero");
+    expect(text).toContain("`transportErrors` above zero");
+    expect(text).toContain("Both at zero");
+    expect(text).toContain(`\`requestTimeoutMs\`, ${timeout} by default`);
+  });
+
+  it("states it where TROUBLESHOOTING reads the counters", () => {
+    const text = flat(read("docs/TROUBLESHOOTING.md").split("### 4. Read the counters")[1] ?? "");
+    const step = text.split("### 5.")[0] ?? "";
+    expect(step).toContain("where an event was lost, not why");
+    expect(step).toContain("| `droppedByCause.no_verdict` > 0 |");
+    expect(step).toContain("| `transportErrors` 0 and `droppedByCause.no_verdict` 0 |");
+    expect(step).toContain(`\`requestTimeoutMs\` (${timeout} by default)`);
+  });
+
+  it("states it in the counters' own documentation, which an editor shows", () => {
+    const doc = flat(
+      /\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*droppedByCause:/.exec(
+        read("packages/sdk-node/src/diagnostics.ts")
+      )?.[1] ?? ""
+    );
+    expect(doc).toContain("where an event was lost, not why");
+    expect(doc).toContain("`no_verdict` above zero");
+    expect(doc).toContain("`transportErrors` above zero");
+  });
+});
+
+describe("the images' build arguments (F-051)", () => {
+  // Leadline passed WAYSCRIBE_BUILD_VERSION and WAYSCRIBE_BUILD_COMMIT to the
+  // API image only, because API_SPEC section 14 named apps/api/Dockerfile
+  // alone, and its web app then called its own API a different build.
+  const DOCKERFILES = ["apps/api/Dockerfile", "apps/web/Dockerfile"];
+  const ARGS = ["WAYSCRIBE_BUILD_VERSION", "WAYSCRIBE_BUILD_COMMIT"];
+  const flat = (text: string): string => text.replace(/\s+/g, " ");
+
+  it("are declared by both Dockerfiles", () => {
+    for (const dockerfile of DOCKERFILES) {
+      for (const arg of ARGS) expect(read(dockerfile)).toMatch(new RegExp(`^ARG ${arg}=`, "m"));
+    }
+  });
+
+  it("are named for both Dockerfiles where API_SPEC says where the version comes from", () => {
+    const text = section(read("docs/API_SPEC.md"), "14. Health endpoints");
+    // The paragraph alone: the web app's paragraph further down names
+    // apps/web/Dockerfile too, and did while this one named the API's alone.
+    const start = text.indexOf("**Where the value comes from.**");
+    expect(start).toBeGreaterThan(-1);
+    const where = flat(text.slice(start, text.indexOf("\n\n", start)));
+    for (const dockerfile of DOCKERFILES) expect(where).toContain(`\`${dockerfile}\``);
+    expect(flat(text)).toContain("cannot tell whether the web app and the API are the same build");
+  });
+
+  it("are passed to both images in OPERATIONS' hand-built example", () => {
+    const text = section(read("docs/OPERATIONS.md"), "1. What holds state");
+    const commands = [...text.matchAll(/```bash\n([\s\S]*?)```/g)]
+      .map((match) => (match[1] ?? "").replace(/\\\n/g, " "))
+      .flatMap((block) => block.split("\n"))
+      .filter((line) => line.includes("docker build"));
+    for (const dockerfile of DOCKERFILES) {
+      const command = commands.find((line) => line.includes(`--file ${dockerfile}`));
+      expect(command, `no docker build of ${dockerfile}`).toBeDefined();
+      for (const arg of ARGS) expect(command).toContain(`--build-arg ${arg}=`);
+    }
+  });
+
+  it("holds the footer to the sentence the documents paraphrase", () => {
+    const footer = flat(read("apps/web/app/components/VersionFooter.tsx"));
+    expect(footer).toContain(
+      "image was built without WAYSCRIBE_BUILD_VERSION, so this page cannot tell whether the web app and the API are the same build."
+    );
+  });
+});
+
+describe("doctor's statement timeout row in OPERATIONS (F-052)", () => {
+  it("is shown as doctor prints it, saying the value is doctor's own", () => {
+    const [line] = formatDoctor([
+      statementTimeoutResult({ DATABASE_STATEMENT_TIMEOUT_MS: "4000" })
+    ]);
+    expect(line).toContain("an API started with this environment");
+    expect(read("docs/OPERATIONS.md").split("\n")).toContain(line);
   });
 });

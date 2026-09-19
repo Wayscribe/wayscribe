@@ -91,8 +91,9 @@ is on ([ADR-046](DECISIONS.md#adr-046-error-text-is-masked-by-shape-and-stacks-a
 
 ## Supply chain
 
-CI blocks on `pnpm audit`, gitleaks and Trivy. Nothing is published yet, and
-releases will be 0.x. Images will be signed with Sigstore keyless signing and
+CI blocks on `pnpm audit`, gitleaks and Trivy. No usable release is published
+yet; npm contains only a deprecated name-reservation placeholder. Releases
+will be 0.x. Images will be signed with Sigstore keyless signing and
 carry a CycloneDX SBOM per platform; the npm package will be published through
 GitLab OIDC with provenance ([OPERATIONS §11](OPERATIONS.md#11-security-scanning),
 [ROADMAP](ROADMAP.md#where-this-actually-is)). To verify, with your tag

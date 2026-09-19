@@ -358,6 +358,17 @@ export interface Counters {
    * (`no_verdict`) (F-048, ADR-063). Every cause is present from creation, at
    * zero, so a health check reads it without a guard. A fresh copy on every
    * read of `counters()`.
+   *
+   * A cause says where an event was lost, not why. Under any fault that lasts,
+   * most drops are `queue_full` and `shutdown` whatever the collector did.
+   * `no_verdict` above zero means the collector answered 2xx without a
+   * verdict: not the Wayscribe API, or a proxy rewriting replies.
+   * `transportErrors` above zero means a send used its attempts with events
+   * still unsent: refused, reset, a 5xx, past `requestTimeoutMs`, or the API
+   * could not store them for now. Both at zero are inconclusive: a collector
+   * may be slow, or shutdown may end a send before its attempts finish, even
+   * when the collector is unreachable. `after_shutdown` drops mean recording
+   * was attempted after shutdown and say nothing about the collector (F-050).
    */
   droppedByCause: Readonly<Record<DroppedCause, number>>;
   /** `transport_error` reports. */

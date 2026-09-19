@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { EventDetailData } from "../../src/lib/api";
 import { eventForDisplay, type ApiEventDetail } from "../../src/lib/event-display";
@@ -125,5 +125,122 @@ describe("EventDetail metadata", () => {
     );
     render(<EventDetail event={event({ customMetadata: many })} />);
     expect(screen.getByText("10 more not shown.")).toBeTruthy();
+  });
+});
+
+describe("EventDetail operational context", () => {
+  it("labels measured queue evidence, attempt outcome and requested remote delay", () => {
+    render(
+      <EventDetail
+        event={event({
+          operation: "failed",
+          timingContext: {
+            queue: "customer-updates",
+            queueWaitMs: 0,
+            queueWaitBasis: "retry-ready",
+            deliveryCount: 3,
+            targetHost: "api.example.test:443",
+            httpStatusCode: 429,
+            retryAfterMs: 2000,
+            attempt: 2,
+            retryGroup: "job-7"
+          },
+          recordedHost: "worker-3",
+          customMetadata: { sourceSystem: "salesforce" }
+        })}
+      />
+    );
+    const context = screen.getByRole("group", { name: "Operational context" });
+    expect(context.textContent).toContain(
+      "Measured queue wait0 ms (retry readiness to attempt start)"
+    );
+    expect(context.textContent).toContain("Attempt2 — failed");
+    expect(context.textContent).toContain("Requested Retry-After2 s");
+    expect(context.textContent).toContain("Recorded hostworker-3");
+    expect(screen.getByRole("group", { name: "Custom" }).textContent).toContain("sourceSystem");
+  });
+
+  it("does not replace missing timing evidence with zero", () => {
+    render(<EventDetail event={event()} />);
+    expect(screen.queryByRole("group", { name: "Operational context" })).toBeNull();
+    expect(document.body.textContent).not.toContain("Measured queue wait0 ms");
+  });
+
+  it("can rerender from absent to present to absent operational context", () => {
+    const { rerender } = render(<EventDetail event={event()} />);
+    expect(screen.queryByRole("group", { name: "Operational context" })).toBeNull();
+
+    rerender(<EventDetail event={event({ timingContext: { attempt: 1, retryGroup: "job-7" } })} />);
+    expect(screen.getByRole("group", { name: "Operational context" })).toBeTruthy();
+
+    rerender(<EventDetail event={event()} />);
+    expect(screen.queryByRole("group", { name: "Operational context" })).toBeNull();
+  });
+});
+
+/**
+ * F-042: the detail of an `identified` event said nothing about what it
+ * identified. It now lists the aliases the event stated, as text.
+ */
+describe("EventDetail aliases", () => {
+  const stated = [
+    { type: "email", displayValue: "j…@example.com", displayable: false },
+    { type: "hubspotContactId", displayValue: "1234", displayable: true }
+  ];
+
+  it("lists the aliases the event stated, marking the masked ones", () => {
+    render(<EventDetail event={event({ aliases: stated })} />);
+    expect(screen.getByRole("heading", { name: "Aliases stated" })).toBeTruthy();
+    const group = screen.getByRole("group", { name: "Aliases stated" });
+    expect(group.textContent).toBe("emailj…@example.com (masked)hubspotContactId1234");
+    expect(within(group).getByTitle(/Masked/)).toBeTruthy();
+  });
+
+  it("lists them for any operation that stated some, not only identified", () => {
+    render(<EventDetail event={event({ operation: "received", aliases: [stated[1]] })} />);
+    expect(screen.getByRole("group", { name: "Aliases stated" }).textContent).toBe(
+      "hubspotContactId1234"
+    );
+  });
+
+  it("says an identified event stated none when the list is empty", () => {
+    render(<EventDetail event={event({ aliases: [] })} />);
+    expect(screen.getByText("This event stated no aliases.")).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Aliases stated" })).toBeNull();
+  });
+
+  it.each([
+    ["null", { aliases: null }],
+    ["absent", {}]
+  ])("says an identified event's aliases were not recorded when they are %s", (_, fields) => {
+    render(<EventDetail event={event(fields)} />);
+    expect(
+      screen.getByText(
+        "Which aliases this event stated was not recorded: it was stored before the server kept them, or the API is older than this web app. Any aliases the journey has are listed at the top of the page."
+      )
+    ).toBeTruthy();
+  });
+
+  it.each([
+    ["empty", { aliases: [] }],
+    ["null", { aliases: null }],
+    ["absent", {}]
+  ])("says nothing about aliases for another operation when they are %s", (_, fields) => {
+    render(<EventDetail event={event({ operation: "transformed", ...fields })} />);
+    expect(screen.queryByRole("heading", { name: "Aliases stated" })).toBeNull();
+  });
+
+  it("renders markup in a type or a value as text, never as elements", () => {
+    const markup = '<img src="x" onerror="alert(1)"><script>alert(2)</script>';
+    const { container } = render(
+      <EventDetail
+        event={event({ aliases: [{ type: markup, displayValue: markup, displayable: true }] })}
+      />
+    );
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("script")).toBeNull();
+    const group = screen.getByRole("group", { name: "Aliases stated" });
+    expect(group.textContent).toBe(`${markup}${markup}`);
+    expect(group.innerHTML).toContain("&lt;img");
   });
 });

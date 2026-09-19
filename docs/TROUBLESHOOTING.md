@@ -162,12 +162,19 @@ them at the end. Once `shutdown()` has returned,
 | `recorded` is 0 | no instrumented code ran; the recorder you are reading is not the one the code uses, or the code path was not reached |
 | `sent` equals `recorded` | everything was stored; the problem is where you are looking (step 5) |
 | `rejected` > 0 | the server refused events and will not take them again; the `rejected` diagnostics carry the code (see [Refusal codes](#refusal-codes)) |
-| `dropped` > 0, `transportErrors` > 0 | the API could not be reached or could not store events for now, and they were given up |
+| `dropped` > 0, `transportErrors` > 0 | the API could not be reached, answered 5xx, took longer than `requestTimeoutMs` (1,500 ms by default), or could not store events for now, and they were given up |
 | `dropped` > 0, `transportErrors` 0 | the queue filled (`queue_full`), events were recorded after `shutdown()` (`after_shutdown`), or replies gave no verdict (`no_verdict`); `droppedByCause` says which |
 | `droppedByCause.shutdown` > 0 | the collector hung or was slower than `shutdown({ timeoutMs })`, or the breaker was open when shutdown came; check `breakerOpened` and `no_verdict` |
-| `droppedByCause.no_verdict` > 0 | a 2xx reply carried no verdict: a proxy is rewriting responses, or `endpoint` is not the Wayscribe API |
+| `droppedByCause.no_verdict` > 0 | a 2xx reply carried no verdict: a proxy is rewriting responses, or `endpoint` is not the Wayscribe API; it can be the smallest cause, since the breaker opens and the rest wait in the queue |
+| `transportErrors` 0 and `droppedByCause.no_verdict` 0 | inconclusive: the collector may be slow, or shutdown ended a send before its three attempts finished, even if the collector is unreachable; `after_shutdown` drops mean recording was attempted after shutdown and say nothing about the collector |
 | `breakerOpened` > 0 | five sends failed in a row, and sending paused for 30 seconds; a send whose 2xx replies gave no verdict for any event counts as failed |
 | `configurationErrors` > 0 | a setting or argument could not be used; the `configuration_error` diagnostics name it |
+
+`droppedByCause` says where an event was lost, not why. Under any fault that
+lasts, events wait in the queue until it sheds them or shutdown gives them up,
+so `queue_full` and `shutdown` are the largest causes whatever the collector
+did. Tell the faults apart by `no_verdict` and `transportErrors`, as the rows
+above do, never by the largest cause.
 
 A test can assert the counters, so a missing setting fails before it ships:
 

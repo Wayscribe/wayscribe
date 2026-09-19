@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { EventListItem } from "../../src/lib/api";
 import { TimelineList } from "./TimelineList";
+import { presentTimelineTiming } from "../../src/lib/timing-presentation";
 
 function event(id: string, overrides: Partial<EventListItem> = {}): EventListItem {
   return {
@@ -76,5 +77,152 @@ describe("TimelineList rows", () => {
     renderList([event("evt_1", { name: "classify" })]);
     const badge = screen.getByText("transformed");
     expect(badge.getAttribute("title")).toBe("operation: transformed");
+  });
+
+  it("shows the gap derived from loaded adjacency and keeps overlap explicit", () => {
+    const events = [
+      event("evt_1", { durationMs: 150, recordedHost: "host-a" }),
+      event("evt_2", {
+        eventTimestamp: "2026-09-16T08:00:00.100Z",
+        recordedHost: "host-b"
+      })
+    ];
+    render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={events}
+        timing={presentTimelineTiming(events)}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+    expect(screen.getByText("Recorded gap: 50 ms overlap / clock disagreement")).toBeTruthy();
+    expect(screen.getByText(/different recorded hosts/)).toBeTruthy();
+  });
+
+  it("keeps a backwards start-to-start interval explicit when idle time is unknown", () => {
+    const events = [
+      event("evt_1", { durationMs: null, recordedHost: "host-a" }),
+      event("evt_2", {
+        eventTimestamp: "2026-09-16T07:59:59.500Z",
+        recordedHost: "host-a"
+      })
+    ];
+    render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={events}
+        timing={presentTimelineTiming(events)}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+    expect(
+      screen.getByText("Recorded gap: unknown (start-to-start 500 ms overlap / clock disagreement)")
+    ).toBeTruthy();
+  });
+
+  it("qualifies publish-to-consume evidence for positive, unknown, and overlap states", () => {
+    const events = [
+      event("publish-gap", { operation: "published", durationMs: 100 }),
+      event("consume-gap", {
+        operation: "consumed",
+        eventTimestamp: "2026-09-16T08:00:00.200Z",
+        durationMs: 0
+      }),
+      event("publish-unknown", {
+        operation: "published",
+        eventTimestamp: "2026-09-16T08:00:00.300Z",
+        durationMs: null
+      }),
+      event("consume-unknown", {
+        operation: "consumed",
+        eventTimestamp: "2026-09-16T08:00:00.500Z",
+        durationMs: 0
+      }),
+      event("publish-overlap", {
+        operation: "published",
+        eventTimestamp: "2026-09-16T08:00:00.600Z",
+        durationMs: 200
+      }),
+      event("consume-overlap", {
+        operation: "consumed",
+        eventTimestamp: "2026-09-16T08:00:00.700Z"
+      })
+    ];
+    render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={events}
+        timing={presentTimelineTiming(events)}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+
+    expect(screen.getByText("Publish → consume gap: 100 ms")).toBeTruthy();
+    expect(screen.getByText("Publish → consume gap: unknown (start-to-start 200 ms)")).toBeTruthy();
+    expect(
+      screen.getByText("Publish → consume gap: 100 ms overlap / clock disagreement")
+    ).toBeTruthy();
+    expect(
+      screen.getAllByText(
+        "Adjacent events do not prove a matching message; this is not broker-measured queue wait."
+      )
+    ).toHaveLength(3);
+  });
+});
+
+/**
+ * F-043: each row names the build that recorded it, the way it names the
+ * service, so whether a journey came from one build reads down the list.
+ */
+describe("TimelineList builds", () => {
+  const build = {
+    label: "1.4.2 · 3cd2c2034c6d",
+    title: "Recorded by version 1.4.2, commit 3cd2c2034c6d3607"
+  };
+
+  it("names each row's build, with the whole of it on hover", () => {
+    renderList([
+      event("evt_1", { build }),
+      event("evt_2", { build: { label: "1.5.0", title: "Recorded by version 1.5.0" } })
+    ]);
+    const shown = screen.getAllByRole("option").map((row) => row.querySelector(".build"));
+    expect(shown.map((span) => span?.textContent)).toEqual(["1.4.2 · 3cd2c2034c6d", "1.5.0"]);
+    expect(shown[0]?.getAttribute("title")).toBe(build.title);
+  });
+
+  it("names none on a row whose event carried none, or from an older API", () => {
+    renderList([event("evt_1", { build: null }), event("evt_2")]);
+    for (const row of screen.getAllByRole("option")) expect(row.querySelector(".build")).toBeNull();
+  });
+
+  it("comes after the service in reading order", () => {
+    renderList([event("evt_1", { build })]);
+    const text = screen.getByRole("option").textContent;
+    expect(text.indexOf("job-sweep")).toBeLessThan(text.indexOf("1.4.2"));
+  });
+
+  it("renders markup in a build as text, never as elements", () => {
+    const markup = '<img src="x" onerror="alert(1)">';
+    const { container } = render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={[event("evt_1", { build: { label: markup, title: markup } })]}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector(".build")?.textContent).toBe(markup);
   });
 });

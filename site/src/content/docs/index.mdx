@@ -5,7 +5,7 @@ template: splash
 editUrl: false
 banner:
   content: |
-    0.x preview. It runs from a clone today; the npm package and the container images are not published yet.
+    0.x preview. It runs from a clone today; no usable SDK release or release images are published yet.
 hero:
   title: A customer's record is wrong, and you can't tell which service changed it.
   tagline: Wayscribe follows one record across your services, shows what each step received and what it produced, and points at the field that changed. It is free, self-hosted, and runs on your own PostgreSQL.
@@ -145,8 +145,9 @@ token and encryption key before the stack holds anything real; the
 
 ## Instrument a service
 
-The Node SDK, `@wayscribe/node`, is **not published on npm yet**. Until it is,
-pack it from a clone of the repository, commit the tarball to your application,
+The Node SDK, `@wayscribe/node`, has **no usable release on npm yet**. The
+deprecated `0.0.1-placeholder.0` only reserves the name and contains no SDK.
+Until the first release, pack it from a clone of the repository, commit the tarball to your application,
 and install it by path:
 
 ```bash
@@ -219,8 +220,9 @@ needs Node.js 22.12 or later and has no runtime dependencies.
   source. The pre-release security review it cites (2026-09-16) was done by an
   AI review agent at the maintainer's direction. It is not an independent audit,
   and no outside party has reviewed the code.
-- **A 0.x preview.** Nothing is published yet: no npm package and no container
-  images. Releases will be 0.x, where a minor release may change the API.
+- **A 0.x preview.** No usable SDK release or release images are published
+  yet. npm's deprecated placeholder reserves the package name only. Releases
+  will be 0.x, where a minor release may change the API.
 - **How it is built.** AI agents write most of the code; the maintainer makes
   the decisions, and each is recorded with its reasoning in the decision log.
 

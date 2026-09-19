@@ -14,9 +14,11 @@ import {
   neighbour,
   type TimelineFilters
 } from "../../src/lib/timeline";
+import { presentTimelineTiming } from "../../src/lib/timing-presentation";
 import { type DetailNotice, EventDetail } from "./EventDetail";
 import { FilterBar } from "./FilterBar";
 import { TimelineList } from "./TimelineList";
+import { RetrySummary } from "./RetrySummary";
 
 export interface JourneyTimelineProps {
   journeyId: string;
@@ -33,6 +35,8 @@ export interface JourneyTimelineProps {
   totalEvents: number;
   /** The journey's services from the server, which may include ones not yet loaded. */
   knownServices: string[];
+  /** Query from the server request, used by real event links before hydration or with modifiers. */
+  selectionQuery: string;
   /**
    * Whether to start following the journey: it is active, or its last event is
    * recent enough to count as still arriving. Decided on the server (see
@@ -128,6 +132,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const polling = useRef(false);
 
   const visible = useMemo(() => applyFilters(events, filters), [events, filters]);
+  const timing = useMemo(() => presentTimelineTiming(events), [events]);
   // From the merged list, not a server prop: a journey whose first page fell on
   // one day can cross midnight on the second.
   const multiDay = useMemo(() => spansDays(events.map((event) => event.eventTimestamp)), [events]);
@@ -318,6 +323,15 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
         onLive={onLive}
         notice={pollNotice}
       />
+      <RetrySummary
+        journeyId={journeyId}
+        events={events}
+        complete={cursor === null}
+        selectionQuery={props.selectionQuery}
+        onSelect={(id) => {
+          void select(id);
+        }}
+      />
       <div className="journey">
         <div>
           {/* The list stays mounted with no options rather than unmounting:
@@ -326,6 +340,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
           <TimelineList
             journeyId={journeyId}
             events={visible}
+            timing={timing}
             selectedId={selectedId}
             multiDay={multiDay}
             onSelect={(id) => {

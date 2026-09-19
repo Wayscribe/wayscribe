@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AliasList } from "../../../components/AliasList";
 import { JourneyHeading } from "../../../components/JourneyHeading";
 import { JourneyTimeline } from "../../../components/JourneyTimeline";
+import { JourneyTimingSummary } from "../../../components/JourneyTimingSummary";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
 import { failedStepOf } from "../../../../src/lib/failed-step";
 import { requireProjectId } from "../../../../src/lib/current-project";
@@ -47,6 +48,7 @@ export default async function JourneyPage({
         </p>
         <JourneyHeading journey={journey} />
         <p className="muted">All times UTC.</p>
+        <JourneyTimingSummary startedAt={journey.startedAt} lastEventAt={journey.lastEventAt} />
 
         <AliasList aliases={journey.aliases} />
 
@@ -66,6 +68,7 @@ export default async function JourneyPage({
           initialDetail={active}
           totalEvents={journey.eventCount}
           knownServices={journey.services}
+          selectionQuery={search}
           // Decided here, on one clock: a journey marked failed can still be
           // recording retries, and re-deciding it in the browser against a
           // different clock would be a hydration mismatch.

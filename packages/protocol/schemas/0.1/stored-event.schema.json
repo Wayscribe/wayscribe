@@ -108,6 +108,72 @@
     "runtimeMetadata": {},
     "deploymentMetadata": {},
     "customMetadata": {},
+    "timingContext": {
+      "description": "Valid bounded timing evidence projected from the already-redacted customMetadata. Omitted by older API versions.",
+      "type": "object",
+      "properties": {
+        "queue": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "queueWaitMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "queueWaitBasis": {
+          "type": "string",
+          "enum": [
+            "initial-enqueue",
+            "retry-ready"
+          ]
+        },
+        "deliveryCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "targetHost": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "httpStatusCode": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "retryAfterMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "retryGroup": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "recordedHost": {
+      "description": "The bounded already-redacted runtime hostname, null when none is usable, and omitted by older API versions.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "aliases": {
       "anyOf": [
         {

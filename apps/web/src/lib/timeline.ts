@@ -18,7 +18,7 @@ export function applyFilters(
   return events.filter(
     (event) =>
       (filters.service === null || event.service === filters.service) &&
-      (!filters.failuresOnly || event.hasError)
+      (!filters.failuresOnly || event.hasError || event.operation === "failed")
   );
 }
 

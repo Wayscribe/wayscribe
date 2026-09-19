@@ -12,11 +12,28 @@ import { API_KEY, API_URL, signIn } from "./session";
  */
 
 // Versioned for the reason journey.spec.ts gives: an event is immutable.
-const VERSION = "v1";
+const VERSION = "v3";
 const JOURNEY_ID = `jrn_e2e_layout_${VERSION}`;
 const STEP = `step-${"n".repeat(250)}`;
 const SERVICE = `svc-${"s".repeat(124)}`;
 const ENTITY = `layout-${"e".repeat(300)}-${VERSION}`;
+// The longest version and commit the protocol takes (F-043): the row cuts
+// them, and the event's Deployment group wraps them.
+const DEPLOYMENT = { version: `v-${"9".repeat(126)}`, gitCommit: "c".repeat(128) };
+const LONG_PAYLOAD = {
+  properties: {
+    email: `mobile-regression-retry-${VERSION}@timing.example.test`,
+    phone: "+13035550123",
+    company: "Northwest Industrial Equipment and Field Services Incorporated"
+  }
+};
+const LONG_OUTPUT = {
+  error: {
+    status: "error",
+    message: "Synthetic timing acceptance rate limit",
+    category: "RATE_LIMITS"
+  }
+};
 
 async function seed(): Promise<void> {
   const events = [
@@ -38,14 +55,37 @@ async function seed(): Promise<void> {
           operation: "delivered",
           name,
           timestamp: `2026-09-16T${time}.000Z`,
-          input: { a: 1 },
-          output: { a: 2 }
+          input: id.endsWith("_1") ? LONG_PAYLOAD : { a: 1 },
+          output: id.endsWith("_1") ? LONG_OUTPUT : { a: 2 },
+          deployment: DEPLOYMENT
         }
       })
     });
     expect(response.ok, `seeding ${id} answered ${String(response.status)}`).toBe(true);
   }
 }
+
+test.describe("payload layout with JavaScript disabled", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("keeps realistic long JSON inside its own scroller at 400 px", async ({ page }) => {
+    await page.setViewportSize({ width: 400, height: 900 });
+    await signIn(page, JOURNEY_ID);
+    await page.goto(`/journeys/${JOURNEY_ID}?event=evt_layout_${VERSION}_1`);
+    await expect(page.getByRole("heading", { level: 2, name: STEP })).toBeVisible();
+
+    const payloads = page.locator(".split .block");
+    await expect(payloads).toHaveCount(2);
+    await expect(payloads.first()).toContainText(LONG_PAYLOAD.properties.company);
+    await expect(payloads.last()).toContainText(LONG_OUTPUT.error.message);
+    expect(await horizontalOverflow(page)).toBe(0);
+    expect(
+      await payloads.evaluateAll((blocks) =>
+        blocks.every((block) => block.scrollWidth > block.clientWidth)
+      )
+    ).toBe(true);
+  });
+});
 
 test.beforeAll(seed);
 
@@ -78,6 +118,21 @@ for (const width of [400, 1280]) {
       .first()
       .evaluate((element) => element.scrollWidth > element.clientWidth);
     expect(cut).toBe(true);
+
+    // The build is cut on the row too, and whole in its title.
+    const build = row.locator(".build");
+    await expect(build).toHaveAttribute(
+      "title",
+      `Recorded by version ${DEPLOYMENT.version}, commit ${DEPLOYMENT.gitCommit}`
+    );
+    const buildBox = await build.boundingBox();
+    expect((buildBox?.x ?? 0) + (buildBox?.width ?? 0)).toBeLessThanOrEqual(
+      (rowBox?.x ?? 0) + (rowBox?.width ?? 0)
+    );
+    expect(await build.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    await expect(page.getByRole("group", { name: "Deployment" })).toContainText(
+      DEPLOYMENT.gitCommit
+    );
   });
 }
 
@@ -153,6 +208,8 @@ test.describe("the Journeys table", () => {
         // Phones see the short labels; assistive technology keeps the full ones.
         for (const [column, short, full] of [
           ["col-activity", "When", "Last activity"],
+          ["col-span", "Span", "Recorded span"],
+          ["col-shown", "Item", "Shown as"],
           ["col-events", "#", "Events"]
         ] as const) {
           const header = page.locator(`thead th.${column}`);

@@ -51,13 +51,15 @@ export default async function JourneysPage({
   const cleaned = withoutEmptyValues(params);
   if (cleaned !== null) redirect(cleaned === "" ? "/journeys" : `/journeys?${cleaned}`);
   const filters = readJourneyFilters(params, new Date());
+  const originalListQuery = toQueryString(params);
+  const listQuery = addFrozenInactivityCutoff(originalListQuery, filters.inactiveBefore);
 
   let environments: string[] = [];
   let page: JourneyListPage;
   try {
     // Every value of a repeated key is kept, so the page the picker returns
     // to reads the same parameters and shows the same notes.
-    const projectId = await requireProjectId(`/journeys?${toQueryString(params)}`);
+    const projectId = await requireProjectId(`/journeys${listQuery === "" ? "" : `?${listQuery}`}`);
     // Settled separately, so a refused list still has the environments for
     // the form that lets the reader change what was refused.
     const [projects, listed] = await Promise.allSettled([
@@ -143,7 +145,7 @@ export default async function JourneysPage({
           </div>
         </>
       ) : (
-        <JourneyTable filters={filters} items={page.items} listQuery={toQueryString(params)} />
+        <JourneyTable filters={filters} items={page.items} listQuery={listQuery} />
       )}
 
       {page.nextCursor === null && filters.cursor === "" ? null : (
@@ -164,6 +166,14 @@ export default async function JourneysPage({
       )}
     </Shell>
   );
+}
+
+/** Preserve the reader's list URL, adding only the cutoff the GET form derived. */
+function addFrozenInactivityCutoff(query: string, inactiveBefore: string): string {
+  if (inactiveBefore === "" || new URLSearchParams(query).has("inactiveBefore")) return query;
+  const carried = new URLSearchParams(query);
+  carried.set("inactiveBefore", inactiveBefore);
+  return carried.toString();
 }
 
 function Shell({

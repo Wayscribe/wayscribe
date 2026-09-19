@@ -255,11 +255,11 @@ test("walks the timeline with the keyboard and narrows it to failures without re
 
   await page.getByRole("button", { name: "Failures only" }).click();
 
-  // Events 6 and 7 carry an error; the dead-letter event itself does not.
-  await expect(page.locator(".timeline li")).toHaveCount(2);
+  // Events 6 and 7 carry an error; event 8 is explicitly failed without one.
+  await expect(page.locator(".timeline li")).toHaveCount(3);
   await expect(page.locator(".detail h2")).toHaveText("deliver-customer-to-target");
   await expect(page.getByRole("option", { selected: true })).toContainText("delivered");
-  await expect(page.getByText("2 of 8 events shown")).toBeVisible();
+  await expect(page.getByText("3 of 8 events shown")).toBeVisible();
 
   // Still set only if every step above happened in the first document.
   expect(await page.evaluate(() => (window as SentinelWindow).__sameDocument)).toBe(1);

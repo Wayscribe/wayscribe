@@ -297,7 +297,7 @@ paging, exactly as section 6 says.
 ## 6. List journeys
 
 ```http
-GET /v1/journeys?since=<instant, required>&until=<instant>&status=failed&environment=<name>&service=<name>&entityType=<type>&q=<text>&limit=25&cursor=<cursor>
+GET /v1/journeys?since=<instant, required>&until=<instant>&status=failed&environment=<name>&service=<name>&entityType=<type>&q=<text>&minDurationMs=<milliseconds>&minStepDurationMs=<milliseconds>&inactiveBefore=<instant>&limit=25&cursor=<cursor>
 ```
 
 **`since` is required, and has no default.** The list is always a window: it
@@ -319,6 +319,9 @@ where. Journeys are ordered by last activity, newest first (`lastEventAt`, then
 | `service` | An exact service name. Journeys with at least one event recorded by that service. |
 | `entityType` | An exact entity type, at most 128 characters, after surrounding white space is removed. Omitted, empty or white space alone means any entity type. A type stored with surrounding white space cannot be matched. |
 | `q` | Text of 2 to 200 characters, after surrounding white space is removed. Journeys whose label, or the value of one of whose displayable aliases, contains it, ignoring case. Omitted, empty or white space alone means no text filter. |
+| `minDurationMs` | A whole number from 0 through 2,147,483,647. Journeys whose recorded first-to-last event-start span is strictly greater than this many milliseconds. |
+| `minStepDurationMs` | A whole number from 0 through 2,147,483,647. Journeys with at least one stored event duration strictly greater than this many milliseconds. An unknown duration does not match. |
+| `inactiveBefore` | An ISO 8601 instant with a time zone, no later than the API's clock. Active journeys whose last activity is strictly before it. It implies `status=active`; an explicit `completed` or `failed` status is refused. |
 | `limit` | Page size: a whole number of at least 1, 25 when omitted or empty; above 100 it is read as 100, and `nextCursor` says whether more remains. Anything else is refused. |
 | `cursor` | `nextCursor` from the previous page. |
 
@@ -369,6 +372,12 @@ which applies.
 `q` filters the journeys inside the `since`/`until` window, so its cost grows
 with the number of journeys in the window, not with the size of the table.
 
+Journey duration is `lastEventAt - startedAt`, the span between recorded event
+starts. It is not a sum of step durations, completion latency, or time since
+the journey was created. A one-event journey has a measured span of zero, even
+when that event has its own nonzero duration. Timestamps from different hosts
+can disagree.
+
 Scope is the same as search. An API key reads its own environment only; naming
 another environment returns an empty page, not an error. The admin token reads
 every environment of the named project.
@@ -377,7 +386,10 @@ every environment of the named project.
 zone (the message gives an example of one), names an impossible date, or is more than 60 seconds ahead of the API's
 clock (a minute of skew between the caller and the API is tolerated); when
 `until` is not a full instant, names an impossible date, or is not after
-`since`; when `status` is not one of the three values; when `entityType` is
+`since`; when `status` is not one of the three values; when either duration
+threshold is not a whole number from 0 through 2,147,483,647; when
+`inactiveBefore` is not a full instant, is in the future, or is combined with
+an explicit status other than `active`; when `entityType` is
 longer than 128 characters; when `q` is shorter than 2 or longer than 200
 characters; when `limit` is not a whole number of at least 1; when any value
 holds a NUL; when any parameter is given more than
@@ -509,7 +521,14 @@ Response:
         "hasInput": true,
         "hasOutput": false,
         "hasError": false,
-        "deploymentMetadata": { "version": "1.4.2", "gitCommit": "3f9c2e1" }
+        "deploymentMetadata": { "version": "1.4.2", "gitCommit": "3f9c2e1" },
+        "timingContext": {
+          "queue": "customer-updates",
+          "queueWaitMs": 0,
+          "queueWaitBasis": "initial-enqueue",
+          "attempt": 1
+        },
+        "recordedHost": "customer-integration-7d9c"
       }
     ],
     "nextCursor": null
@@ -517,7 +536,7 @@ Response:
 }
 ```
 
-Every item carries all eleven fields. `receivedAt` is when the server received
+Every item carries all thirteen fields. `receivedAt` is when the server received
 the event, as opposed to `eventTimestamp`, which is when the instrumented
 service says it happened; it is the second term of the ordering above, so a
 caller that reproduces the order needs it. `durationMs` is null when the event
@@ -528,6 +547,12 @@ section 9 returns: the event's `deployment` as stored (`gitCommit`, `version`
 and `image`, each optional), or null when the event carried none. It is on the row so that whether a
 journey's events all came from one build can be read from the timeline, rather
 than from one full event read per event. The payloads stay off the row.
+
+`timingContext` contains only valid bounded keys from the event's already-redacted
+custom metadata; it is `{}` when no timing evidence is usable. A measured zero
+stays zero. `recordedHost` is the bounded already-redacted `runtime.hostname`,
+or null when none is usable. Arbitrary custom metadata, runtime metadata, and
+payloads stay off timeline rows. Older API versions may omit both added fields.
 
 ## 9. Get event details
 
@@ -542,7 +567,9 @@ describes it: its ids (`id`, `journeyId`, `parentEventId`, `traceId`, `spanId`,
 `eventTimestamp`, `receivedAt`, `durationMs`, `hasInput`, `hasOutput`,
 `hasError`, `inputPayload` and `outputPayload` as the capture mode stored them,
 `payloadDiff`, `error`, the runtime, deployment and custom metadata, and
-`aliases`. An API key reads events of its own environment only.
+`aliases`. It also returns the same `timingContext` and `recordedHost`
+interpretation as a timeline row while preserving the raw custom and runtime
+metadata. An API key reads events of its own environment only.
 
 `aliases` is what the event stated, which is what an `identified` event exists
 to record: each alias as section 7 shows it, `{ type, displayValue,
@@ -712,9 +739,12 @@ The three fields are on the 503 answers too, because when something is wrong
 the first question is what is running.
 
 **Where the value comes from.** The published image bakes it in: the
-`WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT` build arguments in
-`apps/api/Dockerfile`, which the release fills with the tag it is about to
-create and the commit it built. There is no runtime shell-out to git, because
+`WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT` build arguments, which
+`apps/api/Dockerfile` and `apps/web/Dockerfile` both declare, and which the
+release fills in both images with the tag it is about to create and the commit
+it built. An image you build yourself needs both arguments on both builds;
+`docs/OPERATIONS.md` section 1, *Building the images yourself*, has the
+commands. There is no runtime shell-out to git, because
 the image carries no git history, no working tree and no git binary; a
 shell-out could only answer for whichever machine ran the container. A build
 that passes neither argument reports `"source": "package"` and the version in
@@ -726,7 +756,13 @@ the image tag says in the registry and is derived from no stored data.
 The web app shows it under every signed-in page, beside its own version, which
 it reads from the same two build arguments in `apps/web/Dockerfile`, and says
 when the two name different builds: a different version, or the same version
-from a different commit. It asks at most once every 30 seconds, and when
+from a different commit. It compares only two builds that both carry the
+arguments. A side built without them reports its package version, `0.0.0`,
+whatever commit it came from, so when exactly one side has none the line says,
+in the muted style, that the page cannot tell whether the web app and the API
+are the same build, and names the image that lacks them. When neither has
+them, as in the source stack, both halves say "not a release build" and
+nothing is compared. It asks at most once every 30 seconds, and when
 `/ready` does not answer within 1.5 seconds the line says the API version is
 unknown and the page renders as usual.
 

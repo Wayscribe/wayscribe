@@ -1,10 +1,12 @@
 import {
   maskDisplayValue,
   type EventDetail,
+  type EventListItem,
   type JourneyAlias,
   type JourneyDetail,
   type SearchHit
 } from "@wayscribe/database";
+import { timingContext } from "@wayscribe/protocol";
 import { decryptValue, UnknownKeyError, type Keyring } from "@wayscribe/payload-security";
 
 export interface PresentedAlias {
@@ -150,10 +152,50 @@ export function presentEvent(
   detail: EventDetail,
   onUnknownKey?: (keyId: string) => void
 ): Record<string, unknown> {
+  const { timingMetadata, recordedHostname, ...stored } = detail;
   return {
-    ...detail,
+    ...stored,
     eventTimestamp: detail.eventTimestamp.toISOString(),
     receivedAt: detail.receivedAt.toISOString(),
-    aliases: detail.aliases === null ? null : presentAliases(keyring, detail.aliases, onUnknownKey)
+    aliases: detail.aliases === null ? null : presentAliases(keyring, detail.aliases, onUnknownKey),
+    timingContext: timingContext(timingMetadata),
+    recordedHost: recordedHost(recordedHostname)
   };
+}
+
+/** One event row as a journey timeline returns it. */
+export function presentEventListItem(item: EventListItem): Record<string, unknown> {
+  const { timingMetadata, recordedHostname, ...listed } = item;
+  return {
+    ...listed,
+    eventTimestamp: item.eventTimestamp.toISOString(),
+    receivedAt: item.receivedAt.toISOString(),
+    timingContext: timingContext(timingMetadata),
+    recordedHost: recordedHost(recordedHostname)
+  };
+}
+
+const REDACTION_MARKERS = new Set([
+  "[REDACTED]",
+  "[UNCAPTURABLE]",
+  "[PAYLOAD_TOO_LARGE]",
+  "[CIRCULAR]"
+]);
+const TRUNCATED_MARKER = /\[TRUNCATED: [0-9]+ characters removed\]$/;
+
+function recordedHost(value: unknown): string | null {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    REDACTION_MARKERS.has(value) ||
+    TRUNCATED_MARKER.test(value)
+  ) {
+    return null;
+  }
+  let length = 0;
+  for (const _point of value) {
+    length += 1;
+    if (length > 256) return null;
+  }
+  return value;
 }

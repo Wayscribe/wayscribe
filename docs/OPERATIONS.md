@@ -123,6 +123,34 @@ docker compose run --rm --entrypoint node api \
 The API reports `/ready` 503 `migrations_pending` until they are applied, so it
 will not serve reads against a schema it does not recognise.
 
+### Building the images yourself
+
+The published images say what they are: the API in `/ready`, the web app on the
+line under every signed-in page. Both read it from two build arguments,
+`WAYSCRIBE_BUILD_VERSION` and `WAYSCRIBE_BUILD_COMMIT`, which
+`apps/api/Dockerfile` and `apps/web/Dockerfile` both declare and the release
+passes to both. An image you build yourself, from a checkout or a `git archive`,
+needs the same two on both builds:
+
+```bash
+VERSION=local-$(git rev-parse --short HEAD)
+COMMIT=$(git rev-parse HEAD)
+docker build --file apps/api/Dockerfile \
+  --build-arg WAYSCRIBE_BUILD_VERSION="$VERSION" \
+  --build-arg WAYSCRIBE_BUILD_COMMIT="$COMMIT" \
+  --tag wayscribe-api:"$VERSION" .
+docker build --file apps/web/Dockerfile \
+  --build-arg WAYSCRIBE_BUILD_VERSION="$VERSION" \
+  --build-arg WAYSCRIBE_BUILD_COMMIT="$COMMIT" \
+  --tag wayscribe-web:"$VERSION" .
+```
+
+An image built without them reports `0.0.0`, "not a release build", whatever
+commit it came from. With one image built each way, the version line cannot
+compare them and says so, rather than calling them different builds (F-051).
+`infrastructure/compose.yaml` builds both without them, so the source stack
+says "not a release build" on both halves.
+
 ## 2. Backup
 
 On your own database, Wayscribe's tables are ordinary tables in it: back
@@ -1363,6 +1391,33 @@ What the plans show:
   the threshold and do not compile, but a larger window or table can bring
   it back.
 
+The timing filters were measured separately on 2026-09-18 in an isolated
+PostgreSQL 17 test database with 20,000 journeys and 60,000 events, after
+`VACUUM ANALYZE`, using the repository's actual page-of-25 SQL and `EXPLAIN
+(ANALYZE, BUFFERS)`. The
+synthetic journeys covered zero and 1-4,999 ms event-start spans, 20 percent
+active status, nullable event durations, and duration values on two of three
+events. With every row inside the required `since` window:
+
+- `minDurationMs=1000` walked `journeys_project_recent_idx` backward, removed
+  one row at the filter before filling the page, touched 57 shared buffers
+  including the returned summary fields, and executed in 0.157 ms.
+- `minStepDurationMs=2000` used a nested-loop semi-join: the same journey index
+  supplied rows in page order and `journey_events_timeline_idx` probed the
+  project-and-journey-scoped events. It touched 187 shared buffers including
+  the returned summary fields and executed in 0.227 ms.
+- `inactiveBefore` with a four-hour cutoff used an index-only backward scan of
+  `journeys_status_recent_idx`, including project, active status, `since`, and
+  cutoff in the index condition. It touched 62 shared buffers including the
+  returned summary fields and executed in 0.086 ms.
+
+These are warm-cache development measurements on a modest representative data
+set, not production latency promises. They show the predicates use the existing
+bounded-window and per-journey indexes, so no duration index was added. Measure
+with your own event density and window before adding one: a step-duration
+filter that rejects many journeys will perform more per-journey probes before
+it fills a page.
+
 At 120,000 journeys the journeys index is 11 MB and the alias index 19 MB.
 
 **What they cost ingestion.** Every event updates its journey's
@@ -1541,7 +1596,8 @@ a cleanup policy that deletes them leaves every release unverifiable.
 Use [cosign](https://github.com/sigstore/cosign) 3.x, the major version the
 pipeline signs with, plus `jq` and Docker's `buildx` for the SBOM steps.
 
-Nothing is published yet. In the commands below, `vX.Y.Z` stands for the
+No usable release is published yet; npm's deprecated placeholder only reserves
+the package name. In the commands below, `vX.Y.Z` stands for the
 release you run; releases will be 0.x, such as `v0.1.0`.
 
 **The signature.** For a version you have chosen, name its tag exactly:
@@ -1671,6 +1727,14 @@ Run it with the API's environment, because that is what it checks: the same
 `DATABASE_URL`, `ENCRYPTION_KEY`, `ADMIN_TOKEN`, and
 `DATABASE_STATEMENT_TIMEOUT_MS`. `docker compose run … api` gives it exactly
 that. Inside Compose the API is `http://api:8080`, not `localhost`.
+
+The statement timeout row reads `DATABASE_STATEMENT_TIMEOUT_MS` from doctor's
+own environment and never asks the running API, so it says so, and it can pass
+while `API reachable` fails:
+
+```text
+PASS  Statement timeout       DATABASE_STATEMENT_TIMEOUT_MS here is 4000 ms, so an API started with this environment cancels a statement after 4000 ms.
+```
 
 Each check prints one line, and anything that did not pass prints its fix
 beneath it:

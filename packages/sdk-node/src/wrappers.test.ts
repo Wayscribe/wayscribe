@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Diagnostic } from "./diagnostics.js";
 import { compare, describeComparison } from "../../../tests/support/timing.js";
+import { httpMetadata, queueMetadata } from "./index.js";
 import { createRecorder, type Journey } from "./recorder.js";
 
 // Port 1 refuses connections: the contract assertions below all hold with a dead
@@ -174,6 +175,42 @@ describe("recorded events", () => {
     );
     expect(events.some((e) => e["operation"] === "retried")).toBe(true);
     expect(events.some((e) => e["operation"] === "delivered")).toBe(false);
+  });
+
+  it("uses queue metadata's attempt as the wrapper option and keeps a failed retry's outcome", async () => {
+    const metadata = queueMetadata(
+      {
+        queueName: "orders",
+        id: "job-42",
+        timestamp: 1_000,
+        processedOn: 9_500,
+        attemptsMade: 1
+      },
+      { readyAgainAt: 9_200 }
+    );
+    const events = await recordAnd((journey) =>
+      journey.deliver("send-order", {}, () => ({ status: 429, headers: { get: () => "2" } }), {
+        metadata,
+        attempt: metadata.attempt,
+        metadataFrom: (response) => httpMetadata(response),
+        isFailure: (response) => response.status >= 400
+      })
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      operation: "retried",
+      metadata: {
+        queue: "orders",
+        queueWaitMs: 300,
+        queueWaitBasis: "retry-ready",
+        attempt: 2,
+        retryGroup: 'queue:["orders","job-42"]',
+        httpStatusCode: 429,
+        retryAfterMs: 2_000
+      },
+      error: { code: "result_failed" }
+    });
   });
 
   it("records an error for a non-throwing failure", async () => {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { displayChange, eventForDisplay, type ApiEventDetail } from "./event-display";
+import {
+  displayChange,
+  eventForDisplay,
+  rowForDisplay,
+  type ApiEventDetail,
+  type ApiEventRow
+} from "./event-display";
 import { MAX_METADATA_TEXT, metadataEntries, runtimeFormat } from "./metadata";
 
 /** An event as `GET /v1/events/:id` answers it, parsed from its JSON text. */
@@ -20,6 +26,37 @@ describe("eventForDisplay", () => {
     expect(event.inputText).toBe(JSON.stringify({ a: 1, b: [1, 2] }, null, 2));
     expect(event.outputText).toBe('"text"');
     expect(event.errorText).toBe(JSON.stringify({ message: "m" }, null, 2));
+  });
+
+  it("keeps a measured timing zero and independently omits invalid evidence", () => {
+    const event = eventForDisplay(
+      raw(
+        ',"timingContext":{"queue":"jobs","queueWaitMs":0,"queueWaitBasis":"initial-enqueue","attempt":1,"retryAfterMs":-1,"httpStatusCode":429,"deliveryCount":1.5},"recordedHost":"worker-1"'
+      )
+    );
+    expect(event.timingContext).toEqual({
+      queue: "jobs",
+      queueWaitMs: 0,
+      queueWaitBasis: "initial-enqueue",
+      attempt: 1,
+      httpStatusCode: 429
+    });
+    expect(event.recordedHost).toBe("worker-1");
+  });
+
+  it("suppresses initial-enqueue wait when delivery count proves a redelivery", () => {
+    const event = eventForDisplay(
+      raw(
+        ',"timingContext":{"queueWaitMs":9000,"queueWaitBasis":"initial-enqueue","attempt":1,"deliveryCount":2}'
+      )
+    );
+    expect(event.timingContext).toEqual({ attempt: 1, deliveryCount: 2 });
+  });
+
+  it("normalizes an older API with no context to unknown rather than zero", () => {
+    const event = eventForDisplay(raw(""));
+    expect(event.timingContext).toEqual({});
+    expect(event.recordedHost).toBeNull();
   });
 
   it("keeps no error as no error, and a null payload as the text null", () => {
@@ -62,7 +99,9 @@ describe("eventForDisplay", () => {
 
   it("hands out text only: no raw payload, error, diff value or metadata object", () => {
     const event = eventForDisplay(
-      raw(',"inputPayload":{"a":1},"customMetadata":{"k":"v"},"runtimeMetadata":null')
+      raw(
+        ',"inputPayload":{"a":1},"customMetadata":{"k":"v"},"runtimeMetadata":null,"aliases":[{"type":"email","displayValue":"j…m","displayable":false}]'
+      )
     );
     for (const field of [
       "inputPayload",
@@ -70,7 +109,8 @@ describe("eventForDisplay", () => {
       "error",
       "customMetadata",
       "deploymentMetadata",
-      "runtimeMetadata"
+      "runtimeMetadata",
+      "aliases"
     ]) {
       expect(Object.hasOwn(event, field), field).toBe(false);
     }
@@ -217,5 +257,145 @@ describe("the Runtime group's sdk entry", () => {
     expect(runtime("null")).toEqual([]);
     expect(runtime('{"language":"node"}')).toEqual([{ key: "language", value: "node" }]);
     expect(eventForDisplay(raw("")).metadata?.runtime.entries).toEqual([]);
+  });
+});
+
+/**
+ * F-042: an `identified` event read on its own did not say what it
+ * identified. `GET /v1/events/:id` returns the aliases the event stated,
+ * masked as the journey read masks them; the page shows them as text.
+ */
+describe("the aliases an event stated", () => {
+  it("lists each as its type, its value as the API gave it, and whether it is masked", () => {
+    const event = eventForDisplay(
+      raw(
+        ',"aliases":[{"type":"email","displayValue":"j…@example.com","displayable":false},{"type":"hubspotContactId","displayValue":"1234","displayable":true}]'
+      )
+    );
+    expect(event.statedAliases).toEqual([
+      { type: "email", value: "j…@example.com", masked: true },
+      { type: "hubspotContactId", value: "1234", masked: false }
+    ]);
+  });
+
+  it("is empty for an event that stated none", () => {
+    expect(eventForDisplay(raw(',"aliases":[]')).statedAliases).toEqual([]);
+  });
+
+  it("is null when the API did not record them, or is older and does not send them", () => {
+    expect(eventForDisplay(raw(',"aliases":null')).statedAliases).toBeNull();
+    expect(eventForDisplay(raw("")).statedAliases).toBeNull();
+  });
+
+  it("reads an alias as masked unless the API says it is displayable, and a missing value as none", () => {
+    const event = eventForDisplay(
+      raw(
+        ',"aliases":[{"type":"phone","displayValue":null},{"type":"crm","displayValue":"7","displayable":"yes"}]'
+      )
+    );
+    expect(event.statedAliases).toEqual([
+      { type: "phone", value: "(no value)", masked: true },
+      { type: "crm", value: "7", masked: true }
+    ]);
+  });
+
+  it("leaves out an entry that is not an alias rather than guessing at it", () => {
+    const event = eventForDisplay(
+      raw(
+        ',"aliases":[null,"email",{"displayValue":"x"},{"type":1,"displayValue":"y"},{"type":"email","displayValue":"z","displayable":true}]'
+      )
+    );
+    expect(event.statedAliases).toEqual([{ type: "email", value: "z", masked: false }]);
+  });
+
+  it("reads null for an aliases field that is not a list", () => {
+    expect(eventForDisplay(raw(',"aliases":{"type":"email"}')).statedAliases).toBeNull();
+  });
+
+  it("bounds a type or value however long", () => {
+    const long = "v".repeat(MAX_METADATA_TEXT + 50);
+    const event = eventForDisplay(
+      raw(`,"aliases":[{"type":"${long}","displayValue":"${long}","displayable":true}]`)
+    );
+    const [alias] = event.statedAliases ?? [];
+    expect(Array.from(alias?.type ?? "")).toHaveLength(MAX_METADATA_TEXT + 1);
+    expect(alias?.value.endsWith("…")).toBe(true);
+  });
+});
+
+/**
+ * F-043: timeline rows carry `deploymentMetadata`, so a row can name the build
+ * that recorded it and a reader can see whether a journey came from one build.
+ */
+describe("rowForDisplay", () => {
+  const row = (fields: string): ApiEventRow =>
+    JSON.parse(`{"id":"evt_1","operation":"transformed","name":"step","service":"s",
+      "eventTimestamp":"2026-09-18T00:00:00.000Z","receivedAt":"2026-09-18T00:00:00.000Z",
+      "durationMs":null,"hasInput":true,"hasOutput":true,"hasError":false${fields}}`) as ApiEventRow;
+  const COMMIT = "3cd2c2034c6d3607a2b8d047ab7758f96d7b5604";
+
+  it("names the version and the commit, cut to twelve characters, with both in full on hover", () => {
+    expect(
+      rowForDisplay(row(`,"deploymentMetadata":{"version":"1.4.2","gitCommit":"${COMMIT}"}`)).build
+    ).toEqual({
+      label: "1.4.2 · 3cd2c2034c6d",
+      title: `Recorded by version 1.4.2, commit ${COMMIT}`
+    });
+  });
+
+  it("names whichever of the two the event carried", () => {
+    expect(rowForDisplay(row(',"deploymentMetadata":{"version":"1.4.2"}')).build).toEqual({
+      label: "1.4.2",
+      title: "Recorded by version 1.4.2"
+    });
+    expect(rowForDisplay(row(`,"deploymentMetadata":{"gitCommit":"${COMMIT}"}`)).build).toEqual({
+      label: "commit 3cd2c2034c6d",
+      title: `Recorded by commit ${COMMIT}`
+    });
+  });
+
+  it.each([
+    ["no deployment", ',"deploymentMetadata":null'],
+    ["an older API that omits it", ""],
+    ["only an image", ',"deploymentMetadata":{"image":"registry/app:1"}'],
+    ["empty values", ',"deploymentMetadata":{"version":" ","gitCommit":""}'],
+    ["values that are not text", ',"deploymentMetadata":{"version":1,"gitCommit":["a"]}'],
+    ["a deployment that is not an object", ',"deploymentMetadata":"1.4.2"'],
+    ["fields only under __proto__", ',"deploymentMetadata":{"__proto__":{"version":"9"}}']
+  ])("names no build for %s", (_, fields) => {
+    expect(rowForDisplay(row(fields)).build).toBeNull();
+  });
+
+  it("does not read a version or commit from the prototype chain", () => {
+    const inherited = Object.create({ version: "9.9.9", gitCommit: "feedface" }) as object;
+    expect(rowForDisplay({ ...row(""), deploymentMetadata: inherited }).build).toBeNull();
+  });
+
+  it("hands out text only, and keeps the rest of the row", () => {
+    const shown = rowForDisplay(row(',"deploymentMetadata":{"version":"1.4.2"}'));
+    expect(Object.hasOwn(shown, "deploymentMetadata")).toBe(false);
+    expect(shown).toMatchObject({ id: "evt_1", name: "step", service: "s", hasInput: true });
+    expect(JSON.parse(JSON.stringify(shown)) as unknown).toEqual(shown);
+  });
+
+  it("validates timing evidence on rows while preserving a measured zero", () => {
+    const shown = rowForDisplay(
+      row(
+        ',"timingContext":{"queueWaitMs":0,"queueWaitBasis":"retry-ready","attempt":2,"retryGroup":"job-7","retryAfterMs":null},"recordedHost":7'
+      )
+    );
+    expect(shown.timingContext).toEqual({
+      queueWaitMs: 0,
+      queueWaitBasis: "retry-ready",
+      attempt: 2,
+      retryGroup: "job-7"
+    });
+    expect(shown.recordedHost).toBeNull();
+  });
+
+  it("bounds a version however long", () => {
+    const long = "v".repeat(MAX_METADATA_TEXT + 50);
+    const { build } = rowForDisplay(row(`,"deploymentMetadata":{"version":"${long}"}`));
+    expect(Array.from(build?.label ?? "")).toHaveLength(MAX_METADATA_TEXT + 1);
   });
 });

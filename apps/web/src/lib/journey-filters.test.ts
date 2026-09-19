@@ -14,7 +14,8 @@ import {
   refusedListMessage,
   statusHref,
   toDateTimeLocal,
-  toQueryString
+  toQueryString,
+  type JourneyFilters
 } from "./journey-filters";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
@@ -31,6 +32,10 @@ describe("readJourneyFilters", () => {
       entityType: "",
       environment: "",
       service: "",
+      minDurationMs: "",
+      minStepDurationMs: "",
+      inactiveForMs: "",
+      inactiveBefore: "",
       since: "2026-09-14T12:00:00.000Z",
       until: "",
       sinceInput: "",
@@ -80,6 +85,10 @@ describe("readJourneyFilters", () => {
     "entityType",
     "environment",
     "service",
+    "minDurationMs",
+    "minStepDurationMs",
+    "inactiveForMs",
+    "inactiveBefore",
     "since",
     "until",
     "cursor"
@@ -432,6 +441,92 @@ describe("journeysApiQuery", () => {
       cursor: "abc"
     });
   });
+
+  it("sends duration thresholds and the computed active inactivity cutoff", () => {
+    const filters = readJourneyFilters(
+      { minDurationMs: "0", minStepDurationMs: "250", inactiveForMs: "60000" },
+      NOW
+    );
+    expect(Object.fromEntries(new URLSearchParams(journeysApiQuery(filters)))).toMatchObject({
+      minDurationMs: "0",
+      minStepDurationMs: "250",
+      inactiveBefore: "2026-09-15T11:59:00.000Z",
+      status: "active"
+    });
+  });
+});
+
+describe("timing filters", () => {
+  it.each([
+    "minDurationMs",
+    "minStepDurationMs",
+    "inactiveForMs"
+  ] satisfies (keyof JourneyFilters)[])(
+    "keeps a valid whole-millisecond %s including zero",
+    (key) => {
+      expect(readJourneyFilters({ [key]: "0" }, NOW)[key]).toBe("0");
+      expect(readJourneyFilters({ [key]: "2147483647" }, NOW)[key]).toBe("2147483647");
+    }
+  );
+
+  it.each(["-1", "1.5", " 1", "2147483648", "nan"])(
+    "sets aside an invalid duration threshold %j with a visible warning",
+    (value) => {
+      const filters = readJourneyFilters({ minDurationMs: value, cursor: "c" }, NOW);
+      expect(filters.minDurationMs).toBe("");
+      expect(filters.cursor).toBe("");
+      expect(filters.notes).toContain(
+        `Minimum journey duration "${value}" is not a whole number from 0 through 2147483647 ms, so it was left out.`
+      );
+    }
+  );
+
+  it("makes an inactivity threshold active-only", () => {
+    const filters = readJourneyFilters({ inactiveForMs: "60000" }, NOW);
+    expect(filters.status).toBe("active");
+    expect(filters.inactiveBefore).toBe("2026-09-15T11:59:00.000Z");
+    expect(filters.notes).toEqual([]);
+  });
+
+  it("warns and leaves inactivity out when an explicit non-active status contradicts it", () => {
+    const filters = readJourneyFilters(
+      { status: "failed", inactiveForMs: "60000", cursor: "c" },
+      NOW
+    );
+    expect(filters.status).toBe("failed");
+    expect(filters.inactiveForMs).toBe("");
+    expect(filters.inactiveBefore).toBe("");
+    expect(filters.cursor).toBe("");
+    expect(filters.notes).toContain(
+      "Inactive for applies only to active journeys, so it was left out."
+    );
+  });
+
+  it("freezes the inactivity cutoff across a next-page link", () => {
+    const first = readJourneyFilters({ inactiveForMs: "60000" }, NOW);
+    const href = nextPageHref(first, "next-cursor");
+    const later = new Date("2026-09-15T12:10:00.000Z");
+    const next = readJourneyFilters(queryOf(href), later);
+    expect(next.inactiveBefore).toBe(first.inactiveBefore);
+    expect(next.inactiveForMs).toBe("60000");
+    expect(next.cursor).toBe("next-cursor");
+  });
+
+  it("names timing filters and the bounded activity window in result wording", () => {
+    const filters = readJourneyFilters(
+      { minDurationMs: "0", minStepDurationMs: "250", inactiveForMs: "60000" },
+      NOW
+    );
+    expect(activeFilterList(filters)).toEqual([
+      "status active",
+      "recorded journey span over 0 ms",
+      "a recorded step over 250 ms",
+      "active with no activity for at least 60000 ms",
+      "the last 24 hours"
+    ]);
+    expect(describeJourneyFilters(filters)).toContain("recorded span over 0 ms");
+    expect(describeJourneyFilters(filters)).toContain("active for at least 60000 ms");
+  });
 });
 
 describe("nextPageHref", () => {
@@ -545,6 +640,15 @@ describe("statusHref", () => {
       status: "failed"
     });
     expect(queryOf(statusHref(filters, ""))).not.toHaveProperty("status");
+  });
+
+  it("drops the active-only inactivity threshold when the status changes away from active", () => {
+    const filters = readJourneyFilters({ inactiveForMs: "5000", service: "worker" }, NOW);
+    expect(queryOf(statusHref(filters, "failed"))).toEqual({
+      status: "failed",
+      window: "24h",
+      service: "worker"
+    });
   });
 });
 

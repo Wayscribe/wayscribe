@@ -110,6 +110,7 @@ test("lists a labelled journey and the fallback rows, newest first", async ({ pa
   // hidden from assistive technology.
   const names = [
     "Last activity",
+    "Recorded span",
     "Status",
     "Environment",
     "Entity type",
@@ -130,6 +131,7 @@ test("lists a labelled journey and the fallback rows, newest first", async ({ pa
   await expect(rows(page).nth(1)).not.toContainText(`hidden-${RUN}`);
   await expect(rows(page).nth(2).getByRole("cell")).toHaveText([
     /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/,
+    "0 ms",
     "failed",
     "development",
     "customer",
@@ -142,7 +144,7 @@ test("lists a labelled journey and the fallback rows, newest first", async ({ pa
   await page.goto(`/journeys?service=${SERVICE}&environment=development`);
   await expect(rows(page)).toHaveCount(3);
   await expect(page.getByRole("columnheader", { name: "Environment" })).toHaveCount(0);
-  await expect(rows(page).first().getByRole("cell")).toHaveCount(6);
+  await expect(rows(page).first().getByRole("cell")).toHaveCount(7);
 
   await page.getByRole("link", { name: LABEL }).click();
   await expect(page).toHaveURL(

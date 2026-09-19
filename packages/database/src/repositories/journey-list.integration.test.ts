@@ -236,6 +236,198 @@ describe("listJourneys", () => {
     expect(await ids(project)).not.toContain("jrn_other_project");
   });
 
+  describe("timing filters", () => {
+    const window = {
+      since: new Date("2026-09-13T00:00:00.000Z"),
+      until: new Date("2026-09-14T00:00:00.000Z"),
+      environment: "timing"
+    };
+
+    beforeAll(async () => {
+      const environmentId = await insertReturningId(db, "environments", {
+        project_id: project.projectId,
+        name: "timing"
+      });
+      const add = async (
+        id: string,
+        status: "active" | "completed" | "failed",
+        startedAt: string,
+        lastEventAt: string,
+        durationMs: number | null
+      ): Promise<void> => {
+        await db("journeys").insert({
+          id,
+          project_id: project.projectId,
+          environment_id: environmentId,
+          entity_type: "order",
+          primary_entity_id_hash: `hash-${id}`,
+          status,
+          started_at: startedAt,
+          last_event_at: lastEventAt,
+          event_count: 1
+        });
+        await db("journey_events").insert({
+          id: `${id}_evt`,
+          project_id: project.projectId,
+          environment_id: environmentId,
+          journey_id: id,
+          protocol_version: "0.1",
+          content_hash: "h",
+          operation: "received",
+          name: "step",
+          service: "timing-worker",
+          event_timestamp: lastEventAt,
+          duration_ms: durationMs
+        });
+      };
+
+      await add(
+        "jrn_timing_zero_span",
+        "active",
+        "2026-09-13T09:00:00.000Z",
+        "2026-09-13T09:00:00.000Z",
+        null
+      );
+      await add(
+        "jrn_timing_duration_boundary",
+        "active",
+        "2026-09-13T09:59:59.000Z",
+        "2026-09-13T10:00:00.000Z",
+        1_000
+      );
+      await add(
+        "jrn_timing_duration_above",
+        "active",
+        "2026-09-13T10:59:58.999Z",
+        "2026-09-13T11:00:00.000Z",
+        1_001
+      );
+      await add(
+        "jrn_timing_step_zero",
+        "active",
+        "2026-09-13T11:15:00.000Z",
+        "2026-09-13T11:15:00.000Z",
+        0
+      );
+      await add(
+        "jrn_timing_at_cutoff",
+        "active",
+        "2026-09-13T12:00:00.000Z",
+        "2026-09-13T12:00:00.000Z",
+        null
+      );
+      await add(
+        "jrn_timing_failed_old",
+        "failed",
+        "2026-09-13T11:30:00.000Z",
+        "2026-09-13T11:30:00.000Z",
+        null
+      );
+
+      // The same journey id in another project must not make this project's
+      // unknown duration match the event EXISTS predicate.
+      const otherProjectId = await insertReturningId(db, "projects", {
+        name: "Timing other",
+        slug: "timing-other"
+      });
+      const otherEnvironmentId = await insertReturningId(db, "environments", {
+        project_id: otherProjectId,
+        name: "timing"
+      });
+      await db("journeys").insert({
+        id: "jrn_timing_zero_span",
+        project_id: otherProjectId,
+        environment_id: otherEnvironmentId,
+        entity_type: "order",
+        primary_entity_id_hash: "other-hash",
+        status: "active",
+        started_at: "2026-09-13T09:00:00.000Z",
+        last_event_at: "2026-09-13T09:00:00.000Z",
+        event_count: 1
+      });
+      await db("journey_events").insert({
+        id: "evt_other_slow",
+        project_id: otherProjectId,
+        environment_id: otherEnvironmentId,
+        journey_id: "jrn_timing_zero_span",
+        protocol_version: "0.1",
+        content_hash: "h",
+        operation: "received",
+        name: "step",
+        service: "timing-worker",
+        event_timestamp: "2026-09-13T09:00:00.000Z",
+        duration_ms: 2_000
+      });
+    });
+
+    it("matches journey spans strictly greater than the threshold and keeps zero measured", async () => {
+      const overZero = await listJourneys(db, project, { ...window, minDurationMs: 0 }, 25);
+      expect(overZero.items.map((item) => item.journeyId)).toEqual([
+        "jrn_timing_duration_above",
+        "jrn_timing_duration_boundary"
+      ]);
+
+      const overBoundary = await listJourneys(db, project, { ...window, minDurationMs: 1_000 }, 25);
+      expect(overBoundary.items.map((item) => item.journeyId)).toEqual([
+        "jrn_timing_duration_above"
+      ]);
+    });
+
+    it("matches only known step durations strictly greater than the threshold", async () => {
+      const overZero = await listJourneys(db, project, { ...window, minStepDurationMs: 0 }, 25);
+      expect(overZero.items.map((item) => item.journeyId)).toEqual([
+        "jrn_timing_duration_above",
+        "jrn_timing_duration_boundary"
+      ]);
+
+      const overBoundary = await listJourneys(
+        db,
+        project,
+        { ...window, minStepDurationMs: 1_000 },
+        25
+      );
+      expect(overBoundary.items.map((item) => item.journeyId)).toEqual([
+        "jrn_timing_duration_above"
+      ]);
+      expect(
+        (await listJourneys(db, project, { ...window, minStepDurationMs: 1_500 }, 25)).items
+      ).toEqual([]);
+    });
+
+    it("matches only active journeys strictly before the inactivity cutoff", async () => {
+      const page = await listJourneys(
+        db,
+        project,
+        { ...window, inactiveBefore: new Date("2026-09-13T12:00:00.000Z") },
+        25
+      );
+      expect(page.items.map((item) => item.journeyId)).toEqual([
+        "jrn_timing_step_zero",
+        "jrn_timing_duration_above",
+        "jrn_timing_duration_boundary",
+        "jrn_timing_zero_span"
+      ]);
+      expect(page.items.every((item) => item.status === "active")).toBe(true);
+    });
+
+    it("keeps timing predicates, scope and keyset pagination together", async () => {
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await listJourneys(
+          db,
+          project,
+          { ...window, minStepDurationMs: 0 },
+          1,
+          cursor
+        );
+        seen.push(...page.items.map((item) => item.journeyId));
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor !== undefined);
+      expect(seen).toEqual(["jrn_timing_duration_above", "jrn_timing_duration_boundary"]);
+    });
+  });
+
   describe("pagination", () => {
     // Before SINCE and in an environment of their own, so these rows never
     // reach the tests above whatever order they run in.

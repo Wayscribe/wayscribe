@@ -29,6 +29,13 @@ export function JourneyTable({
           <th scope="col" className="col-activity" title="Last activity">
             <HeaderLabel full="Last activity" short="When" />
           </th>
+          <th
+            scope="col"
+            className="col-span"
+            title="Time from first recorded event start to last recorded event start"
+          >
+            <HeaderLabel full="Recorded span" short="Span" />
+          </th>
           <th scope="col" className="col-status">
             Status
           </th>
@@ -41,7 +48,7 @@ export function JourneyTable({
             Entity type
           </th>
           <th scope="col" className="col-shown">
-            Shown as
+            <HeaderLabel full="Shown as" short="Item" />
           </th>
           <th scope="col" className="col-step">
             Step

@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
@@ -45,5 +45,32 @@ describe("the SDK release tarball", () => {
   it("names both in the manifest it ships", () => {
     const manifest = JSON.parse(entry("package.json")) as { files?: string[] };
     expect(manifest.files).toEqual(expect.arrayContaining(["LICENSE", "NOTICE"]));
+  });
+
+  it("exports the timing helpers to ES module and CommonJS hosts", () => {
+    const directory = join(work, "unpacked");
+    mkdirSync(directory);
+    execFileSync("tar", ["-xzf", tarball, "-C", directory]);
+    const bundledEntry = join(directory, "package", "dist", "index.js");
+    const esm = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `const sdk = await import(${JSON.stringify(pathToFileURL(bundledEntry).href)}); console.log(typeof sdk.queueMetadata, typeof sdk.httpMetadata);`
+      ],
+      { encoding: "utf8" }
+    ).trim();
+    const commonJs = execFileSync(
+      process.execPath,
+      [
+        "--input-type=commonjs",
+        "--eval",
+        `const sdk = require(${JSON.stringify(bundledEntry)}); console.log(typeof sdk.queueMetadata, typeof sdk.httpMetadata);`
+      ],
+      { encoding: "utf8" }
+    ).trim();
+    expect(esm).toBe("function function");
+    expect(commonJs).toBe("function function");
   });
 });
