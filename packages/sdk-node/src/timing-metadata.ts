@@ -237,27 +237,20 @@ function parseHttpDate(value: string, now: number): number | undefined {
   if (rfc850 !== null) {
     const nowDate = new Date(now);
     if (!Number.isFinite(nowDate.getTime())) return undefined;
-    let year = Math.floor(nowDate.getUTCFullYear() / 100) * 100 + Number(rfc850[4]);
-    const candidate = calendarTimestamp({
+    const parts = {
       day: Number(rfc850[2]),
       month: MONTHS.indexOf(regexCapture(rfc850, 3)),
-      year,
       hour: Number(rfc850[5]),
       minute: Number(rfc850[6]),
       second: Number(rfc850[7])
-    });
-    const fiftyYearsFromNow = shiftedUtcYear(nowDate, 50);
-    if (candidate === undefined || fiftyYearsFromNow === undefined) return undefined;
-    if (candidate > fiftyYearsFromNow) year -= 100;
+    };
+    const year = rfc850Year(Number(rfc850[4]), parts, nowDate);
+    if (year === undefined) return undefined;
 
     return httpDateTimestamp({
       weekday: LONG_WEEKDAYS.indexOf(regexCapture(rfc850, 1)),
-      day: Number(rfc850[2]),
-      month: MONTHS.indexOf(regexCapture(rfc850, 3)),
-      year,
-      hour: Number(rfc850[5]),
-      minute: Number(rfc850[6]),
-      second: Number(rfc850[7])
+      ...parts,
+      year
     });
   }
 
@@ -279,6 +272,38 @@ function parseHttpDate(value: string, now: number): number | undefined {
 
 function regexCapture(match: RegExpExecArray, index: number): string {
   return match[index] ?? "";
+}
+
+function rfc850Year(
+  twoDigitYear: number,
+  parts: Omit<HttpDateParts, "weekday" | "year">,
+  now: Date
+): number | undefined {
+  const cutoffTimestamp = shiftedUtcYear(now, 50);
+  if (cutoffTimestamp === undefined) return undefined;
+  const cutoff = new Date(cutoffTimestamp);
+  let year = Math.floor(cutoff.getUTCFullYear() / 100) * 100 + twoDigitYear;
+  const candidate = [year, parts.month, parts.day, parts.hour, parts.minute, parts.second];
+  const latestAllowed = [
+    cutoff.getUTCFullYear(),
+    cutoff.getUTCMonth(),
+    cutoff.getUTCDate(),
+    cutoff.getUTCHours(),
+    cutoff.getUTCMinutes(),
+    cutoff.getUTCSeconds()
+  ];
+  if (isLaterDateParts(candidate, latestAllowed)) year -= 100;
+  return year;
+}
+
+function isLaterDateParts(candidate: readonly number[], limit: readonly number[]): boolean {
+  for (let index = 0; index < candidate.length; index += 1) {
+    const candidatePart = candidate[index];
+    const limitPart = limit[index];
+    if (candidatePart === undefined || limitPart === undefined) return false;
+    if (candidatePart !== limitPart) return candidatePart > limitPart;
+  }
+  return false;
 }
 
 function httpDateTimestamp(parts: HttpDateParts): number | undefined {

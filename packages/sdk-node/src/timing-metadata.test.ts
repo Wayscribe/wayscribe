@@ -266,6 +266,31 @@ describe("httpMetadata", () => {
     }
   });
 
+  it.each([
+    {
+      now: "1999-12-31T23:59:58.000Z",
+      dates: [
+        "Sat, 01 Jan 2000 00:00:00 GMT",
+        "Saturday, 01-Jan-00 00:00:00 GMT",
+        "Sat Jan  1 00:00:00 2000"
+      ]
+    },
+    {
+      now: "2099-12-31T23:59:58.000Z",
+      dates: [
+        "Fri, 01 Jan 2100 00:00:00 GMT",
+        "Friday, 01-Jan-00 00:00:00 GMT",
+        "Fri Jan  1 00:00:00 2100"
+      ]
+    }
+  ])("resolves rfc850 years across the century after $now", ({ now, dates }) => {
+    for (const retryAfter of dates) {
+      expect(
+        httpMetadata({ status: 503, headers: { get: () => retryAfter } }, { now: Date.parse(now) })
+      ).toEqual({ httpStatusCode: 503, retryAfterMs: 2_000 });
+    }
+  });
+
   it("rejects non-HTTP dates and impossible components instead of accepting Date.parse normalization", () => {
     const now = Date.parse("2024-03-01T07:27:58.000Z");
     for (const retryAfter of [
@@ -282,11 +307,18 @@ describe("httpMetadata", () => {
     }
   });
 
-  it("interprets an rfc850 date more than 50 years ahead as the most recent past year", () => {
+  it("keeps the 50-year cutoff inclusive and maps a later rfc850 instant to the past", () => {
+    const now = Date.parse("2026-09-18T12:00:00.000Z");
+    expect(
+      httpMetadata(
+        { status: 503, headers: { get: () => "Friday, 18-Sep-76 12:00:00 GMT" } },
+        { now }
+      )
+    ).toEqual({ httpStatusCode: 503 });
     expect(
       httpMetadata(
         { status: 503, headers: { get: () => "Saturday, 18-Sep-76 12:00:01 GMT" } },
-        { now: Date.parse("2026-09-18T12:00:00.000Z") }
+        { now }
       )
     ).toEqual({ httpStatusCode: 503 });
   });
