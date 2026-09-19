@@ -204,8 +204,10 @@ the newest one CI tests.
 
 For a common stack, start from a [recipe](docs/recipes/README.md).
 
-The SDK is not published to npm yet. Until it is, pack it from a clone of this
-repository, commit the tarball to your application, and depend on it by path:
+No usable SDK release is published to npm yet. The deprecated
+`0.0.1-placeholder.0` only reserves the package name and contains no SDK.
+Until the first release, pack it from a clone of this repository, commit the
+tarball to your application, and depend on it by path:
 
 ```bash
 pnpm install
@@ -400,12 +402,13 @@ wrong the first time and say so.
 
 ## Status
 
-**Pre-release. It runs from a clone; nothing is published yet.**
+**Pre-release. It runs from a clone; no usable release is published yet.**
 
 Ingestion, search, journey timelines, field-level diffs, the Node SDK,
 cross-process propagation, retention, the demo, development replay, and a
-read-only CLI are built, tested, and running. Container images and the npm
-package are not published, so today you install by cloning this repository.
+read-only CLI are built, tested, and running. Release images and a usable npm
+SDK are not published, so today you install by cloning this repository. npm's
+deprecated `0.0.1-placeholder.0` reserves the package name only.
 
 An adversarial audit of the first-contact experience on 2026-08-09 found that
 the demo which verified all of it was systematically narrow: ten flat

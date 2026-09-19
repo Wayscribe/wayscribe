@@ -562,6 +562,7 @@ demo:
     # infrastructure/compose.ci.yaml.
     WAYSCRIBE_API_URL: http://docker:8080
     DEMO_SOURCE_URL: http://docker:3100
+    WEB_URL: http://docker:3000
   before_script:
     - apk add --no-cache docker-cli docker-cli-compose
     - corepack enable
@@ -570,11 +571,14 @@ demo:
   when: manual
   allow_failure: true
   script:
+    # Follow the README's configuration step too: a value in this file once
+    # made the web image listen on the API port, which an env-free run missed.
+    - cp .env.example .env
     - >-
       docker compose -f infrastructure/compose.yaml
       -f infrastructure/compose.demo.yaml
       -f infrastructure/compose.ci.yaml up --build -d
-    - npx wait-on --timeout 300000 "$WAYSCRIBE_API_URL/health" "$DEMO_SOURCE_URL/health"
+    - npx wait-on --timeout 300000 "$WAYSCRIBE_API_URL/health" "$DEMO_SOURCE_URL/health" "$WEB_URL/health"
     - pnpm test:demo
   after_script:
     - >-
@@ -616,6 +620,7 @@ release-verify:
     DOCKER_TLS_CERTDIR: ""
     WAYSCRIBE_API_URL: http://docker:8080
     DEMO_SOURCE_URL: http://docker:3100
+    WEB_URL: http://docker:3000
   before_script:
     - apk add --no-cache docker-cli docker-cli-compose
     - corepack enable
@@ -623,11 +628,12 @@ release-verify:
     - pnpm install --frozen-lockfile
   <<: *release-rules
   script:
+    - cp .env.example .env
     - >-
       docker compose -f infrastructure/compose.yaml
       -f infrastructure/compose.demo.yaml
       -f infrastructure/compose.ci.yaml up --build -d
-    - npx wait-on --timeout 300000 "$WAYSCRIBE_API_URL/health" "$DEMO_SOURCE_URL/health"
+    - npx wait-on --timeout 300000 "$WAYSCRIBE_API_URL/health" "$DEMO_SOURCE_URL/health" "$WEB_URL/health"
     - pnpm test:demo
   after_script:
     - >-

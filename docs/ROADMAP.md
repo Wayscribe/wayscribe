@@ -19,9 +19,10 @@ the step against a development destination. Counted on 2026-09-17: 2,416 unit
 tests, 747 integration tests against a real PostgreSQL, 7 acceptance tests
 against a running stack and 40 browser tests.
 
-Nothing is published. There is no npm package and no image in any registry, so
-every install today is `git clone` and `docker compose up`. That is deliberate
-and not currently a priority; see *If this goes public*.
+No usable release is published. npm holds only the deprecated
+`@wayscribe/node@0.0.1-placeholder.0`, which reserves the name and contains no
+SDK. Until the first release, install from `git clone` and `docker compose up`;
+see *If this goes public* for the publishing work.
 
 ---
 
@@ -40,13 +41,13 @@ Presenting the work, and closing what the last review opened.
   [What running it found](WHAT_RUNNING_IT_FOUND.md).
 - ~~**A CLI**~~ **Built:** `packages/cli`: `search`, `journey`, `event --diff`,
   `projects`, over HTTP, with `--json` on everything (`pnpm cli`).
-- **`docker compose up` from a clean clone, verified in CI.** Partly built: the
-  `demo` job, and `release-verify` on a release tag, build and boot the demo stack
-  from the pipeline's checkout and run `pnpm test:demo`. Neither follows the
-  README literally, so neither copies `.env.example` to `.env`, which is how a
-  literal run on 2026-09-15 found a web container listening on the wrong port.
-  Every onboarding defect on the record was found by a person running the README
-  literally. That is a job, not a habit.
+- **`docker compose up` from a clean clone, verified in CI.** The `demo` job,
+  and `release-verify` on a release tag, copy `.env.example` to `.env`, build
+  and boot the demo stack from the pipeline's checkout, wait for the API,
+  demo source and web health endpoints, and run `pnpm test:demo`. This covers
+  the configuration step that found a web container listening on the wrong
+  port on 2026-09-15. Timing a first installation on a new user's machine
+  remains a separate release check.
 - **A contract somebody else can build against.** JSON Schema generated from the
   Zod schemas and checked for drift, `docs/INGESTION_CONTRACT.md` for the routes,
   limits, refusals and idempotency, `docs/SDK_SPEC.md` for what a recorder in any
@@ -116,10 +117,9 @@ Presenting the work, and closing what the last review opened.
       vocabulary defines queue wait for a retried attempt explicitly, or it
       says plainly that the two are not comparable and the presentation keeps
       them apart.
-  - **The deployment on each event:** the existing `deployment` field shown on
-    the timeline, so a field that changed after a deploy is easy to spot. The
-    event detail already lists it, with the custom and runtime metadata, as
-    plain keys and values (F-044); this item puts it on the timeline's rows.
+  - **The deployment on each event. Built:** each timeline row shows its
+    recorded version and commit, when present (F-043), and the event detail
+    lists the full deployment with custom and runtime metadata (F-044).
   - **Duration filters** on the Journeys page: journeys that took longer than
     a given time, and journeys with a step longer than a given time.
 
