@@ -1,3 +1,6 @@
+<!-- Support is best effort: https://wayscribe.dev/docs/support/ -->
+<!-- Report vulnerabilities privately: https://wayscribe.dev/docs/security-policy/ -->
+
 ## What happened
 
 ## What you expected

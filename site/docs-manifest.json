@@ -99,6 +99,14 @@
       ]
     },
     {
+      "label": "Community",
+      "pages": [
+        { "source": "SUPPORT.md", "slug": "support", "label": "Support" },
+        { "source": "CONTRIBUTING.md", "slug": "contributing", "label": "Contributing" },
+        { "source": "CODE_OF_CONDUCT.md", "slug": "code-of-conduct", "label": "Code of Conduct" }
+      ]
+    },
+    {
       "label": "Understand",
       "pages": [
         { "source": "docs/ARCHITECTURE.md", "slug": "architecture", "label": "Architecture" },

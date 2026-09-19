@@ -289,6 +289,9 @@ build:
   - README.md
   - CHANGELOG.md
   - SECURITY.md
+  - SUPPORT.md
+  - CONTRIBUTING.md
+  - CODE_OF_CONDUCT.md
   - packages/sdk-node/README.md
   - deploy/helm/README.md
   - examples/recipes/**/*

@@ -6,14 +6,36 @@
 > to it once their pipeline has passed, so a pull request opened there cannot be
 > merged and would be overwritten. Please open a merge request on GitLab instead.
 
-
 Wayscribe is in early development. Contributions should protect the narrow V0 scope and the reliability of applications being observed.
 
 Participation in this project is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
+Documentation improvements, examples, bug reports, tests, and focused code fixes
+are welcome. For questions about using Wayscribe, see [Support](SUPPORT.md).
+Discuss substantial features or design changes in a GitLab issue before
+implementing them so we can agree on scope. A contribution is reviewed on its
+merits and fit with the project; submission does not guarantee acceptance or a
+review deadline.
+
+## Contribution terms
+
+Wayscribe uses the [Apache License 2.0](LICENSE). Contributions intentionally
+submitted for inclusion are provided under that license, as described in its
+section 5. Only submit work you have the right to contribute, and preserve any
+required third-party notices and attribution.
+
+There is no separate contributor license agreement (CLA) or mandatory Developer
+Certificate of Origin (DCO) sign-off requirement.
+
+AI-assisted contributions are welcome. You are responsible for reviewing and
+understanding the submitted work, checking that you have the right to contribute
+it, and testing the behavior you change. Explain what you verified and any
+limitations; generated output does not replace that responsibility.
+
 ## Before contributing
 
-Read:
+Start with [local development](docs/LOCAL_DEVELOPMENT.md) for setup and commands.
+For code or design changes, read the relevant parts of:
 
 - [Product principles and non-negotiables](docs/PRODUCT_PRINCIPLES.md)
 - [Product specification](docs/PRODUCT_SPEC.md)
@@ -51,9 +73,9 @@ Contributions must preserve:
 4. Run formatting, linting, type checks, and tests.
 5. Open a merge request with a clear explanation of behavior and risk.
 
-## Pull request expectations
+## Merge request expectations
 
-A pull request should explain:
+A merge request should explain:
 
 - the user or developer problem
 - the chosen approach

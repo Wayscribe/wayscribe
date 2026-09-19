@@ -613,6 +613,8 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Alternatives](docs/ALTERNATIVES.md) | The closest open-source and commercial tools, with sources |
 | [Changelog](CHANGELOG.md) | What changed, and what does not work yet |
 | [Contributing](CONTRIBUTING.md) | How to help |
+| [Support](SUPPORT.md) | Questions, bug reports, feature requests, and response expectations |
+| [Code of Conduct](CODE_OF_CONDUCT.md) | Community standards and private conduct reports |
 | [Mirroring](docs/MIRRORING.md) | How the GitHub mirror works, and why it is a CI job |
 | [Glossary](docs/GLOSSARY.md) | Shared terminology |
 

@@ -6,12 +6,16 @@
 blank_issues_enabled: false
 
 contact_links:
+  - name: Ask a question
+    url: https://gitlab.com/jojithedev/wayscribe/-/issues/new?issuable_template=question
+    about: Setup and usage help belong on GitLab. Support is best effort.
+
   - name: Report a bug
-    url: https://gitlab.com/jojithedev/wayscribe/-/issues/new
+    url: https://gitlab.com/jojithedev/wayscribe/-/issues/new?issuable_template=bug
     about: This GitHub repository is a read-only mirror. Bugs are tracked on GitLab.
 
   - name: Request a feature
-    url: https://gitlab.com/jojithedev/wayscribe/-/issues/new
+    url: https://gitlab.com/jojithedev/wayscribe/-/issues/new?issuable_template=feature
     about: Ideas and feature requests belong on GitLab, where development happens.
 
   - name: Report a security vulnerability
@@ -21,3 +25,7 @@ contact_links:
   - name: Read the documentation
     url: https://gitlab.com/jojithedev/wayscribe#readme
     about: Setup, operations, architecture, and the decision log.
+
+  - name: Report a conduct concern
+    url: https://gitlab.com/jojithedev/wayscribe/-/blob/main/CODE_OF_CONDUCT.md
+    about: Report privately to the maintainer using the Code of Conduct contact.

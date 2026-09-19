@@ -36,20 +36,24 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at:
+Instances of abusive, harassing, or otherwise unacceptable behavior may be
+reported privately to [conduct@wayscribe.dev](mailto:conduct@wayscribe.dev).
+Jorge Polanco, the project maintainer, receives these reports and is responsible
+for enforcement.
 
-> **[PLACEHOLDER: enforcement contact not yet decided.]** This project has not
-> yet chosen a dedicated conduct-reporting address or channel (tracked
-> alongside the open support-channel and security-contact decisions). Until
-> one exists, report an incident through GitLab by opening a
-> [confidential issue](https://gitlab.com/jojithedev/wayscribe/-/issues/new)
-> on `jojithedev/wayscribe` with the **Confidential** box ticked, which
-> restricts visibility to project members, the same mechanism
-> [SECURITY.md](SECURITY.md) uses for vulnerability reports. If GitLab issues
-> are unsuitable for a given report (for example, a report about a project
-> member), contact a GitLab project Owner directly through their GitLab
-> profile. Replace this placeholder with a real contact once the maintainer
-> decides on one.
+Include what happened, where and when it happened, relevant links or evidence,
+and any immediate concerns. Share only the information needed to understand the
+incident. Reports are handled privately, with information shared only as needed
+to investigate and address the incident. Please do not post reports in public
+issues or merge requests.
+
+Wayscribe currently has no independent conduct reviewer or alternate reporting
+contact. A report concerning Jorge sent to this address will also reach Jorge.
+If an independent reviewer joins, their agreed reporting route will be
+published here.
+
+For product help, see [Support](SUPPORT.md). Report vulnerabilities through the
+separate [security policy](SECURITY.md).
 
 All complaints will be reviewed and investigated promptly and fairly.
 

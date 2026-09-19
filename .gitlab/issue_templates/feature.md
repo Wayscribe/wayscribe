@@ -1,3 +1,6 @@
+<!-- Discuss substantial changes before implementing: https://wayscribe.dev/docs/contributing/ -->
+<!-- A feature request does not guarantee implementation or a delivery date. -->
+
 ## Problem
 
 <!-- What debugging or investigation task is hard today? -->

@@ -1,3 +1,6 @@
+<!-- Contribution terms and workflow: https://wayscribe.dev/docs/contributing/ -->
+<!-- Community standards: https://wayscribe.dev/docs/code-of-conduct/ -->
+
 ## Problem
 
 ## Approach
