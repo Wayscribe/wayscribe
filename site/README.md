@@ -79,6 +79,14 @@ The recording already includes on-screen captions, so the optional narration
 track is not enabled by default. No external video host, player script, or
 analytics is used.
 
+The `pages` job uses `FF_USE_FASTZIP: "true"` and
+`ARTIFACT_COMPRESSION_LEVEL: "fastest"`. GitLab Pages needs uncompressed ZIP
+entries to serve HTTP byte ranges, which enable seeking and are required for
+[Safari media playback](https://docs.gitlab.com/user/project/pages/introduction/#cannot-play-media-content-on-safari).
+After deployment, a request with `Range: bytes=0-1023` must return HTTP 206,
+`Content-Range: bytes 0-1023/7038666`, and exactly 1,024 bytes. A full-file HTTP
+200 response alone does not verify browser media support.
+
 When replacing the recording, update the MP4, poster, caption track and
 transcript together. Check playback and seeking in a browser, verify captions,
 and update the duration, size and hash here. The `site/**/*` CI rule includes

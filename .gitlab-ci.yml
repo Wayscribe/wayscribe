@@ -337,6 +337,11 @@ site:
 pages:
   stage: pages
   image: alpine:3
+  variables:
+    # Pages needs uncompressed ZIP entries to serve byte ranges for video
+    # seeking and Safari playback. Keep this scoped to the deployment artifact.
+    FF_USE_FASTZIP: "true"
+    ARTIFACT_COMPRESSION_LEVEL: "fastest"
   before_script: []
   cache: {}
   dependencies: ["site"]
