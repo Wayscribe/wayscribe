@@ -27,7 +27,7 @@
     },
     {
       "name": "timeline",
-      "text": "Here is every step, across two services. Delivery to the CRM failed, was retried twice, then dead-lettered."
+      "text": "The timeline begins with the webhook and follows work from the integration service into the worker."
     },
     {
       "name": "open-transform",

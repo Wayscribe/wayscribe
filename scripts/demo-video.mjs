@@ -22,9 +22,10 @@
  * are not committed; OUT_DIR defaults to a directory outside the repository.
  *
  * Requires ADMIN_TOKEN, a stack on WEB_URL and API_URL, the demo profile on
- * DEMO_SOURCE_URL, and ffmpeg (FFMPEG). Signs in the way the end-to-end suite
- * does, in a browser context that is not recorded, so the sign-in page never
- * appears in the video.
+ * DEMO_SOURCE_URL, and ffmpeg (FFMPEG). DEMO_REPLAY_URL can point replay at a
+ * host-visible demo integration service; its default remains the Compose DNS
+ * name. Signs in the way the end-to-end suite does, in a browser context that
+ * is not recorded, so the sign-in page never appears in the video.
  *
  * Every caption has to stay true to what is on screen. If the demo changes what
  * it shows, change the caption rather than the other way round.
@@ -43,6 +44,7 @@ const SOURCE_URL = process.env["DEMO_SOURCE_URL"] ?? "http://localhost:3100";
 const ADMIN_TOKEN = process.env["ADMIN_TOKEN"] ?? "replace-for-local-development-0000";
 const ENTITY_ID = process.env["ENTITY_ID"] ?? "0018Z00002ABC";
 const PROJECT = process.env["PROJECT_NAME"] ?? "Demo";
+const REPLAY_URL = process.env["DEMO_REPLAY_URL"] ?? "http://demo-integration:3200";
 const FFMPEG = process.env["FFMPEG"] ?? "ffmpeg";
 const OUT = process.env["OUT_DIR"] ?? join(tmpdir(), "wayscribe-demo-video");
 const NARRATE = process.argv.includes("--narrate");
@@ -64,7 +66,7 @@ const WANTED = [
 
 const REPLAY_DESTINATION = {
   name: "demo-integration (corrected)",
-  url: "http://demo-integration:3200"
+  url: REPLAY_URL
 };
 
 const LAST_STEP = { failed: "move-message-to-dead-letter", completed: "finish" };
@@ -135,7 +137,13 @@ async function seedJourneys() {
 
 async function ensureReplayDestination() {
   const { data } = await api("/v1/replay-destinations");
-  if ((data.items ?? []).some((item) => item.name === REPLAY_DESTINATION.name)) return;
+  const existing = (data.items ?? []).find(
+    (item) =>
+      item.name === REPLAY_DESTINATION.name &&
+      item.baseUrl === REPLAY_DESTINATION.url &&
+      item.enabled
+  );
+  if (existing !== undefined) return existing.id;
   const created = await api("/v1/replay-destinations", {
     method: "POST",
     body: JSON.stringify({
@@ -147,6 +155,7 @@ async function ensureReplayDestination() {
   if (created.status !== 201) {
     throw new Error(`Creating the replay destination answered ${String(created.status)}.`);
   }
+  return created.data.id;
 }
 
 async function waitOutLiveWindow(journeyIds) {
@@ -363,7 +372,7 @@ await mkdir(RAW, { recursive: true });
 
 await resolveProject();
 const journeys = await seedJourneys();
-await ensureReplayDestination();
+const replayDestinationId = await ensureReplayDestination();
 await waitOutLiveWindow([journeys.completed, journeys.failed]);
 
 const browser = await chromium.launch();
@@ -423,7 +432,7 @@ try {
   await director.overlay();
   await director.scrollTo(page.locator("a[href*='?event=']").first(), 14);
   await director.caption(
-    "Every step, across both services: delivery to the CRM failed, was retried twice, then dead-lettered",
+    "The timeline begins with the webhook and follows work from the integration service into the worker",
     "timeline"
   );
   await sleep(6_500);
@@ -503,12 +512,7 @@ try {
     "Sent to a development destination running the corrected transform, not the original system",
     "replay-form"
   );
-  const destination = await page.$eval(
-    "#destinationId",
-    (select, name) => [...select.options].find((option) => option.text.includes(name))?.value,
-    REPLAY_DESTINATION.name
-  );
-  await page.selectOption("#destinationId", destination);
+  await page.selectOption("#destinationId", replayDestinationId);
   await director.moveTo(page.locator("#destinationId"), 800);
   await sleep(1_800);
   await director.moveTo(page.locator("pre").first(), 700);
