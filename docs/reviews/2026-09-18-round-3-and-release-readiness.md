@@ -207,6 +207,13 @@ and the three tests in the existing image-backed database-CLI suite skipped
 because a `local-3fb2b4a` API image was not built. The skipped suite runs with
 no network and does not cover the timing service path.
 
+The exact `3fb2b4a` API image was subsequently built and its contents were
+verified. The three previously skipped CLI checks then passed separately, 3/3,
+against that image (`/tmp/wayscribe-timing-leadline-cli-final.log` and
+`/tmp/wayscribe-timing-pinned-api-contents.log`). After the delivery-aware
+comparator correction at Leadline `f65d3e0`, its fresh required gate passed 883
+unit tests in 51 files and all 53 integration tests in 12 files.
+
 The final PostgreSQL 17 integration run passed 978 tests in 55 files. A
 production standalone web build passed, followed by all 71 browser tests in
 31.4 seconds, including JavaScript-disabled navigation and the production CSP.
