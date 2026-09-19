@@ -365,8 +365,10 @@ export interface Counters {
    * verdict: not the Wayscribe API, or a proxy rewriting replies.
    * `transportErrors` above zero means a send used its attempts with events
    * still unsent: refused, reset, a 5xx, past `requestTimeoutMs`, or the API
-   * could not store them for now. Neither, with drops, means nothing failed:
-   * the collector is slower than events arrive or than shutdown waits (F-050).
+   * could not store them for now. Both at zero are inconclusive: a collector
+   * may be slow, or shutdown may end a send before its attempts finish, even
+   * when the collector is unreachable. `after_shutdown` drops mean recording
+   * was attempted after shutdown and say nothing about the collector (F-050).
    */
   droppedByCause: Readonly<Record<DroppedCause, number>>;
   /** `transport_error` reports. */

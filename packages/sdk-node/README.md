@@ -709,10 +709,12 @@ two other numbers instead (F-050):
   past `requestTimeoutMs`, 1,500 ms by default; or the API answered that it
   could not store events for now. The `transport_error` diagnostic's code
   says which: `request_failed` or `refused_for_now`.
-- Both at zero while `queue_full` or `shutdown` climbs: nothing failed. The
-  collector answers, but slower than you record or than shutdown waits. A
-  process that shuts down before any send has used its three attempts shows no
-  transport error either, even against a collector that cannot be reached.
+- Both at zero while `queue_full` or `shutdown` climbs are inconclusive. The
+  collector may answer slower than you record or than shutdown waits, or the
+  process may shut down before a send has used its three attempts, even when
+  the collector cannot be reached. Zero counters do not establish that it
+  answers. `after_shutdown` drops mean recording was attempted after shutdown
+  and say nothing about the collector.
 
 ```typescript
 const { dropped, droppedByCause } = recorder.counters();

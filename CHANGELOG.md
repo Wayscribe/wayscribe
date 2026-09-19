@@ -692,9 +692,11 @@ What you have to do when upgrading a checkout or a deployment:
   `docs/TROUBLESHOOTING.md` now give the rule that does read them apart:
   `no_verdict` above zero is a collector answering 2xx without verdicts,
   `transportErrors` above zero is one refused, reset, answering 5xx, slower
-  than `requestTimeoutMs` or unable to store events for now, and neither is a
-  collector that answers but is slower than events arrive or than shutdown
-  waits. A test holds each case to what the recorder does. Documentation only.
+  than `requestTimeoutMs` or unable to store events for now. Both at zero are
+  inconclusive: a collector may be slow, or shutdown may end a send before its
+  attempts finish, even if the collector is unreachable. `after_shutdown`
+  drops say only that recording was attempted after shutdown. A test holds
+  each case to what the recorder does. Documentation only.
 - **`doctor`'s statement timeout row says whose setting it read** (F-052). It
   reads `DATABASE_STATEMENT_TIMEOUT_MS` from doctor's own environment and never
   asks the running API, yet it read `The API cancels a statement after 15000
