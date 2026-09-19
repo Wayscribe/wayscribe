@@ -240,14 +240,20 @@ describe("the landing page", () => {
     expect(landing).toContain(`\`${token ?? ""}\``);
   });
 
-  it("installs the tarball the SDK's version packs, and says it is not on npm", () => {
+  it("installs the tarball the SDK's version packs, distinguishing it from the npm placeholder", () => {
     const version = (JSON.parse(read("packages/sdk-node/package.json")) as { version: string })
       .version;
     const named = [...landing.matchAll(/wayscribe-node-[\d.]+\.tgz/g)].map((match) => match[0]);
     expect(named).toEqual([`wayscribe-node-${version}.tgz`]);
-    expect(landing).toContain("is **not published on npm yet**");
+    expect(landing).toContain("has **no usable release on npm yet**");
+    expect(landing).toContain(
+      "deprecated `0.0.1-placeholder.0` only reserves the name and contains no SDK."
+    );
     const install = findSection(readme, "Instrument your own service") ?? "";
-    expect(install).toContain("The SDK is not published to npm yet.");
+    expect(install).toContain("No usable SDK release is published to npm yet.");
+    expect(install).toContain(
+      "`0.0.1-placeholder.0` only reserves the package name and contains no SDK."
+    );
     // --silent, so capturing stdout gives the tarball's path and nothing else
     // (F-018). The SDK's own README says the same, and says why.
     expect(install).toContain(
