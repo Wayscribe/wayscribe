@@ -4191,3 +4191,158 @@ above:
 - **A previous build can make a stale value visible during a rolling deploy.** The reads' `case when status = 'failed'` hides a value the previous build left when it cleared or completed a failed journey, but only while the journey stays out of `failed`. If the previous build then fails the journey again, the read names the earlier, cleared step until a failure applied by this build, and stamped later, replaces it. `TAKES_FAILED_STEP`'s `status <> 'failed'` branch replaces a stale value only when the journey is not failed at the time. Likewise, a failure the previous build applies to a journey this build already failed is not recorded as the failed step. All of this needs the previous build to write the journey after the migration, so it ends with the deploy, and it can only name a step that did fail in that journey.
 - **Decision 6 now orders event ids as well as journeys.** Two dry runs that send the same event ids under different journeys, in opposite orders, deadlocked on the `journey_events` insert, because an event id is unique per project whatever the journey and an insert waits on another transaction's uncommitted row with the same id; the journey locks did not order them, and the reviewer measured 20 `storage_error` runs of 20. A dry run now also takes one lock per distinct `event.id` string read from the raw elements without parsing, keyed `pg_advisory_xact_lock(DRY_RUN_EVENT_LOCK, <key>)` with the same SHA-256 derivation over the project id, a NUL and the event id. `DRY_RUN_EVENT_LOCK` is `49_190_064` and `DRY_RUN_JOURNEY_LOCK` `49_190_063`, so a journey id and an event id with the same text never share a lock. Every lock is taken one statement each in one order, ascending by the pair: all journey keys ascending, then all event keys ascending, before the first event. The reproduction is an integration test in `dry-run.integration.test.ts` that fails 20 of 20 without the event locks. On a 100-event dry run with 100 distinct ids the 100 event-id lock statements measured 15.5 to 17.3 ms at the median against a dry run of about 420 ms; the before and after medians of the whole dry run were within run-to-run noise. Live batches still take no lock. The key is the first four bytes read big-endian, which decision 6 left unstated.
 - **A journey id containing a NUL.** The protocol accepts any 1 to 128 characters, but PostgreSQL refuses a NUL in text: such an event is refused `unstorable_payload`, and the read routes answer `404` for such an id. EVENT_PROTOCOL.md section 4 says so.
+
+---
+
+## ADR-064: Per-record timing is explicit bounded evidence, not inferred monitoring
+
+**Status:** Accepted, 2026-09-18. Completes the timing and context scope before
+the first release without adding a service, dependency, event operation,
+database column or protocol version. The wire remains `0.1`: the vocabulary is
+optional metadata, and all read/filter additions are additive.
+
+### Context
+
+An immutable event already says when a step began and may say how long it ran,
+but a record investigation cannot distinguish queue backlog, retry backoff,
+remote rate limiting, ordinary work and clock disagreement from those two
+numbers alone. Leadline exposed the unsafe shortcuts: it replaced unknown waits
+with zero, treated a retry's age since initial enqueue as queue wait, and named
+HTTP status under the generic key `status`. Event names and adjacency cannot
+prove that two queue events concern the same message or that attempts belong to
+one retry sequence.
+
+A top-level timing object or storage column would duplicate arbitrary metadata
+and complicate mixed-version installations. Aggregate metrics, alerts and
+workflow orchestration would also turn a record-first debugger into a monitoring
+system. The smaller compatible change is a strict vocabulary for evidence the
+caller or broker actually has, plus a bounded read projection and presentation
+rules that preserve uncertainty.
+
+### Decision
+
+**1. Timing uses optional metadata and one protocol-owned interpretation.**
+
+`EVENT_PROTOCOL.md` section 9 defines `queue`, `queueWaitMs`,
+`queueWaitBasis`, `deliveryCount`, `targetHost`, `httpStatusCode`,
+`retryAfterMs`, the existing `attempt`, and `retryGroup`, with the exact bounds
+there. Metadata wire acceptance is unchanged. Invalid values remain available
+in raw event detail but are not presented as measurements.
+
+The protocol package exports `TimingContext` and `timingContext(metadata)`. It
+reads only own fields of already-redacted stored JSON, validates each field
+independently and returns a new object containing only valid named fields. A bad
+field cannot cost another field or the event. Unknown, negative, fractional,
+non-finite, out-of-range and redacted values are omitted, never changed to zero;
+a measured zero remains zero. Redaction and capture markers are never queue,
+host or retry identity, because grouping under `[REDACTED]` would merge
+unrelated work.
+
+A queue wait is measured only when all evidence agrees. `initial-enqueue`
+requires recorded attempt 1. `retry-ready` requires an attempt above 1. The
+original enqueue time is never accepted as a retry-readiness boundary. Timeline
+reads project only the named metadata keys and no payload. They may include
+`recordedHost`, bounded to 256 code points, from already-redacted
+`runtime.hostname`; a marker is not host evidence. Event detail applies the
+same parser while retaining raw metadata.
+
+**2. SDK helpers create evidence without owning application control flow.**
+
+The Node package exports standalone `queueMetadata(job, options?)` and
+`httpMetadata(response, options?)`, plus their structural input, option and
+result types. They return ordinary metadata for existing `record`, wrapper
+`metadata` and `metadataFrom` calls. They add no broker or HTTP dependency and
+do not change propagation envelopes.
+
+`queueMetadata` reads the BullMQ-shaped `queueName`, `id`, initial enqueue
+`timestamp`, current-attempt `processedOn`, and completed-attempt count
+`attemptsMade`. A valid nonnegative safe `attemptsMade` becomes current attempt
+`+ 1`. Attempt 1 may measure `processedOn - timestamp`. A later attempt has no
+measured wait unless the caller supplies a valid `readyAgainAt`; then it uses
+`processedOn - readyAgainAt` with `retry-ready`. Unknown clocks never fall back
+to `Date.now`, negative differences never clamp to zero, and `deliveryCount` is
+only an explicit caller value. Usable queue and job ids form the unambiguous
+identity ``queue:${JSON.stringify([queueName, id])}``; if the complete value
+does not fit 256 code points it is omitted rather than truncated into a
+collision.
+
+The helper's `attempt` must also be passed as the wrapper's top-level `attempt`.
+The wrapper owns attempt and operation, defaults to one, and applies its own
+attempt after static and projected metadata. Arbitrary metadata alone cannot
+turn `delivered` into `retried`. Raw `record` calls choose their operation
+explicitly. Attempt outcome remains separate: `error` or operation `failed`
+means the attempt failed; a successful `retried` event means that attempt
+worked, not that the journey completed.
+
+`httpMetadata` reads numeric response `status`,
+`headers.get("retry-after")`, and an optional `targetUrl`. It records only the
+parsed URL host, never credentials, path or query. `Retry-After` accepts
+nonnegative integer delay-seconds or a valid non-past HTTP date; `now`, or
+`Date.now()` when it is absent, is only the observation instant for the latter.
+A malformed or past date is unknown and a real zero is kept. Getters, proxies,
+headers and fields are isolated so one unreadable value costs only itself and
+nothing escapes into host code. The packed ESM entry point and `require()` of
+that ESM both expose the helpers.
+
+**3. Journey duration and list filters use existing stored facts.**
+
+Displayed journey duration is `lastEventAt - startedAt`, the span between
+recorded event starts. It is not summed step time, time since journey creation,
+or completion latency. A one-event journey has measured span zero; its last
+step may still have duration, and clocks from different hosts may disagree.
+No mutable timing cache or migration is added.
+
+The bounded journey list gains three filters, combined with existing predicates
+and pagination: `minDurationMs` matches a first-to-last span strictly greater
+than a nonnegative integer threshold; `minStepDurationMs` matches any stored
+event duration strictly greater than the threshold, with project and journey
+both scoped; and `inactiveBefore` matches only active journeys whose last event
+is strictly before a zoned ISO instant. Numeric bounds are 0 through
+2,147,483,647. Invalid or future inactivity cutoffs and a contradictory
+non-active status are refused. The web GET form freezes the explicit inactivity
+cutoff across pagination, as it does the rolling window, and calls inactivity a
+debugging clue rather than proof a job is stuck. Query plans are measured before
+adding an index.
+
+**4. Timeline timing preserves adjacency, clocks and retry ambiguity.**
+
+For consecutive loaded events, end-to-next-start is calculated only when the
+previous duration and both timestamps are valid. Positive is a recorded gap,
+zero stays zero, and negative is overlap or clock disagreement rather than idle
+time clamped to zero. Missing duration leaves the idle gap unknown. Gaps are
+computed on the unfiltered loaded page so hiding a service or operation cannot
+invent adjacency; the first loaded row gets no fabricated prior gap.
+
+An adjacent `published` to `consumed` pair may be labelled
+`Publish → consume gap`, explicitly not broker-measured queue wait and not proof
+of matching messages. Cross-host or missing-host evidence carries a clock
+caveat; matching service names do not prove one clock.
+
+Attempts are grouped only by explicit `(service, name, retryGroup)` within a
+journey. Without `retryGroup`, each attempt remains visible and unlinked.
+Attempt-to-attempt delay is calculated only for unambiguous adjacent attempt
+numbers with known previous duration. Duplicate or missing attempt numbers,
+missing duration, negative delay and incomplete pages stay explicit. No loaded
+page proves a winning or final attempt. Older APIs that omit timing context
+remain readable, and the UI never fetches every event detail to render timing.
+
+### Consequences
+
+- Mixed-version ingestion remains compatible: an old server accepts metadata
+  and a new reader omits evidence it cannot validate.
+- The read model gains bounded `timingContext` and `recordedHost`; raw metadata
+  remains on detail only. Response-schema additions and API filters are the
+  server implementation of this decision, not changes to event ingestion.
+- The Node public surface grows by two functions and six structural types:
+  `queueMetadata`, `httpMetadata`, `QueueMetadataJob`,
+  `QueueMetadataOptions`, `QueueTimingMetadata`, `HttpMetadataResponse`,
+  `HttpMetadataOptions`, and `HttpTimingMetadata` (two functions and six
+  types).
+- Leadline adopts the helpers, records explicit retry readiness and compares
+  its manifest under the same unknown-versus-zero rules. Queue backlog,
+  retries/rate limits, ordinary and slow steps, active inactivity, and
+  missing/corrupt broker timing are dogfooded before roadmap completion.
+- Verification covers bounds, unknown versus zero, redaction markers, hostile
+  SDK inputs, retry identity ambiguity, clock overlap, filtered/paginated
+  adjacency, strict/auth-scoped filters, no-JS/mobile form behavior, and packed
+  SDK exports. Release claims remain gated on that evidence and review.

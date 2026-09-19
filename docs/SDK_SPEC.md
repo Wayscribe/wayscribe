@@ -708,6 +708,31 @@ never opening (F-048).
 | --- | --- | --- |
 | SDK-65 | ADR-063; packages/sdk-node/src/transport.ts | section 14 |
 
+### Per-record timing metadata
+
+Timing is optional evidence inside `event.metadata`, interpreted as
+`EVENT_PROTOCOL.md` section 9 defines it. It does not add a protocol field,
+operation or version.
+
+- **SDK-66.** An SDK that emits a recognized timing key MUST use the names and
+  bounds in `EVENT_PROTOCOL.md` section 9. It MUST omit an unknown or invalid
+  measurement rather than replace it with zero, and MUST preserve a measured
+  zero. It MUST NOT use a redaction or capture marker as queue, host or retry
+  identity.
+- **SDK-67.** A queue helper MUST NOT derive a retried attempt's wait from the
+  original enqueue time: it needs an explicit retry-ready boundary. It MUST NOT
+  fall back to the current time for an unknown broker clock, clamp a negative
+  difference, infer broker delivery count from application attempts, or
+  truncate a retry identity into a collision. An HTTP helper may use the
+  observation time for an HTTP-date `Retry-After`, MUST keep only the host of a
+  target URL, and MUST isolate unreadable response fields from the host and
+  from one another.
+
+| ID | Source | Checked by |
+| --- | --- | --- |
+| SDK-66 | ADR-064; EVENT_PROTOCOL section 9 | section 14 |
+| SDK-67 | ADR-064 | section 14 |
+
 ## 14. Conformance, and what the fixtures cannot check
 
 To run the fixtures, follow `INGESTION_CONTRACT.md` section 9. In short: drive
@@ -751,3 +776,5 @@ either.
 | SDK-63 | Set a journey label holding an email address and assert one report naming the label and the shape, with debug output off, one printed line, and neither carrying the value; assert the label the event carries is the one that was set; assert a second label with an email address reports nothing more, and one with an international telephone number reports once; assert a label that looks like neither reports nothing; mark an alias displayable whose value is an email address and assert the same report names the alias, and that an alias not marked displayable reports nothing; then, in the same process, record a failure whose message holds an email address and assert a report naming the error message although the label already warned for that shape, that the message the event carries is unchanged, and that a stack holding one reports nothing; assert an error message holding a module path under `node_modules/@scope/`, a git remote `git@host:org/repo.git` or a date with `+0000` reports nothing; assert an error message holding `phone=+19195551234` or `tel:+19195551234` reports the telephone shape and one holding `Received +12345678 bytes` reports nothing. |
 | SDK-64 | Record events of every kind and assert each carries `runtime.language`, `runtime.version` and `runtime.sdk` with the SDK's own name and version, and no `hostname` or `processId`; set host settings and environment variables that name another version or commit and assert nothing changes; assert the server's schema accepts the event. |
 | SDK-65 | Answer every request 2xx with a body that is not JSON, and again with JSON that holds no results; assert the breaker opens after the threshold of sends with no transport error reported, and that events are dropped as no verdict until then. Answer with verdicts for half the events and assert it never opens. |
+| SDK-66 | Exercise every timing field at zero and its bounds, with invalid and marker values beside valid fields; assert invalid fields are omitted independently and a measured zero remains zero. |
+| SDK-67 | Exercise first attempts, retries with and without a ready-again clock, negative and unknown clocks, collision-prone and oversized queue identities, delay-seconds and HTTP-date Retry-After, URL credentials, and throwing getters or proxies; assert no helper failure reaches the host and other readable fields remain. |

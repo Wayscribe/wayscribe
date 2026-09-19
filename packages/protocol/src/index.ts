@@ -38,3 +38,4 @@ export {
   type JourneyOperation
 } from "./event.js";
 export { PROTOCOL_VERSION, isSupportedProtocolVersion } from "./version.js";
+export { timingContext, type QueueWaitBasis, type TimingContext } from "./timing-context.js";

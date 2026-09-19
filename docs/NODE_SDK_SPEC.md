@@ -120,8 +120,8 @@ the recorder is created, and frozen, so an event carries it as one property.
 
 ## 4. Public API
 
-The package exports three values, `createRecorder`, `OPERATIONS` and
-`hasJourney`, and types.
+The package exports five values: `createRecorder`, `OPERATIONS`, `hasJourney`,
+`queueMetadata` and `httpMetadata`, and types.
 Everything below is a method of the recorder or of a journey. ADR-056 records
 why the surface has this shape.
 
@@ -351,6 +351,78 @@ it returns that is not a plain object, and any getter on it that throws, leaves
 `metadata` exactly as it was and reports `projection_failed` with field
 `metadata` (ADR-060). The wrapper's own `attempt` is applied after the merge,
 so a projection cannot rename the attempt the wrapper counted.
+
+### Timing metadata helpers
+
+The package exports two standalone helpers. They return ordinary metadata for
+`record`, wrapper `metadata`, or `metadataFrom`; neither changes propagation or
+adopts a queue or HTTP client dependency (ADR-064).
+
+```typescript
+interface QueueMetadataJob {
+  readonly queueName?: string | undefined;
+  readonly id?: string | undefined;
+  readonly timestamp?: number | undefined;
+  readonly processedOn?: number | undefined;
+  readonly attemptsMade?: number | undefined;
+}
+interface QueueMetadataOptions {
+  readonly readyAgainAt?: number | undefined;
+  readonly deliveryCount?: number | undefined;
+}
+function queueMetadata(job: QueueMetadataJob, options?: QueueMetadataOptions): QueueTimingMetadata;
+
+interface HttpMetadataResponse {
+  readonly status?: number | undefined;
+  readonly headers?: { get(name: string): string | null | undefined } | undefined;
+}
+interface HttpMetadataOptions {
+  readonly targetUrl?: string | undefined;
+  readonly now?: number | undefined;
+}
+function httpMetadata(response: HttpMetadataResponse, options?: HttpMetadataOptions): HttpTimingMetadata;
+```
+
+`queueMetadata` reads BullMQ's `queueName`, `id`, initial-enqueue `timestamp`,
+current-attempt `processedOn`, and completed-attempt count `attemptsMade`.
+Current attempt is `attemptsMade + 1`. Attempt 1 can measure
+`processedOn - timestamp`; a later attempt measures only
+`processedOn - readyAgainAt` and otherwise has unknown queue wait. It emits
+caller-supplied `deliveryCount` independently. With usable queue and job ids it
+emits the collision-safe identity ``queue:${JSON.stringify([queueName, id])}``
+when the whole value fits 256 code points; it never truncates it.
+
+The helper's attempt is metadata and must also be the wrapper option. The
+wrapper owns the recorded attempt and operation:
+
+```typescript
+const metadata = queueMetadata(job, { readyAgainAt });
+const response = await journey.deliver("send-order", input, () => send(input), {
+  metadata,
+  attempt: metadata.attempt,
+  metadataFrom: (result) => httpMetadata(result, { targetUrl }),
+  isFailure: (result) => result.status >= 400
+});
+```
+
+On a retry this records operation `retried`; `error` says whether that attempt
+failed. A successful `retried` event says the attempt worked, not that the
+journey completed. Supplying only `metadata.attempt` cannot change a wrapper's
+operation, because arbitrary metadata never overrides the top-level option. A
+raw `record` takes the metadata and the caller's explicitly chosen operation.
+
+`httpMetadata` reads numeric `status` as `httpStatusCode`, parses
+`headers.get("retry-after")` as nonnegative integer delay-seconds or an HTTP
+date, and keeps only `new URL(targetUrl).host`; URL credentials, path and query
+are never recorded. `now` is the optional observation epoch for an HTTP date,
+defaulting to `Date.now()`. It is not a fallback for broker time. Malformed or
+past dates and values beyond the timing bound are omitted. Both helpers read
+each field independently and return partial or empty metadata when getters,
+proxies, clocks, headers or URLs are unusable; they never throw into host code.
+
+The exported structural types are `QueueMetadataJob`,
+`QueueMetadataOptions`, `QueueTimingMetadata`, `HttpMetadataResponse`,
+`HttpMetadataOptions`, and `HttpTimingMetadata`.
 
 ### `fail` and `finish`
 

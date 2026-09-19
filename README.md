@@ -395,7 +395,7 @@ service**: no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md): 63 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md): 64 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -634,7 +634,7 @@ site/                   wayscribe.dev: the landing page, and these docs rendered
 
 AI agents write most of the code in this repository. Jorge, the owner, makes the
 decisions, and each one is recorded with its reasoning in
-[the decision log](docs/DECISIONS.md), which holds 63 ADRs.
+[the decision log](docs/DECISIONS.md), which holds 64 ADRs.
 [What running it found](docs/WHAT_RUNNING_IT_FOUND.md) lists the defects the
 agents' tests missed and running the software found, and what changed in the
 testing because of them.

@@ -335,6 +335,57 @@ in a different process consuming a redelivered message.
 await journey.deliver("send-to-crm", payload, () => post(payload), { attempt: 2 });
 ```
 
+### Queue and HTTP timing metadata
+
+`queueMetadata` and `httpMetadata` are standalone exports that build the
+documented timing metadata for the calls above without depending on BullMQ or a
+particular HTTP client. Their inputs are structural; the exported types are
+`QueueMetadataJob`, `QueueMetadataOptions`, `QueueTimingMetadata`,
+`HttpMetadataResponse`, `HttpMetadataOptions`, and `HttpTimingMetadata`.
+
+```typescript
+import { httpMetadata, queueMetadata } from "@wayscribe/node";
+
+const metadata = queueMetadata(job, {
+  // Required only when this is a retry and your queue integration knows when
+  // it became ready again. Never substitute the original enqueue time.
+  readyAgainAt,
+  deliveryCount
+});
+
+const response = await journey.deliver("send-to-crm", payload, () => post(payload), {
+  metadata,
+  // The wrapper owns attempt and operation. Metadata alone cannot make this a
+  // retried event, so pass the helper's attempt here too.
+  attempt: metadata.attempt,
+  metadataFrom: (result) => httpMetadata(result, { targetUrl }),
+  isFailure: (result) => result.status >= 400
+});
+```
+
+The BullMQ-shaped fields are `queueName`, `id`, `timestamp` (initial enqueue),
+`processedOn` (this attempt's start), and `attemptsMade` (completed attempts).
+The helper reports current attempt as `attemptsMade + 1`. A first attempt can
+report `processedOn - timestamp` with basis `initial-enqueue`. A later attempt
+reports a queue wait only with `readyAgainAt`, using basis `retry-ready`; an
+unknown or negative wait is absent, never zero. A real zero stays zero. Queue
+plus job id become a collision-safe `retryGroup` when the complete identity
+fits; it is omitted rather than truncated.
+
+`httpMetadata` records numeric `status` as `httpStatusCode`, the host (and
+optional port) from `targetUrl`, and `Retry-After` as `retryAfterMs` when the
+header is nonnegative integer seconds or a non-past HTTP date. Pass `now` in
+tests or when the response was observed at a known epoch; otherwise an HTTP
+date uses `Date.now()`. URL credentials, path and query are stripped. Invalid,
+redacted, missing or out-of-range fields are omitted independently. Throwing
+getters and proxies return partial or empty metadata and never break the host
+call.
+
+The wrapper example records a later attempt as `retried`. Its `error` says
+whether that attempt failed; a successful `retried` event says that attempt
+worked, not that the journey completed. With `record`, choose the operation
+explicitly and pass the helper output as `metadata`.
+
 ## Recording a step yourself
 
 `record` takes an event as it is, for a step no wrapper fits: one that already
@@ -1438,8 +1489,10 @@ calls take, accepts an explicit `undefined`, so
 `exactOptionalPropertyTypes` on. Every option type has a name you can import:
 `RecorderConfig`, `StartJourneyOptions`, `ContinueJourneyOptions`,
 `IdentifyOptions`, `WrapOptions`, `RecordInput`, `ErrorInput`, `FailureReason`,
-`FailOptions`, `FinishOptions`, `ShutdownOptions`, `Deployment`, and `Entity`
-for `{ type, id }`.
+`FailOptions`, `FinishOptions`, `ShutdownOptions`, `Deployment`, `Entity` for
+`{ type, id }`, `QueueMetadataJob`, `QueueMetadataOptions`,
+`QueueTimingMetadata`, `HttpMetadataResponse`, `HttpMetadataOptions`, and
+`HttpTimingMetadata`.
 
 ### Which build recorded this
 
