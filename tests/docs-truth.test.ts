@@ -449,13 +449,23 @@ describe("the documentation's checkable claims", () => {
       // F-025: the example omitted `receivedAt`, which the endpoint always
       // sends and which the section's own ordering rule names, so a caller
       // building a schema from the example alone landed one field short.
-      const declared = [
+      const repositoryFields = [
         ...(
           /export interface EventListItem \{([\s\S]*?)\n\}/.exec(
             read("packages/database/src/repositories/event-reads.ts")
           )?.[1] ?? ""
         ).matchAll(/^ {2}(\w+):/gm)
       ].map((match) => match[1]);
+      // The repository carries already-redacted raw values under internal
+      // names so the API can apply the protocol parser without making the
+      // database package depend on protocol runtime code.
+      const declared = repositoryFields.map((field) =>
+        field === "timingMetadata"
+          ? "timingContext"
+          : field === "recordedHostname"
+            ? "recordedHost"
+            : field
+      );
       expect(declared).toContain("receivedAt");
 
       const example = /## 8\. List journey events[\s\S]*?```json\n([\s\S]*?)```/.exec(
@@ -487,25 +497,36 @@ describe("the documentation's checkable claims", () => {
         "service",
         "entityType",
         "q",
+        "minDurationMs",
+        "minStepDurationMs",
+        "inactiveBefore",
         "limit",
         "cursor"
       ]);
     });
 
-    it.each(["since", "until", "status", "environment", "service", "entityType", "q"])(
-      "documents %s, which the parser validates",
-      (name) => {
-        // A repeated parameter is refused by name only if the parser reads it.
-        const query: Record<string, unknown> = {
-          since: "2026-01-01T00:00:00Z",
-          [name]: ["a", "b"]
-        };
-        expect(parseJourneyListQuery(query, new Date("2026-09-15T00:00:00Z"))).toEqual({
-          ok: false,
-          message: `${name} must be given once.`
-        });
-      }
-    );
+    it.each([
+      "since",
+      "until",
+      "status",
+      "environment",
+      "service",
+      "entityType",
+      "q",
+      "minDurationMs",
+      "minStepDurationMs",
+      "inactiveBefore"
+    ])("documents %s, which the parser validates", (name) => {
+      // A repeated parameter is refused by name only if the parser reads it.
+      const query: Record<string, unknown> = {
+        since: "2026-01-01T00:00:00Z",
+        [name]: ["a", "b"]
+      };
+      expect(parseJourneyListQuery(query, new Date("2026-09-15T00:00:00Z"))).toEqual({
+        ok: false,
+        message: `${name} must be given once.`
+      });
+    });
 
     it("documents limit and cursor, which the route reads as other lists do", () => {
       const route = /app\.get\("\/v1\/journeys", [\s\S]*?\n {2}\}\);/.exec(

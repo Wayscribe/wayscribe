@@ -1391,6 +1391,33 @@ What the plans show:
   the threshold and do not compile, but a larger window or table can bring
   it back.
 
+The timing filters were measured separately on 2026-09-18 in an isolated
+PostgreSQL 17 test database with 20,000 journeys and 60,000 events, after
+`VACUUM ANALYZE`, using the repository's actual page-of-25 SQL and `EXPLAIN
+(ANALYZE, BUFFERS)`. The
+synthetic journeys covered zero and 1-4,999 ms event-start spans, 20 percent
+active status, nullable event durations, and duration values on two of three
+events. With every row inside the required `since` window:
+
+- `minDurationMs=1000` walked `journeys_project_recent_idx` backward, removed
+  one row at the filter before filling the page, touched 57 shared buffers
+  including the returned summary fields, and executed in 0.157 ms.
+- `minStepDurationMs=2000` used a nested-loop semi-join: the same journey index
+  supplied rows in page order and `journey_events_timeline_idx` probed the
+  project-and-journey-scoped events. It touched 187 shared buffers including
+  the returned summary fields and executed in 0.227 ms.
+- `inactiveBefore` with a four-hour cutoff used an index-only backward scan of
+  `journeys_status_recent_idx`, including project, active status, `since`, and
+  cutoff in the index condition. It touched 62 shared buffers including the
+  returned summary fields and executed in 0.086 ms.
+
+These are warm-cache development measurements on a modest representative data
+set, not production latency promises. They show the predicates use the existing
+bounded-window and per-journey indexes, so no duration index was added. Measure
+with your own event density and window before adding one: a step-duration
+filter that rejects many journeys will perform more per-journey probes before
+it fills a page.
+
 At 120,000 journeys the journeys index is 11 MB and the alias index 19 MB.
 
 **What they cost ingestion.** Every event updates its journey's

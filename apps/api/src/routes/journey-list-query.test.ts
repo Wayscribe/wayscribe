@@ -13,7 +13,7 @@ describe("parseJourneyListQuery", () => {
     expect(parsed.ok).toBe(false);
     if (parsed.ok) return;
     expect(parsed.message).toBe(
-      "A parameter name must not contain a null byte. Known parameters: since, until, status, environment, service, entityType, q, limit, cursor."
+      "A parameter name must not contain a null byte. Known parameters: since, until, status, environment, service, entityType, q, minDurationMs, minStepDurationMs, inactiveBefore, limit, cursor."
     );
     expect(parsed.message).not.toContain(nul);
   });
@@ -46,6 +46,123 @@ describe("parseJourneyListQuery", () => {
         environment: "production",
         service: "sync-worker"
       }
+    });
+  });
+
+  it("passes the timing thresholds and freezes an active inactivity cutoff", () => {
+    expect(
+      parse({
+        since: "2026-09-14T12:00:00Z",
+        minDurationMs: "0",
+        minStepDurationMs: "2147483647",
+        inactiveBefore: "2026-09-15T11:59:59.999Z"
+      })
+    ).toMatchObject({
+      ok: true,
+      filters: {
+        status: "active",
+        minDurationMs: 0,
+        minStepDurationMs: 2_147_483_647,
+        inactiveBefore: new Date("2026-09-15T11:59:59.999Z")
+      }
+    });
+  });
+
+  describe.each(["minDurationMs", "minStepDurationMs"])("%s", (name) => {
+    it.each(["0", "1", "2147483647"])("accepts the inclusive integer bound %s", (value) => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", [name]: value })).toMatchObject({
+        ok: true,
+        filters: { [name]: Number(value) }
+      });
+    });
+
+    it("treats an empty value as omitted", () => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", [name]: "" })).toMatchObject({
+        ok: true,
+        filters: { [name]: undefined }
+      });
+    });
+
+    it.each(["-1", "+1", "1.5", "1e3", " 1", "1 ", "2147483648", "Infinity", "NaN"])(
+      "rejects %j",
+      (value) => {
+        expect(parse({ since: "2026-09-14T12:00:00Z", [name]: value })).toEqual({
+          ok: false,
+          message: `${name} must be a whole number from 0 to 2147483647 milliseconds.`
+        });
+      }
+    );
+
+    it("rejects a repeated value and a null byte", () => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", [name]: ["1", "2"] })).toEqual({
+        ok: false,
+        message: `${name} must be given once.`
+      });
+      expect(
+        parse({ since: "2026-09-14T12:00:00Z", [name]: `1${String.fromCharCode(0)}` })
+      ).toEqual({ ok: false, message: `${name} must not contain a null byte.` });
+    });
+  });
+
+  describe("inactiveBefore", () => {
+    it("accepts a cutoff equal to now and an offset instant before now", () => {
+      expect(
+        parse({ since: "2026-09-14T12:00:00Z", inactiveBefore: "2026-09-15T12:00:00Z" })
+      ).toMatchObject({
+        ok: true,
+        filters: { status: "active", inactiveBefore: NOW }
+      });
+      expect(
+        parse({
+          since: "2026-09-14T12:00:00Z",
+          status: "active",
+          inactiveBefore: "2026-09-15T07:59:59-04:00"
+        })
+      ).toMatchObject({
+        ok: true,
+        filters: {
+          status: "active",
+          inactiveBefore: new Date("2026-09-15T11:59:59Z")
+        }
+      });
+    });
+
+    it("treats an empty cutoff as omitted without implying active", () => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", inactiveBefore: "" })).toMatchObject({
+        ok: true,
+        filters: { status: undefined, inactiveBefore: undefined }
+      });
+    });
+
+    it.each(["completed", "failed"])("rejects the contradictory status %s", (status) => {
+      expect(
+        parse({
+          since: "2026-09-14T12:00:00Z",
+          status,
+          inactiveBefore: "2026-09-15T11:00:00Z"
+        })
+      ).toEqual({
+        ok: false,
+        message: "inactiveBefore can only be used with status active."
+      });
+    });
+
+    it.each([
+      [
+        "yesterday",
+        "inactiveBefore must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+      ],
+      [
+        "2026-09-15T12:00:00",
+        "inactiveBefore must be an ISO-8601 instant with a time zone, such as 2026-08-06T18:00:00Z."
+      ],
+      ["2026-09-15T12:00:00.001Z", "inactiveBefore must not be in the future."],
+      [["2026-09-15T10:00:00Z", "2026-09-15T11:00:00Z"], "inactiveBefore must be given once."]
+    ])("rejects %j", (inactiveBefore, message) => {
+      expect(parse({ since: "2026-09-14T12:00:00Z", inactiveBefore })).toEqual({
+        ok: false,
+        message
+      });
     });
   });
 
@@ -265,7 +382,7 @@ describe("parseJourneyListQuery", () => {
     (key) => {
       expect(parse({ since: "2026-09-14T12:00:00Z", [key]: "x" })).toEqual({
         ok: false,
-        message: `${key} is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, limit, cursor.`
+        message: `${key} is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, minDurationMs, minStepDurationMs, inactiveBefore, limit, cursor.`
       });
     }
   );
@@ -274,7 +391,7 @@ describe("parseJourneyListQuery", () => {
     const key = `${"k".repeat(31)}\u{1D11E}${"x".repeat(5000)}`;
     expect(parse({ since: "2026-09-14T12:00:00Z", [key]: "x" })).toEqual({
       ok: false,
-      message: `${"k".repeat(31)}\u{1D11E}… is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, limit, cursor.`
+      message: `${"k".repeat(31)}\u{1D11E}… is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, minDurationMs, minStepDurationMs, inactiveBefore, limit, cursor.`
     });
   });
 

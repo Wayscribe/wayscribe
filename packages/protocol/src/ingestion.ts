@@ -60,6 +60,22 @@ export const eventAcceptedSchema = z.object({
 });
 
 const storedEventPayload = z.unknown();
+const storedTimingMilliseconds = z.number().int().min(0).max(2_147_483_647);
+const storedTimingIdentity = z.string().min(1).max(256);
+const storedPositiveSafeInteger = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
+
+/** The validated timing evidence a read may project from already-redacted metadata. */
+const storedTimingContextSchema = z.object({
+  queue: storedTimingIdentity.optional(),
+  queueWaitMs: storedTimingMilliseconds.optional(),
+  queueWaitBasis: z.enum(["initial-enqueue", "retry-ready"]).optional(),
+  deliveryCount: storedPositiveSafeInteger.optional(),
+  targetHost: storedTimingIdentity.optional(),
+  httpStatusCode: z.number().int().min(100).max(599).optional(),
+  retryAfterMs: storedTimingMilliseconds.optional(),
+  attempt: storedPositiveSafeInteger.optional(),
+  retryGroup: storedTimingIdentity.optional()
+});
 
 /**
  * One alias as a read returns it: on a journey, every alias it holds, and on
@@ -125,6 +141,20 @@ export const storedEventSchema = z.object({
   runtimeMetadata: storedEventPayload,
   deploymentMetadata: storedEventPayload,
   customMetadata: storedEventPayload,
+  timingContext: storedTimingContextSchema
+    .optional()
+    .describe(
+      "Valid bounded timing evidence projected from the already-redacted customMetadata. Omitted by older API versions."
+    ),
+  recordedHost: z
+    .string()
+    .min(1)
+    .max(256)
+    .nullable()
+    .optional()
+    .describe(
+      "The bounded already-redacted runtime hostname, null when none is usable, and omitted by older API versions."
+    ),
   aliases: z
     .array(storedAliasSchema)
     .nullable()

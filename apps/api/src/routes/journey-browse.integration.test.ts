@@ -254,12 +254,12 @@ describe("GET /v1/journeys browse filters", () => {
       [
         "an unknown key",
         "entity_type=order",
-        "entity_type is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, limit, cursor."
+        "entity_type is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, minDurationMs, minStepDurationMs, inactiveBefore, limit, cursor."
       ],
       [
         "a long unknown key, repeated only in part",
         `${"k".repeat(40)}=1`,
-        `${"k".repeat(32)}… is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, limit, cursor.`
+        `${"k".repeat(32)}… is not a parameter of this list. Known parameters: since, until, status, environment, service, entityType, q, minDurationMs, minStepDurationMs, inactiveBefore, limit, cursor.`
       ]
     ])("refuses %s with invalid_query", async (_name, query, message) => {
       const url =

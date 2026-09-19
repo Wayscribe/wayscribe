@@ -1,6 +1,6 @@
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
-import { MAX_BATCH_EVENTS, batchRequestSchema } from "./ingestion.js";
+import { MAX_BATCH_EVENTS, batchRequestSchema, storedEventSchema } from "./ingestion.js";
 import { buildJsonSchemas } from "./json-schema.js";
 
 const built = buildJsonSchemas();
@@ -121,5 +121,75 @@ describe("the response shapes refer to their siblings rather than inlining them"
     let node: unknown = built[document];
     for (const segment of path) node = (node as Record<string, unknown>)[segment];
     expect((node as { $ref: string }).$ref).toBe(`${target}.schema.json`);
+  });
+});
+
+describe("the stored event timing projection", () => {
+  const stored = {
+    id: "evt_1",
+    journeyId: "jrn_1",
+    parentEventId: null,
+    protocolVersion: "0.1",
+    operation: "received",
+    name: "receive-order",
+    service: "orders",
+    eventTimestamp: "2026-09-18T12:00:00.000Z",
+    receivedAt: "2026-09-18T12:00:00.100Z",
+    durationMs: 0,
+    traceId: null,
+    spanId: null,
+    messageId: null,
+    correlationId: null,
+    hasInput: false,
+    hasOutput: false,
+    hasError: false,
+    inputPayload: null,
+    outputPayload: null,
+    payloadDiff: null,
+    error: null,
+    runtimeMetadata: null,
+    deploymentMetadata: null,
+    customMetadata: null,
+    aliases: []
+  };
+
+  it("publishes bounded timingContext and nullable recordedHost as additive fields", () => {
+    const parsed = storedEventSchema.parse({
+      ...stored,
+      timingContext: {
+        queue: "orders",
+        queueWaitMs: 0,
+        queueWaitBasis: "initial-enqueue",
+        deliveryCount: 1,
+        targetHost: "api.internal:8443",
+        httpStatusCode: 429,
+        retryAfterMs: 2_000,
+        attempt: 1,
+        retryGroup: 'queue:["orders","42"]'
+      },
+      recordedHost: null
+    });
+    expect(parsed).toMatchObject({
+      timingContext: { queueWaitMs: 0, attempt: 1 },
+      recordedHost: null
+    });
+    expect(storedEventSchema.safeParse(stored).success).toBe(true);
+  });
+
+  it("refuses timing output outside its public bounds", () => {
+    expect(
+      storedEventSchema.safeParse({
+        ...stored,
+        timingContext: { retryAfterMs: 2_147_483_648 },
+        recordedHost: "host"
+      }).success
+    ).toBe(false);
+    expect(
+      storedEventSchema.safeParse({
+        ...stored,
+        timingContext: {},
+        recordedHost: "x".repeat(257)
+      }).success
+    ).toBe(false);
   });
 });

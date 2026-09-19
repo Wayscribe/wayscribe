@@ -16,7 +16,12 @@ import {
   resolvePrincipal,
   type Principal
 } from "../principal.js";
-import { presentEvent, presentJourneyDetail, presentJourneySummary } from "./present.js";
+import {
+  presentEvent,
+  presentEventListItem,
+  presentJourneyDetail,
+  presentJourneySummary
+} from "./present.js";
 import { parseJourneyListQuery } from "./journey-list-query.js";
 import { parseSearchQuery } from "./search-query.js";
 import { TIMELINE_PARAMETERS, pageLimit, unknownKey } from "./query-params.js";
@@ -211,11 +216,7 @@ export function registerQueryRoutes(
 
       return await reply.send({
         data: {
-          items: page.items.map((item) => ({
-            ...item,
-            eventTimestamp: item.eventTimestamp.toISOString(),
-            receivedAt: item.receivedAt.toISOString()
-          })),
+          items: page.items.map(presentEventListItem),
           nextCursor: page.nextCursor
         }
       });

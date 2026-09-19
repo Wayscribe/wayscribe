@@ -35,9 +35,15 @@ export const JOURNEY_LIST_PARAMETERS = [
   "service",
   "entityType",
   "q",
+  "minDurationMs",
+  "minStepDurationMs",
+  "inactiveBefore",
   "limit",
   "cursor"
 ] as const;
+
+const MAX_TIMING_MS = 2_147_483_647;
+const WHOLE_MILLISECONDS = /^\d+$/;
 
 /**
  * Required, with no default. A default computed here ("the last 24 hours")
@@ -78,11 +84,30 @@ export function parseJourneyListQuery(query: unknown, now: Date): ParsedJourneyL
     return { ok: false, message: "until must be after since." };
   }
 
-  const status = single(params, "status");
-  if (!status.ok) return status;
-  if (status.value !== undefined && !isJourneyStatus(status.value)) {
+  const parsedStatus = single(params, "status");
+  if (!parsedStatus.ok) return parsedStatus;
+  if (parsedStatus.value !== undefined && !isJourneyStatus(parsedStatus.value)) {
     return { ok: false, message: `status must be one of ${JOURNEY_STATUSES.join(", ")}.` };
   }
+
+  const minDurationMs = timingThreshold(params, "minDurationMs");
+  if (!minDurationMs.ok) return minDurationMs;
+  const minStepDurationMs = timingThreshold(params, "minStepDurationMs");
+  if (!minStepDurationMs.ok) return minStepDurationMs;
+
+  const inactiveBefore = instant(params, "inactiveBefore");
+  if (!inactiveBefore.ok) return inactiveBefore;
+  if (inactiveBefore.value !== undefined && inactiveBefore.value.getTime() > now.getTime()) {
+    return { ok: false, message: "inactiveBefore must not be in the future." };
+  }
+  if (
+    inactiveBefore.value !== undefined &&
+    parsedStatus.value !== undefined &&
+    parsedStatus.value !== "active"
+  ) {
+    return { ok: false, message: "inactiveBefore can only be used with status active." };
+  }
+  const status = inactiveBefore.value === undefined ? parsedStatus.value : "active";
 
   const environment = single(params, "environment");
   if (!environment.ok) return environment;
@@ -126,13 +151,39 @@ export function parseJourneyListQuery(query: unknown, now: Date): ParsedJourneyL
     filters: {
       since: since.value,
       until: until.value,
-      status: status.value,
+      status,
       environment: environment.value,
       service: service.value,
       entityType: entityType.value,
-      text
+      text,
+      minDurationMs: minDurationMs.value,
+      minStepDurationMs: minStepDurationMs.value,
+      inactiveBefore: inactiveBefore.value
     }
   };
+}
+
+function timingThreshold(
+  params: Record<string, unknown>,
+  name: "minDurationMs" | "minStepDurationMs"
+): { ok: true; value: number | undefined } | { ok: false; message: string } {
+  const raw = single(params, name);
+  if (!raw.ok) return raw;
+  if (raw.value === undefined) return { ok: true, value: undefined };
+  if (!WHOLE_MILLISECONDS.test(raw.value)) {
+    return {
+      ok: false,
+      message: `${name} must be a whole number from 0 to ${String(MAX_TIMING_MS)} milliseconds.`
+    };
+  }
+  const value = Number(raw.value);
+  if (value > MAX_TIMING_MS) {
+    return {
+      ok: false,
+      message: `${name} must be a whole number from 0 to ${String(MAX_TIMING_MS)} milliseconds.`
+    };
+  }
+  return { ok: true, value };
 }
 
 function isJourneyStatus(value: string): value is JourneyStatus {

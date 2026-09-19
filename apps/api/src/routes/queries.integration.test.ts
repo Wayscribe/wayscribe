@@ -73,9 +73,22 @@ describe("query endpoints", () => {
     await ingest("evt_q1", "2026-08-06T10:00:00.000Z", {
       input: { phone: "+1 919 555 1234" },
       output: { phone: null },
-      traceId: "trace-q"
+      traceId: "trace-q",
+      durationMs: 0,
+      runtime: { hostname: "integration-api.internal" },
+      metadata: {
+        queue: "customer-updates",
+        queueWaitMs: 0,
+        queueWaitBasis: "initial-enqueue",
+        attempt: 1,
+        retryAfterMs: -1,
+        applicationField: "detail-only"
+      }
     });
-    await ingest("evt_q2", "2026-08-06T11:00:00.000Z");
+    await ingest("evt_q2", "2026-08-06T11:00:00.000Z", {
+      runtime: { hostname: "[REDACTED]" },
+      metadata: { queueWaitMs: -1, applicationField: "still-detail-only" }
+    });
   });
 
   afterAll(async () => {
@@ -281,10 +294,44 @@ describe("query endpoints", () => {
     expect(first.inputPayload).toBeUndefined();
   });
 
+  it("projects bounded timing evidence on timeline rows without arbitrary metadata", async () => {
+    const items = (await get("/v1/journeys/jrn_q/events")).json().data.items;
+    expect(items[0]).toMatchObject({
+      id: "evt_q1",
+      durationMs: 0,
+      timingContext: {
+        queue: "customer-updates",
+        queueWaitMs: 0,
+        queueWaitBasis: "initial-enqueue",
+        attempt: 1
+      },
+      recordedHost: "integration-api.internal"
+    });
+    expect(items[0].timingContext.retryAfterMs).toBeUndefined();
+    expect(items[0].customMetadata).toBeUndefined();
+    expect(items[0].applicationField).toBeUndefined();
+    expect(items[1]).toMatchObject({ id: "evt_q2", timingContext: {}, recordedHost: null });
+  });
+
   it("returns event detail with payloads and diff", async () => {
     const data = (await get("/v1/events/evt_q1")).json().data;
     expect(data.inputPayload).toEqual({ phone: "+1 919 555 1234" });
     expect(data.payloadDiff.changes[0].path).toBe("phone");
+  });
+
+  it("adds the same timing projection to detail while preserving raw custom metadata", async () => {
+    const data = (await get("/v1/events/evt_q1")).json().data;
+    expect(data.timingContext).toEqual({
+      queue: "customer-updates",
+      queueWaitMs: 0,
+      queueWaitBasis: "initial-enqueue",
+      attempt: 1
+    });
+    expect(data.recordedHost).toBe("integration-api.internal");
+    expect(data.customMetadata).toMatchObject({
+      retryAfterMs: -1,
+      applicationField: "detail-only"
+    });
   });
 
   it("returns 404 for another environment of the same project", async () => {
