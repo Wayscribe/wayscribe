@@ -159,11 +159,16 @@ async function onOneConnection(knex, lockTimeout, work) {
   if (!/^\d+(ms|s|min)$/.test(lockTimeout)) {
     throw new Error(`Not a lock timeout: ${JSON.stringify(lockTimeout)}`);
   }
+  const result = /** @type {{ rows: { search_path: string }[] }} */ (
+    await knex.raw("show search_path")
+  );
+  const searchPath = result.rows[0].search_path;
   const client = new pg.Client(await clientConfig(knex));
   try {
     await client.connect();
     /** @type {(sql: string, bindings?: unknown[]) => Promise<{ rows: unknown[] }>} */
     const query = (sql, bindings = []) => client.query(sql, bindings);
+    await query("select set_config('search_path', $1, false)", [searchPath]);
     await query(`set lock_timeout = '${lockTimeout}'`);
     await work(query);
   } finally {

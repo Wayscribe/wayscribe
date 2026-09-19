@@ -1323,8 +1323,10 @@ describe("schema constraints", () => {
     const indexes = async (): Promise<{ name: string; valid: boolean; definition: string }[]> => {
       const result: unknown = await db.raw(
         `select c.relname as name, i.indisvalid as valid, pg_get_indexdef(c.oid) as definition
-         from pg_index i join pg_class c on c.oid = i.indexrelid
-         where c.relname = any(?) order by c.relname`,
+         from pg_index i
+         join pg_class c on c.oid = i.indexrelid
+         join pg_namespace n on n.oid = c.relnamespace
+         where n.nspname = current_schema() and c.relname = any(?) order by c.relname`,
         [NAMES]
       );
       return (result as { rows: { name: string; valid: boolean; definition: string }[] }).rows;
@@ -1354,6 +1356,113 @@ describe("schema constraints", () => {
     const cleanUp = async (): Promise<void> => {
       await db("journeys").where("id", "like", "jrn_019%").delete();
     };
+
+    it("preserves a quoted non-default search path on dedicated index sessions", async () => {
+      const schema = 'migration 019 "isolated"';
+      const connection = new URL(container.getConnectionUri());
+      // Make a lost search_path observable even though this suite also has the
+      // public tables: Knex applies its searchPath after connecting, while the
+      // migration's dedicated pg.Client receives only this connection string.
+      connection.searchParams.set("options", "-c search_path=");
+      const isolated = knex({
+        ...createKnexConfig(connection.toString()),
+        searchPath: [schema]
+      });
+
+      const schemaIndexes = async (): Promise<
+        { schema: string; name: string; valid: boolean; definition: string }[]
+      > => {
+        const result: unknown = await isolated.raw(
+          `select n.nspname as schema, c.relname as name, i.indisvalid as valid,
+                  pg_get_indexdef(i.indexrelid) as definition
+             from pg_index i
+             join pg_class c on c.oid = i.indexrelid
+             join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = current_schema() and c.relname = any(?)
+            order by c.relname`,
+          [NAMES]
+        );
+        return (
+          result as {
+            rows: { schema: string; name: string; valid: boolean; definition: string }[];
+          }
+        ).rows;
+      };
+
+      const expectedSearchPath = '"migration 019 ""isolated"""';
+      const settings = async (): Promise<{ searchPath: string; lockTimeout: string }> => {
+        const result: unknown = await isolated.raw(
+          "select current_setting('search_path') as search_path, current_setting('lock_timeout') as lock_timeout"
+        );
+        const row = (result as { rows: { search_path: string; lock_timeout: string }[] }).rows[0];
+        return {
+          searchPath: row?.search_path ?? "missing",
+          lockTimeout: row?.lock_timeout ?? "missing"
+        };
+      };
+
+      try {
+        await db.raw("create schema ??", [schema]);
+        const publicBefore = await indexes();
+        expect(publicBefore).toEqual(VALID);
+        expect(await settings()).toEqual({
+          searchPath: expectedSearchPath,
+          lockTimeout: "0"
+        });
+
+        await isolated.migrate.latest();
+        expect(
+          (await schemaIndexes()).map(({ schema: foundSchema, name, valid, definition }) => ({
+            schema: foundSchema,
+            name,
+            valid,
+            definition: definition.replace(` ON "${schema.replaceAll('"', '""')}".`, " ON ")
+          }))
+        ).toEqual(
+          VALID.map((index) => ({
+            schema,
+            ...index,
+            definition: index.definition.replace(" ON public.", " ON ")
+          }))
+        );
+        expect(await indexes()).toEqual(publicBefore);
+
+        await isolated.migrate.down({ name: MIGRATION });
+        expect(await schemaIndexes()).toEqual([]);
+        expect(await indexes()).toEqual(publicBefore);
+        await isolated.migrate.up({ name: MIGRATION });
+
+        await isolated.migrate.down({ name: MIGRATION });
+        await isolated.raw(
+          "create index journeys_project_recent_idx on journeys (project_id, last_event_at, id)"
+        );
+        await isolated.raw(
+          `update pg_index i set indisvalid = false
+             from pg_class c join pg_namespace n on n.oid = c.relnamespace
+            where i.indexrelid = c.oid and c.relname = ? and n.nspname = current_schema()`,
+          ["journeys_project_recent_idx"]
+        );
+        expect((await schemaIndexes()).map(({ name, valid }) => ({ name, valid }))).toEqual([
+          { name: "journeys_project_recent_idx", valid: false }
+        ]);
+        await isolated.migrate.up({ name: MIGRATION });
+        expect((await schemaIndexes()).map(({ name, valid }) => ({ name, valid }))).toEqual(
+          VALID.map(({ name, valid }) => ({ name, valid }))
+        );
+
+        expect(await settings()).toEqual({
+          searchPath: expectedSearchPath,
+          lockTimeout: "0"
+        });
+        expect(await indexes()).toEqual(publicBefore);
+      } finally {
+        try {
+          await isolated.destroy();
+        } finally {
+          await db.raw("drop schema if exists ?? cascade", [schema]);
+        }
+      }
+    });
 
     it("adds both indexes, valid, and removes them on the way down", async () => {
       // Migration 018's tests drop display_value and add it back, which drops
