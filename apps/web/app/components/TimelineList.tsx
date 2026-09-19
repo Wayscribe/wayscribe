@@ -87,6 +87,11 @@ export function TimelineList({
             {evidence?.gapBefore == null ? null : (
               <div className="timeline-gap">
                 <span>{gapText(evidence.gapBefore)}</span>
+                {evidence.gapBefore.qualification === undefined ? null : (
+                  <span className="muted gap-qualification">
+                    {evidence.gapBefore.qualification}
+                  </span>
+                )}
                 {evidence.clockCaveat === null ? null : (
                   <span className="muted clock-caveat">{evidence.clockCaveat}</span>
                 )}
@@ -153,7 +158,7 @@ export function TimelineList({
 function gapText(gap: TimelineTiming["gapBefore"]): string {
   if (gap === null) return "";
   if (gap.kind === "overlap") {
-    return `${formatDuration(Math.abs(gap.milliseconds))} overlap / clock disagreement`;
+    return `${gap.label}: ${formatDuration(Math.abs(gap.milliseconds))} overlap / clock disagreement`;
   }
   if (gap.kind === "unknown") {
     if (gap.startToStartMs === null) return `${gap.label}: unknown`;

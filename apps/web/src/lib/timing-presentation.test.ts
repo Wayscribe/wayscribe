@@ -142,6 +142,11 @@ describe("recorded retry groups", () => {
           durationMs: 100,
           timingContext: { attempt: 1, retryGroup: "job-7" }
         }),
+        event("between", {
+          name: "unrelated-step",
+          eventTimestamp: "2026-09-18T10:00:00.500Z",
+          recordedHost: "host-c"
+        }),
         event("two", {
           operation: "retried",
           eventTimestamp: "2026-09-18T10:00:00.250Z",
@@ -180,6 +185,91 @@ describe("recorded retry groups", () => {
       "Attempt 2 is missing from the loaded events."
     ]);
     expect(groups[0]?.attempts.every((attempt) => attempt.delayMs === null)).toBe(true);
+  });
+
+  it("compacts huge sparse missing ranges with output bounded by loaded evidence", () => {
+    const groups = retryGroups(
+      [
+        event("one", { timingContext: { attempt: 1, retryGroup: "job-sparse" } }),
+        event("huge", {
+          timingContext: { attempt: Number.MAX_SAFE_INTEGER, retryGroup: "job-sparse" }
+        })
+      ],
+      true
+    );
+
+    expect(groups[0]?.issues).toEqual([
+      `Attempts 2–${String(Number.MAX_SAFE_INTEGER - 1)} are missing from the loaded events.`
+    ]);
+  });
+
+  it("keeps grouped events with unknown attempt numbers and reports leading gaps", () => {
+    const groups = retryGroups(
+      [
+        event("unknown", {
+          operation: "failed",
+          timingContext: { retryGroup: "job-7" }
+        }),
+        event("three", { timingContext: { attempt: 3, retryGroup: "job-7" } })
+      ],
+      true
+    );
+
+    expect(groups[0]?.attempts).toEqual([
+      expect.objectContaining({ eventId: "unknown", number: null, outcome: "failed" }),
+      expect.objectContaining({ eventId: "three", number: 3, outcome: "succeeded" })
+    ]);
+    expect(groups[0]?.issues).toEqual([
+      "1 loaded event has no valid attempt number.",
+      "Attempts 1–2 are missing from the loaded events."
+    ]);
+  });
+
+  it("attaches clock uncertainty from the actual pair used for an observed retry delay", () => {
+    const differentHosts = retryGroups(
+      [
+        event("one", {
+          durationMs: 100,
+          recordedHost: "host-a",
+          timingContext: { attempt: 1, retryGroup: "job-7" }
+        }),
+        event("between-hosts", {
+          name: "unrelated-step",
+          eventTimestamp: "2026-09-18T10:00:00.500Z",
+          recordedHost: "host-c"
+        }),
+        event("two", {
+          eventTimestamp: "2026-09-18T10:00:01.100Z",
+          recordedHost: "host-b",
+          timingContext: { attempt: 2, retryGroup: "job-7" }
+        })
+      ],
+      true
+    );
+    expect(differentHosts[0]?.attempts[1]).toMatchObject({
+      delayMs: 1000,
+      delayClockCaveat:
+        "Clock comparison for this observed retry delay is uncertain because the attempts came from different recorded hosts."
+    });
+
+    const missingHost = retryGroups(
+      [
+        event("one", {
+          durationMs: 100,
+          recordedHost: "host-a",
+          timingContext: { attempt: 1, retryGroup: "job-8" }
+        }),
+        event("two", {
+          eventTimestamp: "2026-09-18T10:00:01.100Z",
+          recordedHost: null,
+          timingContext: { attempt: 2, retryGroup: "job-8" }
+        })
+      ],
+      true
+    );
+    expect(missingHost[0]?.attempts[1]?.delayClockCaveat).toContain(
+      "recorded host evidence is missing"
+    );
   });
 
   it("makes missing duration, overlap, and incomplete loaded pages explicit", () => {

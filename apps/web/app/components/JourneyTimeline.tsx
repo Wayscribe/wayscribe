@@ -35,6 +35,8 @@ export interface JourneyTimelineProps {
   totalEvents: number;
   /** The journey's services from the server, which may include ones not yet loaded. */
   knownServices: string[];
+  /** Query from the server request, used by real event links before hydration or with modifiers. */
+  selectionQuery: string;
   /**
    * Whether to start following the journey: it is active, or its last event is
    * recent enough to count as still arriving. Decided on the server (see
@@ -321,7 +323,15 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
         onLive={onLive}
         notice={pollNotice}
       />
-      <RetrySummary journeyId={journeyId} events={events} complete={cursor === null} />
+      <RetrySummary
+        journeyId={journeyId}
+        events={events}
+        complete={cursor === null}
+        selectionQuery={props.selectionQuery}
+        onSelect={(id) => {
+          void select(id);
+        }}
+      />
       <div className="journey">
         <div>
           {/* The list stays mounted with no options rather than unmounting:

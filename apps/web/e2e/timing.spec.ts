@@ -230,6 +230,11 @@ test("removes the loaded-page retry limitation after pagination completes", asyn
     page.getByText("Only loaded events are included; later attempts may exist.")
   ).toHaveCount(0);
   await expect(page.getByRole("button", { name: /more events/ })).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Attempt 2", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "paged-retry" })).toBeVisible();
+  await expect(page.locator(".timeline li")).toHaveCount(101);
+  await expect(page.getByRole("button", { name: /more events/ })).toHaveCount(0);
 });
 
 test.describe("with JavaScript disabled", () => {
@@ -246,5 +251,22 @@ test.describe("with JavaScript disabled", () => {
     await expect(page.getByRole("group", { name: "Operational context" })).toContainText(
       "800 ms (initial enqueue to attempt start)"
     );
+  });
+
+  test("carries the list return context through a retry-attempt link", async ({ page }) => {
+    await signIn(page, JOURNEY_ID);
+    await page.goto(`/journeys?service=${SERVICE}&minDurationMs=4999`);
+    await rowFor(page, JOURNEY_ID).getByRole("link").click();
+
+    const attempt = page.getByRole("link", { name: "Attempt 2", exact: true });
+    await expect(attempt).toHaveAttribute("href", /from=journeys/);
+    await expect(attempt).toHaveAttribute("href", /list=/);
+    await attempt.click();
+
+    const back = page.getByRole("link", { name: "← Journeys" });
+    await expect(back).toHaveAttribute("href", new RegExp(`service=${SERVICE}`));
+    await expect(back).toHaveAttribute("href", /minDurationMs=4999/);
+    await back.click();
+    await expect(rowFor(page, JOURNEY_ID)).toBeVisible();
   });
 });

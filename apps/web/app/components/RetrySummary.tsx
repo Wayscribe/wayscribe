@@ -1,15 +1,20 @@
-import { useMemo, type ReactElement } from "react";
+import { useMemo, type MouseEvent, type ReactElement } from "react";
 import type { EventListItem } from "../../src/lib/api";
 import { formatDuration, retryGroups } from "../../src/lib/timing-presentation";
 
 export function RetrySummary({
   journeyId,
   events,
-  complete
+  complete,
+  selectionQuery,
+  onSelect
 }: {
   journeyId: string;
   events: readonly EventListItem[];
   complete: boolean;
+  /** The server-rendered query, retained by real links for no-JS and modifier clicks. */
+  selectionQuery: string;
+  onSelect: (eventId: string) => void;
 }): ReactElement | null {
   const groups = useMemo(() => retryGroups(events, complete), [events, complete]);
   const unlinked = useMemo(
@@ -47,17 +52,27 @@ export function RetrySummary({
             {group.attempts.map((attempt) => (
               <li key={attempt.eventId}>
                 <a
-                  href={`/journeys/${encodeURIComponent(journeyId)}?event=${encodeURIComponent(attempt.eventId)}`}
+                  href={eventHref(journeyId, attempt.eventId, selectionQuery)}
+                  onClick={(click) => {
+                    selectInPlace(click, attempt.eventId, onSelect);
+                  }}
                 >
-                  Attempt {attempt.number}
+                  {attempt.number === null
+                    ? "Attempt number unknown"
+                    : `Attempt ${String(attempt.number)}`}
                 </a>
                 <span className={attempt.outcome === "failed" ? "failed" : undefined}>
                   {attempt.outcome}
                 </span>
                 {attempt.delayMs === null ? null : (
-                  <span className="muted">
-                    observed retry delay {formatDuration(attempt.delayMs)}
-                  </span>
+                  <>
+                    <span className="muted">
+                      observed retry delay {formatDuration(attempt.delayMs)}
+                    </span>
+                    {attempt.delayClockCaveat === null ? null : (
+                      <span className="muted">{attempt.delayClockCaveat}</span>
+                    )}
+                  </>
                 )}
               </li>
             ))}
@@ -76,7 +91,10 @@ export function RetrySummary({
             {unlinked.map((event) => (
               <li key={event.id}>
                 <a
-                  href={`/journeys/${encodeURIComponent(journeyId)}?event=${encodeURIComponent(event.id)}`}
+                  href={eventHref(journeyId, event.id, selectionQuery)}
+                  onClick={(click) => {
+                    selectInPlace(click, event.id, onSelect);
+                  }}
                 >
                   {event.service} · {event.name} · attempt {event.timingContext?.attempt}
                 </a>
@@ -92,4 +110,20 @@ export function RetrySummary({
       )}
     </section>
   );
+}
+
+function eventHref(journeyId: string, eventId: string, selectionQuery: string): string {
+  const query = new URLSearchParams(selectionQuery);
+  query.set("event", eventId);
+  return `/journeys/${encodeURIComponent(journeyId)}?${query.toString()}`;
+}
+
+function selectInPlace(
+  click: MouseEvent<HTMLAnchorElement>,
+  eventId: string,
+  onSelect: (eventId: string) => void
+): void {
+  if (click.metaKey || click.ctrlKey || click.shiftKey || click.button !== 0) return;
+  click.preventDefault();
+  onSelect(eventId);
 }

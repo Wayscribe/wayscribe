@@ -165,6 +165,17 @@ describe("EventDetail operational context", () => {
     expect(screen.queryByRole("group", { name: "Operational context" })).toBeNull();
     expect(document.body.textContent).not.toContain("Measured queue wait0 ms");
   });
+
+  it("can rerender from absent to present to absent operational context", () => {
+    const { rerender } = render(<EventDetail event={event()} />);
+    expect(screen.queryByRole("group", { name: "Operational context" })).toBeNull();
+
+    rerender(<EventDetail event={event({ timingContext: { attempt: 1, retryGroup: "job-7" } })} />);
+    expect(screen.getByRole("group", { name: "Operational context" })).toBeTruthy();
+
+    rerender(<EventDetail event={event()} />);
+    expect(screen.queryByRole("group", { name: "Operational context" })).toBeNull();
+  });
 });
 
 /**

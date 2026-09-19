@@ -1,9 +1,9 @@
 import type { EventListItem } from "./api";
 
 export type GapPresentation =
-  | { kind: "gap"; milliseconds: number; label: string }
-  | { kind: "overlap"; milliseconds: number; label: string }
-  | { kind: "unknown"; startToStartMs: number | null; label: string };
+  | { kind: "gap"; milliseconds: number; label: string; qualification?: string }
+  | { kind: "overlap"; milliseconds: number; label: string; qualification?: string }
+  | { kind: "unknown"; startToStartMs: number | null; label: string; qualification?: string };
 
 export interface TimelineTiming {
   eventId: string;
@@ -14,9 +14,10 @@ export interface TimelineTiming {
 
 export interface RetryAttemptPresentation {
   eventId: string;
-  number: number;
+  number: number | null;
   outcome: "failed" | "succeeded";
   delayMs: number | null;
+  delayClockCaveat: string | null;
 }
 
 export interface RetryGroupPresentation {
@@ -75,8 +76,7 @@ export function retryGroups(
   >();
   for (const event of events) {
     const retryGroup = event.timingContext?.retryGroup;
-    const attempt = event.timingContext?.attempt;
-    if (retryGroup === undefined || attempt === undefined) continue;
+    if (retryGroup === undefined) continue;
     const key = JSON.stringify([event.service, event.name, retryGroup]);
     const group = grouped.get(key) ?? {
       service: event.service,
@@ -94,19 +94,20 @@ export function retryGroups(
 function gapBetween(previous: EventListItem, next: EventListItem): GapPresentation {
   const previousStart = Date.parse(previous.eventTimestamp);
   const nextStart = Date.parse(next.eventTimestamp);
-  const label =
-    previous.operation === "published" && next.operation === "consumed"
-      ? "Publish → consume gap"
-      : "Recorded gap";
+  const publishToConsume = previous.operation === "published" && next.operation === "consumed";
+  const label = publishToConsume ? "Publish → consume gap" : "Recorded gap";
+  const qualification = publishToConsume
+    ? "Adjacent events do not prove a matching message; this is not broker-measured queue wait."
+    : undefined;
   const startToStartMs =
     Number.isFinite(previousStart) && Number.isFinite(nextStart) ? nextStart - previousStart : null;
   if (previous.durationMs === null || startToStartMs === null) {
-    return { kind: "unknown", startToStartMs, label };
+    return { kind: "unknown", startToStartMs, label, ...(qualification ? { qualification } : {}) };
   }
   const milliseconds = startToStartMs - previous.durationMs;
   return milliseconds < 0
-    ? { kind: "overlap", milliseconds, label }
-    : { kind: "gap", milliseconds, label };
+    ? { kind: "overlap", milliseconds, label, ...(qualification ? { qualification } : {}) }
+    : { kind: "gap", milliseconds, label, ...(qualification ? { qualification } : {}) };
 }
 
 function clockCaveat(
@@ -136,27 +137,32 @@ function presentRetryGroup(
 
   const issues: string[] = [];
   const numbers = [...byAttempt.keys()].sort((a, b) => a - b);
+  const unknownCount = group.events.length - [...byAttempt.values()].flat().length;
+  if (unknownCount > 0) {
+    issues.push(
+      `${String(unknownCount)} loaded ${unknownCount === 1 ? "event has" : "events have"} no valid attempt number.`
+    );
+  }
   for (const number of numbers) {
     if ((byAttempt.get(number)?.length ?? 0) > 1) {
       issues.push(`Attempt ${String(number)} is duplicated in the loaded events.`);
     }
   }
-  const first = numbers[0];
-  const last = numbers.at(-1);
-  if (first !== undefined && last !== undefined) {
-    for (let number = first; number <= last; number += 1) {
-      if (!byAttempt.has(number)) {
-        issues.push(`Attempt ${String(number)} is missing from the loaded events.`);
-      }
+  let expected = 1;
+  for (const number of numbers) {
+    if (number > expected) {
+      issues.push(missingAttemptsIssue(expected, number - 1));
     }
+    if (number < Number.MAX_SAFE_INTEGER) expected = number + 1;
   }
 
   const attempts = group.events.map((event): RetryAttemptPresentation => {
-    const number = event.timingContext?.attempt ?? 0;
+    const number = event.timingContext?.attempt ?? null;
     let delayMs: number | null = null;
-    const previous = byAttempt.get(number - 1);
-    const current = byAttempt.get(number);
-    if (number > 1 && previous?.length === 1 && current?.length === 1) {
+    let delayClockCaveat: string | null = null;
+    const previous = number === null ? undefined : byAttempt.get(number - 1);
+    const current = number === null ? undefined : byAttempt.get(number);
+    if (number !== null && number > 1 && previous?.length === 1 && current?.length === 1) {
       const previousEvent = previous[0];
       if (previousEvent !== undefined) {
         if (previousEvent.durationMs === null) {
@@ -178,6 +184,10 @@ function presentRetryGroup(
               );
             } else {
               delayMs = observed;
+              delayClockCaveat = retryDelayClockCaveat(
+                previousEvent.recordedHost,
+                event.recordedHost
+              );
             }
           }
         }
@@ -187,7 +197,8 @@ function presentRetryGroup(
       eventId: event.id,
       number,
       outcome: event.hasError || event.operation === "failed" ? "failed" : "succeeded",
-      delayMs
+      delayMs,
+      delayClockCaveat
     };
   });
 
@@ -199,4 +210,22 @@ function presentRetryGroup(
     attempts,
     issues: [...new Set(issues)]
   };
+}
+
+function missingAttemptsIssue(first: number, last: number): string {
+  return first === last
+    ? `Attempt ${String(first)} is missing from the loaded events.`
+    : `Attempts ${String(first)}–${String(last)} are missing from the loaded events.`;
+}
+
+function retryDelayClockCaveat(
+  previous: string | null | undefined,
+  next: string | null | undefined
+): string | null {
+  if (previous === undefined || previous === null || next === undefined || next === null) {
+    return "Clock comparison for this observed retry delay is uncertain because recorded host evidence is missing.";
+  }
+  return previous === next
+    ? null
+    : "Clock comparison for this observed retry delay is uncertain because the attempts came from different recorded hosts.";
 }

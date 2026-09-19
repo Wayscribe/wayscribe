@@ -98,7 +98,7 @@ describe("TimelineList rows", () => {
         onArrow={() => undefined}
       />
     );
-    expect(screen.getByText("50 ms overlap / clock disagreement")).toBeTruthy();
+    expect(screen.getByText("Recorded gap: 50 ms overlap / clock disagreement")).toBeTruthy();
     expect(screen.getByText(/different recorded hosts/)).toBeTruthy();
   });
 
@@ -124,6 +124,58 @@ describe("TimelineList rows", () => {
     expect(
       screen.getByText("Recorded gap: unknown (start-to-start 500 ms overlap / clock disagreement)")
     ).toBeTruthy();
+  });
+
+  it("qualifies publish-to-consume evidence for positive, unknown, and overlap states", () => {
+    const events = [
+      event("publish-gap", { operation: "published", durationMs: 100 }),
+      event("consume-gap", {
+        operation: "consumed",
+        eventTimestamp: "2026-09-16T08:00:00.200Z",
+        durationMs: 0
+      }),
+      event("publish-unknown", {
+        operation: "published",
+        eventTimestamp: "2026-09-16T08:00:00.300Z",
+        durationMs: null
+      }),
+      event("consume-unknown", {
+        operation: "consumed",
+        eventTimestamp: "2026-09-16T08:00:00.500Z",
+        durationMs: 0
+      }),
+      event("publish-overlap", {
+        operation: "published",
+        eventTimestamp: "2026-09-16T08:00:00.600Z",
+        durationMs: 200
+      }),
+      event("consume-overlap", {
+        operation: "consumed",
+        eventTimestamp: "2026-09-16T08:00:00.700Z"
+      })
+    ];
+    render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={events}
+        timing={presentTimelineTiming(events)}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+
+    expect(screen.getByText("Publish → consume gap: 100 ms")).toBeTruthy();
+    expect(screen.getByText("Publish → consume gap: unknown (start-to-start 200 ms)")).toBeTruthy();
+    expect(
+      screen.getByText("Publish → consume gap: 100 ms overlap / clock disagreement")
+    ).toBeTruthy();
+    expect(
+      screen.getAllByText(
+        "Adjacent events do not prove a matching message; this is not broker-measured queue wait."
+      )
+    ).toHaveLength(3);
   });
 });
 

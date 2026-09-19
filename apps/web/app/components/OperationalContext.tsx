@@ -3,6 +3,7 @@ import type { EventDetailData } from "../../src/lib/api";
 import { formatDuration } from "../../src/lib/timing-presentation";
 
 export function OperationalContext({ event }: { event: EventDetailData }): ReactElement | null {
+  const labelId = useId();
   const context = event.timingContext ?? {};
   const rows: [string, string][] = [];
   if (context.queue !== undefined) rows.push(["Queue", context.queue]);
@@ -31,7 +32,6 @@ export function OperationalContext({ event }: { event: EventDetailData }): React
   if (event.recordedHost != null) rows.push(["Recorded host", event.recordedHost]);
   if (rows.length === 0) return null;
 
-  const labelId = useId();
   return (
     <>
       <h3 id={labelId}>Operational context</h3>

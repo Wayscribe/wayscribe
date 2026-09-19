@@ -79,6 +79,7 @@ function mount(props: Partial<Parameters<typeof JourneyTimeline>[0]> = {}) {
       initialLive={status === "active"}
       totalEvents={4}
       knownServices={["webhook-api", "sync-worker"]}
+      selectionQuery="event=evt_1"
       {...props}
     />
   );
@@ -112,12 +113,14 @@ describe("JourneyTimeline", () => {
         name: "push-customer",
         durationMs: 100,
         operation: "failed",
+        recordedHost: "host-a",
         timingContext: { attempt: 1, retryGroup: "job-7", retryAfterMs: 2000 }
       }),
       event("evt_2", {
         name: "push-customer",
         eventTimestamp: "2026-09-14T10:00:02.250Z",
         operation: "retried",
+        recordedHost: "host-b",
         timingContext: { attempt: 2, retryGroup: "job-7" }
       })
     ];
@@ -128,7 +131,85 @@ describe("JourneyTimeline", () => {
     expect(within(group).getByText("job-7")).toBeInTheDocument();
     expect(group.textContent).toContain("Attempt 1failed");
     expect(group.textContent).toContain("Attempt 2succeededobserved retry delay 1.15 s");
+    expect(group.textContent).toContain("attempts came from different recorded hosts");
     expect(group.textContent).not.toContain("requested");
+  });
+
+  it("selects a retry attempt in place after loading more, preserving filters and return context", async () => {
+    const attemptOne = event("evt_1", {
+      name: "push-customer",
+      operation: "failed",
+      service: "sync-worker",
+      timingContext: { attempt: 1, retryGroup: "job-7" }
+    });
+    const attemptTwo = event("evt_2", {
+      name: "push-customer",
+      operation: "retried",
+      service: "sync-worker",
+      timingContext: { attempt: 2, retryGroup: "job-7" }
+    });
+    fetchMock
+      .mockResolvedValueOnce(
+        ok(page({ items: [attemptTwo], journeyStatus: "failed", journeyEventCount: 2 }))
+      )
+      .mockResolvedValueOnce(ok(detail("evt_2")));
+    window.history.replaceState(
+      null,
+      "",
+      "/journeys/jrn_1?from=journeys&list=service%3Dsync-worker&event=evt_1"
+    );
+    mount({
+      initialEvents: [attemptOne],
+      initialCursor: "c1",
+      totalEvents: 2,
+      knownServices: ["sync-worker"],
+      selectionQuery: "from=journeys&list=service%3Dsync-worker&event=evt_1"
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "sync-worker" }));
+    await userEvent.click(screen.getByRole("button", { name: "Show 1 more events" }));
+    const attemptLink = await screen.findByRole("link", { name: "Attempt 2" });
+    expect(attemptLink).toHaveAttribute(
+      "href",
+      "/journeys/jrn_1?from=journeys&list=service%3Dsync-worker&event=evt_2"
+    );
+    await userEvent.click(attemptLink);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 2, name: "step-evt_2" })).toBeInTheDocument();
+    });
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "sync-worker" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(window.location.search).toBe("?from=journeys&list=service%3Dsync-worker&event=evt_2");
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/events/evt_2", expect.anything());
+  });
+
+  it("shows grouped events whose attempt number is unknown and leading missing attempts", () => {
+    mount({
+      initialEvents: [
+        event("evt_1", {
+          name: "push-customer",
+          operation: "failed",
+          timingContext: { retryGroup: "job-7" }
+        }),
+        event("evt_3", {
+          name: "push-customer",
+          timingContext: { attempt: 3, retryGroup: "job-7" }
+        })
+      ],
+      totalEvents: 2
+    });
+
+    const group = screen.getByRole("group", {
+      name: "Recorded attempts for push-customer, retry identity job-7"
+    });
+    expect(within(group).getByRole("link", { name: "Attempt number unknown" })).toBeInTheDocument();
+    expect(group).toHaveTextContent("Attempt number unknownfailed");
+    expect(group).toHaveTextContent("1 loaded event has no valid attempt number.");
+    expect(group).toHaveTextContent("Attempts 1–2 are missing from the loaded events.");
   });
   it("moves the selection with the keyboard and fetches the new event's detail", async () => {
     fetchMock.mockResolvedValueOnce(ok(detail("evt_2")));

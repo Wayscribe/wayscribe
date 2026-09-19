@@ -147,3 +147,75 @@ introduced.
 The API remains running on port 18080 under controller ownership. The task's Next dev
 process was stopped before the production build and restarted afterward on
 127.0.0.1:13000 as exec session `69387`; it is ready and left running for review.
+
+## Scoped review fix round 1
+
+The five Important findings in `task-3-review.md` and the hook-order observation are
+fixed without widening the feature scope:
+
+- Missing attempt evidence is now derived from sorted loaded attempt numbers and emitted
+  as one bounded range per observed gap. It includes missing leading attempts and remains
+  constant-size for `1` followed by `Number.MAX_SAFE_INTEGER`; no loop walks the numeric
+  range. Events with an explicit retry identity but no valid attempt number remain visible
+  as `Attempt number unknown` with a separate evidence issue.
+- Every displayed observed retry delay now gets its own host comparison. Different hosts
+  or missing host evidence place a clock caveat beside that delay, even when unrelated
+  timeline events occur between the attempts.
+- Retry-attempt anchors retain the detail page's full server query. Ordinary primary
+  clicks call the established in-place selection path, which preserves loaded pagination,
+  filters, keyboard/list state, and the return target. Modifier, non-primary, and no-JS
+  navigation use the same real context-bearing href.
+- Positive, unknown, and overlap publish-to-consume gaps keep the
+  `Publish → consume gap` label and state that adjacency does not prove a matching
+  message or broker-measured queue wait.
+- `OperationalContext` now calls `useId` unconditionally. Its rerender regression covers
+  absent → present → absent operational evidence.
+
+### Fix-round TDD and verification evidence
+
+Focused regressions were written for the reviewed behaviors before the corresponding
+helpers/components were changed. Per the review instruction, the MAX_SAFE_INTEGER case
+was not executed against the old integer-by-integer implementation; the reviewed
+unbounded loop was the RED evidence and the new bounded assertion ran only after the
+algorithm was replaced. The first component run exposed two assertion problems in the
+new tests (the intentional overlap label and an ambiguous heading locator); correcting
+those assertions produced the final GREEN runs below.
+
+All commands used Node 24.19.0 from
+`/Users/jorgepolanco/.nvm/versions/node/v24.19.0/bin`.
+
+- `pnpm exec vitest run --project node apps/web/src/lib/timing-presentation.test.ts`
+  — 1 file, 14 tests passed in 177 ms.
+- `pnpm exec vitest run --project web apps/web/app/components/JourneyTimeline.test.tsx apps/web/app/components/EventDetail.test.tsx apps/web/app/components/TimelineList.test.tsx`
+  — 3 files, 68 tests passed in 1.27 s.
+- `node /tmp/wayscribe-timing-run.mjs pnpm --filter @wayscribe/web exec playwright test e2e/timing.spec.ts`
+  — 6 tests passed in 7.1 s. This covers desktop/mobile timing, in-place retry selection
+  after loading 101 events, JavaScript-disabled timing links, and a no-JS retry/back path
+  retaining service and duration filters.
+- `pnpm --filter @wayscribe/web typecheck` — passed with no TypeScript diagnostics.
+- `pnpm --filter @wayscribe/web exec eslint <11 scoped timing source/test files>` — passed
+  with no output.
+- `pnpm exec prettier --check <11 scoped timing source/test files>` — all matched files
+  use Prettier code style.
+- `pnpm --filter @wayscribe/web build` — compiled successfully, Next type validation
+  passed, 11/11 static pages generated. It emitted only the previously triaged
+  multiple-lockfile workspace-root warning.
+
+The production build and an initial typecheck were mistakenly launched concurrently;
+that typecheck reported TS6053 for transient `.next/types` files while the build replaced
+that directory. The build's own type validation passed, and the required sequential
+`pnpm --filter @wayscribe/web typecheck` rerun above passed cleanly.
+
+Controller-owned independent acceptance against the rebuilt dev server also passed. It
+rendered the safe-integer sparse history as the single range
+`Attempts 2–9007199254740990`, qualified a cross-host non-adjacent retry delay, exposed
+unknown and leading attempt evidence, qualified a publish/consume overlap, retained all
+101 loaded events after retry selection, and preserved the no-JS duration-filter return
+at 400 px with zero overflow. Machine-readable evidence is in
+`/tmp/wayscribe-timing-ui-review-acceptance-result.json`; visually inspected screenshots
+are `/tmp/wayscribe-timing-review-desktop.png` and
+`/tmp/wayscribe-timing-review-mobile-nojs.png`.
+
+The controller-owned API remains on port 18080. The rebuilt Next dev server is ready on
+127.0.0.1:13000 as exec session `96944`. The only remaining concern is the existing Next
+workspace-root warning described above.

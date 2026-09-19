@@ -68,6 +68,7 @@ export default async function JourneyPage({
           initialDetail={active}
           totalEvents={journey.eventCount}
           knownServices={journey.services}
+          selectionQuery={search}
           // Decided here, on one clock: a journey marked failed can still be
           // recording retries, and re-deciding it in the browser against a
           // different clock would be a hydration mismatch.
