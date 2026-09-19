@@ -18,7 +18,7 @@ contains the commands, results and release-rehearsal limits.
 | Only the original four warning categories print without opt-in | The release draft now includes unusable optional settings and personal data in public labels, displayable aliases and error messages, matching the six categories in the SDK README and `tests/docs-claims.test.ts`. |
 | Fitting an oversized payload means its event arrives | Fitting handles capture limits before sending. Transport failures and ingestion refusals still prevent storage; the release draft no longer promises delivery. |
 | Zero transport errors and zero `no_verdict` drops prove a healthy collector | They are inconclusive, including when shutdown occurs before retries are exhausted. The SDK docs, TSDoc, troubleshooting guide and release draft say so. Existing fault tests exercise this case. |
-| Released images are already signed and the SDK already has provenance | The draft now describes implemented release jobs and the absence of a completed real release. SDK dry-run passed; API images and SBOMs were built in a private rehearsal, but web build, tagging, real signing and installation verification were not completed. |
+| Released images are already signed and the SDK already has provenance | The draft now describes implemented release jobs and the absence of a completed real release. SDK dry-run and the local AMD64/ARM64 API/web image rehearsal passed after Docker recovery, including four SBOMs, local tags and installation from Compose files alone. Real signing and public package provenance remain unverified. |
 
 ## Facts retained with their limits
 
@@ -41,11 +41,12 @@ contains the commands, results and release-rehearsal limits.
 - The dependency audit passed the high-severity gate with one moderate
   development-only `uuid` advisory. It is not a claim of zero advisories.
 
+The multi-architecture image rehearsal and installation from Compose files
+alone passed after Docker recovery, as recorded in the verification record.
+The website build also passed: 32 pages and all internal links validated.
+
 ## Still needed before launch
 
-- Finish the multi-architecture image rehearsal and install
-  from Compose files alone after Docker storage is repaired.
-  The website build passed on retry: 32 pages and all internal links validated.
 - Verify actual package/image publication, provenance and signatures after
   the owner runs the protected release jobs. Do not turn future install
   instructions into current instructions before that verification.
