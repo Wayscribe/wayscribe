@@ -31,9 +31,11 @@ comparison. In short:
   by a trace id.
 - **A journey outlives a trace.** One record crosses a webhook, a queue, a
   worker and a retry an hour later; those are several traces, and one journey.
-- **It stores the payload going in and coming out of each step**, and the
-  field-level difference between them. Traces carry latency, status and
-  structure, not the value that changed.
+- **It stores a paired input and output for each step**, and the field-level
+  difference between them. Spans can carry arbitrary attributes, including
+  record values an application adds, but the tracing documentation reviewed
+  for this comparison does not describe this paired diff or journey-linked
+  development replay.
 
 It is not a replacement for OpenTelemetry, and it does not require it
 ([ADR-010](DECISIONS.md#adr-010-opentelemetry-is-optional-interoperability)).
@@ -105,21 +107,24 @@ payloads at all. Treat the database as holding whatever your workflows carry.
 
 ## What does the SDK cost my service?
 
-Measured on 2026-09-17 with the SDK's own benchmark
-(`pnpm --filter @wayscribe/node bench`) on an Apple M3 Pro, macOS 26.2,
-Node 24.19.0, default configuration, while the machine ran other work.
+Measured on 2026-09-19 UTC (2026-09-18 local) with the SDK's own benchmark
+(`pnpm --filter @wayscribe/node bench`) on an Apple M3 Pro, Node 24.19.0,
+default configuration. The normal and awake source heads were `3fb2b4a` and
+`5537d4c`, with the same SDK and protocol trees. The shared host ran other
+services and verification work.
 Source: [SDK README, What it costs](../packages/sdk-node/README.md#what-it-costs).
 
 **Time added to each wrapped call**, in microseconds. The benchmark sleeps
-between calls; "cores idle" is that default run, and "core awake" is the same
-run with a core kept busy (`--awake`), which is closer to a service under load.
+between calls; "idle periods" is that default run, and "core awake" is a
+separate scheduler and power-state experiment (`--awake`), not a production
+workload.
 
-| Wrapper | Payload | Cores idle, p50 / p99 | Core awake, p50 / p99 |
+| Wrapper | Payload | Idle periods, p50 / p99 | Core awake, p50 / p99 |
 | --- | --- | --- | --- |
-| `transform` (sync) | 1 KiB | 89 / 1,341 | 31 / 324 |
-| `persist` (async) | 1 KiB | 67 / 1,507 | 18 / 205 |
-| `transform` (sync) | 64 KiB | 1,816 / 14,424 | 1,563 / 12,336 |
-| `persist` (async) | 64 KiB | 1,541 / 12,875 | 757 / 6,477 |
+| `transform` (sync) | 1 KiB | 76.3 / 1,208.6 | 37.0 / 575.0 |
+| `persist` (async) | 1 KiB | 28.5 / 452.3 | 21.8 / 400.6 |
+| `transform` (sync) | 64 KiB | 1,756.9 / 12,975.8 | 1,830.0 / 13,670.0 |
+| `persist` (async) | 64 KiB | 887.2 / 7,616.7 | 884.4 / 6,964.5 |
 
 Most of it is redaction and the copy that makes a payload safe to store, so it
 grows with the payload. The p99 is mostly the one call in each batch of 50 that
@@ -130,9 +135,9 @@ waits on.
 
 | | Unwrapped | Wrapped |
 | --- | --- | --- |
-| Heap after GC, start to end | 7.0 to 8.0 MiB | 9.2 to 9.4 MiB |
-| Resident set size at the end | 76 MiB | 219 MiB |
-| Event-loop delay beyond its timer, p50 / p99 | 0.45 / 0.99 ms | 0.17 / 1.73 ms |
+| Heap after GC, start to end | 7.1 to 8.1 MiB | 9.3 to 9.4 MiB |
+| Resident set size at the end | 65 MiB | 196 MiB |
+| Event-loop delay beyond its timer, p50 / p99 / max | 0.32 / 2.04 / 14.13 ms | 0.21 / 1.17 / 33.71 ms |
 | Events stored / dropped | | 124,000 / 0 |
 
 The SDK has no runtime dependencies. If you record large payloads, record a
@@ -140,29 +145,36 @@ smaller view of them with `captureInput` and `captureOutput`.
 
 ## How much disk does an event take?
 
-Measured on 2026-09-15 by `scripts/measure-storage.mjs` on an Apple M3 Pro with
-PostgreSQL 17.11 (`postgres:17-alpine`, default configuration), for journeys of
-ten events and two aliases each, with payloads averaging 120 bytes of JSON.
+The current smaller-scale run was measured on 2026-09-19 at source `9da8b37`
+by `scripts/measure-storage.mjs`: 10,000 journeys and 100,000 events per mode,
+ten events and two aliases per journey. PostgreSQL 17.11 ran in an aarch64
+`postgres:17-alpine` container limited to 2 CPUs and 3 GiB, with a 2 GiB tmpfs,
+on a shared Apple M3 Pro host. Tmpfs is not physical storage I/O, and this is
+not a production capacity or throughput measurement.
 Source:
 [Operations §10, Measured disk per event](OPERATIONS.md#measured-disk-per-event).
 
-| Capture mode | Per event, at 1,000,000 events | Per event, compacted | Per journey |
+| Capture mode | Per event, at 100,000 events | Per event, compacted | Per journey |
 | --- | --- | --- | --- |
-| `metadata-only` | 1,049 B | 873 B | 10.2 KiB |
-| `allowlisted-fields` | 1,273 B | 1,097 B | 12.4 KiB |
-| `redacted-payload` | 1,494 B | 1,320 B | 14.6 KiB |
-| `full-payload` | 1,496 B | 1,320 B | 14.6 KiB |
+| `metadata-only` | 1,217 B | 944 B | 11.9 KiB |
+| `allowlisted-fields` | 1,476 B | 1,190 B | 14.4 KiB |
+| `redacted-payload` | 1,655 B | 1,377 B | 16.2 KiB |
+| `full-payload` | 1,669 B | 1,377 B | 16.3 KiB |
 
-- Payload capture cost about four times the payload's JSON size: 445 bytes per
-  event over `metadata-only` for 120 bytes of JSON.
-- Indexes were 39 to 56 percent of the disk.
-- Deleting data does not shrink the files. Half the journeys deleted and a
-  plain `VACUUM` left 832.7 MiB at 832.9 MiB; the space was reused by the next
-  ingestion.
+- Deleting half the journeys did not shrink the compacted files in any mode. A
+  plain `VACUUM` changed `metadata-only` from 90.1 to 90.2 MiB, and refilling
+  the same number of journeys reused space, ending at 112.8 MiB instead of the
+  original 116.1 MiB.
+- The run completed all four modes with exit 0 and did not trigger its storage
+  guard. Its scale is one tenth of the historical million-event run, so the
+  per-event values are not interchangeable.
 
-Operations §10 gives a sizing formula, with a margin, and the command to
-measure your own payload shape. Its worked example, a million events a day kept
-30 days in `redacted-payload`, comes to about 63 GiB.
+The historical 2026-09-15 run used one million events per mode on PostgreSQL
+17.11 with Docker Desktop's default storage. It measured 1,049 B per event in
+`metadata-only`, 1,273 B in `allowlisted-fields`, 1,494 B in
+`redacted-payload`, and 1,496 B in `full-payload`. Those historical values back
+Operations §10's sizing formula and its worked 63 GiB example; the current
+100,000-event run did not repeat that scale.
 
 ## How fast are search and the journey list?
 
@@ -179,27 +191,30 @@ Source: [Operations §10, Indexes](OPERATIONS.md#indexes).
 
 **The journey list**, `GET /v1/journeys`, timed through the real API in process
 (the network is not in the figure) with 120,000 journeys and 360,000 events,
-page of 25, warm cache, measured on 2026-09-16 on an Apple M3 Pro with
-PostgreSQL 17.11. p50 / p95 in milliseconds. Source:
+page of 25, warm cache, measured on 2026-09-19 at source `9da8b37` on a shared
+Apple M3 Pro host. PostgreSQL 17.11 ran in an aarch64 container limited to 2
+CPUs and 3 GiB with tmpfs. p50 / p95 in milliseconds from 40 samples. Source:
 [Operations §10, Listing journeys](OPERATIONS.md#listing-journeys).
 
 | Case | Last 24 hours | Last 30 days |
 | --- | --- | --- |
-| No filter, admin (every environment) | 1.6 / 2.8 | 1.5 / 3.4 |
-| No filter, API key (one environment) | 2.3 / 3.4 | 1.9 / 2.1 |
-| `status=failed`, admin | 2.6 / 3.3 | 2.1 / 3.5 |
-| Text matching many journeys, admin | 4.8 / 7.5 | 4.3 / 5.4 |
-| Text matching none, admin | 10.1 / 11.7 | 261.6 / 315.6 |
-| Text matching none, API key | 8.4 / 9.1 | 207.5 / 214.1 |
+| No filter, admin (every environment) | 6.7 / 14.1 | 5.1 / 7.4 |
+| No filter, API key (one environment) | 5.6 / 6.9 | 6.0 / 9.2 |
+| `status=failed`, admin | 5.1 / 6.9 | 6.1 / 9.0 |
+| Text matching many journeys, admin | 6.9 / 10.6 | 7.5 / 8.9 |
+| Text matching none, admin | 29.1 / 51.2 | 483.3 / 594.2 |
+| Text matching none, API key | 26.9 / 37.8 | 268.8 / 432.2 |
 
 Text that matches nothing is the slow case, because every journey in the window
 is tested; it grows with the number of journeys in the window. An installation
 recording tens of thousands of journeys a day should filter text over a day or
-a week rather than a month.
+a week rather than a month. This script covers browse, text, admin, API-key and
+second-page cases. It did not measure the timing predicates; their separate
+2026-09-18 evidence used 20,000 journeys and 60,000 events.
 
-**Ingestion**, timed through the API on the same machine with the indexes this
-release ships: a batch of 100 events took 230.6 and 248.3 ms at p50 in two runs,
-and a single event 4.3 and 4.7 ms
+**Ingestion**, timed through the API in the current run with the indexes this
+release ships: a batch of 100 events measured 383.1 / 450.3 ms p50 / p95, and a
+single event measured 6.0 / 8.2 ms
 ([Operations §10](OPERATIONS.md#listing-journeys), *What they cost ingestion*).
 
 ## What happens when the Wayscribe server is down?
@@ -207,15 +222,14 @@ and a single event 4.3 and 4.7 ms
 Your service carries on. Source:
 [SDK README](../packages/sdk-node/README.md#it-cannot-break-your-application).
 
-- **Recording never waits on the network.** With a core kept awake, the time
-  added per call at 1 KiB was the same against an endpoint answering after
-  200 ms, against one refusing connections, and against a working one: 31 to
-  34 µs at p50 for `transform` and 18 to 19 µs for `persist`. With the
-  processor idle between calls every figure is higher and moves more; a
-  refusing endpoint can read higher still (90 and 125 µs for `transform`,
-  against 89 and 114), because a process whose sends fail at once leaves its
-  cores idle for longer. None is the 200 ms a waited-on request would add (two
-  runs of each on 2026-09-17, [What it costs](../packages/sdk-node/README.md#what-it-costs)).
+- **Recording never waits on the network.** In the current core-awake
+  experiment, the p50 added at 1 KiB was 37.0 µs for `transform` and 21.8 µs
+  for `persist` against the local stub, 36.4 and 28.0 µs against an unreachable
+  endpoint, and 38.4 and 21.9 µs against an endpoint answering after 200 ms.
+  None is the 200 ms a waited-on request would add. Idle periods make the
+  scheduler and power-state effect larger: `transform` measured 76.3, 93.3
+  and 38.1 µs across the same three endpoints. These are the 2026-09-19 UTC
+  runs in [What it costs](../packages/sdk-node/README.md#what-it-costs).
 - **Events wait in a bounded queue**, 1,000 by default (`maxBufferedEvents`).
   Past it, the oldest are dropped and counted, so memory does not grow with the
   outage.

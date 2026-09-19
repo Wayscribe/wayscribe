@@ -1273,13 +1273,17 @@ would not serialize is very often the step you are trying to debug.
 ## What it costs
 
 Measured with the SDK's own benchmark on an Apple M3 Pro (12 cores, 18 GiB),
-macOS 26.2, Node 24.19.0, with the default configuration and
-`maxConcurrentSends` of 4. The time per call and the sustained load were
-measured on 2026-09-17, with the SDK as it is now, including the check for
-secret-looking names; the send concurrency tables are from 2026-09-15. The
-machine was running other work, so read the numbers as orders of magnitude; the
-maximums in particular are noisy. To reproduce, from the repository root (about
-ten minutes for everything, three for the time per call):
+Node 24.19.0 on macOS, with the default configuration and
+`maxConcurrentSends` of 4. The time per call, sustained load and send
+concurrency were measured on 2026-09-19, with the SDK as it is now (UTC;
+2026-09-18 local). The normal run used source `3fb2b4a`; the awake run used `5537d4c`;
+both had SDK tree `1d591a3` and protocol tree `69118f1`. The shared development
+host was running other services and verification work. The default run includes
+idle periods but is not a claim that the machine was idle. The awake run is a
+scheduler and power-state experiment, not a representative production load.
+Read the numbers as orders of magnitude; the p99 values in particular are
+noisy. To reproduce, from the repository root (about ten minutes for
+everything, three for the time per call):
 
 ```bash
 pnpm --filter @wayscribe/node bench
@@ -1297,32 +1301,41 @@ The benchmark sleeps between calls, and how long a call takes depends on whether
 the processor was idle before it. The first two columns are the default run, in
 which the cores go idle between calls, like a service that is mostly waiting.
 The last two are the same run with a thread in the process that wakes every
-100 µs (`--awake`), which keeps a core awake the way a busy service does.
+100 µs (`--awake`), which keeps a core awake for the experiment.
 
-| Wrapper | Payload | Cores idle, p50 | Cores idle, p99 | Core awake, p50 | Core awake, p99 |
+| Wrapper | Payload | Idle periods, p50 | Idle periods, p99 | Core awake, p50 | Core awake, p99 |
 | --- | --- | --- | --- | --- | --- |
-| `transform` (sync) | 1 KiB | 89 | 1,341 | 31 | 324 |
-| `persist` (async) | 1 KiB | 67 | 1,507 | 18 | 205 |
-| `transform` (sync) | 64 KiB | 1,816 | 14,424 | 1,563 | 12,336 |
-| `persist` (async) | 64 KiB | 1,541 | 12,875 | 757 | 6,477 |
+| `transform` (sync) | 1 KiB | 76.3 | 1,208.6 | 37.0 | 575.0 |
+| `persist` (async) | 1 KiB | 28.5 | 452.3 | 21.8 | 400.6 |
+| `transform` (sync) | 64 KiB | 1,756.9 | 12,975.8 | 1,830.0 | 13,670.0 |
+| `persist` (async) | 64 KiB | 887.2 | 7,616.7 | 884.4 | 6,964.5 |
 
-A second run of each gave 114, 48, 1,811 and 1,221 µs at p50 with the cores
-idle, and 34, 18, 1,677 and 763 with a core awake. `bench/capture-cpu.mjs`, which
-calls the wrappers in a tight loop with no network, measured 32, 17, 1,769 and
-827 µs per call.
+The current benchmark also ran against an unreachable endpoint and one that
+answered after 200 ms. At 1 KiB, the unreachable run added 93.3 µs p50 for
+`transform` and 33.3 µs for `persist`; the slow stub added 38.1 and 52.0 µs.
+Every unreachable event was ultimately counted as dropped. Against the slow
+stub, the two 1 KiB rows each recorded 11,000 events and dropped 5,000. These
+are bounded-buffer observations, not collector throughput claims.
+
+A separate secret-name run at source `0359d02` recorded a 5,587-byte payload
+as both input and output with metadata. Across seven runs of 20,000 `record()`
+calls, the median was 165.9 µs per event with no secret-looking names and
+167.1 µs with two names that emitted their once-per-name safety warnings. It
+used the same shared host and Node version and is not an isolated or production
+benchmark.
 
 **What changed on 2026-09-16.** The run of 2026-09-15 gave 30, 75, 1,420 and
 1,079 µs at p50, and one earlier on 2026-09-16 gave 112, 93, 2,172 and 1,717. Most
-of that difference was the machine, not the SDK: the build measured on
-2026-09-15 gives 84 µs for a 1 KiB `transform` with the cores idle and 27 µs
-with a core awake, measured the same day as the rest of this section. The rest
-was real. Fitting every event to the server's limits (ADR-051) had added a
-second check of the whole event and a second walk to cut long strings, which
-on its own made a 1 KiB `transform` about 40 percent slower (29 to 41 µs in the
-tight loop, on the commits either side of it). From the 2026-09-15 build to the
-one before this change, 28 µs became 41 µs, and 1,375 µs became 2,122 µs at
-64 KiB. The check for secret-looking names (ADR-055) moved the tight loop by
-less than 4 percent. The event is now
+of that difference was the machine, not the SDK: a historical rerun of the
+2026-09-15 build gave 84 µs for a 1 KiB `transform` with the cores idle and
+27 µs with a core awake. The rest was real. Fitting every event
+to the server's limits (ADR-051) had added a second check of the whole event and
+a second walk to cut long strings, which on its own made a 1 KiB `transform`
+about 40 percent slower (29 to 41 µs in the tight loop, on the commits either
+side of it). From the 2026-09-15 build to the one before this change, 28 µs
+became 41 µs, and 1,375 µs became 2,122 µs at 64 KiB. The check for
+secret-looking names (ADR-055) moved the tight loop by less than 4 percent. The
+event is now
 measured with plain `JSON.stringify` when it is certainly within its budget,
 and long strings are cut in the same walk that makes the payload storable,
 with the same result: 31 and 1,781 µs. The size check now also stops as soon
@@ -1335,19 +1348,17 @@ batch happens inside that call. At 64 KiB a separate one-off measurement, timing
 `JSON.stringify` inside those calls on 2026-09-15, put it at about 8 ms of an
 11 ms call. The event loop spends that time whichever call it lands in.
 
-**Capture never waits on the network.** With a core awake, the added p50 was the
-same against a stub that answers after 200 ms, against one that refuses
-connections, and against the local stub: 31 to 34 µs for `transform` at 1 KiB
-and 18 to 19 µs for `persist`, in two runs on 2026-09-17, and within 4 percent
-of the local stub at 64 KiB. Neither comes near the 200 ms a call would add if
-it waited on the request. The p99 was lower against the refusing endpoint (53
-against 324 µs for `transform` at 1 KiB), because no batch is ever serialised.
+**Capture never waits on the network.** In the awake experiment, the added p50
+at 1 KiB was 37.0 µs for `transform` and 21.8 µs for `persist` against the
+local stub, 36.4 and 28.0 µs against the unreachable endpoint, and 38.4 and
+21.9 µs against the 200 ms stub. Neither comes near the 200 ms a call would add
+if it waited on the request. The p99 values do not support the same comparison:
+batch serialisation and scheduler outliers dominate them, including a 25.9 ms
+`persist` p99 at 64 KiB against the unreachable endpoint.
 
-With the cores idle the figures move more: 90 and 125 µs for `transform` at
-1 KiB against the refusing endpoint, 89 and 114 against the local stub. On
-2026-09-16 the refusing endpoint read higher in both runs (98 and 135 against 86
-and 88). That is the processor, not the SDK: a process whose sends fail at once
-does less between calls, so its cores sit idle longer. Before 2026-09-16 there was also a real difference, about 6 µs a call:
+With idle periods the figures move more: 93.3 µs for `transform` at 1 KiB
+against the unreachable endpoint, 76.3 against the local stub and 38.1 against
+the slow stub. Before 2026-09-16 there was also a real difference, about 6 µs a call:
 while the circuit breaker was open, every recorded event started a send that
 failed at once and put its batch back. The recorder no longer starts a send
 while the breaker is open; the interval tries again after the cooldown.
@@ -1376,23 +1387,23 @@ alternating `transform` and `persist`, with the cores idle between calls.
 
 | | Unwrapped | Wrapped |
 | --- | --- | --- |
-| Heap after GC, start to end | 7.0 to 8.0 MiB | 9.2 to 9.4 MiB |
+| Heap after GC, start to end | 7.1 to 8.1 MiB | 9.3 to 9.4 MiB |
 | Heap, highest of one sample a second | 8.8 MiB | 60.5 MiB |
-| Resident set size at the end | 76 MiB | 219 MiB |
-| Event-loop delay beyond its 10 ms timer, p50 / p99 | 0.45 / 0.99 ms | 0.17 / 1.73 ms |
+| Resident set size at the end | 65 MiB | 196 MiB |
+| Event-loop delay beyond its 10 ms timer, p50 / p99 / max | 0.32 / 2.04 / 14.13 ms | 0.21 / 1.17 / 33.71 ms |
 | Events stored / dropped | | 124,000 / 0 |
 
 The 124,000 events stored are the 120,000 of the measured minute and the 4,000
 recorded during the two seconds of warm-up before it.
 
-The heap after collection grows by 0.2 MiB over the minute, as the unwrapped
-run's grows by 1.0 MiB. The heap figure
-between collections is a sample taken once a second, not a true peak. The
-resident set is about 140 MiB larger; the heap between collections accounts for
-about 50 MiB of that, and the benchmark does not break down the rest.
+The rounded heap-after-collection readings moved from 9.3 to 9.4 MiB in the
+wrapped run and from 7.1 to 8.1 MiB unwrapped. The heap figure between
+collections is a sample taken once a second, not a true peak. The resident set
+is about 131 MiB larger; the heap between collections accounts for about 50 MiB
+of that, and the benchmark does not break down the rest.
 
 **Send concurrency:** one process producing events for 15 seconds against a stub
-with a fixed delay per batch, measured on 2026-09-15.
+with a fixed delay per batch, measured in the current 2026-09-19 UTC run.
 
 This table models one process against a server that can serve any number of
 requests at once. It shows what a low cap costs that one process; it does not
@@ -1422,22 +1433,22 @@ counted as dropped even when the server finished it.
 
 | Server time per batch | Events/s produced | `maxConcurrentSends` | Stored per second | Dropped |
 | --- | --- | --- | --- | --- |
-| 50 ms | 2,000 | 1 | 873 | 52.9% |
-| 50 ms | 2,000 | 2 | 1,733 | 9.8% |
-| 50 ms | 2,000 | 4 | 1,994 | 0% |
-| 50 ms | 2,000 | 8 | 1,993 | 0%, never more than 4 in flight |
-| 50 ms | 8,000 | 1 | 867 | 88.3% |
-| 50 ms | 8,000 | 2 | 1,726 | 77.6% |
-| 50 ms | 8,000 | 4 | 3,466 | 55.8% |
-| 50 ms | 8,000 | 8 | 7,092 | 10.3% |
-| 200 ms | 2,000 | 1 | 240 | 84.7% |
-| 200 ms | 2,000 | 2 | 473 | 72.7% |
-| 200 ms | 2,000 | 4 | 947 | 48.7% |
-| 200 ms | 2,000 | 8 | 1,916 | 0.0% (6 events) |
+| 50 ms | 2,000 | 1 | 900 | 51.5% |
+| 50 ms | 2,000 | 2 | 1,800 | 6.5% |
+| 50 ms | 2,000 | 4 | 1,992 | 0% |
+| 50 ms | 2,000 | 8 | 1,993 | 0%, never more than 5 in flight |
+| 50 ms | 8,000 | 1 | 893 | 88.0% |
+| 50 ms | 8,000 | 2 | 1,780 | 76.9% |
+| 50 ms | 8,000 | 4 | 3,559 | 54.5% |
+| 50 ms | 8,000 | 8 | 7,093 | 10.6% |
+| 200 ms | 2,000 | 1 | 240 | 84.5% |
+| 200 ms | 2,000 | 2 | 480 | 72.3% |
+| 200 ms | 2,000 | 4 | 960 | 48.0% |
+| 200 ms | 2,000 | 8 | 1,920 | 0% |
 | 200 ms | 8,000 | 1 | 240 | 96.1% |
-| 200 ms | 8,000 | 2 | 477 | 93.2% |
-| 200 ms | 8,000 | 4 | 947 | 87.2% |
-| 200 ms | 8,000 | 8 | 1,893 | 75.2% |
+| 200 ms | 8,000 | 2 | 480 | 93.1% |
+| 200 ms | 8,000 | 4 | 960 | 87.0% |
+| 200 ms | 8,000 | 8 | 1,920 | 74.8% |
 
 ### Sizing `maxConcurrentSends`
 
