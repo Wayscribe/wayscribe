@@ -112,8 +112,8 @@ Presenting the work, and closing what the last review opened.
     recorded version and commit, when present (F-043), and the event detail
     lists the full deployment with custom and runtime metadata (F-044).
   - ~~**Duration filters**~~ **Built:** the Journeys page filters by strict
-    recorded-span and step-duration thresholds, active inactivity and retry
-    state while preserving scope, pagination and no-JavaScript navigation.
+    recorded-span and step-duration thresholds and active inactivity while
+    preserving scope, pagination and no-JavaScript navigation.
 
 ### Known open, and honest about it
 
