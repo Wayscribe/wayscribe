@@ -37,6 +37,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
 import { mixNarration, renderNarration } from "./demo-narrate.mjs";
+import { planReplayDestination } from "./demo-replay-destination.mjs";
 
 const WEB_URL = process.env["WEB_URL"] ?? "http://localhost:3000";
 const API_URL = process.env["API_URL"] ?? "http://localhost:8080";
@@ -65,7 +66,6 @@ const WANTED = [
 ];
 
 const REPLAY_DESTINATION = {
-  name: "demo-integration (corrected)",
   url: REPLAY_URL
 };
 
@@ -137,17 +137,12 @@ async function seedJourneys() {
 
 async function ensureReplayDestination() {
   const { data } = await api("/v1/replay-destinations");
-  const existing = (data.items ?? []).find(
-    (item) =>
-      item.name === REPLAY_DESTINATION.name &&
-      item.baseUrl === REPLAY_DESTINATION.url &&
-      item.enabled
-  );
-  if (existing !== undefined) return existing.id;
+  const planned = planReplayDestination(data.items ?? [], REPLAY_DESTINATION.url);
+  if (planned.destinationId !== undefined) return planned.destinationId;
   const created = await api("/v1/replay-destinations", {
     method: "POST",
     body: JSON.stringify({
-      name: REPLAY_DESTINATION.name,
+      name: planned.name,
       baseUrl: REPLAY_DESTINATION.url,
       environmentType: "development"
     })

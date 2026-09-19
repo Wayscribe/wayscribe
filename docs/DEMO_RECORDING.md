@@ -25,6 +25,12 @@ for example `DEMO_REPLAY_URL=http://127.0.0.1:3200` when the demo integration
 service is published on that host port. The configured URL must still satisfy
 the API's development replay policy and allowlist.
 
+The recorder reuses only an enabled recorder destination for the exact URL. It
+uses a readable, non-secret URL-specific name when it creates one and leaves
+unrelated destinations unchanged. If an exact recorder destination is disabled,
+the recording stops with an instruction to enable it explicitly or choose a
+different URL; the recorder never re-enables or replaces it.
+
 `OUT_DIR` receives the silent and narrated MP4 files, the README-sized GIF,
 caption stills, caption timing and raw recording. Review every still and probe
 all media streams before copying the GIF to `docs/images/demo-diff.gif`.
