@@ -21,6 +21,43 @@ hero:
 import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 import { Content as Alternatives } from "../../generated/alternatives.md";
 
+## Watch the demo
+
+In 91 seconds, follow a missing phone number from a failed journey to the
+transformation that lost it, then replay the recorded input against a fix in
+development.
+
+<figure class="shot">
+  <video
+    controls
+    playsinline
+    preload="none"
+    width="1280"
+    height="720"
+    poster="/videos/wayscribe-demo-poster.png"
+    aria-label="Wayscribe demo: finding a lost phone number"
+    aria-describedby="demo-caption"
+  >
+    <source src="/videos/wayscribe-demo.mp4" type="video/mp4" />
+    <track
+      kind="captions"
+      src="/videos/wayscribe-demo.en.vtt"
+      srclang="en"
+      label="English narration"
+    />
+    <p>
+      Your browser cannot play this video. <a href="/videos/wayscribe-demo.mp4">Download the MP4</a>
+      or <a href="/videos/wayscribe-demo-transcript.txt">read the transcript</a>.
+    </p>
+  </video>
+  <figcaption id="demo-caption">
+    Narrated walkthrough with on-screen captions. English narration captions
+    are also available in the player.
+    {" "}<a href="/videos/wayscribe-demo-transcript.txt">Read the transcript</a>
+    {" · "}<a href="/videos/wayscribe-demo.mp4" download>Download video (MP4, 7 MB)</a>
+  </figcaption>
+</figure>
+
 ## What it does
 
 Search a customer, order or invoice ID, or any other identifier the record

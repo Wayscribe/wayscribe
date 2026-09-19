@@ -13,11 +13,12 @@
   --sl-color-accent-high: #0f2a66;
 }
 
-/* The landing page's screenshots: framed, and never wider than the column. */
+/* The landing page's screenshots and video stay inside the content column. */
 .shot {
   margin-block: 1.5rem;
 }
-.shot img {
+.shot img,
+.shot video {
   display: block;
   width: 100%;
   height: auto;

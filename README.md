@@ -19,7 +19,8 @@ null](docs/images/diff.png)
 *One record, every service that touched it, and the step where the value was
 lost. Regenerate with `pnpm screenshots`.*
 
-[Watch the captioned transformation excerpt](docs/images/demo-diff.gif), or
+[Watch the 91-second narrated demo](https://wayscribe.dev/#watch-the-demo),
+[view the captioned transformation excerpt](docs/images/demo-diff.gif), or
 [record the complete walkthrough](docs/DEMO_RECORDING.md) from a running demo
 stack.
 

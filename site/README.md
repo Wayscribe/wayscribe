@@ -63,6 +63,29 @@ Neither of these has an API worth scripting, and both are done once.
    file this site serves. Do it again whenever the preview changes. See
    [docs/MIRRORING.md](../docs/MIRRORING.md).
 
+## The published demo video
+
+The homepage's **Watch the demo** section serves the approved narrated recording
+from `public/videos/wayscribe-demo.mp4`. The MP4 is 7,038,666 bytes, 1280x720,
+91.433 seconds, H.264 with AAC audio, and has its MP4 metadata before the media
+data for progressive playback. Its SHA-256 is
+`82af51213f4a2d52fb756f2b2cea86a7ed1937a5925097045aa1651faeaa373c`.
+
+The player uses native browser controls, inline playback, and `preload="none"`.
+The poster is the recording's title card. Narration captions are in
+`public/videos/wayscribe-demo.en.vtt`; their 14 cues use the approved recording's
+voice start/end times. A plain-text narration transcript sits beside them.
+The recording already includes on-screen captions, so the optional narration
+track is not enabled by default. No external video host, player script, or
+analytics is used.
+
+When replacing the recording, update the MP4, poster, caption track and
+transcript together. Check playback and seeking in a browser, verify captions,
+and update the duration, size and hash here. The `site/**/*` CI rule includes
+these files, so the normal site pipeline publishes them. The existing
+`.dockerignore` rule keeps all of `site/`, including the video, out of product
+images.
+
 ## Dependencies
 
 The site is a package of its own, with its own `pnpm-lock.yaml`, and is not a

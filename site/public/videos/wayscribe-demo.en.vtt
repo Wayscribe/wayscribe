@@ -1,0 +1,64 @@
+WEBVTT
+
+1
+00:00:00.250 --> 00:00:04.670
+A customer's phone number vanished somewhere between Salesforce and
+the CRM.
+
+2
+00:00:05.890 --> 00:00:07.920
+Start with the account's Salesforce ID.
+
+3
+00:00:13.650 --> 00:00:17.680
+Two journeys come back for this account. One completed, and one
+failed.
+
+4
+00:00:21.170 --> 00:00:26.530
+The timeline begins with the webhook and follows work from the
+integration service into the worker.
+
+5
+00:00:27.670 --> 00:00:31.130
+But delivery isn't where it broke. Open the transform step.
+
+6
+00:00:33.330 --> 00:00:36.770
+This is the payload before and after the step, field by field.
+
+7
+00:00:37.550 --> 00:00:42.150
+The phone goes in with a value, and comes out null. This is the step
+that lost it.
+
+8
+00:00:46.920 --> 00:00:49.420
+Now the journey that completed, for contrast.
+
+9
+00:00:52.970 --> 00:00:57.470
+Its payload carried the field the transform reads, so the phone kept
+its value.
+
+10
+00:01:01.810 --> 00:01:05.170
+Back on the failed journey, replay the step's recorded input.
+
+11
+00:01:06.510 --> 00:01:11.410
+It goes to a development destination running the fix, not to the
+original system.
+
+12
+00:01:15.480 --> 00:01:17.950
+The fixed transform answers with a 200.
+
+13
+00:01:20.660 --> 00:01:24.300
+Original against replay. The phone was null, and now it's back.
+
+14
+00:01:26.680 --> 00:01:30.720
+Wayscribe. Self-hosted, open source, at wayscribe.dev.
+

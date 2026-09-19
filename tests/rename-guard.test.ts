@@ -69,7 +69,7 @@ const ALLOWED_LINES: { file: string; line: RegExp }[] = [
 ];
 
 /** Files that are not text at all. Anything else is read, NUL bytes or not. */
-const BINARY = /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf|pdf|zip|gz)$/i;
+const BINARY = /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf|pdf|zip|gz|mp4)$/i;
 
 /** HKDF labels that must keep the old name, since they determine derived keys. */
 const DERIVATION_LABEL =
