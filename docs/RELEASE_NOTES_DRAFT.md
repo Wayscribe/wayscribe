@@ -119,6 +119,17 @@ and keys issued before the rename, which start `fr_`, keep working. The
   versions and commits. Event detail shows the aliases that event stated,
   preserving masking and distinguishing an empty list from older events whose
   aliases were not recorded. Failed journeys identify the failed step.
+- **Per-record timing** names the measured span between operation starts,
+  queue wait and processing time, application attempt and retry group, broker
+  delivery count, HTTP target and status, and requested retry delay. Unknown
+  measurements are absent rather than shown as zero. Initial-enqueue wait is
+  reported only for the first broker delivery; later deliveries require an
+  explicit ready instant. Cross-host elapsed values are labelled with the
+  clock qualification.
+- **Timing filters** find journeys by total span, slowest step, active
+  inactivity and retry state. Filtered timelines keep the original loaded
+  neighbors so a hidden row cannot turn two nonadjacent steps into a measured
+  gap.
 - **The diff** shows, field by field, what a step received against what it
   produced.
 - **Replay** sends a step's recorded input to a configured development
@@ -212,10 +223,6 @@ and keys issued before the rename, which start `fr_`, keep working. The
 
 From the [roadmap](ROADMAP.md), briefly:
 
-- **Per-record timing and context:** gaps between steps with queue waits called
-  out, journey duration and stuck journeys, retry detail, a small standard
-  metadata vocabulary, and duration filters on the
-  Journeys page.
 - **OpenTelemetry log ingest** (`POST /v1/logs`, OTLP over HTTP).
 - **The propagation specification and its test vectors**, now that the rename
   has settled the header and attribute names.
