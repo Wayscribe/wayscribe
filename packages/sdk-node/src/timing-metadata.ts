@@ -2,6 +2,36 @@ import { fitsCodePoints } from "./code-points.js";
 
 const MAX_TIMING_MS = 2_147_483_647;
 const MAX_CONTEXT_TEXT = 256;
+const SHORT_WEEKDAYS: readonly string[] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const LONG_WEEKDAYS: readonly string[] = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday"
+];
+const MONTHS: readonly string[] = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec"
+];
+const IMF_FIXDATE =
+  /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), ([0-9]{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{4}) ([0-9]{2}):([0-9]{2}):([0-9]{2}) GMT$/;
+const RFC850_DATE =
+  /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), ([0-9]{2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-([0-9]{2}) ([0-9]{2}):([0-9]{2}):([0-9]{2}) GMT$/;
+const ASCTIME_DATE =
+  /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{2}| [0-9]) ([0-9]{2}):([0-9]{2}):([0-9]{2}) ([0-9]{4})$/;
 
 /** The BullMQ-shaped job fields used by {@link queueMetadata}. */
 export interface QueueMetadataJob {
@@ -122,7 +152,7 @@ export function httpMetadata(
 
   const retryAfter = retryAfterValue(response);
   if (retryAfter !== undefined) {
-    const retryAfterMs = parseRetryAfter(retryAfter, read(options, "now"));
+    const retryAfterMs = parseRetryAfter(retryAfter, options);
     if (retryAfterMs !== undefined) metadata.retryAfterMs = retryAfterMs;
   }
 
@@ -131,13 +161,20 @@ export function httpMetadata(
 
 /** Reads inherited broker/Headers APIs too, but isolates each property access. */
 function read(source: unknown, key: string): unknown {
+  const result = readField(source, key);
+  return result.ok ? result.value : undefined;
+}
+
+type FieldRead = { readonly ok: true; readonly value: unknown } | { readonly ok: false };
+
+function readField(source: unknown, key: string): FieldRead {
   if ((typeof source !== "object" && typeof source !== "function") || source === null) {
-    return undefined;
+    return { ok: true, value: undefined };
   }
   try {
-    return Reflect.get(source, key);
+    return { ok: true, value: Reflect.get(source, key) };
   } catch {
-    return undefined;
+    return { ok: false };
   }
 }
 
@@ -152,7 +189,10 @@ function retryAfterValue(response: HttpMetadataResponse): unknown {
   }
 }
 
-function parseRetryAfter(value: unknown, suppliedNow: unknown): number | undefined {
+function parseRetryAfter(
+  value: unknown,
+  options: HttpMetadataOptions | undefined
+): number | undefined {
   if (typeof value !== "string") return undefined;
   const text = value.trim();
   if (/^[0-9]+$/.test(text)) {
@@ -161,10 +201,130 @@ function parseRetryAfter(value: unknown, suppliedNow: unknown): number | undefin
     return integerIn(seconds * 1_000, 0, MAX_TIMING_MS);
   }
 
-  const requestedAt = Date.parse(text);
-  if (!Number.isFinite(requestedAt)) return undefined;
-  const now = suppliedNow === undefined ? Date.now() : epochMilliseconds(suppliedNow);
+  const suppliedNow = readField(options, "now");
+  if (!suppliedNow.ok) return undefined;
+  const now = suppliedNow.value === undefined ? Date.now() : epochMilliseconds(suppliedNow.value);
+  if (now === undefined) return undefined;
+  const requestedAt = parseHttpDate(text, now);
   return elapsedMilliseconds(requestedAt, now);
+}
+
+interface HttpDateParts {
+  readonly weekday: number;
+  readonly day: number;
+  readonly month: number;
+  readonly year: number;
+  readonly hour: number;
+  readonly minute: number;
+  readonly second: number;
+}
+
+function parseHttpDate(value: string, now: number): number | undefined {
+  const imf = IMF_FIXDATE.exec(value);
+  if (imf !== null) {
+    return httpDateTimestamp({
+      weekday: SHORT_WEEKDAYS.indexOf(regexCapture(imf, 1)),
+      day: Number(imf[2]),
+      month: MONTHS.indexOf(regexCapture(imf, 3)),
+      year: Number(imf[4]),
+      hour: Number(imf[5]),
+      minute: Number(imf[6]),
+      second: Number(imf[7])
+    });
+  }
+
+  const rfc850 = RFC850_DATE.exec(value);
+  if (rfc850 !== null) {
+    const nowDate = new Date(now);
+    if (!Number.isFinite(nowDate.getTime())) return undefined;
+    let year = Math.floor(nowDate.getUTCFullYear() / 100) * 100 + Number(rfc850[4]);
+    const candidate = calendarTimestamp({
+      day: Number(rfc850[2]),
+      month: MONTHS.indexOf(regexCapture(rfc850, 3)),
+      year,
+      hour: Number(rfc850[5]),
+      minute: Number(rfc850[6]),
+      second: Number(rfc850[7])
+    });
+    const fiftyYearsFromNow = shiftedUtcYear(nowDate, 50);
+    if (candidate === undefined || fiftyYearsFromNow === undefined) return undefined;
+    if (candidate > fiftyYearsFromNow) year -= 100;
+
+    return httpDateTimestamp({
+      weekday: LONG_WEEKDAYS.indexOf(regexCapture(rfc850, 1)),
+      day: Number(rfc850[2]),
+      month: MONTHS.indexOf(regexCapture(rfc850, 3)),
+      year,
+      hour: Number(rfc850[5]),
+      minute: Number(rfc850[6]),
+      second: Number(rfc850[7])
+    });
+  }
+
+  const asctime = ASCTIME_DATE.exec(value);
+  if (asctime !== null) {
+    return httpDateTimestamp({
+      weekday: SHORT_WEEKDAYS.indexOf(regexCapture(asctime, 1)),
+      day: Number(regexCapture(asctime, 3).trim()),
+      month: MONTHS.indexOf(regexCapture(asctime, 2)),
+      year: Number(asctime[7]),
+      hour: Number(asctime[4]),
+      minute: Number(asctime[5]),
+      second: Number(asctime[6])
+    });
+  }
+
+  return undefined;
+}
+
+function regexCapture(match: RegExpExecArray, index: number): string {
+  return match[index] ?? "";
+}
+
+function httpDateTimestamp(parts: HttpDateParts): number | undefined {
+  const timestamp = calendarTimestamp(parts);
+  if (timestamp === undefined) return undefined;
+  const weekdayDate = new Date(timestamp - (parts.second === 60 ? 1_000 : 0));
+  return weekdayDate.getUTCDay() === parts.weekday ? timestamp : undefined;
+}
+
+function calendarTimestamp(parts: Omit<HttpDateParts, "weekday">): number | undefined {
+  if (
+    parts.month < 0 ||
+    parts.day < 1 ||
+    parts.day > 31 ||
+    parts.hour < 0 ||
+    parts.hour > 23 ||
+    parts.minute < 0 ||
+    parts.minute > 59 ||
+    parts.second < 0 ||
+    parts.second > 60
+  ) {
+    return undefined;
+  }
+
+  const date = new Date(0);
+  date.setUTCFullYear(parts.year, parts.month, parts.day);
+  date.setUTCHours(parts.hour, parts.minute, Math.min(parts.second, 59), 0);
+  if (
+    date.getUTCFullYear() !== parts.year ||
+    date.getUTCMonth() !== parts.month ||
+    date.getUTCDate() !== parts.day ||
+    date.getUTCHours() !== parts.hour ||
+    date.getUTCMinutes() !== parts.minute ||
+    date.getUTCSeconds() !== Math.min(parts.second, 59)
+  ) {
+    return undefined;
+  }
+
+  return date.getTime() + (parts.second === 60 ? 1_000 : 0);
+}
+
+function shiftedUtcYear(date: Date, years: number): number | undefined {
+  const shifted = new Date(date.getTime());
+  shifted.setUTCFullYear(shifted.getUTCFullYear() + years);
+  const timestamp = shifted.getTime();
+  return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
 function hostFromUrl(value: unknown): string | undefined {
@@ -229,6 +389,6 @@ function isMarker(value: string): boolean {
     value === "[UNCAPTURABLE]" ||
     value === "[PAYLOAD_TOO_LARGE]" ||
     value === "[CIRCULAR]" ||
-    /^\[TRUNCATED: [0-9]+ characters removed\]$/.test(value)
+    /\[TRUNCATED: [0-9]+ characters removed\]$/.test(value)
   );
 }

@@ -26,7 +26,8 @@ const EXACT_MARKERS = new Set([
   "[PAYLOAD_TOO_LARGE]",
   "[CIRCULAR]"
 ]);
-const TRUNCATION_MARKER = /^\[TRUNCATED: [0-9]+ characters removed\]$/;
+const TRUNCATION_MARKER = /\[TRUNCATED: [0-9]+ characters removed\]$/;
+const INVALID_AUTHORITY_DELIMITER = /[/?#@\\]/u;
 
 /**
  * Interpret the known timing keys without changing metadata wire acceptance.
@@ -114,7 +115,15 @@ function boundedIdentity(value: unknown): string | undefined {
 
 function boundedTargetHost(value: unknown): string | undefined {
   const host = boundedIdentity(value);
-  if (host === undefined || host.trim() !== host) return undefined;
+  if (
+    host === undefined ||
+    host.trim() !== host ||
+    INVALID_AUTHORITY_DELIMITER.test(host) ||
+    hasAsciiControlOrSpace(host) ||
+    !hasValidPortShape(host)
+  ) {
+    return undefined;
+  }
   try {
     const parsed = new URL(`http://${host}`);
     return parsed.host !== "" &&
@@ -128,6 +137,26 @@ function boundedTargetHost(value: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function hasAsciiControlOrSpace(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && (codePoint <= 0x20 || codePoint === 0x7f)) return true;
+  }
+  return false;
+}
+
+function hasValidPortShape(host: string): boolean {
+  if (host.startsWith("[")) {
+    const bracket = host.indexOf("]");
+    if (bracket <= 1) return false;
+    const remainder = host.slice(bracket + 1);
+    return remainder === "" || /^:[0-9]+$/.test(remainder);
+  }
+
+  const colon = host.indexOf(":");
+  return colon === -1 || (colon === host.lastIndexOf(":") && /^:[0-9]+$/.test(host.slice(colon)));
 }
 
 function isMarker(value: string): boolean {

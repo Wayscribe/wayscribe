@@ -166,6 +166,18 @@ describe("timingContext", () => {
     }
   });
 
+  it("does not treat a retained prefix plus truncation marker as identity", () => {
+    const truncated = "job-prefix[TRUNCATED: 12 characters removed]";
+    expect(
+      timingContext({
+        queue: truncated,
+        targetHost: truncated,
+        retryGroup: truncated,
+        retryAfterMs: 0
+      })
+    ).toEqual({ retryAfterMs: 0 });
+  });
+
   it("accepts only a hostname with an optional port as targetHost", () => {
     expect(timingContext({ targetHost: "[2001:db8::1]:8443" })).toEqual({
       targetHost: "[2001:db8::1]:8443"
@@ -174,9 +186,15 @@ describe("timingContext", () => {
       "",
       "https://api.example.test",
       "user:secret@api.example.test",
+      "api.example.test/",
+      "api.example.test?",
+      "api.example.test#",
       "api.example.test/path",
       "api.example.test?token=x",
       "api.example.test#part",
+      "api.exa\nmple.test",
+      "api.exa\tmple.test",
+      "api.example.test\\",
       "api.example.test:99999"
     ]) {
       expect(timingContext({ targetHost, attempt: 1 })).toEqual({ attempt: 1 });

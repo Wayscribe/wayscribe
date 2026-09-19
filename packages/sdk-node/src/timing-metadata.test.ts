@@ -207,6 +207,17 @@ describe("queueMetadata", () => {
       retryGroup: 'queue:["orders","job-42"]'
     });
   });
+
+  it("omits retained-prefix truncation markers from queue and retry identity", () => {
+    const truncated = "job-prefix[TRUNCATED: 12 characters removed]";
+    expect(queueMetadata({ queueName: truncated, id: "job-42", attemptsMade: 0 })).toEqual({
+      attempt: 1
+    });
+    expect(queueMetadata({ queueName: "orders", id: truncated, attemptsMade: 0 })).toEqual({
+      queue: "orders",
+      attempt: 1
+    });
+  });
 });
 
 describe("httpMetadata", () => {
@@ -240,6 +251,44 @@ describe("httpMetadata", () => {
         { now: Date.parse("2015-10-21T07:27:58.000Z") }
       )
     ).toEqual({ httpStatusCode: 503, retryAfterMs: 2_000 });
+  });
+
+  it("accepts all three HTTP-date formats", () => {
+    const now = Date.parse("1994-11-06T08:49:35.000Z");
+    for (const retryAfter of [
+      "Sun, 06 Nov 1994 08:49:37 GMT",
+      "Sunday, 06-Nov-94 08:49:37 GMT",
+      "Sun Nov  6 08:49:37 1994"
+    ]) {
+      expect(httpMetadata({ headers: { get: () => retryAfter } }, { now })).toEqual({
+        retryAfterMs: 2_000
+      });
+    }
+  });
+
+  it("rejects non-HTTP dates and impossible components instead of accepting Date.parse normalization", () => {
+    const now = Date.parse("2024-03-01T07:27:58.000Z");
+    for (const retryAfter of [
+      "2024-03-01T07:28:00Z",
+      "Fri, 30 Feb 2024 07:28:00 GMT",
+      "Thu, 01 Mar 2024 07:28:00 GMT",
+      "Fri, 01 Mar 2024 25:28:00 GMT",
+      "Fri, 01 mar 2024 07:28:00 GMT",
+      "Fri, 01 Mar 2024 07:28:00 UTC"
+    ]) {
+      expect(httpMetadata({ status: 429, headers: { get: () => retryAfter } }, { now })).toEqual({
+        httpStatusCode: 429
+      });
+    }
+  });
+
+  it("interprets an rfc850 date more than 50 years ahead as the most recent past year", () => {
+    expect(
+      httpMetadata(
+        { status: 503, headers: { get: () => "Saturday, 18-Sep-76 12:00:01 GMT" } },
+        { now: Date.parse("2026-09-18T12:00:00.000Z") }
+      )
+    ).toEqual({ httpStatusCode: 503 });
   });
 
   it("omits malformed, past, non-integer, and overflowing Retry-After values", () => {
@@ -321,6 +370,39 @@ describe("httpMetadata", () => {
       httpStatusCode: 202,
       retryAfterMs: 0
     });
+  });
+
+  it("omits an HTTP-date delay when an explicitly supplied observation clock is unreadable", () => {
+    let reads = 0;
+    const options = Object.defineProperty({ targetUrl: "https://api.example.test/path" }, "now", {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        throw new Error("now getter");
+      }
+    });
+    const future = new Date(Date.now() + 60_000).toUTCString();
+    expect(httpMetadata({ status: 503, headers: { get: () => future } }, options)).toEqual({
+      targetHost: "api.example.test",
+      httpStatusCode: 503
+    });
+    expect(reads).toBe(1);
+  });
+
+  it("keeps numeric Retry-After independent from an unreadable observation clock", () => {
+    let reads = 0;
+    const options = Object.defineProperty({}, "now", {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        throw new Error("now getter");
+      }
+    });
+    expect(httpMetadata({ status: 429, headers: { get: () => "2" } }, options)).toEqual({
+      httpStatusCode: 429,
+      retryAfterMs: 2_000
+    });
+    expect(reads).toBe(0);
   });
 
   it("omits invalid status and target URLs without inventing values", () => {
