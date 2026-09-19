@@ -239,6 +239,13 @@ scroller. The regression requires full input/output text, local block overflow
 and zero document overflow at 400 px without JavaScript and at 1,280 px. The
 real completed-event rerun then reported zero overflow at 400 and 1,440 px.
 
-The final Task 4 review remains open. This addendum does not claim a human
-walkthrough, remote CI, clean-machine verification, publication or a public
-release.
+The first scoped Task 4 review found two important defects in Leadline's
+independent comparator: it applied final broker counters to the first recorded
+delivery and accepted invalid clocks. Leadline `f65d3e0` fixed both with
+delivery-aware bounded reads and a scenario-owned timing validator. The scoped
+re-review accepted both fixes and found no new Critical or Important breakage.
+Task 4 implementation and its local verification are complete.
+
+Final whole-branch review, local integration and authorized delivery remain
+separate plan work. This addendum does not claim a human walkthrough, remote
+CI, clean-machine verification, publication or a public release.

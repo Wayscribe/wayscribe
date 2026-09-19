@@ -81,49 +81,39 @@ Presenting the work, and closing what the last review opened.
   condition and sets the order: Python, then OpenTelemetry log ingest, then
   further languages by what pilot teams ask for.
 
-- **Per-record timing and context, before the first release.**
-  Wayscribe already stores when each step started and how long it took, so most
-  of this is presentation. All of it answers a question about one record;
-  aggregate latency and throughput across records stays with Prometheus,
-  Grafana or an OpenTelemetry backend. Each item is exercised by the Leadline
-  dogfood project (a local lead-sync system with queues, retries and rate
-  limits) before it counts as done.
-  - **Gaps on the timeline:** the idle time between consecutive steps, with
-    queue waits (a `published` step followed by a `consumed` one) called out,
-    and a note when the two steps ran on different hosts whose clocks may
-    differ.
-  - **Journey duration and stuck journeys:** total time from first to last
-    event on the journey page and the Journeys table, and a filter for active
-    journeys with no event for longer than a chosen threshold.
-  - **Retry detail:** for each step, the attempts, the delay between them, and
-    which attempt succeeded.
-  - **A small standard metadata vocabulary:** agreed names for queue name,
-    queue wait, delivery count, target host, HTTP status and rate-limit retry
-    time, shown as labelled fields rather than anonymous metadata, and set by
-    the SDK where it can (for example the queue wait when it extracts context
-    from a job). Needs a decision on names, and belongs in the contract.
-    Two things the names alone do not settle, both found by instrumenting a
-    real queue (F-019, F-027):
-    - **A value that could not be measured has to be marked, not defaulted.**
-      A missing or corrupt queue field read as `0` is indistinguishable on the
-      timeline from a job that truly waited no time, and reads with the same
-      confidence. The vocabulary needs a way to say "not measured" for every
-      field it defines, or a rule that an unmeasurable field is left off the
-      event entirely. Two independent computations over the same job, one
-      defaulting to `0` and one dropping the record, disagreed about exactly
-      this case, and only comparing them showed it.
-    - **A retried attempt's queue wait is not the same measurement.** BullMQ,
-      for one, has no "ready again" timestamp: `processedOn` is when the
-      current attempt began, so the gap before it includes that attempt's own
-      backoff rather than time spent waiting for a worker. Either the
-      vocabulary defines queue wait for a retried attempt explicitly, or it
-      says plainly that the two are not comparable and the presentation keeps
-      them apart.
+- ~~**Per-record timing and context, before the first release.**~~ **Built:**
+  Wayscribe presents bounded evidence about one record; aggregate latency and
+  throughput stay with Prometheus, Grafana or an OpenTelemetry backend. The
+  implementation was exercised by the Leadline dogfood project with actual
+  intake and worker processes, dedicated Redis, retries, a controlled slow
+  target and the real Wayscribe API. Run `dogfood-a4d2cc02` passed all six
+  scenarios; the scoped Task 4 re-review accepted the delivery-aware manifest
+  comparison at Leadline `f65d3e0`. The full evidence and remaining release
+  limits are in the
+  [release-readiness review](reviews/2026-09-18-round-3-and-release-readiness.md).
+  - ~~**Gaps on the timeline**~~ **Built:** consecutive operation-start gaps,
+    explicit queue waits, overlap, and the cross-host clock qualification.
+    Filtering retains original loaded neighbors rather than inventing
+    adjacency.
+  - ~~**Journey duration and stuck journeys**~~ **Built:** the recorded span
+    appears on journey detail and the Journeys table; active inactivity uses a
+    frozen cutoff preserved through detail and back navigation.
+  - ~~**Retry detail**~~ **Built:** explicitly grouped attempts show outcomes,
+    observed delay and which attempt succeeded, with partial-history scope
+    stated.
+  - ~~**A small standard metadata vocabulary**~~ **Built:** ADR-064 and the
+    event/SDK contracts define queue name and wait basis, delivery count,
+    attempt and retry group, target host, HTTP status and requested retry
+    delay. Unknown evidence is omitted and a measured zero remains zero.
+    Initial-enqueue wait belongs only to broker delivery 1; a later delivery
+    needs its own explicit ready instant. Leadline's independent comparator
+    validates those rules without using the SDK as its oracle.
   - **The deployment on each event. Built:** each timeline row shows its
     recorded version and commit, when present (F-043), and the event detail
     lists the full deployment with custom and runtime metadata (F-044).
-  - **Duration filters** on the Journeys page: journeys that took longer than
-    a given time, and journeys with a step longer than a given time.
+  - ~~**Duration filters**~~ **Built:** the Journeys page filters by strict
+    recorded-span and step-duration thresholds, active inactivity and retry
+    state while preserving scope, pagination and no-JavaScript navigation.
 
 ### Known open, and honest about it
 
