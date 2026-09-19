@@ -1326,16 +1326,16 @@ benchmark.
 
 **What changed on 2026-09-16.** The run of 2026-09-15 gave 30, 75, 1,420 and
 1,079 µs at p50, and one earlier on 2026-09-16 gave 112, 93, 2,172 and 1,717. Most
-of that difference was the machine, not the SDK: the build measured on
-2026-09-15 gives 84 µs for a 1 KiB `transform` with the cores idle and 27 µs
-with a core awake, measured the same day as the rest of this section. The rest
-was real. Fitting every event to the server's limits (ADR-051) had added a
-second check of the whole event and a second walk to cut long strings, which
-on its own made a 1 KiB `transform` about 40 percent slower (29 to 41 µs in the
-tight loop, on the commits either side of it). From the 2026-09-15 build to the
-one before this change, 28 µs became 41 µs, and 1,375 µs became 2,122 µs at
-64 KiB. The check for secret-looking names (ADR-055) moved the tight loop by
-less than 4 percent. The event is now
+of that difference was the machine, not the SDK: a historical rerun of the
+2026-09-15 build gave 84 µs for a 1 KiB `transform` with the cores idle and
+27 µs with a core awake. The rest was real. Fitting every event
+to the server's limits (ADR-051) had added a second check of the whole event and
+a second walk to cut long strings, which on its own made a 1 KiB `transform`
+about 40 percent slower (29 to 41 µs in the tight loop, on the commits either
+side of it). From the 2026-09-15 build to the one before this change, 28 µs
+became 41 µs, and 1,375 µs became 2,122 µs at 64 KiB. The check for
+secret-looking names (ADR-055) moved the tight loop by less than 4 percent. The
+event is now
 measured with plain `JSON.stringify` when it is certainly within its budget,
 and long strings are cut in the same walk that makes the payload storable,
 with the same result: 31 and 1,781 µs. The size check now also stops as soon
@@ -1396,11 +1396,11 @@ alternating `transform` and `persist`, with the cores idle between calls.
 The 124,000 events stored are the 120,000 of the measured minute and the 4,000
 recorded during the two seconds of warm-up before it.
 
-The heap after collection grows by 0.2 MiB over the minute, as the unwrapped
-run's grows by 1.0 MiB. The heap figure
-between collections is a sample taken once a second, not a true peak. The
-resident set is about 131 MiB larger; the heap between collections accounts for
-about 50 MiB of that, and the benchmark does not break down the rest.
+The rounded heap-after-collection readings moved from 9.3 to 9.4 MiB in the
+wrapped run and from 7.1 to 8.1 MiB unwrapped. The heap figure between
+collections is a sample taken once a second, not a true peak. The resident set
+is about 131 MiB larger; the heap between collections accounts for about 50 MiB
+of that, and the benchmark does not break down the rest.
 
 **Send concurrency:** one process producing events for 15 seconds against a stub
 with a fixed delay per batch, measured in the current 2026-09-19 UTC run.
