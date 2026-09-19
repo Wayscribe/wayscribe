@@ -1,0 +1,7 @@
+# Current-release demo asset design
+
+Finish the existing demo recorder and narration work against the reviewed timing UI. Produce reviewable files showing the real reference flow: two journeys for one entity, the transformation that loses a phone value, and development replay restoring it. This is asset preparation, not public release publication.
+
+Keep the existing Compose replay default and add a documented host-topology override. Authentication must remain outside recordings, secrets must not reach output/logs, replay allowlists remain unchanged, and source webhook/recorded payloads must drive every demonstrated result. Captions and narration must agree with the visible screen. Keep narration tooling outside product runtime dependencies. Preserve existing static screenshots and integrate a modest generated GIF as a linked README option. Commit the existing social image render to the site's referenced path so a clean site build includes it. Videos stay outside git with provenance and checksums.
+
+The controller's production services and private environment wrapper are ready. Existing probe shows the diff and replay clearly, but the timeline framing clips retry context and only shows the first events while its caption describes retries. Adjust the framing or caption truthfully without changing product behavior. No new product features, synthetic fabricated UI, runtime styling edits, or new brand design are needed.

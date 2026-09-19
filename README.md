@@ -19,6 +19,10 @@ null](docs/images/diff.png)
 *One record, every service that touched it, and the step where the value was
 lost. Regenerate with `pnpm screenshots`.*
 
+[Watch the captioned transformation excerpt](docs/images/demo-diff.gif), or
+[record the complete walkthrough](docs/DEMO_RECORDING.md) from a running demo
+stack.
+
 > **Development happens on [GitLab](https://gitlab.com/jojithedev/wayscribe).**
 > Issues and merge requests go there. Any GitHub repository is a read-only
 > mirror; see [docs/MIRRORING.md](docs/MIRRORING.md).
