@@ -1143,9 +1143,32 @@ plus a row per alias. Payloads are stored inline as JSONB.
 and two aliases each, with small Salesforce and customer payloads averaging 120
 bytes of JSON input and output per event) through the real ingestion code, in
 each capture mode, and reports what `journeys`, `journey_events`, and
-`entity_aliases` occupy with their indexes and TOAST. Measured on 2026-09-15 on
-an Apple M3 Pro, PostgreSQL 17.11 (`postgres:17-alpine`, default configuration)
-in Docker Desktop with 12 CPUs and 7.75 GiB:
+`entity_aliases` occupy with their indexes and TOAST.
+
+**Current smaller-scale run.** Measured on 2026-09-19 at source `9da8b37`, with
+10,000 journeys and 100,000 events per capture mode. PostgreSQL 17.11 ran as
+`postgres:17-alpine` on aarch64 in a container limited to 2 CPUs and 3 GiB,
+with a 2 GiB tmpfs, on a shared Apple M3 Pro host running Node 24.19.0. Demo
+capture and site verification could overlap. Tmpfs is not physical storage I/O,
+and this is not a production capacity or throughput measurement.
+
+| Capture mode | 100,000 events | Compacted, per event | Per journey |
+|---|---|---|---|
+| `metadata-only` | 116.1 MiB (1,217 B) | 944 B | 11.9 KiB |
+| `allowlisted-fields` | 140.8 MiB (1,476 B) | 1,190 B | 14.4 KiB |
+| `redacted-payload` | 157.8 MiB (1,655 B) | 1,377 B | 16.2 KiB |
+| `full-payload` | 159.2 MiB (1,669 B) | 1,377 B | 16.3 KiB |
+
+The run completed all four modes with exit 0 and did not trigger its storage
+guard. In each mode, deleting 5,000 journeys and running plain `VACUUM` left
+the compacted files essentially the same size. Refilling the same number of
+journeys reused space: `metadata-only`, for example, went from 116.1 MiB as
+ingested to 90.1 MiB compacted, 90.2 MiB after the sweep and `VACUUM`, then
+112.8 MiB after refill.
+
+**Historical million-event run.** Measured on 2026-09-15 on an Apple M3 Pro,
+PostgreSQL 17.11 (`postgres:17-alpine`, default configuration) in Docker Desktop
+with 12 CPUs and 7.75 GiB:
 
 | Capture mode | 100,000 events | 1,000,000 events | Compacted, per event | Per journey |
 |---|---|---|---|---|
@@ -1154,7 +1177,7 @@ in Docker Desktop with 12 CPUs and 7.75 GiB:
 | `redacted-payload` | 154.2 MiB (1,617 B) | 1.39 GiB (1,494 B) | 1,320 B | 14.6 KiB |
 | `full-payload` | 151.3 MiB (1,586 B) | 1.39 GiB (1,496 B) | 1,320 B | 14.6 KiB |
 
-The first two columns are as ingested, after a plain `VACUUM`; the per-event
+The historical run's first two columns are as ingested, after a plain `VACUUM`; the per-event
 figure is the total divided by events, so each event carries its share of its
 journey and aliases. Compacted is after `VACUUM FULL`. The difference is
 mostly the `journeys` table: every event updates its journey, the updates
@@ -1162,7 +1185,7 @@ cannot be HOT because indexed columns change, and at a million events the
 table and its indexes were 121 MiB as ingested against 77 MiB compacted. A
 running installation sits between the two.
 
-What the numbers say:
+What the historical million-event numbers say:
 
 - **Indexes are 39 to 56 percent of the disk.** At a million events in
   `metadata-only`, the three tables held 559 MiB of indexes out of 1,001 MiB;
@@ -1312,11 +1335,43 @@ code and times `GET /v1/journeys` through the real API, in process (Fastify's
 `inject`: authentication, validation, the query and the response are in the
 figure, the network is not). Each case is three warm-up requests and then 40
 timed ones, page of 25, and the slowest cases are run again under
-`EXPLAIN (ANALYZE, BUFFERS)` with the SQL and parameters the API sent. Measured
-on 2026-09-16 on the machine and PostgreSQL of *Measured disk per event* above
-(Apple M3 Pro,
-PostgreSQL 17.11, `postgres:17-alpine` with its default configuration: 128 MB
-`shared_buffers`, `jit` on), with the cache warm.
+`EXPLAIN (ANALYZE, BUFFERS)` with the SQL and parameters the API sent.
+
+**Current run.** Measured on 2026-09-19 at source `9da8b37` on an Apple M3 Pro
+shared development host with Node 24.19.0. PostgreSQL 17.11 ran in an aarch64
+`postgres:17-alpine` container limited to 2 CPUs and 3 GiB, with a 2 GiB tmpfs,
+128 MB `shared_buffers` and `jit` on. The cache was warm. Demo capture and site
+verification could overlap. Tmpfs is not physical storage I/O, and these are
+development measurements rather than production latency or throughput claims.
+
+The run recorded 120,000 journeys, 360,000 events and 360,000 aliases with
+four concurrent producers. It found 2,937 journeys in the last 24 hours and
+89,845 in 30 days. The table reports p50 / p95 in milliseconds from 40 samples,
+with every index present:
+
+| Case | 24 h | 30 d |
+|---|---|---|
+| No filter, admin (every environment) | 6.7 / 14.1 | 5.1 / 7.4 |
+| No filter, admin, second page | 5.6 / 7.2 | 5.8 / 9.4 |
+| No filter, API key (one environment) | 5.6 / 6.9 | 6.0 / 9.2 |
+| `status=failed`, admin | 5.1 / 6.9 | 6.1 / 9.0 |
+| `q=sync` (matches many), admin | 6.9 / 10.6 | 7.5 / 8.9 |
+| `q=sync`, admin, second page | 7.2 / 12.0 | 7.9 / 10.3 |
+| `q` matching none, admin | 29.1 / 51.2 | 483.3 / 594.2 |
+| `q` matching none, API key | 26.9 / 37.8 | 268.8 / 432.2 |
+| `q=acme` and `entityType=invoice`, admin | | 5.9 / 6.6 |
+
+The four `EXPLAIN` cases confirmed index-only alias scans with zero heap
+fetches. The 30-day no-match plans inspected 89,845 admin journeys or 71,904
+API-key-scoped journeys; the 24-hour plans inspected 2,937 or 2,340. This
+completed run used only the every-index query, four `EXPLAIN` and ingestion
+stages. It did not remove indexes for a comparison. The script covers the
+existing browse, text, admin, API-key and second-page cases; it does not cover
+the newer timing filters, whose separate 20,000-journey evidence follows below.
+
+**Historical migration 019 comparison.** The 2026-09-16 run used an Apple M3
+Pro and PostgreSQL 17.11 in `postgres:17-alpine` with its default configuration,
+including 128 MB `shared_buffers` and `jit` on, with the cache warm.
 
 The data: 120,000 journeys of three events each (360,000 events) and three
 aliases each, about 650 MiB in the three tables. Four environments hold 80, 12, 6 and
@@ -1332,11 +1387,11 @@ holds about 2,940 journeys and a 30-day window about 89,860. The API key is
 scoped to the busy environment. `q` matching none is the worst case: nothing
 lets the query stop early, so every journey in the window is tested.
 
-Migration 019 adds two indexes for this list, `journeys_project_recent_idx` on
+Migration 019 added two indexes for this list, `journeys_project_recent_idx` on
 `journeys (project_id, last_event_at, id)` and `entity_aliases_displayable_idx`
 on `entity_aliases (project_id, journey_id) include (display_value) where
-displayable`. Before is the same run with both dropped, on the same rows;
-p50 / p95 in milliseconds:
+displayable`. The historical "before" stage used the same rows with both
+dropped; p50 / p95 in milliseconds:
 
 | Case | 24 h before | 24 h after | 30 d before | 30 d after |
 |---|---|---|---|---|
@@ -1418,16 +1473,20 @@ with your own event density and window before adding one: a step-duration
 filter that rejects many journeys will perform more per-journey probes before
 it fills a page.
 
-At 120,000 journeys the journeys index is 11 MB and the alias index 19 MB.
+In that historical run, at 120,000 journeys, the journeys index was 11 MB and
+the alias index 19 MB.
 
-**What they cost ingestion.** Every event updates its journey's
+**Current ingestion measurement.** Every event updates its journey's
 `last_event_at`, which is now written to one more index, and every displayable
-alias is written to the alias index. Timed through the API with the busy
-environment's key: a batch of 100 events (ten new journeys of ten events, each
-with a label and three aliases, one or two of them displayable) and a single
-event that starts a journey with the same label and aliases. The three index
-sets took turns, round after round, on the same tables, so drift as the
-tables grew is shared. p50 / p95 in milliseconds:
+alias is written to the alias index. In the current 2026-09-19 run, timed
+through the API with every index present, 300 samples of a batch of 100 events
+had a p50 / p95 of 383.1 / 450.3 ms. The batch created ten journeys of ten
+events, each with a label and three aliases. A single event starting a journey,
+also over 300 samples, measured 6.0 / 8.2 ms.
+
+The historical 2026-09-16 ingestion comparison made the three index sets take
+turns, round after round, on the same tables, so drift as the tables grew was
+shared. p50 / p95 in milliseconds:
 
 | | Both indexes | Journeys index only | Neither |
 |---|---|---|---|
@@ -1444,16 +1503,15 @@ and in run 2 both were 4 percent slower than the journeys index alone and 8
 percent slower than neither. Run 2 started from 133,860 journeys, after run 1's
 ingestion.
 
-**What to expect, then.** A 24-hour window, the Journeys page's default, is
-under 12 ms in every case at this size. Text over 30 days that matches
-something returns in a few milliseconds. Text that matches nothing reads every
-journey in the window, 0.2 to 0.3 s with 70,000 to 90,000 journeys in it, and
-that grows in proportion to the journeys in the window: somewhere around 5
-million journeys in the window it would reach the 15-second statement timeout
-(§13) and fail with `query_timeout`. An installation recording tens of
-thousands of journeys a day should search text over a day or a week rather
-than a month. If a plan of this list shows JIT in `EXPLAIN ANALYZE` on your
-data, `ALTER ROLE … SET jit = off` for the API's role takes that share off.
+**What to expect, then.** In the current run, returned-page queries were at or
+below 14.1 ms p95 in every measured case. Text matching nothing still read
+every journey in the window: 51.2 ms p95 for 2,937 admin-visible journeys over
+24 hours and 594.2 ms for 89,845 over 30 days. The API-key-scoped equivalents
+were 37.8 and 432.2 ms. This cost grows with the journeys in the window. An
+installation recording tens of thousands of journeys a day should search text
+over a day or a week rather than a month. If a plan of this list shows JIT in
+`EXPLAIN ANALYZE` on your data, `ALTER ROLE … SET jit = off` for the API's role
+takes that share off.
 
 To measure your own shape, against a scratch database (it refuses one that
 already holds journeys, and works in a schema of its own that it drops after):
@@ -1531,17 +1589,22 @@ and Automation tokens in November 2025, and the granular tokens left expire in
 
 **Once, before the first release**, the project owner must:
 
-1. Own the `@wayscribe` scope on npmjs.com.
-2. Register the trusted publisher. It is set per package, and the package must
-   exist first, so for the very first version publish it once by hand with
-   `npm login` and `npm publish` from the packed tarball
-   (`DRY_RUN=1 scripts/publish-sdk.sh vX.Y.Z` shows it builds), then open
-   *npmjs.com → @wayscribe/node → Settings → Trusted publisher → GitLab CI/CD*
-   and enter exactly:
+1. Sign in with maintainer access to the existing `@wayscribe/node` package.
+   Its deprecated `0.0.1-placeholder.0` version already reserves the name; do
+   not publish the actual SDK by hand to create the package.
+2. Open *npmjs.com → @wayscribe/node → Settings → Trusted publishing*, choose
+   GitLab CI/CD, and enter exactly:
    - Namespace: `jojithedev`
    - Project name: `wayscribe`
    - Top-level CI file path: `.gitlab-ci.yml`
    - Environment: leave empty
+   - Allowed actions: enable direct `npm publish`
+
+   `npm stage publish` is always allowed. Trusted-publisher configurations
+   created since 2026-09-03 default to staging only, but this repository's
+   `scripts/publish-sdk.sh` calls `npm publish`, so the direct action must also
+   be allowed. Changing to staged publishing is a separate release-workflow
+   change and would add a human approval step.
 3. In the same settings page, under *Publishing access*, choose to require
    two-factor authentication and disallow tokens, so trusted publishing is the
    only way to publish.

@@ -1,10 +1,11 @@
 # Alternatives
 
-**Last checked: 16 September 2026.**
+**Last checked: 19 September 2026.**
 
-The Honeycomb entry was added on 17 September 2026 and its sources were checked
-that day. Every other entry still carries the date above: adding one did not
-re-check the rest.
+The original comparison was checked on 16 September 2026 and Honeycomb was
+added the next day. A focused recheck on 19 September corrected current
+capabilities, licences, pricing qualifications and source links. Individual
+sources retain the date of the check that supports each statement.
 
 This page backs the claim in the README's
 [Alternatives](../README.md#alternatives) section:
@@ -38,18 +39,19 @@ a proof that the capability is absent.
 | PaperTrail | MIT | Yes | Before and after values for each changed attribute of a model | One Rails application's ActiveRecord models, not a cross-service journey |
 | django-simple-history | BSD-3-Clause | Yes | Model state on every change, with diffs between versions | One Django application's models, not a cross-service journey |
 | Keploy | Apache-2.0 | Yes | Records requests and dependency calls, replays them as tests | Builds regression tests for one application; no search by business id across services |
-| Kubeshark | Apache-2.0 (repository) | Yes (repository) | Captures API traffic across a cluster | Kubernetes only; free plan limited to 3 nodes or 60 pods |
-| OpenLineage | Apache-2.0 | Yes | Lineage standard for jobs, runs and datasets | Its model has no entity for one record |
+| Kubeshark | Apache-2.0 (repository) | Yes (repository) | Captures API traffic across a cluster | Documented for Kubernetes clusters; free plan limited to 3 nodes or 60 pods |
+| OpenLineage | Apache-2.0 | Yes | Lineage standard for jobs, runs and datasets | Its core model has no entity for one record |
 | Convoy | Elastic License 2.0 | No (source-available) | Webhook gateway, sending and receiving, with deliveries and retries | Not OSI open source; webhook traffic only |
-| Bemi | Server Side Public License | No (source-available) | PostgreSQL change tracking with application context | Not OSI open source; database changes only |
+| Bemi | Server Side Public License v1 (SSPL) | No (source-available) | PostgreSQL change tracking with application context | Not OSI open source; database changes only |
 | n8n | Sustainable Use License | No (source-available) | Past executions, filtering by custom data, re-running with earlier data | Not OSI open source; covers workflows built in n8n |
 
-Commercial tools do this job for teams on their platforms, which shows teams
-pay for it: [Nodinite](#nodinite), [Turbo360 BAM](#turbo360-business-activity-monitoring),
+Commercial tools cover parts of this job on their platforms:
+[Nodinite](#nodinite), [Turbo360 BAM](#turbo360-business-activity-monitoring),
 [Particular ServicePulse](#particular-servicepulse),
 [Dynatrace Business Flow](#dynatrace-business-flow) and
-[Honeycomb](#hosted-tracing-backends-for-example-honeycomb). The table above
-lists only the tools you can run yourself, so those five are not in it.
+[Honeycomb](#commercial-tracing-platforms-for-example-honeycomb). The table
+above compares projects with public repository licence files, so those
+commercial products are not in it.
 
 ## Open-source neighbours
 
@@ -119,10 +121,10 @@ lists only the tools you can run yourself, so those five are not in it.
   [licence, grafana/tempo](https://github.com/grafana/tempo/blob/main/LICENSE)
   (both checked 2026-09-16).
 
-Hosted tracing backends are the same shape as these two, and are bought rather
-than run, so they sit under commercial tools below:
-[Honeycomb](#hosted-tracing-backends-for-example-honeycomb) is the one teams
-reach for when they want to query a business id on a span.
+Commercial tracing platforms overlap with these projects and sit under
+commercial tools below. [Honeycomb](#commercial-tracing-platforms-for-example-honeycomb)
+documents querying high-cardinality business identifiers and offers Private
+Cloud deployment options in a customer's AWS account.
 
 ### Webhook servers, for example Svix
 
@@ -176,8 +178,9 @@ reach for when they want to query a business id on a span.
   and responses that crossed the cluster.
 - **What they lack for this job:** Keploy turns traffic into regression tests
   for an application; its documentation does not describe finding one business
-  record's history across services. Kubeshark is Kubernetes only, and works at
-  the level of network traffic rather than a record and its aliases.
+  record's history across services. Kubeshark's documented deployment is a
+  Kubernetes cluster, and it works at the level of network traffic rather than
+  a record and its aliases.
 - **Sources:**
   [How Keploy works](https://keploy.io/docs/keploy-explained/how-keploy-works/),
   [Kubeshark introduction](https://docs.kubeshark.com/en/introduction),
@@ -195,9 +198,10 @@ reach for when they want to query a business id on a span.
   with a model of dataset, job and run entities.
 - **Licence:** Apache-2.0, OSI open source.
 - **Overlap:** it answers where data came from and which job produced it.
-- **What it lacks for this job:** its entities are datasets, jobs and runs. One
-  customer record is not an entity in the model, and payload capture, field
-  diffs and replay are outside its scope.
+- **What it lacks for this job:** its core entities are datasets, jobs and
+  runs. One customer record is not a core entity in the inspected model, and
+  the documentation reviewed here does not describe record payload capture,
+  field diffs and replay as one flow. Custom facets are extensible.
 - **Sources:**
   [OpenLineage documentation](https://openlineage.io/docs/) (checked
   2026-09-16);
@@ -212,28 +216,26 @@ Their licences are not on the OSI list, so they do not count against the claim.
 ### Convoy
 
 - **What it is:** a webhooks gateway "supporting both sending & receiving
-  webhooks", with retries, rate limiting and circuit breaking. Events and their
-  deliveries can be listed, and a delivery can be retried.
+  webhooks", with retries, endpoint management, rate limiting and circuit
+  breaking.
 - **Licence:** Elastic License 2.0. The project calls its Community Edition
   open source; the licence is not OSI approved. A paid Premium licence adds
   features.
 - **What it lacks for this job:** it covers webhook traffic, not the transform,
   database, queue and worker steps around it.
 - **Sources:**
-  [Introduction](https://getconvoy.io/docs/home/introduction),
-  [Events and event deliveries](https://getconvoy.io/docs/product-manual/events-and-event-deliveries),
-  [Licensing](https://getconvoy.io/docs/business-and-enterprise/licensing)
-  (all checked 2026-09-16);
+  [frain-dev/convoy README](https://github.com/frain-dev/convoy)
+  (checked 2026-09-19);
   [licence, frain-dev/convoy](https://github.com/frain-dev/convoy/blob/main/LICENSE)
-  (checked 2026-09-16).
+  (checked 2026-09-19).
 
 ### Bemi
 
 - **What it is:** "an open-source solution that plugs into PostgreSQL and ORMs
   to track database changes automatically", adding application context to each
   change.
-- **Licence:** the repository's licence file is the Server Side Public License,
-  version 1, which is not OSI approved, although the documentation calls Bemi
+- **Licence:** the repository's licence file is the Server Side Public License
+  v1 (SSPL), which is not OSI approved, although the documentation calls Bemi
   open source.
 - **What it lacks for this job:** it records database changes, so the steps that
   never write to that database are outside it.
@@ -249,13 +251,15 @@ Their licences are not on the OSI list, so they do not count against the claim.
   execution's data can be loaded into the editor to debug and re-run it.
 - **Licence:** the Sustainable Use License, with `.ee.` files under the n8n
   Enterprise License. n8n describes both as "based on the fair-code model"; they
-  are not OSI approved. Custom execution data is available on some plans only.
+  are not OSI approved. Custom execution data is available on Cloud Pro and
+  Enterprise and on self-hosted Enterprise and registered Community. Debugging
+  past executions is also documented for self-hosted registered Community.
 - **What it lacks for this job:** it covers workflows built in n8n.
 - **Sources:**
   [Sustainable Use License](https://docs.n8n.io/n8n-community-license/sustainable-use-license),
   [Customize executions data](https://docs.n8n.io/build/understand-workflows/understand-executions/customize-executions-data),
   [Debug executions](https://docs.n8n.io/build/understand-workflows/understand-executions/debug-executions)
-  (all checked 2026-09-16).
+  (all checked 2026-09-19).
 
 ## Commercial tools
 
@@ -265,51 +269,59 @@ to a vendor, a platform or both.
 ### Nodinite
 
 - Integration logging and monitoring, sold by subscription. The price page
-  listed Nodinite Core at 12,517 SEK a month and the BPM add-on at 5,000 SEK a
-  month (tier 1 prices).
+  lists Tier 1 maximums of 12,517 SEK a month for Nodinite Core and 5,000 SEK a
+  month for the BPM add-on, for organizations under 10 billion SEK annual
+  revenue. Exact pricing is by contact.
 - **Source:** [Nodinite pricing](https://www.nodinite.com/price/) (checked
-  2026-09-16).
+  2026-09-19).
 
 ### Turbo360 Business Activity Monitoring
 
 - End-to-end tracking of transactions across Azure integration services, where
   a user can find a transaction by order number, customer or another business
-  property. Azure focused, with pricing from $249 a month.
-- **Source:**
-  [Turbo360 BAM](https://turbo360.com/business-activity-monitoring) (checked
-  2026-09-16).
+  property. The product is Azure focused. The generic Commercial plan has an
+  indicative starting price, but the published pricing depends on modules,
+  subscriptions and scale, so it does not establish a BAM-specific price.
+- **Sources:**
+  [Turbo360 BAM](https://turbo360.com/business-activity-monitoring),
+  [Turbo360 pricing](https://turbo360.com/pricing) (both checked 2026-09-19).
 
 ### Particular ServicePulse
 
-- Monitoring and failed-message retry for NServiceBus systems, part of the
-  Particular Service Platform, which is "Free for development, only pay for
-  production".
+- Its documentation describes monitoring and failed-message retry for
+  NServiceBus systems as part of the Particular Service Platform. Particular
+  also documents a limited free
+  Community production tier of three logical endpoints and 10,000 messages per
+  day, alongside paid production plans.
 - **Sources:** [ServicePulse](https://docs.particular.net/servicepulse/),
   [Particular pricing](https://particular.net/pricing) (both checked
-  2026-09-16).
+  2026-09-19).
 
-### Hosted tracing backends, for example Honeycomb
+### Commercial tracing platforms, for example Honeycomb
 
-- **What it is:** a hosted service that applications send OpenTelemetry data to.
-  Its documentation opens by telling you to instrument your applications and
-  "send telemetry to Honeycomb", and describes no self-hosted edition.
+- **What it is:** a commercial observability platform. Applications can send
+  native OTLP data or use its Events API. Honeycomb Private Cloud documents
+  Honeycomb-managed and self-managed deployments in a customer's AWS account.
+  Its commercial status is separate from the repository licence
+  classifications above; this comparison does not assert an open-source
+  Honeycomb edition.
 - **Overlap:** it is built for the field this job turns on. Its documentation
   defines a high-cardinality field as one that "can have many possible values"
   and gives `userId`, `shoppingCartId` and `orderId` as the examples, then says
   Honeycomb lets you query on those fields and look only at the events that
-  served one user's requests. A team that already puts an order id on its spans
-  can therefore pull up that order, which is the search half of this job, and
-  Honeycomb does that half better than Wayscribe does.
-- **What it lacks for this job:** what the open-source tracing backends lack. A
-  span carries the attributes you set on it, and the documentation does not
-  describe capturing the payload a step received and produced, comparing the
-  two field by field, or replaying a recorded input against development. It is
-  also the platform the fourth part of the claim is about: the data lives in
-  the vendor's service.
+  served one user's requests. A team that puts an order id on its spans can
+  therefore query that order's telemetry.
+- **What the inspected documentation does not describe:** a first-class paired
+  input and output for each application step, a field-level comparison of that
+  pair, and replay of a recorded input against development linked back to the
+  original evidence. This is a comparison of documented product behavior, not
+  a claim that attributes cannot carry record values or that custom approaches
+  are impossible.
 - **Sources:**
   [High cardinality](https://docs.honeycomb.io/get-started/observability/concepts/high-cardinality/),
-  [Send data to Honeycomb](https://docs.honeycomb.io/send-data/) (both checked
-  2026-09-17).
+  [Send data to Honeycomb](https://docs.honeycomb.io/send-data/),
+  [Honeycomb Private Cloud](https://www.honeycomb.io/platform/private-cloud)
+  (all checked 2026-09-19).
 
 ### Dynatrace Business Flow
 

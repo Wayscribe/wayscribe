@@ -14,12 +14,36 @@ changes far less often.
 
 ## [Unreleased]
 
-This section describes the first release, a 0.x preview. Nothing has been
+This section describes the selected first release, the unpublished 0.1.0
+preview. Nothing has been
 published before it, so there is no earlier release to upgrade from. Under
 **Changed** and **Upgrade notes**, "changed" means changed from earlier
 development builds of `main`, for anyone running one from a git checkout. A
 shorter overview is in
 [docs/RELEASE_NOTES_DRAFT.md](docs/RELEASE_NOTES_DRAFT.md).
+
+### Record timing and journey filters (2026-09-19)
+
+- SDK wrappers and manual events accept bounded step `durationMs` and standard
+  timing metadata. Queue evidence can name processing time, measured queue wait
+  and its basis, application attempt, retry group and explicit broker
+  `deliveryCount`. HTTP evidence can name the target host, status and requested
+  `Retry-After` as `retryAfterMs`. Invalid or unknown measurements are omitted
+  rather than replaced with zero, and helper failures stay inside the SDK
+  failure boundary.
+- Journey summaries expose the recorded first-to-last event-start span. The
+  list supports `minDurationMs`, `minStepDurationMs` and active-only
+  `inactiveBefore`; thresholds are strict, unknown durations do not match and
+  pagination keeps the frozen cutoff.
+- The timeline separates recorded event gaps from broker-measured queue wait,
+  keeps cross-host clock qualifications visible, and groups retries only from
+  explicit identity. Requested `Retry-After` remains separate from observed
+  delay, and later broker deliveries need a retry-ready instant before a queue
+  wait is shown.
+- Migration 019's concurrent index build now keeps the same bound PostgreSQL
+  session that received its schema `search_path`. This repairs installs that
+  use a non-default schema and is covered by a regression test for session
+  transfer and teardown.
 
 ### Renamed to Wayscribe (2026-09-17)
 

@@ -1,9 +1,11 @@
-# Wayscribe 0.x preview: release notes
+# Wayscribe 0.1.0 preview: release notes
 
-**Draft, updated 2026-09-18.** No usable release is published yet. npm's
+**Unpublished draft, updated 2026-09-19.** The selected first version is 0.1.0,
+and no usable release is published yet. npm's
 deprecated `0.0.1-placeholder.0` reserves the name and contains no SDK.
-The version number and the install commands will be filled in when the
-release is cut. The full list of changes is in [CHANGELOG.md](../CHANGELOG.md).
+The public install commands become current only after the protected tag and
+manual publish jobs complete. The full list of changes is in
+[CHANGELOG.md](../CHANGELOG.md).
 
 ## What it is
 
@@ -64,16 +66,18 @@ and keys issued before the rename, which start `fr_`, keep working. The
   name and version, and accepts a deployment commit, version and image.
   Drop counters name the cause; zero transport errors and zero `no_verdict`
   drops alone do not establish collector health.
-- **What it costs is measured.** On 2026-09-17, on an Apple M3 Pro, wrapping a
-  call with a 1 KiB payload added 89 µs at p50 and 1,341 µs at p99 for
-  `transform`, and 67 µs and 1,507 µs for `persist`, with the processor idle
-  between calls; with a core kept awake, as in a busy service, 31 µs and 18 µs
-  at p50. At 64 KiB a `transform` added 1,816 µs at p50, or 1,563 µs with a core
-  awake. At 2,000 wrapped calls a second for a minute, the heap after
-  collection went from 9.2 to 9.4 MiB, and the resident set ended at 219 MiB
-  against 76 MiB unwrapped (SDK README, "What it costs"). The machine was
-  running other work, so read these as orders of magnitude. Tests in
-  `pnpm test` count how often capture walks a payload.
+- **What it costs is measured.** On 2026-09-19 UTC (2026-09-18 local), on a
+  shared Apple M3 Pro host, wrapping a call with a 1 KiB payload against a
+  local stub added 76.3 µs p50 / 1,208.6 µs p99 for `transform` and 28.5 /
+  452.3 µs for `persist` when the run included idle periods. In the separate
+  core-awake scheduler experiment, the figures were 37.0 / 575.0 µs and 21.8 /
+  400.6 µs. At 2,000 wrapped calls a second for a minute, heap after collection
+  went from 9.3 to 9.4 MiB and resident set ended at 196 MiB against 65 MiB
+  unwrapped (SDK README, "What it costs"). The normal and awake source heads
+  had the same SDK and protocol trees. The host ran other services, so these
+  are orders of magnitude, not production latency guarantees. Against a slow
+  collector the bounded queue dropped events in the measured 1 KiB cases;
+  capture did not wait for the 200 ms response.
 - **A contract for other clients:** [the ingestion contract](INGESTION_CONTRACT.md),
   [the SDK specification](SDK_SPEC.md), generated JSON Schema, and conformance
   fixtures that any implementation can run through the dry run.
@@ -89,12 +93,20 @@ and keys issued before the rename, which start `fr_`, keep working. The
   (`DATABASE_URL`). A bundled database is available as a Compose overlay for
   evaluation. Entity identifiers and alias values are encrypted at rest and
   searched through keyed tokens.
-- **Disk use is measured.** With the demo's shape of event (payloads averaging
-  120 bytes of JSON), a million events took about 1,049 bytes each in
-  `metadata-only` and 1,494 bytes each in `redacted-payload`, indexes included,
-  on PostgreSQL 17.11 on an Apple M3 Pro, measured on 2026-09-15. By the sizing formula, a million events a day kept 30 days
-  in `redacted-payload` needs about 63 GiB (OPERATIONS section 10, "Measured disk
-  per event" and "A formula").
+- **Disk use is measured.** The current 2026-09-19 run at source `9da8b37`
+  recorded 100,000 events per capture mode on PostgreSQL 17.11 in a 2 CPU,
+  3 GiB aarch64 container with tmpfs. It measured 1,217 bytes per event in
+  `metadata-only` and 1,655 in `redacted-payload`, or 944 and 1,377 after
+  compaction. It completed all four modes without triggering its storage
+  guard. This smaller, shared-host tmpfs run is not physical-disk or production
+  capacity evidence. The historical 2026-09-15 million-event run measured
+  1,049 and 1,494 bytes per event for those modes and remains the basis for the
+  worked 63 GiB sizing example (OPERATIONS section 10, "Measured disk per
+  event" and "A formula").
+- **Migration 019 keeps its session state on one PostgreSQL connection.** The
+  2026-09-19 repair at `9da8b37` transfers the bound session used to set
+  `search_path` through the concurrent index build and teardown, and has
+  regression coverage for non-default schemas.
 - **Installs** as a Compose stack, which runs the release you name in
   `WAYSCRIBE_VERSION`, or with a Helm chart for a local single-node
   cluster.
@@ -108,11 +120,13 @@ and keys issued before the rename, which start `fr_`, keep working. The
   (OPERATIONS section 10, "Indexes").
 - **The Journeys page** lists what happened in a period, filtered by status,
   entity type, environment, service, and part of a journey's label or of an
-  alias marked displayable, with a Failures shortcut. Measured on 2026-09-16 at
-  120,000 journeys on an Apple M3 Pro, a
-  24-hour window returned in under 12 ms in every measured case; text that
-  matches nothing over 30 days, the worst case, took 262 ms at p50 and 316 ms at
-  p95 with about 90,000 journeys in the window (OPERATIONS section 10, "Listing journeys").
+  alias marked displayable, with a Failures shortcut. The current 2026-09-19
+  run at source `9da8b37` used 120,000 journeys on a shared Apple M3 Pro host
+  and PostgreSQL 17.11 in a 2 CPU, 3 GiB aarch64 container with tmpfs. With a
+  warm cache and network time excluded, the default admin 24-hour list
+  measured 6.7 / 14.1 ms p50 / p95. Text matching nothing over 30 days, the
+  worst case, measured 483.3 / 594.2 ms with 89,845 journeys in the window
+  (OPERATIONS section 10, "Listing journeys").
 - **The timeline** shows every event of a journey across services. It can be
   filtered to one service or to failures, navigated with the arrow keys, and set
   to follow a journey that is still recording. Rows name recorded deployment
@@ -129,7 +143,8 @@ and keys issued before the rename, which start `fr_`, keep working. The
 - **Timing filters** find journeys by total span, slowest step, active
   inactivity and retry state. Filtered timelines keep the original loaded
   neighbors so a hidden row cannot turn two nonadjacent steps into a measured
-  gap.
+  gap. Their 2026-09-18 query-plan evidence used a separate 20,000-journey,
+  60,000-event data set; the 120,000-journey list run did not remeasure them.
 - **The diff** shows, field by field, what a step received against what it
   produced.
 - **Replay** sends a step's recorded input to a configured development
@@ -160,6 +175,11 @@ and keys issued before the rename, which start `fr_`, keep working. The
   configured to sign `api` and `web` images with Sigstore keyless signing,
   attach a CycloneDX SBOM per platform, and publish the SDK with npm provenance
   (OPERATIONS section 11). No real release has verified that complete path yet.
+- **The delivered runtime pipeline is green at `9da8b37`.** Its 20 normal jobs
+  passed, including 979 integration tests on each of PostgreSQL 15, 17 and 18,
+  SDK checks on Node 22.12 and 24, the site, scans and the GitHub mirror. The
+  manual e2e, demo and upgrade jobs intentionally wait for the final docs and
+  assets revision. This is not a public release or a final release pipeline.
 - **The source quick start is covered by CI configuration.** The `demo` and
   `release-verify` jobs copy `.env.example`, build and boot the stack, wait for
   API, demo source and web health, and run the demo acceptance suite. A timed
@@ -218,6 +238,10 @@ and keys issued before the rename, which start `fr_`, keep working. The
   helpers, `across`, `captureInput` and `captureOutput`, `journeyIdFor`,
   `label`, `maxConcurrentSends`, and the `Counters` fields (SDK README,
   "Stability").
+- **Measured timing is development evidence, not a service-level promise.**
+  SDK p99 values are noisy, storage used tmpfs, historical million-event search
+  and storage figures were not repeated at that scale, and the journey-list
+  timings exclude the network.
 
 ## What comes next
 

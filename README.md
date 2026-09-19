@@ -46,8 +46,9 @@ third-party API. Six services. Somewhere in there the phone number became
 `null`.
 
 You have logs. They are in six places, keyed by request ID, and none of them
-knows that customer by name. You may have traces: spans and latencies, which
-tell you the call succeeded and nothing about what it carried.
+knows that customer by name. You may have traces, including record attributes
+your instrumentation adds, but no paired view of what each step received and
+produced or replay tied to that evidence.
 
 So you start grepping.
 
@@ -307,15 +308,16 @@ are useful. They are not the same question.
 
 | | Wayscribe | APM / tracing |
 | --- | --- | --- |
-| You search by | a customer, order, or invoice ID | a trace ID or a service |
+| You search by | a customer, order, or invoice ID, with first-class aliases | a trace ID, a service, or attributes you add |
 | The unit is | one record's journey | one request's spans |
-| It shows you | what the payload **was**, field by field | latency, status, structure |
+| It shows you | paired step input and output, with a field diff | latency, status, structure, and attributes you add |
 | Correlation is | deterministic, by entity and alias | by propagated trace context |
-| It answers | "where did this value change?" | "which call was slow?" |
+| It answers | "where did this value change?" | "what happened in this trace?" |
 
-Five things this does that a tracing tool does not:
+Wayscribe makes five behaviors work together as one record-debugging flow:
 
-1. **Record-first navigation.** You search for a customer, not a trace.
+1. **Record-first navigation.** A customer, order, invoice, or alias is the
+   primary object rather than an attribute attached separately to spans.
 2. **Identity mapping.** One record is a Salesforce ID here, an internal ID
    there, a queue message ID in between. Search any of them and get the same
    journey.
@@ -356,9 +358,9 @@ Several open-source tools do part of it:
 
 Convoy, Bemi and n8n come close to parts of this and are source-available
 rather than OSI open source. Commercial tools such as Nodinite, Turbo360,
-Particular ServicePulse, Dynatrace Business Flow and the hosted tracing
-backends, Honeycomb among them, do this job on their own platforms, which shows
-teams pay for it.
+Particular ServicePulse, Dynatrace Business Flow and Honeycomb cover parts of
+this job on their own platforms. Honeycomb also documents managed and
+self-managed Private Cloud deployments in a customer's AWS account.
 
 [docs/ALTERNATIVES.md](docs/ALTERNATIVES.md) has the licence, the overlap and
 the gap for each, with a source and the date it was checked. If a tool does all
