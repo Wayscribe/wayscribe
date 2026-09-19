@@ -79,6 +79,26 @@ describe("queueMetadata", () => {
     });
   });
 
+  it("omits initial-enqueue wait when an explicit delivery count proves redelivery", () => {
+    expect(
+      queueMetadata(
+        {
+          queueName: "orders",
+          id: "job-42",
+          timestamp: 1_000,
+          processedOn: 5_000,
+          attemptsMade: 0
+        },
+        { deliveryCount: 2 }
+      )
+    ).toEqual({
+      queue: "orders",
+      deliveryCount: 2,
+      attempt: 1,
+      retryGroup: 'queue:["orders","job-42"]'
+    });
+  });
+
   it("omits invalid clocks and negative differences instead of falling back or clamping", () => {
     for (const job of [
       { timestamp: Number.NaN, processedOn: 10, attemptsMade: 0 },
@@ -147,8 +167,6 @@ describe("queueMetadata", () => {
       }
     });
     expect(queueMetadata(job, options)).toEqual({
-      queueWaitMs: 10,
-      queueWaitBasis: "initial-enqueue",
       deliveryCount: 2,
       attempt: 1
     });

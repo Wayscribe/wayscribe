@@ -723,10 +723,11 @@ operation or version.
   original enqueue time: it needs an explicit retry-ready boundary. It MUST NOT
   fall back to the current time for an unknown broker clock, clamp a negative
   difference, infer broker delivery count from application attempts, or
-  truncate a retry identity into a collision. An HTTP helper may use the
-  observation time for an HTTP-date `Retry-After`, MUST keep only the host of a
-  target URL, and MUST isolate unreadable response fields from the host and
-  from one another.
+  present initial-enqueue wait when an explicit delivery count above 1 proves
+  redelivery. It MUST NOT truncate a retry identity into a collision. An HTTP
+  helper may use the observation time for an HTTP-date `Retry-After`, MUST keep
+  only the host of a target URL, and MUST isolate unreadable response fields
+  from the host and from one another.
 
 | ID | Source | Checked by |
 | --- | --- | --- |

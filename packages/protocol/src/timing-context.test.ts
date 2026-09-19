@@ -99,6 +99,24 @@ describe("timingContext", () => {
     }
   });
 
+  it("does not present initial-enqueue wait when delivery count proves redelivery", () => {
+    expect(
+      timingContext({
+        queue: "orders",
+        queueWaitMs: 4_000,
+        queueWaitBasis: "initial-enqueue",
+        deliveryCount: 2,
+        attempt: 1,
+        retryGroup: 'queue:["orders","job-42"]'
+      })
+    ).toEqual({
+      queue: "orders",
+      deliveryCount: 2,
+      attempt: 1,
+      retryGroup: 'queue:["orders","job-42"]'
+    });
+  });
+
   it("validates each field independently, including a field whose getter throws", () => {
     const metadata = Object.defineProperty(
       {

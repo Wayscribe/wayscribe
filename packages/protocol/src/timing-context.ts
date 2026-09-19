@@ -63,7 +63,9 @@ export function timingContext(metadata: unknown): TimingContext {
   const queueWaitBasis = waitBasis(readOwn(metadata, "queueWaitBasis"));
   if (
     queueWaitMs !== undefined &&
-    ((queueWaitBasis === "initial-enqueue" && attempt === 1) ||
+    ((queueWaitBasis === "initial-enqueue" &&
+      attempt === 1 &&
+      (deliveryCount === undefined || deliveryCount === 1)) ||
       (queueWaitBasis === "retry-ready" && attempt !== undefined && attempt > 1))
   ) {
     result.queueWaitMs = queueWaitMs;

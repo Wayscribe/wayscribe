@@ -386,7 +386,8 @@ function httpMetadata(response: HttpMetadataResponse, options?: HttpMetadataOpti
 `queueMetadata` reads BullMQ's `queueName`, `id`, initial-enqueue `timestamp`,
 current-attempt `processedOn`, and completed-attempt count `attemptsMade`.
 Current attempt is `attemptsMade + 1`. Attempt 1 can measure
-`processedOn - timestamp`; a later attempt measures only
+`processedOn - timestamp` unless caller-supplied `deliveryCount` above 1 proves
+redelivery; a later attempt measures only
 `processedOn - readyAgainAt` and otherwise has unknown queue wait. It emits
 caller-supplied `deliveryCount` independently. With usable queue and job ids it
 emits the collision-safe identity ``queue:${JSON.stringify([queueName, id])}``

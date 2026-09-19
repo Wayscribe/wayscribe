@@ -4239,8 +4239,11 @@ host or retry identity, because grouping under `[REDACTED]` would merge
 unrelated work.
 
 A queue wait is measured only when all evidence agrees. `initial-enqueue`
-requires recorded attempt 1. `retry-ready` requires an attempt above 1. The
-original enqueue time is never accepted as a retry-readiness boundary. Timeline
+requires recorded attempt 1 and no explicit `deliveryCount` above 1.
+`retry-ready` requires an attempt above 1. A broker can redeliver a stalled job
+before any application attempt finishes, so attempt 1 does not outweigh an
+explicit second delivery. The original enqueue time is never accepted as a
+retry-readiness boundary. Timeline
 reads project only the named metadata keys and no payload. They may include
 `recordedHost`, bounded to 256 code points, from already-redacted
 `runtime.hostname`; a marker is not host evidence. Event detail applies the
@@ -4257,8 +4260,9 @@ do not change propagation envelopes.
 `queueMetadata` reads the BullMQ-shaped `queueName`, `id`, initial enqueue
 `timestamp`, current-attempt `processedOn`, and completed-attempt count
 `attemptsMade`. A valid nonnegative safe `attemptsMade` becomes current attempt
-`+ 1`. Attempt 1 may measure `processedOn - timestamp`. A later attempt has no
-measured wait unless the caller supplies a valid `readyAgainAt`; then it uses
+`+ 1`. Attempt 1 may measure `processedOn - timestamp` unless caller-supplied
+`deliveryCount` above 1 proves redelivery. A later attempt has no measured wait
+unless the caller supplies a valid `readyAgainAt`; then it uses
 `processedOn - readyAgainAt` with `retry-ready`. Unknown clocks never fall back
 to `Date.now`, negative differences never clamp to zero, and `deliveryCount` is
 only an explicit caller value. Usable queue and job ids form the unambiguous

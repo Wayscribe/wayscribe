@@ -410,8 +410,11 @@ from the already-redacted stored metadata (ADR-064):
 | `retryGroup` | Nonempty caller-supplied retry identity up to 256 code points, grouped only within one journey, service and step name. It must contain no secrets. |
 
 `queueWaitMs` is presented only with consistent evidence: `initial-enqueue`
-requires attempt 1, while `retry-ready` requires an attempt above 1. The
-original enqueue timestamp is not a retry-readiness boundary. Missing, invalid,
+requires attempt 1 and no explicit `deliveryCount` above 1, while `retry-ready`
+requires an attempt above 1. A second broker delivery can happen before any
+application attempt finishes, so explicit redelivery evidence suppresses an
+initial-enqueue wait. The original enqueue timestamp is not a retry-readiness
+boundary. Missing, invalid,
 negative, fractional, non-finite, out-of-range or redacted values are unknown
 and are omitted from the projection, never replaced with zero. A valid measured
 zero remains zero. Redaction and capture markers are not queue, host or retry

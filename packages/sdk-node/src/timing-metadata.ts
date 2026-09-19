@@ -115,7 +115,7 @@ export function queueMetadata(
   }
 
   const processedOn = epochMilliseconds(read(job, "processedOn"));
-  if (attempt === 1) {
+  if (attempt === 1 && (deliveryCount === undefined || deliveryCount === 1)) {
     const enqueuedAt = epochMilliseconds(read(job, "timestamp"));
     const wait = elapsedMilliseconds(processedOn, enqueuedAt);
     if (wait !== undefined) {
