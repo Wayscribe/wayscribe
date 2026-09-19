@@ -654,12 +654,14 @@ button[aria-busy="true"] {
 
 .split {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* A preformatted payload has an intrinsic width wider than a phone. Zero is
+     the track minimum so .block's own horizontal scroller contains it. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
 }
 @media (max-width: 48rem) {
   .split {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

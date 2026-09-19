@@ -12,7 +12,7 @@ import { API_KEY, API_URL, signIn } from "./session";
  */
 
 // Versioned for the reason journey.spec.ts gives: an event is immutable.
-const VERSION = "v2";
+const VERSION = "v3";
 const JOURNEY_ID = `jrn_e2e_layout_${VERSION}`;
 const STEP = `step-${"n".repeat(250)}`;
 const SERVICE = `svc-${"s".repeat(124)}`;
@@ -20,6 +20,20 @@ const ENTITY = `layout-${"e".repeat(300)}-${VERSION}`;
 // The longest version and commit the protocol takes (F-043): the row cuts
 // them, and the event's Deployment group wraps them.
 const DEPLOYMENT = { version: `v-${"9".repeat(126)}`, gitCommit: "c".repeat(128) };
+const LONG_PAYLOAD = {
+  properties: {
+    email: `mobile-regression-retry-${VERSION}@timing.example.test`,
+    phone: "+13035550123",
+    company: "Northwest Industrial Equipment and Field Services Incorporated"
+  }
+};
+const LONG_OUTPUT = {
+  error: {
+    status: "error",
+    message: "Synthetic timing acceptance rate limit",
+    category: "RATE_LIMITS"
+  }
+};
 
 async function seed(): Promise<void> {
   const events = [
@@ -41,8 +55,8 @@ async function seed(): Promise<void> {
           operation: "delivered",
           name,
           timestamp: `2026-09-16T${time}.000Z`,
-          input: { a: 1 },
-          output: { a: 2 },
+          input: id.endsWith("_1") ? LONG_PAYLOAD : { a: 1 },
+          output: id.endsWith("_1") ? LONG_OUTPUT : { a: 2 },
           deployment: DEPLOYMENT
         }
       })
@@ -50,6 +64,28 @@ async function seed(): Promise<void> {
     expect(response.ok, `seeding ${id} answered ${String(response.status)}`).toBe(true);
   }
 }
+
+test.describe("payload layout with JavaScript disabled", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("keeps realistic long JSON inside its own scroller at 400 px", async ({ page }) => {
+    await page.setViewportSize({ width: 400, height: 900 });
+    await signIn(page, JOURNEY_ID);
+    await page.goto(`/journeys/${JOURNEY_ID}?event=evt_layout_${VERSION}_1`);
+    await expect(page.getByRole("heading", { level: 2, name: STEP })).toBeVisible();
+
+    const payloads = page.locator(".split .block");
+    await expect(payloads).toHaveCount(2);
+    await expect(payloads.first()).toContainText(LONG_PAYLOAD.properties.company);
+    await expect(payloads.last()).toContainText(LONG_OUTPUT.error.message);
+    expect(await horizontalOverflow(page)).toBe(0);
+    expect(
+      await payloads.evaluateAll((blocks) =>
+        blocks.every((block) => block.scrollWidth > block.clientWidth)
+      )
+    ).toBe(true);
+  });
+});
 
 test.beforeAll(seed);
 
