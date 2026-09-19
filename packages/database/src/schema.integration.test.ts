@@ -1403,6 +1403,11 @@ describe("schema constraints", () => {
 
       try {
         await db.raw("create schema ??", [schema]);
+        // Migration 018's tests recreate display_value, which drops its
+        // dependent 019 index. Restore the public 019 baseline before proving
+        // the isolated run leaves both public definitions unchanged.
+        await db.migrate.down({ name: MIGRATION });
+        await db.migrate.up({ name: MIGRATION });
         const publicBefore = await indexes();
         expect(publicBefore).toEqual(VALID);
         expect(await settings()).toEqual({
