@@ -1569,7 +1569,8 @@ a cleanup policy that deletes them leaves every release unverifiable.
 Use [cosign](https://github.com/sigstore/cosign) 3.x, the major version the
 pipeline signs with, plus `jq` and Docker's `buildx` for the SBOM steps.
 
-Nothing is published yet. In the commands below, `vX.Y.Z` stands for the
+No usable release is published yet; npm's deprecated placeholder only reserves
+the package name. In the commands below, `vX.Y.Z` stands for the
 release you run; releases will be 0.x, such as `v0.1.0`.
 
 **The signature.** For a version you have chosen, name its tag exactly:

@@ -438,8 +438,9 @@ instructions.
 
 ### Installing without a checkout, once the images are published
 
-**This does not work yet.** The container images and the npm package are not
-published. Until they are, use [Try it](#try-it), which runs from a clone.
+**This does not work yet.** Release images and a usable SDK are not published.
+The npm placeholder contains no SDK. Until the first release, use
+[Try it](#try-it), which runs from a clone.
 
 [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
 will pull the images, migrate on first boot, and need no checkout.

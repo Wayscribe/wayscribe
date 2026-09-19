@@ -53,7 +53,7 @@ placeholder during this session. No public release was made.
 | SDK publication rehearsal | `DRY_RUN=1 scripts/publish-sdk.sh v0.1.0` passed; no publication |
 | Dependency audit at the repository's high-severity gate | Passed; one moderate development-only advisory remains |
 | Multi-architecture image publication rehearsal | API build and both SBOMs passed; web build blocked by exhausted disk space |
-| Website build | Content sync passed; rendering blocked by exhausted disk space |
+| Website build | Passed on retry: 32 pages, search index and all internal links validated |
 | Install from Compose files alone | Not completed: Docker storage failed before this check |
 
 The initial demo run had one failure: PostgreSQL cancelled an event-detail
@@ -87,6 +87,11 @@ only about 130 MiB available, and the website build independently failed
 with `No space left on device`. The publish script did not reach its
 tagging phase, so neither rehearsal image received a release tag.
 
+Later, after available host space rose to about 1.2 GiB, the website's frozen
+dependency install and build passed. The build generated 32 pages, its search
+index and sitemap, and validated every internal link. This was a local build,
+not a website deployment. The image rehearsal and install remain incomplete.
+
 The completed demo stack and its volume were removed. Attempts to remove
 the rehearsal builder and registry failed because Docker's own metadata
 store reported I/O errors. Restarting Docker affects the existing Leadline
@@ -101,8 +106,7 @@ To resume after storage is healthy:
    `buildx_buildkit_wayscribe-codex-release0_state`, and
    `wayscribe-codex-registry`. The first two are the builder container and
    its cache volume; remove the volume only after its container is gone.
-2. Reinstall the website dependencies with its frozen lockfile and run its
-   build. Run the image rehearsal in `OPERATIONS.md` section 11 with enough
+2. Run the image rehearsal in `OPERATIONS.md` section 11 with enough
    free disk space for both architectures.
 3. Complete the install from Compose files alone before marking release
    preparation complete. A local test driver is prepared at
@@ -131,3 +135,10 @@ To resume after storage is healthy:
 
 The separate `demo-video` worktree and existing Leadline installations were
 not changed by this verification.
+
+The follow-up launch-documentation review is recorded in
+[the claims follow-up](../claims-audit-2026-09-18.md). Its 250 documentation
+checks passed after the historical-name wording in the new audit note was
+corrected to comply with the existing rename guard. Code review also caught
+the release draft omitting personal data in error messages from warnings that
+print without opt-in; the draft now includes all three public-value fields.

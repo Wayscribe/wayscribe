@@ -15,9 +15,11 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. Counted on 2026-09-17: 2,416 unit
-tests, 747 integration tests against a real PostgreSQL, 7 acceptance tests
-against a running stack and 40 browser tests.
+the step against a development destination. Counted on 2026-09-18: 3,280 unit
+tests, 969 integration tests against a real PostgreSQL, 7 acceptance tests
+against a running stack and 64 browser tests. All passed locally in the
+[Round 3 verification](reviews/2026-09-18-round-3-and-release-readiness.md);
+that run does not establish a remote CI result or a published release.
 
 No usable release is published. npm holds only the deprecated
 `@wayscribe/node@0.0.1-placeholder.0`, which reserves the name and contains no
