@@ -1,5 +1,6 @@
 import type { DiffChange, EventDetailData, EventListItem, RowBuild } from "./api";
 import { bounded, metadataEntries, runtimeFormat } from "./metadata";
+import { readRecordedHost, readTimingContext } from "./timing-context";
 
 /**
  * An event as the page shows it, made on the server from the API's answer.
@@ -37,6 +38,8 @@ export type ApiEventDetail = Omit<
   | "payloadDiff"
   | "metadata"
   | "statedAliases"
+  | "timingContext"
+  | "recordedHost"
 > & {
   inputPayload: unknown;
   outputPayload: unknown;
@@ -47,6 +50,8 @@ export type ApiEventDetail = Omit<
   runtimeMetadata?: unknown;
   /** `[]`, null for an event stored before migration 020, absent from an older API. */
   aliases?: unknown;
+  timingContext?: unknown;
+  recordedHost?: unknown;
 };
 
 /** Markers the SDK stores in place of a payload it could not capture. */
@@ -62,6 +67,8 @@ export function eventForDisplay(raw: ApiEventDetail): EventDetailData {
     deploymentMetadata,
     runtimeMetadata,
     aliases,
+    timingContext,
+    recordedHost,
     ...event
   } = raw;
   return {
@@ -82,7 +89,9 @@ export function eventForDisplay(raw: ApiEventDetail): EventDetailData {
       // `sdk` reads as `<name> <version> at <commit>` (ADR-063).
       runtime: metadataEntries(runtimeMetadata, runtimeFormat)
     },
-    statedAliases: statedAliases(aliases)
+    statedAliases: statedAliases(aliases),
+    timingContext: readTimingContext(timingContext),
+    recordedHost: readRecordedHost(recordedHost)
   };
 }
 
@@ -143,7 +152,11 @@ function compact(value: unknown): string {
 }
 
 /** A timeline row as `GET /v1/journeys/:id/events` answers it. */
-export type ApiEventRow = Omit<EventListItem, "build"> & { deploymentMetadata?: unknown };
+export type ApiEventRow = Omit<EventListItem, "build" | "timingContext" | "recordedHost"> & {
+  deploymentMetadata?: unknown;
+  timingContext?: unknown;
+  recordedHost?: unknown;
+};
 
 /**
  * A timeline row as the page shows it (F-043): the row, with the build that
@@ -152,8 +165,13 @@ export type ApiEventRow = Omit<EventListItem, "build"> & { deploymentMetadata?: 
  * both read rows through, for the reason `eventForDisplay` gives.
  */
 export function rowForDisplay(raw: ApiEventRow): EventListItem {
-  const { deploymentMetadata, ...row } = raw;
-  return { ...row, build: buildOf(deploymentMetadata) };
+  const { deploymentMetadata, timingContext, recordedHost, ...row } = raw;
+  return {
+    ...row,
+    build: buildOf(deploymentMetadata),
+    timingContext: readTimingContext(timingContext),
+    recordedHost: readRecordedHost(recordedHost)
+  };
 }
 
 /** Characters of a commit a row shows; the whole of it is in the title. */

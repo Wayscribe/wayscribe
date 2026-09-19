@@ -382,6 +382,10 @@ button[aria-busy="true"] {
   width: 9.5rem;
   color: var(--muted);
 }
+.journey-table .col-span {
+  width: 8rem;
+  color: var(--muted);
+}
 .journey-table .col-status {
   width: 6.5rem;
 }
@@ -423,6 +427,10 @@ button[aria-busy="true"] {
   .journey-table .col-activity {
     width: 5.5rem;
   }
+  .journey-table .col-span {
+    width: 5.5rem;
+    font-size: 0.75rem;
+  }
   .journey-table .col-activity .day {
     display: block;
   }
@@ -445,6 +453,9 @@ button[aria-busy="true"] {
   /* "COMPLETED" fits whole without the wide letter spacing. */
   .journey-table .col-status .status {
     font-size: 0.7rem;
+    letter-spacing: 0;
+  }
+  .journey-table th.col-shown {
     letter-spacing: 0;
   }
   .journey-table .col-events {
@@ -493,6 +504,17 @@ button[aria-busy="true"] {
   background: var(--panel);
   box-shadow: inset 3px 0 0 var(--accent);
 }
+.timeline-gap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  padding: 0.3rem 0.7rem 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.timeline-gap .clock-caveat {
+  overflow-wrap: anywhere;
+}
 .timeline a {
   display: flex;
   gap: 0.6rem;
@@ -525,6 +547,9 @@ button[aria-busy="true"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.timeline a > .attempt {
+  font-size: 0.72rem;
+}
 .timeline a > .service {
   margin-left: auto;
 }
@@ -554,6 +579,40 @@ button[aria-busy="true"] {
 
 .detail {
   min-width: 0;
+}
+
+.retry-summary {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.retry-summary h2 {
+  margin-top: 0;
+  font-size: 1rem;
+}
+.retry-group + .retry-group {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+}
+.retry-group p {
+  margin: 0.25rem 0;
+}
+.retry-group ol,
+.retry-group ul {
+  margin: 0.35rem 0;
+}
+.retry-group li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+.operational-context {
+  margin-bottom: 1rem;
+}
+.operational-context > p {
+  margin: 0.35rem 0;
 }
 
 .diff {

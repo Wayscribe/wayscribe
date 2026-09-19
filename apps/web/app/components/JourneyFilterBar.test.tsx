@@ -135,4 +135,13 @@ describe("JourneyFilterBar", () => {
     expect(screen.getByLabelText("Contains").getAttribute("maxLength")).toBe("400");
     expect(screen.getByLabelText("Entity type").getAttribute("maxLength")).toBe("256");
   });
+
+  it("offers whole-millisecond timing filters and explains inactivity scope", () => {
+    renderBar({ minDurationMs: "0", minStepDurationMs: "250", inactiveForMs: "60000" });
+    expect(screen.getByLabelText("Recorded span over (ms)")).toHaveValue(0);
+    expect(screen.getByLabelText("Any step over (ms)")).toHaveValue(250);
+    expect(screen.getByLabelText("Active and inactive for (ms)")).toHaveValue(60000);
+    expect(screen.getByText(/debugging clue, not proof a job is stuck/i)).toBeTruthy();
+    expect(screen.getByText(/activity window still applies/i)).toBeTruthy();
+  });
 });

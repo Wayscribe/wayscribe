@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { EventListItem } from "../../src/lib/api";
 import { TimelineList } from "./TimelineList";
+import { presentTimelineTiming } from "../../src/lib/timing-presentation";
 
 function event(id: string, overrides: Partial<EventListItem> = {}): EventListItem {
   return {
@@ -76,6 +77,53 @@ describe("TimelineList rows", () => {
     renderList([event("evt_1", { name: "classify" })]);
     const badge = screen.getByText("transformed");
     expect(badge.getAttribute("title")).toBe("operation: transformed");
+  });
+
+  it("shows the gap derived from loaded adjacency and keeps overlap explicit", () => {
+    const events = [
+      event("evt_1", { durationMs: 150, recordedHost: "host-a" }),
+      event("evt_2", {
+        eventTimestamp: "2026-09-16T08:00:00.100Z",
+        recordedHost: "host-b"
+      })
+    ];
+    render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={events}
+        timing={presentTimelineTiming(events)}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+    expect(screen.getByText("50 ms overlap / clock disagreement")).toBeTruthy();
+    expect(screen.getByText(/different recorded hosts/)).toBeTruthy();
+  });
+
+  it("keeps a backwards start-to-start interval explicit when idle time is unknown", () => {
+    const events = [
+      event("evt_1", { durationMs: null, recordedHost: "host-a" }),
+      event("evt_2", {
+        eventTimestamp: "2026-09-16T07:59:59.500Z",
+        recordedHost: "host-a"
+      })
+    ];
+    render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={events}
+        timing={presentTimelineTiming(events)}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+    expect(
+      screen.getByText("Recorded gap: unknown (start-to-start 500 ms overlap / clock disagreement)")
+    ).toBeTruthy();
   });
 });
 

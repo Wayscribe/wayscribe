@@ -49,6 +49,7 @@ describe("JourneyTable", () => {
     const table = renderTable({});
     expect(headers(table)).toEqual([
       "Last activity",
+      "Recorded span",
       "Status",
       "Environment",
       "Entity type",
@@ -65,6 +66,7 @@ describe("JourneyTable", () => {
             .map((c) => c.textContent)
     ).toEqual([
       "2026-09-15 10:34",
+      "3m 36s",
       "failed",
       "production",
       "job_posting",
@@ -78,7 +80,7 @@ describe("JourneyTable", () => {
     const table = renderTable({ environment: "production" });
     expect(headers(table)).not.toContain("Environment");
     expect(within(table).queryByText("production")).toBeNull();
-    expect(within(table).getAllByRole("cell")).toHaveLength(6);
+    expect(within(table).getAllByRole("cell")).toHaveLength(7);
   });
 
   it("gives two long headers a short visible label for narrow screens, hidden from screen readers", () => {
@@ -102,5 +104,11 @@ describe("JourneyTable", () => {
       expect(header.tagName).toBe("TH");
       expect(header.getAttribute("scope")).toBe("col");
     }
+  });
+
+  it("explains that recorded span is between event starts", () => {
+    const table = renderTable({});
+    const span = within(table).getByRole("columnheader", { name: "Recorded span" });
+    expect(span.getAttribute("title")).toContain("first recorded event start");
   });
 });

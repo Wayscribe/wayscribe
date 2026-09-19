@@ -128,6 +128,45 @@ describe("EventDetail metadata", () => {
   });
 });
 
+describe("EventDetail operational context", () => {
+  it("labels measured queue evidence, attempt outcome and requested remote delay", () => {
+    render(
+      <EventDetail
+        event={event({
+          operation: "failed",
+          timingContext: {
+            queue: "customer-updates",
+            queueWaitMs: 0,
+            queueWaitBasis: "retry-ready",
+            deliveryCount: 3,
+            targetHost: "api.example.test:443",
+            httpStatusCode: 429,
+            retryAfterMs: 2000,
+            attempt: 2,
+            retryGroup: "job-7"
+          },
+          recordedHost: "worker-3",
+          customMetadata: { sourceSystem: "salesforce" }
+        })}
+      />
+    );
+    const context = screen.getByRole("group", { name: "Operational context" });
+    expect(context.textContent).toContain(
+      "Measured queue wait0 ms (retry readiness to attempt start)"
+    );
+    expect(context.textContent).toContain("Attempt2 — failed");
+    expect(context.textContent).toContain("Requested Retry-After2 s");
+    expect(context.textContent).toContain("Recorded hostworker-3");
+    expect(screen.getByRole("group", { name: "Custom" }).textContent).toContain("sourceSystem");
+  });
+
+  it("does not replace missing timing evidence with zero", () => {
+    render(<EventDetail event={event()} />);
+    expect(screen.queryByRole("group", { name: "Operational context" })).toBeNull();
+    expect(document.body.textContent).not.toContain("Measured queue wait0 ms");
+  });
+});
+
 /**
  * F-042: the detail of an `identified` event said nothing about what it
  * identified. It now lists the aliases the event stated, as text.

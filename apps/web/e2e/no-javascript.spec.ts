@@ -37,6 +37,7 @@ async function seed(): Promise<void> {
         operation: "failed",
         name: "sync-customer",
         timestamp: new Date().toISOString(),
+        durationMs: 10,
         journeyLabel: LABEL
       }
     })
@@ -62,9 +63,11 @@ test.describe("with JavaScript disabled", () => {
     await signIn(page, JOURNEY_ID);
     await page.goto("/journeys");
     await page.getByLabel("Service").fill(SERVICE);
+    await page.getByLabel("Any step over (ms)").fill("0");
     await page.getByRole("button", { name: "Show" }).click();
 
     await expect(page).toHaveURL(new RegExp(`[?&]service=${SERVICE}(&|$)`));
+    await expect(page).toHaveURL(/[?&]minStepDurationMs=0(&|$)/);
     await expect(page.getByRole("link", { name: LABEL })).toBeVisible();
     await expect(page.locator("main")).toHaveCount(1);
     await expect(page.getByText("Loading journeys…")).toHaveCount(0);

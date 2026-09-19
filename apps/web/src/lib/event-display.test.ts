@@ -28,6 +28,37 @@ describe("eventForDisplay", () => {
     expect(event.errorText).toBe(JSON.stringify({ message: "m" }, null, 2));
   });
 
+  it("keeps a measured timing zero and independently omits invalid evidence", () => {
+    const event = eventForDisplay(
+      raw(
+        ',"timingContext":{"queue":"jobs","queueWaitMs":0,"queueWaitBasis":"initial-enqueue","attempt":1,"retryAfterMs":-1,"httpStatusCode":429,"deliveryCount":1.5},"recordedHost":"worker-1"'
+      )
+    );
+    expect(event.timingContext).toEqual({
+      queue: "jobs",
+      queueWaitMs: 0,
+      queueWaitBasis: "initial-enqueue",
+      attempt: 1,
+      httpStatusCode: 429
+    });
+    expect(event.recordedHost).toBe("worker-1");
+  });
+
+  it("suppresses initial-enqueue wait when delivery count proves a redelivery", () => {
+    const event = eventForDisplay(
+      raw(
+        ',"timingContext":{"queueWaitMs":9000,"queueWaitBasis":"initial-enqueue","attempt":1,"deliveryCount":2}'
+      )
+    );
+    expect(event.timingContext).toEqual({ attempt: 1, deliveryCount: 2 });
+  });
+
+  it("normalizes an older API with no context to unknown rather than zero", () => {
+    const event = eventForDisplay(raw(""));
+    expect(event.timingContext).toEqual({});
+    expect(event.recordedHost).toBeNull();
+  });
+
   it("keeps no error as no error, and a null payload as the text null", () => {
     const event = eventForDisplay(raw(""));
     expect(event.errorText).toBeNull();
@@ -345,6 +376,21 @@ describe("rowForDisplay", () => {
     expect(Object.hasOwn(shown, "deploymentMetadata")).toBe(false);
     expect(shown).toMatchObject({ id: "evt_1", name: "step", service: "s", hasInput: true });
     expect(JSON.parse(JSON.stringify(shown)) as unknown).toEqual(shown);
+  });
+
+  it("validates timing evidence on rows while preserving a measured zero", () => {
+    const shown = rowForDisplay(
+      row(
+        ',"timingContext":{"queueWaitMs":0,"queueWaitBasis":"retry-ready","attempt":2,"retryGroup":"job-7","retryAfterMs":null},"recordedHost":7'
+      )
+    );
+    expect(shown.timingContext).toEqual({
+      queueWaitMs: 0,
+      queueWaitBasis: "retry-ready",
+      attempt: 2,
+      retryGroup: "job-7"
+    });
+    expect(shown.recordedHost).toBeNull();
   });
 
   it("bounds a version however long", () => {

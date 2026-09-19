@@ -38,6 +38,7 @@ const DEFAULT_PRESET: JourneyPreset = "24h";
 export const MIN_TEXT_LENGTH = 2;
 export const MAX_TEXT_LENGTH = 200;
 export const MAX_ENTITY_TYPE_LENGTH = 128;
+export const MAX_TIMING_MS = 2_147_483_647;
 
 export interface JourneyFilters {
   /** Partial text over labels and displayable alias values. Empty means none. */
@@ -50,6 +51,14 @@ export interface JourneyFilters {
   environment: string;
   /** Empty means any service. */
   service: string;
+  /** Strict journey-span threshold in whole milliseconds; empty means none. */
+  minDurationMs: string;
+  /** Strict per-step duration threshold in whole milliseconds; empty means none. */
+  minStepDurationMs: string;
+  /** How long an active journey has been quiet, in whole milliseconds. */
+  inactiveForMs: string;
+  /** The frozen API cutoff derived from inactiveForMs. */
+  inactiveBefore: string;
   /** The instant the list starts from, ISO-8601. */
   since: string;
   /** The instant the list ends before, ISO-8601; empty means up to now. */
@@ -106,6 +115,29 @@ export function readJourneyFilters(params: SearchParams, now: Date): JourneyFilt
   );
   const environment = text(read("environment"), "environment", notes, () => null);
   const service = text(read("service"), "service", notes, () => null);
+  const minDurationMs = milliseconds(read("minDurationMs"), "Minimum journey duration", notes);
+  const minStepDurationMs = milliseconds(read("minStepDurationMs"), "Minimum step duration", notes);
+  let inactiveForMs = milliseconds(read("inactiveForMs"), "Inactive for", notes);
+  const rawInactiveBefore = read("inactiveBefore");
+  let inactiveBefore = "";
+
+  if (inactiveForMs !== "") {
+    if (rawStatus !== undefined && rawStatus !== "" && rawStatus !== "active") {
+      notes.push("Inactive for applies only to active journeys, so it was left out.");
+      inactiveForMs = "";
+    } else {
+      status = "active";
+      inactiveBefore =
+        rawInactiveBefore !== undefined && isOwnInstant(rawInactiveBefore, now)
+          ? rawInactiveBefore
+          : new Date(now.getTime() - Number(inactiveForMs)).toISOString();
+      if (rawInactiveBefore !== undefined && !isOwnInstant(rawInactiveBefore, now)) {
+        notes.push("The saved inactivity cutoff was invalid, so it was recomputed.");
+      }
+    }
+  } else if (rawInactiveBefore !== undefined && rawInactiveBefore !== "") {
+    notes.push("An inactivity cutoff needs an Inactive for value, so it was left out.");
+  }
 
   let window: JourneyWindow = requested;
   let since: string;
@@ -166,6 +198,10 @@ export function readJourneyFilters(params: SearchParams, now: Date): JourneyFilt
     entityType,
     environment,
     service,
+    minDurationMs,
+    minStepDurationMs,
+    inactiveForMs,
+    inactiveBefore,
     since,
     until,
     sinceInput,
@@ -200,6 +236,9 @@ export function journeysApiQuery(filters: JourneyFilters): string {
   if (filters.service !== "") query.set("service", filters.service);
   if (filters.entityType !== "") query.set("entityType", filters.entityType);
   if (filters.q !== "") query.set("q", filters.q);
+  if (filters.minDurationMs !== "") query.set("minDurationMs", filters.minDurationMs);
+  if (filters.minStepDurationMs !== "") query.set("minStepDurationMs", filters.minStepDurationMs);
+  if (filters.inactiveBefore !== "") query.set("inactiveBefore", filters.inactiveBefore);
   if (filters.cursor !== "") query.set("cursor", filters.cursor);
   return query.toString();
 }
@@ -214,6 +253,7 @@ export function nextPageHref(filters: JourneyFilters, cursor: string): string {
   const query = filterQuery(filters);
   query.set("since", filters.since);
   if (filters.until !== "") query.set("until", filters.until);
+  if (filters.inactiveBefore !== "") query.set("inactiveBefore", filters.inactiveBefore);
   query.set("cursor", cursor);
   return `/journeys?${query.toString()}`;
 }
@@ -233,7 +273,11 @@ export function firstPageHref(filters: JourneyFilters): string {
 
 /** The same filters with another status, from the top: the Failures shortcut. */
 export function statusHref(filters: JourneyFilters, status: JourneyStatusFilter): string {
-  return firstPageHref({ ...filters, status });
+  return firstPageHref({
+    ...filters,
+    status,
+    ...(status === "active" ? {} : { inactiveForMs: "", inactiveBefore: "" })
+  });
 }
 
 /** Each filter that is set, in words: `contains "acme"`, `status failed`. */
@@ -244,6 +288,15 @@ export function activeFilterList(filters: JourneyFilters): string[] {
   if (filters.entityType !== "") parts.push(`entity type ${filters.entityType}`);
   if (filters.environment !== "") parts.push(`environment ${filters.environment}`);
   if (filters.service !== "") parts.push(`service ${filters.service}`);
+  if (filters.minDurationMs !== "") {
+    parts.push(`recorded journey span over ${filters.minDurationMs} ms`);
+  }
+  if (filters.minStepDurationMs !== "") {
+    parts.push(`a recorded step over ${filters.minStepDurationMs} ms`);
+  }
+  if (filters.inactiveForMs !== "") {
+    parts.push(`active with no activity for at least ${filters.inactiveForMs} ms`);
+  }
   parts.push(rangeWords(filters));
   return parts;
 }
@@ -271,6 +324,11 @@ export function describeJourneyFilters(filters: JourneyFilters): string {
   if (filters.entityType !== "") parts.push(`entity type ${filters.entityType}`);
   if (filters.service !== "") parts.push(`from ${filters.service}`);
   if (filters.q !== "") parts.push(`containing "${filters.q}"`);
+  if (filters.minDurationMs !== "") parts.push(`recorded span over ${filters.minDurationMs} ms`);
+  if (filters.minStepDurationMs !== "") parts.push(`a step over ${filters.minStepDurationMs} ms`);
+  if (filters.inactiveForMs !== "") {
+    parts.push(`inactive while active for at least ${filters.inactiveForMs} ms`);
+  }
   return parts.join(", ");
 }
 
@@ -311,6 +369,10 @@ const LIST_KEYS = new Set([
   "entityType",
   "environment",
   "service",
+  "minDurationMs",
+  "minStepDurationMs",
+  "inactiveForMs",
+  "inactiveBefore",
   "since",
   "until",
   "cursor"
@@ -399,11 +461,26 @@ function filterQuery(filters: JourneyFilters): URLSearchParams {
     ["window", filters.window],
     ["entityType", filters.entityType],
     ["environment", filters.environment],
-    ["service", filters.service]
+    ["service", filters.service],
+    ["minDurationMs", filters.minDurationMs],
+    ["minStepDurationMs", filters.minStepDurationMs],
+    ["inactiveForMs", filters.inactiveForMs]
   ] as const) {
     if (value !== "") query.set(key, value);
   }
   return query;
+}
+
+/** A UI threshold that the API accepts, kept as canonical base-10 text. */
+function milliseconds(raw: string | undefined, label: string, notes: string[]): string {
+  if (raw === undefined || raw === "") return "";
+  if (!/^(0|[1-9][0-9]*)$/.test(raw) || Number(raw) > MAX_TIMING_MS) {
+    notes.push(
+      `${label} "${echo(raw)}" is not a whole number from 0 through ${String(MAX_TIMING_MS)} ms, so it was left out.`
+    );
+    return "";
+  }
+  return raw;
 }
 
 function rangeWords(filters: JourneyFilters): string {

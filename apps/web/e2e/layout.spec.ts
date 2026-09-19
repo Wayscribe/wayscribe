@@ -172,6 +172,8 @@ test.describe("the Journeys table", () => {
         // Phones see the short labels; assistive technology keeps the full ones.
         for (const [column, short, full] of [
           ["col-activity", "When", "Last activity"],
+          ["col-span", "Span", "Recorded span"],
+          ["col-shown", "Item", "Shown as"],
           ["col-events", "#", "Events"]
         ] as const) {
           const header = page.locator(`thead th.${column}`);

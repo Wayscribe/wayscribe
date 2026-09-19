@@ -4,6 +4,7 @@ import type { JourneyListRow } from "../../src/lib/api";
 import { failedStepOf } from "../../src/lib/failed-step";
 import { journeyHref } from "../../src/lib/journey-filters";
 import { fullTimestamp } from "../../src/lib/time";
+import { formatDuration, journeySpan } from "../../src/lib/timing-presentation";
 import { LinkPending } from "./LinkPending";
 
 /**
@@ -64,6 +65,7 @@ export function JourneyRow({
       : shown.kind === "aliases"
         ? "shown-aliases"
         : "shown-entity mono";
+  const span = journeySpan(item.startedAt, item.lastEventAt);
   return (
     <tr>
       <td className="col-activity">
@@ -71,6 +73,12 @@ export function JourneyRow({
           <span className="day">{item.lastEventAt.slice(0, 10)}</span>{" "}
           <span>{item.lastEventAt.slice(11, 16)}</span>
         </time>
+      </td>
+      <td
+        className="col-span mono"
+        title="Time from first recorded event start to last recorded event start"
+      >
+        {span === null ? "unknown" : formatDuration(span)}
       </td>
       <td className="col-status">
         <span className={item.status === "failed" ? "status failed" : "status"}>{item.status}</span>

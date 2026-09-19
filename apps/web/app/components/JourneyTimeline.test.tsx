@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventDetailData, EventListItem, EventsPageResponse } from "../../src/lib/api";
@@ -106,6 +106,30 @@ afterEach(() => {
 });
 
 describe("JourneyTimeline", () => {
+  it("shows explicit retry groups with observed delay kept separate from requested Retry-After", () => {
+    const attempts = [
+      event("evt_1", {
+        name: "push-customer",
+        durationMs: 100,
+        operation: "failed",
+        timingContext: { attempt: 1, retryGroup: "job-7", retryAfterMs: 2000 }
+      }),
+      event("evt_2", {
+        name: "push-customer",
+        eventTimestamp: "2026-09-14T10:00:02.250Z",
+        operation: "retried",
+        timingContext: { attempt: 2, retryGroup: "job-7" }
+      })
+    ];
+    mount({ initialEvents: attempts, totalEvents: 2, knownServices: ["webhook-api"] });
+    const group = screen.getByRole("group", {
+      name: "Recorded attempts for push-customer, retry identity job-7"
+    });
+    expect(within(group).getByText("job-7")).toBeInTheDocument();
+    expect(group.textContent).toContain("Attempt 1failed");
+    expect(group.textContent).toContain("Attempt 2succeededobserved retry delay 1.15 s");
+    expect(group.textContent).not.toContain("requested");
+  });
   it("moves the selection with the keyboard and fetches the new event's detail", async () => {
     fetchMock.mockResolvedValueOnce(ok(detail("evt_2")));
     mount();

@@ -69,6 +69,10 @@ export interface EventListItem {
   hasInput: boolean;
   hasOutput: boolean;
   hasError: boolean;
+  /** Bounded optional timing evidence projected by newer APIs (ADR-064). */
+  timingContext?: TimingContext;
+  /** Bounded hostname that recorded the event; null/absent means unknown. */
+  recordedHost?: string | null;
   /**
    * The build that recorded the event, from the row's `deploymentMetadata`,
    * as text made by `rowForDisplay` (F-043). Null when the event named no
@@ -76,6 +80,19 @@ export interface EventListItem {
    * detail, which shows its deployment in full instead.
    */
   build?: RowBuild | null;
+}
+
+/** The web's copy of the additive public read contract; it has no protocol runtime dependency. */
+export interface TimingContext {
+  queue?: string;
+  queueWaitMs?: number;
+  queueWaitBasis?: "initial-enqueue" | "retry-ready";
+  deliveryCount?: number;
+  targetHost?: string;
+  httpStatusCode?: number;
+  retryAfterMs?: number;
+  attempt?: number;
+  retryGroup?: string;
 }
 
 /** A timeline row's build: a short label, and every part of it in full. */

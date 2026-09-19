@@ -4,6 +4,7 @@ import { DiffTable } from "./DiffTable";
 import { EventAliases } from "./EventAliases";
 import { EventMetadata } from "./EventMetadata";
 import { EXPLANATIONS } from "./explanations";
+import { OperationalContext } from "./OperationalContext";
 
 /** A line about the event being shown: that its replacement is loading, or failed to. */
 export interface DetailNotice {
@@ -28,6 +29,8 @@ export function EventDetail({
         {event.durationMs === null ? "" : ` · ${String(event.durationMs)} ms`}
       </p>
       {notice === null ? null : <p className={notice.tone}>{notice.text}</p>}
+
+      <OperationalContext event={event} />
 
       {event.payloadDiff === null ? null : (
         <>

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AliasList } from "../../../components/AliasList";
 import { JourneyHeading } from "../../../components/JourneyHeading";
 import { JourneyTimeline } from "../../../components/JourneyTimeline";
+import { JourneyTimingSummary } from "../../../components/JourneyTimingSummary";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
 import { failedStepOf } from "../../../../src/lib/failed-step";
 import { requireProjectId } from "../../../../src/lib/current-project";
@@ -47,6 +48,7 @@ export default async function JourneyPage({
         </p>
         <JourneyHeading journey={journey} />
         <p className="muted">All times UTC.</p>
+        <JourneyTimingSummary startedAt={journey.startedAt} lastEventAt={journey.lastEventAt} />
 
         <AliasList aliases={journey.aliases} />
 

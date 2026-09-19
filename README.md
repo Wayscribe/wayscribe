@@ -114,11 +114,19 @@ No identifier yet, only an alert that deliveries are failing? The Journeys page
 lists what happened in the last hour, day, week or month, or in a range you
 choose, narrowed by status, entity type, environment, service, or part of a
 journey's label or displayable alias. Its Failures shortcut shows only what
-failed, and each row opens the same timeline.
+failed. Recorded journey and step duration thresholds narrow slow work; the
+active-inactivity threshold is a debugging clue within the selected activity
+window, not proof a job is stuck. Each row shows the recorded first-to-last
+event span and opens the same timeline.
+
+The timeline separates recorded gaps from broker-measured queue waits, keeps
+missing duration and clock uncertainty visible, and groups attempts only when
+the recorder supplied an explicit retry identity. Requested Retry-After and
+observed delay between attempts remain separate evidence.
 
 ![The Journeys page: a filter bar above a table of journeys with their last
-activity, status, entity type, what each is shown as, their step (the step a
-failed journey failed at, in red, else its last step) and event
+activity, recorded span, status, entity type, what each is shown as, their step
+(the step a failed journey failed at, in red, else its last step) and event
 count](docs/images/journeys.png)
 
 ---
