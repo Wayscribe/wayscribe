@@ -67,8 +67,8 @@ old copy, or holds none on a fresh deploy. The first service instrumented
 this way had a deploy that skipped the install, and it hung.
 
 To take a newer source preview, pack again, replace the tarball, run
-`npm install`, and commit both. To replace a source preview with this released
-version:
+`npm install`, and commit both. After 0.1.0 is published, replace a source
+preview with the released version:
 
 ```bash
 npm install @wayscribe/node@0.1.0

@@ -5,7 +5,8 @@ This checklist is ordered to produce a working vertical slice early.
 **State as of 2026-09-20.** Epics 0 through 14 are implemented and merged; the
 boxes below were audited against the code and committed review evidence rather
 than ticked from memory. What remains for V0 is publication and the human checks
-for clean-machine onboarding, time to first journey and first-contact clarity.
+for clean-machine onboarding, time to first journey, first-contact clarity and
+outside-pilot feedback.
 
 ## Product gates applied to every epic
 
@@ -291,9 +292,10 @@ the honest picture.
 - [x] Add release workflow.
 - [ ] Publish `api` and `web` images to a container registry. **Pipeline built and
       gated on a tag; needs someone to run the manual job.**
-- [ ] Publish `@wayscribe/node` to npm. **Dry run passes; needs ownership of
-      the @wayscribe scope and a trusted publisher registered on npmjs.com
-      (`docs/OPERATIONS.md` §11).**
+- [ ] Publish `@wayscribe/node` to npm. **Login and package write access work,
+      and the GitLab trusted publisher with direct `npm publish` is registered.
+      The protected release tag, manual publish job and post-publication package
+      and provenance verification remain (`docs/OPERATIONS.md` §11).**
 - [x] Add the checkout-free quick start that will pull published images rather
       than build from source. `infrastructure/compose.published.yaml` exists, and
       the README keeps this future path separate from today's source quick start;
@@ -316,6 +318,7 @@ the honest picture.
       and release rehearsal exercised the complete reference journey, alias
       search, field diff and development replay as one flow.
 - [ ] Conduct a clarity review with a developer unfamiliar with tracing tools.
+- [ ] Obtain feedback from an outside pilot team.
 - [ ] Tag first development release.
 
 ## Explicitly deferred
