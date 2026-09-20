@@ -24,7 +24,8 @@
 #
 # A script rather than YAML because release logic written inline in CI is never
 # run before the release it is needed for. DRY_RUN=1 runs everything except the
-# publish itself, and needs neither token.
+# publish itself, and needs neither token. It forces npm's publish preflight so
+# an already-public version can still rehearse; --dry-run prevents the write.
 set -eu
 
 TAG="${1:-}"
@@ -129,7 +130,7 @@ tar -xzOf "$TARBALL" package/package.json | node -e '
 '
 
 if [ "${DRY_RUN:-}" = "1" ]; then
-  npm publish "$TARBALL" --access public --dry-run
+  npm publish "$TARBALL" --access public --dry-run --force
   echo "dry run passed for @wayscribe/node@${VERSION}; nothing was published"
   exit 0
 fi

@@ -1619,7 +1619,9 @@ error, not at the start of the job. The job needs npm 11.5.1 or later, which the
 `node:24-alpine` image has; `scripts/publish-sdk.sh` checks the version and says
 so rather than failing inside publish. To rehearse a release anywhere, run
 `DRY_RUN=1 scripts/publish-sdk.sh vX.Y.Z`, which builds, packs, checks the
-packed manifest, and runs `npm publish --dry-run`.
+packed manifest, and runs `npm publish --dry-run --force`. The force flag is
+limited to this no-write rehearsal so a version already present on npm can be
+checked again; the credentialed publication keeps npm's normal version guards.
 
 To verify a published version's provenance, run `npm audit signatures` in a
 project that depends on it, or read the provenance panel on the package page.
