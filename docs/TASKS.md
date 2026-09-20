@@ -2,10 +2,10 @@
 
 This checklist is ordered to produce a working vertical slice early.
 
-**State as of 2026-09-15.** Epics 0 through 14 are complete and merged; the boxes
-below were audited against the code rather than ticked from memory. What remains
-for V0 is the unticked part of Epic 15 (release readiness), most of which waits
-on publishing, plus the handful of items left open inside earlier epics.
+**State as of 2026-09-20.** Epics 0 through 14 are implemented and merged; the
+boxes below were audited against the code and committed review evidence rather
+than ticked from memory. What remains for V0 is publication and the human checks
+for clean-machine onboarding, time to first journey and first-contact clarity.
 
 ## Product gates applied to every epic
 
@@ -280,7 +280,9 @@ the honest picture.
 
 ## Epic 15: Release readiness
 
-- [ ] Complete quick start.
+- [x] Complete the source quick start. The README's current path starts from a
+      clone; the checkout-free path is documented separately and remains marked
+      unavailable until the images and SDK are published.
 - [x] Complete SDK docs.
 - [x] Complete API docs.
 - [x] Complete security docs.
@@ -292,18 +294,27 @@ the honest picture.
 - [ ] Publish `@wayscribe/node` to npm. **Dry run passes; needs ownership of
       the @wayscribe scope and a trusted publisher registered on npmjs.com
       (`docs/OPERATIONS.md` §11).**
-- [x] Change the quick start to pull published images rather than build from source.
-      `infrastructure/compose.published.yaml` exists and the README leads with it;
-      it becomes the real path the moment the images are pushed.
-- [ ] Run security review.
+- [x] Add the checkout-free quick start that will pull published images rather
+      than build from source. `infrastructure/compose.published.yaml` exists, and
+      the README keeps this future path separate from today's source quick start;
+      it becomes usable only after the images and SDK are published.
+- [x] Run security review. The pre-release review and release-readiness review
+      are committed under `docs/reviews/`, and `docs/SECURITY_REVIEW.md` carries
+      their findings and limits for a pilot reviewer.
 - [x] Run full E2E test.
 - [ ] Test clean-machine installation.
-- [ ] Verify no paid account or external hosted service is required.
+- [x] Verify no paid account or external hosted service is required. The source
+      and Compose paths use self-hosted Wayscribe services and PostgreSQL; the
+      release rehearsal installed the stack from the distributed Compose files
+      without a Wayscribe account or hosted dependency.
 - [ ] Verify first useful journey can be recorded in approximately 15 minutes,
       measured from a pulled image rather than a source build. Building two Node
       images consumes a meaningful share of that budget before the user sees
       anything, so the target is only honest against published artifacts.
-- [ ] Verify record-first search, identity mapping, transformation diff, existing-architecture flow, and safe replay together.
+- [x] Verify record-first search, identity mapping, transformation diff,
+      existing-architecture flow, and safe replay together. The automated demo
+      and release rehearsal exercised the complete reference journey, alias
+      search, field diff and development replay as one flow.
 - [ ] Conduct a clarity review with a developer unfamiliar with tracing tools.
 - [ ] Tag first development release.
 

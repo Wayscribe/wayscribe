@@ -1,6 +1,6 @@
 # Wayscribe 0.1.0 preview: release notes
 
-**Unpublished draft, updated 2026-09-19.** The selected first version is 0.1.0,
+**Unpublished draft, updated 2026-09-20.** The selected first version is 0.1.0,
 and no usable release is published yet. npm's
 deprecated `0.0.1-placeholder.0` reserves the name and contains no SDK.
 The public install commands become current only after the protected tag and
@@ -175,11 +175,10 @@ and keys issued before the rename, which start `fr_`, keep working. The
   configured to sign `api` and `web` images with Sigstore keyless signing,
   attach a CycloneDX SBOM per platform, and publish the SDK with npm provenance
   (OPERATIONS section 11). No real release has verified that complete path yet.
-- **The delivered runtime pipeline is green at `9da8b37`.** Its 20 normal jobs
-  passed, including 979 integration tests on each of PostgreSQL 15, 17 and 18,
-  SDK checks on Node 22.12 and 24, the site, scans and the GitHub mirror. The
-  manual e2e, demo and upgrade jobs intentionally wait for the final docs and
-  assets revision. This is not a public release or a final release pipeline.
+- **The release runtime baseline is green at `fec2c3c`.** Pipeline `2863391730`
+  passed all 23 jobs. The later site-only head `46c1a65` passed all 20 automatic
+  jobs in pipeline `2863957940`; the optional acceptance jobs were not repeated
+  for those site-only changes. Neither pipeline published a release.
 - **The source quick start is covered by CI configuration.** The `demo` and
   `release-verify` jobs copy `.env.example`, build and boot the stack, wait for
   API, demo source and web health, and run the demo acceptance suite. A timed

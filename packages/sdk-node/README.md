@@ -13,10 +13,16 @@ leaves your infrastructure.
   recorder failure is counted, not thrown. Details below.
 - Apache-2.0.
 
-## Install (not yet on npm)
+## Install a released version
 
-**The package is not published yet.** Until it is, pack it from a clone of this
-repository and commit the tarball to your application:
+Install a published release by exact version:
+
+```bash
+npm install @wayscribe/node@0.1.0
+```
+
+To use a source preview before that version is published, pack it from a clone
+of the repository and commit the tarball to your application:
 
 ```bash
 # In the clone. `pack:release` builds first and prints the tarball's path. Give
@@ -60,11 +66,12 @@ package changed, and until the install runs, `node_modules` still holds the
 old copy, or holds none on a fresh deploy. The first service instrumented
 this way had a deploy that skipped the install, and it hung.
 
-To take a newer SDK, pack again, replace the tarball, run `npm install`, and
-commit both. Once the package is published, all of this becomes:
+To take a newer source preview, pack again, replace the tarball, run
+`npm install`, and commit both. To replace a source preview with this released
+version:
 
 ```bash
-npm install @wayscribe/node
+npm install @wayscribe/node@0.1.0
 ```
 
 [`examples/instrument-a-service`](../../examples/instrument-a-service/README.md)

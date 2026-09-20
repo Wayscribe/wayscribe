@@ -1605,9 +1605,13 @@ and Automation tokens in November 2025, and the granular tokens left expire in
    `scripts/publish-sdk.sh` calls `npm publish`, so the direct action must also
    be allowed. Changing to staged publishing is a separate release-workflow
    change and would add a human approval step.
-3. In the same settings page, under *Publishing access*, choose to require
-   two-factor authentication and disallow tokens, so trusted publishing is the
-   only way to publish.
+3. In the same settings page, under *Publishing access*, choose **Require
+   two-factor authentication and disallow bypass 2FA tokens**. This setting is
+   compatible with trusted publishing and the direct `npm publish` action above.
+   It disallows tokens that bypass two-factor authentication; it does not make
+   OIDC the only possible publishing route, because an authorized maintainer can
+   still publish interactively with a one-time password. The release job remains
+   this repository's intended publication route.
 4. Protect `v*` tags (below). Anyone who can create one can run the job.
 
 A field that does not match fails during `npm publish` with an authentication

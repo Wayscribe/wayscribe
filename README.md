@@ -236,7 +236,7 @@ breaks on the next `git clean`, branch switch, or machine without the clone,
 and nothing rebuilds it for a job that has no build step of its own. **After
 pulling a change that adds or updates the tarball, run `npm ci` before the job
 runs again**; a deploy that skipped it hung. The
-[SDK README](packages/sdk-node/README.md#install-not-yet-on-npm) has the
+[SDK README](packages/sdk-node/README.md#install-a-released-version) has the
 details. Once the package is published, all of this becomes
 `npm install @wayscribe/node`.
 
