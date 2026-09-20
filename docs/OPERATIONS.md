@@ -1587,11 +1587,11 @@ and Automation tokens in November 2025, and the granular tokens left expire in
 90 days at most (npm's announcements: creation of classic tokens stopped on
 2025-11-05; checked 2026-08-10).
 
-**Once, before the first release**, the project owner must:
+**The one-time setup used for 0.1.0 must remain in place:**
 
-1. Sign in with maintainer access to the existing `@wayscribe/node` package.
-   Its deprecated `0.0.1-placeholder.0` version already reserves the name; do
-   not publish the actual SDK by hand to create the package.
+1. Keep maintainer access to the existing `@wayscribe/node` package. Its
+   deprecated `0.0.1-placeholder.0` version originally reserved the name; the
+   released SDK is published only through the job below.
 2. Open *npmjs.com → @wayscribe/node → Settings → Trusted publishing*, choose
    GitLab CI/CD, and enter exactly:
    - Namespace: `jojithedev`
@@ -1632,7 +1632,9 @@ Both are made in the `publish-images` job with keyless signing: GitLab gives the
 job an OIDC token, and Sigstore's certificate authority issues a short-lived
 certificate naming the pipeline file and the tag it ran for. There is no signing
 key for anyone to steal, and the signature is recorded in Sigstore's public
-transparency log. Nothing is signed before the first release is published.
+transparency log. Release `v0.1.0` completed and verified this path; its exact
+digests and public SBOM downloads are in the
+[release record](reviews/2026-09-20-release-verification.md).
 
 The job pushes each image by digest with no tag, attaches the SBOMs to that
 digest, signs it, verifies the signature and attestations as below, and only
@@ -1648,9 +1650,9 @@ renders the chart in CI and fails if its default is anything else.
 **What a signature proves depends on tag protection.** The certificate says a
 pipeline ran `.gitlab-ci.yml` at `refs/tags/vX.Y.Z` in this project. That is
 worth something only if nobody but a maintainer can create a `v*` tag. Before
-the first release, the project owner must add `v*` as a protected tag with
-*Allowed to create* set to Maintainers (*Settings → Repository → Protected
-tags*). The pipeline also runs release jobs only for tags of the exact form
+release `v0.1.0`, the project owner added `v*` as a protected tag with *Allowed
+to create* set to Maintainers (*Settings → Repository → Protected tags*). Keep
+that protection in place. The pipeline also runs release jobs only for tags of the exact form
 `vMAJOR.MINOR.PATCH`, so `phase-*`, `usable-v0` and pre-release tags never
 publish, but that pattern is a guard against mistakes, not against someone who
 can push tags.
@@ -1663,9 +1665,8 @@ a cleanup policy that deletes them leaves every release unverifiable.
 Use [cosign](https://github.com/sigstore/cosign) 3.x, the major version the
 pipeline signs with, plus `jq` and Docker's `buildx` for the SBOM steps.
 
-No usable release is published yet; npm's deprecated placeholder only reserves
-the package name. In the commands below, `vX.Y.Z` stands for the
-release you run; releases will be 0.x, such as `v0.1.0`.
+In the commands below, `vX.Y.Z` stands for the release you run; releases are
+0.x, beginning with `v0.1.0`.
 
 **The signature.** For a version you have chosen, name its tag exactly:
 

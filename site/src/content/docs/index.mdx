@@ -5,16 +5,16 @@ template: splash
 editUrl: false
 banner:
   content: |
-    0.x preview. It runs from a clone today; no usable SDK release or release images are published yet.
+    Wayscribe 0.1.0 is a published preview. Pin the SDK and images to this release; minor versions may change the API before 1.0.
 hero:
   title: A customer's record is wrong, and you can't tell which service changed it.
-  tagline: Wayscribe follows one record across your services, shows what each step received and what it produced, and points at the field that changed. It is free, self-hosted, and runs on your own PostgreSQL.
+  tagline: Wayscribe follows one record across your services, shows what each step received and produced, and points at the field that changed. Install the verified 0.1.0 preview on your own PostgreSQL.
   actions:
-    - text: Try it in a minute
-      link: "#try-it-in-a-minute"
+    - text: Install 0.1.0
+      link: /docs/quick-start/#install-010-without-a-checkout
       icon: right-arrow
-    - text: Read the docs
-      link: /docs/quick-start/
+    - text: Watch the demo
+      link: "#watch-the-demo"
       variant: minimal
 ---
 
@@ -183,17 +183,14 @@ token and encryption key before the stack holds anything real; the
 
 ## Instrument a service
 
-The Node SDK, `@wayscribe/node`, has **no usable release on npm yet**. The
-deprecated `0.0.1-placeholder.0` only reserves the name and contains no SDK.
-Until the first release, pack it from a clone of the repository, commit the tarball to your application,
-and install it by path:
+Install the Node SDK by exact version:
 
 ```bash
-pnpm install
-pnpm --silent --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
-cd /path/to/your-app
-npm install ./vendor/wayscribe-node-0.1.0.tgz
+npm install @wayscribe/node@0.1.0
 ```
+
+The [Node SDK guide](/docs/sdk/) also explains how to pack an unreleased source
+preview from a clone.
 
 One recorder per process:
 
@@ -258,9 +255,12 @@ needs Node.js 22.12 or later and has no runtime dependencies.
   source. The pre-release security review it cites (2026-09-16) was done by an
   AI review agent at the maintainer's direction. It is not an independent audit,
   and no outside party has reviewed the code.
-- **A 0.x preview.** No usable SDK release or release images are published
-  yet. npm's deprecated placeholder reserves the package name only. Releases
-  will be 0.x, where a minor release may change the API.
+- **A verified 0.x preview.** `@wayscribe/node@0.1.0` and the API and web images
+  for `v0.1.0` are public with provenance, Sigstore signatures, and signed
+  CycloneDX SBOM attestations. The automated public install ran on an existing
+  ARM64 development host; it was not an unaided clean-machine trial. See the
+  [release status and verification record](/docs/overview/#status). A minor
+  release may change the API before 1.0.
 - **How it is built.** AI agents write most of the code; the maintainer makes
   the decisions, and each is recorded with its reasoning in the decision log.
 

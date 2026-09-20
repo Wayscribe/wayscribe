@@ -25,8 +25,8 @@ installation.
 In scope:
 
 - the API (`apps/api`), the web interface (`apps/web`), and the Node SDK
-- the `@wayscribe/node` package and the container images, once published
-  (nothing is published yet, and releases will be 0.x)
+- the published `@wayscribe/node` package and the `api` and `web` container
+  images; releases are 0.x
 - the default Compose configuration
 
 Out of scope, because they are known and documented rather than undiscovered:
@@ -49,10 +49,11 @@ Out of scope, because they are known and documented rather than undiscovered:
 
 ## Verifying the images you run
 
-Nothing is published yet. When a release is, its images at
-`registry.gitlab.com/jojithedev/wayscribe/api` and `/web` are signed with
-Sigstore keyless signing by this project's GitLab release pipeline, and each
-platform's image carries a signed CycloneDX software bill of materials. The
+Release `v0.1.0` is published and its signatures and attestations were verified
+after publication. Images at `registry.gitlab.com/jojithedev/wayscribe/api` and
+`/web` are signed with Sigstore keyless signing by this project's GitLab release
+pipeline, and each platform's image carries a signed CycloneDX software bill of
+materials. The
 signing certificate names the pipeline and the release tag, so a check like this
 one proves the image came from a tagged release of this repository. Replace
 `vX.Y.Z` with the release you run; releases will be 0.x, such as `v0.1.0`:
@@ -66,16 +67,16 @@ cosign verify registry.gitlab.com/jojithedev/wayscribe/api:vX.Y.Z \
 Extracting and checking the SBOM is described in
 [docs/OPERATIONS.md](docs/OPERATIONS.md) §11. An image offered as Wayscribe
 that fails this check, or a signature from any other identity, is in scope:
-report it as above.
+report it as above. The exact `v0.1.0` digests, SBOM downloads and verification
+results are in the
+[release record](docs/reviews/2026-09-20-release-verification.md).
 
 That claim rests on who can create a `v*` tag, because the certificate names the
-tag and nothing else about who pushed it. The `v*` tags must be protected in
-GitLab, creatable by Maintainers only, and this must be in place before the
-first release; until it is, anyone with Developer access could create a tag
-whose pipeline signs an image this check accepts. The release pipeline also
-runs only for tags of the exact form `vMAJOR.MINOR.PATCH`, so the repository's
-`phase-*` and `usable-v0` tags and pre-release tags never publish, but that is a
-guard against mistakes rather than a control.
+tag and nothing else about who pushed it. The `v*` tags are protected in GitLab
+and creatable by Maintainers only. The release pipeline also runs only for tags
+of the exact form `vMAJOR.MINOR.PATCH`, so the repository's `phase-*` and
+`usable-v0` tags and pre-release tags never publish, but that is a guard against
+mistakes rather than a control.
 
 ## What the product does with your data
 

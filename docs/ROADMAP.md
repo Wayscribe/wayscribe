@@ -15,16 +15,17 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. Counted on 2026-09-18: 3,280 unit
-tests, 969 integration tests against a real PostgreSQL, 7 acceptance tests
-against a running stack and 64 browser tests. All passed locally in the
-[Round 3 verification](reviews/2026-09-18-round-3-and-release-readiness.md);
-that run does not establish a remote CI result or a published release.
+the step against a development destination. The 0.1.0 preview is published:
+`@wayscribe/node@0.1.0` and signed multi-platform API and web images. On
+its protected tag, the release pipeline passed every required job.
+Counted on 2026-09-20: 3,422 unit tests, 979 integration tests on each of PostgreSQL 15,
+17 and 18, 796 SDK tests on each of Node 22.12.0 and 24, two 71-test browser
+runs, and 7 release acceptance tests. The
+[release verification](reviews/2026-09-20-release-verification.md) records the
+public provenance, image and SBOM digests, and installation exercise.
 
-No usable release is published. npm holds only the deprecated
-`@wayscribe/node@0.0.1-placeholder.0`, which reserves the name and contains no
-SDK. Until the first release, install from `git clone` and `docker compose up`;
-see *If this goes public* for the publishing work.
+The released install uses tagged Compose files and public images without a
+checkout. The clone-based demo remains the source and contributor path.
 
 ---
 
@@ -130,15 +131,19 @@ pipeline checks that each declaration is still valid.
 
 ---
 
-## If this goes public
+## After the first public release
 
-Deferred on purpose. None of it is visible to somebody evaluating the code, and
-all of it is cheap to add once there is a reason.
+Release 0.1.0 made the distribution path visible. The operational follow-up is:
 
-- publish `@wayscribe/node` and the images, with the pushed tag booted on
-  both architectures before it moves. (`compose.published.yaml` already
-  requires `WAYSCRIBE_VERSION` rather than falling back to `latest`.)
-- a private-registry rehearsal of the documented install before the public tag
+- ~~publish `@wayscribe/node` and signed images for both architectures~~
+  **Built:** 0.1.0 is public, and `compose.published.yaml` requires
+  `WAYSCRIBE_VERSION` rather than falling back to `latest`. Signatures and SBOM
+  attestations verified for linux/amd64 and linux/arm64. The public runtime
+  exercise used arm64; running the amd64 images remains a separate platform
+  check.
+- ~~a private-registry rehearsal of the documented install before the public
+  tag~~ **Done:** followed by an automated install from public artifacts after
+  publication.
 - ~~a `doctor` preflight~~ **Built:** `pnpm run doctor`, or `doctor` in the API
   image: migrations applied, secrets not the published defaults, an issued key
   that actually authenticates (`OPERATIONS.md` §12)

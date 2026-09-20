@@ -240,25 +240,25 @@ describe("the landing page", () => {
     expect(landing).toContain(`\`${token ?? ""}\``);
   });
 
-  it("installs the tarball the SDK's version packs, distinguishing it from the npm placeholder", () => {
+  it("installs the released SDK by exact version and includes the released stack in Quick start", () => {
     const version = (JSON.parse(read("packages/sdk-node/package.json")) as { version: string })
       .version;
-    const named = [...landing.matchAll(/wayscribe-node-[\d.]+\.tgz/g)].map((match) => match[0]);
-    expect(named).toEqual([`wayscribe-node-${version}.tgz`]);
-    expect(landing).toContain("has **no usable release on npm yet**");
-    expect(landing).toContain(
-      "deprecated `0.0.1-placeholder.0` only reserves the name and contains no SDK."
-    );
+    const releasedInstall = `npm install @wayscribe/node@${version}`;
+    expect(landing).toContain(releasedInstall);
+    expect(landing).not.toMatch(/wayscribe-node-[\d.]+\.tgz/);
+
     const install = findSection(readme, "Instrument your own service") ?? "";
-    expect(install).toContain("No usable SDK release is published to npm yet.");
-    expect(install).toContain(
-      "`0.0.1-placeholder.0` only reserves the package name and contains no SDK."
-    );
+    expect(install).toContain(releasedInstall);
     // --silent, so capturing stdout gives the tarball's path and nothing else
-    // (F-018). The SDK's own README says the same, and says why.
+    // (F-018). Source-preview guidance remains available after the release.
     expect(install).toContain(
       "pnpm --silent --filter @wayscribe/node run pack:release /path/to/your-app/vendor/"
     );
+
+    const releaseHeading = `Install ${version} without a checkout`;
+    const quickStart = pages.find((page) => page.slug === "quick-start");
+    expect(quickStart?.sections).toContain(releaseHeading);
+    expect(findSection(readme, releaseHeading)).toBeDefined();
   });
 
   it("shows only code the recipe type-check covers", () => {
@@ -301,7 +301,7 @@ describe("the landing page", () => {
     // MDX comments are not rendered; the TODO about the mailbox lives in one.
     const rendered = landing.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
     const policy = read("SECURITY.md");
-    for (const address of rendered.match(/[\w.+-]+@[\w-]+\.[\w.]+/g) ?? []) {
+    for (const address of rendered.match(/[\w.+-]+@[\w-]+(?:\.[A-Za-z][\w-]*)+/g) ?? []) {
       expect(policy, `${address} is not in SECURITY.md`).toContain(address);
     }
     expect(rendered).toContain(

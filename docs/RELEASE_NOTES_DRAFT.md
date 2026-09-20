@@ -1,11 +1,13 @@
 # Wayscribe 0.1.0 preview: release notes
 
-**Unpublished draft, updated 2026-09-20.** The selected first version is 0.1.0,
-and no usable release is published yet. npm's
-deprecated `0.0.1-placeholder.0` reserves the name and contains no SDK.
-The public install commands become current only after the protected tag and
-manual publish jobs complete. The full list of changes is in
-[CHANGELOG.md](../CHANGELOG.md).
+**Released 2026-09-20.** The protected `v0.1.0` tag points to
+`f6707c66ea2697a199871a4ef4263e52aa34c11c`. The
+[GitLab release](https://gitlab.com/jojithedev/wayscribe/-/releases/v0.1.0)
+links the pinned Compose files, `@wayscribe/node@0.1.0`, and the four platform
+SBOMs. The exact pipeline jobs, provenance, image and SBOM digests, public
+installation checks, and limitations are in the
+[release verification](reviews/2026-09-20-release-verification.md). The full
+list of changes is in [CHANGELOG.md](../CHANGELOG.md).
 
 ## What it is
 
@@ -171,14 +173,26 @@ and keys issued before the rename, which start `fr_`, keep working. The
   section 7).
 - **Upgrades** are gated on a test that records data with an earlier build and
   reads it back with the new one (OPERATIONS section 4).
-- **Release signing and SBOM jobs are implemented.** The release path is
-  configured to sign `api` and `web` images with Sigstore keyless signing,
-  attach a CycloneDX SBOM per platform, and publish the SDK with npm provenance
-  (OPERATIONS section 11). No real release has verified that complete path yet.
-- **The release runtime baseline is green at `fec2c3c`.** Pipeline `2863391730`
-  passed all 23 jobs. The later site-only head `46c1a65` passed all 20 automatic
-  jobs in pipeline `2863957940`; the optional acceptance jobs were not repeated
-  for those site-only changes. Neither pipeline published a release.
+- **Release provenance, signatures and SBOM attestations are verified.** The
+  `v0.1.0` release pipeline published the SDK with npm provenance tied to the
+  release commit. It signed both multi-platform image indexes and their
+  linux/amd64 and linux/arm64 manifests with Sigstore, with a verified signed
+  CycloneDX SBOM attestation for every platform (OPERATIONS section 11,
+  [release verification](reviews/2026-09-20-release-verification.md)).
+- **The protected-tag pipeline is green at `f6707c6`.** Pipeline
+  [`2865565660`](https://gitlab.com/jojithedev/wayscribe/-/pipelines/2865565660)
+  passed 23 jobs: 3,422 unit tests, 979 integration tests on each of PostgreSQL
+  15, 17 and 18, 796 SDK tests on each of Node 22.12.0 and 24, two 71-test
+  browser runs, the upgrade test, and the 7-test release demo among its gates.
+  The ordinary duplicate manual `demo` job was not run; `release-verify` ran the
+  release gate's same seven acceptance tests.
+- **The public install was exercised from distributed artifacts only.** An
+  isolated directory on an existing ARM64 macOS Docker host downloaded the
+  tagged Compose files, pulled the public images, installed the SDK from npm,
+  passed 12 `doctor` checks, and exercised aliases, masking, a transformation
+  diff, failure and development replay. The four SDK events were sent with none
+  dropped or rejected. The empty public consumer ran ESM and CommonJS on Node
+  24; Node 22.12 support comes from the release pipeline's SDK job.
 - **The source quick start is covered by CI configuration.** The `demo` and
   `release-verify` jobs copy `.env.example`, build and boot the stack, wait for
   API, demo source and web health, and run the demo acceptance suite. A timed
@@ -241,6 +255,9 @@ and keys issued before the rename, which start `fr_`, keep working. The
   SDK p99 values are noisy, storage used tmpfs, historical million-event search
   and storage figures were not repeated at that scale, and the journey-list
   timings exclude the network.
+- **The public installation check was automated on an existing host.** Its
+  35-second result is not a clean-machine installation, an unaided human trial,
+  or evidence that a new developer records a first journey within 15 minutes.
 
 ## What comes next
 

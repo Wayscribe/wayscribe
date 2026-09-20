@@ -91,12 +91,12 @@ is on ([ADR-046](DECISIONS.md#adr-046-error-text-is-masked-by-shape-and-stacks-a
 
 ## Supply chain
 
-CI blocks on `pnpm audit`, gitleaks and Trivy. No usable release is published
-yet; npm contains only a deprecated name-reservation placeholder. Releases
-will be 0.x. Images will be signed with Sigstore keyless signing and
-carry a CycloneDX SBOM per platform; the npm package will be published through
-GitLab OIDC with provenance ([OPERATIONS §11](OPERATIONS.md#11-security-scanning),
-[ROADMAP](ROADMAP.md#where-this-actually-is)). To verify, with your tag
+CI blocks on `pnpm audit`, gitleaks and Trivy. Release `v0.1.0` is public. Its
+images have verified Sigstore keyless signatures and a verified signed CycloneDX
+SBOM attestation per platform; `@wayscribe/node@0.1.0` has verified registry
+signatures and GitLab OIDC provenance tied to the release commit
+([release record](reviews/2026-09-20-release-verification.md),
+[OPERATIONS §11](OPERATIONS.md#11-security-scanning)). To verify, with your tag
 ([full steps](OPERATIONS.md#verifying-a-published-image)):
 
 ```bash
@@ -118,7 +118,7 @@ cosign verify registry.gitlab.com/jojithedev/wayscribe/api:vX.Y.Z \
 
 - **Not there:** SSO, user accounts, roles, per-user audit, and encryption of
   payloads beyond the database's own ([ROADMAP](ROADMAP.md#not-doing),
-  [ROADMAP](ROADMAP.md#if-this-goes-public)).
+  [ROADMAP](ROADMAP.md#after-the-first-public-release)).
 - `audit_events` is never swept, and the login limiter is per process
   ([ROADMAP](ROADMAP.md#known-open-and-honest-about-it)). The development
   secrets are published, and propagated context is not authenticated

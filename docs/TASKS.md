@@ -4,9 +4,9 @@ This checklist is ordered to produce a working vertical slice early.
 
 **State as of 2026-09-20.** Epics 0 through 14 are implemented and merged; the
 boxes below were audited against the code and committed review evidence rather
-than ticked from memory. What remains for V0 is publication and the human checks
-for clean-machine onboarding, time to first journey, first-contact clarity and
-outside-pilot feedback.
+than ticked from memory. The 0.1.0 preview is published. What remains for V0 is
+the human evidence for clean-machine onboarding, time to first journey,
+first-contact clarity and outside-pilot feedback.
 
 ## Product gates applied to every epic
 
@@ -19,7 +19,8 @@ ever finished.
 - [x] Do not add a mandatory external account, cloud service, observability platform, or AI provider.
 - [x] Keep the default path understandable to a developer without tracing expertise.
 - [ ] Measure impact on the approximately 15-minute time-to-first-journey target.
-      Not measurable until images are published; see Epic 15.
+      The automated public install took 35 seconds on an existing prepared host,
+      which is not an unaided human timing trial; see Epic 15.
 - [x] Preserve record-first navigation, aliases, transformation diffs, and
       existing-architecture support. Journey-linked safe replay is Epic 13.
 
@@ -282,44 +283,48 @@ the honest picture.
 ## Epic 15: Release readiness
 
 - [x] Complete the source quick start. The README's current path starts from a
-      clone; the checkout-free path is documented separately and remains marked
-      unavailable until the images and SDK are published.
+      clone; the published checkout-free path is documented separately.
 - [x] Complete SDK docs.
 - [x] Complete API docs.
 - [x] Complete security docs.
 - [x] Add contribution guide.
 - [x] Add issue templates.
 - [x] Add release workflow.
-- [ ] Publish `api` and `web` images to a container registry. **Pipeline built and
-      gated on a tag; needs someone to run the manual job.**
-- [ ] Publish `@wayscribe/node` to npm. **Login and package write access work,
-      and the GitLab trusted publisher with direct `npm publish` is registered.
-      The protected release tag, manual publish job and post-publication package
-      and provenance verification remain (`docs/OPERATIONS.md` §11).**
+- [x] Publish `api` and `web` images to a container registry. The signed
+      multi-platform `v0.1.0` indexes contain linux/amd64 and linux/arm64, with a
+      verified CycloneDX SBOM attestation on every platform manifest
+      ([release verification](reviews/2026-09-20-release-verification.md)).
+- [x] Publish `@wayscribe/node` to npm. `@wayscribe/node@0.1.0` installed into
+      an empty Node 24 consumer; registry signatures and provenance verified,
+      and the provenance names the release commit and `publish-sdk` job
+      ([release verification](reviews/2026-09-20-release-verification.md)).
 - [x] Add the checkout-free quick start that will pull published images rather
-      than build from source. `infrastructure/compose.published.yaml` exists, and
-      the README keeps this future path separate from today's source quick start;
-      it becomes usable only after the images and SDK are published.
+      than build from source. The README downloads both Compose files from the
+      immutable `v0.1.0` tag and pins `WAYSCRIBE_VERSION=v0.1.0`.
 - [x] Run security review. The pre-release review and release-readiness review
       are committed under `docs/reviews/`, and `docs/SECURITY_REVIEW.md` carries
       their findings and limits for a pilot reviewer.
 - [x] Run full E2E test.
-- [ ] Test clean-machine installation.
+- [ ] Test clean-machine installation. The automated public-artifact test ran in
+      an isolated directory on an existing ARM64 macOS Docker host, not a clean
+      machine.
 - [x] Verify no paid account or external hosted service is required. The source
-      and Compose paths use self-hosted Wayscribe services and PostgreSQL; the
-      release rehearsal installed the stack from the distributed Compose files
-      without a Wayscribe account or hosted dependency.
+      and Compose paths use self-hosted Wayscribe services and PostgreSQL. The
+      public-artifact test installed from tagged Compose files, public images
+      and npm without a Wayscribe account or hosted dependency.
 - [ ] Verify first useful journey can be recorded in approximately 15 minutes,
-      measured from a pulled image rather than a source build. Building two Node
-      images consumes a meaningful share of that budget before the user sees
-      anything, so the target is only honest against published artifacts.
+      in an unaided human trial. The automated existing-host run completed in 35
+      seconds, but it does not measure first-time comprehension or clean-machine
+      setup.
 - [x] Verify record-first search, identity mapping, transformation diff,
-      existing-architecture flow, and safe replay together. The automated demo
-      and release rehearsal exercised the complete reference journey, alias
-      search, field diff and development replay as one flow.
+      existing-architecture flow, and safe replay together. The release demo and
+      public-artifact install exercised the complete reference journey, alias
+      search, masked alias display, field diff, recorded failure and development
+      replay as one flow.
 - [ ] Conduct a clarity review with a developer unfamiliar with tracing tools.
 - [ ] Obtain feedback from an outside pilot team.
-- [ ] Tag first development release.
+- [x] Tag first development release. Protected annotated tag `v0.1.0` points to
+      `f6707c66ea2697a199871a4ef4263e52aa34c11c`; its release pipeline passed.
 
 ## Explicitly deferred
 

@@ -218,10 +218,14 @@ the newest one CI tests.
 
 For a common stack, start from a [recipe](docs/recipes/README.md).
 
-No usable SDK release is published to npm yet. The deprecated
-`0.0.1-placeholder.0` only reserves the package name and contains no SDK.
-Until the first release, pack it from a clone of this repository, commit the
-tarball to your application, and depend on it by path:
+Install the released SDK by exact version:
+
+```bash
+npm install @wayscribe/node@0.1.0
+```
+
+To use source changes that have not been released, pack the SDK from a clone,
+commit the tarball to your application, and depend on it by path:
 
 ```bash
 pnpm install
@@ -237,8 +241,7 @@ and nothing rebuilds it for a job that has no build step of its own. **After
 pulling a change that adds or updates the tarball, run `npm ci` before the job
 runs again**; a deploy that skipped it hung. The
 [SDK README](packages/sdk-node/README.md#install-a-released-version) has the
-details. Once the package is published, all of this becomes
-`npm install @wayscribe/node`.
+details.
 
 ```typescript
 import { createRecorder } from "@wayscribe/node";
@@ -417,13 +420,29 @@ wrong the first time and say so.
 
 ## Status
 
-**Pre-release. It runs from a clone; no usable release is published yet.**
+**The 0.1.0 preview is published.**
 
 Ingestion, search, journey timelines, field-level diffs, the Node SDK,
 cross-process propagation, retention, the demo, development replay, and a
-read-only CLI are built, tested, and running. Release images and a usable npm
-SDK are not published, so today you install by cloning this repository. npm's
-deprecated `0.0.1-placeholder.0` reserves the package name only.
+read-only CLI are built, tested, and released. `@wayscribe/node@0.1.0` and the
+`api:v0.1.0` and `web:v0.1.0` images are public. npm provenance points at release
+commit `f6707c66ea2697a199871a4ef4263e52aa34c11c`; both image indexes and their
+linux/amd64 and linux/arm64 manifests have verified Sigstore signatures and
+signed CycloneDX SBOM attestations.
+
+The protected-tag [release pipeline](https://gitlab.com/jojithedev/wayscribe/-/pipelines/2865565660)
+passed 23 jobs. An automated installation then used only the tagged public
+Compose files, public images, and public npm package on an existing ARM64 macOS
+Docker host. It applied migrations, passed all 12 `doctor` checks, recorded and
+read a journey through aliases, masking, a field diff and failure, and completed
+a development replay. The public package consumer ran on Node 24; the release
+pipeline separately tested the package on Node 22.12.0 and 24. The complete
+digests, job links, checks, and limits are in the
+[0.1.0 release verification](docs/reviews/2026-09-20-release-verification.md).
+
+This automated existing-host run is not a clean-machine installation, an
+unaided human onboarding trial, or evidence for the approximately 15-minute
+first-journey target. Those checks remain open.
 
 An adversarial audit of the first-contact experience on 2026-08-09 found that
 the demo which verified all of it was systematically narrow: ten flat
@@ -447,27 +466,25 @@ ones and not a credential in an unfamiliar shape (ADR-046). The
 
 [CHANGELOG.md](CHANGELOG.md) lists what is done and what is known to be missing.
 
-The install that replaces the clone is already written and waiting on that
-publish; it is below, under its own heading, so it is never read as today's
-instructions.
+The source quick start above remains useful for the broken demo and for
+contributors. The released installation below needs no checkout.
 
-### Installing without a checkout, once the images are published
+## Install 0.1.0 without a checkout
 
-**This does not work yet.** Release images and a usable SDK are not published.
-The npm placeholder contains no SDK. Until the first release, use
-[Try it](#try-it), which runs from a clone.
+These commands download Compose files from the immutable `v0.1.0` tag and pull
+the released images. They need no source checkout.
 
 [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
-will pull the images, migrate on first boot, and need no checkout.
+pulls the images and migrates on first boot.
 
 Wayscribe keeps everything in one PostgreSQL database, 15 or later, and
 expects you to bring your own: the one your team already backs up, monitors,
 and holds the credentials for.
 
 ```bash
-curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/main/infrastructure/compose.published.yaml
+curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.1.0/infrastructure/compose.published.yaml
 export COMPOSE_FILE=compose.published.yaml
-export WAYSCRIBE_VERSION=vX.Y.Z   # the release to run; releases are 0.x
+export WAYSCRIBE_VERSION=v0.1.0
 
 export DATABASE_URL=postgresql://user:password@db.internal:5432/wayscribe
 export ENCRYPTION_KEY=$(openssl rand -hex 32)
@@ -486,7 +503,7 @@ To try it without standing a database up first, add the bundled overlay to that
 list. It runs PostgreSQL alongside and sets `DATABASE_URL` for you:
 
 ```bash
-curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/main/infrastructure/compose.bundled.yaml
+curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.1.0/infrastructure/compose.bundled.yaml
 export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
 docker compose up -d
 ```
@@ -521,13 +538,13 @@ keys, the API) and the fix for anything that fails, and exits 1 if anything did
 the key to your service as `WAYSCRIBE_API_KEY` and follow
 [Instrument your own service](#instrument-your-own-service).
 
-### Not in V0
+## Not in V0
 
 **No AI features in V0.** A future bring-your-own-key layer may be added as an
 optional, disabled-by-default module. It will never be required, and nothing
 will be sent anywhere by default.
 
-### What "done" means for the first release
+## What "done" means for the first release
 
 > A developer can instrument an existing Node.js integration, search for one
 > customer, reconstruct its journey across an API, database, queue, worker, and
@@ -633,7 +650,7 @@ apps/
   demo/                 the reference journey, five entry points in one image
 packages/
   protocol/             event schema and version
-  sdk-node/             to be published as @wayscribe/node
+  sdk-node/             published as @wayscribe/node
   cli/                  read-only CLI over the HTTP API
   database/             migrations, repositories, operator CLI
   payload-security/     redaction, encryption, keys, search tokens

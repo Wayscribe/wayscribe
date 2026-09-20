@@ -457,7 +457,7 @@ describe("deployment claims", () => {
     );
   });
 
-  it("requires a release version in compose.published.yaml, and the documented installs set one", () => {
+  it("requires a release version and pins the current public install to its tag", () => {
     const published = read("infrastructure/compose.published.yaml");
     const images = [...published.matchAll(/^\s+image: (.+)$/gm)].map((match) => match[1] ?? "");
     expect(images).toHaveLength(3);
@@ -465,8 +465,16 @@ describe("deployment claims", () => {
       expect(image).toContain("${WAYSCRIBE_VERSION:?");
       expect(image).not.toContain("latest");
     }
-    for (const document of ["README.md", "docs/OPERATIONS.md"]) {
-      expect(read(document), document).toContain("export WAYSCRIBE_VERSION=vX.Y.Z");
+    expect(read("docs/OPERATIONS.md")).toContain("export WAYSCRIBE_VERSION=vX.Y.Z");
+
+    const version = (JSON.parse(read("packages/sdk-node/package.json")) as { version: string })
+      .version;
+    const install = sectionOf("README.md", `Install ${version} without a checkout`);
+    expect(install).toContain(`export WAYSCRIBE_VERSION=v${version}`);
+    for (const file of ["compose.published.yaml", "compose.bundled.yaml"]) {
+      expect(install).toContain(
+        `https://gitlab.com/jojithedev/wayscribe/-/raw/v${version}/infrastructure/${file}`
+      );
     }
   });
 

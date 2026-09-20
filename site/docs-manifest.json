@@ -14,7 +14,12 @@
         },
         {
           "source": "README.md",
-          "sections": ["Try it", "Supported versions", "Instrument your own service"],
+          "sections": [
+            "Install 0.1.0 without a checkout",
+            "Try it",
+            "Supported versions",
+            "Instrument your own service"
+          ],
           "slug": "quick-start",
           "label": "Quick start",
           "title": "Quick start",

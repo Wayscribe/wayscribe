@@ -16,8 +16,9 @@ point: you will find the step where a value disappeared.
 You need Node 24, pnpm (`corepack enable`), and Docker. Everything below until
 the last three commands runs from the repository root.
 
-The SDK is not published to npm yet, so this example installs it from
-`packages/sdk-node`, which has to be built first:
+This repository example installs the checked-out SDK from `packages/sdk-node`,
+which has to be built first. A separate application should install the public
+package as shown below.
 
 ```bash
 pnpm install
@@ -66,9 +67,8 @@ WAYSCRIBE_URL=http://localhost:8081 WAYSCRIBE_WEB=http://localhost:3001 \
 
 ## Installing from npm instead
 
-This example installs the SDK from the repository so it works before the package
-is published. Once it is, in your own project:
+In your own project, install the released SDK by exact version:
 
 ```bash
-npm install @wayscribe/node
+npm install @wayscribe/node@0.1.0
 ```
