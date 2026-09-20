@@ -12,11 +12,10 @@ is the contract between them and a mismatch is not something a user should have
 to reason about. The protocol itself carries its own `protocolVersion`, which
 changes far less often.
 
-## [Unreleased]
+## [0.1.0] - 2026-09-20
 
-This section describes the selected first release, the unpublished 0.1.0
-preview. Nothing has been
-published before it, so there is no earlier release to upgrade from. Under
+This section describes the selected contents of the 0.1.0 preview. It is the
+first versioned section, so there is no earlier release to upgrade from. Under
 **Changed** and **Upgrade notes**, "changed" means changed from earlier
 development builds of `main`, for anyone running one from a git checkout. A
 shorter overview is in
