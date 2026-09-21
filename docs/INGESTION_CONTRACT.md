@@ -202,6 +202,14 @@ answers the same way, because it is the same ingestion rolled back.
 - A per-event status **below 500 is permanent**. That event is never sent again.
 - **500 or above is transient.** That event alone is sent again, for up to 30
   seconds from its first refusal or 10 sends, whichever comes first.
+- The send in which the first transient refusal arrives counts as one logical
+  send. Each later logical send that performs HTTP work for that event counts
+  once too, even if its attempts end only in transport failures or whole-request
+  5xx responses. The configured HTTP attempts within one logical send still
+  consume only that one send unit. A cycle that makes no nonempty HTTP attempt
+  consumes none.
+- An event whose 30-second budget has elapsed is dropped before another HTTP
+  attempt, including after attempt backoff or circuit-breaker cooldown.
 - A refusal carrying **no status** is treated as permanent.
 - An event the response gives **no verdict for**, because the body was not
   JSON, had no `results`, or had fewer results than events, is **not** sent

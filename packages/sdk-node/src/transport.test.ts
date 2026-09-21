@@ -317,6 +317,80 @@ describe("Transport, when the server refuses some events for now", () => {
     expect(batches).toHaveLength(30);
   });
 
+  it("counts later transport-only work toward the refused event's logical-send cap", async () => {
+    const event = { protocolVersion: "0.1", event: { id: "b" } };
+    const send = vi
+      .fn<(batch: readonly unknown[]) => Promise<SendOutcome>>()
+      .mockResolvedValueOnce({ accepted: 0, retry: [event], noVerdict: 0, reason: "x" })
+      .mockRejectedValue(new Error("network"));
+    const { transport, diagnostics } = harness(send, {
+      maxAttempts: 2,
+      maxRefusedSends: 2,
+      breakerThreshold: 100
+    });
+
+    const first = await transport.send([event]).catch((error: unknown) => error);
+    expect(first).toBeInstanceOf(UnsentError);
+    expect((first as UnsentError).unsent).toEqual([event]);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(diagnostics.counters().droppedByCause.retry_budget).toBe(0);
+
+    expect(await unsentAfter(transport.send((first as UnsentError).unsent))).toEqual([]);
+    expect(send).toHaveBeenCalledTimes(4);
+    expect(diagnostics.counters().droppedByCause.retry_budget).toBe(1);
+  });
+
+  it("drops an expired refused event after backoff without another HTTP attempt", async () => {
+    const event = { protocolVersion: "0.1", event: { id: "b" } };
+    let advance: (ms: number) => void = () => undefined;
+    const send = vi.fn<(batch: readonly unknown[]) => Promise<SendOutcome>>().mockResolvedValue({
+      accepted: 0,
+      retry: [event],
+      noVerdict: 0,
+      reason: "x"
+    });
+    const harnessed = harness(send, {
+      maxAttempts: 2,
+      breakerThreshold: 1,
+      sleep: () => {
+        advance(30_000);
+        return Promise.resolve();
+      }
+    });
+    advance = harnessed.advance;
+
+    await harnessed.transport.send([event]);
+
+    expect(send).toHaveBeenCalledOnce();
+    expect(harnessed.diagnostics.counters().droppedByCause.retry_budget).toBe(1);
+    expect(harnessed.diagnostics.counters().breakerOpened).toBe(1);
+  });
+
+  it("leaves breaker state unchanged when an expired requeue makes no HTTP attempt", async () => {
+    const refused = { protocolVersion: "0.1", event: { id: "b" } };
+    const stored = { protocolVersion: "0.1", event: { id: "a" } };
+    const send = vi
+      .fn<(batch: readonly unknown[]) => Promise<SendOutcome>>()
+      .mockResolvedValueOnce({ accepted: 1, retry: [refused], noVerdict: 0, reason: "x" })
+      .mockResolvedValue({ accepted: 1, retry: [], noVerdict: 0 });
+    const { transport, diagnostics, advance } = harness(send, {
+      maxAttempts: 1,
+      breakerThreshold: 1
+    });
+
+    const first = await transport.send([stored, refused]).catch((error: unknown) => error);
+    expect(first).toBeInstanceOf(UnsentError);
+    expect(diagnostics.counters().breakerOpened).toBe(0);
+
+    advance(30_000);
+    send.mockClear();
+    await transport.send((first as UnsentError).unsent);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(diagnostics.counters().droppedByCause.retry_budget).toBe(1);
+    expect(diagnostics.counters().breakerOpened).toBe(0);
+  });
+
   it("does not open the breaker over one event while the server stores the rest", async () => {
     const { send } = refusing(["b"]);
     const { transport, diagnostics } = harness(send);

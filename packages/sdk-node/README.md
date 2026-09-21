@@ -951,29 +951,30 @@ still refusing it, the event goes back to the front of the
 queue and rides in a later send, and each send that ends that way reports a
 `transport_error` with the server's reason. A database restart takes seconds,
 so the event keeps being retried for 30 seconds from its first refusal, or
-through 10 sends, whichever comes first. Only when the server refuses it again
-past one of those bounds is it given up, and a `dropped` counts it. It can also
-be dropped earlier if the queue fills and it is the oldest event there.
+through 10 logical sends, whichever comes first. The first-refusal send counts
+once, and each later send that performs HTTP work for the event counts once even
+when every attempt ends in a connection failure or whole-request 5xx. The three
+HTTP attempts inside a send consume one send unit. A cycle with no HTTP attempt
+consumes none. When either bound is reached, a `dropped` counts the event. It can
+also be dropped earlier if the queue fills and it is the oldest event there.
 
 The 30 seconds match the breaker's cooldown and are twice the API's default
-statement timeout. The bound is checked only when the server refuses the event
-again, so an event waiting out an open breaker is sent once more when the
-breaker closes, not dropped unsent. The 10 sends stop an event the server can
-never store from riding in every batch of a busy stream for the whole 30
-seconds.
+statement timeout. The time bound is checked before every HTTP attempt, including
+after backoff or breaker cooldown, so an expired event is dropped without being
+sent again. The 10 sends stop an event the server can never store from riding in
+every batch of a busy stream for the whole 30 seconds.
 
 A send in which the server stored other events does not count toward the
 breaker, so one event the server can never store does not pause delivery of
 everything else. A send in which it stored nothing does, as a failed request
 does.
 
-**The 30 seconds and 10 sends apply only to these per-event refusals.** When a
-whole request fails (the connection is refused or times out, or the API answers
-the request itself with a 5xx), nothing reached a verdict, so the batch goes
-back to the queue and is retried, with the same backoff and breaker, for as long
-as the outage lasts. What bounds that is the queue: past `maxBufferedEvents`
-(1,000 by default) the oldest events are dropped and counted, and whatever is
-still queued when `shutdown()` finishes is dropped and counted then.
+**The 30 seconds and 10 sends begin only after a per-event transient refusal.**
+Once they begin, later whole-request failures still consume the refused event's
+logical-send budget. A batch that has never received a per-event refusal remains
+bounded by the queue: past `maxBufferedEvents` (1,000 by default) the oldest
+events are dropped and counted, and whatever is still queued when `shutdown()`
+finishes is dropped and counted then.
 
 ### When the response has no verdict
 

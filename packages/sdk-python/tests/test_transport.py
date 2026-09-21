@@ -259,6 +259,56 @@ class RetryBudgetTests(unittest.TestCase):
             self.assertEqual(len(server.bodies), 2)
             self.assertEqual(recorder.counters()["dropped_by_cause"]["retry_budget"], 1)
 
+    def test_transport_only_cycles_count_once_toward_refused_send_cap(self):
+        from dataclasses import replace
+
+        from wayscribe._config import Config
+        from wayscribe._diagnostics import Diagnostics
+        from wayscribe._transport import Transport, _Pending
+
+        diagnostics = Diagnostics()
+        transport = Transport(
+            replace(
+                Config(False, "http://127.0.0.1", "key", "test", "development"),
+                max_attempts=2,
+                event_retry_max_sends=2,
+                breaker_threshold=100,
+            ),
+            diagnostics,
+            clock=lambda: 0.0,
+            jitter=lambda: 0,
+        )
+        entry = _Pending(b'{"event":{"id":"evt_1"}}', 1)
+        refusal = json.dumps(
+            {
+                "data": {
+                    "results": [
+                        {"status": "rejected", "error": {"httpStatus": 503}}
+                    ]
+                }
+            }
+        ).encode()
+        responses = [(202, refusal), (503, b""), (503, b""), (503, b"")]
+        bodies = []
+
+        def request(body):
+            bodies.append(body)
+            return responses.pop(0)
+
+        transport._request = request
+        transport._inflight = [entry]
+        diagnostics.increment("recorded")
+        transport._send_cycle([entry])
+        self.assertEqual(entry.refused_sends, 1)
+        self.assertEqual(diagnostics.counters()["dropped_by_cause"]["retry_budget"], 0)
+
+        transport._inflight = [transport._queue.popleft()]
+        transport._send_cycle([entry])
+        self.assertEqual(len(bodies), 4)
+        self.assertEqual(len(set(bodies)), 1)
+        self.assertEqual(diagnostics.counters()["dropped_by_cause"]["retry_budget"], 1)
+        self.assertEqual(list(transport._queue), [])
+
     def test_wrong_body_opens_breaker_until_cooldown_then_acceptance_resets_it(self):
         mode = ["bad"]
         with Collector(

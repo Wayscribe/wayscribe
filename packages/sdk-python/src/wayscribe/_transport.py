@@ -255,7 +255,7 @@ class Transport:
         stored = False
         answered = False
         permanent_request = False
-        refused = set()
+        participated = set()
         initial = len(batch)
         abandoned = False
         attempted = False
@@ -280,6 +280,7 @@ class Transport:
             body = b'{"events":[' + b",".join(x.body for x in pending) + b"]}"
             try:
                 attempted = True
+                participated.update(pending)
                 status, response = self._request(body)
             except _Cancelled:
                 return
@@ -307,7 +308,6 @@ class Transport:
                             if transient:
                                 if item.refused_at is None:
                                     item.refused_at = self._clock()
-                                refused.add(item)
                             else:
                                 self._settle_locked(item, "rejected")
                         else:
@@ -318,7 +318,7 @@ class Transport:
             if self._cancelled:
                 return
             for item in self._inflight.copy():
-                if item in refused:
+                if item in participated and item.refused_at is not None:
                     item.refused_sends += 1
                     if (
                         item.refused_sends >= self.config.event_retry_max_sends

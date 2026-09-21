@@ -43,7 +43,7 @@ export interface TransportOptions {
    * measured from its first refusal.
    */
   retryBudgetMs: number;
-  /** The most sends an event may be refused in, however quickly they come. */
+  /** The most logical sends a tracked refused event may participate in. */
   maxRefusedSends: number;
   /**
    * True once the owner has given up on everything in flight, at shutdown.
@@ -97,8 +97,8 @@ export class Transport {
   private consecutiveFailures = 0;
   private openedAt: number | null = null;
   /**
-   * When each refused event was first refused, and in how many sends, kept
-   * across requeues.
+   * When each refused event was first refused, and how many logical sends it
+   * participated in from that point, kept across requeues.
    *
    * By time, because a refusal for now usually means the database is
    * restarting or overloaded, which takes seconds: three refusals inside the
@@ -140,14 +140,14 @@ export class Transport {
       if (now() - this.openedAt < this.options.breakerCooldownMs) {
         throw new Error("Recorder transport circuit open.");
       }
-      // Cooldown elapsed: try again and let the outcome decide.
-      this.openedAt = null;
-      this.consecutiveFailures = 0;
+      // Cooldown elapsed. Clear the old failure run only if this send reaches
+      // actual HTTP work; an expiry-only cycle is not a send to the breaker.
     }
 
     let pending: readonly unknown[] = batch;
     const abandoned: unknown[] = [];
-    const refusedHere = new Set<object>();
+    const participated = new Set<object>();
+    let attempted = false;
     let storedAny = false;
     /**
      * Whether any attempt of this send got a verdict for at least one event:
@@ -169,6 +169,24 @@ export class Transport {
         this.giveUp(abandoned, lastRefusal, lastRefusalLine);
         throw new AbandonedError(pending);
       }
+      pending = pending.filter((event) => {
+        if (typeof event !== "object" || event === null) return true;
+        const refusal = this.refusals.get(event);
+        if (refusal === undefined || now() - refusal.firstAt < this.options.retryBudgetMs) {
+          return true;
+        }
+        abandoned.push(event);
+        return false;
+      });
+      if (pending.length === 0) break;
+      if (this.openedAt !== null) {
+        this.openedAt = null;
+        this.consecutiveFailures = 0;
+      }
+      attempted = true;
+      for (const event of pending) {
+        if (typeof event === "object" && event !== null) participated.add(event);
+      }
       try {
         const outcome = await this.options.send(pending);
         lastError = undefined;
@@ -187,8 +205,6 @@ export class Transport {
           if (refusal === undefined || now() - refusal.firstAt >= this.options.retryBudgetMs) {
             abandoned.push(event);
           } else {
-            // An object, or refusalOf would have returned undefined.
-            refusedHere.add(event as object);
             again.push(event);
           }
         }
@@ -228,7 +244,7 @@ export class Transport {
     // Still refused after this send's attempts: requeued for a later send
     // unless this was the last send it was allowed.
     pending = pending.filter((event) => {
-      if (typeof event !== "object" || event === null || !refusedHere.has(event)) return true;
+      if (typeof event !== "object" || event === null || !participated.has(event)) return true;
       const refusal = this.refusals.get(event);
       if (refusal === undefined) return true;
       refusal.sends += 1;
@@ -266,7 +282,7 @@ export class Transport {
     // stop delivery of everything else for the cooldown, again and again.
     if (storedAny) {
       this.consecutiveFailures = 0;
-    } else {
+    } else if (attempted) {
       this.countFailure(now());
     }
 
