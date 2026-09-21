@@ -60,6 +60,25 @@ server's `dryRun: true` response marker before describing anything as a preview;
 a non-dry-run response is an error, never success. Server errors produce stable
 safe messages and a nonzero exit code.
 
+The CLI file/request ceiling is 26,279,936 bytes (public 100-event maximum ×
+documented default 262,144-byte event budget + 65,536-byte route headroom).
+Each HTTP request has a 5-second deadline including its body. Streamed responses
+and rendered output (including newline) each have a 4 MiB ceiling; output is
+bounded after masking and JSON escaping. Raw response and selected-output walks
+allow 10,000 nodes including keys and depth 30 from their root; an individual
+source string is limited to 262,144 UTF-8 bytes. Refuse exceeded limits with a
+fixed safe error and complete JSON, never partial preview output. Large or
+amplified batches may need smaller batches; an individually deep/large event can
+also exceed these bounds. Preserve configured reverse-proxy URL path prefixes.
+
+Require usable HTTP Bearer keys of at least eight ASCII token characters, with
+optional trailing `=` padding; refuse invalid keys before output guarding. Never
+allow the admin environment variables as alternate ingestion-key sources. Guard
+both property names and values, including the exact key after terminal-control
+removal and text masking. If the exact key survives JSON serialization (for
+example a numeric credential in a numeric scalar), fail closed with safe valid
+JSON rather than editing JSON syntax.
+
 Preview output separates accepted/rejected verdicts from stored-form payloads
 and explains when environment capture policy omits them. Apply built-in secret
 masking to displayed diagnostic/error text as a final output guard. Display only

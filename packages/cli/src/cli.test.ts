@@ -1,8 +1,11 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, symlinkSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { run, type Io } from "./cli.js";
+import { isEntryPoint, run, type Io } from "./cli.js";
 
 interface Captured {
   out: string[];
@@ -281,4 +284,22 @@ describe("the command line", () => {
     expect(await run(["delete", "everything"], io)).toBe(2);
     expect(err.join("\n")).toContain("Unknown command");
   });
+});
+
+it("does not execute CLI commands when imported by another entry point", () => {
+  expect(isEntryPoint("/tmp/test-runner.js", new URL("./cli.ts", import.meta.url).href)).toBe(
+    false
+  );
+});
+
+it("recognizes the declared executable through a bin symlink", () => {
+  const directory = mkdtempSync(join(tmpdir(), "wayscribe-bin-"));
+  try {
+    const bin = join(directory, "wayscribe");
+    const moduleUrl = new URL("./cli.ts", import.meta.url).href;
+    symlinkSync(fileURLToPath(moduleUrl), bin);
+    expect(isEntryPoint(bin, moduleUrl)).toBe(true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

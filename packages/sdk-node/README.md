@@ -1654,3 +1654,36 @@ This package is one implementation of a specification that is not about Node.
 ## License
 
 Apache-2.0
+
+## Check your installed recorder
+
+[CLI `check`](../cli/README.md#check-ingestion-and-preview-stored-events) verifies
+explicit protocol/key/server configuration through a dry run. It does not load
+or inspect your installed Node SDK. This separate synthetic application probe
+uses the real public SDK and **stores an event** in the configured environment:
+
+```typescript
+import { createRecorder } from "@wayscribe/node";
+
+const recorder = createRecorder({
+  endpoint: process.env.WAYSCRIBE_URL ?? "",
+  apiKey: process.env.WAYSCRIBE_API_KEY ?? "",
+  serviceName: "node-sdk-check",
+  environment: process.env.WAYSCRIBE_ENVIRONMENT ?? "",
+  onDiagnostic: (d) => console.error({ kind: d.kind, code: d.code })
+});
+try {
+  recorder.startJourney({ entity: { type: "sdk-check", id: "synthetic-node" } })
+    .record({ operation: "received", name: "sdk-check" });
+  await recorder.flush();
+  const { recorded, sent, rejected, dropped, configurationErrors } = recorder.counters();
+  console.log({ recorded, sent, rejected, dropped, configurationErrors });
+} finally {
+  await recorder.shutdown({ timeoutMs: 2_000 });
+}
+```
+
+A completed flush alone is not proof of acceptance. Inspect `sent`, `rejected`,
+`dropped` and configuration errors after actually recording; zero activity does
+not establish connectivity. Only diagnostic kind/code are printed, not payloads,
+keys or caller-written diagnostic details.

@@ -273,3 +273,35 @@ It never resends copied queues or closes/shuts down the parent's active socket.
 Fresh child recorders are supported. Use detached `counters()` and
 `rejected_settings()` for health checks; diagnostics callbacks may safely reenter
 the recorder and must themselves remain short-running.
+
+## Check your installed recorder
+
+[CLI `check`](../cli/README.md#check-ingestion-and-preview-stored-events) exercises
+explicit protocol/key/server configuration through a dry run. It does not inspect
+an installed Python SDK. This separate synthetic public-SDK probe **stores an
+event** in the configured environment:
+
+```python
+import os
+from wayscribe import create_recorder
+
+with create_recorder(
+    endpoint=os.environ["WAYSCRIBE_URL"],
+    api_key=os.environ["WAYSCRIBE_API_KEY"],
+    service="python-sdk-check",
+    environment=os.environ["WAYSCRIBE_ENVIRONMENT"],
+    on_diagnostic=lambda d: print({"kind": d["kind"], "code": d["code"]}),
+) as recorder:
+    recorder.journey({"type": "sdk-check", "id": "synthetic-python"}).record(
+        operation="received", name="sdk-check"
+    )
+    drained = recorder.flush(timeout_ms=5000)
+    counters = recorder.counters()
+    print({"drained": drained, **{name: counters[name] for name in
+          ("recorded", "sent", "rejected", "dropped", "configuration_errors")}})
+```
+
+Flush completion includes rejected/dropped work. Inspect delivery counters after
+recording; an idle recorder's zero counters do not prove connectivity. The
+context manager shuts down the recorder. Log diagnostic kind/code, not payloads,
+keys or caller-written details.

@@ -19,3 +19,6 @@ export {
   type Style
 } from "./format.js";
 export { run, type Io } from "./cli.js";
+
+export { IngestionClient } from "./ingestion-client.js";
+export { runIngestionCommand } from "./ingestion-preview.js";

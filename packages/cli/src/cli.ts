@@ -1,6 +1,9 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { readFileSync, realpathSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { ingestionCommand } from "./ingestion-config.js";
+import { runIngestionCommand } from "./ingestion-preview.js";
 import { ApiError, Client } from "./client.js";
 import { ConfigError, resolveConfig } from "./config.js";
 import {
@@ -29,7 +32,12 @@ Options
   --help             this
   --version          the version of this CLI
 
-Everything reads. Nothing here writes or deletes.`;
+Read commands do not write. check and preview validate via explicit dry-run:
+no journey evidence is stored, though key usage/verifier bookkeeping may change.
+
+  wayscribe check --url <url> --environment <name> --service <name>
+  wayscribe preview <batch.json> --url <url>
+  Use check --help or preview --help for separate ingestion credentials/options.`;
 
 export interface Io {
   out: (text: string) => void;
@@ -43,6 +51,8 @@ export interface Io {
  * is testable without spawning anything.
  */
 export async function run(argv: readonly string[], io: Io): Promise<number> {
+  const ingestion = ingestionCommand(argv);
+  if (ingestion !== undefined) return runIngestionCommand(ingestion, argv, io);
   let parsed;
   try {
     parsed = parseArgs({
@@ -59,8 +69,8 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
         version: { type: "boolean" }
       }
     });
-  } catch (error) {
-    io.err((error as Error).message);
+  } catch {
+    io.err("Invalid command arguments. Use --help.");
     io.err(USAGE);
     return 2;
   }
@@ -169,7 +179,11 @@ function missing(shape: string, io: Io): number {
 /** Kept out of `run` so importing this module never runs a command. */
 export function isEntryPoint(argv1: string | undefined, moduleUrl: string): boolean {
   if (argv1 === undefined) return false;
-  return moduleUrl.endsWith("/cli.js") || moduleUrl.endsWith("/cli.ts");
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
 }
 
 if (isEntryPoint(process.argv[1], import.meta.url)) {

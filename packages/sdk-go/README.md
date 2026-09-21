@@ -230,3 +230,45 @@ Shutdown cancels SDK-owned work; it does not wait for arbitrary blocking user
 diagnostic code. The dispatcher exits when such a callback returns. Diagnostic
 callbacks may run concurrently with synchronous capture diagnostics and should
 synchronize their own state.
+
+## Check your installed recorder
+
+[CLI `check`](../cli/README.md#check-ingestion-and-preview-stored-events) validates
+explicit protocol/key/server configuration through a dry run; it does not inspect
+an installed Go SDK. This separate synthetic public-SDK probe **stores an event**
+in the configured environment:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "os"
+    "time"
+    wayscribe "gitlab.com/jojithedev/wayscribe/packages/sdk-go"
+)
+
+func main() {
+    recorder := wayscribe.New(wayscribe.Config{
+        Endpoint: os.Getenv("WAYSCRIBE_URL"), APIKey: os.Getenv("WAYSCRIBE_API_KEY"),
+        Service: "go-sdk-check", Environment: os.Getenv("WAYSCRIBE_ENVIRONMENT"),
+        OnDiagnostic: func(d wayscribe.Diagnostic) { fmt.Println(d.Kind, d.Code) },
+    })
+    defer recorder.Shutdown(context.Background())
+    recorder.Journey(wayscribe.Entity{Type: "sdk-check", ID: "synthetic-go"}).Record(
+        wayscribe.Event{Operation: "received", Name: "sdk-check"},
+    )
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    drained := recorder.Flush(ctx)
+    counts := recorder.Counters()
+    fmt.Println(drained, counts.Recorded, counts.Sent, counts.Rejected,
+        counts.Dropped, counts.ConfigurationErrors)
+}
+```
+
+`Flush` completion includes rejected/dropped work. Inspect delivery counters after
+recording; an idle recorder's zero counters do not prove connectivity. Diagnostic
+kind/code avoid caller-written names/paths and payloads. The deferred shutdown
+uses its own default deadline rather than a potentially expired flush context.

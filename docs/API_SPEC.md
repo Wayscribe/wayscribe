@@ -164,7 +164,10 @@ POST /v1/events/batch
 `{ "events": [ … ] }`, at most a hundred envelopes, under an API key. The
 response is `202` with one result per sent event, in order and matched by
 position, whether or not every event was accepted. Add `?dryRun=true` to
-validate the batch and roll it back without storing anything.
+validate the batch and roll it back without storing journey evidence (HTTP `200`
+with `data.dryRun: true`). API-key usage/verifier bookkeeping may still change.
+The optional [CLI check and preview](../packages/cli/README.md#check-ingestion-and-preview-stored-events)
+commands use this explicit dry-run contract with bounded, guarded output.
 
 **[`INGESTION_CONTRACT.md`](INGESTION_CONTRACT.md) is normative for both
 routes** and is where a client author should start: the limits and their
