@@ -138,7 +138,7 @@ func TestAllSecretsAndHeaders(t *testing.T) {
 	names := strings.Fields("authorization proxy-authorization cookie set-cookie x-api-key password access_token refresh_token client_secret api_key secret stripe-signature x-hub-signature x-hub-signature-256 x-slack-signature x-hubspot-signature x-hubspot-signature-v3 x-twilio-signature x-shopify-hmac-sha256")
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			for _, v := range []any{map[string]any{name: "sentinel"}, []any{name, "sentinel"}, map[string]any{"name": name, "value": "sentinel"}, map[string]any{"name": 12, "key": name, "value": "sentinel"}, []any{"Accept", "json", name, "sentinel"}, "Accept: json\r\n" + name + ": sentinel"} {
+			for _, v := range []any{map[string]any{name: "sentinel"}, []any{[]any{name, "sentinel"}}, []any{map[string]any{"name": name, "value": "sentinel"}}, []any{map[string]any{"name": 12, "key": name, "value": "sentinel"}}, []any{"Accept", "json", name, "sentinel"}, "Accept: json\r\n" + name + ": sentinel"} {
 				wire := buildTestEnvelope(t, Event{Operation: Received, Name: "x", Input: Payload(v)})
 				if bytes.Contains(wire, []byte("sentinel")) {
 					t.Fatal(string(wire))
@@ -230,7 +230,18 @@ func TestLiteralPropagationVectors(t *testing.T) {
 	}
 }
 func TestDerivationVectors(t *testing.T) {
-	raw, _ := os.ReadFile("../protocol/fixtures/journey-id-derivation.json")
+	finishWarnings := captureWarnings(t)
+	defer func() {
+		output := finishWarnings()
+		assertWarningLines(t, output, 1)
+		if !strings.Contains(output, "derivation_unavailable") {
+			t.Fatalf("missing derivation warning: %q", output)
+		}
+	}()
+	raw, err := os.ReadFile("../protocol/fixtures/journey-id-derivation.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var f struct {
 		Vectors []struct {
 			Name, Secret, Environment, JourneyID string
@@ -242,8 +253,15 @@ func TestDerivationVectors(t *testing.T) {
 		}
 		Refused []json.RawMessage
 	}
-	json.Unmarshal(raw, &f)
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Vectors) == 0 || len(f.Refused) == 0 || len(f.RefusedEmpty) == 0 {
+		t.Fatal("derivation fixture case lists must all be nonempty")
+	}
+	checked := 0
 	for _, v := range f.Vectors {
+		checked++
 		t.Run(v.Name, func(t *testing.T) {
 			c := testConfig()
 			c.Environment = v.Environment
@@ -255,6 +273,7 @@ func TestDerivationVectors(t *testing.T) {
 		})
 	}
 	for _, v := range f.RefusedEmpty {
+		checked++
 		c := testConfig()
 		c.JourneyIDSecret = v.Secret
 		r, d := core(t, c)
@@ -263,6 +282,7 @@ func TestDerivationVectors(t *testing.T) {
 		}
 	}
 	for _, rawCase := range f.Refused {
+		checked++
 		var v struct {
 			Name, Secret, Environment string
 			Entity                    map[string]json.RawMessage
@@ -282,6 +302,9 @@ func TestDerivationVectors(t *testing.T) {
 		})
 	}
 
+	if checked != len(f.Vectors)+len(f.Refused)+len(f.RefusedEmpty) {
+		t.Fatalf("only %d derivation cases accounted", checked)
+	}
 }
 func ptr(v int64) *int64 { return &v }
 func TestTimingLiteral(t *testing.T) {
@@ -347,4 +370,62 @@ func fixtureMalformedString(t *testing.T, raw json.RawMessage) string {
 		value = strings.Replace(value, "__SURROGATE__", invalid, 1)
 	}
 	return value
+}
+
+// Tests using this helper are deliberately sequential: os.Stderr and the
+// documented warning scope are process-wide. A temporary file cannot fill a
+// pipe and deadlock a warning-heavy failure. Cleanup restores globals on Fatal.
+func captureWarnings(t *testing.T) func() string {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "warnings-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Stderr
+	os.Stderr = f
+	processWarnings.Lock()
+	previousSeen := processWarnings.seen
+	processWarnings.seen = map[string]bool{}
+	processWarnings.Unlock()
+	var output string
+	var once sync.Once
+	finish := func() string {
+		once.Do(func() {
+			os.Stderr = previous
+			processWarnings.Lock()
+			processWarnings.seen = previousSeen
+			processWarnings.Unlock()
+			if err := f.Close(); err != nil {
+				t.Error(err)
+			}
+			raw, err := os.ReadFile(f.Name())
+			if err != nil {
+				t.Error(err)
+			}
+			output = string(raw)
+		})
+		return output
+	}
+	t.Cleanup(func() { finish() })
+	return finish
+}
+func assertWarningLines(t *testing.T, output string, want int) {
+	t.Helper()
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if output == "" {
+		lines = nil
+	}
+	if len(lines) != want {
+		t.Fatalf("got %d warning lines, want %d: %q", len(lines), want, output)
+	}
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "wayscribe: ") {
+			t.Fatalf("unexpected stderr: %q", line)
+		}
+	}
+	for _, secret := range []string{"private", "ada@example.com", "next@example.com", "+19195551234", "journey id test vector secret"} {
+		if strings.Contains(output, secret) {
+			t.Fatalf("unsafe warning: %q", output)
+		}
+	}
 }

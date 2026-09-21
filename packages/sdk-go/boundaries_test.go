@@ -2,9 +2,12 @@ package wayscribe
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"math/big"
 	"net/http"
+	"os"
+	"os/exec"
 	"reflect"
 	"runtime"
 	"strings"
@@ -50,6 +53,14 @@ func TestBigIntegerRepresentationCannotLoseDigits(t *testing.T) {
 	}
 }
 func TestDiagnosticsCountersCausesAndScopes(t *testing.T) {
+	finishWarnings := captureWarnings(t)
+	defer func() {
+		output := finishWarnings()
+		assertWarningLines(t, output, 1)
+		if !strings.Contains(output, "unredacted_secret_name field=input") {
+			t.Fatalf("missing secret-name warning: %q", output)
+		}
+	}()
 	var seen []Diagnostic
 	c := testConfig()
 	c.OnDiagnostic = func(v Diagnostic) { seen = append(seen, v) }
@@ -65,6 +76,16 @@ func TestDiagnosticsCountersCausesAndScopes(t *testing.T) {
 	}
 	if len(warnings) != 1 || warnings[0].Path != "input.items[*].serviceBearer" {
 		t.Fatalf("%+v", warnings)
+	}
+	secondReports := 0
+	r2, d2 := core(t, Config{Endpoint: c.Endpoint, APIKey: c.APIKey, Service: c.Service, Environment: c.Environment, OnDiagnostic: func(v Diagnostic) {
+		if v.Kind == "unredacted_secret_name" {
+			secondReports++
+		}
+	}})
+	buildEnvelope(r2, d2, "jrn_b", Entity{"type", "id"}, "", Event{Operation: Received, Name: "x", Input: Payload(map[string]any{"SERVICE_BEARER": "private"})})
+	if secondReports != 1 {
+		t.Fatalf("second recorder reports: %d", secondReports)
 	}
 	counts := d.snapshot()
 	if counts.UnredactedSecretNames != 1 || len(counts.DroppedByCause) != 5 {
@@ -235,9 +256,19 @@ func TestConfigEndpointAndInsecureReport(t *testing.T) {
 	}
 }
 func TestPublicWarningsProcessScope(t *testing.T) {
-	processWarnings.Lock()
-	processWarnings.seen = map[string]bool{}
-	processWarnings.Unlock()
+	finishWarnings := captureWarnings(t)
+	defer func() {
+		output := finishWarnings()
+		assertWarningLines(t, output, 6)
+		for _, field := range []string{"journey_label", "displayable_alias", "error"} {
+			for _, shape := range []string{"email", "phone"} {
+				needle := "personal_data field=" + field + " shape=" + shape
+				if strings.Count(output, needle) != 1 {
+					t.Fatalf("expected one %q warning: %q", needle, output)
+				}
+			}
+		}
+	}()
 	var reports []Diagnostic
 	d := newDiagnostics(func(v Diagnostic) { reports = append(reports, v) }, false)
 	for _, v := range []string{"node_modules/@scope/tool.js", "git@host:org/repo.git", "2026-09-21 +0000", "Received +12345678 bytes"} {
@@ -341,7 +372,7 @@ func TestPositionalWarningPaths(t *testing.T) {
 	for _, tc := range []struct {
 		v    any
 		want string
-	}{{map[string]any{"raw": "authToken: private\r\nHost: example.com"}, "input.raw"}, {map[string]any{"headers": []any{"authToken", "private"}}, "input.headers[*]"}, {map[string]any{"headers": []any{map[string]any{"name": "authToken", "value": "private"}}}, "input.headers[*]"}} {
+	}{{map[string]any{"raw": "authToken: private\r\nHost: example.com"}, "input.raw"}, {map[string]any{"headers": []any{[]any{"authToken", "private"}}}, "input.headers[*]"}, {map[string]any{"headers": []any{map[string]any{"name": "authToken", "value": "private"}}}, "input.headers[*]"}} {
 		r := captureValue(tc.v, c, "input")
 		if len(r.names) != 1 || r.names[0].Path != tc.want {
 			t.Fatalf("got %+v want %s", r.names, tc.want)
@@ -371,5 +402,95 @@ func TestOperatorRuleCanReplaceArrayElement(t *testing.T) {
 	out := captureValue(map[string]any{"items": []any{map[string]any{"public": "hidden"}, "hidden"}}, r, "input")
 	if string(jsonBytes(out.value)) != `{"items":["[REDACTED]","[REDACTED]"]}` {
 		t.Fatal(out.value)
+	}
+}
+
+// A subprocess is required: the original bug spins without returning or
+// panicking, so an ordinary goroutine timeout would leak a running capture.
+func TestPointerInterfaceCycleBounded(t *testing.T) {
+	if os.Getenv("WAYSCRIBE_TEST_POINTER_CYCLE") == "1" {
+		var loop any
+		loop = &loop
+		c, _ := core(t, testConfig())
+		for _, input := range []any{map[string]any{"ordinary": loop, "readable": "kept"}, struct {
+			Ordinary any    `json:"ordinary"`
+			Readable string `json:"readable"`
+		}{loop, "kept"}} {
+			got := captureValue(input, c, "input")
+			if string(jsonBytes(got.value)) != `{"ordinary":"[CIRCULAR]","readable":"kept"}` {
+				t.Fatalf("capture = %s", jsonBytes(got.value))
+			}
+		}
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestPointerInterfaceCycleBounded$", "-test.count=1")
+	cmd.Env = append(os.Environ(), "WAYSCRIBE_TEST_POINTER_CYCLE=1")
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatal("pointer/interface cycle capture exceeded isolated 5-second deadline")
+	}
+	if err != nil {
+		t.Fatalf("subprocess: %v\n%s", err, output)
+	}
+}
+func TestRepairedPositionalHeaderNames(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input any
+		want  string
+	}{
+		{"pair", []any{[]any{"pass\x00word", "sentinel"}}, `[["password","[REDACTED]"]]`},
+		{"interleaved", []any{"Ho\x00st", "example.test", "pass\x00word", "sentinel"}, `["Host","example.test","password","[REDACTED]"]`},
+		{"name object", []any{map[string]any{"name": "pass\x00word", "value": "sentinel", "comment": "keep"}}, `[{"comment":"keep","name":"password","value":"[REDACTED]"}]`},
+		{"key fallback", []any{map[string]any{"name": 123, "key": "pass\x00word", "value": "sentinel"}}, `[{"key":"password","name":123,"value":"[REDACTED]"}]`},
+		{"repaired object keys", []any{map[string]any{"na\x00me": "pass\x00word", "val\x00ue": "sentinel"}}, `[{"name":"password","value":"[REDACTED]"}]`},
+		{"reflected object", []any{struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		}{"pass\x00word", "sentinel"}}, `[{"name":"password","value":"[REDACTED]"}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := buildTestEnvelope(t, Event{Operation: Received, Name: "x", Input: Payload(tc.input)})
+			if bytes.Contains(wire, []byte("sentinel")) {
+				t.Fatal("unredacted sentinel in wire")
+			}
+			if got := string(jsonBytes(eventMap(t, wire)["input"])); got != tc.want {
+				t.Fatalf("got %s want %s", got, tc.want)
+			}
+		})
+	}
+}
+func TestFrozenPositionalShapeGrammar(t *testing.T) {
+	for _, input := range []any{
+		[]any{"password", "public-tag"},
+		[]any{"password", "public-tag", "ordinary", "public-value"},
+		[]any{"Host", "example.test", "password", 12},
+		[]any{"Host", "example.test", "password", "public-tag", "not a token", "value"},
+		[]any{[]any{"password", "public-tag", "third"}},
+		map[string]any{"name": "password", "value": "public-tag"},
+		[]any{map[string]any{"name": "Authorization", "value": "Content-Type", "comment": "kept"}},
+		[]any{map[string]any{"key": "Authorization", "value": "Content-Type"}},
+		[]any{map[string]any{"name": "", "key": "password", "value": "public-tag"}},
+		[]any{[]any{"Authorization", "Content-Type"}},
+		[]any{"Host", "example.test", "Authorization", "Content-Type"},
+	} {
+		c, _ := core(t, testConfig())
+		got := captureValue(input, c, "input")
+		if !bytes.Equal(jsonBytes(got.value), jsonBytes(input)) {
+			t.Errorf("changed non-header/header-name value: got %s want %s", jsonBytes(got.value), jsonBytes(input))
+		}
+	}
+}
+func TestLongOrdinaryListKeepsStringRepair(t *testing.T) {
+	c, _ := core(t, testConfig())
+	r := captureValue([]any{strings.Repeat("a", 70000), "kept"}, c, "input")
+	if r.omitted || !r.truncated {
+		t.Fatal("shape discovery replaced ordinary string truncation with omission")
+	}
+	values := r.value.([]any)
+	if utf16Length(values[0].(string)) != 65536 || values[1] != "kept" {
+		t.Fatal("ordinary list changed")
 	}
 }

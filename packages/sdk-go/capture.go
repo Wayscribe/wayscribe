@@ -263,7 +263,12 @@ func (w *captureWalk) warn(name, path string, v reflect.Value) {
 			return
 		}
 	}
-	for v.IsValid() && (v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer) {
+	// Warning discovery is advisory: stop at a fixed indirection budget. The
+	// normal walker still renders cycles and preserves readable siblings.
+	for hops := 0; v.IsValid() && (v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer); hops++ {
+		if hops >= 64 {
+			return
+		}
 		if v.IsNil() {
 			return
 		}
@@ -295,7 +300,8 @@ func pathKey(path, key string) string {
 	}
 	return path + "." + key
 }
-func (w *captureWalk) walk(v reflect.Value, depth int, path string) any {
+func (w *captureWalk) walk(v reflect.Value, depth int, path string, arrayElement ...bool) any {
+	positional := len(arrayElement) > 0 && arrayElement[0]
 	w.spend(8)
 	if depth > 32 {
 		panic(limitExceeded{})
@@ -376,7 +382,7 @@ func (w *captureWalk) walk(v reflect.Value, depth int, path string) any {
 	}
 	switch v.Kind() {
 	case reflect.Pointer:
-		return w.walk(v.Elem(), depth, path)
+		return w.walk(v.Elem(), depth, path, positional)
 	case reflect.Bool:
 		return v.Bool()
 	case reflect.String:
@@ -413,7 +419,7 @@ func (w *captureWalk) walk(v reflect.Value, depth int, path string) any {
 		for _, key := range keys {
 			fields = append(fields, captureField{key.String(), v.MapIndex(key)})
 		}
-		return w.object(fields, depth, path)
+		return w.object(fields, depth, path, positional)
 	case reflect.Struct:
 		if v.NumField() > 1000 {
 			panic(limitExceeded{})
@@ -443,15 +449,33 @@ func (w *captureWalk) walk(v reflect.Value, depth int, path string) any {
 				fields = append(fields, captureField{name, v.Field(i)})
 			}
 		}
-		return w.object(fields, depth, path)
+		return w.object(fields, depth, path, positional)
 	case reflect.Array, reflect.Slice:
 		if v.Len() > 1000 {
 			panic(limitExceeded{})
 		}
 		out := make([]any, v.Len())
 		interleaved := v.Len() >= 2 && v.Len()%2 == 0
-		for i := 0; interleaved && i < v.Len(); i += 2 {
-			_, interleaved = stringValue(v.Index(i))
+		common := false
+		for i := 0; interleaved && i < v.Len(); i++ {
+			raw, ok := stringValue(v.Index(i))
+			if !ok {
+				interleaved = false
+				break
+			}
+			if i%2 == 0 {
+				name := repairedHeaderName(raw)
+				if !headerToken.MatchString(name) {
+					interleaved = false
+					break
+				}
+				common = common || knownHeader(name)
+			}
+		}
+		interleaved = interleaved && common
+		pair := false
+		if positional && v.Len() == 2 {
+			_, pair = stringValue(v.Index(0))
 		}
 		for i := 0; i < v.Len(); i++ {
 			p := path + "[*]"
@@ -459,16 +483,21 @@ func (w *captureWalk) walk(v reflect.Value, depth int, path string) any {
 				out[i] = redacted
 				continue
 			}
-			if interleaved && i%2 == 1 {
-				name, _ := stringValue(v.Index(i - 1))
+			if (interleaved && i%2 == 1) || (pair && i == 1) {
+				rawName, _ := stringValue(v.Index(i - 1))
+				name := repairedHeaderName(rawName)
 				child, _ := stringValue(v.Index(i))
-				if w.matched(name, pathKey(path, name)) && !knownHeader(child) {
+				if w.matched(name, pathKey(path, name)) && !commonHeaderValue(child) {
 					out[i] = redacted
 					continue
 				}
-				w.warn(name, path+"[*]", v.Index(i))
+				warningPath := path + "[*]"
+				if pair {
+					warningPath = path
+				}
+				w.warn(name, warningPath, v.Index(i))
 			}
-			out[i] = w.walk(v.Index(i), depth+1, p)
+			out[i] = w.walk(v.Index(i), depth+1, p, true)
 		}
 		return out
 	default:
@@ -499,20 +528,24 @@ type captureField struct {
 	value reflect.Value
 }
 
-func (w *captureWalk) object(fields []captureField, depth int, path string) map[string]any {
+func (w *captureWalk) object(fields []captureField, depth int, path string, positional bool) map[string]any {
 	out := map[string]any{}
 	header := ""
-	for _, f := range fields {
-		if f.name == "name" {
-			header, _ = stringValue(f.value)
-		}
-	}
-	if header == "" {
+	if positional {
+		hasName := false
 		for _, f := range fields {
-			if f.name == "key" {
-				header, _ = stringValue(f.value)
+			if repairedHeaderName(f.name) == "name" {
+				header, hasName = stringValue(f.value)
 			}
 		}
+		if !hasName {
+			for _, f := range fields {
+				if repairedHeaderName(f.name) == "key" {
+					header, _ = stringValue(f.value)
+				}
+			}
+		}
+		header = repairedHeaderName(header)
 	}
 	for _, f := range fields {
 		if len(f.name) > 262144 {
@@ -526,7 +559,8 @@ func (w *captureWalk) object(fields []captureField, depth int, path string) map[
 		p := pathKey(path, name)
 		match := w.matched(name, p)
 		if name == "value" && header != "" {
-			match = match || w.matched(header, pathKey(path, header))
+			child, _ := stringValue(f.value)
+			match = match || (w.matched(header, pathKey(path, header)) && !commonHeaderValue(child))
 			if !match {
 				w.warn(header, path, f.value)
 			}
@@ -539,6 +573,51 @@ func (w *captureWalk) object(fields []captureField, depth int, path string) map[
 		}
 	}
 	return out
+}
+
+var headerToken = regexp.MustCompile("^:?[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+func repairedHeaderName(s string) string {
+	// An over-limit name cannot match a configured name or remain a header
+	// token after string truncation. Leave its normal capture to the walker;
+	// shape discovery must not turn ordinary string truncation into omission.
+	if utf8.ValidString(s) && !strings.ContainsRune(s, 0) {
+		if utf16Length(s) > 65536 {
+			return ""
+		}
+		return s
+	}
+	var b strings.Builder
+	units := 0
+	for _, r := range s {
+		if r == 0 {
+			continue
+		}
+		units++
+		if r > 0xffff {
+			units++
+		}
+		if units > 65536 {
+			return ""
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+func commonHeaderValue(s string) bool {
+	// Every recognized common header name fits in 32 ASCII characters. NUL repair
+	// can shrink a long value, so scan without copying its unbounded source.
+	var b strings.Builder
+	for _, r := range s {
+		if r == 0 {
+			continue
+		}
+		if r > 127 || b.Len() >= 32 {
+			return false
+		}
+		b.WriteByte(byte(r))
+	}
+	return knownHeader(b.String())
 }
 func knownHeader(s string) bool {
 	switch strings.ToLower(s) {
