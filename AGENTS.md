@@ -75,11 +75,11 @@ Do not add any of the following without an explicit architecture decision:
 - AI or LLM features
 - model-provider SDKs
 - BYOK configuration
-- a native SDK in another language without an architecture decision. Python has
-  one: ADR-059 makes it the next recorder, after the first release. Any other
-  language still waits for a pilot team that needs it (ADR-049). Whichever it
-  is, it is built against `docs/SDK_SPEC.md` and has to pass the conformance
-  fixtures
+- a native SDK in another language without an architecture decision. ADR-065
+  approves Python, then Go, before optional OTLP work. A language after those
+  still waits for a pilot team that needs it (ADR-049). Every native recorder
+  is built against `docs/SDK_SPEC.md` and `docs/PROPAGATION_SPEC.md` and has to
+  pass the applicable conformance fixtures
 - Kubernetes beyond the local-cluster Helm chart (ADR-042)
 - Kafka
 - ClickHouse

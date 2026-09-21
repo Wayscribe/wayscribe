@@ -1880,11 +1880,10 @@ is of the event as received, which is not stored.
 ## ADR-049: The contract is the deliverable, and a second SDK waits for a team that needs one
 
 **Status:** Accepted. Amends the wording of ADR-010 on OTLP ingestion, not its principle.
-ADR-059 supersedes one condition of this one: a second native SDK no longer waits for a team
-that needs one, because Python is next after the first release. The condition was waiting for
-the contract this decision published, and the rest of this decision stands, including that any
-second SDK is built against `docs/SDK_SPEC.md` and passes the conformance fixtures. The title
-is left as it was written.
+ADR-059 first superseded the pilot-demand condition for Python; ADR-065 now supersedes it for
+Go too and sets Python → Go → optional OTLP. The rest of this decision stands, including that
+each native SDK is built against `docs/SDK_SPEC.md` and passes the conformance fixtures. The
+title and historical rationale are left as written.
 
 ### Context
 
@@ -2842,9 +2841,10 @@ does not execute out of the images.
 ## ADR-059: Python is the next SDK
 
 **Status:** Accepted, 2026-09-17. Supersedes one condition of ADR-049, that a
-second native SDK waits for a team that needs one. The rest of ADR-049, which
-makes the contract the deliverable, stands and is what makes this decision a
-cheap one.
+second native SDK waits for a team that needs one. ADR-065 later preserves
+Python as the next SDK while replacing this decision's order after it with Go,
+then optional OTLP. The rest of ADR-049, which makes the contract the
+deliverable, stands and is what makes this decision a cheap one.
 
 ### Context
 
@@ -4350,3 +4350,89 @@ remain readable, and the UI never fetches every event detail to render timing.
   SDK inputs, retry identity ambiguity, clock overlap, filtered/paginated
   adjacency, strict/auth-scoped filters, no-JS/mobile form behavior, and packed
   SDK exports. Release claims remain gated on that evidence and review.
+
+---
+
+## ADR-065: Python, then Go, then optional OTLP, on one propagation contract
+
+**Status:** Accepted, 2026-09-20. Supersedes ADR-059's order after Python and
+ADR-049's pilot-demand condition for Go. The contract-first requirement in
+both decisions remains.
+
+### Context
+
+The first release proved the Node recorder and published a language-neutral
+event and ingestion contract. It did not freeze propagation: HTTP header names,
+SQS/SNS attribute names, payload-envelope fields, value grammar, and malformed
+input behavior still lived only in the released Node implementation.
+
+ADR-059 chose Python next, followed by optional OTLP log ingestion and then
+languages requested by pilot teams. The owner has now approved a native Go
+recorder as the third implementation. Building Python and Go before OTLP makes
+the record-oriented API available directly in the two next target ecosystems;
+OTLP remains useful interoperability for applications that do not use a native
+recorder.
+
+The same program approved a mixed-language exercise, an explicit setup and
+redaction preview, small backup and isolated-restore helpers, bounded
+per-project ingestion controls, and one project-scoped view-only capability.
+These are practical self-hosting gaps. They do not change the free core, add a
+required service, or broaden replay authority.
+
+### Decision
+
+1. [`PROPAGATION_SPEC.md`](PROPAGATION_SPEC.md) and
+   `packages/protocol/fixtures/propagation.json` freeze the released HTTP,
+   SQS/SNS, and payload-envelope behavior. The Node SDK runs those literal
+   vectors first. Later recorders use the specification and vectors rather than
+   copying Node source.
+2. The implementation sequence is Python, native Go, then optional OTLP logs
+   over HTTP. Python and Go send directly to the existing event API and do not
+   depend on OpenTelemetry. The OTLP receiver remains disabled by default;
+   traces, metrics, gRPC, and a required Collector remain out of scope.
+3. Python and Go are not complete until their applicable event and propagation
+   fixtures pass, the exact bytes are accepted by the real local dry-run API,
+   transport failure is isolated from the host, and their concurrency and
+   shutdown behavior is exercised. Go additionally needs race tests.
+4. A mixed Node → Python → Go workflow must prove one journey with identity,
+   transformation, retry/failure, and HTTP or queue-style propagation. Setup
+   checking and redaction preview use the dry-run contract, mask secret output,
+   and do not silently store journey events.
+5. Backup and restore helpers wrap PostgreSQL's tools. A restore check creates
+   a new isolated database and never overwrites an existing database. Key
+   custody stays separate.
+6. Per-project ingestion controls apply consistently to native and OTLP paths,
+   use bounded bookkeeping, and state their process or replica scope. A
+   project-scoped view-only capability may read journey status and timelines,
+   but cannot read payloads, replay, delete, or administer projects.
+
+The carrier has no environment field. A recorder uses its configured
+environment and the server binds its API key to that environment and refuses a
+journey already owned by another one. No implementation adds environment
+metadata to the released carriers merely to make local extraction decide that
+boundary.
+
+### Consequences
+
+- ADR-049's title and historical rationale stay unchanged. Its pilot condition
+  no longer applies to Python or Go; it still applies to any further native
+  language.
+- ADR-059 still decides why Python is second, while this decision replaces its
+  Python → OTLP → pilot-demand ordering with Python → Go → optional OTLP.
+- Propagation names and behavior are no longer experimental. Changing them is
+  a contract change and needs versioning and a compatibility plan.
+- None of the Python, Go, OTLP, operational, rate-control, or read-capability
+  deliverables is claimed as shipped by this decision. Each remains separate,
+  locally verified implementation work.
+
+### Alternatives rejected
+
+- **OTLP before Go.** It reaches more languages but offers a mapping rather
+  than the native record-oriented wrappers and concurrency behavior the Go
+  recorder can enforce.
+- **Adding environment to every carrier.** That breaks released carrier bytes
+  and duplicates the recorder configuration and server contract that already
+  enforce isolation.
+- **One combined implementation change.** The propagation contract, native
+  recorders, interoperability, and operator controls need independent review
+  and verification boundaries.

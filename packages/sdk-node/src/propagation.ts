@@ -5,25 +5,21 @@ import type { Entity } from "./types.js";
  * message attributes, or in an envelope around a payload.
  *
  * The rule for the names is `inject<Carrier>` and `extract<Carrier>Context`,
- * as OpenTelemetry's propagators have it. The header, attribute and envelope
- * names themselves, and their value grammar, are not yet fixed by a
- * propagation specification, so all of this is experimental until one is.
+ * as OpenTelemetry's propagators have it. The carrier names, value grammar,
+ * privacy levels and extraction behavior are fixed by
+ * `docs/PROPAGATION_SPEC.md`.
  */
 
 /**
  * What crosses a boundary. `journey-only`: the journey id. `journey-and-type`:
  * the journey id and the entity type. `full`: those and the entity id. Aliases
  * never cross, at any level.
- *
- * @experimental The names and grammar wait on the propagation specification.
  */
 export type PropagationLevel = "journey-only" | "journey-and-type" | "full";
 
 /**
  * A journey as it crossed a boundary: its id, and its entity when the level
  * sent one. A journey's own context is one.
- *
- * @experimental As `PropagationLevel`.
  */
 export interface PropagatedContext {
   journeyId: string;
@@ -34,8 +30,6 @@ export interface PropagatedContext {
  * Anything `extractHttpContext` reads: a fetch `Headers`, or a plain object of
  * header names to values such as Node's `IncomingHttpHeaders`. Values that are
  * not strings are ignored, and of a list the first is read.
- *
- * @experimental As `PropagationLevel`.
  */
 export type HttpHeadersInput =
   | { get(name: string): string | null }
@@ -43,8 +37,6 @@ export type HttpHeadersInput =
 
 /**
  * One SQS or SNS message attribute, as `injectSqsAttributes` writes it.
- *
- * @experimental As `PropagationLevel`.
  */
 export interface SqsMessageAttributeValue {
   DataType: string;
@@ -53,16 +45,13 @@ export interface SqsMessageAttributeValue {
 
 /**
  * SQS or SNS message attributes, by name.
- *
- * @experimental As `PropagationLevel`.
  */
 export type SqsMessageAttributes = Record<string, SqsMessageAttributeValue>;
 
 /**
  * A payload with the journey beside it, for a carrier with no headers or
- * attributes. The envelope's key waits on the propagation specification.
- *
- * @experimental As `PropagationLevel`.
+ * attributes. The envelope key and its fields are fixed by the propagation
+ * specification.
  */
 export interface ContextEnvelope<T> {
   _wayscribe: { journeyId: string; entityType?: string; entityId?: string };
@@ -78,8 +67,6 @@ export interface ContextEnvelope<T> {
  * `ContextEnvelope`, and the SDK's own source cast it to get past the type
  * checker; anything reproducing the shape, such as a recorder that records
  * nothing, needed the same cast (F-014, ADR-060).
- *
- * @experimental As `PropagationLevel`.
  */
 export interface NoContextEnvelope<T> {
   _wayscribe: { journeyId?: undefined };
@@ -94,8 +81,6 @@ export interface NoContextEnvelope<T> {
  * `envelope._wayscribe.journeyId` leaves the value typed as the union, however
  * the check is written. `hasJourney` is the narrowing; the usual path is
  * `extractPayload`, which hands back the context and the payload apart.
- *
- * @experimental As `PropagationLevel`.
  */
 export type PayloadEnvelope<T> = ContextEnvelope<T> | NoContextEnvelope<T>;
 
@@ -124,8 +109,6 @@ export type PayloadEnvelope<T> = ContextEnvelope<T> | NoContextEnvelope<T>;
  * Takes anything, because a body off a queue is whatever was put there, and
  * never throws: a value whose reads fail is a value with no journey, and a
  * public entry point does not propagate into the caller's code.
- *
- * @experimental As `PropagationLevel`.
  */
 export function hasJourney(envelope: unknown): envelope is ContextEnvelope<unknown> {
   if (typeof envelope !== "object" || envelope === null) return false;
@@ -145,8 +128,6 @@ export function hasJourney(envelope: unknown): envelope is ContextEnvelope<unkno
 /**
  * What `extractPayload` returns: the payload, and the journey when the body
  * was an envelope that carried a usable one.
- *
- * @experimental As `PropagationLevel`.
  */
 export interface ExtractedPayload {
   context?: PropagatedContext;

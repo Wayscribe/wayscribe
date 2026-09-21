@@ -644,9 +644,9 @@ second and not the first, checks for `_wayscribe` itself (F-034).
 
 **Aliases never propagate, at any level.** Not configurable.
 
-No propagation specification fixes the header, attribute and envelope names or
-their value grammar yet, so these helpers are experimental (see
-[Stability](#stability)).
+The header, attribute and envelope names, their value grammar, replacement and
+extraction behavior are fixed by the language-neutral
+[propagation specification](../../docs/PROPAGATION_SPEC.md) and its vectors.
 
 ## It cannot break your application
 
@@ -1485,7 +1485,7 @@ fleet against one instance. It is clamped to 1-16.
 | `environment` | none | required; must match the API key's environment |
 | `captureMode` | `redacted-payload` | or `metadata-only`, `full-payload` |
 | `redact` | `[]` | appended to the built-in secret paths; at most 1,000 |
-| `propagation` | `journey-and-type` | see [Crossing a process boundary](#crossing-a-process-boundary); experimental |
+| `propagation` | `journey-and-type` | see [Crossing a process boundary](#crossing-a-process-boundary) |
 | `batchSize` | `50` | at most 100, the server's limit |
 | `flushIntervalMs` | `1000` | |
 | `requestTimeoutMs` | `1500` | |
@@ -1612,11 +1612,6 @@ This is a 0.x release. Before 1.0 a minor release may change the API; a patch
 release will not. Most of the API is settled. These parts are **experimental**,
 marked `@experimental` in the types, and may change in a minor release:
 
-- **The propagation helpers** (`injectHttpHeaders`, `extractHttpContext`,
-  `injectSqsAttributes`, `extractSqsContext`, `injectPayload`,
-  `extractPayload`), `PropagationLevel` and the `propagation` option: the
-  header, attribute and envelope names and their value grammar wait on the
-  propagation specification.
 - **`across` and `JourneyGroup`**: the name, the deduplication and label
   rules, and what an empty group does came from one service instrumented with
   them.
@@ -1642,6 +1637,9 @@ This package is one implementation of a specification that is not about Node.
   language must do, as numbered requirements with a source for each. Read it if
   you are writing a recorder, or if you want to know why this one behaves the
   way it does.
+- **[Propagation specification](../../docs/PROPAGATION_SPEC.md)**: the exact
+  HTTP, SQS/SNS, and payload-envelope names, privacy levels, value grammar, and
+  language-neutral vectors.
 - **[Node appendix](../../docs/NODE_SDK_SPEC.md)**: the Node half: the public
   API with its signatures, the context model, the helper names, and the Node
   value renderings.

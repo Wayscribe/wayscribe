@@ -413,7 +413,7 @@ service**: no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md): 64 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md): 65 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -609,6 +609,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention, deleting data, `doctor`, metrics |
 | [Node SDK](packages/sdk-node/README.md) | The SDK's full surface |
 | [SDK specification](docs/SDK_SPEC.md) | What a recorder in any language must do, as numbered requirements with a source for each |
+| [Propagation specification](docs/PROPAGATION_SPEC.md) | The fixed HTTP, SQS/SNS, and payload-envelope carrier contract and language-neutral vectors |
 | [Demo scenario](docs/DEMO_SCENARIO.md) | The reference journey, end to end |
 | [Architecture](docs/ARCHITECTURE.md) | Components, flows, boundaries, scaling path |
 | [Event protocol](docs/EVENT_PROTOCOL.md) | The journey event contract |
@@ -668,7 +669,7 @@ site/                   wayscribe.dev: the landing page, and these docs rendered
 
 AI agents write most of the code in this repository. Jorge, the owner, makes the
 decisions, and each one is recorded with its reasoning in
-[the decision log](docs/DECISIONS.md), which holds 64 ADRs.
+[the decision log](docs/DECISIONS.md), which holds 65 ADRs.
 [What running it found](docs/WHAT_RUNNING_IT_FOUND.md) lists the defects the
 agents' tests missed and running the software found, and what changed in the
 testing because of them.

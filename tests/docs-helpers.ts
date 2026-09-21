@@ -147,6 +147,7 @@ export const AUDITED_DOCUMENTS: readonly string[] = [
   "docs/FAQ.md",
   "docs/TROUBLESHOOTING.md",
   "docs/INGESTION_CONTRACT.md",
+  "docs/PROPAGATION_SPEC.md",
   "docs/API_SPEC.md",
   "docs/ROADMAP.md",
   "docs/LOCAL_DEVELOPMENT.md",

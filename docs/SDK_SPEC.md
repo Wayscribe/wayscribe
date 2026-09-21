@@ -17,6 +17,8 @@ The documents it sits against:
   disagree about the wire, that one is right.
 - The conformance fixtures under
   [`packages/protocol/conformance/`](../packages/protocol/conformance).
+- [`PROPAGATION_SPEC.md`](PROPAGATION_SPEC.md), normative for carrier names,
+  value grammar, privacy levels, extraction, and the language-neutral vectors.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted
 as described in RFC 2119 and RFC 8174, and only when they appear in capitals.
@@ -33,13 +35,10 @@ can see which decision it comes from and nothing arrives without provenance.
 fixture that does not exist, or says a fixture cannot check it without appearing
 in section 14.
 
-**The propagation specification is pending.** Every requirement in it is a name:
-header names, queue attribute names, the value grammar, the identifier prefix.
-Those names carried the product's name, which changed on 2026-09-17 (ADR-057),
-so freezing them here before the rename would have meant publishing a contract
-and breaking it in the same month. Section 10 states only the rules that do not
-depend on a name. Header names, queue attribute names and environment variable
-names are therefore **not** specified in this document yet.
+The propagation contract and its versioned vectors are in
+[`PROPAGATION_SPEC.md`](PROPAGATION_SPEC.md). A recorder that implements one of
+those carriers runs every applicable vector in addition to the event
+conformance cases described here.
 
 ## 2. Host safety
 
@@ -322,8 +321,9 @@ may differ; it should be able to say why.
 
 ## 10. Propagation
 
-Only the rules that do not depend on a name. The names, the value grammar and
-the test vectors are the pending propagation specification.
+[`PROPAGATION_SPEC.md`](PROPAGATION_SPEC.md) is normative for carrier names,
+value grammar, replacement, extraction, and the test-vector format. These are
+the recorder-level requirements shared by every carrier.
 
 - **SDK-43.** There are three levels, and the default MUST be the middle one:
   the journey and the entity **type** propagate, and the entity **id** does not.
@@ -333,17 +333,19 @@ the test vectors are the pending propagation specification.
   operator opts into.
 - **SDK-46.** An SDK MUST NOT write `traceparent`. Reading one is section 11;
   writing one would put this product in the middle of somebody else's tracing.
-- **SDK-47.** A journey MUST NOT cross an environment boundary. A context that
-  arrives from another environment starts a new journey rather than extending
-  the old one, because the server refuses the merge.
+- **SDK-47.** A journey MUST NOT cross an environment boundary. Propagation
+  carriers do not carry an environment. The receiving recorder uses its own
+  configured environment and the server refuses an existing journey from
+  another one with `journey_environment_mismatch`; the host application must
+  start a new journey in its environment after that refusal.
 
 | ID | Source | Checked by |
 | --- | --- | --- |
-| SDK-43 | SECURITY.md section 10 | section 14 |
-| SDK-44 | SECURITY.md section 10 | section 14 |
-| SDK-45 | SECURITY.md section 10 | section 14 |
-| SDK-46 | ADR-010 | section 14 |
-| SDK-47 | ADR-038 | wire/cross-environment-journey |
+| SDK-43 | SECURITY.md section 10; ADR-065 | section 14 |
+| SDK-44 | SECURITY.md section 10; ADR-065 | section 14 |
+| SDK-45 | SECURITY.md section 10; ADR-065 | section 14 |
+| SDK-46 | ADR-010; ADR-065 | section 14 |
+| SDK-47 | ADR-038; ADR-065 | wire/cross-environment-journey |
 
 ## 11. Optional trace correlation
 
@@ -764,7 +766,7 @@ either.
 | SDK-36 | Assert nothing in normal operation sets the dry-run parameter. |
 | SDK-37, SDK-38, SDK-39 | Assert shutdown drains, aborts what is in flight, counts every undelivered event exactly once so the totals reconcile, and returns. |
 | SDK-40, SDK-41, SDK-42 | Assert nothing is printed by default, and that a printed line carries no payload, key, server message, path or query. |
-| SDK-43, SDK-44, SDK-45, SDK-46 | Assert the default level, that aliases never propagate, that the entity id propagates only at the highest level, and that `traceparent` is never written. |
+| SDK-43, SDK-44, SDK-45, SDK-46 | Run every applicable case in `packages/protocol/fixtures/propagation.json`; also assert the recorder default is the middle level and that no propagation path writes `traceparent`. |
 | SDK-48, SDK-49 | Assert trace correlation works with the tracing library present and that the SDK works without it. |
 | SDK-50 | Assert the recorder reads no ambient environment variable of its own. |
 | SDK-52 | Record a payload with a secret-named field holding a string over the limit and assert it arrives masked and is not counted as truncated; cut a payload and then force its omission and assert it is counted once, as omitted. |

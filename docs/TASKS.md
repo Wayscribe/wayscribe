@@ -326,15 +326,37 @@ the honest picture.
 - [x] Tag first development release. Protected annotated tag `v0.1.0` points to
       `f6707c66ea2697a199871a4ef4263e52aa34c11c`; its release pipeline passed.
 
+## Epic 16: Approved post-release SDK and self-hosting expansion
+
+- [x] Freeze HTTP, SQS/SNS, and payload propagation in
+      `docs/PROPAGATION_SPEC.md` and versioned language-neutral vectors; run the
+      released Node behavior against them (ADR-065).
+- [ ] Build the Python SDK against the event, ingestion, SDK, and propagation
+      contracts; run its applicable fixtures through the real local dry run and
+      dogfood it in Leadline.
+- [ ] Build the native Go SDK with the same fixture and dry-run gates, idiomatic
+      context and cancellation, concurrency safety, and race tests.
+- [ ] Exercise one Node → Python → Go journey with identity, transformation,
+      retry/failure, and HTTP or queue-style propagation.
+- [ ] Add an explicit setup check and secret-masked redaction preview over the
+      dry-run contract without silently storing journey events.
+- [ ] Add optional OTLP logs over HTTP, disabled by default, after the native
+      SDKs. Traces, metrics, gRPC, and a required Collector stay out of scope.
+- [ ] Add PostgreSQL backup and isolated-restore helpers with separate key
+      custody and no overwrite of an existing database.
+- [ ] Add bounded per-project ingestion controls shared by native and OTLP
+      paths, with honest process and replica scope.
+- [ ] Add a project-scoped view-only capability for journey status and
+      timelines, excluding payloads, replay, deletion, and administration.
+
 ## Explicitly deferred
 
-- [ ] Python SDK
-- [ ] Go SDK
+- [ ] Native SDKs after the approved Python and Go sequence, by pilot demand
 - [ ] automatic PostgreSQL CDC
 - [ ] Kafka
 - [x] Kubernetes: a Helm chart for a local single-node cluster, `deploy/helm`
       (ADR-042). Managed clusters remain untested.
-- [ ] OTLP receiver
+- [ ] OTLP traces, metrics, and gRPC
 - [ ] S3 payload storage
 - [ ] ClickHouse
 - [ ] production replay

@@ -1,0 +1,503 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "default privacy omits entity id and strips stale HTTP context",
+      "carrier": "http",
+      "action": "inject",
+      "input": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD-42" } },
+        "level": "journey-and-type",
+        "carrier": { "X-Wayscribe-Entity-Id": "stale", "accept": "application/json" }
+      },
+      "expected": {
+        "accept": "application/json",
+        "x-wayscribe-journey-id": "jrn_123",
+        "x-wayscribe-entity-type": "order"
+      }
+    },
+    {
+      "name": "journey-only HTTP strips every stale identity and preserves traceparent",
+      "carrier": "http",
+      "action": "inject",
+      "input": {
+        "context": {
+          "journeyId": "jrn_123",
+          "entity": { "type": "order", "id": "ORD-42" },
+          "aliases": [{ "type": "external", "value": "private" }]
+        },
+        "level": "journey-only",
+        "carrier": {
+          "X-Wayscribe-Journey-Id": "jrn_old",
+          "x-wayscribe-entity-type": "customer",
+          "X-WAYSCRIBE-ENTITY-ID": "old-id",
+          "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        }
+      },
+      "expected": {
+        "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+        "x-wayscribe-journey-id": "jrn_123"
+      }
+    },
+    {
+      "name": "full HTTP emits the complete identity",
+      "carrier": "http",
+      "action": "inject",
+      "input": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD-42" } },
+        "level": "full",
+        "carrier": { "content-type": "application/json" }
+      },
+      "expected": {
+        "content-type": "application/json",
+        "x-wayscribe-journey-id": "jrn_123",
+        "x-wayscribe-entity-type": "order",
+        "x-wayscribe-entity-id": "ORD-42"
+      }
+    },
+    {
+      "name": "full HTTP omits a non-ASCII entity id",
+      "carrier": "http",
+      "action": "inject",
+      "input": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "customer", "id": "顧客-42" } },
+        "level": "full",
+        "carrier": {}
+      },
+      "expected": { "x-wayscribe-journey-id": "jrn_123", "x-wayscribe-entity-type": "customer" }
+    },
+    {
+      "name": "full HTTP omits an entity id with a control character",
+      "carrier": "http",
+      "action": "inject",
+      "input": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "customer", "id": "C123\r" } },
+        "level": "full",
+        "carrier": {}
+      },
+      "expected": { "x-wayscribe-journey-id": "jrn_123", "x-wayscribe-entity-type": "customer" }
+    },
+    {
+      "name": "full HTTP emits a 256-character entity id",
+      "carrier": "http",
+      "action": "inject",
+      "input": {
+        "context": {
+          "journeyId": "jrn_123",
+          "entity": {
+            "type": "customer",
+            "id": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+          }
+        },
+        "level": "full",
+        "carrier": {}
+      },
+      "expected": {
+        "x-wayscribe-journey-id": "jrn_123",
+        "x-wayscribe-entity-type": "customer",
+        "x-wayscribe-entity-id": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+      }
+    },
+    {
+      "name": "full HTTP omits a 257-character entity id",
+      "carrier": "http",
+      "action": "inject",
+      "input": {
+        "context": {
+          "journeyId": "jrn_123",
+          "entity": {
+            "type": "customer",
+            "id": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+          }
+        },
+        "level": "full",
+        "carrier": {}
+      },
+      "expected": { "x-wayscribe-journey-id": "jrn_123", "x-wayscribe-entity-type": "customer" }
+    },
+    {
+      "name": "HTTP extraction folds mixed-case names",
+      "carrier": "http",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "X-Wayscribe-Journey-Id": "jrn_123",
+          "X-WAYSCRIBE-ENTITY-TYPE": "order",
+          "x-Wayscribe-Entity-Id": "ORD-42",
+          "X-Unknown": "kept-outside-context"
+        }
+      },
+      "expected": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD-42" } }
+    },
+    {
+      "name": "HTTP extraction reads the first string in a list",
+      "carrier": "http",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "x-wayscribe-journey-id": ["jrn_first", "jrn_second"],
+          "x-wayscribe-entity-type": ["order", "customer"],
+          "x-wayscribe-entity-id": ["ORD-1", "CUS-2"]
+        }
+      },
+      "expected": { "journeyId": "jrn_first", "entity": { "type": "order", "id": "ORD-1" } }
+    },
+    {
+      "name": "HTTP extraction rejects a list whose first value is not a string",
+      "carrier": "http",
+      "action": "extract",
+      "input": { "carrier": { "x-wayscribe-journey-id": [7, "jrn_second"] } },
+      "expected": null
+    },
+    {
+      "name": "HTTP extraction rejects an empty journey id",
+      "carrier": "http",
+      "action": "extract",
+      "input": { "carrier": { "x-wayscribe-journey-id": "" } },
+      "expected": null
+    },
+    {
+      "name": "HTTP extraction rejects an invalid journey prefix",
+      "carrier": "http",
+      "action": "extract",
+      "input": { "carrier": { "x-wayscribe-journey-id": "trace_123" } },
+      "expected": null
+    },
+    {
+      "name": "HTTP extraction rejects a non-ASCII journey id",
+      "carrier": "http",
+      "action": "extract",
+      "input": { "carrier": { "x-wayscribe-journey-id": "jrn_顧客" } },
+      "expected": null
+    },
+    {
+      "name": "HTTP extraction rejects a journey id with a control character",
+      "carrier": "http",
+      "action": "extract",
+      "input": { "carrier": { "x-wayscribe-journey-id": "jrn_123\nforged" } },
+      "expected": null
+    },
+    {
+      "name": "HTTP extraction accepts a 256-character journey id",
+      "carrier": "http",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "x-wayscribe-journey-id": "jrn_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "expected": {
+        "journeyId": "jrn_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "HTTP extraction rejects a 257-character journey id",
+      "carrier": "http",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "x-wayscribe-journey-id": "jrn_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "HTTP extraction drops an incomplete optional identity",
+      "carrier": "http",
+      "action": "extract",
+      "input": {
+        "carrier": { "x-wayscribe-journey-id": "jrn_123", "x-wayscribe-entity-type": "order" }
+      },
+      "expected": { "journeyId": "jrn_123" }
+    },
+    {
+      "name": "HTTP extraction drops both optional identity fields when one is malformed",
+      "carrier": "http",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "x-wayscribe-journey-id": "jrn_123",
+          "x-wayscribe-entity-type": "order",
+          "x-wayscribe-entity-id": "ORD 42"
+        }
+      },
+      "expected": { "journeyId": "jrn_123" }
+    },
+    {
+      "name": "HTTP extraction prefers the canonical lower-case key over another case",
+      "carrier": "http",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "x-wayscribe-journey-id": "jrn_canonical",
+          "X-Wayscribe-Journey-Id": "jrn_other"
+        }
+      },
+      "expected": { "journeyId": "jrn_canonical" }
+    },
+    {
+      "name": "journey-only SQS strips exact stale attributes and preserves differently-cased fields",
+      "carrier": "sqs",
+      "action": "inject",
+      "input": {
+        "context": {
+          "journeyId": "jrn_123",
+          "entity": { "type": "order", "id": "ORD-42" },
+          "aliases": [{ "type": "external", "value": "private" }]
+        },
+        "level": "journey-only",
+        "carrier": {
+          "wayscribeEntityType": { "DataType": "String", "StringValue": "old" },
+          "wayscribeEntityId": { "DataType": "String", "StringValue": "old-id" },
+          "WayscribeJourneyId": { "DataType": "String", "StringValue": "case-sensitive-extra" },
+          "traceparent": {
+            "DataType": "String",
+            "StringValue": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+          }
+        }
+      },
+      "expected": {
+        "WayscribeJourneyId": { "DataType": "String", "StringValue": "case-sensitive-extra" },
+        "traceparent": {
+          "DataType": "String",
+          "StringValue": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        },
+        "wayscribeJourneyId": { "DataType": "String", "StringValue": "jrn_123" }
+      }
+    },
+    {
+      "name": "default SQS emits journey and type",
+      "carrier": "sqs",
+      "action": "inject",
+      "input": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD-42" } },
+        "level": "journey-and-type",
+        "carrier": { "tenant": { "DataType": "String", "StringValue": "acme" } }
+      },
+      "expected": {
+        "tenant": { "DataType": "String", "StringValue": "acme" },
+        "wayscribeJourneyId": { "DataType": "String", "StringValue": "jrn_123" },
+        "wayscribeEntityType": { "DataType": "String", "StringValue": "order" }
+      }
+    },
+    {
+      "name": "full SQS emits the complete identity",
+      "carrier": "sqs",
+      "action": "inject",
+      "input": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD-42" } },
+        "level": "full",
+        "carrier": {}
+      },
+      "expected": {
+        "wayscribeJourneyId": { "DataType": "String", "StringValue": "jrn_123" },
+        "wayscribeEntityType": { "DataType": "String", "StringValue": "order" },
+        "wayscribeEntityId": { "DataType": "String", "StringValue": "ORD-42" }
+      }
+    },
+    {
+      "name": "full SQS omits an unsafe entity id",
+      "carrier": "sqs",
+      "action": "inject",
+      "input": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD/42" } },
+        "level": "full",
+        "carrier": {}
+      },
+      "expected": {
+        "wayscribeJourneyId": { "DataType": "String", "StringValue": "jrn_123" },
+        "wayscribeEntityType": { "DataType": "String", "StringValue": "order" }
+      }
+    },
+    {
+      "name": "SQS extraction reads String attributes",
+      "carrier": "sqs",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "wayscribeJourneyId": { "DataType": "String", "StringValue": "jrn_123" },
+          "wayscribeEntityType": { "DataType": "String", "StringValue": "order" },
+          "wayscribeEntityId": { "DataType": "String", "StringValue": "ORD-42" },
+          "unknown": { "DataType": "String", "StringValue": "ignored" }
+        }
+      },
+      "expected": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD-42" } }
+    },
+    {
+      "name": "SQS extraction uses StringValue regardless of declared DataType",
+      "carrier": "sqs",
+      "action": "extract",
+      "input": {
+        "carrier": { "wayscribeJourneyId": { "DataType": "Number", "StringValue": "jrn_123" } }
+      },
+      "expected": { "journeyId": "jrn_123" }
+    },
+    {
+      "name": "SQS extraction accepts a plain string map",
+      "carrier": "sqs",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "wayscribeJourneyId": "jrn_123",
+          "wayscribeEntityType": "order",
+          "wayscribeEntityId": "ORD-42"
+        }
+      },
+      "expected": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD-42" } }
+    },
+    {
+      "name": "SQS extraction is case-sensitive",
+      "carrier": "sqs",
+      "action": "extract",
+      "input": {
+        "carrier": { "WayscribeJourneyId": { "DataType": "String", "StringValue": "jrn_123" } }
+      },
+      "expected": null
+    },
+    {
+      "name": "SQS extraction rejects an empty journey id",
+      "carrier": "sqs",
+      "action": "extract",
+      "input": { "carrier": { "wayscribeJourneyId": "" } },
+      "expected": null
+    },
+    {
+      "name": "SQS extraction drops malformed optional identity",
+      "carrier": "sqs",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "wayscribeJourneyId": "jrn_123",
+          "wayscribeEntityType": "order",
+          "wayscribeEntityId": { "DataType": "String", "StringValue": 42 }
+        }
+      },
+      "expected": { "journeyId": "jrn_123" }
+    },
+    {
+      "name": "journey-only payload contains no identity",
+      "carrier": "payload",
+      "action": "inject",
+      "input": {
+        "context": {
+          "journeyId": "jrn_123",
+          "entity": { "type": "order", "id": "ORD-42" },
+          "aliases": [{ "type": "external", "value": "private" }]
+        },
+        "level": "journey-only",
+        "data": { "order": 42 }
+      },
+      "expected": { "_wayscribe": { "journeyId": "jrn_123" }, "data": { "order": 42 } }
+    },
+    {
+      "name": "default payload contains journey and type",
+      "carrier": "payload",
+      "action": "inject",
+      "input": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD-42" } },
+        "level": "journey-and-type",
+        "data": [1, 2, 3]
+      },
+      "expected": {
+        "_wayscribe": { "journeyId": "jrn_123", "entityType": "order" },
+        "data": [1, 2, 3]
+      }
+    },
+    {
+      "name": "full payload contains the complete identity",
+      "carrier": "payload",
+      "action": "inject",
+      "input": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD-42" } },
+        "level": "full",
+        "data": "job"
+      },
+      "expected": {
+        "_wayscribe": { "journeyId": "jrn_123", "entityType": "order", "entityId": "ORD-42" },
+        "data": "job"
+      }
+    },
+    {
+      "name": "full payload omits an unsafe entity id",
+      "carrier": "payload",
+      "action": "inject",
+      "input": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD 42" } },
+        "level": "full",
+        "data": null
+      },
+      "expected": { "_wayscribe": { "journeyId": "jrn_123", "entityType": "order" }, "data": null }
+    },
+    {
+      "name": "payload extraction unwraps a complete context",
+      "carrier": "payload",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "_wayscribe": { "journeyId": "jrn_123", "entityType": "order", "entityId": "ORD-42" },
+          "data": { "order": 42 }
+        }
+      },
+      "expected": {
+        "context": { "journeyId": "jrn_123", "entity": { "type": "order", "id": "ORD-42" } },
+        "data": { "order": 42 }
+      }
+    },
+    {
+      "name": "payload extraction passes through a body without an envelope",
+      "carrier": "payload",
+      "action": "extract",
+      "input": { "carrier": { "plain": true, "data": "belongs-to-body" } },
+      "expected": { "context": null, "data": { "plain": true, "data": "belongs-to-body" } }
+    },
+    {
+      "name": "payload extraction unwraps data from an empty context envelope",
+      "carrier": "payload",
+      "action": "extract",
+      "input": { "carrier": { "_wayscribe": {}, "data": { "order": 42 } } },
+      "expected": { "context": null, "data": { "order": 42 } }
+    },
+    {
+      "name": "payload extraction unwraps data from a malformed context envelope",
+      "carrier": "payload",
+      "action": "extract",
+      "input": { "carrier": { "_wayscribe": { "journeyId": "bad" }, "data": 42 } },
+      "expected": { "context": null, "data": 42 }
+    },
+    {
+      "name": "payload envelope key is case-sensitive",
+      "carrier": "payload",
+      "action": "extract",
+      "input": { "carrier": { "_Wayscribe": { "journeyId": "jrn_123" }, "data": 42 } },
+      "expected": {
+        "context": null,
+        "data": { "_Wayscribe": { "journeyId": "jrn_123" }, "data": 42 }
+      }
+    },
+    {
+      "name": "payload extraction ignores unknown envelope and carrier fields",
+      "carrier": "payload",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "_wayscribe": { "journeyId": "jrn_123", "unknown": "ignored" },
+          "data": "job",
+          "outside": "ignored"
+        }
+      },
+      "expected": { "context": { "journeyId": "jrn_123" }, "data": "job" }
+    },
+    {
+      "name": "payload extraction drops both optional identity fields when one is malformed",
+      "carrier": "payload",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "_wayscribe": { "journeyId": "jrn_123", "entityType": "order", "entityId": "ORD/42" },
+          "data": "job"
+        }
+      },
+      "expected": { "context": { "journeyId": "jrn_123" }, "data": "job" }
+    }
+  ]
+}

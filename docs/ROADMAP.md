@@ -58,29 +58,34 @@ Presenting the work, and closing what the last review opened.
   conformance fixtures under `packages/protocol/conformance/` that any
   implementation can run through the dry run (ADR-049). The fixtures are what
   prove the protocol is genuinely language-neutral rather than TypeScript-shaped.
-  The propagation specification and its test vectors are not part of this yet:
-  every requirement in them is a header name, a queue attribute name or an
-  environment variable name, and all of those carried the product name until the
-  rename to Wayscribe (ADR-057). With the names settled, it can be written.
-- **OpenTelemetry log ingest.** `POST /v1/logs` accepting OTLP
-  over HTTP, so a team already exporting logs can map them onto journey events
-  without adding a recorder. gRPC is out of scope: it is a second transport and a
-  second dependency for a path that is already optional. The Node SDK stays the
-  recommended path for Node, because the input and output pairing the diff needs
-  is something a recorder knows and a log line does not. It waited for the
-  rename because the attribute names it reads carry the product prefix, which is
-  now `wayscribe` (ADR-057).
+  **Propagation is now part of it:** `docs/PROPAGATION_SPEC.md` and versioned
+  literal vectors freeze the released HTTP, SQS/SNS and payload-envelope
+  behavior, and the Node SDK runs them (ADR-065).
 
 - **A Python SDK, after the first release.** Python is where most of the
   pipelines, workers and integrations this tool is for are written, so it is the
   next recorder rather than one that waits for a request. It is built against
-  `docs/SDK_SPEC.md`, checked with the conformance fixtures through the dry run,
-  and dogfooded by adding a Python service to the Leadline project. ADR-049 said
-  a second SDK waits for a team that needs one; that was written before the
-  contract, the fixtures and the dry run existed, and they are what make a second
-  SDK a normal piece of work instead of a second product. ADR-059 supersedes that
-  condition and sets the order: Python, then OpenTelemetry log ingest, then
-  further languages by what pilot teams ask for.
+  `docs/SDK_SPEC.md` and `docs/PROPAGATION_SPEC.md`, checked with the conformance
+  fixtures through the real local dry run, and dogfooded by adding a Python
+  service to the Leadline project. That implementation and dogfood work remain
+  open.
+- **A native Go SDK, after Python.** It uses the same contracts and literal
+  propagation vectors, sends directly to the existing API, and adds idiomatic
+  context, cancellation, concurrency safety and race tests. It is followed by a
+  mixed Node → Python → Go workflow; neither the SDK nor that workflow is built
+  yet.
+- **Optional OpenTelemetry log ingest, after Go.** `POST /v1/logs` accepts OTLP
+  over HTTP only when enabled, so a team already exporting logs can map them
+  onto journey events without adding a recorder. gRPC, traces and metrics are
+  out of scope. Native SDKs do not depend on this path. The Node SDK stays the
+  recommended path for Node because a recorder enforces the input/output pairing
+  the payload diff needs. The endpoint is planned and is not built yet.
+- **Practical self-hosting additions after the carrier contract.** The approved
+  program includes a setup check and secret-masked redaction preview over dry
+  run; backup and isolated-restore helpers; bounded per-project ingestion
+  controls with explicit replica scope; and a project-scoped view-only
+  capability that excludes payloads, replay, deletion and administration. Each
+  is separate implementation work and none is shipped yet (ADR-065).
 
 - ~~**Per-record timing and context, before the first release.**~~ **Built:**
   Wayscribe presents bounded evidence about one record; aggregate latency and
@@ -164,9 +169,9 @@ Release 0.1.0 made the distribution path visible. The operational follow-up is:
 
 - Fastify, Express, and fetch/Axios adapters for the stacks pilot teams actually
   run, as separate packages over the SDK's public API (ADR-049)
-- SDKs in languages beyond Python, by what pilot teams ask for (ADR-049,
-  ADR-059), built against `docs/SDK_SPEC.md` and checked with the conformance
-  fixtures
+- SDKs in languages beyond Python and Go, by what pilot teams ask for
+  (ADR-049, ADR-065), built against `docs/SDK_SPEC.md` and
+  `docs/PROPAGATION_SPEC.md` and checked with the conformance fixtures
 - S3-compatible payload storage, backup and restore tooling
 - an audit-log interface, retention and legal-hold controls
 - high-availability deployment

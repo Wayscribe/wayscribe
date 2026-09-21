@@ -45,9 +45,11 @@ ids onto each event, so you can move between the two. It never writes
 
 [ADR-049](DECISIONS.md#adr-049-the-contract-is-the-deliverable-and-a-second-sdk-waits-for-a-team-that-needs-one)
 makes OpenTelemetry log records over OTLP HTTP a planned, optional way to send
-events. It rejected becoming a pure OpenTelemetry backend: the pairing of input
-and output that the payload diff depends on would become a convention nothing
-enforces. OTLP ingestion is not built yet.
+events, and [ADR-065](DECISIONS.md#adr-065-python-then-go-then-optional-otlp-on-one-propagation-contract)
+places it after the Python and Go SDKs. It rejected becoming a pure
+OpenTelemetry backend: the pairing of input and output that the payload diff
+depends on would become a convention nothing enforces. OTLP ingestion is not
+built yet.
 
 ## Why is Node the first SDK?
 
@@ -61,14 +63,17 @@ workers and integrations this tool is for are written in it.
 said a second SDK waits for a team that needs one, and that held while there was
 no contract to build one against. There is one now, so the cost of a second SDK
 is its build and its maintenance rather than a second design, and ADR-059
-supersedes that condition for Python. Languages after Python follow what pilot
-teams ask for; OpenTelemetry log ingest covers the rest in the meantime.
+supersedes that condition for Python. ADR-065 approves Go after Python, then
+optional OTLP log ingestion; languages after Go follow what pilot teams ask
+for. The Python SDK, Go SDK and OTLP endpoint are not built yet.
 
 What was built instead is the contract a recorder in any language is written
 against: the [ingestion contract](INGESTION_CONTRACT.md), JSON Schema generated
 from the server's own schemas, a language-neutral
 [SDK specification](SDK_SPEC.md), a dry-run endpoint, and conformance fixtures
-that a new SDK runs before it counts as done.
+that a new SDK runs before it counts as done. HTTP, SQS/SNS, and payload
+propagation are fixed separately by the
+[propagation specification](PROPAGATION_SPEC.md) and literal vectors.
 
 ## Can I send events without the Node SDK?
 
