@@ -41,6 +41,10 @@ wrappers, projections, explicit retry attempts and one callback over several
 deduplicated journeys. Propagation helpers accept typed Go carrier maps and
 also decode the shared JSON fixture shapes. Preserve the exact released
 carrier grammar, privacy defaults, stripping and context extraction semantics.
+As with Python, resuming a carrier-valid journey ID longer than the event
+protocol's 128-character limit emits a safe diagnostic and starts a fresh ID;
+standalone carrier helpers keep the frozen 256-character grammar. Explicitly
+chosen journey IDs are never silently replaced and retain required-field refusal.
 Provide context.WithValue helpers with an unexported key type for a caller who
 wants to carry a journey through Go functions; context cancellation remains
 unchanged. This process-local convenience does not invent wire metadata.

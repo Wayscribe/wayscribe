@@ -51,6 +51,11 @@ Public recorder methods:
 - `resume(context, *, entity)` → Journey, continuing only a usable context.
   The caller supplies the authoritative entity because the default propagation
   level intentionally omits its identifier. Document environment isolation.
+  A carrier-valid journey ID longer than the event protocol's 128-character
+  limit is not usable here: emit a safe call-time diagnostic and create a fresh
+  unpredictable ID. Standalone carrier helpers retain their frozen 256-character
+  grammar. An explicit `journey_id` is never silently replaced; invalid required
+  identity remains a refused record.
 - `for_entity(entity, *, label=None)` → Journey using the shared HMAC vectors.
 - `across(journeys)` → a Journey-compatible operation target; callbacks execute
   once, deduplicated journeys get separate event IDs and a shared time/duration.
