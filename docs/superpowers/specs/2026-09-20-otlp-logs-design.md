@@ -94,7 +94,9 @@ binary decoder has request-local budgets of 262,144 uint32 reader operations and
 65,536 known message entries; library wire reads are guarded against malformed
 field types and scalar overflow without a second wire decoder. JSON preflight
 limits structural depth to 128 and structural/token work to 262,144 units before
-parsing, including unknown fields. Numeric lexemes are at most 128 characters;
+parsing, including unknown fields. Each opening/closing container, comma, colon,
+and opening quote outside a string counts as one JSON work unit; escaped bytes
+inside strings do not add units. Numeric lexemes are at most 128 characters;
 exponent magnitude is at most 10,000, and exact integer conversion expands no
 more than 20 significant decimal digits before range checking. These adapter
 bounds may require smaller batches or shallower values than the native event
