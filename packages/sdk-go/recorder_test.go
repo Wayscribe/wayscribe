@@ -303,7 +303,7 @@ func TestWrapperProjectionAndFailureSemantics(t *testing.T) {
 		t.Fatal(es)
 	}
 	for _, e := range es {
-		if e["operation"] != "failed" || e["input"].(map[string]any)["before"] != true || e["metadata"].(map[string]any)["before"] != true || e["output"].(map[string]any)["journey"] != e["journeyId"] || e["error"].(map[string]any)["code"] != "DECLINED" {
+		if e["operation"] != "published" || e["input"].(map[string]any)["before"] != true || e["metadata"].(map[string]any)["before"] != true || e["output"].(map[string]any)["journey"] != e["journeyId"] || e["error"].(map[string]any)["code"] != "DECLINED" {
 			t.Fatal(e)
 		}
 	}
@@ -326,5 +326,66 @@ func TestAllNaturalOperationsAndGroupMembership(t *testing.T) {
 		if es[i]["operation"] != op {
 			t.Fatal(es)
 		}
+	}
+}
+
+func TestFailedDeliveryKeepsAttemptOperation(t *testing.T) {
+	r, s := testRecorder(t, nil)
+	j := r.Journey(Entity{"order", "delivery"})
+	original := &Order{"delivery"}
+	firstErr := errors.New("first delivery refused")
+	retryErr := errors.New("second delivery refused")
+	for _, attempt := range []struct {
+		number int
+		err    error
+	}{{1, firstErr}, {2, retryErr}} {
+		result, err := Deliver(context.Background(), j, "deliver", original, func(context.Context) (*Order, error) { return original, attempt.err }, Options[*Order, *Order]{Attempt: attempt.number})
+		if result != original || err != attempt.err {
+			t.Fatal("delivery changed host value/error identity")
+		}
+	}
+	es := flushedEvents(t, r, s)
+	if len(es) != 2 {
+		t.Fatal(es)
+	}
+	for i, want := range []struct {
+		op, message string
+		attempt     float64
+	}{{"delivered", "first delivery refused", 1}, {"retried", "second delivery refused", 2}} {
+		e := es[i]
+		if e["operation"] != want.op || e["error"].(map[string]any)["message"] != want.message || e["metadata"].(map[string]any)["attempt"] != want.attempt {
+			t.Fatalf("attempt %d: %v", i+1, e)
+		}
+	}
+}
+
+func TestDeliveryPanicAndClassifierKeepAttemptOperation(t *testing.T) {
+	r, s := testRecorder(t, nil)
+	j := r.Journey(Entity{"order", "delivery"})
+	panicSentinel := errors.New("delivery panic")
+	func() {
+		defer func() {
+			if recover() != panicSentinel {
+				t.Fatal("delivery panic identity changed")
+			}
+		}()
+		Deliver(context.Background(), j, "panic", 0, func(context.Context) (int, error) { panic(panicSentinel) })
+	}()
+	result, err := Deliver(context.Background(), j, "classified", 0, func(context.Context) (int, error) { return 42, nil }, Options[int, int]{IsFailure: func(int) *FailureReason { return &FailureReason{Message: "delivery declined", Code: "DECLINED"} }})
+	if result != 42 || err != nil {
+		t.Fatal("classifier changed host return", result, err)
+	}
+	j.Fail("dead-letter", errors.New("terminal failure"))
+	es := flushedEvents(t, r, s)
+	if len(es) != 3 {
+		t.Fatal(es)
+	}
+	for i, want := range []struct{ op, message string }{{"delivered", "delivery panic"}, {"delivered", "delivery declined"}, {"failed", "terminal failure"}} {
+		if es[i]["operation"] != want.op || es[i]["error"].(map[string]any)["message"] != want.message {
+			t.Fatalf("event %d: %v", i, es[i])
+		}
+	}
+	if es[1]["error"].(map[string]any)["code"] != "DECLINED" {
+		t.Fatal(es[1])
 	}
 }

@@ -155,7 +155,10 @@ output/metadata projections run per journey on the result. Projection contexts
 are detached. Metadata projections override static keys; explicit `Attempt`
 wins over metadata. An attempt above one records `retried` with that attempt's
 own error. `IsFailure` runs once for a successful callback; a non-nil reason
-records its `Message`/`Code` as failure without changing the host return.
+populates `error` with its `Message`/`Code` without changing the host return.
+Callback errors, panics and classified failures retain the attempt's natural
+operation; attempts above one still use `retried`. Use `Journey.Fail` or
+`Group.Fail` for an explicit terminal `failed` event.
 A projection panic captures `[UNCAPTURABLE]`; a metadata projection panic keeps
 static metadata, and a classifier panic preserves normal result interpretation.
 Metadata-only mode skips payload projections. Optional variadic options accept

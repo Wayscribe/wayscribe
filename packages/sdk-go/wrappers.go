@@ -188,7 +188,6 @@ func wrap[I, T any](ctx context.Context, target Target, op Operation, name strin
 			for i, s := range ss {
 				e := events[i]
 				if failure != nil {
-					e.Operation = Failed
 					e.Error = failure
 				}
 				s.record(e)
