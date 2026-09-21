@@ -114,8 +114,8 @@ class BoundedReader extends protobuf.Reader {
           : (protobuf.types.basic as Record<string, number | undefined>)[kind];
       if (wire === undefined || (value & 7) !== wire) invalid();
       // Only these library field readers consume uint32 after the tag.
-      frame.tag = !["uint32", "int32", "bool", "string", "bytes"].includes(kind) && wire !== 2;
-      frame.wide = kind === "int32" || kind === "bool";
+      frame.tag = !["uint32", "bool", "string", "bytes"].includes(kind) && wire !== 2;
+      frame.wide = kind === "bool";
     }
     return value;
   }
@@ -133,6 +133,29 @@ class BoundedReader extends protobuf.Reader {
       for (let index = start + 5; index < this.pos; index++)
         if ((this.buf[index] ?? 0) & 0x7f) invalid();
     }
+  }
+  override int32(): number {
+    const start = this.pos;
+    // The pinned uint32 reader skips to byte 10 after a continuing fifth byte.
+    // Use the library's int64 read so valid redundant 6–9-byte int32 encodings
+    // work, then validate zero/sign extension before using its signed low word.
+    const value = super.int64();
+    this.varintEnd(start, true);
+    const length = this.pos - start;
+    if (length >= 5) {
+      const fifth = (this.buf[start + 4] ?? 0) & 0x7f;
+      if (fifth <= 0x0f) {
+        // At most 32 value bits, including five-byte negative int32 forms.
+        for (let index = start + 5; index < this.pos; index++)
+          if ((this.buf[index] ?? 0) & 0x7f) invalid();
+      } else {
+        // A negative signed 32-bit value must extend bit 31 through all higher bits.
+        if (length !== 10 || (fifth & 0x78) !== 0x78 || this.buf[this.pos - 1] !== 1) invalid();
+        for (let index = start + 5; index < this.pos - 1; index++)
+          if (this.buf[index] !== 0xff) invalid();
+      }
+    }
+    return value.low;
   }
   override int64(): protobuf.Long {
     const start = this.pos;
@@ -292,6 +315,12 @@ function parseJson(body: Buffer): unknown {
     }
   ) as unknown;
 }
+function boundedExponent(source: string | undefined): number {
+  const exponent = Number(source ?? 0);
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > OTLP_LIMITS.exponentMagnitude)
+    limit();
+  return exponent;
+}
 function integer(value: unknown, min: bigint, max: bigint): bigint {
   const source = value instanceof NumericLexeme ? value.source : value;
   if (typeof source !== "string") invalid();
@@ -299,9 +328,7 @@ function integer(value: unknown, min: bigint, max: bigint): bigint {
   const match = /^(-?)(0|[1-9][0-9]*)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?$/.exec(source);
   if (!match) invalid();
   const fraction = match[3] ?? "";
-  const exponent = Number(match[4] ?? 0);
-  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > OTLP_LIMITS.exponentMagnitude)
-    limit();
+  const exponent = boundedExponent(match[4]);
   let digits = (String(match[2]) + fraction).replace(/^0+/, "");
   let scale = exponent - fraction.length;
   if (!digits) return 0n;
@@ -375,12 +402,11 @@ function scalar(value: unknown, field: protobuf.Field, encoding: OtlpEncoding): 
       if (typeof value === "string" && ["NaN", "Infinity", "-Infinity"].includes(value))
         return Number(value);
       const source = value instanceof NumericLexeme ? value.source : value;
-      if (
-        typeof source !== "string" ||
-        !/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/.test(source)
-      )
-        invalid();
+      if (typeof source !== "string") invalid();
       if (source.length > OTLP_LIMITS.numericCharacters) limit();
+      const match = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE]([+-]?[0-9]+))?$/.exec(source);
+      if (!match) invalid();
+      boundedExponent(match[1]);
       const result = Number(source);
       if (!Number.isFinite(result)) invalid();
       return result;

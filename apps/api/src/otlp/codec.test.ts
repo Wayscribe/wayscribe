@@ -484,3 +484,51 @@ it("merges a newly present nested AnyValue member without treating prototype nul
     arrayValue: { values: [] }
   });
 });
+
+describe("review: exact int32 wire values", () => {
+  it.each([
+    "0a0a12081206108080808010",
+    "0a0a1208120610ffffffff7f",
+    "0a0f120d120b10fffffffff7ffffffff01",
+    "0a0f120d120b10ffffffff8fffffffff01"
+  ])("rejects int32 high-bit overflow %s", (hex) => {
+    expect(() => decodeExport(Buffer.from(hex, "hex"), "protobuf")).toThrow(OtlpDecodeError);
+  });
+  it.each([
+    ["0a0a1208120610ffffffff07", 2147483647],
+    ["0a0a12081206108080808008", -2147483648],
+    ["0a0a1208120610ffffffff0f", -1],
+    ["0a0f120d120b10ffffffffffffffffff01", -1],
+    ["0a0f120d120b1080808080f8ffffffff01", -2147483648],
+    ["0a0b1209120710818080808000", 1],
+    ["0a0c120a12081081808080808000", 1],
+    ["0a0d120b1209108180808080808000", 1],
+    ["0a0e120c120a10818080808080808000", 1],
+    ["0a0f120d120b1081808080808080808000", 1],
+    ["0a0b1209120710ffffffff8f00", -1]
+  ] as const)("retains signed and redundant int32 encoding %s", (hex, expected) => {
+    expect(first(Buffer.from(hex, "hex"), "protobuf")?.severityNumber).toBe(expected);
+  });
+});
+
+describe("review: all decimal exponent work is bounded", () => {
+  it.each(["0e10001", "0e-10001", "1e-10001", "1e10001"])(
+    "rejects double exponent %s before conversion",
+    (source) => {
+      expectLimit(record({ body: { doubleValue: source } }), "json");
+      const raw = Buffer.from(
+        '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"doubleValue":' +
+          source +
+          "}}]}]}]}"
+      );
+      expectLimit(raw, "json");
+    }
+  );
+  it.each(["0e10000", "0e-10000", "1e-10000"])("accepts double exponent boundary %s", (source) => {
+    expect(first(record({ body: { doubleValue: source } }))?.body?.doubleValue).toBe(0);
+    const raw = Buffer.from(
+      '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"doubleValue":' + source + "}}]}]}]}"
+    );
+    expect(first(raw)?.body?.doubleValue).toBe(0);
+  });
+});

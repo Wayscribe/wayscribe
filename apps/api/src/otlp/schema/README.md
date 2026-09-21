@@ -88,7 +88,7 @@ Counts are cumulative across a whole export, including ignored known fields:
 | JSON structural depth | 128 |
 | JSON work units | 262,144 |
 | Numeric lexeme characters | 128 |
-| Integer exponent absolute magnitude | 10,000 |
+| Numeric exponent absolute magnitude | 10,000 |
 | Encoded response bytes | 256 |
 
 JSON preflight runs before JSON.parse: each opening/closing container, comma,
