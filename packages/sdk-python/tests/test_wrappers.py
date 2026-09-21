@@ -4,7 +4,7 @@ import unittest
 import warnings
 
 import wayscribe
-from delivery_helpers import Collector
+from delivery_helpers import Collector, CountingMapping
 
 
 class WrapperTests(unittest.TestCase):
@@ -280,3 +280,85 @@ class WrapperTests(unittest.TestCase):
         )
         self.assertEqual(calls, [1])
         self.assertEqual(self.events()[-1]["output"], "[UNCAPTURABLE]")
+
+    def test_wrapper_alias_snapshot_is_bounded_before_host_callback(self):
+        for reported_size in (2001, 1):
+            with self.subTest(reported_size=reported_size):
+                aliases = CountingMapping(reported_size=reported_size)
+                marker = {"ok": True}
+                reads_at_callback = []
+
+                def callback():
+                    reads_at_callback.append(aliases.reads)
+                    return marker
+
+                self.assertIs(
+                    self.journey.persist(
+                        "bounded-aliases",
+                        {},
+                        callback,
+                        aliases=aliases,
+                        metadata={"independent": True},
+                    ),
+                    marker,
+                )
+                self.assertEqual(
+                    reads_at_callback, [0 if reported_size > 1000 else 1000]
+                )
+                self.assertLessEqual(aliases.iterations, 1001)
+        events = self.events()
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["aliases"], {})
+        self.assertEqual(len(events[1]["aliases"]), 1000)
+        self.assertTrue(all(e["metadata"] == {"independent": True} for e in events))
+
+    def test_projected_metadata_oversize_and_lying_lengths_are_bounded_and_omitted(
+        self,
+    ):
+        for reported_size, repeated in ((2001, False), (1, False), (1, True)):
+            with self.subTest(reported_size=reported_size, repeated=repeated):
+                projected = CountingMapping(
+                    reported_size=reported_size, repeated=repeated
+                )
+                marker = {"ok": True}
+                self.assertIs(
+                    self.journey.deliver(
+                        "bounded-metadata",
+                        {},
+                        lambda: marker,
+                        metadata={"static": "kept"},
+                        aliases={"external": "valid"},
+                        metadata_from=lambda result: projected,
+                    ),
+                    marker,
+                )
+                self.assertEqual(projected.reads, 0 if reported_size > 1000 else 1000)
+                self.assertLessEqual(projected.iterations, 1001)
+        events = self.events()
+        self.assertEqual(len(events), 3)
+        for event in events:
+            self.assertNotIn("metadata", event)
+            self.assertEqual(event["aliases"], {"external": "valid"})
+            self.assertEqual(event["output"], {"ok": True})
+        self.assertEqual(self.recorder.counters()["payloads_omitted"], 3)
+
+    def test_projected_metadata_merge_checks_combined_unique_key_limit(self):
+        projected = {f"key{i}": i for i in range(1000)}
+        self.journey.transform(
+            "fits",
+            {},
+            lambda: 1,
+            metadata={"key0": "old"},
+            metadata_from=lambda result: projected,
+        )
+        self.journey.transform(
+            "overflows",
+            {},
+            lambda: 1,
+            metadata={"other": "old"},
+            metadata_from=lambda result: projected,
+        )
+        events = self.events()
+        self.assertEqual(events[0]["metadata"], projected)
+        self.assertNotIn("metadata", events[1])
+        self.assertEqual(self.recorder.counters()["payloads_omitted"], 1)

@@ -3,7 +3,7 @@ import io
 import unittest
 
 import wayscribe
-from delivery_helpers import Collector
+from delivery_helpers import Collector, CountingMapping
 
 
 class RecorderTests(unittest.TestCase):
@@ -155,3 +155,57 @@ class RecorderTests(unittest.TestCase):
             self.assertEqual(len(events), 2)
             self.assertEqual(events[0]["input"], "[UNCAPTURABLE]")
             self.assertNotIn("metadata", events[1])
+
+    def test_alias_snapshot_rejects_oversize_before_value_reads_and_caps_lying_iterator(
+        self,
+    ):
+        for reported_size, repeated, expected_reads, expected_aliases in (
+            (2001, False, 0, 0),
+            (1, False, 1000, 1000),
+            (1, True, 1000, 1),
+        ):
+            with self.subTest(reported_size=reported_size, repeated=repeated):
+                aliases = CountingMapping(
+                    reported_size=reported_size, repeated=repeated
+                )
+                reports = []
+                with Collector() as server:
+                    recorder = server.recorder(on_diagnostic=reports.append)
+                    journey = recorder.journey({"type": "x", "id": "1"})
+                    journey.record(
+                        operation="identified",
+                        name="identify",
+                        aliases=aliases,
+                        metadata={"valid": True},
+                        output={"ok": True},
+                    )
+                    self.assertEqual(aliases.reads, expected_reads)
+                    self.assertLessEqual(aliases.iterations, 1001)
+                    self.assertTrue(recorder.shutdown())
+                    event = server.events()[0]
+                    self.assertEqual(len(event["aliases"]), expected_aliases)
+                    self.assertEqual(event["metadata"], {"valid": True})
+                    self.assertEqual(event["output"], {"ok": True})
+                    self.assertTrue(any(r.get("field") == "aliases" for r in reports))
+                    self.assertNotIn("kept", str(reports))
+
+    def test_displayable_alias_snapshot_copies_only_supported_prefix(self):
+        import tracemalloc
+
+        for container in (list, tuple):
+            with self.subTest(container=container.__name__), Collector() as server:
+                recorder = server.recorder(flush_interval_ms=60000)
+                journey = recorder.journey({"type": "x", "id": "1"})
+                display = container(["external"] * 200000 + ["outside"])
+                tracemalloc.start()
+                try:
+                    journey.identify(
+                        {"external": "shown", "outside": "hidden"},
+                        displayable_aliases=display,
+                    )
+                    _, peak = tracemalloc.get_traced_memory()
+                finally:
+                    tracemalloc.stop()
+                self.assertLess(peak, 512 * 1024)
+                self.assertTrue(recorder.shutdown())
+                self.assertEqual(server.events()[0]["displayableAliases"], ["external"])

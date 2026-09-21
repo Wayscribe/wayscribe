@@ -2,6 +2,7 @@
 
 import json
 import threading
+from collections.abc import Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -86,3 +87,26 @@ def accepted(body):
             ]
         }
     }
+
+
+class CountingMapping(Mapping):
+    """Finite stand-in for a huge/nonterminating mapping; counts host reads."""
+
+    def __init__(self, size=2001, reported_size=None, *, repeated=False):
+        self.size = size
+        self.reported_size = size if reported_size is None else reported_size
+        self.repeated = repeated
+        self.iterations = 0
+        self.reads = 0
+
+    def __len__(self):
+        return self.reported_size
+
+    def __iter__(self):
+        for index in range(self.size):
+            self.iterations += 1
+            yield "alias" if self.repeated else f"alias{index}"
+
+    def __getitem__(self, key):
+        self.reads += 1
+        return "kept"

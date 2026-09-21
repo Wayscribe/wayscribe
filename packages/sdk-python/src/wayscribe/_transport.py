@@ -258,6 +258,7 @@ class Transport:
         refused = set()
         initial = len(batch)
         abandoned = False
+        attempted = False
         for attempt in range(self.config.max_attempts):
             if attempt and not self._backoff(attempt):
                 return
@@ -278,6 +279,7 @@ class Transport:
                     break
             body = b'{"events":[' + b",".join(x.body for x in pending) + b"]}"
             try:
+                attempted = True
                 status, response = self._request(body)
             except _Cancelled:
                 return
@@ -329,7 +331,7 @@ class Transport:
             opened = False
             if stored:
                 self._failures = 0
-            elif not permanent_request:
+            elif attempted and not permanent_request:
                 if answered and not unresolved and not abandoned:
                     self._failures = 0
                 else:

@@ -9,7 +9,7 @@ import time
 from collections.abc import Mapping
 from typing import Any, Callable, Literal, TypeVar
 
-from ._capture import UNSET, Captured, capture
+from ._capture import TOO_LARGE, UNSET, Captured, capture
 from ._config import Config, resolve_config, valid_text
 from ._diagnostics import Diagnostics
 from ._event import (
@@ -397,32 +397,67 @@ class _Operations:
         return produced
 
     def _snapshot_aliases(self, fields):
-        try:
-            if "aliases" in fields and isinstance(fields["aliases"], Mapping):
-                fields["aliases"] = dict(fields["aliases"])
-            if "displayable_aliases" in fields and type(
-                fields["displayable_aliases"]
-            ) in (list, tuple):
-                fields["displayable_aliases"] = tuple(fields["displayable_aliases"])
-        except BaseException:
-            fields["aliases"] = {}
-            self._recorder._diagnostics.emit("invalid_option", field="aliases")
+        if "aliases" in fields:
+            supplied = fields["aliases"]
+            snapshot = {}
+            fields["aliases"] = snapshot
+            try:
+                if not isinstance(supplied, Mapping) or len(supplied) > 1000:
+                    raise ValueError()
+                for index, key in enumerate(supplied):
+                    if index >= 1000:
+                        self._recorder._diagnostics.emit(
+                            "invalid_option", field="aliases"
+                        )
+                        break
+                    # Do not hash caller-owned arbitrary objects while copying.
+                    # The event builder validates the retained strings/values.
+                    if type(key) is str:
+                        snapshot[key] = supplied[key]
+                    else:
+                        self._recorder._diagnostics.emit(
+                            "invalid_option", field="aliases"
+                        )
+            except BaseException:
+                self._recorder._diagnostics.emit("invalid_option", field="aliases")
+        if "displayable_aliases" in fields and type(fields["displayable_aliases"]) in (
+            list,
+            tuple,
+        ):
+            fields["displayable_aliases"] = tuple(fields["displayable_aliases"][:1000])
 
     def _merge_metadata(self, snapshot, extra):
+        # Capture before merging: the core checks size before reading values and
+        # caps iteration even for mappings that misreport their length.
+        projected = capture_metadata(
+            extra, self._recorder._config, self._recorder._diagnostics
+        )
+        if projected is None:
+            return snapshot
         previous = (
             snapshot.value
-            if isinstance(snapshot, Captured) and type(snapshot.value) is dict
+            if type(snapshot) is Captured and type(snapshot.value) is dict
             else {}
         )
-        merged = capture_metadata(
-            {**previous, **extra}, self._recorder._config, self._recorder._diagnostics
-        )
-        if merged is not None and isinstance(snapshot, Captured):
-            merged.truncated |= snapshot.truncated
-            merged.omitted |= snapshot.omitted
-            merged.unreadable |= snapshot.unreadable
-            merged.names = [*snapshot.names, *merged.names]
-        return merged
+        if type(snapshot) is Captured:
+            projected.truncated |= snapshot.truncated
+            projected.omitted |= snapshot.omitted
+            projected.unreadable |= snapshot.unreadable
+            projected.names = [*snapshot.names, *projected.names]
+        if projected.omitted:
+            projected.value = TOO_LARGE
+            return projected
+        # Both sides are detached, bounded dictionaries. Check their union
+        # without constructing a dictionary larger than the protocol permits.
+        combined = dict(previous)
+        for key, value in projected.value.items():
+            if key not in combined and len(combined) >= 1000:
+                projected.value = TOO_LARGE
+                projected.omitted = True
+                return projected
+            combined[key] = value
+        projected.value = combined
+        return projected
 
     def _project(self, projection, value, target, field):
         try:

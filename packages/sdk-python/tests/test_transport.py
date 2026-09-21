@@ -342,3 +342,35 @@ class RetryBudgetTests(unittest.TestCase):
         )
         self.assertFalse(recorder.shutdown(1000))
         self.assertEqual(recorder.counters()["dropped"], 1)
+
+    def test_expiry_only_cycle_leaves_breaker_state_unchanged_without_http(self):
+        from wayscribe._config import Config
+        from wayscribe._diagnostics import Diagnostics
+        from wayscribe._transport import Transport, _Pending
+
+        for failures, deadline in ((0, 0.0), (4, 18.0), (5, 60.0)):
+            with (
+                self.subTest(failures=failures, deadline=deadline),
+                Collector() as server,
+            ):
+                diagnostics = Diagnostics()
+                transport = Transport(
+                    Config(False, server.endpoint, "key", "test", "development"),
+                    diagnostics,
+                    clock=lambda: 30.0,
+                )
+                transport._failures = failures
+                transport._opened_until = deadline
+                entry = _Pending(b"{}", 1, refused_at=0.0, refused_sends=1)
+                transport._inflight = [entry]
+                diagnostics.increment("recorded")
+                transport._send_cycle([entry])
+                self.assertEqual(server.bodies, [])
+                self.assertEqual(
+                    (transport._failures, transport._opened_until), (failures, deadline)
+                )
+                self.assertEqual(
+                    diagnostics.counters()["dropped_by_cause"]["retry_budget"], 1
+                )
+                self.assertTrue(transport.flush(0))
+                self.assertTrue(transport.shutdown(0))
