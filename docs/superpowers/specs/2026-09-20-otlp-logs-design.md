@@ -87,6 +87,19 @@ convention rather than protobufjs's ordinary base64 byte conversion. Reject
 malformed typed fields instead of coercing them. Test JSON and binary equivalence
 with independent literal encodings or an official exporter.
 
+The codec additionally caps one decoded request at 100 resource groups, 100 scope
+groups, 10,000 attribute entries (including nested KeyValue entries), and 20,000
+AnyValue messages. AnyValue depth is at most 24, counting its root as one. The
+binary decoder has request-local budgets of 262,144 uint32 reader operations and
+65,536 known message entries; library wire reads are guarded against malformed
+field types and scalar overflow without a second wire decoder. JSON preflight
+limits structural depth to 128 and structural/token work to 262,144 units before
+parsing, including unknown fields. Numeric lexemes are at most 128 characters;
+exponent magnitude is at most 10,000, and exact integer conversion expands no
+more than 20 significant decimal digits before range checking. These adapter
+bounds may require smaller batches or shallower values than the native event
+limits; raising the request byte setting does not raise the structure bounds.
+
 The route shares the request body's configured byte ceiling for both encodings;
 all mapped events still pass the existing event size/depth/key limits. A bad
 encoding/oversized export fails before any records store. Structured field
