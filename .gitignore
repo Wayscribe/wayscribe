@@ -19,3 +19,11 @@ examples/*/package-lock.json
 
 # SBOMs written by scripts/sbom.sh and scripts/attest-and-sign.sh.
 /sboms/
+
+# Python SDK build and interpreter caches.
+/packages/sdk-python/**/__pycache__/
+/packages/sdk-python/**/*.pyc
+/packages/sdk-python/build/
+/packages/sdk-python/*.egg-info/
+/packages/sdk-python/src/*.egg-info/
+/packages/sdk-python/.venv/
