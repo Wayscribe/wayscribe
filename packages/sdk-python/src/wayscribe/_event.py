@@ -79,6 +79,38 @@ def build_envelope(
         return None
 
 
+def capture_metadata(
+    metadata: object, config: Config, diagnostics: Diagnostics
+) -> Captured | None:
+    """Snapshot validated metadata before host work, preserving capture evidence."""
+    if type(metadata) is Captured:
+        result = replace(metadata)
+        if type(result.value) is dict:
+            result.value = dict(result.value)
+        return result
+    try:
+        if not isinstance(metadata, Mapping):
+            raise ValueError()
+        if len(metadata) > 1000:
+            return Captured(TOO_LARGE, omitted=True)
+        normalized = {}
+        dropped = 0
+        for index, key in enumerate(metadata):
+            if index >= 1000:
+                return Captured(TOO_LARGE, omitted=True)
+            if type(key) is str and len(key) <= 128:
+                normalized[repair_text(key)] = metadata[key]
+            else:
+                dropped += 1
+        if dropped:
+            normalized["[KEY_TOO_LONG]"] = dropped
+            diagnostics.emit("invalid_option", field="metadata")
+        return capture(normalized, config, field_name="metadata")
+    except BaseException:
+        diagnostics.emit("capture_error", field="metadata")
+        return None
+
+
 def _build(config, diagnostics, journey_id, entity, operation, name, fields):
     if not config.enabled:
         return None
@@ -200,31 +232,9 @@ def _build(config, diagnostics, journey_id, entity, operation, name, fields):
     captures = {}
     metadata = fields.get("metadata", UNSET)
     if metadata is not UNSET:
-        try:
-            if not isinstance(metadata, Mapping):
-                raise ValueError()
-            if len(metadata) > 1000:
-                captures["metadata"] = Captured(TOO_LARGE, omitted=True)
-            else:
-                normalized = {}
-                dropped = 0
-                for index, key in enumerate(metadata):
-                    if index >= 1000:
-                        captures["metadata"] = Captured(TOO_LARGE, omitted=True)
-                        break
-                    if type(key) is str and len(key) <= 128:
-                        normalized[repair_text(key)] = metadata[key]
-                    else:
-                        dropped += 1
-                if dropped:
-                    normalized["[KEY_TOO_LONG]"] = dropped
-                    diagnostics.emit("invalid_option", field="metadata")
-                if "metadata" not in captures:
-                    captures["metadata"] = capture(
-                        normalized, config, field_name="metadata"
-                    )
-        except BaseException:
-            diagnostics.emit("capture_error", field="metadata")
+        result = capture_metadata(metadata, config, diagnostics)
+        if result is not None:
+            captures["metadata"] = result
     attempt = fields.get("attempt", UNSET)
     if type(attempt) is int and 1 <= attempt <= 9007199254740991:
         if attempt > 1:

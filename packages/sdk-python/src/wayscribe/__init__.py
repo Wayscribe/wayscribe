@@ -10,10 +10,14 @@ from .propagation import (
     inject_payload,
     inject_sqs_attributes,
 )
+from .recorder import Journey, Recorder, create_recorder
 from .timing import http_metadata, queue_metadata
 
 __all__ = [
     "__version__",
+    "Journey",
+    "Recorder",
+    "create_recorder",
     "extract_http_context",
     "extract_payload",
     "extract_sqs_context",
