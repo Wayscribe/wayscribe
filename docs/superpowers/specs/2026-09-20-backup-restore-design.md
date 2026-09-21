@@ -115,3 +115,27 @@ an older server major is not a supported promise. See the official
 [pg_dump](https://www.postgresql.org/docs/current/app-pgdump.html) and
 [pg_restore](https://www.postgresql.org/docs/current/app-pgrestore.html)
 documentation, checked September 20, 2026.
+
+## Task 1 implementation decisions (September 21, 2026)
+
+Connection normalization supports explicit nonempty user/password/database TCP
+URLs. Omitted SSL mode and `disable` mean no TLS; `verify-full` requires an
+explicit PEM `sslrootcert` bundle of at most 1 MiB. Other modes, implicit/system
+roots, passwordless/socket/multi-host/service connections and other query
+parameters are refused before resource effects. Both clients use the same CA
+snapshot and enforce TLS 1.2+, chain and URL-hostname verification. The Node
+identity callback explicitly supplies the normalized host, including IP hosts.
+Tools require PostgreSQL 18+: inherited PG overrides are removed, GSS is disabled,
+client certificates are disabled, and an absent CRL filename inside an owned
+private directory suppresses implicit CRL discovery. This initial subset does not check certificate revocation.
+
+The direct restore mode uses an empty `--dbname=` switch; all actual connection
+information, including the new owned database name, remains in the environment.
+The opened regular archive descriptor is retained through restore.
+
+A CREATE result lost to timeout/cancellation/connection failure has unknown
+ownership unless success was acknowledged. Report `create_outcome_unknown` and
+the validated requested name for manual inspection, never existence-based DROP.
+All shutdown and owned cleanup share one grace of at most five seconds beyond
+the operation deadline, including child escalation. Failed cleanup preserves
+the original failure and annotates it with the owned database name.

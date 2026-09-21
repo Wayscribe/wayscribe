@@ -14,6 +14,8 @@ import { parseDoctorArgs } from "./doctor.js";
 import { formatIssuedKey, parseKeyCreateArgs } from "./key-create.js";
 import { parseResetArgs } from "./reset.js";
 
+import { parseBackupArgs } from "./backup/args.js";
+
 type Parsed = { ok: true } | { ok: false; message: string };
 
 /**
@@ -23,6 +25,9 @@ type Parsed = { ok: true } | { ok: false; message: string };
  * which is what refuses its flags.
  */
 const PARSERS: Record<CommandName, (flags: string[]) => Parsed> = {
+  "backup:create": (flags) => parseBackupArgs("backup:create", ["--output", "x", ...flags]),
+  "backup:restore": (flags) =>
+    parseBackupArgs("backup:restore", ["--input", "x", "--database", "copy", ...flags]),
   migrate: (flags) => preflightParse("migrate", flags),
   "migrate:unlock": (flags) => preflightParse("migrate:unlock", flags),
   rollback: (flags) => preflightParse("rollback", flags),
@@ -51,6 +56,8 @@ const PARSERS: Record<CommandName, (flags: string[]) => Parsed> = {
  * to run.
  */
 const RUNNABLE: Record<CommandName, string[]> = {
+  "backup:create": ["--output", "x"],
+  "backup:restore": ["--input", "x", "--database", "copy"],
   migrate: [],
   "migrate:unlock": [],
   rollback: [],
@@ -160,6 +167,34 @@ describe("the command registry", () => {
 const DB_URL = "postgresql://localhost:5432/wayscribe";
 const RANGE = ["acme", "production", "--before", "2030-01-01"];
 const FLAG_EFFECTS: Record<string, [() => unknown, () => unknown]> = {
+  "backup:restore --timeout-ms": [
+    () => parseBackupArgs("backup:restore", ["--input", "x", "--database", "copy"]),
+    () =>
+      parseBackupArgs("backup:restore", [
+        "--input",
+        "x",
+        "--database",
+        "copy",
+        "--timeout-ms",
+        "2000"
+      ])
+  ],
+  "backup:restore --database": [
+    () => parseBackupArgs("backup:restore", ["--input", "x"]),
+    () => parseBackupArgs("backup:restore", ["--input", "x", "--database", "copy"])
+  ],
+  "backup:restore --input": [
+    () => parseBackupArgs("backup:restore", ["--database", "copy"]),
+    () => parseBackupArgs("backup:restore", ["--input", "x", "--database", "copy"])
+  ],
+  "backup:create --timeout-ms": [
+    () => parseBackupArgs("backup:create", ["--output", "x"]),
+    () => parseBackupArgs("backup:create", ["--output", "x", "--timeout-ms", "2000"])
+  ],
+  "backup:create --output": [
+    () => parseBackupArgs("backup:create", []),
+    () => parseBackupArgs("backup:create", ["--output", "x"])
+  ],
   "reset --yes": [
     () => parseResetArgs([], {}, DB_URL),
     () => parseResetArgs(["--yes"], {}, DB_URL)
@@ -519,6 +554,10 @@ describe("preflight", () => {
     COMMANDS.filter((command) => !("restArgument" in command)).map((command) => command.name)
   )("refuses an argument beyond those %s declares", (name) => {
     const withExtra: Partial<Record<CommandName, () => Parsed>> = {
+      "backup:create": () =>
+        parseBackupArgs("backup:create", [...RUNNABLE["backup:create"], "extra"]),
+      "backup:restore": () =>
+        parseBackupArgs("backup:restore", [...RUNNABLE["backup:restore"], "extra"]),
       reset: () => parseResetArgs(["--yes", "extra"], {}, "postgresql://localhost/x"),
       doctor: () => parseDoctorArgs(["extra"], {}),
       "delete:journey": () => parseIdArgs("delete:journey", ["acme", "jrn_1", "extra"]),
@@ -537,7 +576,7 @@ describe("preflight", () => {
     const full = name === "key:list" ? ["acme"] : RUNNABLE[name];
     const result = withExtra[name]?.() ?? preflightParse(name, [...full, "extra"]);
     expect(result.ok, name).toBe(false);
-    if (!result.ok && name !== "doctor") {
+    if (!result.ok && name !== "doctor" && !name.startsWith("backup:")) {
       const position = positions[name] ?? full.length + 1;
       expect(result.message).toContain(`Unexpected argument ${String(position)}: ${name} takes`);
       expect(result.message).not.toContain("extra");
@@ -552,6 +591,8 @@ describe("preflight", () => {
     const early = preflight(name, args);
     if (!early.run) return [...early.stdout, ...early.stderr].join("\n");
     const own: Partial<Record<CommandName, (a: string[]) => Parsed>> = {
+      "backup:create": (a) => parseBackupArgs("backup:create", a),
+      "backup:restore": (a) => parseBackupArgs("backup:restore", a),
       reset: (a) => parseResetArgs(a, {}, "postgresql://localhost/x"),
       doctor: (a) => parseDoctorArgs(a, {}),
       "key:create": (a) => parseKeyCreateArgs(a),

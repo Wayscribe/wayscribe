@@ -71,6 +71,56 @@ export interface CommandSpec {
 
 export const COMMANDS = [
   {
+    name: "backup:create",
+    arguments: "",
+    summary: "Create a private custom-format database archive.",
+    details: [
+      "Run from a source checkout with PostgreSQL 18+ client tools installed.",
+      "Never replaces existing files or databases. Uses DATABASE_URL; keys stay separate.",
+      "  pnpm run backup:create --output backup.dump"
+    ],
+    flags: [
+      { flag: "--output", value: "<path>", required: true, description: "New destination." },
+      {
+        flag: "--timeout-ms",
+        value: "<milliseconds>",
+        description:
+          "Positive integer; default 600000, maximum 3600000. Cleanup may take up to 5 seconds more."
+      }
+    ],
+    checkoutScript: "backup:create",
+    parsesOwnArguments: true,
+    helpCanBeAValue: false
+  },
+  {
+    name: "backup:restore",
+    arguments: "",
+    summary: "Restore a trusted archive into a new database.",
+    details: [
+      "Run from a source checkout with PostgreSQL 18+ client tools installed.",
+      "Never replaces existing files or databases. Uses DATABASE_URL; keys stay separate.",
+      "  pnpm run backup:restore --input backup.dump --database restored_copy"
+    ],
+    flags: [
+      {
+        flag: "--input",
+        value: "<path>",
+        required: true,
+        description: "Trusted custom-format archive."
+      },
+      { flag: "--database", value: "<new-name>", required: true, description: "New destination." },
+      {
+        flag: "--timeout-ms",
+        value: "<milliseconds>",
+        description:
+          "Positive integer; default 600000, maximum 3600000. Cleanup may take up to 5 seconds more."
+      }
+    ],
+    checkoutScript: "backup:restore",
+    parsesOwnArguments: true,
+    helpCanBeAValue: false
+  },
+  {
     name: "migrate",
     arguments: "",
     summary: "Apply every pending migration.",

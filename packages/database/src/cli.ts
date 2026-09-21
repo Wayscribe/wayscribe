@@ -18,6 +18,20 @@ if (!early.run) {
 }
 
 async function run(command: CommandName, args: readonly string[]): Promise<void> {
+  if (command === "backup:create" || command === "backup:restore") {
+    const { runBackupCommand } = await import("./backup/command.js");
+    process.exitCode = await runBackupCommand(command, args, {
+      databaseUrl: process.env["DATABASE_URL"] ?? "",
+      env: process.env,
+      stdout: (line) => {
+        console.log(line);
+      },
+      stderr: (line) => {
+        console.error(line);
+      }
+    });
+    return;
+  }
   const databaseUrl = process.env["DATABASE_URL"];
 
   if (databaseUrl === undefined || databaseUrl === "") {

@@ -153,6 +153,54 @@ says "not a release build" on both halves.
 
 ## 2. Backup
 
+From a source checkout, install dependencies with `pnpm install --frozen-lockfile`
+and install PostgreSQL **18 or newer client tools** (`pg_dump` and `pg_restore`)
+on the machine running the CLI. They are not included in the API serving image.
+With `DATABASE_URL` in the environment or the checkout's `.env`:
+
+```bash
+pnpm run backup:create --output wayscribe.dump
+pnpm run backup:restore --input wayscribe.dump --database restored_copy
+```
+
+The helper makes a whole-database custom-format archive, including unrelated
+tables when the source is shared. It creates a private 0600 temporary file,
+streams the dump, and publishes it only after success. Existing files and
+symlinks are never replaced, including a destination created during the dump.
+A failed or canceled dump removes its owned partial file. Output contains safe
+codes and byte counts, never child diagnostics, paths, payloads or credentials.
+
+Both commands accept `--timeout-ms`: a positive integer in milliseconds,
+default **600000** (ten minutes), maximum **3600000** (one hour). The deadline
+includes connection, database statements and child execution. Cancellation and
+timeout terminate and reap the child; all database shutdown and cleanup share
+at most **five additional seconds**, rather than restarting the operation timer.
+
+Use a TCP `postgresql://user:password@host:port/database` URL with an explicit,
+nonempty user, password and database. Passwordless, Unix socket, service profile,
+multi-host and arbitrary query parameters are refused. Inherited `PG*` settings
+are ignored. TLS modes supported by both clients are:
+
+- No `sslmode`, or `sslmode=disable`: no TLS. Use a trusted local/private endpoint.
+- `sslmode=verify-full&sslrootcert=/absolute/path/ca.pem`: verify the certificate
+  chain and the URL's hostname with that explicit PEM CA bundle (at most 1 MiB),
+  and require TLS 1.2 or newer. Both clients use the same snapshot of CA bytes.
+
+Other TLS modes, implicit/system roots, client certificates and keys, CRL
+settings and target/service overrides are rejected before archive/database
+creation. The tools disable GSS encryption, implicit client certificates and
+implicit CRL-file discovery. An absent CRL filename inside an owned private
+directory is used; this subset does not perform certificate revocation checking. Never weaken a TLS URL to
+make the helper accept it; use the manual workflow for unsupported setups.
+
+The dump client must also be at least as new as the source server major. Restore
+to the same or a newer server major; restoring into an older server is not a
+supported promise. The automated helper was tested with client **18.4** and a
+PostgreSQL **18** server. See the PostgreSQL [pg_dump documentation](https://www.postgresql.org/docs/18/app-pgdump.html)
+and [TLS documentation](https://www.postgresql.org/docs/18/libpq-ssl.html).
+
+The existing manual container workflow remains available:
+
 On your own database, Wayscribe's tables are ordinary tables in it: back
 them up the way that database is already backed up.
 
@@ -183,6 +231,29 @@ customer, while their payloads remain readable. Store the key separately, and
 store it somewhere you will still have it when you need the backup.
 
 ## 3. Restore
+
+The checkout helper `pnpm run backup:restore --input wayscribe.dump --database
+restored_copy` accepts only trusted operator-held custom-format archives: a dump
+can execute database definitions. The destination name must start with a lowercase
+ASCII letter, contain only lowercase letters, digits and underscores, and be at
+most 63 bytes. The source name and `postgres`, `template0`, and `template1` are
+refused. `DATABASE_URL` is the maintenance connection on the destination cluster;
+its role needs CREATEDB.
+
+The helper claims a new database with `CREATE DATABASE ... TEMPLATE template0`.
+It restores atomically with no original ownership or privileges, and never uses
+`--clean` or `--create`. No migrations or application traffic run automatically.
+Successful restores keep the new database. A failed restore drops only its
+acknowledged owned database. Existing databases are never dropped.
+
+A connection failure during CREATE can leave the result uncertain. The
+`create_outcome_unknown` error names the requested database for manual inspection;
+the helper does not infer ownership from its existence or drop it. If cleanup
+of an acknowledged database fails, the original error is retained and a separate
+instruction names the owned database requiring manual cleanup.
+
+The manual commands below restore into an existing database and intentionally
+use `--clean`; select that destination carefully.
 
 Name the dump you are restoring. With the bundled overlay and `COMPOSE_FILE` set
 as in §1:
