@@ -56,6 +56,11 @@ discover fields. Input must be stable during the synchronous capture call;
 after the call it can be mutated without affecting the recorded snapshot.
 Document that Go cannot safely read a map the caller is mutating concurrently.
 Race tests must cover SDK-owned state and concurrent independent caller inputs.
+Apply limits to the actual repaired representation: base64/large-integer strings
+and synthesized wrapper objects must still fit string and depth ceilings.
+Snapshot required entity fields before diagnostics can invoke host code. Header
+objects with a non-string name and usable key must still redact their value.
+Process-warning deduplication uses the SDK_SPEC folded-name/field-shape scopes.
 
 A bounded queue and worker goroutine(s), managed by cancellation, use net/http
 with a dedicated bounded client. No implicit cross-origin redirects. Bound

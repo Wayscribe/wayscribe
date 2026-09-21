@@ -34,6 +34,17 @@ must not prompt for a password or wait forever; accept a positive integer
 `--timeout-ms` with a documented ten-minute default and a one-hour maximum.
 Termination waits for the owned child to exit before deleting its output.
 
+Parse the URL into explicit PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE variables;
+PGDATABASE is the database name, not the entire URL. A local PostgreSQL 18.4
+preflight confirmed that setting PGDATABASE to a URI does not select that URI's
+host. Map supported TLS/connection query parameters to their documented libpq
+environment equivalents, and reject unsupported parameters before a side effect
+instead of silently losing them. Reject parameters that can override the target
+database or select a service profile. Do not inherit ambient PGHOSTADDR,
+PGSERVICE or other connection overrides into the child. The restore destination
+must remain the database this process just created, under both the Node database
+driver and the PostgreSQL tools. Test hostile/conflicting query parameters.
+
 This is a whole-database dump, including any unrelated tables in a shared
 database. It contains readable redacted payloads and encrypted identifiers.
 The encryption key and previous rotation keys remain separate from the dump.
