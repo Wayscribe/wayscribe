@@ -68,19 +68,89 @@ class EventTests(unittest.TestCase):
         self.assertNotIn("stack", e["error"])
 
     def test_public_personal_values_warn_unchanged_and_unlisted_secret_warns(self):
-        c, d, r = setup()
-        e = event(
-            c,
-            d,
-            journey_label="a@example.com",
-            aliases={"contact": "a@example.com"},
-            displayable_aliases=["contact"],
-            input={"vendor_token": "private"},
-        )
+        result = run_isolated("""
+            from helpers import *
+            c, d, reports = setup()
+            e = event(c, d, journey_label='a@example.com',
+                      aliases={'contact':'a@example.com'},
+                      displayable_aliases=['contact'], input={'vendor_token':'private'})
+            print(json.dumps({'event':e,'reports':reports}))
+        """)
+        observed = json.loads(result.stdout)
+        e, reports = observed["event"], observed["reports"]
         self.assertEqual(e["journeyLabel"], "a@example.com")
         self.assertEqual(e["aliases"]["contact"], "a@example.com")
         self.assertEqual(e["input"]["vendor_token"], "private")
-        self.assertIn("personal_data", [x["kind"] for x in r])
-        self.assertIn("unredacted_secret_name", [x["kind"] for x in r])
-        self.assertNotIn("a@example.com", repr(r))
-        self.assertNotIn("private", repr(r))
+        self.assertEqual(
+            [x["kind"] for x in reports],
+            ["personal_data", "personal_data", "unredacted_secret_name"],
+        )
+        self.assertNotIn("a@example.com", repr(reports))
+        self.assertNotIn("private", repr(reports))
+        self.assertEqual(
+            result.stderr.splitlines(),
+            [
+                "[wayscribe] kind=personal_data field=journey_label shape=email",
+                "[wayscribe] kind=personal_data field=displayable_alias shape=email",
+                "[wayscribe] kind=unredacted_secret_name field=input code=add_redaction_or_known_safe_name",
+            ],
+        )
+
+
+class EntitySnapshotReviewTests(unittest.TestCase):
+    def test_entity_values_are_read_once_and_serialized_from_validated_snapshot(self):
+        class Changing(Mapping):
+            def __init__(self):
+                self.reads = {"type": 0, "id": 0}
+
+            def __iter__(self):
+                return iter(self.reads)
+
+            def __len__(self):
+                return 2
+
+            def __getitem__(self, key):
+                self.reads[key] += 1
+                if self.reads[key] == 1:
+                    return {"type": "order", "id": "42"}[key]
+                return {"type": {}, "id": ""}[key]
+
+        c, d, _ = setup()
+        entity = Changing()
+        wire = build_envelope(
+            c,
+            d,
+            journey_id="jrn_snapshot",
+            entity=entity,
+            operation="received",
+            name="receive",
+        )
+        self.assertEqual(
+            json.loads(wire)["event"]["entity"], {"type": "order", "id": "42"}
+        )
+        self.assertEqual(entity.reads, {"type": 1, "id": 1})
+
+    def test_reentrant_diagnostic_cannot_mutate_validated_identity(self):
+        c, d, _ = setup()
+        entity = {"type": "order", "id": "42"}
+        reports = []
+
+        def callback(report):
+            reports.append(report)
+            entity.update(type={}, id="")
+
+        d.configure(on_diagnostic=callback)
+        wire = build_envelope(
+            c,
+            d,
+            journey_id="jrn_snapshot",
+            entity=entity,
+            operation="received",
+            name="receive",
+            timestamp="invalid",
+        )
+        self.assertEqual(
+            json.loads(wire)["event"]["entity"], {"type": "order", "id": "42"}
+        )
+        self.assertEqual(reports, [{"kind": "invalid_option", "field": "timestamp"}])
+        self.assertEqual(entity, {"type": {}, "id": ""})

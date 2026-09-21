@@ -30,28 +30,50 @@ class BoundaryTests(unittest.TestCase):
         for original, want in pairs:
             self.assertEqual(mask_text(original), want)
             self.assertEqual(mask_text(want), want)
-        reports = []
-        d = Diagnostics(on_diagnostic=reports.append)
-        for value in ("email=a@example.com", "tel:+19195551234"):
-            public_warning(value, "error", d)
-        self.assertEqual([r["shape"] for r in reports], ["email", "phone"])
-        reports.clear()
-        for value in (
-            "git@github.com:org/repo",
-            "postgres://[REDACTED]@db.internal",
-            "Fri Sep 18 +0530 2026",
-            "Received +12345678 bytes",
-        ):
-            public_warning(value, "error", d)
-        self.assertEqual(reports, [])
+        result = run_isolated("""
+            from helpers import *
+            from wayscribe._errors import public_warning
+            reports = []
+            d = Diagnostics(on_diagnostic=reports.append)
+            for value in ('email=a@example.com', 'tel:+19195551234'):
+                public_warning(value, 'error', d)
+            positive = list(reports)
+            reports.clear()
+            for value in ('git@github.com:org/repo',
+                          'postgres://[REDACTED]@db.internal',
+                          'Fri Sep 18 +0530 2026', 'Received +12345678 bytes'):
+                public_warning(value, 'error', d)
+            print(json.dumps({'positive':positive,'negative':reports}))
+        """)
+        observed = json.loads(result.stdout)
+        self.assertEqual([r["shape"] for r in observed["positive"]], ["email", "phone"])
+        self.assertEqual(observed["negative"], [])
+        self.assertEqual(
+            result.stderr.splitlines(),
+            [
+                "[wayscribe] kind=personal_data field=error shape=email",
+                "[wayscribe] kind=personal_data field=error shape=phone",
+            ],
+        )
 
     def test_secret_name_report_names_bounded_key_and_wildcard_path_not_value(self):
-        c, d, r = setup()
-        event(c, d, input={"list": [{"vendor_token": "do-not-leak"}]})
-        report = next((x for x in r if x["kind"] == "unredacted_secret_name"))
+        result = run_isolated("""
+            from helpers import *
+            c, d, reports = setup()
+            event(c, d, input={'list':[{'vendor_token':'do-not-leak'}]})
+            print(json.dumps(reports))
+        """)
+        reports = json.loads(result.stdout)
+        report = next(x for x in reports if x["kind"] == "unredacted_secret_name")
         self.assertEqual(report["name"], "vendor_token")
         self.assertEqual(report["path"], "list[*].vendor_token")
-        self.assertNotIn("do-not-leak", repr(r))
+        self.assertNotIn("do-not-leak", repr(reports))
+        self.assertEqual(
+            result.stderr.splitlines(),
+            [
+                "[wayscribe] kind=unredacted_secret_name field=input code=add_redaction_or_known_safe_name"
+            ],
+        )
 
     def test_extremely_large_integer_preserves_decimal_digits(self):
         c, d, _ = setup()
@@ -186,3 +208,13 @@ class HostileBoundaryTests(unittest.TestCase):
         self.assertEqual(
             set(event(c, d, input=payload)["input"].values()), {"[REDACTED]"}
         )
+
+
+class RepairedIntegerReviewTests(unittest.TestCase):
+    def test_decimal_integer_string_is_intact_at_limit_and_omitted_beyond(self):
+        c, d, _ = setup()
+        self.assertEqual(event(c, d, input=10**65535)["input"], "1" + "0" * 65535)
+        for value in (10**65536, -(10**65535), 10**70000):
+            self.assertEqual(event(c, d, input=value)["input"], "[PAYLOAD_TOO_LARGE]")
+        self.assertEqual(d.counters()["payloads_omitted"], 3)
+        self.assertEqual(d.counters()["payloads_truncated"], 0)

@@ -71,6 +71,9 @@ Integers outside ±(2^53−1) are decimal strings. Bytes/bytearray become
 are interpreted as UTC, and aware datetimes are converted to UTC. Strings are
 bounded in UTF-16 units, protocol identifiers and labels in Unicode code points.
 Unsupported objects become `[UNCAPTURABLE]`; arbitrary attributes are not explored.
+Rendered byte objects obey the same depth and string limits as supplied objects;
+their base64 strings may carry a truncation marker. A decimal integer string that
+exceeds the string limit causes payload omission so retained integers keep every digit.
 
 Labels and displayable aliases are stored, shown and searched in plain text.
 Do not put personal data or credentials in them. Narrow email/telephone shape
@@ -94,6 +97,10 @@ messages. Debug logging is opt-in. Creation failures, missing derivation secrets
 public personal-data shapes and unredacted secret names have bounded process-wide
 warnings. The diagnostic callback can receive a bounded supplied key name/path
 for an unredacted-secret report, never its value; printed warnings omit both.
+Secret-name callbacks occur once per recorder and folded name, with one printed
+warning per process and folded name across fields and spellings. Personal-data
+callbacks and printing occur once per process, field and shape. A fork resets the
+process-wide warning state and its lock so a fresh child recorder can report safely.
 
 For development, run from the repository root:
 

@@ -104,3 +104,73 @@ class CaptureTests(unittest.TestCase):
         )
         self.assertIsNone(event(c, d, input=None)["input"])
         self.assertNotIn("input", event(c, d))
+
+
+class CaptureReviewTests(unittest.TestCase):
+    def test_positional_header_uses_string_key_when_name_is_not_string(self):
+        for mode in ("redacted-payload", "full-payload"):
+            for bad_name in (None, 3, False, {}, []):
+                with self.subTest(mode=mode, name=bad_name):
+                    c, d, _ = setup(capture_mode=mode)
+                    original = [
+                        {
+                            "name": bad_name,
+                            "key": "Authorization",
+                            "value": "synthetic-credential",
+                            "comment": "kept",
+                        }
+                    ]
+                    captured = event(c, d, input=original)["input"]
+                    self.assertEqual(
+                        captured,
+                        [
+                            {
+                                "name": bad_name,
+                                "key": "Authorization",
+                                "value": "[REDACTED]",
+                                "comment": "kept",
+                            }
+                        ],
+                    )
+                    self.assertEqual(original[0]["value"], "synthetic-credential")
+                    self.assertNotIn("synthetic-credential", json.dumps(captured))
+                    header_names = [
+                        {
+                            "name": bad_name,
+                            "key": "Authorization",
+                            "value": "Content-Type",
+                            "comment": "kept",
+                        }
+                    ]
+                    self.assertEqual(
+                        event(c, d, input=header_names)["input"], header_names
+                    )
+
+    def test_bytes_base64_obeys_string_limit_and_reports_truncation(self):
+        c, d, _ = setup()
+        boundary = event(c, d, input=b"a" * 49152)["input"]
+        self.assertEqual(boundary, {"type": "bytes", "base64": "YWFh" * 16384})
+        self.assertEqual(d.counters()["payloads_truncated"], 0)
+        for value in (b"a" * 49153, bytearray(b"a" * 50000)):
+            captured = event(c, d, input=value)["input"]
+            self.assertEqual(captured["type"], "bytes")
+            self.assertEqual(len(captured["base64"].encode("utf-16-le")) // 2, 65536)
+            self.assertRegex(
+                captured["base64"], r"\[TRUNCATED: [0-9]+ characters removed\]$"
+            )
+        self.assertEqual(d.counters()["payloads_truncated"], 2)
+        self.assertEqual(d.counters()["payloads_omitted"], 0)
+
+    def test_synthesized_bytes_object_obeys_envelope_depth(self):
+        c, d, _ = setup()
+        at_limit = b"a"
+        for _ in range(29):
+            at_limit = {"x": at_limit}
+        kept = event(c, d, input=at_limit)["input"]
+        for _ in range(29):
+            kept = kept["x"]
+        self.assertEqual(kept, {"type": "bytes", "base64": "YQ=="})
+        self.assertEqual(
+            event(c, d, input={"x": at_limit})["input"], "[PAYLOAD_TOO_LARGE]"
+        )
+        self.assertEqual(d.counters()["payloads_omitted"], 1)

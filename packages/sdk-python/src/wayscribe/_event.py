@@ -82,11 +82,14 @@ def build_envelope(
 def _build(config, diagnostics, journey_id, entity, operation, name, fields):
     if not config.enabled:
         return None
+    # Read caller-owned mappings once. Diagnostics below may reenter the host
+    # and mutate them; the wire must contain exactly the strings validated here.
+    entity_type = entity.get("type") if isinstance(entity, Mapping) else None
+    entity_id = entity.get("id") if isinstance(entity, Mapping) else None
     if not (
         valid_text(journey_id, 128, blank=True)
-        and isinstance(entity, Mapping)
-        and valid_text(entity.get("type"), 128, blank=True)
-        and valid_text(entity.get("id"), 512, blank=True)
+        and valid_text(entity_type, 128, blank=True)
+        and valid_text(entity_id, 512, blank=True)
         and (type(operation) is str)
         and (operation in OPERATIONS)
         and valid_text(name, 256, blank=True)
@@ -114,7 +117,7 @@ def _build(config, diagnostics, journey_id, entity, operation, name, fields):
     event = {
         "id": "evt_" + str(uuid.uuid4()),
         "journeyId": journey_id,
-        "entity": {"type": entity["type"], "id": entity["id"]},
+        "entity": {"type": entity_type, "id": entity_id},
         "operation": operation,
         "name": name,
         "timestamp": timestamp,

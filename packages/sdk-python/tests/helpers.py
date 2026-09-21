@@ -52,3 +52,20 @@ def event(config, diagnostics, **fields):
             **fields,
         )
     )["event"]
+
+
+def run_isolated(source, *, timeout=10):
+    """Exercise real process-scoped state without sharing it with other tests."""
+    import subprocess
+    import sys
+    import textwrap
+    from pathlib import Path
+
+    prefix = f"import sys\nsys.path.insert(0, {str(Path(__file__).parent)!r})\n"
+    return subprocess.run(
+        [sys.executable, "-c", prefix + textwrap.dedent(source)],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=True,
+    )

@@ -3,6 +3,7 @@ from pathlib import Path
 import unittest
 from wayscribe import propagation as p
 from wayscribe._diagnostics import Diagnostics
+from helpers import run_isolated
 
 FIXTURES = Path(__file__).resolve().parents[2] / "protocol" / "fixtures"
 
@@ -59,16 +60,27 @@ class PropagationTests(unittest.TestCase):
                 ),
             ]
         )
-        ids = set()
-        for case in refused:
-            for _ in range(2):
-                value = p.derive_journey_id(
-                    case["secret"], case["environment"], case["entity"], d
-                )
-                self.assertRegex(value, "^jrn_[0-9a-f-]{36}$")
-                ids.add(value)
-        self.assertEqual(len(ids), len(refused) * 2)
-        self.assertEqual(len(reports), len(ids))
+        result = run_isolated(f"""
+            from helpers import *
+            from wayscribe import propagation as p
+            reports = []
+            d = Diagnostics(on_diagnostic=reports.append)
+            ids = []
+            for case in {refused!r}:
+                for _ in range(2):
+                    ids.append(p.derive_journey_id(
+                        case['secret'], case['environment'], case['entity'], d))
+            print(json.dumps({{'ids':ids, 'reports':reports}}))
+        """)
+        observed = json.loads(result.stdout)
+        for value in observed["ids"]:
+            self.assertRegex(value, "^jrn_[0-9a-f-]{36}$")
+        self.assertEqual(len(set(observed["ids"])), len(refused) * 2)
+        self.assertEqual(len(observed["reports"]), len(observed["ids"]))
+        self.assertEqual(
+            result.stderr.splitlines(),
+            ["[wayscribe] kind=derivation_fallback code=unusable_secret_or_entity"],
+        )
 
     def test_structural_guard_and_hostile_carriers(self):
         self.assertTrue(p.has_journey({"_wayscribe": {"journeyId": "unvalidated"}}))

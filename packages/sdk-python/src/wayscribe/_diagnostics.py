@@ -7,6 +7,7 @@ recorder lock, so transport may increment counters under its own lock.
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -15,7 +16,41 @@ from typing import Any
 
 DROP_CAUSES = ("queue_full", "after_shutdown", "shutdown", "retry_budget", "no_verdict")
 _process_lock = threading.Lock()
-_process_warnings = set()
+_process_warnings: set[tuple[str, ...]] = set()
+
+
+def _reset_process_warnings_after_fork() -> None:
+    # A vanished parent thread may own the inherited lock. Fresh recorders in
+    # the child must use fresh process-local suppression state without touching
+    # it. Inherited recorder/Diagnostics instances still need facade PID guards.
+    global _process_lock, _process_warnings
+    _process_lock = threading.Lock()
+    _process_warnings = set()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_process_warnings_after_fork)
+
+
+def _claim_process_warning(kind: str, report: dict[str, Any]) -> bool | None:
+    """Claim a bounded kind-specific warning identity, never invoking host code."""
+    if kind == "unredacted_secret_name":
+        from ._capture import fold
+
+        token = (kind, fold(report.get("name", "")))
+    elif kind == "personal_data":
+        token = (kind, report.get("field", ""), report.get("shape", ""))
+    elif kind == "configuration_error":
+        token = (kind, report.get("setting", ""))
+    elif kind == "derivation_fallback":
+        token = (kind,)
+    else:
+        return None
+    with _process_lock:
+        if token in _process_warnings or len(_process_warnings) >= 2000:
+            return False
+        _process_warnings.add(token)
+        return True
 
 
 class Diagnostics:
@@ -140,6 +175,11 @@ class Diagnostics:
                 for key, limit in (("name", 128), ("path", 512)):
                     if type(safe_fields.get(key)) is str:
                         report[key] = safe_fields[key][:limit]
+            first_warning = _claim_process_warning(kind, report)
+            # Personal-data reports and printed warnings share the process
+            # field/shape scope. Secret-name callbacks remain per recorder.
+            if kind == "personal_data" and not first_warning:
+                return
             now = time.monotonic()
             with self._lock:
                 callback = self._callback
@@ -149,24 +189,10 @@ class Diagnostics:
                 )
                 if log:
                     self._last_log[kind] = now
-            warning = kind in (
-                "configuration_error",
-                "personal_data",
-                "derivation_fallback",
-                "unredacted_secret_name",
-            )
-            if warning:
-                token = (
-                    kind,
-                    report.get("setting"),
-                    report.get("field"),
-                    report.get("shape"),
-                    report.get("name"),
-                )
-                with _process_lock:
-                    if token not in _process_warnings and len(_process_warnings) < 2000:
-                        _process_warnings.add(token)
-                        log = True
+            if kind in ("personal_data", "unredacted_secret_name"):
+                log = first_warning is True
+            elif first_warning:
+                log = True
             if callback:
                 try:
                     callback(dict(report))

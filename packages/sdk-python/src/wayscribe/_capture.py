@@ -320,12 +320,22 @@ def capture(value: object, config: Config, *, field_name: str = "input") -> Capt
             out = text(value)
         elif type(value) is int:
             out = value if abs(value) <= 9007199254740991 else str(Decimal(value))
+            # A decimal repair must retain every digit. Truncating it would
+            # invent a different numeric value, so omit an over-limit payload.
+            if type(out) is str and len(out) > 65536:
+                raise _TooLarge()
         elif type(value) is float:
             out = value if math.isfinite(value) else None
         elif type(value) in (bytes, bytearray):
             if len(value) > config.max_event_bytes:
                 raise _TooLarge()
-            out = {"type": "bytes", "base64": base64.b64encode(value).decode("ascii")}
+            # The rendered object occupies this depth, and its strings occupy
+            # the next. Apply the same limits to the representation we send.
+            return walk(
+                {"type": "bytes", "base64": base64.b64encode(value).decode("ascii")},
+                depth,
+                path,
+            )
         elif type(value) in (dt.datetime, dt.date):
             if type(value) is dt.date:
                 value = dt.datetime.combine(value, dt.time(), dt.timezone.utc)
@@ -406,7 +416,9 @@ def capture(value: object, config: Config, *, field_name: str = "input") -> Capt
                             if fold(name) not in any_depth:
                                 observe(name, val, subpath)
                         elif type(child) is dict and "value" in child:
-                            name = child.get("name", child.get("key"))
+                            name = child.get("name")
+                            if type(name) is not str:
+                                name = child.get("key")
                             if type(name) is str:
                                 val = child["value"]
                                 if fold(name) in any_depth and not (
