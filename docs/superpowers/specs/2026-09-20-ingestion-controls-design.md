@@ -20,7 +20,9 @@ Use `INGESTION_LIMITS_JSON`, absent/blank meaning disabled. Its explicit format 
 ```
 
 `default` is optional; without it only named projects are limited. `projects`
-is optional and contains at most 1000 UUID keys. A project entry is a complete
+is optional and contains at most 1000 UUID keys. Normalize valid UUID keys to
+lowercase so they match database project IDs; reject distinct keys that normalize
+to the same UUID rather than choosing one policy. A project entry is a complete
 override, not a partial merge. Each policy requires positive integer
 `eventsPerMinute` (1..60,000,000), `burst` (100..1,000,000) and `maxConcurrent`
 (1..1000). Reject malformed JSON, unknown keys, invalid types and extra policy
