@@ -273,6 +273,17 @@ func TestJourneyIdentityLabelsAndOptions(t *testing.T) {
 	}
 }
 
+func TestBlankJourneyLabelIsOmitted(t *testing.T) {
+	r, sink := testRecorder(t, nil)
+	journey := r.Journey(Entity{"order", "a"})
+	journey.Label(" \t\u00a0")
+	journey.Record(Event{Operation: Received, Name: "receive"})
+	event := flushedEvents(t, r, sink)[0]
+	if label, present := event["journeyLabel"]; present {
+		t.Fatalf("blank label was sent as %#v", label)
+	}
+}
+
 func TestMetadataMergeKeepsWholeObjectRedaction(t *testing.T) {
 	r, s := testRecorder(t, nil)
 	Transform(context.Background(), r.Journey(Entity{"order", "a"}), "merge", 0, func(context.Context) (int, error) { return 1, nil }, Options[int, int]{Metadata: map[string]any{"headers": []any{map[string]any{"name": "Authorization", "value": "Bearer private"}}}, MetadataFrom: func(int, Context) map[string]any { return map[string]any{"extra": true} }})

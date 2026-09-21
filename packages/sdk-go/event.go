@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"runtime"
 	"sort"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -27,7 +28,7 @@ func validOperation(o Operation) bool {
 }
 func normalizeLabel(label string, d *diagnostics) string {
 	label = repairText(label)
-	if label == "" {
+	if strings.TrimSpace(label) == "" {
 		d.emit(Diagnostic{Kind: "invalid_option", Field: "journeyLabel"})
 		return ""
 	}

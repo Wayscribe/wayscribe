@@ -92,14 +92,20 @@ application retries. Pass the returned attempt separately to wrapper options.
 Local checks:
 
 ```sh
-GOTOOLCHAIN=local GOWORK=off go test ./...
-GOTOOLCHAIN=local GOWORK=off go test -race ./...
-GOTOOLCHAIN=local GOWORK=off go vet ./...
+pnpm test:go
+pnpm test:go:conformance
+pnpm test:go:integration
+pnpm test:go:consumer
+GOTOOLCHAIN=local GOWORK=off go -C packages/sdk-go test -race ./...
+GOTOOLCHAIN=local GOWORK=off go -C packages/sdk-go vet ./...
 ```
 
-These local checks do not claim full cross-language SDK conformance, real API
-ingestion, publication, or the human pilot gate. The conformance task owns the
-fixture driver and real API checks.
+The public fixture driver executes all 35 universal SDK cases and reports the two
+throwing-property cases as named Node-only skips. The integration gate replays
+the exact request bytes captured from the public recorder through the real API's
+dry-run route and runs the external module in `examples/go-worker` against a real
+test database. The local module remains unpublished; use a local `replace`
+directive, as the example does, rather than a public `go get` command.
 
 
 ## Recording and wrappers
