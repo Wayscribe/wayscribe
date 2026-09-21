@@ -53,6 +53,8 @@ def main() -> None:
     except DeliveryRejected as caught:
         if caught is not rejection:
             raise RuntimeError("the wrapper replaced the host exception") from caught
+    else:
+        raise RuntimeError("the wrapper swallowed the host exception")
 
     result = journey.deliver(
         "deliver-customer",
