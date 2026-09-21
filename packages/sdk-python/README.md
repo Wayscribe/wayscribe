@@ -4,6 +4,12 @@ Distribution: `wayscribe-sdk`. Import: `wayscribe`. Version: `0.1.0a1`.
 This package is **unpublished**. Python 3.11 or newer is required. Runtime code
 uses only the standard library; setuptools is a build dependency only.
 
+The controlled
+[`examples/mixed-language`](../../examples/mixed-language/README.md) workflow
+installs this built wheel and continues one real journey from Node through
+Python to the local Go SDK. It is an interoperability example, not a
+publication claim.
+
 Build and install the development artifact from the repository root:
 
 ```sh

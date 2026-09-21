@@ -6,6 +6,11 @@ identity is `wayscribe-go` / `0.1.0-dev`; protocol version remains `0.1`.
 Recording captures immediately and sends asynchronously through the batch route.
 Runtime and tests use only the Go standard library.
 
+The controlled
+[`examples/mixed-language`](../../examples/mixed-language/README.md) workflow
+builds a separate consumer module with a local `replace` and completes one real
+journey received from Node through Python.
+
 Configuration is explicit: endpoint, API key, service and environment are
 required. No SDK environment variables or ambient trace/host metadata are read.
 Optional numeric settings use zero to select their defaults; negatives are

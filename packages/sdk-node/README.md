@@ -78,6 +78,10 @@ npm install @wayscribe/node@0.1.0
 installs from the clone's directory instead, because it lives inside the
 clone.
 
+[`examples/mixed-language`](../../examples/mixed-language/README.md) continues
+one real journey through this public package, the installed Python wheel, and a
+local Go consumer module.
+
 ## Record a journey
 
 ```typescript
