@@ -80,8 +80,11 @@ Use the protobufjs runtime already present in the lockfile as an explicit API
 dependency and a checked-in minimal descriptor generated from pinned official
 OTLP common/resource/logs/collector schemas, with license/source attribution.
 Do not hand-write a protobuf wire decoder or add a complete OTel SDK to the API.
-Bound recursive decoding and AnyValue traversal, including unknown binary
-groups, resource/scope counts and attribute counts. Preserve uint64 values until
+Preserve protobuf merging of duplicate singular message occurrences, including
+earlier attribute arrays and distinct AnyValue members needed for semantic
+refusals; ordinary duplicate scalar fields remain last-wins. Bound recursive
+decoding and AnyValue traversal, including unknown binary groups, resource/scope
+counts and attribute counts. Preserve uint64 values until
 the field-specific conversion. The JSON decoder must implement OTLP's hex ID
 convention rather than protobufjs's ordinary base64 byte conversion. Reject
 malformed typed fields instead of coercing them. Test JSON and binary equivalence
