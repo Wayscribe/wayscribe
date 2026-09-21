@@ -2163,3 +2163,24 @@ tell a collector slower than the shutdown timeout (`shutdown`) from a proxy
 answering with the wrong body (`no_verdict`). Five sends in a row whose replies
 gave no verdict at all open the breaker, so `breakerOpened` rises for that
 proxy too (ADR-063).
+
+## Optional annotated OTLP logs
+
+`OTLP_LOGS_ENABLED=false` leaves `/v1/logs` absent. Set it to `true` to accept
+annotated JSON/protobuf logs on the existing API listener. No Collector or extra
+service is required, and native SDKs work with the default. Use an environment
+API key and configure exporters for at most 100 records per batch.
+
+`OTLP_MAX_REQUEST_BYTES=4194304` independently bounds compressed and expanded
+request bytes; valid range is 1..67108864. Native event limits and fixed codec
+structure caps still apply. Compose exposes these two environment variables;
+For source Compose, set them in repository-root `.env`; published Compose reads
+them from the interpolation environment (shell or `--env-file`). Helm uses
+`api.otlpLogsEnabled` and `api.otlpMaxRequestBytes`. The separate
+failed-admin-authentication throttle does not apply to ingestion.
+
+For 503, retry the unchanged export, including stable IDs/timestamps: earlier
+records may already have committed and will deduplicate. A 200 permanent partial
+success reports only a rejected count and fixed summary. See
+[OTLP logs](OTLP_LOGS.md) and the [official exporter example](../examples/otlp-logs/README.md).
+Local source/Helm/Compose verification does not publish an image or deploy it.

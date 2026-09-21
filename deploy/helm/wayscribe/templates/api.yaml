@@ -81,6 +81,10 @@ spec:
               value: {{ .Values.api.logLevel | quote }}
             - name: DEFAULT_RETENTION_DAYS
               value: {{ .Values.api.defaultRetentionDays | quote }}
+            - name: OTLP_LOGS_ENABLED
+              value: {{ .Values.api.otlpLogsEnabled | quote }}
+            - name: OTLP_MAX_REQUEST_BYTES
+              value: {{ .Values.api.otlpMaxRequestBytes | quote }}
             - name: MAX_EVENT_PAYLOAD_BYTES
               value: {{ .Values.api.maxEventPayloadBytes | quote }}
             - name: ALLOW_FULL_PAYLOAD_CAPTURE

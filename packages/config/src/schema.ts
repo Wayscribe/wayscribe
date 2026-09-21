@@ -74,6 +74,11 @@ export const serverEnvSchema = z
     // trims it the same way, and the two have to stay identical.
     ADMIN_TOKEN: z.string().trim().min(32),
     DEFAULT_RETENTION_DAYS: z.coerce.number().int().positive().default(7),
+    OTLP_LOGS_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    OTLP_MAX_REQUEST_BYTES: z.coerce.number().int().min(1).max(67_108_864).default(4_194_304),
     MAX_EVENT_PAYLOAD_BYTES: z.coerce.number().int().positive().default(262_144),
     ALLOW_FULL_PAYLOAD_CAPTURE: z
       .enum(["true", "false"])

@@ -92,6 +92,8 @@ services:
       ENCRYPTION_KEY_PREVIOUS: ${ENCRYPTION_KEY_PREVIOUS:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-replace-for-local-development-0000}
       DEFAULT_RETENTION_DAYS: ${DEFAULT_RETENTION_DAYS:-7}
+      OTLP_LOGS_ENABLED: "${OTLP_LOGS_ENABLED:-false}"
+      OTLP_MAX_REQUEST_BYTES: "${OTLP_MAX_REQUEST_BYTES:-4194304}"
       MAX_EVENT_PAYLOAD_BYTES: "262144"
       ALLOW_FULL_PAYLOAD_CAPTURE: "false"
       # The hosts replay may send to, and the control that keeps replay from

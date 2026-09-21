@@ -95,3 +95,26 @@ describe("the Compose stacks built from source", () => {
     }
   });
 });
+
+describe("optional OTLP wiring", () => {
+  it.each(["compose.yaml", "compose.published.yaml"])(
+    "%s keeps two optional settings configurable",
+    (file) => {
+      const api = services(file).find(([name]) => name === "api")?.[1];
+      if (api === undefined) throw new Error("missing API service");
+      if (file === "compose.yaml") {
+        expect(readsRootEnv(api)).toBe(true);
+        expect(environmentValue(api, "OTLP_LOGS_ENABLED")).toBeUndefined();
+        expect(environmentValue(api, "OTLP_MAX_REQUEST_BYTES")).toBeUndefined();
+        const defaults = readFileSync(`${infrastructure}defaults.env`, "utf8");
+        expect(defaults).toContain("OTLP_LOGS_ENABLED=false");
+        expect(defaults).toContain("OTLP_MAX_REQUEST_BYTES=4194304");
+      } else {
+        expect(environmentValue(api, "OTLP_LOGS_ENABLED")).toBe("${OTLP_LOGS_ENABLED:-false}");
+        expect(environmentValue(api, "OTLP_MAX_REQUEST_BYTES")).toBe(
+          "${OTLP_MAX_REQUEST_BYTES:-4194304}"
+        );
+      }
+    }
+  );
+});

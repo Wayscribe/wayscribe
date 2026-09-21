@@ -241,3 +241,27 @@ describe("TRUSTED_PROXY_COUNT", () => {
     }
   });
 });
+
+describe("optional OTLP configuration", () => {
+  it("defaults disabled with a 4 MiB request ceiling", () => {
+    expect(loadServerEnv(validEnv)).toMatchObject({
+      OTLP_LOGS_ENABLED: false,
+      OTLP_MAX_REQUEST_BYTES: 4_194_304
+    });
+  });
+  it.each(["1", "67108864"])("accepts byte boundary %s", (value) => {
+    expect(
+      loadServerEnv({ ...validEnv, OTLP_LOGS_ENABLED: "true", OTLP_MAX_REQUEST_BYTES: value })
+    ).toMatchObject({ OTLP_LOGS_ENABLED: true, OTLP_MAX_REQUEST_BYTES: Number(value) });
+  });
+  it.each(["0", "67108865", "1.5", "wat"])("refuses byte limit %s", (value) => {
+    expect(() => loadServerEnv({ ...validEnv, OTLP_MAX_REQUEST_BYTES: value })).toThrow(
+      /OTLP_MAX_REQUEST_BYTES/
+    );
+  });
+  it("refuses nonboolean enablement", () => {
+    expect(() => loadServerEnv({ ...validEnv, OTLP_LOGS_ENABLED: "1" })).toThrow(
+      /OTLP_LOGS_ENABLED/
+    );
+  });
+});

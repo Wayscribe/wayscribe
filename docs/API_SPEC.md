@@ -901,3 +901,13 @@ and the number of runs, not the base URL or the headers.
   characters.
 - `404 project_not_found` when `x-wayscribe-project-id` is not a UUID, names no
   project, or is omitted while more than one project exists.
+
+## Optional OTLP logs
+
+`POST /v1/logs` exists only with `OTLP_LOGS_ENABLED=true` (default false).
+Environment API keys authenticate; admin tokens cannot ingest. JSON/protobuf
+and identity/gzip are supported, with scoped parsing and fixed OTLP response
+shapes. Explicit attributes are required; body/severity do not become business
+events. HTTP 200 may contain permanent partial success; transient storage errors
+return 503 even after earlier commits. Retry with unchanged IDs/timestamps.
+See [OTLP logs](OTLP_LOGS.md) for the full mapping, bounds and response contract.

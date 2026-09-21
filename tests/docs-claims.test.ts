@@ -88,7 +88,7 @@ describe("the Node SDK's documented numbers", () => {
 
     const sdk = prose(read("packages/sdk-node/README.md"));
     expect(sdk).toContain("sends pause for 30 seconds after five failed in a row");
-    expect(sdk).toContain("for 30 seconds from its first refusal, or through 10 sends");
+    expect(sdk).toContain("for 30 seconds from its first refusal, or through 10 logical sends");
     expect(sdk).toContain("a random 0 to 100 ms, and after the second a random 0 to 200 ms");
     expect(sdk).toContain("await recorder.shutdown({ timeoutMs: 2_000 }); // the default");
     expect(sdk).toContain("(1,000 by default) the oldest events are dropped");

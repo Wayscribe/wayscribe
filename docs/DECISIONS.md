@@ -4436,3 +4436,32 @@ boundary.
 - **One combined implementation change.** The propagation contract, native
   recorders, interoperability, and operator controls need independent review
   and verification boundaries.
+
+## ADR-066: Optional annotated OTLP HTTP logs reuse native ingestion
+
+**Status:** Accepted. Implements the optional receiver sequence approved by ADR-065.
+
+Applications that already export OTLP logs can explicitly annotate business events
+without adopting a native recorder. Generic log bodies and severity do not describe
+a deterministic journey, so they are ignored. Stable caller event/journey IDs and
+timestamps are required; the adapter never invents identity, time, runtime SDK
+metadata or failure outcomes.
+
+`OTLP_LOGS_ENABLED` defaults false and leaves `/v1/logs` absent. When enabled,
+JSON/protobuf with identity/gzip use the existing listener and environment API
+keys. Scoped parsers bound compressed and expanded bytes and validate the whole
+export's count before writing. Only the two settings documented in
+[OTLP_LOGS.md](OTLP_LOGS.md) are added; no service or runtime exporter is introduced.
+
+Mapped envelopes go through `ingestEvent`, preserving authoritative capture,
+redaction, scope, aliases, diffs, hashing and idempotency. Permanent refusals
+produce HTTP 200 partial success with only a count and fixed summary. The first
+transient authentication/storage failure produces 503 without partial success,
+even when earlier events committed. Processing stops and earlier commits remain;
+an unchanged retry reuses stable IDs and becomes duplicate evidence, not new rows.
+PostgreSQL poison-text refusals remain permanent using native classification.
+
+Authentication/parser/storage diagnostics are fixed safe summaries. Admin tokens
+cannot ingest and the failed-admin-auth throttle does not cover logs. An official
+pinned Python exporter is isolated example/test tooling; native SDKs never depend
+on it. Publication/deployment are separate from local source implementation.

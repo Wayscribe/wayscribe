@@ -3,7 +3,6 @@ import {
   findEventDetail,
   findJourneyDetail,
   isStatementTimeout,
-  touchApiKey,
   type ApiKeyContext
 } from "@wayscribe/database";
 import type { Keyring } from "@wayscribe/payload-security";
@@ -12,35 +11,9 @@ import type { Knex } from "knex";
 import { databaseApiKeys, logVerifierReplaceFailure, resolveApiKey } from "../auth.js";
 import { ingestEvent, type IngestResult } from "../ingestion/ingest-event.js";
 import { MAX_BATCH_EVENTS } from "@wayscribe/protocol";
-import type { EventResult } from "../metrics/api-metrics.js";
+import { eventResult, storageRejection } from "../ingestion/storage-result.js";
+import { touchApiKeyUsage } from "../api-key-usage.js";
 import { presentEvent, presentJourneyDetail } from "./present.js";
-
-/**
- * How stale `last_used_at` is allowed to get.
- *
- * Ingestion is the hot path and a key is presented on every event, so writing
- * this row per request would add a write to a request that already has one. An
- * operator deciding whether a key is still in use does not need the last minute;
- * they need to know it was not last year.
- */
-const TOUCH_INTERVAL_MS = 60_000;
-const lastTouched = new Map<string, number>();
-
-/**
- * Record that a key was used, at most once a minute, without blocking the reply.
- *
- * Errors are swallowed deliberately: failing an accepted ingestion because a
- * bookkeeping write failed would trade real data for a timestamp.
- */
-function touch(app: FastifyInstance, id: string): void {
-  const now = Date.now();
-  if (now - (lastTouched.get(id) ?? 0) < TOUCH_INTERVAL_MS) return;
-  lastTouched.set(id, now);
-
-  void touchApiKey(app.db, id).catch((error: unknown) => {
-    app.log.debug({ err: error }, "failed to record API key usage");
-  });
-}
 
 interface BatchResult {
   eventId: string | null;
@@ -93,7 +66,7 @@ export function registerEventRoutes(
       return reply.code(auth.status).send(errorBody(auth.code, auth.message, request.id));
     }
 
-    touch(app, auth.context.id);
+    touchApiKeyUsage(app, auth.context.id);
 
     let result: IngestResult;
     try {
@@ -157,7 +130,7 @@ export function registerEventRoutes(
     // CI depends on. The verifier migration rides along for the same reason.
     // Both are about the key rather than about the events, and "nothing is
     // stored" means no event, journey, alias, summary or audit row.
-    touch(app, auth.context.id);
+    touchApiKeyUsage(app, auth.context.id);
 
     const body = request.body as { events?: unknown } | undefined;
     const events = body?.events;
@@ -553,38 +526,3 @@ const QUERY_TIMEOUT_REJECTION: IngestResult = {
   message: "The database took too long to store the event and the statement was cancelled.",
   httpStatus: 503
 };
-
-function eventResult(result: IngestResult): EventResult {
-  if (result.status === "rejected") return "rejected";
-  return result.duplicate === true ? "duplicate" : "accepted";
-}
-
-/**
- * A storage failure, described without leaking the database's own vocabulary.
- *
- * A pg error carries `.code` — a SQLSTATE like `22P05` — and no `.statusCode`,
- * so the shared error handler used to publish it verbatim as the API's error
- * code. `22P05` tells an SDK user nothing; naming the likely cause tells them
- * where to look.
- *
- * `22P05` is a NUL in jsonb, `22021` a NUL in text, and `22P02` a lone
- * surrogate in jsonb, which `JSON.stringify` writes as a `\ud800` escape that
- * PostgreSQL's JSON parser refuses. `22P02` is also a malformed uuid, but every
- * uuid ingestion writes comes from the authenticated key's own row, so here it
- * can only be the payload.
- */
-function storageRejection(error: unknown): IngestResult {
-  const sqlState = (error as { code?: unknown } | null)?.code;
-  const unsupportedText = sqlState === "22P05" || sqlState === "22021" || sqlState === "22P02";
-
-  return {
-    eventId: null,
-    journeyId: null,
-    status: "rejected",
-    code: unsupportedText ? "unstorable_payload" : "storage_error",
-    message: unsupportedText
-      ? "The payload contains characters PostgreSQL cannot store, such as a NUL byte or an unpaired surrogate."
-      : "The event could not be stored.",
-    httpStatus: unsupportedText ? 400 : 500
-  };
-}

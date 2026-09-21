@@ -28,6 +28,8 @@ const app = buildApp({
   adminToken: env.ADMIN_TOKEN,
   logLevel: env.LOG_LEVEL,
   maxEventPayloadBytes: env.MAX_EVENT_PAYLOAD_BYTES,
+  otlpLogsEnabled: env.OTLP_LOGS_ENABLED,
+  otlpMaxRequestBytes: env.OTLP_MAX_REQUEST_BYTES,
   allowFullPayloadCapture: env.ALLOW_FULL_PAYLOAD_CAPTURE,
   replayAllowedHosts: env.REPLAY_ALLOWED_HOSTS,
   trustedProxyCount: env.TRUSTED_PROXY_COUNT

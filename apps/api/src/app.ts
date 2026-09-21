@@ -7,6 +7,7 @@ import { unknownKeyWarning } from "./key-warnings.js";
 import { pathOf, serializeError, serializeRequest } from "./log-url.js";
 import { createApiMetrics, type ApiMetrics } from "./metrics/api-metrics.js";
 import { registerDeletionRoutes } from "./routes/deletions.js";
+import { registerOtlpRoutes } from "./routes/otlp.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -40,6 +41,8 @@ export interface BuildAppOptions {
    * until the queue trims. Sized from the contract rather than guessed.
    */
   bodyLimit?: number;
+  otlpLogsEnabled?: boolean;
+  otlpMaxRequestBytes?: number;
   maxEventPayloadBytes?: number;
   allowFullPayloadCapture?: boolean;
   /** From REPLAY_ALLOWED_HOSTS. Empty means replay can reach nothing. */
@@ -275,6 +278,14 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     maxEventPayloadBytes,
     options.allowFullPayloadCapture ?? false
   );
+  if (options.otlpLogsEnabled === true) {
+    registerOtlpRoutes(app, {
+      keyring: options.keyring,
+      maxEventPayloadBytes,
+      allowFullPayload: options.allowFullPayloadCapture ?? false,
+      maxRequestBytes: options.otlpMaxRequestBytes ?? 4_194_304
+    });
+  }
   registerProjectRoutes(app, options.adminToken);
   registerQueryRoutes(app, options.keyring, options.adminToken, warnUnknownKey);
   registerReplayRoutes(app, {

@@ -33,6 +33,9 @@ api:
   replicaCount: 1
   logLevel: info
   defaultRetentionDays: 7
+  # Optional annotated OTLP HTTP logs on the existing API listener.
+  otlpLogsEnabled: false
+  otlpMaxRequestBytes: 4194304
   maxEventPayloadBytes: 262144
   allowFullPayloadCapture: false
   # REPLAY_ALLOWED_HOSTS: the hosts replay may send to, and the control that

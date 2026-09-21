@@ -15,7 +15,13 @@ export {
  * is not throttled here: a misconfigured service must not lock out an operator
  * reading from the same address, and ingestion refuses the admin token anyway.
  */
-const UNTHROTTLED_ROUTES = new Set(["/v1/events", "/v1/events/batch", "/health", "/ready"]);
+const UNTHROTTLED_ROUTES = new Set([
+  "/v1/logs",
+  "/v1/events",
+  "/v1/events/batch",
+  "/health",
+  "/ready"
+]);
 
 declare module "fastify" {
   interface FastifyRequest {
