@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { test } from "node:test";
 import { readBoundedJsonResponse } from "./node-entry.mjs";
 import { startOwnedWorker, waitForOwnedChild } from "./run.mjs";
@@ -51,4 +52,31 @@ test("a malformed worker response is refused", async () => {
     readBoundedJsonResponse(new globalThis.Response("not json"), "Python worker"),
     /Python worker returned malformed JSON/
   );
+});
+
+test("a flooding worker retains only the output limit and is terminated once", async () => {
+  const outputLimitBytes = 4_096;
+  const worker = await startOwnedWorker(
+    "flooding worker",
+    nodeWorker(
+      'process.on("SIGTERM",()=>{}); console.log(JSON.stringify({type:"ready",port:43124})); setTimeout(() => setInterval(() => process.stdout.write("x".repeat(8192)), 5), 20)'
+    ),
+    { startupTimeoutMs: 1_000, outputLimitBytes }
+  );
+  const originalKill = worker.child.kill.bind(worker.child);
+  const signals = [];
+  worker.child.kill = (signal) => {
+    signals.push(signal);
+    return originalKill(signal);
+  };
+
+  await assert.rejects(
+    waitForOwnedChild(worker, 2_000),
+    /flooding worker exceeded its 4096 byte output limit/
+  );
+  const output = worker.output();
+  assert.ok(
+    Buffer.byteLength(output.stdout) + Buffer.byteLength(output.stderr) <= outputLimitBytes
+  );
+  assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
 });

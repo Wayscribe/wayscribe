@@ -37,9 +37,11 @@ export async function startOwnedWorker(name, commandSpec, options = {}) {
     env: commandSpec.env,
     stdio: ["ignore", "pipe", "pipe"]
   });
-  let stdout = "";
-  let stderr = "";
+  let stdout = Buffer.alloc(0);
+  let stderr = Buffer.alloc(0);
+  let retainedBytes = 0;
   let overflow;
+  let termination;
   let readySettled = false;
   let resolveReady;
   let rejectReady;
@@ -55,25 +57,32 @@ export async function startOwnedWorker(name, commandSpec, options = {}) {
     readySettled = true;
     rejectReady(error);
   };
-  const checkLimit = () => {
-    if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) <= outputLimitBytes) return;
+  const terminateOnce = () => {
+    termination ??= terminateOwnedChild(child);
+    return termination;
+  };
+  const append = (stream, chunk) => {
+    const remaining = Math.max(0, outputLimitBytes - retainedBytes);
+    if (remaining > 0) {
+      const kept = chunk.subarray(0, remaining);
+      retainedBytes += kept.length;
+      if (stream === "stdout") stdout = Buffer.concat([stdout, kept]);
+      else stderr = Buffer.concat([stderr, kept]);
+    }
+    if (chunk.length <= remaining || overflow) return;
     overflow = new Error(`${name} exceeded its ${String(outputLimitBytes)} byte output limit`);
     failReady(overflow);
-    void terminateOwnedChild(child);
+    void terminateOnce();
   };
-  child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
-    stderr += chunk;
-    checkLimit();
+    append("stderr", chunk);
   });
-  child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk) => {
-    stdout += chunk;
-    checkLimit();
+    append("stdout", chunk);
     if (readySettled) return;
-    const newline = stdout.indexOf("\n");
+    const newline = stdout.indexOf(10);
     if (newline < 0) return;
-    const line = stdout.slice(0, newline);
+    const line = stdout.subarray(0, newline).toString("utf8");
     try {
       const parsed = JSON.parse(line);
       if (
@@ -89,7 +98,7 @@ export async function startOwnedWorker(name, commandSpec, options = {}) {
       resolveReady(parsed.port);
     } catch {
       failReady(new Error(`${name} emitted malformed readiness`));
-      void terminateOwnedChild(child);
+      void terminateOnce();
     }
   });
   child.once("error", (error) => failReady(new Error(`${name} could not start`, { cause: error })));
@@ -99,19 +108,25 @@ export async function startOwnedWorker(name, commandSpec, options = {}) {
 
   const timer = setTimeout(() => {
     failReady(new Error(`${name} exceeded its readiness deadline`));
-    void terminateOwnedChild(child);
+    void terminateOnce();
   }, startupTimeoutMs);
   const abort = () => {
     failReady(options.signal?.reason ?? new Error(`${name} was interrupted`));
-    void terminateOwnedChild(child);
+    void terminateOnce();
   };
   if (options.signal?.aborted) abort();
   else options.signal?.addEventListener("abort", abort, { once: true });
   try {
     const port = await ready;
-    return { name, child, port, exit, output: () => ({ stdout, stderr, overflow }) };
+    return {
+      name,
+      child,
+      port,
+      exit,
+      output: () => ({ stdout: stdout.toString("utf8"), stderr: stderr.toString("utf8"), overflow })
+    };
   } catch (error) {
-    await terminateOwnedChild(child);
+    await terminateOnce();
     throw error;
   } finally {
     clearTimeout(timer);

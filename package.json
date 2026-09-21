@@ -21,7 +21,7 @@
     "test:go:conformance": "GOTOOLCHAIN=local GOWORK=off go -C packages/sdk-go test ./internal/conformance -run TestPublicDriverAccountsForManifestAndCapturesPublicSDKBytes -count=1",
     "test:go:integration": "vitest run --config vitest.integration.config.ts apps/api/src/routes/go-sdk-conformance.integration.test.ts apps/api/src/routes/go-sdk-workflow.integration.test.ts",
     "test:go:consumer": "GOTOOLCHAIN=local GOWORK=off GOPROXY=off GOSUMDB=off go -C examples/go-worker test ./...",
-    "test:mixed-language": "node --test examples/mixed-language/run.test.mjs",
+    "test:mixed-language": "node --test examples/mixed-language/run.test.mjs && GOTOOLCHAIN=local GOWORK=off GOPROXY=off GOSUMDB=off go -C examples/mixed-language test ./...",
     "test:mixed-language:integration": "vitest run --config vitest.integration.config.ts apps/api/src/routes/mixed-language.integration.test.ts",
     "db:migrate": "pnpm --filter @wayscribe/database run migrate",
     "db:migrate:unlock": "pnpm --filter @wayscribe/database run \"migrate:unlock\"",
