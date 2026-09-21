@@ -27,7 +27,7 @@
 ### Task 1: A real Node → Python → Go journey
 
 **Files:**
-- Create `examples/mixed-language/{README.md,node-entry.mjs,python-worker.py,go-worker.go,run.mjs}` and minimal Go module metadata using the locally implemented module.
+- Create `examples/mixed-language/{README.md,package.json,node-entry.mjs,python-worker.py,go-worker.go,run.mjs}` and minimal Go module metadata using the locally implemented module.
 - Create `apps/api/src/routes/mixed-language.integration.test.ts` and focused child-process lifecycle tests/support as needed.
 - Modify example/SDK documentation and explicit local test scripts; no CI or publication wiring.
 
@@ -35,6 +35,7 @@
 - The driver accepts an API URL and synthetic ingestion configuration through explicit arguments/environment, builds Go into an owned temporary directory, starts workers on port 0 and reads one bounded machine-readable readiness line from each.
 - The Node entry returns a bounded summary `{ journeyId, entity, alias }`; this is business/test coordination output, not an alternative event emitter.
 - Each worker imports its public SDK; the exact Go API/module signatures come from its completed Task3 report and are copied into this task brief before dispatch.
+- The example's private ESM package declares `@wayscribe/node` as `file:../../packages/sdk-node`, following `examples/instrument-a-service`. Build that public package first and document the local example install; do not rely on undeclared root package resolution or change the root workspace membership. Integration setup may create an owned local dependency link, with bounded cleanup, to avoid repeated installs.
 
 - [ ] **Step 1: Write the real integration expectation first.** Start the existing isolated test API/database, seed a project/environment/key, then run the three-program driver. Query the API by the returned alias and assert one journey, expected entity and services, one transformed event with literal before/after payloads and a field diff, failed/retried delivery and terminal completion. Check the synthetic secret is redacted, not merely absent because no payload recorded.
 
