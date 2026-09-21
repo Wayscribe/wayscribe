@@ -64,14 +64,15 @@ async function statement(
     submitted = true;
     await deadline.wait(client.query(sql), close);
   } catch (error) {
-    const code = (error as { code?: string }).code;
     if (creating && submitted) {
-      if (code === "42P04") throw new BackupError("database_exists");
-      if (!code || !/^[0-9A-Z]{5}$/.test(code)) {
+      // Socket codes such as EPIPE also look like SQLSTATEs. Only a pg ErrorResponse
+      // with ordinary ERROR severity acknowledges a failed statement.
+      if (!(error instanceof pg.DatabaseError) || error.severity !== "ERROR") {
         const uncertain = new BackupError("create_outcome_unknown");
         uncertain.uncertainDatabase = creating;
         throw uncertain;
       }
+      if (error.code === "42P04") throw new BackupError("database_exists");
     }
     throw error instanceof BackupError ? error : new BackupError("database_failed");
   } finally {

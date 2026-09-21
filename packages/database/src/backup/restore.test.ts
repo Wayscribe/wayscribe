@@ -7,16 +7,22 @@ const { query, connect, end } = vi.hoisted(() => ({
   connect: vi.fn(),
   end: vi.fn()
 }));
-vi.mock("pg", () => ({
-  default: {
-    Client: class {
-      query = query;
-      connect = connect;
-      end = end;
-      on(): void {}
+vi.mock("pg", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("pg")>();
+  return {
+    ...actual,
+    default: {
+      ...actual.default,
+      Client: class {
+        query = query;
+        connect = connect;
+        end = end;
+        on(): void {}
+      }
     }
-  }
-}));
+  };
+});
+import pg from "pg";
 import { restoreBackup } from "./restore.js";
 let dir: string;
 let input: string;
@@ -43,7 +49,9 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 it("never drops an existing database", async () => {
-  query.mockRejectedValueOnce(Object.assign(new Error("SECRET"), { code: "42P04" }));
+  query.mockRejectedValueOnce(
+    Object.assign(new pg.DatabaseError("SECRET", 0, "error"), { code: "42P04", severity: "ERROR" })
+  );
   await expect(
     restoreBackup({ databaseUrl, input, database: "existing", timeoutMs: 5000 })
   ).rejects.toMatchObject({ code: "database_exists" });
@@ -112,4 +120,27 @@ it("shares one bounded cleanup grace across connection shutdown and a stuck DROP
     restoreBackup({ databaseUrl, input, database: "cleanup_stuck", timeoutMs: 1000 })
   ).rejects.toMatchObject({ code: "tool_failed", cleanupDatabase: "cleanup_stuck" });
   expect(Date.now() - start).toBeLessThan(6500);
+});
+
+it("reports a submitted CREATE EPIPE as uncertain and never drops the target", async () => {
+  query.mockRejectedValueOnce(
+    Object.assign(new Error("PASSWORD_SOCKET_SENTINEL"), { code: "EPIPE" })
+  );
+  await expect(
+    restoreBackup({ databaseUrl, input, database: "pipe_copy", timeoutMs: 5000 })
+  ).rejects.toMatchObject({ code: "create_outcome_unknown", uncertainDatabase: "pipe_copy" });
+  expect(query.mock.calls.map((call) => call[0] as unknown)).toEqual([
+    'CREATE DATABASE "pipe_copy" TEMPLATE template0'
+  ]);
+});
+it("keeps acknowledged PostgreSQL CREATE refusals distinct from transport failures", async () => {
+  query.mockRejectedValueOnce(
+    Object.assign(new pg.DatabaseError("SECRET", 0, "error"), { code: "42501", severity: "ERROR" })
+  );
+  await expect(
+    restoreBackup({ databaseUrl, input, database: "denied_copy", timeoutMs: 5000 })
+  ).rejects.toMatchObject({ code: "database_failed", uncertainDatabase: undefined });
+  expect(query.mock.calls.map((call) => call[0] as unknown)).toEqual([
+    'CREATE DATABASE "denied_copy" TEMPLATE template0'
+  ]);
 });
