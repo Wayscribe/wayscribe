@@ -24,6 +24,8 @@ existing cryptographic key-generation/verifier primitives and key-rotation
 conventions, with an unambiguous viewer prefix. A viewer is not an ingestion key
 with a flag that callers can forget to inspect. The native/OTLP authentication
 path must refuse it before ingestion.
+Use `wsv_` plus 24 random bytes encoded as 32 base64url characters. Its public
+lookup prefix has the existing twelve-character length.
 
 Add database CLI commands `viewer:create <project> <name>`, `viewer:list
 <project>` and `viewer:revoke <prefix>`, following existing key command patterns.
@@ -48,6 +50,9 @@ API capability/project response before issuing a session. Never probe a token
 by trying a write. A viewer lands in its sole project and cannot use project
 selection to switch scope. Show a concise view-only indicator and explain why
 payload/replay controls are unavailable.
+`GET /v1/access` supplies that response: admin credentials return kind `admin`;
+viewer credentials return kind `viewer` and their sole project's ID, name and
+slug. It rejects ingestion credentials and never returns a token or verifier.
 
 The viewer credential check adds asynchronous work to login. Preserve bounded
 login admission before that await; concurrent guesses must not all pass the
