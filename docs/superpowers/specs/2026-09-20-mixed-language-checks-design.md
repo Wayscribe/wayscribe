@@ -49,7 +49,11 @@ a named environment variable; do not accidentally reuse the CLI's admin token.
 The API validates the supplied environment against that key. Existing CLI reads
 continue using their present credential configuration.
 
-Validate arguments and local JSON before any request. Bound file, request and
+Validate arguments, UTF-8, JSON, the public batch-request schema and batch count
+before any request. Individual event validity stays with the server's per-position
+dry-run verdicts; preview must preserve invalid elements as supplied so the server
+can explain their refusal. Validate check's generated event with the public event
+parser. Bound file, request and
 response size to the documented route limits, use a short timeout and refuse
 redirects. Never include keys or authorization headers in output. Validate the
 server's `dryRun: true` response marker before describing anything as a preview;
