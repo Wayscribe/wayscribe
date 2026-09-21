@@ -81,6 +81,9 @@ importers:
       pg:
         specifier: ^8.23.0
         version: 8.23.0
+      protobufjs:
+        specifier: 7.6.6
+        version: 7.6.6
       undici:
         specifier: ^8.10.2
         version: 8.10.2
