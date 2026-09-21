@@ -104,6 +104,7 @@ type captured struct {
 	value                          any
 	truncated, omitted, unreadable bool
 	names                          []Diagnostic
+	reports                        []Diagnostic
 }
 type visit struct {
 	kind reflect.Kind

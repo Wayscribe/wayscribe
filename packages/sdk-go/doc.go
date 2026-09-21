@@ -1,4 +1,4 @@
-// Package wayscribe provides the unreleased Wayscribe Go protocol core.
+// Package wayscribe provides the unreleased Wayscribe Go recorder.
 //
 // Values are captured synchronously without calling application marshal or
 // string methods. Caller-owned maps and slices must remain stable during capture.

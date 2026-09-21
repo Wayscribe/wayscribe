@@ -1,10 +1,10 @@
-# Wayscribe Go core (unreleased)
+# Wayscribe Go SDK (unreleased)
 
 Module `gitlab.com/jojithedev/wayscribe/packages/sdk-go`, package `wayscribe`,
 requires Go 1.26. This local development module is **not published**. Its fixed
 identity is `wayscribe-go` / `0.1.0-dev`; protocol version remains `0.1`.
-The recorder, delivery transport and wrappers are the next implementation task.
-This core alone does not send events or run background work.
+Recording captures immediately and sends asynchronously through the batch route.
+Runtime and tests use only the Go standard library.
 
 Configuration is explicit: endpoint, API key, service and environment are
 required. No SDK environment variables or ambient trace/host metadata are read.
@@ -97,6 +97,122 @@ GOTOOLCHAIN=local GOWORK=off go test -race ./...
 GOTOOLCHAIN=local GOWORK=off go vet ./...
 ```
 
-These core checks do not claim full SDK conformance, real API ingestion,
-publication, or the human pilot gate. The later recorder/conformance tasks own
-those checks.
+These local checks do not claim full cross-language SDK conformance, real API
+ingestion, publication, or the human pilot gate. The conformance task owns the
+fixture driver and real API checks.
+
+
+## Recording and wrappers
+
+```go
+recorder := wayscribe.New(wayscribe.Config{
+    Endpoint: "http://localhost:3001",
+    APIKey: "explicit-ingestion-key",
+    Service: "orders",
+    Environment: "development",
+})
+defer recorder.Shutdown(context.Background())
+
+journey := recorder.Journey(wayscribe.Entity{Type: "order", ID: "ORD-42"},
+    wayscribe.JourneyOptions{Label: "Order fulfillment"})
+journey.Record(wayscribe.Event{
+    Operation: wayscribe.Received, Name: "receive", Input: wayscribe.Payload(order),
+})
+result, err := wayscribe.Transform(ctx, journey, "normalize", order,
+    func(ctx context.Context) (Order, error) { return normalize(ctx, order) })
+journey.Identify(map[string]string{"externalOrderId": "EXT-42"},
+    wayscribe.IdentifyOptions{DisplayableAliases: []string{"externalOrderId"}})
+journey.Complete("") // name defaults to "complete"
+```
+
+The callback's exact value and error are returned, including a value accompanied
+by an error. A callback panic is recorded and re-panicked unchanged; a callback's
+`runtime.Goexit` is not turned into a successful event or a replacement panic.
+Cancellation is passed through unchanged to the callback. SDK instrumentation
+and diagnostic/projection panics are isolated. Callbacks should return promptly;
+Go cannot cancel arbitrary application code that blocks or calls `Goexit`.
+
+`Transform`, `Persist`, `Publish`, `Consume`, `Deliver`, and `Validate` share this
+signature (and their natural protocol operations):
+
+```go
+func Transform[I, T any](context.Context, Target, string, I,
+    func(context.Context) (T, error), ...Options[I, T]) (T, error)
+```
+
+`Target` is implemented by `*Journey` and `*Group`. A nil/disabled target or empty
+group still runs the host callback once. `recorder.Across(j1, j2, ...)` accepts
+only that recorder's journeys, deduplicates journey IDs, and executes one callback
+for the group. Events have distinct IDs with shared start time and duration.
+Groups also expose `Record`, `Fail`, and `Complete`. Recorders and journeys must
+not be copied after use; their SDK-owned state supports concurrent calls.
+
+`Options[I,T]` accepts `Attempt`, `Metadata`, `Aliases`, `DisplayableAliases`,
+`CaptureInput func(I, Context) any`, `CaptureOutput func(T, Context) any`,
+`MetadataFrom func(T, Context) map[string]any`, and
+`IsFailure func(T) *FailureReason`. Input projections run before host work;
+output/metadata projections run per journey on the result. Projection contexts
+are detached. Metadata projections override static keys; explicit `Attempt`
+wins over metadata. An attempt above one records `retried` with that attempt's
+own error. `IsFailure` runs once for a successful callback; a non-nil reason
+records its `Message`/`Code` as failure without changing the host return.
+A projection panic captures `[UNCAPTURABLE]`; a metadata projection panic keeps
+static metadata, and a classifier panic preserves normal result interpretation.
+Metadata-only mode skips payload projections. Optional variadic options accept
+one object; additional objects are safely diagnosed and ignored.
+
+`Journey(Entity, ...JourneyOptions)` creates a random ID unless `JourneyID` is
+supplied. Invalid explicit IDs are refused when recording. `Resume(Context,
+Entity)` uses the explicitly supplied entity and a usable carried ID; an invalid
+ID, including one above the event limit of 128 characters, is diagnosed and
+replaced with a fresh ID. Standalone carrier parsing still accepts 256.
+`ForEntity(Entity, ...LabelOptions)` uses the configured `JourneyIDSecret` for
+keyed derivation and deliberately offers no ID override. `Context()` returns a
+detached carrier; `Label(string)` changes later events without recording one;
+`Fail(string, error)` records a terminal failure.
+
+`WithJourney(context.Context, *Journey)` and `JourneyFromContext(context.Context)`
+carry a journey under a private key while preserving cancellation and deadlines.
+No context value becomes an event field automatically. Nil receivers and zero
+recorders/journeys are safe; zero recorders are disabled.
+
+## Delivery and lifecycle
+
+`Flush(ctx) bool` waits for the work admitted before that call to reach terminal
+accounting. A canceled flush creates no waiter goroutine and leaves the recorder
+available. `Shutdown(ctx) bool` closes admission, drains until empty or a send
+makes no progress, then cancels active requests/backoff and finalizes remaining
+events exactly once. An expired context finalizes immediately. A context without
+a deadline, including nil, receives a five-second upper bound. Repeated shutdown
+returns its first result. True means terminal accounting completed during the
+drain, not that all events were stored; use `Counters()` for delivery outcomes.
+Valid events recorded after shutdown count as `recorded` plus `after_shutdown`.
+Invalid envelopes and disabled recorders never enter delivery accounting.
+
+The pending queue drops its oldest event at capacity. Each of the fixed
+`MaxConcurrentSends` workers additionally owns at most one batch of `BatchSize`
+events (maximum 100). Retries retain byte-identical envelopes and original queue
+age. A logical send contains at most `MaxAttempts` HTTP attempts, with capped
+full-jitter backoff. Following the first transient refusal, every nonempty logical
+send counts toward `EventRetryMaxSends`, including a send whose later attempts
+fail at the HTTP layer. The monotonic `EventRetryBudget` is checked again after
+backoff and breaker waits. Whole-request 4xx is permanent; 5xx/network failures
+retry. Positional verdicts alone determine ownership. Missing/malformed 2xx
+verdicts drop with `no_verdict` and are never silently counted as stored.
+
+A dedicated `net/http` client uses no ambient proxy, never follows redirects,
+verifies TLS, bounds connection ownership and request phases, caps response
+bodies at 1 MiB, and closes bodies/idle connections. Shutdown cannot retract
+bytes already sent or prevent a server from storing an earlier request. Late
+responses cannot change finalized accounting.
+
+`Counters()` and `RejectedSettings()` return detached snapshots. After shutdown,
+`Recorded == Sent + Rejected + Dropped`, and all five dropped causes are present.
+Capture/configuration diagnostics are synchronous and run outside SDK locks.
+Transport diagnostics use one dispatcher with a 64-entry bounded report channel;
+excess/undelivered reports may be skipped, while counters remain exact. The
+callback may reenter lifecycle methods without waiting on a sender or on itself.
+Shutdown cancels SDK-owned work; it does not wait for arbitrary blocking user
+diagnostic code. The dispatcher exits when such a callback returns. Diagnostic
+callbacks may run concurrently with synchronous capture diagnostics and should
+synchronize their own state.

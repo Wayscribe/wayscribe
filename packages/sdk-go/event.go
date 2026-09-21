@@ -39,6 +39,14 @@ func normalizeLabel(label string, d *diagnostics) string {
 	return label
 }
 func captureMetadata(m map[string]any, c resolvedConfig, d *diagnostics) captured {
+	r := captureMetadataDeferred(m, c)
+	for _, v := range r.reports {
+		d.emit(v)
+	}
+	r.reports = nil
+	return r
+}
+func captureMetadataDeferred(m map[string]any, c resolvedConfig) captured {
 	if len(m) > 1000 {
 		return captured{value: tooLarge, omitted: true}
 	}
@@ -53,9 +61,12 @@ func captureMetadata(m map[string]any, c resolvedConfig, d *diagnostics) capture
 	}
 	if dropped > 0 {
 		out["[KEY_TOO_LONG]"] = dropped
-		d.emit(Diagnostic{Kind: "invalid_option", Field: "metadata"})
 	}
-	return captureValue(out, c, "metadata")
+	r := captureValue(out, c, "metadata")
+	if dropped > 0 {
+		r.reports = []Diagnostic{{Kind: "invalid_option", Field: "metadata"}}
+	}
+	return r
 }
 
 // buildEnvelope owns capture counters only. A nil result is a refusal; the
@@ -122,7 +133,7 @@ func buildEnvelope(c resolvedConfig, d *diagnostics, journeyID string, entity En
 	}
 	if e.Aliases != nil {
 		aliases := map[string]string{}
-		if len(e.Aliases) > 1000 {
+		if e.aliasesOversize || len(e.Aliases) > 1000 {
 			d.emit(Diagnostic{Kind: "invalid_option", Field: "aliases"})
 		} else {
 			for k, v := range e.Aliases {
@@ -146,13 +157,16 @@ func buildEnvelope(c resolvedConfig, d *diagnostics, journeyID string, entity En
 		if len(display) > 0 {
 			event["displayableAliases"] = display
 		}
-		if len(e.DisplayableAliases) > 1000 {
+		if e.displayOversize || len(e.DisplayableAliases) > 1000 {
 			d.emit(Diagnostic{Kind: "invalid_option", Field: "displayableAliases"})
 		}
 	}
 	captures := map[string]captured{}
 	if e.metadataCapture != nil {
 		r := *e.metadataCapture
+		for _, v := range r.reports {
+			d.emit(v)
+		}
 		if m, ok := r.value.(map[string]any); ok {
 			copy := make(map[string]any, len(m))
 			for k, v := range m {

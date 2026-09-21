@@ -60,6 +60,7 @@ type ErrorInfo struct {
 }
 type Event struct {
 	metadataCapture                                          *captured
+	aliasesOversize, displayOversize                         bool
 	Operation                                                Operation
 	Name                                                     string
 	Input, Output                                            Value
