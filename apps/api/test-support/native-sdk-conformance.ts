@@ -14,6 +14,7 @@ import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
+import { closeOwnedTestResources } from "./owned-test-resources.js";
 
 export interface CapturedCase {
   id: string;
@@ -57,8 +58,34 @@ export function defineNativeSDKConformanceSuite(
     let defaultProject: string;
     let report: DriverReport;
     let captures: Map<string, CapturedCase>;
+    const owned: {
+      container: TestDatabase | undefined;
+      db: Knex | undefined;
+      app: FastifyInstance | undefined;
+    } = { container: undefined, db: undefined, app: undefined };
     const caseKeys = new Map<string, string>();
     const projects = new Map<string, string>();
+
+    async function cleanup(): Promise<void> {
+      const appToClose = owned.app;
+      const dbToClose = owned.db;
+      const containerToClose = owned.container;
+      const resources = [
+        appToClose === undefined
+          ? undefined
+          : { name: "Fastify app", close: () => appToClose.close() },
+        dbToClose === undefined
+          ? undefined
+          : { name: "Knex connection", close: () => dbToClose.destroy() },
+        containerToClose === undefined
+          ? undefined
+          : { name: "PostgreSQL container", close: () => containerToClose.stop() }
+      ];
+      owned.app = undefined;
+      owned.db = undefined;
+      owned.container = undefined;
+      await closeOwnedTestResources(resources);
+    }
 
     async function keyFor(projectId: string, settings: Settings | undefined): Promise<string> {
       const environmentId = await insertReturningId(db, "environments", {
@@ -84,11 +111,13 @@ export function defineNativeSDKConformanceSuite(
       return generated.apiKey;
     }
 
-    beforeAll(async () => {
+    async function setup(): Promise<void> {
       report = await runDriver();
       captures = new Map(report.cases.map((one) => [one.id, one]));
       container = await startPostgres();
+      owned.container = container;
       db = knex(createKnexConfig(container.getConnectionUri()));
+      owned.db = db;
       await db.migrate.latest();
 
       defaultProject = await insertReturningId(db, "projects", {
@@ -115,13 +144,26 @@ export function defineNativeSDKConformanceSuite(
         adminToken: "admin-token-for-tests-0000000000",
         logLevel: "silent"
       });
+      owned.app = app;
+    }
+
+    beforeAll(async () => {
+      try {
+        await setup();
+      } catch (setupError) {
+        try {
+          await cleanup();
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [setupError, cleanupError],
+            `${title} SDK conformance setup and cleanup failed`
+          );
+        }
+        throw setupError;
+      }
     }, 180_000);
 
-    afterAll(async () => {
-      await app.close();
-      await db.destroy();
-      await container.stop();
-    });
+    afterAll(cleanup);
 
     it(`accounts for every manifest case with the exact ${title} skip list`, () => {
       expect(all.map((one) => one.id)).toEqual(expectedCaseIds(sdkDirectory, "sdk"));

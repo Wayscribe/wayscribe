@@ -8,6 +8,7 @@ import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { closeOwnedTestResources } from "../../test-support/owned-test-resources.js";
 import { buildApp } from "../app.js";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -21,6 +22,39 @@ interface WorkerResult {
   alias: string;
   counters: { recorded: number; sent: number; rejected: number; dropped: number };
 }
+
+describe("owned integration resource cleanup", () => {
+  it("releases every allocated owner even when earlier teardown fails", async () => {
+    const calls: string[] = [];
+    const failure = await closeOwnedTestResources([
+      {
+        name: "app",
+        close: () => {
+          calls.push("app");
+          return Promise.reject(new Error("app close failed"));
+        }
+      },
+      undefined,
+      {
+        name: "database",
+        close: () => {
+          calls.push("database");
+        }
+      },
+      {
+        name: "container",
+        close: () => {
+          calls.push("container");
+          return Promise.reject(new Error("container stop failed"));
+        }
+      }
+    ]).catch((error: unknown) => error);
+
+    expect(calls).toEqual(["app", "database", "container"]);
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toHaveLength(2);
+  });
+});
 
 async function runWorker(
   binary: string,
@@ -80,10 +114,38 @@ describe("an external Go worker against the real API", () => {
   let app: FastifyInstance;
   let apiKey: string;
   let workerResult: WorkerResult;
+  const owned: {
+    container: TestDatabase | undefined;
+    db: Knex | undefined;
+    app: FastifyInstance | undefined;
+  } = { container: undefined, db: undefined, app: undefined };
 
-  beforeAll(async () => {
+  async function cleanup(): Promise<void> {
+    const appToClose = owned.app;
+    const dbToClose = owned.db;
+    const containerToClose = owned.container;
+    const resources = [
+      appToClose === undefined
+        ? undefined
+        : { name: "Fastify app", close: () => appToClose.close() },
+      dbToClose === undefined
+        ? undefined
+        : { name: "Knex connection", close: () => dbToClose.destroy() },
+      containerToClose === undefined
+        ? undefined
+        : { name: "PostgreSQL container", close: () => containerToClose.stop() }
+    ];
+    owned.app = undefined;
+    owned.db = undefined;
+    owned.container = undefined;
+    await closeOwnedTestResources(resources);
+  }
+
+  async function setup(): Promise<void> {
     container = await startPostgres();
+    owned.container = container;
     db = knex(createKnexConfig(container.getConnectionUri()));
+    owned.db = db;
     await db.migrate.latest();
     const projectId = await insertReturningId(db, "projects", {
       name: "go workflow",
@@ -111,24 +173,25 @@ describe("an external Go worker against the real API", () => {
       adminToken: "admin-token-for-tests-0000000000",
       logLevel: "silent"
     });
+    owned.app = app;
     const endpoint = await app.listen({ host: "127.0.0.1", port: 0 });
 
-    const owned = mkdtempSync(join(root, "examples", ".go-worker-test-"));
+    const ownedModule = mkdtempSync(join(root, "examples", ".go-worker-test-"));
     try {
       const sourceModule = readFileSync(join(example, "go.mod"), "utf8");
-      writeFileSync(join(owned, "go.mod"), sourceModule);
-      writeFileSync(join(owned, "main.go"), readFileSync(join(example, "main.go")));
-      const binary = join(owned, "go-worker");
+      writeFileSync(join(ownedModule, "go.mod"), sourceModule);
+      writeFileSync(join(ownedModule, "main.go"), readFileSync(join(example, "main.go")));
+      const binary = join(ownedModule, "go-worker");
       const environment = {
         ...process.env,
         GOTOOLCHAIN: "local",
         GOWORK: "off",
         GOPROXY: "off",
         GOSUMDB: "off",
-        GOMODCACHE: join(owned, "module-cache")
+        GOMODCACHE: join(ownedModule, "module-cache")
       };
       const built = spawnSync("go", ["build", "-trimpath", "-o", binary, "."], {
-        cwd: owned,
+        cwd: ownedModule,
         encoding: "utf8",
         env: environment,
         maxBuffer: 4 * 1024 * 1024,
@@ -140,7 +203,7 @@ describe("an external Go worker against the real API", () => {
         );
       }
       const identified = spawnSync("go", ["version", "-m", binary], {
-        cwd: owned,
+        cwd: ownedModule,
         encoding: "utf8",
         env: environment,
         maxBuffer: 1024 * 1024,
@@ -171,15 +234,24 @@ describe("an external Go worker against the real API", () => {
       }
       workerResult = JSON.parse(completed.stdout) as WorkerResult;
     } finally {
-      rmSync(owned, { recursive: true, force: true });
+      rmSync(ownedModule, { recursive: true, force: true });
+    }
+  }
+
+  beforeAll(async () => {
+    try {
+      await setup();
+    } catch (setupError) {
+      try {
+        await cleanup();
+      } catch (cleanupError) {
+        throw new AggregateError([setupError, cleanupError], "Go worker setup and cleanup failed");
+      }
+      throw setupError;
     }
   }, 180_000);
 
-  afterAll(async () => {
-    await app.close();
-    await db.destroy();
-    await container.stop();
-  });
+  afterAll(cleanup);
 
   const get = async (url: string): Promise<Record<string, unknown>> => {
     const response = await app.inject({
