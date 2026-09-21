@@ -43,6 +43,10 @@ Do not subtract tokens when refusing concurrency. Record counts over the route's
 existing ceiling are permanent request errors, not rate-limit refusals. A
 successful reservation consumes tokens even if later processing fails; release
 its in-flight slot exactly once on every response/error/abort path.
+If a client disconnects while a database operation is still running, keep the
+slot until that operation settles or is canceled; stop starting further batch
+work. Releasing on the socket's abort alone would let repeated disconnects
+bypass the concurrency limit. Existing statement timeouts bound pending work.
 
 Refill with a monotonic clock at `eventsPerMinute / 60000` tokens per millisecond,
 capped at `burst`. A process restart resets buckets. Limits apply separately to
