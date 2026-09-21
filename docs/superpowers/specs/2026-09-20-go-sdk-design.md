@@ -16,6 +16,7 @@ installation. The current Go release policy supports two major release lines
 (https://go.dev/doc/devel/release, checked September 20). Module publication and
 tagging are deferred. Embed a fixed development SDK version; never report the
 host application's build info as the recorder's identity.
+The initial local identity is `wayscribe-go` version `0.1.0-dev`.
 
 ## API and host behavior
 
@@ -51,12 +52,23 @@ unchanged. This process-local convenience does not invent wire metadata.
 
 ## Capture and delivery
 
+The detailed plan uses a `Value` wrapper for optional raw payloads: its zero
+value is absent, while `Payload(nil)` is explicit JSON null. `Get()` returns
+the supplied value and its presence; capture still happens at the recording
+call. Payload extraction uses the same presence distinction. Typed optional
+configuration numbers use zero for omitted/default settings; negative values
+are diagnosed. Optional measured timing uses pointers so measured zero is
+different from unknown. These Go conventions do not change wire semantics.
+
 Capture follows all SDK_SPEC redaction and repair rules, including positional
 header forms, Unicode units, arbitrary/large numbers, cycle versus shared
 references, error masking, omission order and bounded diagnostics. Use JSON
-field/tag conventions for structs where supported; a panic in custom marshal
-code must not escape. Do not invoke arbitrary application methods just to
-discover fields. Input must be stable during the synchronous capture call;
+field/tag conventions for structs where supported; custom MarshalJSON,
+MarshalText and String methods are not called to discover payload values.
+Explicit standard-library cases cover time, bytes and large numbers; bytes
+use `{"type":"bytes","base64":"<encoded bytes>"}`. Handling an explicitly
+provided host error may call its Error method under panic isolation. Input
+must be stable during the synchronous capture call;
 after the call it can be mutated without affecting the recorded snapshot.
 Document that Go cannot safely read a map the caller is mutating concurrently.
 Race tests must cover SDK-owned state and concurrent independent caller inputs.
