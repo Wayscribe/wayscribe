@@ -71,12 +71,19 @@ const run = (vector: Vector): unknown => {
   }
 
   const extracted = extractPayload(input["carrier"]);
-  return { context: extracted.context ?? null, data: extracted.data };
+  return { ...extracted, context: extracted.context ?? null };
 };
 
 describe("language-neutral propagation vectors", () => {
   it("uses fixture schema version 1", () => {
     expect(fixture.version).toBe(1);
+  });
+
+  it("keeps hasJourney structural while payload extraction validates the journey", () => {
+    const envelope = { _wayscribe: { journeyId: "bad" }, data: "job" };
+
+    expect(hasJourney(envelope)).toBe(true);
+    expect(extractPayload(envelope)).toEqual({ data: "job" });
   });
 
   it.each(fixture.cases)("$name", (vector) => {

@@ -68,8 +68,18 @@ Extraction MUST apply these rules after reading carrier values:
    only the journey. It MUST NOT return a partial entity.
 4. Unknown carrier and context fields do not become propagated context.
 
-No extraction failure throws into host application code. The public Node
-helpers return `undefined`; the JSON vectors represent that result as `null`.
+For a carrier whose properties can be read normally, malformed values do not
+throw: the standalone Node HTTP and SQS helpers return `undefined`, while the
+payload helper returns the data with no context. The JSON vectors represent an
+absent context as `null`.
+
+The released standalone helpers are not a hostile-object boundary. Except for
+`hasJourney`, they read caller-provided properties directly, so an exception
+from a `get()` method, getter, or proxy can escape. The Node `Recorder` methods
+wrap those helpers in the recorder's failure boundary: HTTP and SQS extraction
+degrade to `undefined`, and payload extraction degrades to `{ data: body }`.
+Another SDK MAY guard its standalone helpers more strongly, provided normally
+readable carriers produce the results specified here.
 
 ## 3. HTTP carrier
 

@@ -224,6 +224,19 @@
       "expected": { "journeyId": "jrn_123" }
     },
     {
+      "name": "HTTP extraction drops identity when entity type contains a forbidden character",
+      "carrier": "http",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "x-wayscribe-journey-id": "jrn_123",
+          "x-wayscribe-entity-type": "order/type",
+          "x-wayscribe-entity-id": "ORD-42"
+        }
+      },
+      "expected": { "journeyId": "jrn_123" }
+    },
+    {
       "name": "HTTP extraction prefers the canonical lower-case key over another case",
       "carrier": "http",
       "action": "extract",
@@ -375,6 +388,19 @@
       "expected": { "journeyId": "jrn_123" }
     },
     {
+      "name": "SQS extraction drops identity when entity type is non-ASCII",
+      "carrier": "sqs",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "wayscribeJourneyId": "jrn_123",
+          "wayscribeEntityType": "ordér",
+          "wayscribeEntityId": "ORD-42"
+        }
+      },
+      "expected": { "journeyId": "jrn_123" }
+    },
+    {
       "name": "journey-only payload contains no identity",
       "carrier": "payload",
       "action": "inject",
@@ -494,6 +520,22 @@
       "input": {
         "carrier": {
           "_wayscribe": { "journeyId": "jrn_123", "entityType": "order", "entityId": "ORD/42" },
+          "data": "job"
+        }
+      },
+      "expected": { "context": { "journeyId": "jrn_123" }, "data": "job" }
+    },
+    {
+      "name": "payload extraction drops identity when entity type is 257 characters",
+      "carrier": "payload",
+      "action": "extract",
+      "input": {
+        "carrier": {
+          "_wayscribe": {
+            "journeyId": "jrn_123",
+            "entityType": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+            "entityId": "ORD-42"
+          },
           "data": "job"
         }
       },
