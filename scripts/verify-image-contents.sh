@@ -82,7 +82,7 @@ report "no source directories (found $COUNT)" "$([ "$COUNT" -eq 0 ] && echo 0 ||
 # build context; this catches the day that line goes missing. /app/tests is
 # the repository-wide test folder and the helpers package tests import, which
 # the Dockerfile's prune removes.
-for DIR in /app/apps/demo /app/apps/web /app/packages/protocol/conformance /app/packages/sdk-node /app/tests /app/site; do
+for DIR in /app/apps/demo /app/apps/web /app/packages/protocol/conformance /app/packages/sdk-node /app/packages/sdk-python /app/packages/sdk-go /app/tests /app/site; do
   # `cmd; report $?` would abort here under `set -e` on the first failure, so a
   # broken image would report one problem and hide the rest. The `&&`/`||` form
   # keeps the non-zero status out of `set -e`'s hands.

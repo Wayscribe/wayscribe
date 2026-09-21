@@ -4,6 +4,15 @@ Distribution: `wayscribe-sdk`. Import: `wayscribe`. Version: `0.1.0a1`.
 This package is **unpublished**. Python 3.11 or newer is required. Runtime code
 uses only the standard library; setuptools is a build dependency only.
 
+Build and install the development artifact from the repository root:
+
+```sh
+uv build --out-dir packages/sdk-python/dist packages/sdk-python
+python3 -m pip install --no-deps packages/sdk-python/dist/wayscribe_sdk-0.1.0a1-py3-none-any.whl
+```
+
+The distribution name is `wayscribe-sdk`; application imports use `wayscribe`.
+
 The recorder captures events synchronously and delivers immutable, redacted bytes
 from one bounded daemon sender. Record calls never wait for network work.
 
@@ -124,11 +133,16 @@ process-wide warning state and its lock so a fresh child recorder can report saf
 For development, run from the repository root:
 
 ```sh
-PYTHONPATH=packages/sdk-python/src python3 -m unittest discover -s packages/sdk-python/tests -v
+pnpm test:python
+pnpm test:python:conformance
 ```
 
-Full SDK fixture/API conformance and clean-wheel installation remain separate
-verification gates. This development preview makes no publication claim.
+The recorder passes all 35 applicable SDK fixtures; the two throwing-property
+fixtures are explicitly Node-only. Its captured request bytes are replayed
+unchanged through the real local API dry run, and a clean wheel installation is
+tested outside the source checkout. The example in `examples/python-worker`
+exercises a queryable journey through the real API. These local checks do not
+publish the package, and the separate Leadline pilot remains open.
 
 ## Recorder and journey API
 

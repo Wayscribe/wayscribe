@@ -342,7 +342,7 @@ time.sleep(.05)
             release.set()
 
     @unittest.skipUnless(hasattr(os, "fork"), "fork unavailable")
-    def test_inherited_shutdown_does_not_disrupt_parent_inflight_socket(self):
+    def test_inherited_shutdown_does_not_disrupt_parent_active_socket(self):
         release = threading.Event()
         with Collector(
             lambda body, index: (release.wait(3), accepted(body))[1]

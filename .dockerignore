@@ -27,6 +27,11 @@ playwright-report
 # builds or runs; scripts/verify-image-contents.sh checks it stayed out.
 site
 
+# Native recorders are application dependencies, not API or web runtime inputs.
+# Keep the approved Go package excluded when it is introduced as well.
+packages/sdk-python
+packages/sdk-go
+
 # SBOMs from scripts/sbom.sh. The web image is built after the API image is
 # attested in publish-images, and would otherwise copy them into its build stage.
 sboms

@@ -96,6 +96,28 @@ class EventTests(unittest.TestCase):
             ],
         )
 
+    def test_secret_name_diagnostic_path_starts_at_the_public_event_field(self):
+        c, d, reports = setup()
+        event(
+            c,
+            d,
+            input={
+                "sessionCredential": "secret-value",
+                "lines": [{"settings": {"authToken": "another-secret"}}],
+            },
+        )
+
+        warnings = [
+            report for report in reports if report["kind"] == "unredacted_secret_name"
+        ]
+        self.assertEqual(
+            [(report["field"], report["path"]) for report in warnings],
+            [
+                ("input", "input.sessionCredential"),
+                ("input", "input.lines[*].settings.authToken"),
+            ],
+        )
+
 
 class EntitySnapshotReviewTests(unittest.TestCase):
     def test_entity_values_are_read_once_and_serialized_from_validated_snapshot(self):

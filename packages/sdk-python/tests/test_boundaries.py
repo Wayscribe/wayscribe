@@ -66,7 +66,7 @@ class BoundaryTests(unittest.TestCase):
         reports = json.loads(result.stdout)
         report = next(x for x in reports if x["kind"] == "unredacted_secret_name")
         self.assertEqual(report["name"], "vendor_token")
-        self.assertEqual(report["path"], "list[*].vendor_token")
+        self.assertEqual(report["path"], "input.list[*].vendor_token")
         self.assertNotIn("do-not-leak", repr(reports))
         self.assertEqual(
             result.stderr.splitlines(),

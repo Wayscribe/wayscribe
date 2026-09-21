@@ -444,6 +444,13 @@ This automated existing-host run is not a clean-machine installation, an
 unaided human onboarding trial, or evidence for the approximately 15-minute
 first-journey target. Those checks remain open.
 
+The native [Python SDK](packages/sdk-python/README.md) is also implemented and
+locally verified on Python 3.11 through 3.14. All 35 applicable SDK fixtures pass
+through the real dry-run API from the recorder's captured request bytes, and a
+clean installed wheel records a loopback delivery outside the checkout. Its
+development version is `0.1.0a1`; it is not published, and the Leadline pilot is
+still a separate open gate.
+
 An adversarial audit of the first-contact experience on 2026-08-09 found that
 the demo which verified all of it was systematically narrow: ten flat
 plain-JSON events that never contained a `Date`, a shared object reference, a
@@ -608,6 +615,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Local development](docs/LOCAL_DEVELOPMENT.md) | Setup, commands, keys, troubleshooting |
 | [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention, deleting data, `doctor`, metrics |
 | [Node SDK](packages/sdk-node/README.md) | The SDK's full surface |
+| [Python SDK](packages/sdk-python/README.md) | The unpublished native Python recorder, configuration and lifecycle |
 | [SDK specification](docs/SDK_SPEC.md) | What a recorder in any language must do, as numbered requirements with a source for each |
 | [Propagation specification](docs/PROPAGATION_SPEC.md) | The fixed HTTP, SQS/SNS, and payload-envelope carrier contract and language-neutral vectors |
 | [Demo scenario](docs/DEMO_SCENARIO.md) | The reference journey, end to end |
@@ -652,6 +660,7 @@ apps/
 packages/
   protocol/             event schema and version
   sdk-node/             published as @wayscribe/node
+  sdk-python/           unpublished Python SDK and conformance driver
   cli/                  read-only CLI over the HTTP API
   database/             migrations, repositories, operator CLI
   payload-security/     redaction, encryption, keys, search tokens
@@ -659,6 +668,7 @@ packages/
   config/               environment parsing
 examples/
   instrument-a-service/ standalone; the smallest real instrumentation
+  python-worker/        end-to-end Python worker instrumentation
 infrastructure/         Compose files and queue configuration
 site/                   wayscribe.dev: the landing page, and these docs rendered (ADR-058)
 ```

@@ -331,9 +331,11 @@ the honest picture.
 - [x] Freeze HTTP, SQS/SNS, and payload propagation in
       `docs/PROPAGATION_SPEC.md` and versioned language-neutral vectors; run the
       released Node behavior against them (ADR-065).
-- [ ] Build the Python SDK against the event, ingestion, SDK, and propagation
-      contracts; run its applicable fixtures through the real local dry run and
-      dogfood it in Leadline.
+- [x] Build the Python SDK against the event, ingestion, SDK, and propagation
+      contracts; run its 35 applicable fixtures from captured request bytes
+      through the real local dry run, verify a clean wheel install and a real
+      queryable worker. Development version `0.1.0a1` remains unpublished.
+- [ ] Dogfood the Python SDK in the live Leadline project.
 - [ ] Build the native Go SDK with the same fixture and dry-run gates, idiomatic
       context and cancellation, concurrency safety, and race tests.
 - [ ] Exercise one Node → Python → Go journey with identity, transformation,

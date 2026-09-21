@@ -293,7 +293,11 @@ def _build(config, diagnostics, journey_id, entity, operation, name, fields):
             diagnostics.emit("capture_error", field=key)
         if not result.omitted:
             for observed_name, path in result.names:
-                diagnostics.report_name(key, observed_name, path)
+                diagnostics.report_name(
+                    key,
+                    observed_name,
+                    f"{key}.{path}" if path else key,
+                )
     if len(body) > config.max_event_bytes:
         diagnostics.emit("invalid_event", code="envelope_budget")
         return None

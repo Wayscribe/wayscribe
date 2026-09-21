@@ -55,7 +55,7 @@ built yet.
 
 The first version is TypeScript throughout, API, interface, protocol, SDK and
 demo, so one set of schemas serves all of them
-([ADR-003](DECISIONS.md#adr-003-use-typescript-across-v0)). **Python is next**,
+([ADR-003](DECISIONS.md#adr-003-use-typescript-across-v0)). **Python came next**,
 after the first release
 ([ADR-059](DECISIONS.md#adr-059-python-is-the-next-sdk)): most of the pipelines,
 workers and integrations this tool is for are written in it.
@@ -65,7 +65,11 @@ no contract to build one against. There is one now, so the cost of a second SDK
 is its build and its maintenance rather than a second design, and ADR-059
 supersedes that condition for Python. ADR-065 approves Go after Python, then
 optional OTLP log ingestion; languages after Go follow what pilot teams ask
-for. The Python SDK, Go SDK and OTLP endpoint are not built yet.
+for. The Python SDK is implemented locally as the unpublished `wayscribe-sdk`
+`0.1.0a1`: all applicable SDK and propagation fixtures pass, its captured bytes
+pass the real dry-run API, and an installed wheel records from outside the
+checkout. Its Leadline pilot is still open. The Go SDK and OTLP endpoint are not
+built yet.
 
 What was built instead is the contract a recorder in any language is written
 against: the [ingestion contract](INGESTION_CONTRACT.md), JSON Schema generated
