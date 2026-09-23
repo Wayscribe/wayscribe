@@ -391,7 +391,9 @@ func cycleRecorder(t *testing.T, h http.HandlerFunc) *Recorder {
 	c, _ := resolveConfig(Config{Endpoint: s.URL, APIKey: "key", Service: "s", Environment: "e", MaxAttempts: 2, BackoffBase: time.Nanosecond, BackoffMax: time.Nanosecond, BreakerThreshold: 4})
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Recorder{c: c, d: newDiagnostics(nil, false), owned: map[uint64]*pendingEvent{}, changed: make(chan struct{}), ctx: ctx, cancel: cancel, workersDone: make(chan struct{}), reports: make(chan Diagnostic, 64), clock: time.Now, started: true}
+	r.reportsDone = make(chan struct{}) // no reporter runs here
 	close(r.workersDone)
+	close(r.reportsDone)
 	r.client, r.transport = newHTTPClient(c)
 	t.Cleanup(func() { r.Shutdown(context.Background()) })
 	return r
@@ -655,5 +657,73 @@ func TestRedirectsFollowLikeFetchAndAnUnfollowedOneIsRetried(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("no transport_error for an unfollowed 3xx: %+v", seen)
+	}
+}
+func TestShutdownStopsAtOnceWhenTheBreakerIsOpen(t *testing.T) {
+	r := transportRecorder(t, func(w http.ResponseWriter, q *http.Request) { w.WriteHeader(503) }, func(c *Config) {
+		c.MaxAttempts = 1
+		c.BreakerThreshold = 1
+		c.BreakerReset = time.Hour
+	})
+	emitN(r, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	r.Flush(ctx) // the one send fails and opens the breaker
+	start := time.Now()
+	if r.Shutdown(context.Background()) {
+		t.Fatal("an undelivered event must leave shutdown incomplete")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("shutdown waited out the breaker: %v", elapsed)
+	}
+	if r.Counters().DroppedByCause[Shutdown] != 1 {
+		t.Fatal(r.Counters())
+	}
+}
+func TestShutdownDeliversQueuedTransportDiagnostics(t *testing.T) {
+	var calls atomic.Int32
+	var mu sync.Mutex
+	var seen []Diagnostic
+	gate := make(chan struct{})
+	var held atomic.Bool
+	r := transportRecorder(t, func(w http.ResponseWriter, q *http.Request) { calls.Add(1); w.WriteHeader(503) }, func(c *Config) {
+		c.MaxAttempts = 1
+		c.BreakerThreshold = 3
+		c.BreakerReset = time.Hour
+		c.OnDiagnostic = func(d Diagnostic) {
+			mu.Lock()
+			seen = append(seen, d)
+			mu.Unlock()
+			if d.Kind == "transport_error" && held.CompareAndSwap(false, true) {
+				<-gate // hold the reporter so later reports queue
+			}
+		}
+	})
+	emitN(r, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	r.Flush(ctx) // three failed sends, then the breaker opens
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelShutdown()
+	r.Shutdown(shutdownCtx)
+	close(gate) // the reporter's callback returns; nothing queued may be lost
+	select {
+	case <-r.reportsDone:
+	case <-shutdownCtx.Done():
+		t.Fatal("reporter did not finish")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	transport, breaker := 0, 0
+	for _, d := range seen {
+		switch d.Kind {
+		case "transport_error":
+			transport++
+		case "breaker_opened":
+			breaker++
+		}
+	}
+	if int(calls.Load()) != 3 || transport != 3 || breaker != 1 {
+		t.Fatalf("shutdown lost queued diagnostics: calls=%d transport_error=%d breaker_opened=%d", calls.Load(), transport, breaker)
 	}
 }

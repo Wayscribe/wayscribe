@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -22,10 +23,12 @@ type Recorder struct {
 	sequence                  uint64
 	changed                   chan struct{}
 	closing, finished, result bool
-	started                   bool // workers run; set on first admitted event
-	sending                   int  // batches inside sendCycle
-	stalled                   bool // a closing send made no progress; start no more
-	delivered                 bool // delivered_first has been reported
+	started                   bool        // workers run; set on first admitted event
+	sending                   int         // batches inside sendCycle
+	stalled                   bool        // a closing send made no progress; start no more
+	delivered                 bool        // delivered_first has been reported
+	reportsBy                 time.Time   // first Shutdown's deadline; bounds the report drain
+	reporting                 atomic.Bool // the reporter is inside a diagnostic callback
 	flushers                  int
 	nextSend                  time.Time
 	failures                  int
@@ -87,9 +90,10 @@ func (r *Recorder) startLocked() {
 		for {
 			select {
 			case <-r.ctx.Done():
+				r.drainReports()
 				return
 			case d := <-r.reports:
-				r.d.emit(d)
+				r.emitReport(d)
 			}
 		}
 	}()
@@ -208,6 +212,9 @@ func (r *Recorder) Shutdown(ctx context.Context) bool {
 	defer cancel()
 	r.mu.Lock()
 	r.closing = true
+	if r.reportsBy.IsZero() {
+		r.reportsBy, _ = ctx.Deadline() // lifecycleContext always sets one
+	}
 	r.signalLocked()
 	for !r.finished && len(r.owned) > 0 && ctx.Err() == nil {
 		changed := r.changed
@@ -232,7 +239,49 @@ func (r *Recorder) Shutdown(ctx context.Context) bool {
 	case <-r.workersDone:
 	case <-ctx.Done():
 	}
+	// The reporter delivers what is still queued before it exits. Wait for it,
+	// unless it is the reporter's own callback calling Shutdown, or it is busy
+	// in a callback elsewhere; it finishes the queue on its own either way.
+	if !r.reporting.Load() {
+		select {
+		case <-r.reportsDone:
+		case <-ctx.Done():
+		}
+	}
 	return result
+}
+
+// drainReports runs on the reporter once the recorder is canceled: it waits for
+// the workers, whose last reports may still be arriving, then hands every
+// queued transport diagnostic to the callback, stopping at the first
+// Shutdown's deadline.
+func (r *Recorder) drainReports() {
+	r.mu.Lock()
+	by := r.reportsBy
+	r.mu.Unlock()
+	if by.IsZero() {
+		by = time.Now().Add(5 * time.Second)
+	}
+	timer := time.NewTimer(time.Until(by))
+	defer timer.Stop()
+	select {
+	case <-r.workersDone:
+	case <-timer.C:
+		return
+	}
+	for time.Now().Before(by) {
+		select {
+		case d := <-r.reports:
+			r.emitReport(d)
+		default:
+			return
+		}
+	}
+}
+func (r *Recorder) emitReport(d Diagnostic) {
+	r.reporting.Store(true)
+	defer r.reporting.Store(false)
+	r.d.emit(d)
 }
 func (r *Recorder) finalizeLocked() {
 	if r.finished {
@@ -306,6 +355,14 @@ func (r *Recorder) worker() {
 		if now.Before(r.openedUntil) {
 			ready = false
 			delay = r.openedUntil.Sub(now)
+			if r.closing && len(r.queue) > 0 {
+				// As in Node, a drain pass the open breaker cannot send makes no
+				// progress, so shutdown stops instead of waiting out the cooldown.
+				r.stalled = true
+				if r.sending == 0 {
+					r.finalizeLocked()
+				}
+			}
 		} else if !r.openedUntil.IsZero() {
 			r.openedUntil = time.Time{}
 			r.failures = 0

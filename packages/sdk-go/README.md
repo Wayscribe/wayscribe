@@ -207,7 +207,10 @@ A recorder starts its sender goroutines when it admits its first event and keeps
 them until `Shutdown`. Call `Shutdown` on every recorder that recorded anything;
 a recorder that never recorded owns no goroutines. When one batch makes no
 progress during shutdown, no further batch starts, but sends already in flight
-on other workers finish before the remainder is finalized.
+on other workers finish before the remainder is finalized. An open breaker counts
+as no progress, so shutdown does not wait out its cooldown. Transport
+diagnostics still queued when the workers stop are delivered before the
+dispatcher exits, until the first `Shutdown`'s deadline.
 
 The pending queue drops its oldest event at capacity. Each of the fixed
 `MaxConcurrentSends` workers additionally owns at most one batch of `BatchSize`
