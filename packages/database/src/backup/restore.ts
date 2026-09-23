@@ -181,8 +181,19 @@ async function restoreOwned<T>(
       if (failure instanceof Error) Object.assign(failure, { cleanupDatabase: options.database });
     }
   } finally {
-    await file.close();
-    await trust?.close();
+    // Start both finalizers even when one fails; preserve the operation error and ownership metadata.
+    try {
+      const finalized = await cleanup.wait(
+        Promise.allSettled([
+          Promise.resolve().then(() => file.close()),
+          Promise.resolve().then(() => trust?.close())
+        ])
+      );
+      if (finalized.some((entry) => entry.status === "rejected"))
+        failure ??= new BackupError("archive_io");
+    } catch {
+      failure ??= new BackupError("archive_io");
+    }
   }
   if (failure !== undefined) throw failure;
   return result;

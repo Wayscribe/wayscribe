@@ -22,7 +22,9 @@ export type BackupErrorCode =
   | "database_exists"
   | "database_failed"
   | "create_outcome_unknown"
-  | "cleanup_failed";
+  | "cleanup_failed"
+  | "keys_required"
+  | "inspection_failed";
 export class BackupError extends Error {
   cleanupDatabase?: string;
   uncertainDatabase?: string;
@@ -46,6 +48,7 @@ export function validateRestoreDatabase(database: string, source?: string): void
   )
     throw new BackupError("invalid_database");
 }
+const INHERITED_TOOL_ENV = /^(PATH|HOME|LANG|LC_[A-Z]+|TZ)$/;
 export function normalizeBackupConnection(
   databaseUrl: string,
   env: NodeJS.ProcessEnv = process.env
@@ -99,8 +102,9 @@ export function normalizeBackupConnection(
         closeSync(fd);
       }
     }
+    // Allowlist, not denylist: the parent holds ENCRYPTION_KEY, ADMIN_TOKEN and DATABASE_URL.
     const toolEnvironment = Object.fromEntries(
-      Object.entries(env).filter(([key]) => !key.toUpperCase().startsWith("PG"))
+      Object.entries(env).filter(([key]) => INHERITED_TOOL_ENV.test(key))
     );
     Object.assign(toolEnvironment, {
       PGHOST: host,

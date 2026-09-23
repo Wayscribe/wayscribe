@@ -23,7 +23,12 @@ vi.mock("pg", async (importOriginal) => {
   };
 });
 import pg from "pg";
-import { restoreBackup } from "./restore.js";
+vi.mock("node:fs/promises", async (original) => ({
+  ...(await original<typeof import("node:fs/promises")>())
+}));
+import * as files from "node:fs/promises";
+import * as connection from "./connection.js";
+import { restoreBackup, withRestoredDatabase } from "./restore.js";
 let dir: string;
 let input: string;
 const databaseUrl = "postgresql://alice:password@localhost/source";
@@ -45,6 +50,7 @@ beforeEach(async () => {
   vi.stubEnv("PATH", dir);
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   await rm(dir, { recursive: true, force: true });
 });
@@ -143,4 +149,58 @@ it("keeps acknowledged PostgreSQL CREATE refusals distinct from transport failur
   expect(query.mock.calls.map((call) => call[0] as unknown)).toEqual([
     'CREATE DATABASE "denied_copy" TEMPLATE template0'
   ]);
+});
+
+it("attempts every finalizer without overwriting the original failure and owned cleanup metadata", async () => {
+  const realOpen = files.open;
+  const trustClose = vi.fn().mockRejectedValue(new Error("SECRET_TRUST"));
+  vi.spyOn(connection, "prepareToolEnvironment").mockResolvedValue({
+    env: { PATH: dir },
+    close: trustClose
+  });
+  vi.spyOn(files, "open").mockImplementation(async (...args) => {
+    const handle = await realOpen(...args);
+    const realClose = handle.close.bind(handle);
+    handle.close = async () => {
+      await realClose();
+      throw new Error("SECRET_CLOSE");
+    };
+    return handle;
+  });
+  query.mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("DROP_SECRET"));
+  await expect(
+    restoreBackup({ databaseUrl, input, database: "owned_copy", timeoutMs: 5000 })
+  ).rejects.toMatchObject({ code: "tool_failed", cleanupDatabase: "owned_copy" });
+  expect(trustClose).toHaveBeenCalledOnce();
+});
+it("preserves a colliding generated inspection name without DROP", async () => {
+  query.mockRejectedValueOnce(
+    Object.assign(new pg.DatabaseError("SECRET", 0, "error"), { code: "42P04", severity: "ERROR" })
+  );
+  const inspector = vi.fn();
+  await expect(
+    withRestoredDatabase({ databaseUrl, input, timeoutMs: 5000 }, inspector)
+  ).rejects.toMatchObject({ code: "database_exists" });
+  expect(inspector).not.toHaveBeenCalled();
+  expect(query.mock.calls.map((call) => call[0] as unknown)).toEqual([
+    expect.stringMatching(
+      /^CREATE DATABASE "wayscribe_restore_check_[a-f0-9]{24}" TEMPLATE template0$/
+    )
+  ]);
+});
+it("preserves inspector failure identity and metadata when DROP fails", async () => {
+  await writeFile(
+    join(dir, "pg_restore"),
+    `#!${process.execPath}\nif(process.argv.includes('--version')) console.log('pg_restore (PostgreSQL) 18.4');`,
+    { mode: 0o700 }
+  );
+  query.mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("SECRET_DROP"));
+  const original = new Error("INSPECT_SECRET");
+  await expect(
+    withRestoredDatabase({ databaseUrl, input, timeoutMs: 5000 }, () => Promise.reject(original))
+  ).rejects.toBe(original);
+  expect(original).toHaveProperty(
+    "cleanupDatabase",
+    expect.stringMatching(/^wayscribe_restore_check_/)
+  );
 });

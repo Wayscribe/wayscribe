@@ -56,3 +56,19 @@ describe("backup arguments", () => {
     expect(preflight("backup:create", ["--help"])).toMatchObject({ run: false, code: 0 });
   });
 });
+
+it("verification accepts only input and bounded timeout, never destination or replacement", () => {
+  expect(parseBackupArgs("backup:verify", ["--input", "x", "--timeout-ms", "30000"])).toEqual({
+    ok: true,
+    command: "backup:verify",
+    input: "x",
+    timeoutMs: 30000
+  });
+  for (const args of [
+    [],
+    ["--input", "x", "--database", "copy"],
+    ["--input", "x", "--replace"],
+    ["--input", "x", "--timeout-ms", "0"]
+  ])
+    expect(parseBackupArgs("backup:verify", args).ok).toBe(false);
+});

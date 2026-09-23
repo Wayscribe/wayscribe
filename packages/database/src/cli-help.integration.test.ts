@@ -148,6 +148,7 @@ describe("--help against a real database", () => {
 
   /** Arguments with which each command would run and change or report something. */
   const runnable = (): Record<CommandName, string[]> => ({
+    "backup:verify": ["--input", "x"],
     "backup:create": ["--output", "x"],
     "backup:restore": ["--input", "x", "--database", "copy"],
     migrate: [],

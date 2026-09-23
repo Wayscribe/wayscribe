@@ -2,6 +2,10 @@ import { mkdtemp, writeFile, readFile, readdir, rm, symlink, stat } from "node:f
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+vi.mock("node:fs/promises", async (original) => ({
+  ...(await original<typeof import("node:fs/promises")>())
+}));
+import * as files from "node:fs/promises";
 import { createBackup } from "./archive.js";
 let dir: string;
 const databaseUrl = "postgresql://user:password@localhost/source";
@@ -9,6 +13,7 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "backup-files-test-"));
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   await rm(dir, { recursive: true, force: true });
 });
@@ -88,4 +93,50 @@ it("refuses pre-18 tools before output reservation", async () => {
     createBackup({ databaseUrl, output: join(dir, "old.dump"), timeoutMs: 1000 })
   ).rejects.toMatchObject({ code: "tool_version" });
   expect(await readdir(dir)).toEqual(["pg_dump"]);
+});
+it("refuses output without the custom-format header and removes it", async () => {
+  await tool("process.stdout.write('not a dump')");
+  await expect(
+    createBackup({ databaseUrl, output: join(dir, "backup.dump"), timeoutMs: 5000 })
+  ).rejects.toMatchObject({ code: "archive_invalid" });
+  expect(await readdir(dir)).toEqual(["pg_dump"]);
+});
+it("syncs the archive before publishing and the directory before reporting", async () => {
+  await tool("process.stdout.write('PGDMPsynthetic')");
+  const output = join(dir, "backup.dump");
+  const events: string[] = [];
+  const realOpen = files.open;
+  vi.spyOn(files, "open").mockImplementation(async (...args) => {
+    const handle = await realOpen(...args);
+    const realSync = handle.sync.bind(handle);
+    handle.sync = async () => {
+      await realSync();
+      events.push(args[0] === dir ? "sync directory" : "sync file");
+    };
+    return handle;
+  });
+  const realLink = files.link;
+  vi.spyOn(files, "link").mockImplementation(async (...args) => {
+    await realLink(...args);
+    events.push("link");
+  });
+  await createBackup({ databaseUrl, output, timeoutMs: 5000 });
+  expect(events).toEqual(["sync file", "link", "sync directory"]);
+});
+it("reports a published archive even when temporary cleanup fails", async () => {
+  await tool("process.stdout.write('PGDMPsynthetic')");
+  const output = join(dir, "backup.dump");
+  vi.spyOn(files, "unlink").mockRejectedValueOnce(new Error("SECRET_UNLINK"));
+  expect(await createBackup({ databaseUrl, output, timeoutMs: 5000 })).toEqual({
+    bytes: 14,
+    cleanupIncomplete: true
+  });
+  expect(await readFile(output, "utf8")).toBe("PGDMPsynthetic");
+});
+it("keeps the operation failure when cleanup also fails", async () => {
+  await tool("process.stdout.write('partial');process.exit(1)");
+  vi.spyOn(files, "unlink").mockRejectedValueOnce(new Error("SECRET_UNLINK"));
+  await expect(
+    createBackup({ databaseUrl, output: join(dir, "backup.dump"), timeoutMs: 5000 })
+  ).rejects.toMatchObject({ code: "tool_failed" });
 });

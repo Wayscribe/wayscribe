@@ -69,6 +69,28 @@ describe("backup connection boundary", () => {
     expect(target.toolEnvironment.PGHOSTADDR).toBeUndefined();
     expect(Object.values(target.toolEnvironment)).not.toContain("hostile");
   });
+  it("passes only an allowlisted environment to the tools", () => {
+    const target = normalizeBackupConnection(url, {
+      PATH: "/usr/bin",
+      HOME: "/home/alice",
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      LC_MESSAGES: "C",
+      TZ: "UTC",
+      ENCRYPTION_KEY: "key",
+      ENCRYPTION_KEY_PREVIOUS: "old-key",
+      ADMIN_TOKEN: "admin",
+      DATABASE_URL: "postgresql://root:root@db/app",
+      AWS_SECRET_ACCESS_KEY: "aws",
+      NODE_OPTIONS: "--require evil.js",
+      LD_PRELOAD: "evil.so"
+    });
+    const inherited = Object.keys(target.toolEnvironment).filter((key) => !key.startsWith("PG"));
+    expect(inherited.sort()).toEqual(["HOME", "LANG", "LC_ALL", "LC_MESSAGES", "PATH", "TZ"]);
+    for (const secret of ["key", "old-key", "admin", "aws", "evil.so"])
+      expect(Object.values(target.toolEnvironment)).not.toContain(secret);
+    expect(target.toolEnvironment.PGPASSWORD).toBe("secret");
+  });
   it("refuses source and system databases", () => {
     for (const database of ["source", "postgres", "template0", "template1", "CAPS", "bad-name"])
       expect(() => {

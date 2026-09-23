@@ -25,6 +25,7 @@ type Parsed = { ok: true } | { ok: false; message: string };
  * which is what refuses its flags.
  */
 const PARSERS: Record<CommandName, (flags: string[]) => Parsed> = {
+  "backup:verify": (flags) => parseBackupArgs("backup:verify", ["--input", "x", ...flags]),
   "backup:create": (flags) => parseBackupArgs("backup:create", ["--output", "x", ...flags]),
   "backup:restore": (flags) =>
     parseBackupArgs("backup:restore", ["--input", "x", "--database", "copy", ...flags]),
@@ -56,6 +57,7 @@ const PARSERS: Record<CommandName, (flags: string[]) => Parsed> = {
  * to run.
  */
 const RUNNABLE: Record<CommandName, string[]> = {
+  "backup:verify": ["--input", "x"],
   "backup:create": ["--output", "x"],
   "backup:restore": ["--input", "x", "--database", "copy"],
   migrate: [],
@@ -186,6 +188,14 @@ const FLAG_EFFECTS: Record<string, [() => unknown, () => unknown]> = {
   "backup:restore --input": [
     () => parseBackupArgs("backup:restore", ["--database", "copy"]),
     () => parseBackupArgs("backup:restore", ["--input", "x", "--database", "copy"])
+  ],
+  "backup:verify --timeout-ms": [
+    () => parseBackupArgs("backup:verify", ["--input", "x"]),
+    () => parseBackupArgs("backup:verify", ["--input", "x", "--timeout-ms", "2000"])
+  ],
+  "backup:verify --input": [
+    () => parseBackupArgs("backup:verify", []),
+    () => parseBackupArgs("backup:verify", ["--input", "x"])
   ],
   "backup:create --timeout-ms": [
     () => parseBackupArgs("backup:create", ["--output", "x"]),
@@ -554,6 +564,8 @@ describe("preflight", () => {
     COMMANDS.filter((command) => !("restArgument" in command)).map((command) => command.name)
   )("refuses an argument beyond those %s declares", (name) => {
     const withExtra: Partial<Record<CommandName, () => Parsed>> = {
+      "backup:verify": () =>
+        parseBackupArgs("backup:verify", [...RUNNABLE["backup:verify"], "extra"]),
       "backup:create": () =>
         parseBackupArgs("backup:create", [...RUNNABLE["backup:create"], "extra"]),
       "backup:restore": () =>
@@ -591,6 +603,7 @@ describe("preflight", () => {
     const early = preflight(name, args);
     if (!early.run) return [...early.stdout, ...early.stderr].join("\n");
     const own: Partial<Record<CommandName, (a: string[]) => Parsed>> = {
+      "backup:verify": (a) => parseBackupArgs("backup:verify", a),
       "backup:create": (a) => parseBackupArgs("backup:create", a),
       "backup:restore": (a) => parseBackupArgs("backup:restore", a),
       reset: (a) => parseResetArgs(a, {}, "postgresql://localhost/x"),

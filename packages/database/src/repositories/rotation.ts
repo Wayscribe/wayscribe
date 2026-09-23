@@ -8,6 +8,9 @@ import {
 import type { Knex } from "knex";
 import { lockHolderAlive } from "./advisory-lock.js";
 import { isAliasUniqueViolation } from "./aliases.js";
+import { ENCRYPTED_TABLES, type TableSpec, type EncryptedTable } from "../encrypted-columns.js";
+
+export type { EncryptedTable } from "../encrypted-columns.js";
 
 /**
  * An arbitrary but fixed 64-bit key for the rotation's advisory lock.
@@ -29,28 +32,6 @@ const DEFAULT_BATCH_SIZE = 500;
  * not pull every ciphertext into the process.
  */
 const ENVELOPE_PATTERN = "^fr1\\.[0-9a-f]{12}\\.[^.]+$";
-
-export type EncryptedTable = "journeys" | "entity_aliases" | "replay_destinations";
-
-interface TableSpec {
-  table: EncryptedTable;
-  column: string;
-  /** The primary key, in the order batches are walked. */
-  key: readonly string[];
-}
-
-/**
- * Every column holding a value `encryptValue` wrote.
- *
- * Journeys and aliases also carry a search token computed from the same
- * plaintext; each is rewritten in the same statement as its ciphertext, so the
- * ciphertext's key id marks progress for both.
- */
-const ENCRYPTED_TABLES: readonly TableSpec[] = [
-  { table: "journeys", column: "encrypted_primary_entity_id", key: ["project_id", "id"] },
-  { table: "entity_aliases", column: "encrypted_display_value", key: ["id"] },
-  { table: "replay_destinations", column: "encrypted_headers", key: ["id"] }
-];
 
 export interface TableReencryption {
   table: EncryptedTable;

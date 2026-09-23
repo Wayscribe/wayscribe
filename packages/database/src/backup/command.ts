@@ -1,3 +1,5 @@
+import { keyringFromEnvironment } from "../keyring-env.js";
+import { verifyBackup } from "./verify.js";
 import { preflight } from "../cli-commands.js";
 import { parseBackupArgs, type BackupCommand } from "./args.js";
 import { createBackup } from "./archive.js";
@@ -39,6 +41,22 @@ export async function runBackupCommand(
     if (parsed.command === "backup:create") {
       const result = await createBackup({ ...shared, output: parsed.output });
       options.stdout(`backup_created bytes=${String(result.bytes)}`);
+      if (result.cleanupIncomplete)
+        options.stderr(
+          "backup_cleanup_incomplete Remove leftover hidden .tmp files beside the backup and wayscribe-backup-trust-* directories in the system temp directory."
+        );
+    } else if (parsed.command === "backup:verify") {
+      let keyring;
+      try {
+        keyring = keyringFromEnvironment(options.env);
+      } catch {
+        throw new BackupError("keys_required");
+      }
+      const result = await verifyBackup({ ...shared, input: parsed.input, keyring });
+      options.stdout(
+        `${result.ok ? "backup_verified" : "backup_verification_failed"} ${JSON.stringify(result)}`
+      );
+      return result.ok ? 0 : 1;
     } else {
       const result = await restoreBackup({
         ...shared,

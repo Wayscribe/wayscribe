@@ -1,9 +1,10 @@
 import { everyFlagRead, parseCommandArgs } from "../cli-commands.js";
 import { validateRestoreDatabase } from "./connection.js";
-export type BackupCommand = "backup:create" | "backup:restore";
+export type BackupCommand = "backup:create" | "backup:restore" | "backup:verify";
 export type BackupArgs =
   | { ok: true; command: "backup:create"; output: string; timeoutMs: number }
   | { ok: true; command: "backup:restore"; input: string; database: string; timeoutMs: number }
+  | { ok: true; command: "backup:verify"; input: string; timeoutMs: number }
   | { ok: false; message: string };
 export const DEFAULT_TIMEOUT_MS = 600_000;
 export const MAX_TIMEOUT_MS = 3_600_000;
@@ -27,6 +28,7 @@ export function parseBackupArgs(command: BackupCommand, args: readonly string[])
   )
     return { ok: false, message: "Invalid backup timeout." };
   if (command === "backup:create" && output) return { ok: true, command, output, timeoutMs };
+  if (command === "backup:verify" && input) return { ok: true, command, input, timeoutMs };
   if (command === "backup:restore" && input && database) {
     try {
       validateRestoreDatabase(database);

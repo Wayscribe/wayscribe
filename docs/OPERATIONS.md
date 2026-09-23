@@ -153,24 +153,44 @@ says "not a release build" on both halves.
 
 ## 2. Backup
 
-From a source checkout, install dependencies with `pnpm install --frozen-lockfile`
-and install PostgreSQL **18 or newer client tools** (`pg_dump` and `pg_restore`)
-on the machine running the CLI. They are not included in the API serving image.
-With `DATABASE_URL` in the environment or the checkout's `.env`:
+### From a source checkout
+
+The backup helpers run from a source checkout, not from the published images.
+
+1. Check out the release the installation runs, so its migrations match the
+   database, and install dependencies with `pnpm install --frozen-lockfile`.
+2. Install PostgreSQL **18 or newer client tools** (`pg_dump` and `pg_restore`)
+   on the machine running the CLI and put them on `PATH`. They are not included
+   in the API serving image. `pg_dump --version` should print 18 or newer.
+3. Set `DATABASE_URL` in the environment or the checkout's `.env`. For
+   `backup:verify`, also set `ENCRYPTION_KEY`, and `ENCRYPTION_KEY_PREVIOUS`
+   during a rotation, to the values the API runs with.
+4. Take the backup, verify it, and restore it when needed:
 
 ```bash
 pnpm run backup:create --output wayscribe.dump
+pnpm run backup:verify --input wayscribe.dump
 pnpm run backup:restore --input wayscribe.dump --database restored_copy
 ```
 
+Each command prints one line on success (`backup_created bytes=...`,
+`backup_verified {...}`, `backup_restored database=...`) and exits 0. A failure
+prints `backup_failed <code>` on stderr and exits 1. `--help` on any of them
+lists its options.
+
 The helper makes a whole-database custom-format archive, including unrelated
 tables when the source is shared. It creates a private 0600 temporary file,
-streams the dump, and publishes it only after success. Existing files and
+streams the dump, checks that it starts with the custom-format `PGDMP` header,
+flushes it to disk, and publishes it only after success. The directory entry is
+flushed too before `backup_created` is printed. Existing files and
 symlinks are never replaced, including a destination created during the dump.
 A failed or canceled dump removes its owned partial file. Output contains safe
 codes and byte counts, never child diagnostics, paths, payloads or credentials.
+If the backup is published but a temporary file or trust directory cannot be
+removed afterwards, the command still reports `backup_created` and exits 0, and
+prints `backup_cleanup_incomplete` on stderr naming what to remove by hand.
 
-Both commands accept `--timeout-ms`: a positive integer in milliseconds,
+All three commands accept `--timeout-ms`: a positive integer in milliseconds,
 default **600000** (ten minutes), maximum **3600000** (one hour). The deadline
 includes connection, database statements and child execution. Cancellation and
 timeout terminate and reap the child; all database shutdown and cleanup share
@@ -179,7 +199,10 @@ at most **five additional seconds**, rather than restarting the operation timer.
 Use a TCP `postgresql://user:password@host:port/database` URL with an explicit,
 nonempty user, password and database. Passwordless, Unix socket, service profile,
 multi-host and arbitrary query parameters are refused. Inherited `PG*` settings
-are ignored. TLS modes supported by both clients are:
+are ignored. `pg_dump` and `pg_restore` receive only `PATH`, `HOME`, `LANG`,
+`LC_*` and `TZ` from the caller's environment, plus the connection settings the
+helper sets; `ENCRYPTION_KEY`, `ENCRYPTION_KEY_PREVIOUS`, `ADMIN_TOKEN`,
+`DATABASE_URL` and every other variable are withheld from them. TLS modes supported by both clients are:
 
 - No `sslmode`, or `sslmode=disable`: no TLS. Use a trusted local/private endpoint.
 - `sslmode=verify-full&sslrootcert=/absolute/path/ca.pem`: verify the certificate
@@ -198,6 +221,8 @@ to the same or a newer server major; restoring into an older server is not a
 supported promise. The automated helper was tested with client **18.4** and a
 PostgreSQL **18** server. See the PostgreSQL [pg_dump documentation](https://www.postgresql.org/docs/18/app-pgdump.html)
 and [TLS documentation](https://www.postgresql.org/docs/18/libpq-ssl.html).
+
+### Manual backup
 
 The existing manual container workflow remains available:
 
@@ -251,6 +276,42 @@ A connection failure during CREATE can leave the result uncertain. The
 the helper does not infer ownership from its existence or drop it. If cleanup
 of an acknowledged database fails, the original error is retained and a separate
 instruction names the owned database requiring manual cleanup.
+
+### Verifying a backup
+
+`pnpm run backup:verify --input wayscribe.dump` checks that an archive restores
+and that its data is usable with the keys you hold, without touching the source
+database or keeping a copy. Run it after every scheduled backup and before you
+depend on one.
+
+It restores into a generated `wayscribe_restore_check_<random>` database on the
+`DATABASE_URL` cluster (so the role needs CREATEDB), inspects it in a read-only
+transaction with statement time capped at ten minutes, and always drops it,
+including on failure, timeout and cancellation. The same uncertain-CREATE and
+manual-cleanup messages as restore apply. It checks, in order:
+
+- **Schema.** The archive's applied migrations must match this checkout's
+  exactly. A missing or extra migration reports `schema_mismatch` and nothing
+  else is read, so verify with the release that took the backup.
+- **Integrity.** Every project, environment, journey, event, destination and
+  replay reference resolves, including the project/environment scope reads rely
+  on, and every alias an event stated belongs to that event's journey. A broken
+  reference reports `integrity_failed`.
+- **Encrypted values.** Every entity identifier, alias value and replay header
+  set decrypts under `ENCRYPTION_KEY` or `ENCRYPTION_KEY_PREVIOUS`. Any that
+  does not reports `encrypted_values_unreadable`.
+- **Search tokens.** For each decrypted entity identifier and alias value, the
+  stored search token must be the current or previous key's token for that
+  value. A mismatch reports `search_tokens_mismatch`: the record restores but
+  search cannot find it.
+
+The result is one JSON line: row counts per application table, the number of
+encrypted values examined, pending/unknown migration counts, and the failure
+codes. It names no rows, values or keys. `backup_verified` exits 0;
+`backup_verification_failed` exits 1. Missing or malformed keys fail before any
+database is created with `backup_failed keys_required`.
+
+### Manual restore
 
 The manual commands below restore into an existing database and intentionally
 use `--clean`; select that destination carefully.
@@ -2251,7 +2312,10 @@ them from the interpolation environment (shell or `--env-file`). Helm uses
 failed-admin-authentication throttle does not apply to ingestion.
 
 For 503, retry the unchanged export, including stable IDs/timestamps: earlier
-records may already have committed and will deduplicate. A 200 permanent partial
-success reports only a rejected count and fixed summary. See
+records may already have committed and will deduplicate. A 500 is not
+retryable: it means a non-transient server failure, so check the API log rather
+than letting the Collector retry. A 200 permanent partial success reports the
+rejected count and, in `error_message`, the first refusal codes with counts;
+the API also logs the codes. See
 [OTLP logs](OTLP_LOGS.md) and the [official exporter example](../examples/otlp-logs/README.md).
 Local source/Helm/Compose verification does not publish an image or deploy it.

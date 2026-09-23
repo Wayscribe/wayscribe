@@ -38,7 +38,8 @@
     "delete:destination": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts delete:destination",
     "doctor": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts doctor",
     "backup:create": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts backup:create",
-    "backup:restore": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts backup:restore"
+    "backup:restore": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts backup:restore",
+    "backup:verify": "tsx --conditions=development --env-file-if-exists=../../.env src/cli.ts backup:verify"
   },
   "dependencies": {
     "@wayscribe/config": "workspace:*",

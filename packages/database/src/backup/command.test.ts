@@ -2,6 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it, vi } from "vitest";
+vi.mock("node:fs/promises", async (original) => ({
+  ...(await original<typeof import("node:fs/promises")>())
+}));
+import * as files from "node:fs/promises";
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock("pg", async (importOriginal) => {
   const actual = await importOriginal<typeof import("pg")>();
@@ -85,6 +89,35 @@ it("prints a safe manual-inspection instruction after submitted CREATE fails wit
     ]);
     expect(query.mock.calls.map((call) => call[0] as unknown)).toEqual([
       'CREATE DATABASE "pipe_copy" TEMPLATE template0'
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("reports a published backup as created and warns when temporary cleanup fails", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backup-cleanup-command-"));
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  try {
+    await writeFile(
+      join(dir, "pg_dump"),
+      `#!${process.execPath}\nif(process.argv.includes('--version')) {console.log('pg_dump (PostgreSQL) 18.4');process.exit(0)}\nprocess.stdout.write('PGDMPsynthetic')`,
+      { mode: 0o700 }
+    );
+    const unlink = vi.spyOn(files, "unlink").mockRejectedValueOnce(new Error("SECRET_UNLINK"));
+    expect(
+      await runBackupCommand("backup:create", ["--output", join(dir, "backup.dump")], {
+        databaseUrl: "postgresql://alice:PASSWORD_SENTINEL@localhost/source",
+        env: { PATH: dir },
+        stdout: (line) => stdout.push(line),
+        stderr: (line) => stderr.push(line)
+      })
+    ).toBe(0);
+    unlink.mockRestore();
+    expect(stdout).toEqual(["backup_created bytes=14"]);
+    expect(stderr).toEqual([
+      "backup_cleanup_incomplete Remove leftover hidden .tmp files beside the backup and wayscribe-backup-trust-* directories in the system temp directory."
     ]);
   } finally {
     await rm(dir, { recursive: true, force: true });

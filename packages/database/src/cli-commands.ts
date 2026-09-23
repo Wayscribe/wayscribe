@@ -71,6 +71,33 @@ export interface CommandSpec {
 
 export const COMMANDS = [
   {
+    name: "backup:verify",
+    arguments: "",
+    summary: "Verify an archive using a disposable restore.",
+    details: [
+      "Requires PostgreSQL 18+ client tools, CREATEDB, ENCRYPTION_KEY and any previous rotation key.",
+      "Checks schema, references and every ciphertext; drops the owned copy. Does not run migrations or application traffic.",
+      "  pnpm run backup:verify --input backup.dump"
+    ],
+    flags: [
+      {
+        flag: "--input",
+        value: "<path>",
+        required: true,
+        description: "Trusted custom-format archive."
+      },
+      {
+        flag: "--timeout-ms",
+        value: "<milliseconds>",
+        description:
+          "Positive integer; default 600000, maximum 3600000. Cleanup may take up to 5 seconds more."
+      }
+    ],
+    checkoutScript: "backup:verify",
+    parsesOwnArguments: true,
+    helpCanBeAValue: false
+  },
+  {
     name: "backup:create",
     arguments: "",
     summary: "Create a private custom-format database archive.",
