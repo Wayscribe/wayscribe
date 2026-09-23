@@ -238,6 +238,51 @@ sdk-node:
   script:
     - scripts/sdk-node-versions.sh "$SDK_NODE_VERSION"
 
+# The Go SDK on the oldest Go its go.mod claims and on the newest tested. Vet
+# and the race detector, from the module directory alone, as `go get` sees it.
+# The official images carry gcc, which -race needs.
+sdk-go:
+  stage: test
+  image: golang:${SDK_GO_VERSION}
+  before_script: []
+  cache: []
+  variables:
+    GOTOOLCHAIN: local
+    GOWORK: "off"
+  parallel:
+    matrix:
+      - SDK_GO_VERSION: ["1.22.0", "1.26.4"]
+  script:
+    - cd packages/sdk-go
+    - go vet ./...
+    - go test -race ./...
+
+# The Python SDK on its floor and on the newest release. The script refuses
+# an interpreter older than 3.11.
+sdk-python:
+  stage: test
+  image: python:${SDK_PYTHON_VERSION}-slim
+  before_script: []
+  cache: []
+  variables:
+    WAYSCRIBE_TEST_PYTHON: python3
+  parallel:
+    matrix:
+      - SDK_PYTHON_VERSION: ["3.11", "3.14"]
+  script:
+    - sh packages/sdk-python/scripts/test.sh discover -s packages/sdk-python/tests -v
+
+# The Go consumer example and the mixed-language example's own tests, which
+# need Node and Go together.
+examples-go:
+  stage: test
+  image: node:24
+  script:
+    - scripts/install-go.sh 1.26.4
+    - export PATH="/usr/local/go/bin:$PATH"
+    - pnpm test:go:consumer
+    - pnpm test:mixed-language
+
 # Once per PostgreSQL release docs/OPERATIONS.md supports and CI tests: 15, the
 # oldest, 17, which Compose and the Helm chart run, and 18, the newest. 16 is
 # between two tested releases and is not run. vitest.integration.config.ts reads
@@ -254,10 +299,17 @@ database:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
     TESTCONTAINERS_HOST_OVERRIDE: docker
+    # The integration suite drives the Go and Python SDKs against the real API
+    # (go-sdk-*, python-sdk-*, mixed-language), so this job needs both.
+    # Bookworm's python3 is 3.11, the Python SDK's floor.
+    WAYSCRIBE_TEST_PYTHON: python3
   parallel:
     matrix:
       - TEST_POSTGRES_VERSION: ["15", "17", "18"]
   script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 python3-venv
+    - scripts/install-go.sh 1.26.4
+    - export PATH="/usr/local/go/bin:$PATH"
     - pnpm test:integration
 
 build:
