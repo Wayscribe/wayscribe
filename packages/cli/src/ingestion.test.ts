@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { batchResponseSchema, parseEnvelope } from "@wayscribe/protocol";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { run, type Io } from "./cli.js";
+import { resolveIngestionConfig } from "./ingestion-config.js";
 
 function required<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("Missing test fixture");
@@ -580,4 +581,42 @@ it("refuses empty URL userinfo before networking", async () => {
     expect(JSON.parse(c.out.join(""))).toMatchObject({ error: { code: "INVALID_CONFIG" } });
   }
   expect(requests).toHaveLength(0);
+});
+
+it.each([
+  "http://wayscribe.example.com",
+  "http://10.0.0.5:3000",
+  "http://128.0.0.1",
+  "http://localhost.example.com",
+  "http://[::ffff:127.0.0.1]",
+  "http://[2001:db8::1]"
+])("refuses to send the ingestion key over plain http to non-loopback %s", async (target) => {
+  const c = capture();
+  expect(
+    await run(
+      ["check", "--url", target, "--environment", "dev", "--service", "check", "--json"],
+      c.io
+    )
+  ).toBe(1);
+  expect(JSON.parse(c.out.join(""))).toMatchObject({
+    error: {
+      code: "INVALID_CONFIG",
+      message:
+        "Ingestion URL must use https unless the host is loopback (localhost, 127.0.0.0/8, ::1)."
+    }
+  });
+  expect(requests).toHaveLength(0);
+});
+
+it.each([
+  "http://localhost:3000",
+  "http://LOCALHOST",
+  "http://127.0.0.1:3000",
+  "http://127.1.2.3",
+  "http://[::1]:3000",
+  "https://wayscribe.example.com"
+])("allows %s", (target) => {
+  expect(
+    resolveIngestionConfig("preview", { url: target }, { WAYSCRIBE_API_KEY: "wsk_valid_key" }).url
+  ).toBe(new URL(target).origin);
 });

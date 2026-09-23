@@ -93,6 +93,15 @@ export function parseIngestionArgs(
   }
 }
 
+/** URL has already normalized case, IPv4 shorthand and IPv6 brackets. */
+function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "[::1]" ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  );
+}
+
 export interface IngestionConfig {
   url: string;
   apiKey: string;
@@ -133,6 +142,12 @@ export function resolveIngestionConfig(
     throw new IngestionError(
       "INVALID_CONFIG",
       "Ingestion URL must be http(s), without credentials, query or fragment."
+    );
+  // The Bearer key travels in the clear over http; allow that only to this machine.
+  if (url.protocol === "http:" && !isLoopbackHost(url.hostname))
+    throw new IngestionError(
+      "INVALID_CONFIG",
+      "Ingestion URL must use https unless the host is loopback (localhost, 127.0.0.0/8, ::1)."
     );
   const apiKey = env[name];
   if (!apiKey || apiKey.length < 8 || !/^[A-Za-z0-9._~+/-]+=*$/.test(apiKey))
