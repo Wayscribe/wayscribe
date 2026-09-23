@@ -12,6 +12,18 @@ is the contract between them and a mismatch is not something a user should have
 to reason about. The protocol itself carries its own `protocolVersion`, which
 changes far less often.
 
+## [Unreleased]
+
+### Changed
+
+- `@wayscribe/node`: an event whose 30-second retry budget has run out is now
+  dropped (`retry_budget`) before another HTTP attempt, including after a
+  circuit-breaker cooldown. 0.1.0 sent such an event once more when the breaker
+  closed. With the default breaker (five failures, 30-second cooldown), a lone
+  event refused through five sends in a row, with nothing stored in between, is
+  now dropped where 0.1.0 would have stored it. The Go and Python SDKs follow
+  the same rule ([ingestion contract](docs/INGESTION_CONTRACT.md), section 4).
+
 ## [0.1.0] - 2026-09-20
 
 This section describes the selected contents of the 0.1.0 preview. It is the

@@ -161,11 +161,56 @@ needs a real pipeline run.
   Python and Go (`mixed-language.integration.test.ts:269-323`), but it only runs
   by hand.
 
-## Not yet run (needs local Postgres now, CI later)
+## Status after fixes (2026-09-23)
 
-- All `*.integration.test.ts` touched by the branch: OTLP, python-sdk-*,
-  go-sdk-*, mixed-language, backup (including the uncommitted verify tests).
-- Full pipeline on the branch once GitLab minutes return.
+Every item under "Merge blockers" and "Fix before merge" is fixed on the branch
+(commits 85f9cff through 5eac244), except where noted under "Open" below.
+
+### Verified locally, against HEAD
+
+- `pnpm format:check`, `pnpm lint`, `pnpm typecheck`: pass.
+- `pnpm test`: 204 files, 3,814 tests pass. This had 4 failures before the fixes
+  that the review missed, because root `pnpm test` was never run: two stale
+  Node SDK tests from 8ac208a, and two tests from c3183a9 that contradicted each
+  other about `defaults.env`.
+- `pnpm test:integration` on Postgres 17 (testcontainers): 63 files, 1,186
+  tests pass, 1 skipped (the official Python OTLP exporter test, which needs
+  `OTLP_EXPORTER_PYTHON` and a pip install). This covers OTLP, python-sdk-*,
+  go-sdk-*, mixed-language, backup/restore/verify and CLI.
+- `pnpm test:python` on 3.11 and 3.14 (115 tests); `pnpm test:go`,
+  `test:go:consumer`, `test:mixed-language`: pass.
+- New CI job scripts run in their real images from a `git archive` of HEAD:
+  `sdk-go` on golang:1.22.0 and 1.26.4 (vet + race), `sdk-python` on
+  python:3.11-slim and 3.14-slim, and `scripts/install-go.sh` plus apt python3
+  (3.11.2) on node:24.
+
+### Needs a real GitLab pipeline when minutes return
+
+- The whole pipeline, especially the new `sdk-go`, `sdk-python` and
+  `examples-go` jobs and the `database` matrix (Postgres 15/17/18) with Go and
+  Python installed under docker:dind. Only Postgres 17 was run locally.
+- Integration on Postgres 15 and 18.
+
+### Open, for Jorge
+
+1. **Stock OTel records** still need five `wayscribe.*` attributes (journey
+   id, entity type, entity id, operation, name). Accepting records without
+   them means choosing defaults (e.g. journey from `traceId`), which decides
+   how journeys group. Recommended: keep them required; decide with the O6
+   examples.
+2. **Node contract change** from 8ac208a: a budget-expired event is dropped
+   before another attempt, including after breaker cooldown; 0.1.0 sent it once
+   more. Recorded under [Unreleased] in CHANGELOG.md. Keep it, or drop the
+   "including after circuit-breaker cooldown" clause before release.
+3. **Go floor is 1.22** (1.21 lacks `math/rand/v2`). 1.22 and 1.23 are past
+   Go's support window; CI tests 1.22 so the claim is proven.
+4. **Known, not fixed:** Python still lacks some Node diagnostics (`rejected`,
+   per-event `dropped` for shutdown/retry_budget/no_verdict) and Node's
+   counters; Go keeps two Go-only kinds (`invalid_option`, `invalid_event`).
+   Both are listed in `docs/SDK_SPEC.md`. Python treats a 2xx body over 1 MiB
+   as `no_verdict`, where Node reads any size (documented). Backup tools'
+   env allowlist is untested on Windows.
+5. O6 examples (follow-up, before any release advertising OTLP).
 
 ## Suggested fix order
 
