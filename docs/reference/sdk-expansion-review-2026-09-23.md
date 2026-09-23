@@ -126,6 +126,20 @@ needs a real pipeline run.
 4. **backup:verify:** finish on this branch (recommended; spec requires it) or
    split into a follow-up branch?
 
+### Decided by Jorge, 2026-09-23
+
+1. **Mixed.** Keep input/output from `wayscribe.input`/`wayscribe.output`
+   attributes. Change the code so `deployment.environment.name` is optional and a
+   record without it inherits the API key's environment scope, and so a missing
+   `wayscribe.event.id` falls back to `log.record.uid`, then to a deterministic
+   content hash. A stock OTel emitter must work with no Wayscribe-specific
+   attributes. `exception.*` stays ignored.
+2. **Follow-up.** O6 examples are not a merge blocker; they must land before any
+   release that advertises OTLP.
+3. **Lower to the oldest Go that works**, proven by running vet and race tests on
+   that toolchain, not just by editing `go.mod`.
+4. **Finish `backup:verify` on this branch.**
+
 ## Verified sound
 
 - OTLP: same API-key auth as `/v1/events`; every record goes through
