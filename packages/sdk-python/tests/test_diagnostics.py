@@ -1,15 +1,33 @@
 from helpers import *
+from wayscribe._diagnostics import _reason
+
+PRINTED_LABEL_EMAIL = (
+    "[wayscribe] personal_data_in_public_value: The journeyLabel holds what looks "
+    "like an email address; it is stored and shown in plain text."
+)
+
+
+def personal(field, shape):
+    detail = {"field": field, "shape": shape}
+    return {
+        "kind": "personal_data_in_public_value",
+        "code": "personal_data_shape",
+        "reason": _reason(
+            "personal_data_in_public_value", "personal_data_shape", detail
+        ),
+        "detail": detail,
+    }
 
 
 class DiagnosticsTests(unittest.TestCase):
     def test_callbacks_reentrant_and_throwing_are_isolated_and_snapshots_detached(self):
         d = Diagnostics()
         d.configure(on_diagnostic=lambda e: d.counters())
-        d.emit("capture_error", field="input", payload="DO_NOT_LEAK")
+        d.emit("capture_error", "unexpected_error", {"field": "input"})
         d.configure(
             on_diagnostic=lambda e: (_ for _ in ()).throw(RuntimeError("DO_NOT_LEAK"))
         )
-        d.emit("capture_error", field="input")
+        d.emit("capture_error", "unexpected_error", {"field": "input"})
         threads = [
             threading.Thread(
                 target=lambda: [d.increment("recorded") for _ in range(100)]
@@ -45,15 +63,17 @@ class SuppressionReviewTests(unittest.TestCase):
         """)
         reports = json.loads(result.stdout)
         self.assertEqual(len(reports), 3)
-        self.assertEqual([x["field"] for x in reports], ["input", "output", "metadata"])
         self.assertEqual(
-            result.stderr.splitlines(),
-            [
-                "[wayscribe] kind=unredacted_secret_name field=input code=add_redaction_or_known_safe_name"
-            ],
+            [x["detail"]["field"] for x in reports], ["input", "output", "metadata"]
         )
-        self.assertNotIn("ReviewVendor", result.stderr)
-        self.assertNotIn("request", result.stderr)
+        # Once per process and name with logging off; every report with it on,
+        # as the Node SDK. The line names the key and its path, never a value.
+        lines = result.stderr.splitlines()
+        self.assertEqual(len(lines), 2, lines)
+        self.assertIn(
+            'named "ReviewVendor_token" (at request[*].ReviewVendor_token)', lines[0]
+        )
+        self.assertIn('named "reviewvendortoken" (at reviewvendortoken)', lines[1])
 
     def test_personal_data_callbacks_and_prints_are_once_per_process_field_and_shape(
         self,
@@ -78,14 +98,10 @@ class SuppressionReviewTests(unittest.TestCase):
         self.assertEqual(
             json.loads(result.stdout),
             [
-                {"kind": "personal_data", "field": "journey_label", "shape": "email"},
-                {"kind": "personal_data", "field": "error", "shape": "email"},
-                {
-                    "kind": "personal_data",
-                    "field": "displayable_alias",
-                    "shape": "email",
-                },
-                {"kind": "personal_data", "field": "journey_label", "shape": "phone"},
+                personal("journeyLabel", "email"),
+                personal("errorMessage", "email"),
+                personal("displayableAliases", "email"),
+                personal("journeyLabel", "phone"),
             ],
         )
         self.assertEqual(len(result.stderr.splitlines()), 4)
@@ -110,11 +126,11 @@ class SuppressionReviewTests(unittest.TestCase):
         """)
         self.assertEqual(
             json.loads(result.stdout),
-            [{"kind": "personal_data", "field": "journey_label", "shape": "email"}],
+            [personal("journeyLabel", "email")],
         )
         self.assertEqual(
             result.stderr.splitlines(),
-            ["[wayscribe] kind=personal_data field=journey_label shape=email"],
+            [PRINTED_LABEL_EMAIL],
         )
 
     def test_fresh_diagnostics_after_fork_never_waits_on_parent_global_lock(self):
@@ -153,12 +169,98 @@ class SuppressionReviewTests(unittest.TestCase):
         """)
         self.assertEqual(
             json.loads(result.stdout),
-            [{"kind": "personal_data", "field": "journey_label", "shape": "email"}],
+            [personal("journeyLabel", "email")],
         )
         self.assertEqual(
             result.stderr.splitlines(),
             [
-                "[wayscribe] kind=personal_data field=journey_label shape=email",
-                "[wayscribe] kind=personal_data field=journey_label shape=email",
+                PRINTED_LABEL_EMAIL,
+                PRINTED_LABEL_EMAIL,
             ],
         )
+
+
+class NodeParityTests(unittest.TestCase):
+    """Kinds, codes and shape as packages/sdk-node/src/diagnostics.ts has them."""
+
+    def test_every_report_is_kind_code_reason_detail(self):
+        from delivery_helpers import Collector
+
+        reports = []
+        with Collector() as server:
+            recorder = server.recorder(
+                on_diagnostic=reports.append, max_concurrent_sends=2
+            )
+            journey = recorder.journey({"type": "x", "id": "1"}, label=5)
+            journey.record(operation="received", name="in", timestamp="bad")
+            journey.record(operation="received", name="in")
+            self.assertTrue(recorder.shutdown())
+        self.assertTrue(reports)
+        for report in reports:
+            self.assertEqual(set(report), {"kind", "code", "reason", "detail"})
+            self.assertIsInstance(report["reason"], str)
+            self.assertIsInstance(report["detail"], dict)
+        self.assertEqual(
+            [(r["kind"], r["code"]) for r in reports],
+            [
+                ("configuration_error", "setting_unusable"),
+                ("key_dropped", "label_invalid"),
+                ("configuration_error", "setting_unusable"),
+                ("delivered_first", "first_delivery"),
+            ],
+        )
+        self.assertEqual(reports[0]["detail"], {"setting": "max_concurrent_sends"})
+        self.assertEqual(
+            reports[-1]["detail"],
+            {"endpoint": server.endpoint, "accepted": 2},
+        )
+
+    def test_delivered_first_once_and_breaker_opened_with_nodes_detail(self):
+        from delivery_helpers import Collector
+
+        reports = []
+        with Collector(lambda body, index: (503, b"")) as server:
+            recorder = server.recorder(on_diagnostic=reports.append, batch_size=1)
+            recorder._transport._jitter = lambda: 0
+            recorder.journey({"type": "x", "id": "1"}).complete()
+            # A flush keeps sending until the breaker opens after five failures.
+            self.assertFalse(recorder.flush(1000))
+            recorder.shutdown(1000)
+        opened = [r for r in reports if r["kind"] == "breaker_opened"]
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(opened[0]["code"], "consecutive_failures")
+        self.assertEqual(opened[0]["detail"], {"failures": 5, "cooldownMs": 30000})
+        failed = [r for r in reports if r["kind"] == "transport_error"]
+        self.assertEqual(failed[0]["code"], "request_failed")
+        self.assertEqual(failed[0]["detail"], {"unsent": 1, "abandoned": 0})
+        self.assertNotIn("breaker_open", [r["kind"] for r in reports])
+
+    def test_insecure_endpoint_names_host_and_skips_local_and_internal(self):
+        for endpoint, reported in (
+            ("http://collector.example.com:8080/base", True),
+            ("http://localhost:3000", False),
+            ("http://127.0.0.1:3000", False),
+            ("http://api:3000", False),
+            ("https://collector.example.com", False),
+        ):
+            with self.subTest(endpoint=endpoint):
+                reports = []
+                with contextlib.redirect_stderr(io.StringIO()):
+                    from wayscribe import create_recorder
+
+                    recorder = create_recorder(
+                        endpoint=endpoint,
+                        api_key="k",
+                        service="s",
+                        environment="dev",
+                        on_diagnostic=reports.append,
+                    )
+                insecure = [r for r in reports if r["kind"] == "insecure_endpoint"]
+                self.assertEqual(len(insecure), int(reported))
+                if reported:
+                    self.assertEqual(insecure[0]["code"], "unencrypted_endpoint")
+                    self.assertEqual(
+                        insecure[0]["detail"],
+                        {"scheme": "http:", "host": "collector.example.com"},
+                    )
+                self.assertTrue(recorder.shutdown(0))

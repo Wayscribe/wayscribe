@@ -49,15 +49,28 @@ def new_journey_id() -> str:
 
 def normalize_label(value: object, diagnostics: Diagnostics) -> str | None:
     if type(value) is not str:
-        diagnostics.emit("invalid_option", field="journey_label")
+        diagnostics.emit(
+            "key_dropped", "label_invalid", {"field": "journeyLabel", "keys": 1}
+        )
         return None
     value = repair_text(value)
     if not valid_text(value, max(200, len(value))):
-        diagnostics.emit("invalid_option", field="journey_label")
+        diagnostics.emit(
+            "key_dropped", "label_invalid", {"field": "journeyLabel", "keys": 1}
+        )
         return None
     if len(value) > 200:
+        before = len(value.encode("utf-16-le")) // 2
         value = value[:199] + "…"
-        diagnostics.emit("invalid_option", field="journey_label", code="truncated")
+        diagnostics.emit(
+            "payload_truncated",
+            "label_cut",
+            {
+                "field": "journeyLabel",
+                "strings": 1,
+                "charactersRemoved": before - len(value.encode("utf-16-le")) // 2,
+            },
+        )
     public_warning(value, "journey_label", diagnostics)
     return value
 
@@ -74,8 +87,8 @@ def build_envelope(
 ) -> bytes | None:
     try:
         return _build(config, diagnostics, journey_id, entity, operation, name, fields)
-    except BaseException:
-        diagnostics.emit("invalid_event", code="unreadable")
+    except Exception:
+        diagnostics.emit("capture_error", "unexpected_error")
         return None
 
 
@@ -104,10 +117,14 @@ def capture_metadata(
                 dropped += 1
         if dropped:
             normalized["[KEY_TOO_LONG]"] = dropped
-            diagnostics.emit("invalid_option", field="metadata")
+            diagnostics.emit(
+                "key_dropped",
+                "metadata_key_too_long",
+                {"field": "metadata", "keys": dropped},
+            )
         return capture(normalized, config, field_name="metadata")
-    except BaseException:
-        diagnostics.emit("capture_error", field="metadata")
+    except Exception:
+        diagnostics.emit("capture_error", "unexpected_error", {"field": "metadata"})
         return None
 
 
@@ -126,7 +143,7 @@ def _build(config, diagnostics, journey_id, entity, operation, name, fields):
         and (operation in OPERATIONS)
         and valid_text(name, 256, blank=True)
     ):
-        diagnostics.emit("invalid_event", code="identity")
+        diagnostics.emit("capture_error", "invalid_options")
         return None
     timestamp = fields.get("timestamp", UNSET)
     if timestamp is UNSET:
@@ -140,8 +157,10 @@ def _build(config, diagnostics, journey_id, entity, operation, name, fields):
             .isoformat(timespec="milliseconds")
             .replace("+00:00", "Z")
         )
-    except BaseException:
-        diagnostics.emit("invalid_option", field="timestamp")
+    except Exception:
+        diagnostics.emit(
+            "configuration_error", "setting_unusable", {"setting": "timestamp"}
+        )
         timestamp = now_timestamp()
     sdk = {"name": SDK_NAME, "version": __version__}
     if SDK_COMMIT:
@@ -181,12 +200,16 @@ def _build(config, diagnostics, journey_id, entity, operation, name, fields):
         ):
             event[wire] = value
         else:
-            diagnostics.emit("invalid_option", field=local)
+            diagnostics.emit(
+                "configuration_error", "setting_unusable", {"setting": local}
+            )
     duration = fields.get("duration_ms", UNSET)
     if type(duration) in (int, float) and duration >= 0 and (duration < float("inf")):
         event["durationMs"] = min(int(duration), 2147483647)
     elif duration is not UNSET:
-        diagnostics.emit("invalid_option", field="duration_ms")
+        diagnostics.emit(
+            "configuration_error", "setting_unusable", {"setting": "duration_ms"}
+        )
     label = fields.get("journey_label", UNSET)
     if label is not UNSET:
         label = normalize_label(label, diagnostics)
@@ -203,7 +226,9 @@ def _build(config, diagnostics, journey_id, entity, operation, name, fields):
                 raise ValueError()
             for index, key in enumerate(aliases):
                 if index >= 1000:
-                    diagnostics.emit("invalid_option", field="aliases")
+                    diagnostics.emit(
+                        "key_dropped", "alias_invalid", {"field": "aliases", "keys": 1}
+                    )
                     break
                 value = aliases[key]
                 if (
@@ -214,13 +239,21 @@ def _build(config, diagnostics, journey_id, entity, operation, name, fields):
                 ):
                     kept[repair_text(key)] = repair_text(value)
                 else:
-                    diagnostics.emit("invalid_option", field="aliases")
-        except BaseException:
-            diagnostics.emit("invalid_option", field="aliases")
+                    diagnostics.emit(
+                        "key_dropped", "alias_invalid", {"field": "aliases", "keys": 1}
+                    )
+        except Exception:
+            diagnostics.emit(
+                "key_dropped", "aliases_not_object", {"field": "aliases", "keys": 1}
+            )
         event["aliases"] = kept
         display = fields.get("displayable_aliases", ())
         if type(display) not in (tuple, list):
-            diagnostics.emit("invalid_option", field="displayable_aliases")
+            diagnostics.emit(
+                "key_dropped",
+                "displayable_alias_invalid",
+                {"field": "displayableAliases", "keys": 1},
+            )
             display = ()
         usable = []
         for key in display[:1000]:
@@ -249,7 +282,9 @@ def _build(config, diagnostics, journey_id, entity, operation, name, fields):
         ):
             captures["metadata"] = Captured(TOO_LARGE, omitted=True)
     elif attempt is not UNSET:
-        diagnostics.emit("invalid_option", field="attempt")
+        diagnostics.emit(
+            "configuration_error", "setting_unusable", {"setting": "attempt"}
+        )
     if config.capture_mode != "metadata-only":
         for key in ("input", "output"):
             value = fields.get(key, UNSET)
@@ -284,21 +319,34 @@ def _build(config, diagnostics, journey_id, entity, operation, name, fields):
     for key, result in captures.items():
         if result.omitted:
             diagnostics.increment("payloads_omitted")
-            diagnostics.emit("payload_omitted", field=key)
+            diagnostics.emit("payload_omitted", "too_large", {"field": key})
         elif result.truncated:
             diagnostics.increment("payloads_truncated")
-            diagnostics.emit("payload_truncated", field=key)
+            diagnostics.emit(
+                "payload_truncated",
+                "strings_cut",
+                {
+                    "field": key,
+                    "strings": result.strings_cut,
+                    "charactersRemoved": result.characters_removed,
+                },
+            )
         if result.unreadable:
             diagnostics.increment("capture_errors")
-            diagnostics.emit("capture_error", field=key)
+            diagnostics.emit("capture_error", "unexpected_error", {"field": key})
         if not result.omitted:
             for observed_name, path in result.names:
+                # As the Node SDK: an index joins its field directly, input[*].
                 diagnostics.report_name(
                     key,
                     observed_name,
-                    f"{key}.{path}" if path else key,
+                    (
+                        key + path
+                        if path.startswith("[")
+                        else f"{key}.{path}" if path else key
+                    ),
                 )
     if len(body) > config.max_event_bytes:
-        diagnostics.emit("invalid_event", code="envelope_budget")
+        diagnostics.emit("capture_error", "unexpected_error")
         return None
     return body

@@ -87,8 +87,9 @@ class TransportTests(unittest.TestCase):
             (202, {}),
             (202, {"data": {"results": []}}),
             (202, {"data": {"results": [{"status": "unknown"}]}}),
+            # Over 1 MiB cannot be verdicts for at most 100 events; Node reads
+            # such a body as unparseable, which is no verdict.
             (202, b"x" * 1048577),
-            (302, b""),
             (400, b""),
             (401, b""),
             (429, b""),
@@ -176,6 +177,83 @@ class TransportTests(unittest.TestCase):
             self.assertEqual(recorder.counters()["sent"], 1)
             self.assertEqual(recorder.counters()["rejected"], 1)
             self.assertEqual(len(server.bodies), 1)
+
+    def test_307_and_308_are_followed_with_the_same_body_as_fetch_follows_them(self):
+        for status in (307, 308):
+            with self.subTest(status=status):
+
+                def respond(body, index):
+                    if index == 0:
+                        return status, b"", {"Location": "/moved/v1/events/batch"}
+                    return accepted(body)
+
+                with Collector(respond) as server:
+                    recorder = server.recorder()
+                    self.record(recorder)
+                    self.assertTrue(recorder.shutdown())
+                    self.assertEqual(
+                        server.paths, ["/v1/events/batch", "/moved/v1/events/batch"]
+                    )
+                    self.assertEqual(server.bodies[0], server.bodies[1])
+                    self.assertEqual(
+                        server.headers[1]["Authorization"], "Bearer test-key"
+                    )
+                    self.assertEqual(recorder.counters()["sent"], 1)
+
+    def test_cross_origin_redirect_never_carries_the_api_key(self):
+        with Collector() as other:
+
+            def respond(body, index):
+                return 308, b"", {"Location": other.endpoint + "/v1/events/batch"}
+
+            with Collector(respond) as server:
+                recorder = server.recorder()
+                self.record(recorder)
+                self.assertTrue(recorder.shutdown())
+            self.assertEqual(len(other.bodies), 1)
+            self.assertNotIn("Authorization", other.headers[0])
+            self.assertEqual(recorder.counters()["sent"], 1)
+
+    def test_unfollowed_3xx_is_a_failed_attempt_not_a_missing_verdict(self):
+        # fetch turns 301/302/303 into a GET, which cannot store a batch, and a
+        # 3xx without a Location is not followed at all: the Node SDK retries
+        # those, and so does this one, rather than dropping them as no_verdict.
+        for status, headers in (
+            (302, {"Location": "/elsewhere"}),
+            (301, {"Location": "/elsewhere"}),
+            (303, {"Location": "/elsewhere"}),
+            (300, {}),
+            (308, {}),
+        ):
+            with self.subTest(status=status):
+                reports = []
+                with Collector(lambda body, index: (status, b"", headers)) as server:
+                    recorder = server.recorder(on_diagnostic=reports.append)
+                    recorder._transport._jitter = lambda: 0
+                    self.record(recorder)
+                    self.assertFalse(recorder.shutdown(2000))
+                    self.assertEqual(len(server.bodies), 3)
+                    self.assertTrue(all(p == "/v1/events/batch" for p in server.paths))
+                counts = recorder.counters()
+                self.assertEqual(counts["dropped_by_cause"]["no_verdict"], 0)
+                self.assertEqual(counts["dropped_by_cause"]["shutdown"], 1)
+                self.assertIn(
+                    ("transport_error", "request_failed"),
+                    [(r["kind"], r["code"]) for r in reports],
+                )
+
+    def test_redirect_loop_ends_after_twenty_hops(self):
+        def respond(body, index):
+            return 308, b"", {"Location": "/v1/events/batch"}
+
+        with Collector(respond) as server:
+            recorder = server.recorder()
+            recorder._transport._jitter = lambda: 0
+            self.record(recorder)
+            self.assertFalse(recorder.shutdown(5000))
+            # Three attempts, each the request and its 20 followed redirects.
+            self.assertEqual(len(server.bodies), 63)
+        self.assertEqual(recorder.counters()["dropped_by_cause"]["no_verdict"], 0)
 
     def test_body_timeout_does_not_retry_known_4xx_or_success_without_verdict(self):
         for status in (401, 202):
@@ -282,9 +360,7 @@ class RetryBudgetTests(unittest.TestCase):
         refusal = json.dumps(
             {
                 "data": {
-                    "results": [
-                        {"status": "rejected", "error": {"httpStatus": 503}}
-                    ]
+                    "results": [{"status": "rejected", "error": {"httpStatus": 503}}]
                 }
             }
         ).encode()

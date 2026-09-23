@@ -149,7 +149,7 @@ import time
 time.sleep(.05)
 """
             result = subprocess.run(
-                [sys.executable, "-c", code], capture_output=True, timeout=2
+                [sys.executable, "-c", code], capture_output=True, timeout=4
             )
             self.assertEqual(result.returncode, 0, result.stderr)
         result = subprocess.run(
@@ -164,7 +164,9 @@ time.sleep(.05)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     @unittest.skipUnless(hasattr(os, "fork"), "fork unavailable")
-    def test_inherited_locks_never_acquired_and_fresh_child_can_record(self):
+    def test_inherited_recorder_records_in_a_forked_child_without_parent_locks(self):
+        # gunicorn --preload and Celery prefork create the recorder before
+        # fork: the child's copy must record, not silently do nothing.
         with Collector() as server:
             recorder = server.recorder(flush_interval_ms=60000)
             self.record(recorder)
@@ -182,14 +184,17 @@ time.sleep(.05)
             if pid == 0:
                 try:
                     os.close(read_fd)
+                    # A fresh start: the parent's queued event is the parent's.
+                    assert recorder.counters()["recorded"] == 0
                     self.record(recorder)
-                    recorder.counters()
                     recorder.rejected_settings()
                     recorder.journey({"type": "x", "id": "1"}, label="child").label(
                         "next"
                     )
                     recorder.for_entity({"type": "x", "id": "1"})
-                    assert not recorder.shutdown(1)
+                    assert recorder.shutdown(2000)
+                    counts = recorder.counters()
+                    assert (counts["recorded"], counts["sent"]) == (1, 1), counts
                     with server.recorder() as fresh:
                         self.record(fresh)
                     os.write(write_fd, b"ok")
@@ -210,7 +215,10 @@ time.sleep(.05)
             self.assertEqual(status, 0)
             self.assertEqual(result, b"ok")
             self.assertTrue(recorder.shutdown())
-            self.assertEqual(len(server.events()), 2)
+            self.assertEqual(recorder.counters()["sent"], 1)
+            events = server.events()
+            self.assertEqual(len(events), 3)
+            self.assertEqual(len({e["id"] for e in events}), 3)
 
     def test_late_dns_completion_never_sends_and_does_not_mutate_counters(self):
         import socket
@@ -358,10 +366,124 @@ time.sleep(.05)
                 )
                 pid = os.fork()
             if pid == 0:
-                os._exit(0 if recorder.shutdown(0) is False else 1)
+                # The child's copy has its own, empty queue and no socket.
+                os._exit(0 if recorder.shutdown(0) is True else 1)
             _, status = os.waitpid(pid, 0)
             self.assertEqual(status, 0)
             release.set()
             self.assertTrue(recorder.shutdown(1000))
             self.assertEqual(recorder.counters()["sent"], 1)
             self.assertEqual(len(server.bodies), 1)
+
+
+class LifecycleReviewTests(unittest.TestCase):
+    def run_script(self, source, timeout=10):
+        from helpers import run_isolated
+
+        return run_isolated(source, timeout=timeout)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "fork unavailable")
+    def test_shut_down_recorder_stays_shut_down_in_a_forked_child(self):
+        with Collector() as server:
+            recorder = server.recorder()
+            self.assertTrue(recorder.shutdown())
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=DeprecationWarning)
+                pid = os.fork()
+            if pid == 0:
+                self.record_in(recorder)
+                counts = recorder.counters()
+                os._exit(0 if counts["dropped_by_cause"]["after_shutdown"] == 1 else 1)
+            _, status = os.waitpid(pid, 0)
+            self.assertEqual(status, 0)
+            self.assertEqual(server.bodies, [])
+
+    def record_in(self, recorder):
+        recorder.journey({"type": "x", "id": "1"}).record(
+            operation="received", name="in"
+        )
+
+    def test_recorders_never_used_or_dropped_leave_no_threads(self):
+        with Collector() as server:
+            result = self.run_script(f"""
+                import gc, threading, time
+                from wayscribe import create_recorder
+                options = dict(endpoint={server.endpoint!r}, api_key="k",
+                               service="s", environment="development")
+                unused = [create_recorder(**options) for _ in range(200)]
+                idle_threads = threading.active_count()
+                used = []
+                for _ in range(20):
+                    recorder = create_recorder(**options)
+                    recorder.journey({{"type": "x", "id": "1"}}).record(
+                        operation="received", name="in")
+                    assert recorder.flush(2000)
+                    used.append(recorder)
+                busy = sum(t.name == "wayscribe-sender" for t in threading.enumerate())
+                del unused, used, recorder
+                gc.collect()
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and any(
+                        t.name == "wayscribe-sender" for t in threading.enumerate()):
+                    time.sleep(0.05)
+                left = sum(t.name == "wayscribe-sender" for t in threading.enumerate())
+                print(idle_threads, busy, left)
+            """)
+        self.assertEqual(result.stdout.split(), ["1", "20", "0"])
+        self.assertEqual(len(server.events()), 20)
+
+    def test_queued_events_leave_at_interpreter_exit_within_a_bound(self):
+        with Collector() as server:
+            started = time.monotonic()
+            self.run_script(f"""
+                from wayscribe import create_recorder
+                recorder = create_recorder(endpoint={server.endpoint!r}, api_key="k",
+                    service="s", environment="development", flush_interval_ms=60000)
+                recorder.journey({{"type": "x", "id": "1"}}).record(
+                    operation="received", name="in")
+            """)
+            self.assertEqual(len(server.events()), 1)
+            self.assertLess(time.monotonic() - started, 5)
+        release = threading.Event()
+        self.addCleanup(release.set)
+        with Collector(
+            lambda body, index: (release.wait(10), accepted(body))[1]
+        ) as server:
+            started = time.monotonic()
+            self.run_script(f"""
+                from wayscribe import create_recorder
+                recorder = create_recorder(endpoint={server.endpoint!r}, api_key="k",
+                    service="s", environment="development", flush_interval_ms=60000,
+                    request_timeout_ms=10000)
+                recorder.journey({{"type": "x", "id": "1"}}).record(
+                    operation="received", name="in")
+            """)
+            # A collector that never answers holds exit for the exit flush's
+            # one-second budget, not for the ten-second request timeout.
+            self.assertLess(time.monotonic() - started, 4)
+            release.set()
+
+    def test_a_slow_on_diagnostic_never_holds_up_delivery(self):
+        blocked = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def slow(report):
+            if report["kind"] == "transport_error":
+                blocked.set()
+                release.wait(10)
+
+        def respond(body, index):
+            return (503, b"") if index < 3 else accepted(body)
+
+        with Collector(respond) as server:
+            recorder = server.recorder(on_diagnostic=slow, batch_size=1)
+            recorder._transport._jitter = lambda: 0
+            self.record_in(recorder)
+            self.assertTrue(blocked.wait(5))
+            # The callback is still running; the retry is sent regardless.
+            self.assertTrue(recorder._transport.flush(3000))
+            self.assertEqual(recorder.counters()["sent"], 1)
+            self.assertNotEqual(threading.current_thread().name, "wayscribe-sender")
+            release.set()
+            self.assertTrue(recorder.shutdown(3000))

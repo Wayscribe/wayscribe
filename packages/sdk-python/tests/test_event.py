@@ -83,18 +83,21 @@ class EventTests(unittest.TestCase):
         self.assertEqual(e["input"]["vendor_token"], "private")
         self.assertEqual(
             [x["kind"] for x in reports],
-            ["personal_data", "personal_data", "unredacted_secret_name"],
+            [
+                "personal_data_in_public_value",
+                "personal_data_in_public_value",
+                "unredacted_secret_name",
+            ],
         )
         self.assertNotIn("a@example.com", repr(reports))
         self.assertNotIn("private", repr(reports))
-        self.assertEqual(
-            result.stderr.splitlines(),
-            [
-                "[wayscribe] kind=personal_data field=journey_label shape=email",
-                "[wayscribe] kind=personal_data field=displayable_alias shape=email",
-                "[wayscribe] kind=unredacted_secret_name field=input code=add_redaction_or_known_safe_name",
-            ],
-        )
+        lines = result.stderr.splitlines()
+        self.assertEqual(len(lines), 3, lines)
+        self.assertIn("The journeyLabel holds what looks like an email", lines[0])
+        self.assertIn("The displayableAliases holds what looks like an email", lines[1])
+        self.assertIn('named "vendor_token" (at input.vendor_token)', lines[2])
+        self.assertNotIn("a@example.com", result.stderr)
+        self.assertNotIn("private", result.stderr)
 
     def test_secret_name_diagnostic_path_starts_at_the_public_event_field(self):
         c, d, reports = setup()
@@ -111,12 +114,46 @@ class EventTests(unittest.TestCase):
             report for report in reports if report["kind"] == "unredacted_secret_name"
         ]
         self.assertEqual(
-            [(report["field"], report["path"]) for report in warnings],
+            [(r["detail"]["field"], r["detail"]["path"]) for r in warnings],
             [
                 ("input", "input.sessionCredential"),
                 ("input", "input.lines[*].settings.authToken"),
             ],
         )
+
+    def test_secret_name_path_of_a_list_payload_joins_the_field_like_node(self):
+        # Node writes input[*].x; the field and the index are never split by a
+        # dot, whether the payload is a list or a header-shaped pair list.
+        for payload, path in (
+            ([{"authToken": "secret-value"}], "input[*].authToken"),
+            ([["x-vendor-token", "secret-value"]], "input[*]"),
+            ([[{"apiToken": "secret-value"}]], "input[*][*].apiToken"),
+        ):
+            with self.subTest(path=path):
+                c, d, reports = setup()
+                event(c, d, input=payload)
+                self.assertEqual(
+                    [
+                        r["detail"]["path"]
+                        for r in reports
+                        if r["kind"] == "unredacted_secret_name"
+                    ],
+                    [path],
+                )
+
+    def test_secret_names_are_bounded_as_node_bounds_them(self):
+        c, d, reports = setup()
+        event(c, d, input={f"vendor{i}Token": "secret-value" for i in range(150)})
+        event(c, d, input={"z" * 300 + "Token": "secret-value"})
+        warnings = [r for r in reports if r["kind"] == "unredacted_secret_name"]
+        self.assertEqual(len(warnings), 100)
+        self.assertEqual(d.counters()["unredacted_secret_names"], 100)
+        deep = {"a" * 200: {"b" * 200: {"authToken": "secret-value"}}}
+        c, d, reports = setup()
+        event(c, d, input=deep)
+        (warning,) = [r for r in reports if r["kind"] == "unredacted_secret_name"]
+        self.assertEqual(len(warning["detail"]["path"]), 256)
+        self.assertLessEqual(len(warning["detail"]["name"]), 128)
 
 
 class EntitySnapshotReviewTests(unittest.TestCase):
@@ -174,5 +211,8 @@ class EntitySnapshotReviewTests(unittest.TestCase):
         self.assertEqual(
             json.loads(wire)["event"]["entity"], {"type": "order", "id": "42"}
         )
-        self.assertEqual(reports, [{"kind": "invalid_option", "field": "timestamp"}])
+        self.assertEqual(
+            [(r["kind"], r["code"], r["detail"]) for r in reports],
+            [("configuration_error", "setting_unusable", {"setting": "timestamp"})],
+        )
         self.assertEqual(entity, {"type": {}, "id": ""})

@@ -19,7 +19,7 @@ SAFE_INTEGER = 9007199254740991
 def read(source: object, key: str, default: Any = MISSING) -> Any:
     try:
         return source.get(key, default) if isinstance(source, Mapping) else default
-    except BaseException:
+    except Exception:
         return UNREADABLE
 
 
@@ -72,8 +72,8 @@ class Config:
 
 def resolve_config(options: Mapping[str, object], diagnostics: Diagnostics) -> Config:
 
-    def reject(key):
-        diagnostics.reject_setting(key)
+    def reject(key, code="setting_unusable"):
+        diagnostics.reject_setting(key, code)
 
     callback = read(options, "on_diagnostic")
     logging = read(options, "log_diagnostics")
@@ -91,7 +91,7 @@ def resolve_config(options: Mapping[str, object], diagnostics: Diagnostics) -> C
         value = read(options, key)
         if valid_text(value, limit):
             return value
-        reject(key)
+        reject(key, "required_setting_unusable")
         return ""
 
     endpoint = required("endpoint", 65536)
@@ -107,16 +107,20 @@ def resolve_config(options: Mapping[str, object], diagnostics: Diagnostics) -> C
             and (not any(ord(c) <= 32 or ord(c) == 127 for c in endpoint))
         )
         _ = parsed.port
-    except BaseException:
+    except Exception:
         usable = False
     if endpoint and (not usable):
-        reject("endpoint")
+        reject("endpoint", "required_setting_unusable")
         endpoint = ""
-    if endpoint.startswith("http://"):
-        diagnostics.emit("insecure_endpoint")
+    if endpoint.startswith("http://") and not _local_or_internal(parsed.hostname):
+        diagnostics.emit(
+            "insecure_endpoint",
+            "unencrypted_endpoint",
+            {"scheme": "http:", "host": parsed.hostname},
+        )
     api_key = required("api_key", 65536)
     if api_key and any(ord(c) < 32 or ord(c) > 126 for c in api_key):
-        reject("api_key")
+        reject("api_key", "required_setting_unusable")
         api_key = ""
     service = required("service", 128)
     environment = required("environment", 64)
@@ -171,7 +175,7 @@ def resolve_config(options: Mapping[str, object], diagnostics: Diagnostics) -> C
         or not valid_text(secret, 65536)
         or len(secret.encode("utf-8")) < 32
     ):
-        reject("journey_id_secret")
+        reject("journey_id_secret", "journey_id_secret_unusable")
         secret = None
     deployment = {}
     supplied = read(options, "deployment")
@@ -193,13 +197,20 @@ def resolve_config(options: Mapping[str, object], diagnostics: Diagnostics) -> C
                 k not in ("git_commit", "version", "image") for k in supplied
             ):
                 reject("deployment.*")
-        except BaseException:
+        except Exception:
             reject("deployment.*")
         if not deployment:
             reject("deployment")
     for old in ("max_payload_bytes", "propagate", "max_concurrent_sends"):
         if read(options, old) is not MISSING:
-            reject(old)
+            reject(
+                old,
+                (
+                    "setting_unusable"
+                    if old == "max_concurrent_sends"
+                    else "setting_renamed"
+                ),
+            )
     return Config(
         enabled=all((endpoint, api_key, service, environment)),
         endpoint=endpoint,
@@ -226,3 +237,17 @@ def resolve_config(options: Mapping[str, object], diagnostics: Diagnostics) -> C
         journey_id_secret=secret,
         deployment=MappingProxyType(deployment),
     )
+
+
+def _local_or_internal(hostname: str | None) -> bool:
+    """As the Node SDK: this machine, or a single-label name such as ``api``.
+
+    A name with no dot resolves only through container or cluster DNS, so an
+    http: endpoint there stays on a private network and is not reported.
+    """
+    if not hostname:
+        return True
+    host = hostname.lower()
+    if host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost"):
+        return True
+    return "." not in host and ":" not in host

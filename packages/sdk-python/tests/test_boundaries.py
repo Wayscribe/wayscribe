@@ -46,13 +46,15 @@ class BoundaryTests(unittest.TestCase):
             print(json.dumps({'positive':positive,'negative':reports}))
         """)
         observed = json.loads(result.stdout)
-        self.assertEqual([r["shape"] for r in observed["positive"]], ["email", "phone"])
+        self.assertEqual(
+            [r["detail"]["shape"] for r in observed["positive"]], ["email", "phone"]
+        )
         self.assertEqual(observed["negative"], [])
         self.assertEqual(
             result.stderr.splitlines(),
             [
-                "[wayscribe] kind=personal_data field=error shape=email",
-                "[wayscribe] kind=personal_data field=error shape=phone",
+                "[wayscribe] personal_data_in_public_value: The errorMessage holds what looks like an email address; it is stored and shown in plain text.",
+                "[wayscribe] personal_data_in_public_value: The errorMessage holds what looks like a telephone number; it is stored and shown in plain text.",
             ],
         )
 
@@ -65,15 +67,29 @@ class BoundaryTests(unittest.TestCase):
         """)
         reports = json.loads(result.stdout)
         report = next(x for x in reports if x["kind"] == "unredacted_secret_name")
-        self.assertEqual(report["name"], "vendor_token")
-        self.assertEqual(report["path"], "input.list[*].vendor_token")
-        self.assertNotIn("do-not-leak", repr(reports))
+        self.assertEqual(report["code"], "secret_like_name")
         self.assertEqual(
-            result.stderr.splitlines(),
-            [
-                "[wayscribe] kind=unredacted_secret_name field=input code=add_redaction_or_known_safe_name"
-            ],
+            report["detail"],
+            {
+                "field": "input",
+                "name": "vendor_token",
+                "path": "input.list[*].vendor_token",
+            },
         )
+        self.assertNotIn("do-not-leak", repr(reports))
+        # As the Node SDK: the printed line names the key and where it was,
+        # so it can be fixed, and never the value.
+        lines = result.stderr.splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(
+            lines[0].startswith(
+                '[wayscribe] unredacted_secret_name: A field named "vendor_token" '
+                "(at input.list[*].vendor_token) looks like a secret"
+            ),
+            lines[0],
+        )
+        self.assertIn('"**.vendor_token" to redact', lines[0])
+        self.assertNotIn("do-not-leak", result.stderr)
 
     def test_extremely_large_integer_preserves_decimal_digits(self):
         c, d, _ = setup()
@@ -174,7 +190,11 @@ class HostileBoundaryTests(unittest.TestCase):
         d = Diagnostics()
         out = io.StringIO()
         with contextlib.redirect_stderr(out):
-            d.emit("capture_error", field="input", payload="PRIVATE")
+            d.emit(
+                "capture_error",
+                "unexpected_error",
+                {"field": "input", "payload": "PRIVATE"},
+            )
         self.assertEqual(out.getvalue(), "")
 
     def test_capture_depth_boundary_and_all_built_in_secret_spellings(self):

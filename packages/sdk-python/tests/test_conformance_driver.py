@@ -70,6 +70,27 @@ class ConformanceDriverTests(unittest.TestCase):
             ["unredacted_secret_name", "unredacted_secret_name"],
         )
         self.assertNotIn("cfx-fake-sdk-SESSION", json.dumps(diagnostics))
+        self.assertEqual(
+            [(d["code"], d["detail"]) for d in diagnostics],
+            [
+                (
+                    "secret_like_name",
+                    {
+                        "field": "input",
+                        "name": "sessionCredential",
+                        "path": "input.sessionCredential",
+                    },
+                ),
+                (
+                    "secret_like_name",
+                    {
+                        "field": "input",
+                        "name": "authToken",
+                        "path": "input.lines[*].settings.authToken",
+                    },
+                ),
+            ],
+        )
 
 
 if __name__ == "__main__":

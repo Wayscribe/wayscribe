@@ -126,15 +126,36 @@ concurrency is fixed at one; passing `max_concurrent_sends` is reported as rejec
 Delivery defaults and bounds are documented below.
 The envelope budget is capped at the protocol maximum of 262,144 bytes.
 
-Diagnostics never print payloads, credentials, endpoint values, or exception
-messages. Debug logging is opt-in. Creation failures, missing derivation secrets,
-public personal-data shapes and unredacted secret names have bounded process-wide
-warnings. The diagnostic callback can receive a bounded supplied key name/path
-for an unredacted-secret report, never its value; printed warnings omit both.
-Secret-name callbacks occur once per recorder and folded name, with one printed
-warning per process and folded name across fields and spellings. Personal-data
-callbacks and printing occur once per process, field and shape. A fork resets the
-process-wide warning state and its lock so a fresh child recorder can report safely.
+`on_diagnostic` receives the Node SDK's report shape and names:
+`{"kind", "code", "reason", "detail"}`, for example
+`{"kind": "breaker_opened", "code": "consecutive_failures", "reason": "...",
+"detail": {"failures": 5, "cooldownMs": 30000}}`. Match on `kind` and `code`;
+`reason` is a sentence whose wording may change. The kinds are `delivered_first`
+(once per recorder, after the first batch the server stored anything from),
+`insecure_endpoint`, `transport_error`, `breaker_opened`, `dropped`,
+`payload_omitted`, `payload_truncated`, `key_dropped`, `capture_error`,
+`configuration_error`, `unredacted_secret_name` and
+`personal_data_in_public_value`; `docs/SDK_SPEC.md` lists where Python still
+differs from Node. A report raised by the sender thread (`delivered_first`,
+`transport_error`, `breaker_opened`) is handed to the callback on a separate
+daemon thread, so a slow callback never holds up delivery; `flush()` and
+`shutdown()` wait for those callbacks within their own deadline. Every other
+report runs the callback on the calling thread before the call returns, as in
+Node. Keep the callback short either way.
+
+Diagnostics never print payloads, credentials, endpoint paths or queries, or
+exception messages. Debug logging is opt-in. A missing required setting, a
+missing or short derivation secret, public personal-data shapes and unredacted
+secret names have bounded process-wide warnings. An unredacted-secret report
+names the field, the key as written (at most 128 characters) and its path with
+every index written `[*]` (`input.lines[*].authToken`, `input[*].apiToken`; at
+most 256 characters), never its value, and so does its printed line, with
+credential shapes masked, so the name can be covered by a rule or marked
+known-safe. At most 100 names are reported per recorder, once per folded name,
+with one printed warning per process and folded name across fields and
+spellings, or every report when `log_diagnostics` is on. Personal-data callbacks
+and printing occur once per process, field and shape. A fork resets the
+process-wide warning state and its lock so a child recorder can report safely.
 
 For development, run from the repository root:
 
@@ -234,7 +255,12 @@ The configurable delivery bounds are `batch_size=50` (clamped to 1–100),
 The queue is bounded separately from the single in-flight batch (at most 100).
 Overflow discards the oldest pending event. Retries retain their original queue
 age and byte-identical envelopes. Transport uses the batch route, verified TLS for
-HTTPS, a 1 MiB response-body limit, no redirects, and no ambient proxy credentials.
+HTTPS, a 1 MiB response-body limit, and no ambient proxy credentials. As the
+Node SDK's `fetch` does, a 307 or 308 is followed, up to 20 times, with the same
+body, and the API key is not sent to a different origin; any other 3xx is a
+failed attempt and is retried. A 2xx body over 1 MiB cannot hold the verdicts
+for 100 events and is read as a reply with no verdict (`no_verdict`), which is
+what Node makes of a body it cannot parse.
 Use HTTPS outside a trusted local development setup.
 
 Fixed retry defaults are three HTTP attempts per logical send, full-jitter
@@ -266,13 +292,27 @@ later in the daemon, but cannot write an HTTP request after cancellation or chan
 final counters. Shutdown cannot retract bytes sent earlier; the server can still
 store an earlier in-flight request after the caller's deadline.
 
-Construct recorders **after fork**. An inherited recorder is disabled before any
-instance lock is acquired: recording has no effect, flush/shutdown return `False`,
-its counters are an empty snapshot, and its rejected-settings collection is empty.
-It never resends copied queues or closes/shuts down the parent's active socket.
-Fresh child recorders are supported. Use detached `counters()` and
-`rejected_settings()` for health checks; diagnostics callbacks may safely reenter
-the recorder and must themselves remain short-running.
+A recorder created before `fork()` (gunicorn `--preload`, Celery prefork,
+`multiprocessing` with the fork start method) keeps working in the child. The
+child's copy gets fresh locks, an empty queue, zero counters and its own sender
+without acquiring anything it inherited, so a parent thread that held a lock
+at the fork cannot block it. Events queued before the fork belong to the parent
+and are never resent by a child; the child never closes the parent's socket. A
+recorder shut down before the fork stays shut down in the child. Use detached
+`counters()` and `rejected_settings()` for health checks; diagnostics callbacks
+may safely reenter the recorder and must themselves remain short-running.
+
+The sender thread starts with the first recorded event, so a recorder that never
+records has no thread. A recorder dropped without `shutdown()` does not keep its
+thread: once its queue is empty the thread ends within about a second of the
+recorder being garbage-collected.
+
+At interpreter exit, an `atexit` handler flushes what is still queued, with one
+1,000 ms deadline shared by every recorder in the process, so exit is never held
+longer than that. It flushes and does not shut down; call `shutdown()` yourself
+for a longer drain or exact final counts. `os._exit()`, a killed process and a
+forked child that ends with `os._exit()` skip it, and their queued events are
+lost.
 
 ## Check your installed recorder
 

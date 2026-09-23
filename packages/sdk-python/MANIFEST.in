@@ -1,0 +1,6 @@
+# The tests need helpers and the repository's conformance fixtures, which an
+# sdist cannot carry, so the sdist ships the package alone. Run the tests from
+# the repository: pnpm test:python.
+prune tests
+prune scripts
+global-exclude __pycache__ *.py[cod]

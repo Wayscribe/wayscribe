@@ -22,7 +22,7 @@ def _read(source, key, default=None):
             if isinstance(source, Mapping)
             else getattr(source, key, default)
         )
-    except BaseException:
+    except Exception:
         return None
 
 
@@ -179,7 +179,7 @@ def http_metadata(
                 host = _identity(host)
                 if host is not None:
                     result["targetHost"] = host
-    except BaseException:
+    except Exception:
         pass
     status = _integer(_read(response, "status"), 100, 599)
     if status is not None:
@@ -212,6 +212,6 @@ def http_metadata(
             wait = _integer(date - observed, 0, MAX_MS) if date is not None else None
         if wait is not None:
             result["retryAfterMs"] = wait
-    except BaseException:
+    except Exception:
         pass
     return result

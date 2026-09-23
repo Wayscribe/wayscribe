@@ -263,11 +263,12 @@ def _make_call(target: object, call: dict[str, object], run: str) -> None:
 
 
 def _diagnostic(report: dict[str, object]) -> dict[str, object]:
-    detail = {key: value for key, value in report.items() if key != "kind"}
-    result: dict[str, object] = {"kind": report["kind"]}
-    if detail:
-        result["detail"] = detail
-    return result
+    # Reports already have the Node SDK's shape; the prose reason is left out.
+    return {
+        "kind": report["kind"],
+        "code": report["code"],
+        "detail": dict(report["detail"]),
+    }
 
 
 def capture_case(case: dict[str, object], run: str) -> dict[str, object]:

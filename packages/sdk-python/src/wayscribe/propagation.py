@@ -66,7 +66,7 @@ def inject_http_headers(
             {HTTP[PAYLOAD.index(k)]: v for k, v in _selected(context, level).items()}
         )
         return result
-    except BaseException:
+    except Exception:
         return {}
 
 
@@ -89,7 +89,7 @@ def _http_value(headers, name):
 def extract_http_context(headers: object) -> dict[str, Any] | None:
     try:
         return _context(*(_http_value(headers, key) for key in HTTP))
-    except BaseException:
+    except Exception:
         return None
 
 
@@ -112,7 +112,7 @@ def inject_sqs_attributes(
             }
         )
         return result
-    except BaseException:
+    except Exception:
         return {}
 
 
@@ -125,7 +125,7 @@ def extract_sqs_context(attributes: object) -> dict[str, Any] | None:
                 value = value.get("StringValue")
             values.append(value)
         return _context(*values)
-    except BaseException:
+    except Exception:
         return None
 
 
@@ -134,7 +134,7 @@ def inject_payload(
 ) -> dict[str, Any]:
     try:
         return {"_wayscribe": _selected(context, level), "data": data}
-    except BaseException:
+    except Exception:
         return {"_wayscribe": {}, "data": data}
 
 
@@ -147,7 +147,7 @@ def extract_payload(body: Any) -> dict[str, Any]:
         if isinstance(source, Mapping):
             context = _context(*(source.get(k) for k in PAYLOAD))
         return {"context": context, "data": body.get("data")}
-    except BaseException:
+    except Exception:
         return {"context": None, "data": body}
 
 
@@ -155,7 +155,7 @@ def has_journey(body: object) -> bool:
     try:
         value = body.get("_wayscribe").get("journeyId")
         return type(value) is str and bool(value)
-    except BaseException:
+    except Exception:
         return False
 
 
@@ -165,9 +165,13 @@ def derive_journey_id(
     entity: object,
     diagnostics: Diagnostics | None = None,
 ) -> str:
+    code = (
+        "journey_id_secret_missing" if secret is None else "journey_id_secret_unusable"
+    )
     try:
         if type(secret) is not str or len(secret.encode("utf-8")) < 32:
             raise ValueError()
+        code = "entity_invalid"
         if not isinstance(entity, Mapping):
             raise ValueError()
         values = ("journey-id/v1", environment, entity.get("type"), entity.get("id"))
@@ -179,7 +183,15 @@ def derive_journey_id(
             mac.update(len(encoded).to_bytes(4, "big"))
             mac.update(encoded)
         return "jrn_" + mac.hexdigest()[:32]
-    except BaseException:
+    except Exception:
         if diagnostics is not None:
-            diagnostics.emit("derivation_fallback", code="unusable_secret_or_entity")
+            diagnostics.emit(
+                "configuration_error",
+                code,
+                {
+                    "setting": (
+                        "entity" if code == "entity_invalid" else "journey_id_secret"
+                    )
+                },
+            )
         return new_journey_id()

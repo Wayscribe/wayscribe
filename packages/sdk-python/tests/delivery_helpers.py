@@ -26,8 +26,10 @@ class Collector:
                     owner.headers.append(dict(self.headers))
                     index = len(owner.bodies) - 1
                 owner.received.set()
+                extra = {}
                 if owner.respond:
-                    status, response = owner.respond(body, index)
+                    status, response, *rest = owner.respond(body, index)
+                    extra = rest[0] if rest else {}
                 else:
                     status, response = accepted(body)
                 if not isinstance(response, bytes):
@@ -35,6 +37,8 @@ class Collector:
                 try:
                     self.send_response(status)
                     self.send_header("Content-Length", str(len(response)))
+                    for name, value in extra.items():
+                        self.send_header(name, value)
                     self.end_headers()
                     if owner.before_body:
                         owner.before_body()

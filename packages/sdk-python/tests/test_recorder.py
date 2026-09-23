@@ -133,8 +133,9 @@ class RecorderTests(unittest.TestCase):
                 journey.complete()
             self.assertTrue(recorder.shutdown())
             self.assertEqual(len(server.events()), 3)
-            invalid = [r for r in reports if r["kind"] == "invalid_option"]
+            invalid = [r for r in reports if r["code"] == "journey_id_invalid"]
             self.assertEqual(len(invalid), 2)
+            self.assertEqual(invalid[0]["detail"], {"setting": "context"})
             self.assertNotIn("a" * 129, str(reports))
 
     def test_unreadable_payload_or_metadata_type_does_not_lose_event(self):
@@ -186,7 +187,13 @@ class RecorderTests(unittest.TestCase):
                     self.assertEqual(len(event["aliases"]), expected_aliases)
                     self.assertEqual(event["metadata"], {"valid": True})
                     self.assertEqual(event["output"], {"ok": True})
-                    self.assertTrue(any(r.get("field") == "aliases" for r in reports))
+                    self.assertTrue(
+                        any(
+                            r["kind"] == "key_dropped"
+                            and r["detail"]["field"] == "aliases"
+                            for r in reports
+                        )
+                    )
                     self.assertNotIn("kept", str(reports))
 
     def test_displayable_alias_snapshot_copies_only_supported_prefix(self):

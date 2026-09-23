@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
+import threading
 import time
+import weakref
 from collections.abc import Mapping
 from typing import Any, Callable, Literal, TypeVar
 
@@ -19,7 +21,7 @@ from ._event import (
     normalize_label,
     now_timestamp,
 )
-from ._transport import Transport
+from ._transport import Transport, _timeout
 from .propagation import derive_journey_id, extract_http_context
 from .timing import queue_metadata
 
@@ -38,6 +40,26 @@ Operation = Literal[
 ]
 T = TypeVar("T")
 
+# Every recorder in this process, held weakly, so a fork can give each one a
+# fresh transport in the child (gunicorn --preload, Celery prefork).
+_recorders: weakref.WeakSet[Recorder] = weakref.WeakSet()
+_recorders_lock = threading.Lock()
+
+
+def _rebuild_recorders_after_fork() -> None:
+    global _recorders_lock
+    # A vanished parent thread may own the lock; the child has no other thread.
+    _recorders_lock = threading.Lock()
+    for recorder in list(_recorders):
+        try:
+            recorder._rebuild_after_fork()
+        except Exception:
+            pass
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_rebuild_recorders_after_fork)
+
 
 def create_recorder(**options: Any) -> Recorder:
     """Create a recorder; unusable settings produce a safe no-network recorder."""
@@ -50,15 +72,39 @@ class Recorder:
         self._diagnostics = Diagnostics()
         try:
             self._config = resolve_config(options, self._diagnostics)
-        except BaseException:
+        except Exception:
             self._config = Config(False, "", "", "", "")
-            self._diagnostics.emit("configuration_error", code="unreadable")
+            self._diagnostics.emit(
+                "configuration_error", "setting_unusable", {"setting": "options"}
+            )
         try:
             self._transport = Transport(self._config, self._diagnostics)
-        except BaseException:
+        except Exception:
             self._config = Config(False, "", "", "", "")
             self._transport = Transport(self._config, self._diagnostics)
-            self._diagnostics.emit("transport_error", code="startup")
+            self._diagnostics.emit("transport_error", "unexpected_error")
+        with _recorders_lock:
+            _recorders.add(self)
+
+    def _rebuild_after_fork(self):
+        """In a forked child: fresh locks, counters, queue and sender.
+
+        Nothing inherited is locked, flushed or closed: a parent thread that no
+        longer exists may hold those locks, and the queue and socket are the
+        parent's to deliver. Events queued before the fork are the parent's
+        alone; the child starts from zero, and a shut-down recorder stays so.
+        """
+        old_diagnostics, old_transport = self._diagnostics, self._transport
+        diagnostics = Diagnostics(
+            on_diagnostic=old_diagnostics._callback,
+            log_diagnostics=old_diagnostics._logging,
+        )
+        diagnostics._settings = set(old_diagnostics._settings)
+        transport = Transport(self._config, diagnostics)
+        if old_transport._closing or old_transport._finished:
+            transport._closing = transport._finished = transport._cancelled = True
+        self._diagnostics, self._transport = diagnostics, transport
+        self._pid = os.getpid()
 
     def _local(self):
         # Do not touch inherited diagnostics, condition locks, queues or sockets.
@@ -79,9 +125,15 @@ class Recorder:
                 if parsed and valid_text(parsed["journeyId"], 128, blank=True):
                     identifier = parsed["journeyId"]
                 else:
-                    self._diagnostics.emit("invalid_option", field="context")
-            except BaseException:
-                self._diagnostics.emit("invalid_option", field="context")
+                    self._diagnostics.emit(
+                        "configuration_error",
+                        "journey_id_invalid",
+                        {"setting": "context"},
+                    )
+            except Exception:
+                self._diagnostics.emit(
+                    "configuration_error", "journey_id_invalid", {"setting": "context"}
+                )
         return self.journey(entity, journey_id=identifier)
 
     def for_entity(self, entity: object, *, label: str | None = None) -> Journey:
@@ -94,8 +146,10 @@ class Recorder:
                     entity,
                     self._diagnostics,
                 )
-            except BaseException:
-                self._diagnostics.emit("invalid_option", field="entity")
+            except Exception:
+                self._diagnostics.emit(
+                    "configuration_error", "entity_invalid", {"setting": "entity"}
+                )
         return self.journey(entity, journey_id=identifier, label=label)
 
     def across(self, journeys: object) -> _Operations:
@@ -111,52 +165,73 @@ class Recorder:
                     ):
                         targets.append(journey)
                         seen.add(journey._journey_id)
-            except BaseException:
-                self._diagnostics.emit("invalid_option", field="journeys")
+            except Exception:
+                self._diagnostics.emit("capture_error", "not_a_journey")
         return _Operations(self, tuple(targets))
+
+    # Flush and shutdown also wait, within the same deadline, for the
+    # on_diagnostic callbacks the sender deferred, so their reports have been
+    # delivered to the host by the time either returns.
 
     def flush(self, timeout_ms: int = 5000) -> bool:
         if not self._local():
             return False
         try:
-            return self._transport.flush(timeout_ms)
-        except BaseException:
+            deadline = time.monotonic() + _timeout(timeout_ms)
+            result = self._transport.flush(timeout_ms)
+            self._diagnostics.drain_callbacks(deadline)
+            return result
+        except Exception:
             return False
 
     def shutdown(self, timeout_ms: int = 5000) -> bool:
         if not self._local():
             return False
         try:
-            return self._transport.shutdown(timeout_ms)
-        except BaseException:
+            deadline = time.monotonic() + _timeout(timeout_ms)
+            result = self._transport.shutdown(timeout_ms)
+            self._diagnostics.drain_callbacks(deadline)
+            return result
+        except Exception:
             return False
 
     async def async_flush(self, timeout_ms: int = 5000) -> bool:
         if not self._local():
             return False
         try:
-            return await self._transport.async_flush(timeout_ms)
+            deadline = time.monotonic() + _timeout(timeout_ms)
+            result = await self._transport.async_flush(timeout_ms)
+            await self._drain_callbacks(deadline)
+            return result
         except asyncio.CancelledError:
             raise
-        except BaseException:
+        except Exception:
             return False
 
     async def async_shutdown(self, timeout_ms: int = 5000) -> bool:
         if not self._local():
             return False
         try:
-            return await self._transport.async_shutdown(timeout_ms)
+            deadline = time.monotonic() + _timeout(timeout_ms)
+            result = await self._transport.async_shutdown(timeout_ms)
+            await self._drain_callbacks(deadline)
+            return result
         except asyncio.CancelledError:
             raise
-        except BaseException:
+        except Exception:
             return False
+
+    async def _drain_callbacks(self, deadline):
+        # Polled, never waited on: the event loop must not block.
+        while self._diagnostics._pending_callbacks > 0 and time.monotonic() < deadline:
+            await asyncio.sleep(min(0.01, max(0, deadline - time.monotonic())))
 
     def counters(self) -> dict[str, Any]:
         if not self._local():
             return Diagnostics().counters()
         try:
             return self._diagnostics.counters()
-        except BaseException:
+        except Exception:
             return Diagnostics().counters()
 
     def rejected_settings(self) -> tuple[str, ...]:
@@ -164,7 +239,7 @@ class Recorder:
             return ()
         try:
             return self._diagnostics.rejected_settings()
-        except BaseException:
+        except Exception:
             return ()
 
     def __enter__(self) -> Recorder:
@@ -199,8 +274,8 @@ class Recorder:
             )
             if body is not None:
                 self._transport.enqueue(body)
-        except BaseException:
-            self._diagnostics.emit("capture_error", code="record_failed")
+        except Exception:
+            self._diagnostics.emit("capture_error", "unexpected_error")
 
 
 class _Operations:
@@ -230,8 +305,8 @@ class _Operations:
                     )
             for target in self._targets:
                 self._recorder._record(target, fields)
-        except BaseException:
-            self._recorder._diagnostics.emit("capture_error", code="record_failed")
+        except Exception:
+            self._recorder._diagnostics.emit("capture_error", "unexpected_error")
 
     def fail(self, name: str, error: object, **options: Any) -> None:
         self.record(operation="failed", name=name, error=error, **options)
@@ -313,8 +388,8 @@ class _Operations:
                         options.get("capture_input"), input, target, "input"
                     )
                     prepared.append((target, fields))
-            except BaseException:
-                recorder._diagnostics.emit("capture_error", code="wrapper_prepare")
+            except Exception:
+                recorder._diagnostics.emit("capture_error", "unexpected_error")
 
         def finish(result=UNSET, error=UNSET):
             if not recorder._local():
@@ -332,9 +407,9 @@ class _Operations:
                             _close_coroutine(verdict)
                             raise ValueError()
                         error = _failure(verdict, name)
-                    except BaseException:
+                    except Exception:
                         recorder._diagnostics.increment("capture_errors")
-                        recorder._diagnostics.emit("capture_error", field="is_failure")
+                        recorder._diagnostics.emit("capture_error", "unexpected_error")
                 for target, fields in prepared:
                     try:
                         fields["duration_ms"] = duration
@@ -356,18 +431,16 @@ class _Operations:
                                     fields["metadata"] = self._merge_metadata(
                                         fields.get("metadata", UNSET), extra
                                     )
-                                except BaseException:
+                                except Exception:
                                     recorder._diagnostics.increment("capture_errors")
                                     recorder._diagnostics.emit(
-                                        "capture_error", field="metadata"
+                                        "capture_error", "unexpected_error"
                                     )
                         recorder._record(target, fields)
-                    except BaseException:
-                        recorder._diagnostics.emit(
-                            "capture_error", code="wrapper_finish"
-                        )
-            except BaseException:
-                recorder._diagnostics.emit("capture_error", code="wrapper_finish")
+                    except Exception:
+                        recorder._diagnostics.emit("capture_error", "unexpected_error")
+            except Exception:
+                recorder._diagnostics.emit("capture_error", "unexpected_error")
 
         # Only this try catches host work, and always rethrows the exact object.
         try:
@@ -377,12 +450,35 @@ class _Operations:
             raise
         try:
             awaitable = inspect.isawaitable(produced)
-        except BaseException:
+        except Exception:
             awaitable = False
             if recorder._local():
-                recorder._diagnostics.emit("capture_error", code="result_type")
-        if awaitable:
+                recorder._diagnostics.emit("capture_error", "unexpected_error")
+        if awaitable and isinstance(produced, asyncio.Future):
+            # A Task or Future comes back as itself, so the host can still
+            # cancel it, compare it, or hand it to gather(); its outcome is
+            # recorded when it settles.
+            def settled(future):
+                try:
+                    if future.cancelled():
+                        finish(error=asyncio.CancelledError())
+                    elif future.exception() is not None:
+                        finish(error=future.exception())
+                    else:
+                        finish(result=future.result())
+                except Exception:
+                    if recorder._local():
+                        recorder._diagnostics.emit("capture_error", "unexpected_error")
 
+            try:
+                produced.add_done_callback(settled)
+            except Exception:
+                if recorder._local():
+                    recorder._diagnostics.emit("capture_error", "unexpected_error")
+            return produced
+        if awaitable:
+            # A coroutine (or other awaitable) comes back as a coroutine that
+            # awaits it once and records its outcome.
             async def await_result():
                 try:
                     result = await produced
@@ -407,7 +503,9 @@ class _Operations:
                 for index, key in enumerate(supplied):
                     if index >= 1000:
                         self._recorder._diagnostics.emit(
-                            "invalid_option", field="aliases"
+                            "key_dropped",
+                            "alias_invalid",
+                            {"field": "aliases", "keys": 1},
                         )
                         break
                     # Do not hash caller-owned arbitrary objects while copying.
@@ -416,10 +514,14 @@ class _Operations:
                         snapshot[key] = supplied[key]
                     else:
                         self._recorder._diagnostics.emit(
-                            "invalid_option", field="aliases"
+                            "key_dropped",
+                            "alias_invalid",
+                            {"field": "aliases", "keys": 1},
                         )
-            except BaseException:
-                self._recorder._diagnostics.emit("invalid_option", field="aliases")
+            except Exception:
+                self._recorder._diagnostics.emit(
+                    "key_dropped", "aliases_not_object", {"field": "aliases", "keys": 1}
+                )
         if "displayable_aliases" in fields and type(fields["displayable_aliases"]) in (
             list,
             tuple,
@@ -464,7 +566,7 @@ class _Operations:
             if projection is not None:
                 value = _projection(projection, value, target.context())
             return capture(value, self._recorder._config, field_name=field)
-        except BaseException:
+        except Exception:
             return Captured("[UNCAPTURABLE]", unreadable=True)
 
 
@@ -489,9 +591,11 @@ class Journey(_Operations):
                 self._entity = {"type": entity.get("type"), "id": entity.get("id")}
             if label is not None:
                 self.label(label)
-        except BaseException:
+        except Exception:
             if recorder._local():
-                recorder._diagnostics.emit("invalid_option", field="entity")
+                recorder._diagnostics.emit(
+                    "configuration_error", "entity_invalid", {"setting": "entity"}
+                )
 
     def context(self) -> dict[str, Any]:
         return {"journeyId": self._journey_id, "entity": dict(self._entity)}
@@ -504,8 +608,10 @@ class Journey(_Operations):
             if normalized is not None:
                 with self._recorder._transport._condition:
                     self._label = normalized
-        except BaseException:
-            self._recorder._diagnostics.emit("invalid_option", field="journey_label")
+        except Exception:
+            self._recorder._diagnostics.emit(
+                "key_dropped", "label_invalid", {"field": "journeyLabel", "keys": 1}
+            )
 
     def identify(self, aliases: object, *, displayable_aliases=()) -> None:
         self.record(

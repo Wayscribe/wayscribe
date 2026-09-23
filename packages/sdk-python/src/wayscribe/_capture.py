@@ -15,6 +15,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from ._diagnostics import (
+    MAX_SECRET_NAME_LENGTH,
+    MAX_SECRET_NAMES,
+    MAX_SECRET_PATH_LENGTH,
+)
+
 UNSET = object()
 REDACTED = "[REDACTED]"
 TOO_LARGE = "[PAYLOAD_TOO_LARGE]"
@@ -126,6 +132,8 @@ class Captured:
     omitted: bool = False
     unreadable: bool = False
     names: list[tuple[str, str]] = field(default_factory=list)
+    strings_cut: int = 0
+    characters_removed: int = 0
 
 
 class _TooLarge(Exception):
@@ -276,10 +284,13 @@ def capture(value: object, config: Config, *, field_name: str = "input") -> Capt
         if (
             fold(name) not in known
             and looks_secret(name, child)
-            and (len(result.names) < 1000)
+            and (len(result.names) < MAX_SECRET_NAMES)
         ):
             result.names.append(
-                (name[:128], ".".join(path).replace(".[*]", "[*]")[:512])
+                (
+                    name[:MAX_SECRET_NAME_LENGTH],
+                    ".".join(path).replace(".[*]", "[*]")[:MAX_SECRET_PATH_LENGTH],
+                )
             )
 
     def text(value):
@@ -305,6 +316,10 @@ def capture(value: object, config: Config, *, field_name: str = "input") -> Capt
         cut = truncate_text(fixed)
         if cut != fixed:
             result.truncated = True
+            result.strings_cut += 1
+            removed = re.search("\\[TRUNCATED: ([0-9]+) characters removed\\]$", cut)
+            if removed:
+                result.characters_removed += int(removed[1])
         return cut
 
     def walk(value, depth, path):
@@ -368,7 +383,7 @@ def capture(value: object, config: Config, *, field_name: str = "input") -> Capt
                             continue
                         try:
                             child = value[key]
-                        except BaseException:
+                        except Exception:
                             child = UNCAPTURABLE
                             result.unreadable = True
                         if child is UNSET:
@@ -430,7 +445,7 @@ def capture(value: object, config: Config, *, field_name: str = "input") -> Capt
                         out.append(walk(child, depth + 1, subpath))
             except _TooLarge:
                 raise
-            except BaseException:
+            except Exception:
                 out = UNCAPTURABLE
                 result.unreadable = True
             finally:
@@ -450,7 +465,7 @@ def capture(value: object, config: Config, *, field_name: str = "input") -> Capt
         result.omitted = True
         result.truncated = False
         result.names = []
-    except BaseException:
+    except Exception:
         result.value = UNCAPTURABLE
         result.unreadable = True
         result.truncated = False

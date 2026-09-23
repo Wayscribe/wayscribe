@@ -351,6 +351,49 @@ Still Go-only, not yet mapped to a Node kind: `invalid_option` (Node splits
 these across `key_dropped`, `payload_truncated` and `configuration_error`)
 and `invalid_event` (Node reports `capture_error`).
 
+### Python SDK alignment (packages/sdk-python)
+
+The Python SDK reports Node's shape, `{"kind", "code", "reason", "detail"}`,
+with Node's kinds, codes and `detail` keys (`cooldownMs`, `charactersRemoved`).
+`detail.field` uses Node's names for event values (`journeyLabel`,
+`displayableAliases`, `errorMessage`); `detail.setting` is the Python option
+name (`api_key`). Checked by `NodeParityTests` in
+`packages/sdk-python/tests/test_diagnostics.py`.
+
+| Node kind / code | Python before 2026-09-23 | Python now |
+| --- | --- | --- |
+| report shape | flat `{kind, field, name, path, code, ...}`, no `reason` | `{kind, code, reason, detail}` |
+| `breaker_opened` / `consecutive_failures` | `breaker_open`, no detail | same as Node, `detail: {failures, cooldownMs}` |
+| `personal_data_in_public_value` / `personal_data_shape` | `personal_data`, fields `journey_label`, `displayable_alias`, `error` | same as Node |
+| `unredacted_secret_name` / `secret_like_name` | code `add_redaction_or_known_safe_name`; 1,000 names, path 512; list path `input.[*]`; printed line without name or path | same as Node: 100 names per recorder, name 128, path 256, a long name remembered as a digest; `input[*].x`; the printed line names the key and path, masked |
+| `configuration_error` / `required_setting_unusable`, `setting_unusable`, `setting_renamed`, `journey_id_invalid`, `entity_invalid` | `configuration_error` without codes, and `invalid_option` | same as Node; a required setting prints once per process, others only with `log_diagnostics` |
+| `configuration_error` / `journey_id_secret_missing`, `journey_id_secret_unusable` | `derivation_fallback` | same as Node, printed once per process |
+| `key_dropped` / `label_invalid`, `aliases_not_object`, `alias_invalid`, `displayable_alias_invalid`, `metadata_key_too_long` | `invalid_option` | same as Node |
+| `payload_truncated` / `strings_cut`, `label_cut` | no code or counts | same as Node, with `strings` and `charactersRemoved` |
+| `transport_error` / `request_failed`, `refused_for_now`, `unexpected_error` | `request_failed` only, no detail | same as Node, `detail: {unsent, abandoned}` |
+| `capture_error` / `unexpected_error`, `invalid_options`, `not_a_journey` | codes `record_failed`, `wrapper_*`, and `invalid_event` | same as Node |
+| `insecure_endpoint` / `unencrypted_endpoint` | any `http:` endpoint, no detail | same as Node: `detail: {scheme, host}`, not reported for this machine or a single-label host |
+| `delivered_first` / `first_delivery` | never reported | reported once per recorder, `detail: {endpoint, accepted}` with the origin only |
+
+Node calls `onDiagnostic` on the thread that raised the report. Python does the
+same, except for the reports its sender thread raises (`delivered_first`,
+`transport_error`, `breaker_opened`), whose callbacks run on one per-process
+daemon thread, so a slow callback cannot stall delivery; `flush()` and
+`shutdown()` wait for them within their own deadline.
+
+Transport, aligned in the same change and matching Go: a 307 or 308 is followed
+with the same body, at most 20 hops, and the API key is dropped on a
+cross-origin hop; any other 3xx is a failed attempt, retried, never a
+`no_verdict` drop. A 2xx body over 1 MiB is still read as a reply with no
+verdict: Node reads any size, but a body that large cannot be the verdicts for
+100 events, and Node drops a body it cannot parse as `no_verdict` too.
+
+Still different from Node: Python reports no `rejected` kind and no per-event
+`dropped` for `shutdown`, `retry_budget` or `no_verdict` (all are counted), an
+`after_shutdown` drop carries no name or operation, `payload_omitted` always
+has code `too_large`, and the counters keep their Python names without
+`transport_errors`, `breaker_opened`, `keys_dropped` or personal-data counts.
+
 ## 10. Propagation
 
 [`PROPAGATION_SPEC.md`](PROPAGATION_SPEC.md) is normative for carrier names,

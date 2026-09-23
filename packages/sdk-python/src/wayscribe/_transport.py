@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import http.client
 import json
 import os
@@ -12,14 +13,36 @@ import socket
 import ssl
 import threading
 import time
+import weakref
 from collections import deque
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from ._config import Config
 from ._diagnostics import Diagnostics
 
 _RESPONSE_LIMIT = 1048576
+# As fetch, which the Node SDK sends with: at most 20 redirects are followed.
+_MAX_REDIRECTS = 20
+# An idle sender re-checks whether its transport still exists this often, so a
+# recorder dropped without shutdown() does not keep a thread forever.
+_IDLE_CHECK_SECONDS = 1.0
+# The total time the interpreter-exit flush may take, across every recorder.
+EXIT_FLUSH_MS = 1000
+_IDLE = object()
+_STOP = object()
+_live = weakref.WeakSet()
+_live_lock = threading.Lock()
+
+
+def _reset_live_lock_after_fork():
+    # A vanished parent thread may hold it; the exit flush must never wait on it.
+    global _live_lock
+    _live_lock = threading.Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_live_lock_after_fork)
 
 
 @dataclass(eq=False)
@@ -32,6 +55,10 @@ class _Pending:
 
 class _Cancelled(Exception):
     pass
+
+
+class _Unfollowed(Exception):
+    """A 3xx that is not followed: a failed attempt, retried as a 5xx is."""
 
 
 class _GuardedSend:
@@ -80,12 +107,23 @@ class Transport:
         self._failures = 0
         self._opened_until = 0.0
         self._next_send = self._clock() + config.flush_interval_ms / 1000
+        self._delivered = False
+        # Started with the first event, so a recorder that never records has
+        # no thread. The thread holds the transport only weakly while idle.
         self._thread = None
-        if config.enabled:
-            self._thread = threading.Thread(
-                target=self._run, name="wayscribe-sender", daemon=True
-            )
-            self._thread.start()
+
+    def _ensure_thread_locked(self):
+        if self._thread is not None or not self.config.enabled or self._finished:
+            return
+        self._thread = threading.Thread(
+            target=_sender,
+            args=(weakref.ref(self),),
+            name="wayscribe-sender",
+            daemon=True,
+        )
+        self._thread.start()
+        with _live_lock:
+            _live.add(self)
 
     def local(self):
         return os.getpid() == self._pid
@@ -104,11 +142,12 @@ class Transport:
                     self._queue.popleft()
                     cause = "queue_full"
                 self._queue.append(_Pending(body, self._sequence))
+                self._ensure_thread_locked()
                 self._condition.notify_all()
             if cause:
                 self.diagnostics.increment("dropped", cause=cause)
         if cause:
-            self.diagnostics.emit("dropped", code=cause)
+            self.diagnostics.emit("dropped", cause)
 
     def flush(self, timeout_ms=5000):
         if not self.local():
@@ -198,53 +237,45 @@ class Transport:
         self._condition.notify_all()
         return sock
 
-    def _run(self):
-        try:
+    def _next_batch(self):
+        """The next batch to send, _IDLE with nothing queued, or _STOP."""
+        with self._condition:
             while True:
-                with self._condition:
-                    while True:
-                        if self._cancelled:
-                            return
-                        now = self._clock()
-                        if self._closing and not self._queue:
-                            self._finalize_locked()
-                            return
-                        delay = max(0.0, self._opened_until - now)
-                        if self._closing and delay:
-                            self._finalize_locked()
-                            return
-                        ready = (
-                            self._closing
-                            or self._flushers
-                            or len(self._queue) >= self.config.batch_size
-                            or now >= self._next_send
-                        )
-                        if self._queue and ready and not delay:
-                            if self._opened_until:
-                                self._opened_until = 0
-                                self._failures = 0
-                            batch = [
-                                self._queue.popleft()
-                                for _ in range(
-                                    min(len(self._queue), self.config.batch_size)
-                                )
-                            ]
-                            self._inflight = batch.copy()
-                            break
-                        if not self._queue:
-                            self._wait(self._condition, None)
-                        else:
-                            self._wait(
-                                self._condition,
-                                delay or max(0.001, self._next_send - now),
-                            )
-                self._send_cycle(batch)
-        except BaseException:
-            # Internal failures remain inside the daemon boundary. Give every
-            # admitted event one final outcome, rather than strand flush callers.
-            with self._condition:
-                sock = self._finalize_locked()
-            _abort(sock)
+                if self._cancelled:
+                    return _STOP
+                now = self._clock()
+                if self._closing and not self._queue:
+                    self._finalize_locked()
+                    return _STOP
+                delay = max(0.0, self._opened_until - now)
+                if self._closing and delay:
+                    self._finalize_locked()
+                    return _STOP
+                ready = (
+                    self._closing
+                    or self._flushers
+                    or len(self._queue) >= self.config.batch_size
+                    or now >= self._next_send
+                )
+                if self._queue and ready and not delay:
+                    if self._opened_until:
+                        self._opened_until = 0
+                        self._failures = 0
+                    batch = [
+                        self._queue.popleft()
+                        for _ in range(min(len(self._queue), self.config.batch_size))
+                    ]
+                    self._inflight = batch.copy()
+                    return batch
+                if not self._queue:
+                    return _IDLE
+                self._wait(
+                    self._condition,
+                    delay or max(0.001, self._next_send - now),
+                )
+
+    def _idle_locked(self):
+        return not (self._queue or self._cancelled or self._closing)
 
     def _settle_locked(self, item, outcome, cause=None):
         if item in self._inflight:
@@ -257,8 +288,9 @@ class Transport:
         permanent_request = False
         participated = set()
         initial = len(batch)
-        abandoned = False
+        abandoned = 0
         attempted = False
+        accepted = 0
         for attempt in range(self.config.max_attempts):
             if attempt and not self._backoff(attempt):
                 return
@@ -272,7 +304,7 @@ class Transport:
                         and now - item.refused_at
                         >= self.config.event_retry_budget_ms / 1000
                     ):
-                        abandoned = True
+                        abandoned += 1
                         self._settle_locked(item, "dropped", "retry_budget")
                 pending = self._inflight.copy()
                 if not pending:
@@ -302,6 +334,7 @@ class Transport:
                         outcome, transient = _verdict(verdict)
                         if outcome == "sent":
                             stored = answered = True
+                            accepted += 1
                             self._settle_locked(item, "sent")
                         elif outcome == "rejected":
                             answered = True
@@ -325,10 +358,16 @@ class Transport:
                         or self._clock() - item.refused_at
                         >= self.config.event_retry_budget_ms / 1000
                     ):
-                        abandoned = True
+                        abandoned += 1
                         self._settle_locked(item, "dropped", "retry_budget")
-            unresolved = bool(self._inflight)
+            unresolved = len(self._inflight)
+            refused_for_now = any(x.refused_at is not None for x in self._inflight)
             opened = False
+            failures = 0
+            first_delivery = 0
+            if accepted and not self._delivered:
+                self._delivered = True
+                first_delivery = accepted
             if stored:
                 self._failures = 0
             elif attempted and not permanent_request:
@@ -336,6 +375,7 @@ class Transport:
                     self._failures = 0
                 else:
                     self._failures += 1
+                    failures = self._failures
                     if self._failures >= self.config.breaker_threshold:
                         self._opened_until = (
                             self._clock() + self.config.breaker_reset_ms / 1000
@@ -352,10 +392,32 @@ class Transport:
             if self._closing and unresolved and not progress:
                 self._finalize_locked()
             self._condition.notify_all()
+        # Reported off this thread: a slow on_diagnostic must not hold up
+        # the next send.
+        if first_delivery:
+            self.diagnostics.emit(
+                "delivered_first",
+                "first_delivery",
+                {"endpoint": _origin(self.config.endpoint), "accepted": first_delivery},
+                deferred=True,
+            )
         if opened:
-            self.diagnostics.emit("breaker_open", code="consecutive_failures")
+            self.diagnostics.emit(
+                "breaker_opened",
+                "consecutive_failures",
+                {
+                    "failures": failures,
+                    "cooldownMs": self.config.breaker_reset_ms,
+                },
+                deferred=True,
+            )
         if unresolved:
-            self.diagnostics.emit("transport_error", code="request_failed")
+            self.diagnostics.emit(
+                "transport_error",
+                "refused_for_now" if refused_for_now else "request_failed",
+                {"unsent": unresolved, "abandoned": abandoned},
+                deferred=True,
+            )
 
     def _backoff(self, attempt):
         delay = (
@@ -373,13 +435,42 @@ class Transport:
             return not self._cancelled
 
     def _request(self, body):
-        url = urlsplit(self.config.endpoint)
+        # One deadline for the whole exchange, redirects included, as the Node
+        # SDK's abort timer covers everything fetch does.
+        deadline = time.monotonic() + self.config.request_timeout_ms / 1000
+        url = self.config.endpoint.rstrip("/") + "/v1/events/batch"
+        origin = _origin(url)
+        headers = {
+            "Authorization": "Bearer " + self.config.api_key,
+            "Content-Type": "application/json",
+        }
+        for _hop in range(_MAX_REDIRECTS + 1):
+            status, response, location = self._exchange(url, body, headers, deadline)
+            if not 300 <= status < 400:
+                return status, response
+            # As fetch: 307 and 308 resend the same method and body. fetch turns
+            # 301, 302 and 303 into a GET, which cannot store a batch, so those,
+            # and a 3xx without a usable Location, are a failed attempt.
+            if status not in (307, 308) or not location:
+                raise _Unfollowed()
+            url = urljoin(url, location)
+            if urlsplit(url).scheme not in ("http", "https"):
+                raise _Unfollowed()
+            if _origin(url) != origin:
+                # fetch drops Authorization on a cross-origin redirect: the
+                # API key must never reach a host it was not configured for.
+                headers.pop("Authorization", None)
+        raise _Unfollowed()
+
+    def _exchange(self, target, body, headers, deadline):
+        url = urlsplit(target)
         connection_type = _HTTPSConnection if url.scheme == "https" else _HTTPConnection
         connection = connection_type(
-            url.hostname, url.port, timeout=self.config.request_timeout_ms / 1000
+            url.hostname,
+            url.port,
+            timeout=max(0.001, deadline - time.monotonic()),
         )
         connection._write = self._write
-        deadline = time.monotonic() + self.config.request_timeout_ms / 1000
         connection._deadline = deadline
         response = None
         try:
@@ -396,18 +487,16 @@ class Transport:
                 connection.sock.setblocking(False)
             connection.request(
                 "POST",
-                url.path.rstrip("/") + "/v1/events/batch",
+                (url.path or "/") + ("?" + url.query if url.query else ""),
                 body,
-                {
-                    "Authorization": "Bearer " + self.config.api_key,
-                    "Content-Type": "application/json",
-                },
+                headers,
             )
             with self._condition:
                 if self._cancelled:
                     raise _Cancelled()
                 connection.sock.settimeout(max(0.001, deadline - time.monotonic()))
             response = connection.getresponse()
+            location = response.getheader("Location")
             try:
                 result = bytearray()
                 while len(result) <= _RESPONSE_LIMIT and not response.isclosed():
@@ -423,13 +512,18 @@ class Transport:
                     if not part:
                         break
                     result.extend(part)
-                return response.status, bytes(result) if len(
-                    result
-                ) <= _RESPONSE_LIMIT else b""
+                # A reply over 1 MiB cannot be the verdicts for at most 100
+                # events, so it is read as a reply with no verdict, which is
+                # what the Node SDK makes of a body it cannot parse (SDK-33).
+                return (
+                    response.status,
+                    bytes(result) if len(result) <= _RESPONSE_LIMIT else b"",
+                    location,
+                )
             except (OSError, http.client.HTTPException):
                 # Once status is known, a missing body cannot turn a permanent
                 # 4xx or a successful request with no verdict into a resend.
-                return response.status, b""
+                return response.status, b"", location
         finally:
             with self._condition:
                 self._socket = None
@@ -509,3 +603,74 @@ def _verdict(value):
         status = error.get("httpStatus") if type(error) is dict else None
         return "rejected", type(status) in (int, float) and status >= 500
     return None, False
+
+
+def _origin(url):
+    """Scheme, host and port only: a path or query can carry a credential."""
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        default = {"http": 80, "https": 443}.get(parts.scheme)
+        port = parts.port
+        return f"{parts.scheme}://{host}" + (
+            f":{port}" if port is not None and port != default else ""
+        )
+    except ValueError:
+        return "the configured endpoint"
+
+
+def _sender(ref):
+    """The sender loop. It holds its transport strongly only while there is
+    work, so a recorder dropped without shutdown() lets its thread end."""
+    transport = ref()
+    try:
+        while transport is not None:
+            batch = transport._next_batch()
+            if batch is _STOP:
+                return
+            if batch is not _IDLE:
+                transport._send_cycle(batch)
+                continue
+            condition = transport._condition
+            transport = None
+            with condition:
+                transport = ref()
+                if transport is None:
+                    return
+                if not transport._idle_locked():
+                    continue
+                transport = None
+                condition.wait(_IDLE_CHECK_SECONDS)
+            transport = ref()
+    except BaseException:
+        # The thread boundary: internal failures stay inside the daemon. Give
+        # every admitted event one final outcome rather than strand flushers.
+        transport = transport if transport is not None else ref()
+        if transport is not None:
+            with transport._condition:
+                sock = transport._finalize_locked()
+            _abort(sock)
+
+
+@atexit.register
+def _flush_at_exit():
+    """Give queued events one bounded chance to leave at interpreter exit.
+
+    Daemon threads still run while atexit handlers do. Every live recorder in
+    this process shares one EXIT_FLUSH_MS deadline, so exit is never held
+    longer than that, whatever the collector does.
+    """
+    try:
+        deadline = time.monotonic() + EXIT_FLUSH_MS / 1000
+        with _live_lock:
+            transports = list(_live)
+        for transport in transports:
+            remaining = int((deadline - time.monotonic()) * 1000)
+            if remaining <= 0:
+                return
+            if transport.local() and not transport._finished:
+                transport.flush(remaining)
+    except Exception:
+        pass

@@ -188,6 +188,78 @@ class WrapperTests(unittest.TestCase):
             ["transformed", "delivered", "consumed"],
         )
 
+    def test_task_and_future_results_come_back_as_the_same_object(self):
+        async def run():
+            async def work():
+                await asyncio.sleep(0)
+                return {"ok": True}
+
+            task = asyncio.ensure_future(work())
+            returned = self.journey.transform("task", {}, lambda: task)
+            self.assertIs(returned, task)
+            self.assertEqual(await returned, {"ok": True})
+
+            future = asyncio.get_running_loop().create_future()
+            returned = self.journey.deliver("future", {}, lambda: future)
+            self.assertIs(returned, future)
+            future.set_exception(ValueError("host failure"))
+            with self.assertRaises(ValueError):
+                await returned
+
+            pending = asyncio.ensure_future(asyncio.sleep(10))
+            returned = self.journey.consume("cancelled", {}, lambda: pending)
+            self.assertIs(returned, pending)
+            returned.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await returned
+            # Done callbacks run on the next loop iteration.
+            await asyncio.sleep(0)
+
+        asyncio.run(run())
+        events = {e["name"]: e for e in self.events()}
+        self.assertEqual(events["task"]["output"], {"ok": True})
+        self.assertEqual(events["task"]["operation"], "transformed")
+        self.assertEqual(events["future"]["error"]["message"], "host failure")
+        self.assertIn("error", events["cancelled"])
+
+    def test_interrupts_and_exits_are_never_swallowed_by_the_recorder(self):
+        from unittest.mock import patch
+
+        for interrupt in (KeyboardInterrupt, SystemExit):
+            with self.subTest(interrupt=interrupt.__name__):
+
+                def raise_interrupt(*args, **kwargs):
+                    raise interrupt()
+
+                # Anywhere inside the recorder's own work, e.g. a Ctrl-C that
+                # lands while the envelope is being built.
+                with patch("wayscribe.recorder.build_envelope", raise_interrupt):
+                    with self.assertRaises(interrupt):
+                        self.journey.record(operation="received", name="in")
+                # In a host callback the recorder calls.
+                with self.assertRaises(interrupt):
+                    self.journey.transform(
+                        "classified", {}, lambda: 1, is_failure=raise_interrupt
+                    )
+                reporter = self.server.recorder(on_diagnostic=raise_interrupt)
+                self.addCleanup(reporter.shutdown, 0)
+                with self.assertRaises(interrupt):
+                    reporter.journey({"type": "x", "id": "1"}).record(
+                        operation="received", name="in", timestamp="not a time"
+                    )
+
+                class Exiting(dict):
+                    def items(self):
+                        raise interrupt()
+
+                    def __iter__(self):
+                        raise interrupt()
+
+                with self.assertRaises(interrupt):
+                    self.journey.record(
+                        operation="received", name="in", input={"a": Exiting(b=1)}
+                    )
+
     def test_failed_classifier_and_diagnostics_keep_host_result(self):
         self.recorder._diagnostics.configure(on_diagnostic=lambda report: 1 / 0)
         marker = {"ok": True}

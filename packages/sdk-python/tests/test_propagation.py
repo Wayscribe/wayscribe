@@ -78,8 +78,18 @@ class PropagationTests(unittest.TestCase):
         self.assertEqual(len(set(observed["ids"])), len(refused) * 2)
         self.assertEqual(len(observed["reports"]), len(observed["ids"]))
         self.assertEqual(
-            result.stderr.splitlines(),
-            ["[wayscribe] kind=derivation_fallback code=unusable_secret_or_entity"],
+            {(r["kind"], r["code"]) for r in observed["reports"]},
+            {
+                ("configuration_error", "entity_invalid"),
+                ("configuration_error", "journey_id_secret_missing"),
+                ("configuration_error", "journey_id_secret_unusable"),
+            },
+        )
+        # A missing or short secret prints once per process (SDK-56).
+        lines = result.stderr.splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(
+            lines[0].startswith("[wayscribe] configuration_error: No journey_id_secret")
         )
 
     def test_structural_guard_and_hostile_carriers(self):
