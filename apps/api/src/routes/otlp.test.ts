@@ -44,30 +44,36 @@ describe("optional OTLP transport", () => {
     }
   );
   it.each([
-    ["application/json", "identity", Buffer.alloc(129), 413],
-    ["application/x-protobuf", "identity", Buffer.alloc(129), 413],
-    ["application/json", "gzip", gzipSync(Buffer.alloc(1000, 32)), 413],
-    ["application/x-protobuf", "gzip", gzipSync(Buffer.alloc(1000)), 413],
-    ["application/json", "gzip", Buffer.from("secret-invalid-gzip"), 400],
-    ["application/x-protobuf", "gzip", gzipSync(Buffer.from("{}")).subarray(0, 15), 400],
-    ["application/json", "br", Buffer.from("{}"), 415],
-    ["text/plain", "identity", Buffer.from("{}"), 415]
-  ] as const)("bounds/parses %s %s safely", async (contentType, coding, payload, status) => {
-    const app = buildApp({ ...base, otlpLogsEnabled: true, otlpMaxRequestBytes: 128 });
-    try {
-      const res = await app.inject({
-        method: "POST",
-        url: "/v1/logs",
-        headers: { "content-type": contentType, "content-encoding": coding },
-        payload
-      });
-      expect(res.statusCode).toBe(status);
-      expect(res.body).not.toContain("secret");
-      expect(res.headers["content-type"]).toContain(
-        contentType === "application/x-protobuf" ? contentType : "application/json"
-      );
-    } finally {
-      await app.close();
+    ["application/json", "identity", Buffer.alloc(129)],
+    ["application/x-protobuf", "identity", Buffer.alloc(129)],
+    ["application/json", "gzip", gzipSync(Buffer.alloc(1000, 32))],
+    ["application/x-protobuf", "gzip", gzipSync(Buffer.alloc(1000))],
+    ["application/json", "gzip", Buffer.from("secret-invalid-gzip")],
+    ["application/x-protobuf", "gzip", gzipSync(Buffer.from("{}")).subarray(0, 15)],
+    ["application/json", "br", Buffer.from("{}")],
+    ["text/plain", "identity", Buffer.from("{}")]
+  ] as const)(
+    // Unauthenticated, so the answer is 401 before any byte is read, inflated
+    // or decoded: an invalid gzip would otherwise answer 400. The statuses the
+    // body earns once authenticated are covered in otlp.integration.test.ts.
+    "authenticates %s %s before reading the body",
+    async (contentType, coding, payload) => {
+      const app = buildApp({ ...base, otlpLogsEnabled: true, otlpMaxRequestBytes: 128 });
+      try {
+        const res = await app.inject({
+          method: "POST",
+          url: "/v1/logs",
+          headers: { "content-type": contentType, "content-encoding": coding },
+          payload
+        });
+        expect(res.statusCode).toBe(401);
+        expect(res.body).not.toContain("secret");
+        expect(res.headers["content-type"]).toContain(
+          contentType === "application/x-protobuf" ? contentType : "application/json"
+        );
+      } finally {
+        await app.close();
+      }
     }
-  });
+  );
 });

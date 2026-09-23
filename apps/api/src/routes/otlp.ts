@@ -1,6 +1,6 @@
 import { gunzip } from "node:zlib";
 import { promisify } from "node:util";
-import { isStatementTimeout } from "@wayscribe/database";
+import { isStatementTimeout, type ApiKeyContext } from "@wayscribe/database";
 import type { Keyring } from "@wayscribe/payload-security";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { databaseApiKeys, resolveApiKey } from "../auth.js";
@@ -15,7 +15,9 @@ import {
   OTLP_STATUS_MESSAGES,
   type OtlpEncoding
 } from "../otlp/codec.js";
-import { mapExport } from "../otlp/mapping.js";
+import { otlpFallbackEventIds } from "../otlp/event-id.js";
+import { mapExport, type MappedLog } from "../otlp/mapping.js";
+import { isTransientDatabaseError } from "../otlp/transient.js";
 
 const unzip = promisify(gunzip);
 interface OtlpOptions {
@@ -43,6 +45,24 @@ function refusal(
     .send(encodeStatus(OTLP_STATUS_MESSAGES[kind], encoding));
 }
 
+/**
+ * The first attempt of a retry that straddles a key rotation stored its
+ * content-derived id under the previous key; reuse that id so the retry is a
+ * duplicate rather than a second copy of the record.
+ */
+async function storedAlternateId(
+  db: FastifyInstance["db"],
+  projectId: string,
+  record: Extract<MappedLog, { ok: true }>
+): Promise<string | undefined> {
+  if (record.alternateIds === undefined || record.alternateIds.length === 0) return undefined;
+  const row: unknown = await db("journey_events")
+    .where({ project_id: projectId })
+    .whereIn("id", [...record.alternateIds])
+    .first("id");
+  return (row as { id?: string } | undefined)?.id;
+}
+
 /** Encapsulation keeps the native JSON parser and error envelope unchanged. */
 export function registerOtlpRoutes(app: FastifyInstance, options: OtlpOptions): void {
   void app.register((scoped, _pluginOptions, done) => {
@@ -50,6 +70,23 @@ export function registerOtlpRoutes(app: FastifyInstance, options: OtlpOptions): 
       scoped.log.warn(
         "failed to move an API key verifier to the current key; the next request retries"
       );
+    });
+    const fallbackEventIds = otlpFallbackEventIds(options.keyring);
+    const authenticated = new WeakMap<FastifyRequest, ApiKeyContext>();
+    // onRequest runs before the body is read, so an unauthenticated request
+    // never costs a read, an inflate or a decode.
+    scoped.addHook("onRequest", async (request, reply) => {
+      const auth = await resolveApiKey(request.headers.authorization, apiKeys);
+      if (!auth.ok) {
+        return refusal(
+          reply,
+          encodingOf(request),
+          auth.status,
+          auth.status === 401 ? "unauthenticated" : "forbidden"
+        );
+      }
+      authenticated.set(request, auth.context);
+      return undefined;
     });
     scoped.removeAllContentTypeParsers();
     scoped.addContentTypeParser(
@@ -68,7 +105,7 @@ export function registerOtlpRoutes(app: FastifyInstance, options: OtlpOptions): 
             throw Object.assign(new Error("invalid"), { statusCode: tooLarge ? 413 : 400 });
           }
         }
-        // Decode the complete body (including count) before authentication/storage.
+        // Authenticated already; decode the complete body (including count) before storage.
         return decodeExport(bytes, encodingOf(request));
       }
     );
@@ -87,58 +124,93 @@ export function registerOtlpRoutes(app: FastifyInstance, options: OtlpOptions): 
       if (status === 415) return refusal(reply, encoding, 415, "unsupported");
       if (status === 400) return refusal(reply, encoding, 400, "invalid");
       if (isStatementTimeout(error)) scoped.metrics.countQueryTimeout(request.routeOptions.url);
-      scoped.log.warn(
-        { route: request.routeOptions.url, requestId: request.id },
-        "OTLP ingestion unavailable"
-      );
-      return refusal(reply, encoding, 503, "unavailable");
+      // Only the error's class and code are logged: its message can carry SQL or values.
+      const facts = {
+        route: request.routeOptions.url,
+        requestId: request.id,
+        errorName: (error as { name?: unknown } | null)?.name,
+        errorCode: (error as { code?: unknown } | null)?.code
+      };
+      if (isTransientDatabaseError(error)) {
+        scoped.log.warn(facts, "OTLP ingestion unavailable");
+        return refusal(reply, encoding, 503, "unavailable");
+      }
+      // Not 503: a Collector retries 503 unchanged, so a deterministic failure would never end.
+      scoped.log.error(facts, "OTLP ingestion failed");
+      return refusal(reply, encoding, 500, "internal");
     });
     scoped.post("/v1/logs", { bodyLimit: options.maxRequestBytes }, async (request, reply) => {
       const encoding = encodingOf(request);
-      const auth = await resolveApiKey(request.headers.authorization, apiKeys);
-      if (!auth.ok)
-        return refusal(
-          reply,
-          encoding,
-          auth.status,
-          auth.status === 401 ? "unauthenticated" : "forbidden"
-        );
-      touchApiKeyUsage(scoped, auth.context.id);
-      const records = mapExport(request.body as ReturnType<typeof decodeExport>);
+      const context = authenticated.get(request);
+      if (context === undefined) return refusal(reply, encoding, 401, "unauthenticated");
+      touchApiKeyUsage(scoped, context.id);
+      const records = mapExport(request.body as ReturnType<typeof decodeExport>, {
+        environment: context.environmentName,
+        fallbackEventIds
+      });
       let rejected = 0;
+      const refusals = new Map<string, number>();
+      const refuse = (code: string): void => {
+        scoped.metrics.countEvent("rejected");
+        rejected++;
+        refusals.set(code, (refusals.get(code) ?? 0) + 1);
+      };
       for (const record of records) {
         if (!record.ok) {
-          scoped.metrics.countEvent("rejected");
-          rejected++;
+          refuse(record.code);
           continue;
         }
+        const storedId = await storedAlternateId(scoped.db, context.projectId, record);
+        if (storedId !== undefined) record.envelope.event.id = storedId;
         let result;
         try {
           result = await ingestEvent(
             scoped.db,
             options.keyring,
-            auth.context,
+            context,
             record.envelope,
             options.maxEventPayloadBytes,
             options.allowFullPayload
           );
         } catch (error) {
-          scoped.metrics.countEvent("rejected");
-          if (isStatementTimeout(error) || storageRejection(error).httpStatus >= 500) throw error;
-          rejected++;
+          const storage = storageRejection(error);
+          if (isStatementTimeout(error) || storage.httpStatus >= 500) {
+            scoped.metrics.countEvent("rejected");
+            throw error;
+          }
+          if (storage.status === "rejected") refuse(storage.code ?? "rejected");
+          continue;
+        }
+        if (result.status === "rejected") {
+          if (result.httpStatus === 429 || result.httpStatus === 503) {
+            scoped.metrics.countEvent("rejected");
+            return refusal(reply, encoding, 503, "unavailable");
+          }
+          if (result.httpStatus >= 500) {
+            scoped.metrics.countEvent("rejected");
+            return refusal(reply, encoding, 500, "internal");
+          }
+          refuse(result.code ?? "rejected");
           continue;
         }
         scoped.metrics.countEvent(eventResult(result));
-        if (result.status === "rejected") {
-          if (result.httpStatus >= 500 || result.httpStatus === 429)
-            return refusal(reply, encoding, 503, "unavailable");
-          rejected++;
-        }
+      }
+      if (rejected > 0) {
+        // Codes only: fixed identifiers, never record values.
+        scoped.log.info(
+          {
+            route: request.routeOptions.url,
+            requestId: request.id,
+            rejected,
+            refusals: Object.fromEntries(refusals)
+          },
+          "OTLP log records rejected"
+        );
       }
       return reply
         .code(200)
         .type(contentType(encoding))
-        .send(encodeExportResponse({ rejectedLogRecords: rejected }, encoding));
+        .send(encodeExportResponse({ rejectedLogRecords: rejected, refusals }, encoding));
     });
     done();
   });

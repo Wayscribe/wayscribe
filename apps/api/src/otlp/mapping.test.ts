@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import protobuf from "protobufjs";
 import { describe, expect, it } from "vitest";
 import { decodeExport } from "./codec.js";
-import { mapExport, type MappedLog } from "./mapping.js";
+import { mapExport, type MapOptions, type MappedLog } from "./mapping.js";
 import type { DecodedExport, OtlpAnyValue, OtlpKeyValue, OtlpLogRecord } from "./types.js";
 
 const text = (stringValue: string): OtlpAnyValue => ({ stringValue });
@@ -38,8 +39,8 @@ function decoded(
   };
 }
 
-function mappedOne(value: DecodedExport): MappedLog {
-  const result = mapExport(value);
+function mappedOne(value: DecodedExport, options?: MapOptions): MappedLog {
+  const result = mapExport(value, options);
   expect(result).toHaveLength(1);
   const first = result[0];
   if (!first) throw new Error("missing mapped record");
@@ -248,7 +249,7 @@ describe("OTLP log mapping", () => {
       mappedOne(
         decoded(undefined, [...resourceAttributes().slice(0, 2), attribute("service.version")])
       )
-    ).toEqual({ ok: false, code: "invalid_event" });
+    ).toEqual({ ok: false, code: "invalid_attribute_type" });
   });
 
   it("uses precise safe codes for duplicate, union, value, and protocol failures", () => {
@@ -328,14 +329,14 @@ describe("OTLP log mapping", () => {
     expect(mappedOne(replace("wayscribe.event.id", { bytesValue: Buffer.from("evt_01") }))).toEqual(
       {
         ok: false,
-        code: "invalid_event"
+        code: "invalid_attribute_type"
       }
     );
     expect(
       mappedOne(replace("wayscribe.journey.id", { intValue: 9_007_199_254_740_992n }))
     ).toEqual({
       ok: false,
-      code: "invalid_event"
+      code: "invalid_attribute_type"
     });
     for (const mappedAttribute of [
       attribute("wayscribe.duration_ms", text("18")),
@@ -358,7 +359,7 @@ describe("OTLP log mapping", () => {
             }
           ])
         )
-      ).toEqual({ ok: false, code: "invalid_event" });
+      ).toEqual({ ok: false, code: "invalid_attribute_type" });
     }
     expect(
       mappedOne(
@@ -367,7 +368,7 @@ describe("OTLP log mapping", () => {
           attribute("deployment.environment.name", text("production"))
         ])
       )
-    ).toEqual({ ok: false, code: "invalid_event" });
+    ).toEqual({ ok: false, code: "invalid_attribute_type" });
   });
 
   it("requires scalar metadata and lets explicit attempt replace metadata attempt", () => {
@@ -385,7 +386,7 @@ describe("OTLP log mapping", () => {
         }
       ])
     );
-    expect(structured).toEqual({ ok: false, code: "invalid_event" });
+    expect(structured).toEqual({ ok: false, code: "invalid_attribute_type" });
 
     const explicit = mappedOne(
       decoded([
@@ -577,3 +578,183 @@ describe("JSON/protobuf mapping equivalence", () => {
 function decodedThrough(body: Buffer, encoding: "json" | "protobuf"): DecodedExport {
   return decodeExport(body, encoding);
 }
+
+describe("stock OpenTelemetry records", () => {
+  const digest = (content: string): string =>
+    createHash("sha256").update(content).digest("hex").slice(0, 24);
+  const options: MapOptions = {
+    environment: "staging",
+    fallbackEventIds: (content) => [`cur_${digest(content)}`, `prev_${digest(content)}`]
+  };
+  const without = (...keys: string[]): OtlpKeyValue[] =>
+    requiredAttributes().filter((entry) => !keys.includes(entry.key ?? ""));
+  const stockResource = (): OtlpKeyValue[] => [
+    attribute("service.name", text("orders-api")),
+    attribute("telemetry.sdk.language", text("java"))
+  ];
+  const eventOf = (mapped: MappedLog): Record<string, unknown> => {
+    if (!mapped.ok) throw new Error(`refused: ${mapped.code}`);
+    return mapped.envelope.event;
+  };
+
+  it("inherits the key's environment when the resource names none", () => {
+    const mapped = mappedOne(decoded(undefined, stockResource()), options);
+    expect(eventOf(mapped)["environment"]).toBe("staging");
+  });
+
+  it("refuses a record whose environment neither the resource nor the key determines", () => {
+    for (const environment of [undefined, ""]) {
+      expect(mappedOne(decoded(undefined, stockResource()), { ...options, environment })).toEqual({
+        ok: false,
+        code: "environment_unresolved"
+      });
+    }
+  });
+
+  it("falls back from wayscribe.event.id to log.record.uid", () => {
+    const uid = attribute("log.record.uid", text("01JABCDEF0123456789XYZ0000"));
+    const fromUid = mappedOne(
+      decoded([{ timeUnixNano: 1n, attributes: [...without("wayscribe.event.id"), uid] }]),
+      options
+    );
+    expect(eventOf(fromUid)["id"]).toBe("01JABCDEF0123456789XYZ0000");
+    expect(fromUid).not.toHaveProperty("alternateIds");
+    const explicit = mappedOne(
+      decoded([{ timeUnixNano: 1n, attributes: [...requiredAttributes(), uid] }]),
+      options
+    );
+    expect(eventOf(explicit)["id"]).toBe("evt_01");
+    expect(
+      mappedOne(
+        decoded([
+          {
+            timeUnixNano: 1n,
+            attributes: [...without("wayscribe.event.id"), attribute("log.record.uid", {})]
+          }
+        ]),
+        options
+      )
+    ).toEqual({ ok: false, code: "invalid_attribute_type" });
+  });
+
+  it("derives a deterministic id from the record's content when no id is stated", () => {
+    const record = (overrides: Partial<OtlpLogRecord> = {}): OtlpLogRecord => ({
+      timeUnixNano: 1_700_000_000_123_456_789n,
+      attributes: [
+        ...without("wayscribe.event.id"),
+        attribute("http.request.method", text("POST"))
+      ],
+      ...overrides
+    });
+    const first = mappedOne(decoded([record()], stockResource()), options);
+    const retry = mappedOne(decoded([record()], stockResource()), options);
+    expect(first.ok && retry.ok).toBe(true);
+    expect(eventOf(first)["id"]).toMatch(/^cur_[0-9a-f]{24}$/);
+    expect(retry).toEqual(first);
+    expect(first).toMatchObject({ alternateIds: [expect.stringMatching(/^prev_/)] });
+
+    // A nanosecond the millisecond timestamp drops, an unmapped attribute, the
+    // body, the resource and the inherited environment all distinguish records.
+    for (const [changed, changedOptions, resource] of [
+      [record({ timeUnixNano: 1_700_000_000_123_456_790n }), options, stockResource()],
+      [
+        record({
+          attributes: [
+            ...without("wayscribe.event.id"),
+            attribute("http.request.method", text("PUT"))
+          ]
+        }),
+        options,
+        stockResource()
+      ],
+      [record({ body: text("different") }), options, stockResource()],
+      [record(), options, [...stockResource(), attribute("host.name", text("b"))]],
+      [record(), { ...options, environment: "production" }, stockResource()]
+    ] as const) {
+      const other = mappedOne(decoded([changed], [...resource]), changedOptions);
+      expect(eventOf(other)["id"]).not.toBe(eventOf(first)["id"]);
+    }
+  });
+
+  it("derives the same id from the same record sent as JSON or protobuf", () => {
+    const value = {
+      resourceLogs: [
+        {
+          resource: { attributes: [{ key: "service.name", value: { stringValue: "worker" } }] },
+          scopeLogs: [
+            {
+              scope: { name: "io.example.orders", version: "1.0.0" },
+              logRecords: [
+                {
+                  timeUnixNano: "1700000000123456789",
+                  observedTimeUnixNano: "1700000000223456789",
+                  severityNumber: 9,
+                  severityText: "INFO",
+                  body: { stringValue: "order received" },
+                  attributes: [
+                    { key: "wayscribe.journey.id", value: { stringValue: "jrn_stock" } },
+                    { key: "wayscribe.entity.type", value: { stringValue: "order" } },
+                    { key: "wayscribe.entity.id", value: { stringValue: "ord_stock" } },
+                    { key: "wayscribe.operation", value: { stringValue: "received" } },
+                    { key: "wayscribe.name", value: { stringValue: "receive" } },
+                    { key: "http.request.method", value: { stringValue: "POST" } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+    const fromJson = mappedOne(decodedThrough(Buffer.from(JSON.stringify(value)), "json"), options);
+    const fromProtobuf = mappedOne(
+      decodedThrough(
+        Buffer.from(officialRequest.encode(officialRequest.fromObject(value)).finish()),
+        "protobuf"
+      ),
+      options
+    );
+    expect(eventOf(fromJson)["id"]).toMatch(/^cur_/);
+    expect(fromProtobuf).toEqual(fromJson);
+  });
+
+  it("names the missing or malformed attribute class instead of invalid_event", () => {
+    expect(
+      mappedOne(decoded([{ timeUnixNano: 1n, attributes: without("wayscribe.journey.id") }]))
+    ).toEqual({ ok: false, code: "missing_attribute" });
+    expect(
+      mappedOne(decoded(undefined, [attribute("deployment.environment.name", text("p"))]))
+    ).toEqual({ ok: false, code: "missing_attribute" });
+    expect(
+      mappedOne(decoded([{ timeUnixNano: 1n, attributes: without("wayscribe.event.id") }]))
+    ).toEqual({ ok: false, code: "missing_attribute" });
+    for (const [key, value] of [
+      ["wayscribe.attempt", { intValue: 0n }],
+      ["wayscribe.duration_ms", { intValue: -1n }],
+      ["wayscribe.duration_ms", { doubleValue: 1.5 }]
+    ] as const) {
+      expect(
+        mappedOne(
+          decoded([
+            { timeUnixNano: 1n, attributes: [...requiredAttributes(), attribute(key, value)] }
+          ])
+        )
+      ).toEqual({ ok: false, code: "invalid_attribute_value" });
+    }
+    expect(
+      mappedOne(
+        decoded([
+          {
+            timeUnixNano: 1n,
+            attributes: [
+              ...requiredAttributes(),
+              attribute("wayscribe.metadata", {
+                kvlistValue: { values: [attribute("nested", { arrayValue: { values: [] } })] }
+              })
+            ]
+          }
+        ])
+      )
+    ).toEqual({ ok: false, code: "invalid_attribute_type" });
+  });
+});

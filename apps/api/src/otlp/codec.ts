@@ -450,6 +450,18 @@ function convert(
   }
   return result;
 }
+/**
+ * A JSON export with top-level fields but no `resourceLogs` is a sender using
+ * another casing (`resource_logs`) or another signal, not an empty export:
+ * accepting it would answer 200 for records that were never read. `{}` is the
+ * JSON form of an empty export and stays accepted. Binary unknown fields keep
+ * protobuf's forward-compatible meaning, and binary has no casing to get wrong.
+ */
+function knownJsonShape(input: unknown): boolean {
+  const fields = object(input);
+  if (Object.keys(fields).length === 0) return true;
+  return fields["resourceLogs"] !== null && fields["resourceLogs"] !== undefined;
+}
 export function decodeExport(body: Buffer, encoding: OtlpEncoding): DecodedExport {
   try {
     if (body.length > OTLP_LIMITS.bodyBytes) limit();
@@ -457,6 +469,7 @@ export function decodeExport(body: Buffer, encoding: OtlpEncoding): DecodedExpor
       encoding === "protobuf" ? requestType.decode(new BoundedReader(body)) : parseJson(body);
     const budget = new Budget();
     const result = convert(input, requestType, encoding, budget, 0);
+    if (encoding === "json" && !knownJsonShape(input)) invalid();
     return { ...result, recordCount: budget.records } as unknown as DecodedExport;
   } catch (error) {
     if (error instanceof OtlpDecodeError) throw error;
@@ -464,15 +477,36 @@ export function decodeExport(body: Buffer, encoding: OtlpEncoding): DecodedExpor
   }
 }
 
-export const OTLP_PARTIAL_MESSAGE = "Some log records were rejected.";
 export const OTLP_STATUS_MESSAGES = Object.freeze({
   invalid: Object.freeze({ code: 3, message: "Invalid OTLP request." }),
   unauthenticated: Object.freeze({ code: 16, message: "Authentication required." }),
   forbidden: Object.freeze({ code: 7, message: "Permission denied." }),
   oversized: Object.freeze({ code: 8, message: "OTLP request exceeds limits." }),
   unsupported: Object.freeze({ code: 3, message: "Unsupported OTLP encoding." }),
-  unavailable: Object.freeze({ code: 14, message: "OTLP ingestion unavailable." })
+  unavailable: Object.freeze({ code: 14, message: "OTLP ingestion unavailable." }),
+  internal: Object.freeze({ code: 13, message: "OTLP ingestion failed." })
 });
+/** Codes are fixed identifiers; anything else is replaced, never echoed. */
+const REFUSAL_CODE = /^[a-z][a-z0-9_]{0,39}$/;
+const REFUSALS_NAMED = 3;
+/**
+ * The first few refusal codes, in the order first seen, with their counts:
+ * `Rejected: missing_attribute x2, invalid_timestamp x1 (+1 more codes)`.
+ * Bounded by construction so the response stays under `responseBytes`.
+ */
+export function refusalMessage(refusals: ReadonlyMap<string, number>): string {
+  const merged = new Map<string, number>();
+  for (const [code, count] of refusals) {
+    const safe = REFUSAL_CODE.test(code) ? code : "rejected";
+    merged.set(safe, (merged.get(safe) ?? 0) + count);
+  }
+  const entries = [...merged];
+  const named = entries
+    .slice(0, REFUSALS_NAMED)
+    .map(([code, count]) => `${code} x${String(Math.min(count, MAX_BATCH_EVENTS))}`);
+  const more = entries.length - named.length;
+  return `Rejected: ${named.join(", ")}${more > 0 ? ` (+${String(more)} more codes)` : ""}`;
+}
 function response(
   value: Record<string, unknown>,
   type: protobuf.Type,
@@ -486,24 +520,23 @@ function response(
   return result;
 }
 export function encodeExportResponse(
-  value: { rejectedLogRecords?: number; errorMessage?: string },
+  value: { rejectedLogRecords?: number; refusals?: ReadonlyMap<string, number> },
   encoding: OtlpEncoding
 ): Buffer {
   const rejected = value.rejectedLogRecords ?? 0;
-  if (
-    !Number.isSafeInteger(rejected) ||
-    rejected < 0 ||
-    rejected > MAX_BATCH_EVENTS ||
-    (value.errorMessage !== undefined && value.errorMessage !== OTLP_PARTIAL_MESSAGE)
-  )
+  if (!Number.isSafeInteger(rejected) || rejected < 0 || rejected > MAX_BATCH_EVENTS)
     throw new RangeError("invalid_otlp_response");
+  const refusals =
+    value.refusals !== undefined && value.refusals.size > 0
+      ? value.refusals
+      : new Map([["rejected", rejected]]);
   return response(
     rejected === 0
       ? {}
       : {
           partialSuccess: {
             rejectedLogRecords: String(rejected),
-            errorMessage: OTLP_PARTIAL_MESSAGE
+            errorMessage: refusalMessage(refusals)
           }
         },
     responseType,

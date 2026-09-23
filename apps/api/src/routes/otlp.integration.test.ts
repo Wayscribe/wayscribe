@@ -299,6 +299,14 @@ describe("OTLP real storage", () => {
       ["application/x-protobuf", "gzip", Buffer.alloc(32769), 413],
       ["application/json", "identity", Buffer.alloc(32769), 413],
       ["application/json", "deflate", Buffer.from("{}"), 415],
+      ["application/json", "br", Buffer.from("{}"), 415],
+      // Another casing is not an empty export: 400, not 200 with nothing stored.
+      [
+        "application/json",
+        "identity",
+        Buffer.from(JSON.stringify({ resource_logs: [{ scope_logs: [{ log_records: [{}] }] }] })),
+        400
+      ],
       ["text/plain", "identity", Buffer.from("{}"), 415]
     ];
     for (const [type, coding, payload, status] of cases) {
@@ -316,12 +324,12 @@ describe("OTLP real storage", () => {
       expect(await count()).toBe(before);
     }
   });
-  it("auth database errors are unavailable, never invalid credentials or leaked SQL", async () => {
+  it("a permanent auth database error is 500, never retryable, invalid credentials or leaked SQL", async () => {
     await db.schema.renameTable("api_keys", "otlp_hidden_keys");
     try {
       const res = await send({});
-      expect(res.statusCode).toBe(503);
-      expect(res.json()).toEqual({ code: 14, message: "OTLP ingestion unavailable." });
+      expect(res.statusCode).toBe(500);
+      expect(res.json()).toEqual({ code: 13, message: "OTLP ingestion failed." });
       expect(logs.join("")).not.toContain("otlp_hidden_keys");
       expect(logs.join("")).not.toContain("does not exist");
     } finally {
@@ -354,8 +362,13 @@ describe("OTLP real storage", () => {
     );
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-      partialSuccess: { rejectedLogRecords: "3", errorMessage: "Some log records were rejected." }
+      partialSuccess: {
+        rejectedLogRecords: "3",
+        errorMessage:
+          "Rejected: invalid_attribute_type x1, unstorable_payload x1, event_id_conflict x1"
+      }
     });
+    expect(logs.join("")).toContain('"event_id_conflict":1');
     expect(
       await db("journey_events").whereIn("id", [
         "mixed_ok",
@@ -365,10 +378,106 @@ describe("OTLP real storage", () => {
       ])
     ).toHaveLength(2);
     const denied = await send(body([record("env_denied")], "production"));
-    expect(denied.json().partialSuccess.rejectedLogRecords).toBe("1");
+    expect(denied.json().partialSuccess).toEqual({
+      rejectedLogRecords: "1",
+      errorMessage: "Rejected: unauthorized_environment x1"
+    });
     expect(await db("journey_events").where({ id: "env_denied" })).toHaveLength(0);
     expect(logs.join("")).not.toContain("poison");
     expect(logs.join("")).not.toContain("synthetic-secret");
+  });
+  it("accepts stock OpenTelemetry records: key environment, log.record.uid, then a keyed content id", async () => {
+    const stock = (extra: Record<string, unknown>): object => ({
+      timeUnixNano: "1786032000120000123",
+      observedTimeUnixNano: "1786032000130000000",
+      severityNumber: 9,
+      body: { stringValue: "customer normalized" },
+      attributes: attributes({
+        "wayscribe.journey.id": "jrn_stock",
+        "wayscribe.entity.type": "customer",
+        "wayscribe.entity.id": "customer-stock",
+        "wayscribe.operation": "transformed",
+        "wayscribe.name": "normalize",
+        "wayscribe.input": { phone: "555-0100", password: "synthetic-secret" },
+        "wayscribe.output": { phone: null },
+        ...extra
+      })
+    });
+    const payload = {
+      resourceLogs: [
+        {
+          // No deployment.environment.name: the key's environment applies.
+          resource: { attributes: attributes({ "service.name": "stock-otel" }) },
+          scopeLogs: [
+            {
+              scope: { name: "io.example.customers" },
+              logRecords: [
+                stock({ "log.record.uid": "01JSTOCKUID00000000000000A" }),
+                stock({ "http.request.method": "POST" })
+              ]
+            }
+          ]
+        }
+      ]
+    };
+    for (const encoding of ["json", "protobuf"]) {
+      const res = await send(payload, encoding);
+      expect(res.statusCode, res.body).toBe(200);
+    }
+    const stored = await db("journey_events")
+      .where({ journey_id: "jrn_stock" })
+      .select("id", "environment_id")
+      .orderBy("id");
+    // Four sends across two encodings, two records: one row each.
+    expect(stored).toHaveLength(2);
+    expect(stored.map((row: { id: string }) => row.id)).toEqual([
+      "01JSTOCKUID00000000000000A",
+      expect.stringMatching(/^otlp_[0-9a-f]{64}$/)
+    ]);
+    for (const row of stored as { environment_id: string }[])
+      expect(row.environment_id).toBe(environmentId);
+    const hashed = (stored as { id: string }[])[1]?.id ?? "";
+    const detail = (await get(`/v1/events/${hashed}`)).json().data;
+    expect(detail.inputPayload).toEqual({ phone: "555-0100", password: "[REDACTED]" });
+    expect(hashed).not.toContain("synthetic-secret");
+
+    // A retry that straddles a key rotation finds the id its first attempt stored.
+    const rotated = createKeyring(
+      "fedcba9876543210fedcba9876543210",
+      "0123456789abcdef0123456789abcdef"
+    );
+    const generated = issueApiKey(rotated);
+    await db("api_keys").insert({
+      project_id: projectId,
+      environment_id: environmentId,
+      name: "otlp-rotated",
+      key_prefix: generated.keyPrefix,
+      key_hash: generated.verifier,
+      key_hash_key_id: generated.keyHashKeyId
+    });
+    const rotatedApp = buildApp({
+      db,
+      keyring: rotated,
+      adminToken,
+      otlpLogsEnabled: true,
+      logLevel: "silent"
+    });
+    try {
+      const res = await rotatedApp.inject({
+        method: "POST",
+        url: "/v1/logs",
+        headers: {
+          authorization: `Bearer ${generated.apiKey}`,
+          "content-type": "application/json"
+        },
+        payload
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toEqual({});
+    } finally {
+      await rotatedApp.close();
+    }
+    expect(await db("journey_events").where({ journey_id: "jrn_stock" })).toHaveLength(2);
   });
   it("503 after the first commit stops later records; identical retry has one row per stable ID", async () => {
     await db.raw(

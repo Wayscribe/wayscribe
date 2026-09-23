@@ -129,13 +129,61 @@ describe("OTLP export codecs", () => {
   it("encodes independently specified success and partial bytes", () => {
     expect(encodeExportResponse({}, "json").toString()).toBe("{}");
     expect(encodeExportResponse({}, "protobuf")).toEqual(Buffer.alloc(0));
-    const response = { rejectedLogRecords: 2, errorMessage: "Some log records were rejected." };
+    const response = {
+      rejectedLogRecords: 2,
+      refusals: new Map([["missing_attribute", 2]])
+    };
     expect(encodeExportResponse(response, "json").toString()).toBe(
-      '{"partialSuccess":{"rejectedLogRecords":"2","errorMessage":"Some log records were rejected."}}'
+      '{"partialSuccess":{"rejectedLogRecords":"2","errorMessage":"Rejected: missing_attribute x2"}}'
     );
-    expect(encodeExportResponse(response, "protobuf").toString("hex")).toBe(
-      "0a230802121f536f6d65206c6f67207265636f72647320776572652072656a65637465642e"
+    expect(
+      officialResponse.toObject(
+        officialResponse.decode(encodeExportResponse(response, "protobuf")),
+        {
+          longs: String
+        }
+      )
+    ).toEqual({
+      partialSuccess: { rejectedLogRecords: "2", errorMessage: "Rejected: missing_attribute x2" }
+    });
+  });
+  it("names the first three refusal codes with counts and bounds the message", () => {
+    const refusals = new Map([
+      ["invalid_timestamp", 3],
+      ["unauthorized_environment", 1],
+      ["event_id_conflict", 2],
+      ["missing_attribute", 1],
+      ["invalid_attribute_type", 1]
+    ]);
+    const parsed = JSON.parse(
+      encodeExportResponse({ rejectedLogRecords: 8, refusals }, "json").toString()
+    ) as { partialSuccess: { errorMessage: string } };
+    expect(parsed.partialSuccess.errorMessage).toBe(
+      "Rejected: invalid_timestamp x3, unauthorized_environment x1, event_id_conflict x2 (+2 more codes)"
     );
+    const longest = new Map(
+      ["a", "b", "c", "d"].map((letter) => [letter.repeat(200), 100] as [string, number])
+    );
+    const bounded = encodeExportResponse({ rejectedLogRecords: 100, refusals: longest }, "json");
+    expect(bounded.length).toBeLessThanOrEqual(OTLP_LIMITS.responseBytes);
+    // Anything but a lowercase code is never echoed, so a value cannot leak through.
+    const unsafe = encodeExportResponse(
+      { rejectedLogRecords: 1, refusals: new Map([["secret value\u0000", 1]]) },
+      "json"
+    ).toString();
+    expect(unsafe).not.toContain("secret");
+    expect(unsafe).toContain("Rejected: rejected x1");
+  });
+  it("refuses a JSON export whose only top-level fields are unknown", () => {
+    const snake = json({ resource_logs: [{ scope_logs: [{ log_records: [{}] }] }] });
+    expect(() => decodeExport(snake, "json")).toThrow(
+      expect.objectContaining({ code: "invalid_otlp" })
+    );
+    expect(() => decodeExport(json({ resourceLogs: null, other: 1 }), "json")).toThrow(
+      OtlpDecodeError
+    );
+    expect(decodeExport(json({}), "json").recordCount).toBe(0);
+    expect(decodeExport(json({ unknownFuture: 1, resourceLogs: [] }), "json").recordCount).toBe(0);
   });
   it("encodes only fixed safe status messages", () => {
     expect(encodeStatus({ code: 3, message: "Invalid OTLP request." }, "json").toString()).toBe(
@@ -169,6 +217,9 @@ for (const source of [
 const officialRequest = official
   .resolveAll()
   .lookupType("opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest");
+const officialResponse = official.lookupType(
+  "opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse"
+);
 const binary = (value: Record<string, unknown>): Buffer =>
   Buffer.from(officialRequest.encode(officialRequest.fromObject(value)).finish());
 const envelope = (value: unknown): Record<string, unknown> => ({
@@ -284,12 +335,15 @@ describe("OTLP allocation and work bounds", () => {
   });
   it("bounds unknown-field work before parsing JSON", () => {
     // {, opening key quote, colon, array brackets, } =6; each comma adds1.
+    // Plus `"resourceLogs":[],`: opening quote, colon, two brackets, comma =5.
     const atLimit = Buffer.from(
-      '{"unknown":[' + Array.from({ length: 262_139 }, () => "0").join(",") + "]}"
+      '{"resourceLogs":[],"unknown":[' + Array.from({ length: 262_134 }, () => "0").join(",") + "]}"
     );
     expect(decodeExport(atLimit, "json").recordCount).toBe(0);
     expectLimit(Buffer.from(atLimit.toString().replace("]}", ",0]}")), "json");
-    const atDepth = Buffer.from('{"unknown":' + "[".repeat(127) + "0" + "]".repeat(127) + "}");
+    const atDepth = Buffer.from(
+      '{"resourceLogs":[],"unknown":' + "[".repeat(127) + "0" + "]".repeat(127) + "}"
+    );
     expect(decodeExport(atDepth, "json").recordCount).toBe(0);
     expectLimit(Buffer.from('{"unknown":' + "[".repeat(128) + "0" + "]".repeat(128) + "}"), "json");
   });

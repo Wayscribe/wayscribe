@@ -10,7 +10,8 @@ import type {
   OtlpAnyValue,
   OtlpKeyValue,
   OtlpLogRecord,
-  OtlpResource
+  OtlpResource,
+  OtlpScope
 } from "./types.js";
 
 export type MappingRefusalCode =
@@ -19,6 +20,10 @@ export type MappingRefusalCode =
   | "ambiguous_any_value"
   | "invalid_any_value"
   | "invalid_timestamp"
+  | "missing_attribute"
+  | "invalid_attribute_type"
+  | "invalid_attribute_value"
+  | "environment_unresolved"
   | "invalid_event";
 
 export interface MappedEnvelope {
@@ -27,25 +32,66 @@ export interface MappedEnvelope {
 }
 
 export type MappedLog =
-  { ok: true; envelope: MappedEnvelope } | { ok: false; code: MappingRefusalCode };
+  | {
+      ok: true;
+      envelope: MappedEnvelope;
+      /**
+       * Present only for an id derived from the record's content: the same
+       * derivation under the previous key during a rotation, so a retry that
+       * straddles the rotation can find the event its first attempt stored.
+       */
+      alternateIds?: readonly string[];
+    }
+  | { ok: false; code: MappingRefusalCode };
 
-export function mapExport(decoded: DecodedExport): readonly MappedLog[] {
+export interface MapOptions {
+  /**
+   * The environment the API key is scoped to, used when the resource carries
+   * no `deployment.environment.name`. A resource that names one keeps it, and
+   * ingestion refuses it when it is not the key's.
+   */
+  environment?: string | undefined;
+  /**
+   * Ids for a record that states neither `wayscribe.event.id` nor
+   * `log.record.uid`, from its canonical content: the current key's id first,
+   * then the previous key's during a rotation. Keyed, because the content is
+   * unredacted (ADR-048).
+   */
+  fallbackEventIds?: (content: string) => readonly [string, ...string[]];
+}
+
+export function mapExport(decoded: DecodedExport, options: MapOptions = {}): readonly MappedLog[] {
   const mapped: MappedLog[] = [];
   for (const resourceLogs of decoded.resourceLogs) {
-    const resource = mapResource(resourceLogs.resource);
+    const resource = mapResource(resourceLogs.resource, options.environment);
     for (const scopeLogs of resourceLogs.scopeLogs) {
       for (const record of scopeLogs.logRecords) {
-        mapped.push(resource.ok ? mapRecord(record, resource.value) : resource);
+        mapped.push(
+          resource.ok
+            ? mapRecord(record, resource.value, {
+                resource: resourceLogs.resource,
+                scope: scopeLogs.scope,
+                fallbackEventIds: options.fallbackEventIds
+              })
+            : resource
+        );
       }
     }
   }
   return mapped;
 }
 
+interface RecordContext {
+  resource: OtlpResource | undefined;
+  scope: OtlpScope | undefined;
+  fallbackEventIds: MapOptions["fallbackEventIds"];
+}
+
 const resourceKeys = new Set(["service.name", "deployment.environment.name", "service.version"]);
 
 const logKeys = new Set([
   "wayscribe.event.id",
+  "log.record.uid",
   "wayscribe.journey.id",
   "wayscribe.entity.type",
   "wayscribe.entity.id",
@@ -78,13 +124,23 @@ function failure(code: MappingRefusalCode): Failure {
   return { ok: false, code };
 }
 
-function mapResource(resource: OtlpResource | undefined): Result<ResourceFields> {
+function mapResource(
+  resource: OtlpResource | undefined,
+  keyEnvironment: string | undefined
+): Result<ResourceFields> {
   const attributes = collectAttributes(resource?.attributes ?? [], resourceKeys);
   if (!attributes.ok) return attributes;
   const budget = createAnyValueBudget();
   const service = readString(attributes.value, "service.name", budget);
   if (!service.ok) return service;
-  const environment = readString(attributes.value, "deployment.environment.name", budget);
+  let environment: Result<string>;
+  if (attributes.value.has("deployment.environment.name")) {
+    environment = readString(attributes.value, "deployment.environment.name", budget);
+  } else if (keyEnvironment !== undefined && keyEnvironment !== "") {
+    environment = { ok: true, value: keyEnvironment };
+  } else {
+    environment = failure("environment_unresolved");
+  }
   if (!environment.ok) return environment;
   if (!attributes.value.has("service.version")) {
     return { ok: true, value: { service: service.value, environment: environment.value } };
@@ -97,14 +153,32 @@ function mapResource(resource: OtlpResource | undefined): Result<ResourceFields>
   };
 }
 
-function mapRecord(record: OtlpLogRecord, resource: ResourceFields): MappedLog {
+function mapRecord(
+  record: OtlpLogRecord,
+  resource: ResourceFields,
+  context: RecordContext
+): MappedLog {
   const attributes = collectAttributes(record.attributes, logKeys);
   if (!attributes.ok) return attributes;
   const timestamp = toTimestamp(record);
   if (!timestamp.ok) return timestamp;
   const budget = createAnyValueBudget();
 
-  const id = readString(attributes.value, "wayscribe.event.id", budget);
+  let id: Result<string>;
+  let alternateIds: readonly string[] = [];
+  if (attributes.value.has("wayscribe.event.id")) {
+    id = readString(attributes.value, "wayscribe.event.id", budget);
+  } else if (attributes.value.has("log.record.uid")) {
+    id = readString(attributes.value, "log.record.uid", budget);
+  } else if (context.fallbackEventIds !== undefined) {
+    const [current, ...previous] = context.fallbackEventIds(
+      recordContent(record, resource.environment, context)
+    );
+    id = { ok: true, value: current };
+    alternateIds = previous;
+  } else {
+    id = failure("missing_attribute");
+  }
   if (!id.ok) return id;
   const journeyId = readString(attributes.value, "wayscribe.journey.id", budget);
   if (!journeyId.ok) return journeyId;
@@ -173,7 +247,8 @@ function mapRecord(record: OtlpLogRecord, resource: ResourceFields): MappedLog {
   }
   if (attributes.value.has("wayscribe.attempt")) {
     const attempt = readInteger(attributes.value.get("wayscribe.attempt"), budget);
-    if (!attempt.ok || attempt.value <= 0) return failure("invalid_event");
+    if (!attempt.ok) return attempt;
+    if (attempt.value <= 0) return failure("invalid_attribute_value");
     metadata ??= Object.create(null) as Record<string, ConvertedAnyValue>;
     Object.defineProperty(metadata, "attempt", {
       value: attempt.value,
@@ -186,7 +261,8 @@ function mapRecord(record: OtlpLogRecord, resource: ResourceFields): MappedLog {
 
   if (attributes.value.has("wayscribe.duration_ms")) {
     const duration = readInteger(attributes.value.get("wayscribe.duration_ms"), budget);
-    if (!duration.ok || duration.value < 0) return failure("invalid_event");
+    if (!duration.ok) return duration;
+    if (duration.value < 0) return failure("invalid_attribute_value");
     event["durationMs"] = duration.value;
   }
   if (attributes.value.has("wayscribe.error")) {
@@ -205,8 +281,38 @@ function mapRecord(record: OtlpLogRecord, resource: ResourceFields): MappedLog {
   if (!parsed.ok) return failure("invalid_event");
   return {
     ok: true,
-    envelope: { protocolVersion: PROTOCOL_VERSION, event: parsed.event }
+    envelope: { protocolVersion: PROTOCOL_VERSION, event: parsed.event },
+    ...(alternateIds.length > 0 ? { alternateIds } : {})
   };
+}
+
+/**
+ * The content a fallback event id is derived from: the resolved environment,
+ * the whole resource and instrumentation scope, and the whole log record as
+ * decoded (both timestamps at full nanosecond precision, severity, body, every
+ * attribute including unmapped ones, flags, trace and span ids, event name and
+ * dropped-attribute counts). Unknown fields and schema URLs are not part of
+ * it. A Collector retry resends the same record, so it derives the same id;
+ * JSON and protobuf decode to the same structure, so either encoding does.
+ */
+function recordContent(record: OtlpLogRecord, environment: string, context: RecordContext): string {
+  return JSON.stringify(
+    { environment, resource: context.resource ?? null, scope: context.scope ?? null, record },
+    (_key: string, value: unknown): unknown => {
+      if (typeof value === "bigint") return `${value.toString()}n`;
+      if (isBufferJson(value)) return `bytes:${Buffer.from(value.data).toString("hex")}`;
+      return value;
+    }
+  );
+}
+
+function isBufferJson(value: unknown): value is { type: "Buffer"; data: number[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "Buffer" &&
+    Array.isArray((value as { data?: unknown }).data)
+  );
 }
 
 function collectAttributes(
@@ -236,7 +342,7 @@ function readString(
   key: string,
   budget: AnyValueBudget
 ): Result<string> {
-  if (!values.has(key)) return failure("invalid_event");
+  if (!values.has(key)) return failure("missing_attribute");
   return readOriginalString(values.get(key), budget);
 }
 
@@ -247,7 +353,7 @@ function readOriginalString(
   const converted = mappedValue(value, budget);
   if (!converted.ok) return converted;
   if (!hasOnlyMember(value, "stringValue") || typeof value?.stringValue !== "string")
-    return failure("invalid_event");
+    return failure("invalid_attribute_type");
   return { ok: true, value: value.stringValue };
 }
 
@@ -255,9 +361,9 @@ function readInteger(value: OtlpAnyValue | undefined, budget: AnyValueBudget): R
   const converted = mappedValue(value, budget);
   if (!converted.ok) return converted;
   if (!hasOnlyMember(value, "intValue") && !hasOnlyMember(value, "doubleValue"))
-    return failure("invalid_event");
+    return failure("invalid_attribute_type");
   if (typeof converted.value !== "number" || !Number.isSafeInteger(converted.value))
-    return failure("invalid_event");
+    return failure("invalid_attribute_value");
   return { ok: true, value: converted.value };
 }
 
@@ -268,7 +374,7 @@ function readStringMap(
   const converted = mappedValue(value, budget);
   if (!converted.ok) return converted;
   if (!hasOnlyMember(value, "kvlistValue") || !isRecord(converted.value))
-    return failure("invalid_event");
+    return failure("invalid_attribute_type");
   for (const entry of value?.kvlistValue?.values ?? []) {
     const item = readOriginalString(entry.value, createAnyValueBudget());
     if (!item.ok) return item;
@@ -283,7 +389,7 @@ function readStringArray(
   const converted = mappedValue(value, budget);
   if (!converted.ok) return converted;
   if (!hasOnlyMember(value, "arrayValue") || !Array.isArray(converted.value))
-    return failure("invalid_event");
+    return failure("invalid_attribute_type");
   for (const item of value?.arrayValue?.values ?? []) {
     const checked = readOriginalString(item, createAnyValueBudget());
     if (!checked.ok) return checked;
@@ -298,7 +404,7 @@ function readMetadata(
   const converted = mappedValue(value, budget);
   if (!converted.ok) return converted;
   if (!hasOnlyMember(value, "kvlistValue") || !isRecord(converted.value))
-    return failure("invalid_event");
+    return failure("invalid_attribute_type");
   for (const item of Object.values(converted.value)) {
     if (
       item !== null &&
@@ -306,7 +412,7 @@ function readMetadata(
       typeof item !== "boolean" &&
       typeof item !== "number"
     )
-      return failure("invalid_event");
+      return failure("invalid_attribute_type");
   }
   return { ok: true, value: converted.value };
 }
@@ -318,7 +424,7 @@ function readError(
   const converted = mappedValue(value, budget);
   if (!converted.ok) return converted;
   if (!hasOnlyMember(value, "kvlistValue") || !isRecord(converted.value))
-    return failure("invalid_event");
+    return failure("invalid_attribute_type");
   const error: Record<string, string> = {};
   for (const entry of value?.kvlistValue?.values ?? []) {
     const key = entry.key ?? "";
