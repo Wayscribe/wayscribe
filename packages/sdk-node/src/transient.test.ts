@@ -165,11 +165,14 @@ describe("a refusal that lasts, on a clock", () => {
     vi.unstubAllGlobals();
   });
 
-  it("stores an event refused with 500 for five seconds", async () => {
+  it("stores an event refused with 500 for three and a half seconds", async () => {
     // A database restart. Three refusals inside 300 ms of backoff used to drop
-    // this event while the CHANGELOG said it was retried.
+    // this event while the CHANGELOG said it was retried. The outage ends
+    // before the fifth refused send (at 4 s) would open the breaker: a lone
+    // event held past its 30-second budget by the breaker's cooldown is
+    // dropped without another attempt (INGESTION_CONTRACT section 4).
     const { sent } = fakeIngestion((_name, now) =>
-      now - START < 5_000 ? refused(500, "storage_error") : accepted
+      now - START < 3_500 ? refused(500, "storage_error") : accepted
     );
     const recorder = createRecorder({ ...base, endpoint: "http://ingest.test", batchSize: 1 });
     recorder
@@ -189,7 +192,7 @@ describe("a refusal that lasts, on a clock", () => {
     // an event, which keeps the breaker closed, and sends are four seconds
     // apart, so the ten-send cap is not reached first either: the poison is
     // first refused at 4 s, requeued at 32 s (28 s refused, eighth send), and
-    // given up at 36 s (32 s refused, ninth send).
+    // given up at 36 s (32 s refused), before the ninth send attempts it.
     const seen: string[] = [];
     const { sent } = fakeIngestion((name) =>
       name === "poison" ? refused(503, "query_timeout") : accepted
@@ -222,19 +225,21 @@ describe("a refusal that lasts, on a clock", () => {
     await until(35);
     expect(recorder.counters()).toMatchObject({ dropped: 0, breakerOpened: 0 });
 
-    // The ninth send, at 36 s: refused for 32 s, so given up on.
+    // The ninth send, at 36 s: refused for 32 s, so given up on before its
+    // first attempt.
     await until(37);
     expect(recorder.counters()).toMatchObject({ dropped: 1, rejected: 0, breakerOpened: 0 });
     expect(seen.some((line) => line.startsWith("dropped|") && line.includes("30 seconds"))).toBe(
       true
     );
-    // Three attempts in each of eight sends and one in the ninth: under the
-    // ten-send cap, so the time budget is what ended it.
-    expect(count(sent, "poison")).toBe(25);
+    // Three attempts in each of eight sends and none in the ninth: under the
+    // ten-send cap, so the time budget is what ended it, and an expired event
+    // is not sent again.
+    expect(count(sent, "poison")).toBe(24);
 
     // Given up means given up: nothing more is sent for it.
     await until(60);
-    expect(count(sent, "poison")).toBe(25);
+    expect(count(sent, "poison")).toBe(24);
   });
 
   it("does not slow a steady stream while one event in it is refused", async () => {

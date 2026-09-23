@@ -106,9 +106,11 @@ describe("optional OTLP wiring", () => {
         expect(readsRootEnv(api)).toBe(true);
         expect(environmentValue(api, "OTLP_LOGS_ENABLED")).toBeUndefined();
         expect(environmentValue(api, "OTLP_MAX_REQUEST_BYTES")).toBeUndefined();
+        // defaults.env holds only the published secrets the API warns about
+        // (packages/config insecure-defaults test); unset, these two take the
+        // config schema's defaults and the root .env still reaches the API.
         const defaults = readFileSync(`${infrastructure}defaults.env`, "utf8");
-        expect(defaults).toContain("OTLP_LOGS_ENABLED=false");
-        expect(defaults).toContain("OTLP_MAX_REQUEST_BYTES=4194304");
+        expect(defaults).not.toContain("OTLP_");
       } else {
         expect(environmentValue(api, "OTLP_LOGS_ENABLED")).toBe("${OTLP_LOGS_ENABLED:-false}");
         expect(environmentValue(api, "OTLP_MAX_REQUEST_BYTES")).toBe(
