@@ -12,6 +12,7 @@ export default tseslint.config(
       "**/.pnpm-store/**",
       // Local agent state and worktrees of other branches (see .gitignore).
       ".claude/**",
+      ".superpowers/**",
       // Astro's generated types for the website.
       "site/.astro/**",
       "**/*.config.js",
