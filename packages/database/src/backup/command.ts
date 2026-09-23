@@ -78,6 +78,8 @@ export async function runBackupCommand(
       options.stderr(`Owned database ${error.cleanupDatabase} needs manual cleanup.`);
     if (error instanceof BackupError && error.code === "tool_unavailable")
       options.stderr("Install PostgreSQL 18+ client tools and put pg_dump/pg_restore on PATH.");
+    if (error instanceof BackupError && error.code === "server_version")
+      options.stderr("Restore and verify need a PostgreSQL 17+ server; backup:create works on 15.");
     return 1;
   } finally {
     process.removeListener("SIGINT", abort);

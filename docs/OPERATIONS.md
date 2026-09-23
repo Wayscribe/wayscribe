@@ -218,8 +218,13 @@ make the helper accept it; use the manual workflow for unsupported setups.
 
 The dump client must also be at least as new as the source server major. Restore
 to the same or a newer server major; restoring into an older server is not a
-supported promise. The automated helper was tested with client **18.4** and a
-PostgreSQL **18** server. See the PostgreSQL [pg_dump documentation](https://www.postgresql.org/docs/18/app-pgdump.html)
+supported promise. `backup:create` works on every supported server (15, 17,
+18). `backup:verify` and restore need a PostgreSQL **17 or newer** server:
+`pg_restore` 17+ sends `SET transaction_timeout`, which 15 and 16 reject, so the
+helpers refuse those servers with `backup_failed server_version` before
+creating any database. To move a 15 installation's data, create the backup on
+15 and restore it onto a 17 or 18 server. CI tests the helpers with client
+**18** against PostgreSQL 15 (refusal), 17 and 18. See the PostgreSQL [pg_dump documentation](https://www.postgresql.org/docs/18/app-pgdump.html)
 and [TLS documentation](https://www.postgresql.org/docs/18/libpq-ssl.html).
 
 ### Manual backup

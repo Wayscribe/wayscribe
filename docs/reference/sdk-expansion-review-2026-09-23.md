@@ -184,24 +184,36 @@ Every item under "Merge blockers" and "Fix before merge" is fixed on the branch
   python:3.11-slim and 3.14-slim, and `scripts/install-go.sh` plus apt python3
   (3.11.2) on node:24.
 
+- `examples-go` job script (`test:go:consumer`, `test:mixed-language`) in
+  node:24 from a `git archive` of HEAD: pass.
+- `pnpm test:integration` on Postgres 18: 63 files, 1,186 pass, 1 skipped.
+- `pnpm test:integration` on Postgres 15 first failed 20 backup tests: the
+  helpers require pg_restore 18, which sends `SET transaction_timeout`, and 15
+  and 16 reject it, so verify and restore could never work there and reported
+  only `tool_failed`. Decided 2026-09-23: scope verify/restore to 17+. They now
+  refuse an older server with `server_version` before creating a database;
+  create still works on 15. The PG15 leg tests the refusal (docs/OPERATIONS.md).
+- The `database` job's node:24 image had no pg_dump at all, so the backup
+  tests would have failed on every matrix leg in CI. It now installs
+  `postgresql-client-18` from apt.postgresql.org (install tested in node:24).
+
 ### Needs a real GitLab pipeline when minutes return
 
-- The whole pipeline, especially the new `sdk-go`, `sdk-python` and
-  `examples-go` jobs and the `database` matrix (Postgres 15/17/18) with Go and
-  Python installed under docker:dind. Only Postgres 17 was run locally.
-- Integration on Postgres 15 and 18.
+- The whole pipeline (minutes were still out on 2026-09-23: pipeline
+  2875702094 failed every job with `ci_quota_exceeded`). The `database` job
+  under docker:dind is the one part not reproduced locally.
 
 ### Open, for Jorge
 
 1. **Stock OTel records** still need five `wayscribe.*` attributes (journey
    id, entity type, entity id, operation, name). Accepting records without
    them means choosing defaults (e.g. journey from `traceId`), which decides
-   how journeys group. Recommended: keep them required; decide with the O6
-   examples.
+   how journeys group. **Decided 2026-09-23: keep them required; revisit with
+   the O6 examples.**
 2. **Node contract change** from 8ac208a: a budget-expired event is dropped
    before another attempt, including after breaker cooldown; 0.1.0 sent it once
-   more. Recorded under [Unreleased] in CHANGELOG.md. Keep it, or drop the
-   "including after circuit-breaker cooldown" clause before release.
+   more. **Decided 2026-09-23: keep it, as recorded under [Unreleased] in
+   CHANGELOG.md.**
 3. **Go floor is 1.22** (1.21 lacks `math/rand/v2`). 1.22 and 1.23 are past
    Go's support window; CI tests 1.22 so the claim is proven.
 4. **Known, not fixed:** Python still lacks some Node diagnostics (`rejected`,

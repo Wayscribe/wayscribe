@@ -28,8 +28,54 @@ const OLD_KEY = "old_backup_key_1234567890123456789";
 const PAYLOAD = "PAYLOAD_SENTINEL_BACKUP";
 const ring = createKeyring(KEY, OLD_KEY);
 const timeoutMs = 15_000;
+// pg_restore 17+ sends `SET transaction_timeout`, which 15 and 16 reject, so
+// restore and verify refuse those servers; create still works on them.
+const serverMajor = Number(/^postgres:(\d+)/.exec(inject("postgresImage"))?.[1]);
+const restoreSupported = serverMajor >= 17;
 
-describe("private archive and owned restore on PostgreSQL", () => {
+describe.runIf(!restoreSupported)("backup on a PostgreSQL server older than 17", () => {
+  let container: TestDatabase | undefined;
+  let dir: string;
+  let databaseUrl: string;
+  let input: string;
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "wayscribe-backup-old-server-"));
+    container = await startPostgres({ dedicated: true });
+    databaseUrl = container.getConnectionUri();
+    const db = knex(createKnexConfig(databaseUrl));
+    try {
+      await db.migrate.latest();
+    } finally {
+      await db.destroy();
+    }
+    input = join(dir, "source.dump");
+  });
+  afterAll(async () => {
+    await Promise.all([container?.stop(), dir ? rm(dir, { recursive: true, force: true }) : 0]);
+  });
+
+  it("creates a backup, then refuses restore and verify before creating any database", async () => {
+    await createBackup({ databaseUrl, output: input, timeoutMs });
+    expect((await stat(input)).size).toBeGreaterThan(0);
+    await expect(
+      restoreBackup({ databaseUrl, input, database: "wayscribe_restored_old", timeoutMs })
+    ).rejects.toMatchObject({ code: "server_version" });
+    await expect(
+      verifyBackup({ databaseUrl, input, timeoutMs, keyring: ring })
+    ).rejects.toMatchObject({ code: "server_version" });
+    const db = knex(createKnexConfig(databaseUrl));
+    try {
+      const { rows } = await db.raw<{ rows: { datname: string }[] }>(
+        "select datname from pg_database where datname like 'wayscribe_rest%'"
+      );
+      expect(rows).toEqual([]);
+    } finally {
+      await db.destroy();
+    }
+  });
+});
+
+describe.runIf(restoreSupported)("private archive and owned restore on PostgreSQL", () => {
   let container: TestDatabase | undefined;
   let db: Knex;
   let dir: string;

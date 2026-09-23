@@ -47,7 +47,7 @@ async function statement(
   deadline: Deadline,
   shutdowns: Promise<void>[],
   creating?: string
-): Promise<void> {
+): Promise<pg.QueryResult> {
   const client = new pg.Client(config(connection, String(connection.pgConfig.database), deadline));
   client.on("error", () => undefined);
   let submitted = false;
@@ -62,7 +62,7 @@ async function statement(
     await deadline.wait(client.connect(), close);
     deadline.remaining();
     submitted = true;
-    await deadline.wait(client.query(sql), close);
+    return await deadline.wait(client.query(sql), close);
   } catch (error) {
     if (creating && submitted) {
       // Socket codes such as EPIPE also look like SQLSTATEs. Only a pg ErrorResponse
@@ -120,6 +120,11 @@ async function restoreOwned<T>(
     await file.read(magic, 0, 5, 0);
     if (magic.toString("ascii") !== "PGDMP") throw new BackupError("archive_invalid");
     trust = await prepareToolEnvironment(connection);
+    // pg_restore 17+ sends `SET transaction_timeout`, which 15 and 16 reject.
+    // Refuse before CREATE so an old server never gets a database to clean up.
+    const version = await statement(connection, "SHOW server_version_num", deadline, shutdowns);
+    const rows = version.rows as { server_version_num?: string }[];
+    if (!(Number(rows[0]?.server_version_num) >= 170000)) throw new BackupError("server_version");
     await statement(
       connection,
       `CREATE DATABASE "${options.database}" TEMPLATE template0`,

@@ -307,7 +307,11 @@ database:
     matrix:
       - TEST_POSTGRES_VERSION: ["15", "17", "18"]
   script:
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 python3-venv
+    # The backup helpers need pg_dump/pg_restore 18+ (docs/OPERATIONS.md). The
+    # image has none and bookworm ships 15, so they come from apt.postgresql.org.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 python3-venv postgresql-common
+    - /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+    - apt-get install -y -qq --no-install-recommends postgresql-client-18
     - scripts/install-go.sh 1.26.4
     - export PATH="/usr/local/go/bin:$PATH"
     - pnpm test:integration

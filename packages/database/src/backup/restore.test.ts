@@ -2,10 +2,11 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
-const { query, connect, end } = vi.hoisted(() => ({
+const { query, connect, end, serverVersion } = vi.hoisted(() => ({
   query: vi.fn(),
   connect: vi.fn(),
-  end: vi.fn()
+  end: vi.fn(),
+  serverVersion: { num: "180004" }
 }));
 vi.mock("pg", async (importOriginal) => {
   const actual = await importOriginal<typeof import("pg")>();
@@ -14,7 +15,11 @@ vi.mock("pg", async (importOriginal) => {
     default: {
       ...actual.default,
       Client: class {
-        query = query;
+        // The version probe is answered here so the scripted `query` sees only CREATE/DROP.
+        query = (sql: string): unknown =>
+          sql === "SHOW server_version_num"
+            ? Promise.resolve({ rows: [{ server_version_num: serverVersion.num }] })
+            : query(sql);
         connect = connect;
         end = end;
         on(): void {}
@@ -39,6 +44,7 @@ beforeEach(async () => {
   connect.mockResolvedValue(undefined);
   end.mockResolvedValue(undefined);
   query.mockResolvedValue({ rows: [] });
+  serverVersion.num = "180004";
   dir = await mkdtemp(join(tmpdir(), "backup-restore-test-"));
   input = join(dir, "archive");
   await writeFile(input, "PGDMPmalformed");
@@ -53,6 +59,22 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   await rm(dir, { recursive: true, force: true });
+});
+it("refuses a server older than 17 before creating any database", async () => {
+  for (const num of ["160004", "150010", ""]) {
+    serverVersion.num = num;
+    await expect(
+      restoreBackup({ databaseUrl, input, database: "old_server", timeoutMs: 5000 })
+    ).rejects.toMatchObject({ code: "server_version" });
+  }
+  serverVersion.num = "170000";
+  await expect(
+    restoreBackup({ databaseUrl, input, database: "new_server", timeoutMs: 5000 })
+  ).rejects.toMatchObject({ code: "tool_failed" });
+  expect(query.mock.calls.map((call) => call[0] as unknown)).toEqual([
+    'CREATE DATABASE "new_server" TEMPLATE template0',
+    'DROP DATABASE "new_server" WITH (FORCE)'
+  ]);
 });
 it("never drops an existing database", async () => {
   query.mockRejectedValueOnce(

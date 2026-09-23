@@ -14,7 +14,10 @@ vi.mock("pg", async (importOriginal) => {
     default: {
       ...actual.default,
       Client: class {
-        query = query;
+        query = (sql: string): unknown =>
+          sql === "SHOW server_version_num"
+            ? Promise.resolve({ rows: [{ server_version_num: "180004" }] })
+            : query(sql);
         connect(): Promise<void> {
           return Promise.resolve();
         }

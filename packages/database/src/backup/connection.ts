@@ -13,6 +13,7 @@ export type BackupErrorCode =
   | "invalid_database"
   | "tool_unavailable"
   | "tool_version"
+  | "server_version"
   | "output_exists"
   | "archive_invalid"
   | "archive_io"
