@@ -2,6 +2,9 @@ package conformance
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -15,7 +18,13 @@ func fixtureDirectory(t *testing.T) string {
 	if !ok {
 		t.Fatal("locate conformance test")
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "../../../protocol/conformance/sdk"))
+	directory := filepath.Clean(filepath.Join(filepath.Dir(file), "../../../protocol/conformance/sdk"))
+	if _, err := os.Stat(directory); errors.Is(err, fs.ErrNotExist) {
+		// The cross-SDK suite lives beside the module in the repository; a
+		// module-only copy has nothing to run it against.
+		t.Skip("module-only copy: shared conformance fixtures are not present")
+	}
+	return directory
 }
 
 func reportCase(t *testing.T, report Report, id string) CapturedCase {

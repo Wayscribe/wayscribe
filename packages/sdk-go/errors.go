@@ -91,7 +91,7 @@ func captureError(e ErrorInfo, d *diagnostics) map[string]any {
 	if e.Stack != "" {
 		out["stack"] = prefixRunes(maskText(e.Stack), 16384)
 	}
-	publicWarning(message, "error", d)
+	publicWarning(message, "errorMessage", d)
 	return out
 }
 
@@ -110,7 +110,7 @@ func publicWarning(value, field string, d *diagnostics) {
 		domain := strings.TrimSuffix(sample[m[2]:m[3]], ".")
 		labels := strings.Split(domain, ".")
 		if after != ":" && after != "/" && after != "@" && len(labels) >= 2 && tldPattern.MatchString(labels[len(labels)-1]) && !strings.Contains(domain, "..") {
-			d.emit(Diagnostic{Kind: "personal_data", Field: field, Shape: "email"})
+			d.emit(Diagnostic{Kind: "personal_data_in_public_value", Code: "personal_data_shape", Field: field, Shape: "email"})
 			break
 		}
 	}
@@ -129,7 +129,7 @@ func publicWarning(value, field string, d *diagnostics) {
 			}
 		}
 		if digits >= 8 && digits <= 15 && (digits >= 10 || separator) {
-			d.emit(Diagnostic{Kind: "personal_data", Field: field, Shape: "phone"})
+			d.emit(Diagnostic{Kind: "personal_data_in_public_value", Code: "personal_data_shape", Field: field, Shape: "phone"})
 			break
 		}
 	}

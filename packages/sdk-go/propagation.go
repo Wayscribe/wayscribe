@@ -104,8 +104,15 @@ func ExtractHTTPContext(carrier any) *Context {
 			m[k] = v
 		}
 	case http.Header:
+		// A repeated header is what Node's http module joins with ", ", which
+		// no carrier value survives; taking the first copy would let whoever
+		// adds a header choose the journey.
 		for k, v := range x {
-			m[k] = v
+			if len(v) > 1 {
+				m[k] = strings.Join(v, ", ")
+			} else {
+				m[k] = v
+			}
 		}
 	default:
 		return nil
@@ -185,11 +192,15 @@ func newID(prefix string) string {
 }
 func deriveJourneyID(c resolvedConfig, d *diagnostics, e Entity) string {
 	if !validText(e.Type, 128, true) || !validText(e.ID, 512, true) {
-		d.emit(Diagnostic{Kind: "derivation_unavailable", Code: "entity"})
+		d.configurationError("entity_invalid", "entity")
 		return newID("jrn_")
 	}
 	if len(c.JourneyIDSecret) < 32 {
-		d.emit(Diagnostic{Kind: "derivation_unavailable", Code: "secret"})
+		code := "journey_id_secret_unusable"
+		if c.JourneyIDSecret == "" {
+			code = "journey_id_secret_missing"
+		}
+		d.configurationError(code, "JourneyIDSecret")
 		return newID("jrn_")
 	}
 	h := hmac.New(sha256.New, []byte(c.JourneyIDSecret))

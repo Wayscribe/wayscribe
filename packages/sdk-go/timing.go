@@ -2,7 +2,6 @@ package wayscribe
 
 import (
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -87,7 +86,7 @@ func HTTPMetadata(response HTTPResponse, o HTTPTimingOptions) map[string]any {
 	if response.StatusCode >= 100 && response.StatusCode <= 599 {
 		out["httpStatusCode"] = response.StatusCode
 	}
-	if u, e := url.Parse(o.TargetURL); e == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Hostname() != "" && strings.IndexFunc(o.TargetURL, func(r rune) bool { return r <= 32 || r == 127 }) < 0 {
+	if u, e := parseHTTPURL(o.TargetURL); e == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Hostname() != "" && strings.IndexFunc(o.TargetURL, func(r rune) bool { return r <= 32 || r == 127 }) < 0 {
 		host := strings.ToLower(u.Hostname())
 		if strings.Contains(host, ":") {
 			host = "[" + host + "]"

@@ -58,3 +58,26 @@ func TestMalformedRequestReturnsSafeCountersAndShutsDownRecorder(t *testing.T) {
 		t.Fatalf("recorder accepted work after malformed request cleanup: %+v", after)
 	}
 }
+
+func TestSecondRequestDoesNotPanic(t *testing.T) {
+	recorder := wayscribe.New(wayscribe.Config{
+		Endpoint:    "http://127.0.0.1:1",
+		APIKey:      "synthetic-test-key",
+		Service:     "mixed-go",
+		Environment: "development",
+	})
+	done := make(chan struct{})
+	handler := newWorkerHandler(recorder, done)
+	for i := 0; i < 2; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{")))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("request %d: status = %d", i+1, response.Code)
+		}
+	}
+	select {
+	case <-done:
+	default:
+		t.Fatal("handler did not signal completion")
+	}
+}

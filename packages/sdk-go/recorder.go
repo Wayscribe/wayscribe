@@ -9,6 +9,9 @@ import (
 )
 
 // Recorder must not be copied after first use. Its zero value is disabled.
+// A recorder starts its sender goroutines when it admits its first event and
+// keeps them until Shutdown, so call Shutdown on every recorder that recorded;
+// one that never recorded owns no goroutines and needs no Shutdown.
 // Queue/accounting locks never cover capture, callbacks or network operations.
 type Recorder struct {
 	c                         resolvedConfig
@@ -19,6 +22,10 @@ type Recorder struct {
 	sequence                  uint64
 	changed                   chan struct{}
 	closing, finished, result bool
+	started                   bool // workers run; set on first admitted event
+	sending                   int  // batches inside sendCycle
+	stalled                   bool // a closing send made no progress; start no more
+	delivered                 bool // delivered_first has been reported
 	flushers                  int
 	nextSend                  time.Time
 	failures                  int
@@ -45,35 +52,47 @@ func New(c Config) *Recorder {
 	r.nextSend = r.clock().Add(r.c.FlushInterval)
 	if r.c.enabled {
 		r.client, r.transport = newHTTPClient(r.c)
-		var wg sync.WaitGroup
-		for i := 0; i < r.c.MaxConcurrentSends; i++ {
-			wg.Add(1)
-			go func() { defer wg.Done(); r.worker() }()
-		}
-		go func() { wg.Wait(); close(r.workersDone) }()
-		go func() {
-			defer close(r.reportsDone)
-			for {
-				select {
-				case <-r.ctx.Done():
-					return
-				case d := <-r.reports:
-					r.d.emit(d)
-				}
-			}
-		}()
 	} else {
+		r.started = true
 		close(r.workersDone)
 		close(r.reportsDone)
 	}
 	for _, issue := range issues {
-		if issue.Kind == "invalid_config" {
+		if issue.Kind == "configuration_error" {
 			r.d.rejectSetting(issue.Field, issue.Code)
 		} else {
 			r.d.emit(issue)
 		}
 	}
 	return r
+}
+
+// startLocked starts the sender workers and the diagnostic reporter when the
+// first event is admitted, so a recorder that never records owns no goroutines.
+// Once started they run until Shutdown, which a recorder that recorded needs.
+func (r *Recorder) startLocked() {
+	if r.started {
+		return
+	}
+	r.started = true
+	r.nextSend = r.clock().Add(r.c.FlushInterval)
+	var wg sync.WaitGroup
+	for i := 0; i < r.c.MaxConcurrentSends; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); r.worker() }()
+	}
+	go func() { wg.Wait(); close(r.workersDone) }()
+	go func() {
+		defer close(r.reportsDone)
+		for {
+			select {
+			case <-r.ctx.Done():
+				return
+			case d := <-r.reports:
+				r.d.emit(d)
+			}
+		}
+	}()
 }
 func (r *Recorder) Counters() Counters {
 	if r == nil || r.d == nil {
@@ -96,6 +115,7 @@ func (r *Recorder) enqueue(body []byte) {
 		cause = AfterShutdown
 		r.d.drop(cause)
 	} else {
+		r.startLocked()
 		r.sequence++
 		e := &pendingEvent{body: body, sequence: r.sequence}
 		r.owned[e.sequence] = e
@@ -175,8 +195,9 @@ func (r *Recorder) Flush(ctx context.Context) bool {
 	}
 }
 
-// Shutdown closes admission and drains until empty, a send makes no progress,
-// or ctx expires. It then cancels requests/backoff and finalizes remaining events
+// Shutdown closes admission and drains until empty, a send makes no progress
+// (sends already in flight on other workers still finish), or ctx expires.
+// It then cancels requests/backoff and finalizes remaining events
 // once. Bytes already transmitted cannot be retracted. Repeated calls return the
 // first result. Without a deadline (including nil), the bound is five seconds.
 func (r *Recorder) Shutdown(ctx context.Context) bool {
@@ -219,6 +240,11 @@ func (r *Recorder) finalizeLocked() {
 	}
 	r.result = len(r.owned) == 0
 	r.finished = true
+	if !r.started {
+		r.started = true
+		close(r.workersDone)
+		close(r.reportsDone)
+	}
 	r.closing = true
 	r.cancel()
 	for _, e := range r.owned {
@@ -275,7 +301,7 @@ func (r *Recorder) worker() {
 			return
 		}
 		now := r.clock()
-		ready := len(r.queue) > 0 && (len(r.queue) >= r.c.BatchSize || r.flushers > 0 || r.closing || !now.Before(r.nextSend))
+		ready := len(r.queue) > 0 && !r.stalled && (len(r.queue) >= r.c.BatchSize || r.flushers > 0 || r.closing || !now.Before(r.nextSend))
 		delay := r.c.FlushInterval
 		if now.Before(r.openedUntil) {
 			ready = false
@@ -288,8 +314,16 @@ func (r *Recorder) worker() {
 			n := min(len(r.queue), r.c.BatchSize)
 			batch := append([]*pendingEvent(nil), r.queue[:n]...)
 			r.queue = r.queue[n:]
+			r.sending++
 			r.mu.Unlock()
 			r.sendCycle(batch)
+			r.mu.Lock()
+			r.sending--
+			if r.stalled && r.sending == 0 {
+				r.finalizeLocked()
+			}
+			r.signalLocked()
+			r.mu.Unlock()
 			continue
 		}
 		if len(r.queue) > 0 && now.Before(r.nextSend) && r.openedUntil.IsZero() {

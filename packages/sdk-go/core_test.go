@@ -25,7 +25,7 @@ func core(t *testing.T, c Config) (resolvedConfig, *diagnostics) {
 	r, issues := resolveConfig(c)
 	d := newDiagnostics(c.OnDiagnostic, c.LogDiagnostics)
 	for _, i := range issues {
-		if i.Kind == "invalid_config" {
+		if i.Kind == "configuration_error" {
 			d.rejectSetting(i.Field, i.Code)
 		} else {
 			d.emit(i)
@@ -166,7 +166,7 @@ func TestLimitsRedactionBeforeTruncation(t *testing.T) {
 	}
 }
 func TestLiteralPropagationVectors(t *testing.T) {
-	raw, err := os.ReadFile("../protocol/fixtures/propagation.json")
+	raw, err := os.ReadFile("testdata/propagation.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,11 +234,11 @@ func TestDerivationVectors(t *testing.T) {
 	defer func() {
 		output := finishWarnings()
 		assertWarningLines(t, output, 1)
-		if !strings.Contains(output, "derivation_unavailable") {
+		if !strings.Contains(output, "configuration_error") {
 			t.Fatalf("missing derivation warning: %q", output)
 		}
 	}()
-	raw, err := os.ReadFile("../protocol/fixtures/journey-id-derivation.json")
+	raw, err := os.ReadFile("testdata/journey-id-derivation.json")
 	if err != nil {
 		t.Fatal(err)
 	}

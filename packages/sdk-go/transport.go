@@ -3,6 +3,7 @@ package wayscribe
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/rand/v2"
 	"net"
@@ -13,7 +14,18 @@ import (
 
 func newHTTPClient(c resolvedConfig) (*http.Client, *http.Transport) {
 	tr := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: c.RequestTimeout, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: c.RequestTimeout, ResponseHeaderTimeout: c.RequestTimeout, ExpectContinueTimeout: c.RequestTimeout, IdleConnTimeout: 30 * time.Second, MaxConnsPerHost: c.MaxConcurrentSends, MaxIdleConnsPerHost: c.MaxConcurrentSends, MaxIdleConns: c.MaxConcurrentSends, MaxResponseHeaderBytes: 1 << 20}
-	return &http.Client{Transport: tr, Timeout: c.RequestTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, tr
+	// Redirects are followed as fetch follows them in the Node SDK: 307/308
+	// replay the POST, at most 20 hops, and the API key goes only to the
+	// endpoint's own origin. A 3xx that is not followed is a failed request.
+	return &http.Client{Transport: tr, Timeout: c.RequestTimeout, CheckRedirect: func(next *http.Request, via []*http.Request) error {
+		if len(via) >= 20 {
+			return errors.New("stopped after 20 redirects")
+		}
+		if first := via[0].URL; next.URL.Scheme != first.Scheme || next.URL.Host != first.Host {
+			next.Header.Del("Authorization") // fetch keeps credentials to one origin
+		}
+		return nil
+	}}, tr
 }
 func (r *Recorder) request(batch []*pendingEvent) (int, []byte) {
 	var body bytes.Buffer
@@ -144,11 +156,8 @@ func (r *Recorder) sendCycle(batch []*pendingEvent) {
 			for _, e := range pending {
 				r.settleLocked(e, "rejected", "")
 			}
-		} else if status >= 200 && status < 400 {
-			var results []json.RawMessage
-			if status < 300 {
-				results = responseResults(body)
-			}
+		} else if status >= 200 && status < 300 {
+			results := responseResults(body)
 			for i, e := range pending {
 				var raw json.RawMessage
 				if i < len(results) {
@@ -211,6 +220,11 @@ func (r *Recorder) sendCycle(batch []*pendingEvent) {
 	}
 	if stored {
 		r.failures = 0
+		if !r.delivered {
+			// Once per recorder: the only sign of health that silence is not.
+			r.delivered = true
+			r.report(Diagnostic{Kind: "delivered_first", Code: "first_delivery"})
+		}
 	} else if attempted && !permanent {
 		if answered && remaining == 0 && !abandoned {
 			r.failures = 0
@@ -218,14 +232,16 @@ func (r *Recorder) sendCycle(batch []*pendingEvent) {
 			r.failures++
 			if r.failures >= r.c.BreakerThreshold {
 				r.openedUntil = r.clock().Add(r.c.BreakerReset)
-				r.report(Diagnostic{Kind: "breaker_open", Code: "consecutive_failures"})
+				r.report(Diagnostic{Kind: "breaker_opened", Code: "consecutive_failures"})
 			}
 		}
 	}
 	r.requeueLocked(batch)
 	r.nextSend = r.clock().Add(r.c.FlushInterval)
 	if r.closing && remaining > 0 && initial == remaining {
-		r.finalizeLocked()
+		// No progress: start no more batches, but let sends already in flight
+		// on other workers finish; the last one to return finalizes.
+		r.stalled = true
 	}
 	r.signalLocked()
 	r.mu.Unlock()

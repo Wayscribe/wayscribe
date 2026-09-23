@@ -1,7 +1,7 @@
 # Wayscribe Go SDK (unreleased)
 
 Module `gitlab.com/jojithedev/wayscribe/packages/sdk-go`, package `wayscribe`,
-requires Go 1.26. This local development module is **not published**. Its fixed
+requires Go 1.22 or newer. This local development module is **not published**. Its fixed
 identity is `wayscribe-go` / `0.1.0-dev`; protocol version remains `0.1`.
 Recording captures immediately and sends asynchronously through the batch route.
 Runtime and tests use only the Go standard library.
@@ -203,6 +203,12 @@ drain, not that all events were stored; use `Counters()` for delivery outcomes.
 Valid events recorded after shutdown count as `recorded` plus `after_shutdown`.
 Invalid envelopes and disabled recorders never enter delivery accounting.
 
+A recorder starts its sender goroutines when it admits its first event and keeps
+them until `Shutdown`. Call `Shutdown` on every recorder that recorded anything;
+a recorder that never recorded owns no goroutines. When one batch makes no
+progress during shutdown, no further batch starts, but sends already in flight
+on other workers finish before the remainder is finalized.
+
 The pending queue drops its oldest event at capacity. Each of the fixed
 `MaxConcurrentSends` workers additionally owns at most one batch of `BatchSize`
 events (maximum 100). Retries retain byte-identical envelopes and original queue
@@ -212,10 +218,13 @@ send counts toward `EventRetryMaxSends`, including a send whose later attempts
 fail at the HTTP layer. The monotonic `EventRetryBudget` is checked again after
 backoff and breaker waits. Whole-request 4xx is permanent; 5xx/network failures
 retry. Positional verdicts alone determine ownership. Missing/malformed 2xx
-verdicts drop with `no_verdict` and are never silently counted as stored.
+verdicts drop with `no_verdict` and are never silently counted as stored. A 3xx
+that is not followed (no `Location`, or more than 20 hops) is a failed request
+and retries like a 5xx.
 
-A dedicated `net/http` client uses no ambient proxy, never follows redirects,
-verifies TLS, bounds connection ownership and request phases, caps response
+A dedicated `net/http` client uses no ambient proxy, follows redirects as the
+Node SDK's `fetch` does (307/308 replay the POST; the API key is sent only to the
+endpoint's own origin), verifies TLS, bounds connection ownership and request phases, caps response
 bodies at 1 MiB, and closes bodies/idle connections. Shutdown cannot retract
 bytes already sent or prevent a server from storing an earlier request. Late
 responses cannot change finalized accounting.
@@ -269,6 +278,8 @@ func main() {
 ```
 
 `Flush` completion includes rejected/dropped work. Inspect delivery counters after
-recording; an idle recorder's zero counters do not prove connectivity. Diagnostic
+recording; an idle recorder's zero counters do not prove connectivity, and the
+one-time `delivered_first` diagnostic does. Kinds and codes match the Node SDK
+(see `docs/SDK_SPEC.md`, "Go SDK alignment"). Diagnostic
 kind/code avoid caller-written names/paths and payloads. The deferred shutdown
 uses its own default deadline rather than a potentially expired flush context.

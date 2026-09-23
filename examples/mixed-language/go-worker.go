@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	wayscribe "gitlab.com/jojithedev/wayscribe/packages/sdk-go"
@@ -82,9 +83,13 @@ func workerRequest(recorder *wayscribe.Recorder, request *http.Request) (int, ma
 	}
 }
 
+// newWorkerHandler serves one run: the first request shuts the recorder down
+// and signals done. A later request still gets an answer (its events count as
+// after_shutdown) instead of closing done a second time.
 func newWorkerHandler(recorder *wayscribe.Recorder, done chan<- struct{}) http.Handler {
+	var once sync.Once
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		defer close(done)
+		defer once.Do(func() { close(done) })
 		status, body := workerRequest(recorder, request)
 		shutdownRecorder(recorder)
 		body["counters"] = counters(recorder.Counters())

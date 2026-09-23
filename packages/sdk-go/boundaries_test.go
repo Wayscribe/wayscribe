@@ -151,9 +151,15 @@ func TestKnownTimingZeroAndUnknown(t *testing.T) {
 	}
 }
 func TestNativeHTTPAndPayloadAbsence(t *testing.T) {
-	c := ExtractHTTPContext(http.Header{"X-Wayscribe-Journey-Id": []string{"jrn_one", "jrn_two"}})
-	if c == nil || c.JourneyID != "jrn_one" {
-		t.Fatal(c)
+	// A header sent twice reaches a Node server as one comma-joined value,
+	// which is not a usable id; net/http must refuse it the same way rather
+	// than trust whichever copy came first.
+	if c := ExtractHTTPContext(http.Header{"X-Wayscribe-Journey-Id": []string{"jrn_one", "jrn_two"}}); c != nil {
+		t.Fatal("duplicate journey header accepted", c)
+	}
+	c := ExtractHTTPContext(http.Header{"X-Wayscribe-Journey-Id": []string{"jrn_one"}, "X-Wayscribe-Entity-Type": []string{"order", "customer"}, "X-Wayscribe-Entity-Id": []string{"42"}})
+	if c == nil || c.JourneyID != "jrn_one" || c.Entity != nil {
+		t.Fatal("duplicate entity header must drop only the entity", c)
 	}
 	headers := map[string]any{"x-wayscribe-journey-id": 42, "X-Wayscribe-Journey-Id": "jrn_valid"}
 	if ExtractHTTPContext(headers) != nil {
@@ -260,9 +266,9 @@ func TestPublicWarningsProcessScope(t *testing.T) {
 	defer func() {
 		output := finishWarnings()
 		assertWarningLines(t, output, 6)
-		for _, field := range []string{"journey_label", "displayable_alias", "error"} {
+		for _, field := range []string{"journeyLabel", "displayableAliases", "errorMessage"} {
 			for _, shape := range []string{"email", "phone"} {
-				needle := "personal_data field=" + field + " shape=" + shape
+				needle := "personal_data_in_public_value field=" + field + " shape=" + shape
 				if strings.Count(output, needle) != 1 {
 					t.Fatalf("expected one %q warning: %q", needle, output)
 				}
@@ -272,12 +278,12 @@ func TestPublicWarningsProcessScope(t *testing.T) {
 	var reports []Diagnostic
 	d := newDiagnostics(func(v Diagnostic) { reports = append(reports, v) }, false)
 	for _, v := range []string{"node_modules/@scope/tool.js", "git@host:org/repo.git", "2026-09-21 +0000", "Received +12345678 bytes"} {
-		publicWarning(v, "error", d)
+		publicWarning(v, "errorMessage", d)
 	}
 	if len(reports) != 0 {
 		t.Fatal(reports)
 	}
-	for _, field := range []string{"journey_label", "displayable_alias", "error"} {
+	for _, field := range []string{"journeyLabel", "displayableAliases", "errorMessage"} {
 		publicWarning("ada@example.com", field, d)
 		publicWarning("next@example.com", field, d)
 		publicWarning("phone=+19195551234", field, d)
@@ -286,7 +292,7 @@ func TestPublicWarningsProcessScope(t *testing.T) {
 		t.Fatal(reports)
 	}
 	d2 := newDiagnostics(func(v Diagnostic) { t.Fatal("process warning duplicated") }, false)
-	publicWarning("ada@example.com", "journey_label", d2)
+	publicWarning("ada@example.com", "journeyLabel", d2)
 }
 func TestFittingDropsLargerThenMetadataAndNoOmittedWarnings(t *testing.T) {
 	c := testConfig()
@@ -380,7 +386,7 @@ func TestPositionalWarningPaths(t *testing.T) {
 	}
 }
 func TestHTTPInvalidIdentityAndObservationIndependent(t *testing.T) {
-	for _, target := range []string{"https://[REDACTED]", "https://[UNCAPTURABLE]", "https://[PAYLOAD_TOO_LARGE]", "https://[CIRCULAR]"} {
+	for _, target := range []string{"https://[REDACTED]", "https://[UNCAPTURABLE]", "https://[PAYLOAD_TOO_LARGE]", "https://[CIRCULAR]", "https://[1.2.3.4]", "https://a[b]", "https://x]", "https://[v1.x]"} {
 		m := HTTPMetadata(HTTPResponse{StatusCode: 429, Headers: http.Header{"Retry-After": []string{"0"}}}, HTTPTimingOptions{TargetURL: target})
 		if _, ok := m["targetHost"]; ok {
 			t.Fatal(m)
@@ -492,5 +498,25 @@ func TestLongOrdinaryListKeepsStringRepair(t *testing.T) {
 	values := r.value.([]any)
 	if utf16Length(values[0].(string)) != 65536 || values[1] != "kept" {
 		t.Fatal("ordinary list changed")
+	}
+}
+
+func TestBracketedHostsAreIPv6LiteralsOnEveryToolchain(t *testing.T) {
+	// net/url accepted "[REDACTED]" as a host before Go 1.24.8/1.25.2; the SDK
+	// must answer the same on its oldest supported toolchain as on the newest.
+	if got := HTTPMetadata(HTTPResponse{}, HTTPTimingOptions{TargetURL: "https://[::1]:8080/x"})["targetHost"]; got != "[::1]:8080" {
+		t.Fatalf("IPv6 literal host = %v", got)
+	}
+	for _, endpoint := range []string{"https://[REDACTED]", "https://[1.2.3.4]", "https://a[b]", "https://x]:443"} {
+		c := testConfig()
+		c.Endpoint = endpoint
+		if resolved, _ := resolveConfig(c); resolved.Endpoint != "" {
+			t.Fatalf("endpoint %s accepted", endpoint)
+		}
+	}
+	c := testConfig()
+	c.Endpoint = "https://[::1]:8443"
+	if resolved, _ := resolveConfig(c); resolved.Endpoint != c.Endpoint {
+		t.Fatal("IPv6 endpoint rejected")
 	}
 }

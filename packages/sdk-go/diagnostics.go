@@ -101,7 +101,16 @@ func (d *diagnostics) rejectSetting(field, code string) {
 		d.counters.ConfigurationErrors++
 	}
 	d.mu.Unlock()
-	d.emit(Diagnostic{Kind: "invalid_config", Field: field, Code: code})
+	d.emit(Diagnostic{Kind: "configuration_error", Field: field, Code: code})
+}
+
+// configurationError reports a call that needed a setting or argument it
+// could not use; counted like Node's configurationErrors.
+func (d *diagnostics) configurationError(code, field string) {
+	d.mu.Lock()
+	d.counters.ConfigurationErrors++
+	d.mu.Unlock()
+	d.emit(Diagnostic{Kind: "configuration_error", Code: code, Field: field})
 }
 func processOnce(key string) bool {
 	processWarnings.Lock()
@@ -137,16 +146,16 @@ func (d *diagnostics) emit(v Diagnostic) {
 		}
 		force = processOnce("name:" + folded)
 	}
-	if v.Kind == "personal_data" {
+	if v.Kind == "personal_data_in_public_value" {
 		if !processOnce("personal:" + v.Field + ":" + v.Shape) {
 			return
 		}
 		force = true
 	}
-	if v.Kind == "invalid_config" && (v.Field == "Endpoint" || v.Field == "APIKey" || v.Field == "Service" || v.Field == "Environment" || v.Field == "JourneyIDSecret") {
+	if v.Kind == "configuration_error" && (v.Code == "setting_unusable" || v.Code == "required_setting_unusable") && (v.Field == "Endpoint" || v.Field == "APIKey" || v.Field == "Service" || v.Field == "Environment" || v.Field == "JourneyIDSecret") {
 		force = processOnce("config:" + v.Field)
 	}
-	if v.Kind == "derivation_unavailable" {
+	if v.Kind == "configuration_error" && (v.Code == "journey_id_secret_missing" || v.Code == "journey_id_secret_unusable" || v.Code == "entity_invalid") {
 		force = processOnce("derive:secret")
 	}
 	if d.callback != nil {

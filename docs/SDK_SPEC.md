@@ -319,6 +319,38 @@ may differ; it should be able to say why.
 | SDK-41 | SECURITY.md section 12 | section 14 |
 | SDK-42 | packages/sdk-node/src/diagnostics.ts; ADR-063 | section 14 |
 
+### Go SDK alignment (packages/sdk-go)
+
+The Go SDK uses the Node SDK's diagnostic kinds and codes
+(`packages/sdk-node/src/diagnostics.ts`). Go's `Diagnostic` is
+`{Kind, Code, Field, Name, Path, Shape}`: it has no `reason` or `detail`, and
+`Field` carries what Node puts in `detail.setting` or `detail.field`.
+Checked by `packages/sdk-go/parity_test.go`.
+
+| Node kind / code | Go before 2026-09-23 | Go now |
+| --- | --- | --- |
+| `configuration_error` / `required_setting_unusable`, `setting_unusable` | `invalid_config`, no code | same as Node; `Field` is the Go setting name (`APIKey`, `CaptureMode`) |
+| `configuration_error` / `journey_id_secret_missing`, `journey_id_secret_unusable`, `entity_invalid` | `derivation_unavailable` / `secret`, `entity`, not counted | same as Node, counted in `ConfigurationErrors` |
+| `breaker_opened` / `consecutive_failures` | `breaker_open` | same as Node |
+| `personal_data_in_public_value` / `personal_data_shape` | `personal_data`, no code; fields `journey_label`, `displayable_alias`, `error` | same as Node; `Field` is `journeyLabel`, `displayableAliases` or `errorMessage`, `Shape` is `email` or `phone` |
+| `insecure_endpoint` / `unencrypted_endpoint` | no code | same as Node |
+| `delivered_first` / `first_delivery` | never reported | reported once per recorder, after the first batch the server stored anything from |
+
+Transport and propagation, aligned in the same change:
+
+- A redirect is followed as Node's `fetch` follows it: 307/308 replay the POST,
+  at most 20 hops, and the API key goes only to the endpoint's own origin. A
+  3xx that is not followed is a failed request, retried as a 5xx is
+  (`transport_error` / `request_failed`), never a `no_verdict` drop.
+- A carrier header that arrives more than once in an `http.Header` is joined
+  with `", "`, as Node's `http` module joins it, so a duplicated journey id is
+  refused instead of the first copy being trusted. A list given in a plain map
+  still reads its first string (the shared propagation vectors).
+
+Still Go-only, not yet mapped to a Node kind: `invalid_option` (Node splits
+these across `key_dropped`, `payload_truncated` and `configuration_error`)
+and `invalid_event` (Node reports `capture_error`).
+
 ## 10. Propagation
 
 [`PROPAGATION_SPEC.md`](PROPAGATION_SPEC.md) is normative for carrier names,

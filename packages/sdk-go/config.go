@@ -1,6 +1,8 @@
 package wayscribe
 
 import (
+	"errors"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -31,6 +33,27 @@ type resolvedConfig struct {
 func validText(s string, max int, blank bool) bool {
 	return s != "" && utf8.ValidString(s) && !strings.ContainsRune(s, 0) && utf8.RuneCountInString(s) <= max && (blank || strings.TrimSpace(strings.Trim(s, "\ufeff")) != "")
 }
+
+// parseHTTPURL is url.Parse with one rule every supported toolchain agrees on:
+// a bracket in the host is only the delimiter of an IPv6 literal. net/url
+// accepted hosts such as "[REDACTED]" and "a[b]" before Go 1.24.8/1.25.2.
+func parseHTTPURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil || !strings.ContainsAny(u.Host, "[]") {
+		return u, err
+	}
+	end := strings.IndexByte(u.Host, ']')
+	if !strings.HasPrefix(u.Host, "[") || end < 0 || strings.ContainsAny(u.Host[end+1:], "[]") {
+		return nil, errBracketedHost
+	}
+	if a, e := netip.ParseAddr(u.Hostname()); e != nil || !a.Is6() {
+		return nil, errBracketedHost
+	}
+	return u, nil
+}
+
+var errBracketedHost = errors.New("bracketed host is not an IPv6 literal")
+
 func resolveConfig(c Config) (resolvedConfig, []Diagnostic) {
 	r := resolvedConfig{Config: c}
 	r.OnDiagnostic = nil
@@ -38,7 +61,13 @@ func resolveConfig(c Config) (resolvedConfig, []Diagnostic) {
 	r.KnownSafeNames = nil
 	r.Deployment = map[string]string{}
 	var issues []Diagnostic
-	reject := func(name string) { issues = append(issues, Diagnostic{Kind: "invalid_config", Field: name}) }
+	reject := func(name string) {
+		code := "setting_unusable"
+		if name == "Endpoint" || name == "APIKey" || name == "Service" || name == "Environment" {
+			code = "required_setting_unusable"
+		}
+		issues = append(issues, Diagnostic{Kind: "configuration_error", Code: code, Field: name})
+	}
 	for _, x := range []struct {
 		name  string
 		p     *string
@@ -50,7 +79,7 @@ func resolveConfig(c Config) (resolvedConfig, []Diagnostic) {
 		}
 	}
 	if r.Endpoint != "" {
-		u, e := url.Parse(r.Endpoint)
+		u, e := parseHTTPURL(r.Endpoint)
 		validPort := true
 		if e == nil && u.Port() != "" {
 			p, err := strconv.Atoi(u.Port())
@@ -66,7 +95,7 @@ func resolveConfig(c Config) (resolvedConfig, []Diagnostic) {
 		r.APIKey = ""
 	}
 	if strings.HasPrefix(r.Endpoint, "http://") {
-		issues = append(issues, Diagnostic{Kind: "insecure_endpoint"})
+		issues = append(issues, Diagnostic{Kind: "insecure_endpoint", Code: "unencrypted_endpoint"})
 	}
 	r.enabled = r.Endpoint != "" && r.APIKey != "" && r.Service != "" && r.Environment != ""
 	if r.CaptureMode == "" {

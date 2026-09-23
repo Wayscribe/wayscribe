@@ -36,7 +36,7 @@ func normalizeLabel(label string, d *diagnostics) string {
 		label = prefixRunes(label, 199) + "…"
 		d.emit(Diagnostic{Kind: "invalid_option", Field: "journeyLabel", Code: "truncated"})
 	}
-	publicWarning(label, "journey_label", d)
+	publicWarning(label, "journeyLabel", d)
 	return label
 }
 func captureMetadata(m map[string]any, c resolvedConfig, d *diagnostics) captured {
@@ -152,7 +152,7 @@ func buildEnvelope(c resolvedConfig, d *diagnostics, journeyID string, entity En
 			if v, ok := aliases[key]; ok && !seen[key] {
 				display = append(display, key)
 				seen[key] = true
-				publicWarning(v, "displayable_alias", d)
+				publicWarning(v, "displayableAliases", d)
 			}
 		}
 		if len(display) > 0 {

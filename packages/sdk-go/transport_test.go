@@ -71,7 +71,7 @@ func TestResponseClassification(t *testing.T) {
 		name, body              string
 		status                  int
 		sent, rejected, dropped int64
-	}{{"malformed", "!", 202, 0, 0, 1}, {"trailing", `{"data":{"results":[{"status":"accepted"}]}} {}`, 202, 0, 0, 1}, {"oversized", strings.Repeat(" ", 1<<20) + `{}`, 202, 0, 0, 1}, {"missing", `{"data":{}}`, 202, 0, 0, 1}, {"unknown", `{"data":{"results":[{"status":"other"}]}}`, 202, 0, 0, 1}, {"permanent", `bad`, 401, 0, 1, 0}, {"no-status", `{"data":{"results":[{"status":"rejected"}]}}`, 202, 0, 1, 0}, {"redirect", "", 302, 0, 0, 1}} {
+	}{{"malformed", "!", 202, 0, 0, 1}, {"trailing", `{"data":{"results":[{"status":"accepted"}]}} {}`, 202, 0, 0, 1}, {"oversized", strings.Repeat(" ", 1<<20) + `{}`, 202, 0, 0, 1}, {"missing", `{"data":{}}`, 202, 0, 0, 1}, {"unknown", `{"data":{"results":[{"status":"other"}]}}`, 202, 0, 0, 1}, {"permanent", `bad`, 401, 0, 1, 0}, {"no-status", `{"data":{"results":[{"status":"rejected"}]}}`, 202, 0, 1, 0}} {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
 			r := transportRecorder(t, func(w http.ResponseWriter, q *http.Request) {
@@ -390,7 +390,7 @@ func cycleRecorder(t *testing.T, h http.HandlerFunc) *Recorder {
 	t.Cleanup(s.Close)
 	c, _ := resolveConfig(Config{Endpoint: s.URL, APIKey: "key", Service: "s", Environment: "e", MaxAttempts: 2, BackoffBase: time.Nanosecond, BackoffMax: time.Nanosecond, BreakerThreshold: 4})
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &Recorder{c: c, d: newDiagnostics(nil, false), owned: map[uint64]*pendingEvent{}, changed: make(chan struct{}), ctx: ctx, cancel: cancel, workersDone: make(chan struct{}), reports: make(chan Diagnostic, 64), clock: time.Now}
+	r := &Recorder{c: c, d: newDiagnostics(nil, false), owned: map[uint64]*pendingEvent{}, changed: make(chan struct{}), ctx: ctx, cancel: cancel, workersDone: make(chan struct{}), reports: make(chan Diagnostic, 64), clock: time.Now, started: true}
 	close(r.workersDone)
 	r.client, r.transport = newHTTPClient(c)
 	t.Cleanup(func() { r.Shutdown(context.Background()) })
@@ -560,4 +560,100 @@ func TestRefusedBatchRetainsOldestEvictionOrder(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	r.Shutdown(ctx)
+}
+func TestShutdownNoProgressBatchLeavesOtherSendsInFlight(t *testing.T) {
+	var arrivals atomic.Int32
+	failFirst, answerSecond := make(chan struct{}), make(chan struct{})
+	r := transportRecorder(t, func(w http.ResponseWriter, q *http.Request) {
+		if arrivals.Add(1) == 1 {
+			<-failFirst
+			w.WriteHeader(503)
+			return
+		}
+		<-answerSecond
+		io.WriteString(w, `{"data":{"results":[{"status":"accepted"}]}}`)
+	}, func(c *Config) { c.MaxConcurrentSends = 2; c.BatchSize = 1; c.MaxAttempts = 1 })
+	emitN(r, 2)
+	for deadline := time.Now().Add(2 * time.Second); arrivals.Load() < 2; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("both sends never started")
+		}
+	}
+	result := make(chan bool, 1)
+	go func() { result <- r.Shutdown(context.Background()) }()
+	time.Sleep(50 * time.Millisecond) // Shutdown has closed admission
+	close(failFirst)
+	time.Sleep(100 * time.Millisecond) // the failed batch reports no progress
+	close(answerSecond)
+	if <-result {
+		t.Fatal("the failed batch should leave shutdown incomplete")
+	}
+	c := r.Counters()
+	if c.Sent != 1 || c.DroppedByCause[Shutdown] != 1 {
+		t.Fatalf("one batch's no progress cancelled another's send: %+v", c)
+	}
+}
+func TestRedirectsFollowLikeFetchAndAnUnfollowedOneIsRetried(t *testing.T) {
+	var moved, stored atomic.Int32
+	r := transportRecorder(t, func(w http.ResponseWriter, q *http.Request) {
+		if q.URL.Path == "/v1/events/batch" {
+			moved.Add(1)
+			http.Redirect(w, q, "/moved/v1/events/batch", http.StatusPermanentRedirect)
+			return
+		}
+		b, _ := io.ReadAll(q.Body)
+		if q.Method != http.MethodPost || !strings.Contains(string(b), `"events"`) || q.Header.Get("Authorization") != "Bearer key" {
+			t.Errorf("308 did not replay the request: %s %q", q.Method, b)
+		}
+		stored.Add(1)
+		io.WriteString(w, `{"data":{"results":[{"status":"accepted"}]}}`)
+	}, nil)
+	emitN(r, 1)
+	if !r.Flush(context.Background()) || r.Counters().Sent != 1 || moved.Load() != 1 || stored.Load() != 1 {
+		t.Fatalf("308 not followed: %+v", r.Counters())
+	}
+
+	// Another origin (here another port) never receives the API key, as with fetch.
+	var leaked atomic.Bool
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+		leaked.Store(q.Header.Get("Authorization") != "")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(other.Close)
+	r3 := transportRecorder(t, func(w http.ResponseWriter, q *http.Request) {
+		http.Redirect(w, q, other.URL+"/v1/events/batch", http.StatusTemporaryRedirect)
+	}, nil)
+	emitN(r3, 1)
+	if !r3.Flush(context.Background()) || r3.Counters().Rejected != 1 || leaked.Load() {
+		t.Fatalf("cross-origin redirect: leaked=%v %+v", leaked.Load(), r3.Counters())
+	}
+
+	var calls atomic.Int32
+	var mu sync.Mutex
+	var seen []Diagnostic
+	r2 := transportRecorder(t, func(w http.ResponseWriter, q *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusMultipleChoices) // a 3xx with nowhere to go
+	}, func(c *Config) {
+		c.MaxAttempts = 2
+		c.BreakerThreshold = 1000 // keep the cleanup Shutdown off the breaker's cooldown
+		c.OnDiagnostic = func(d Diagnostic) { mu.Lock(); seen = append(seen, d); mu.Unlock() }
+	})
+	emitN(r2, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	r2.Flush(ctx)
+	c := r2.Counters()
+	if calls.Load() < 2 || c.DroppedByCause[NoVerdict] != 0 || c.Dropped != 0 {
+		t.Fatalf("unfollowed 3xx was not retried as a transport error: calls=%d %+v", calls.Load(), c)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	found := false
+	for _, d := range seen {
+		found = found || (d.Kind == "transport_error" && d.Code == "request_failed")
+	}
+	if !found {
+		t.Fatalf("no transport_error for an unfollowed 3xx: %+v", seen)
+	}
 }

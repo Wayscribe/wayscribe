@@ -2,6 +2,8 @@ package wayscribe
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +22,7 @@ func TestModuleIdentityLegalFilesAndDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(goMod) != "module gitlab.com/jojithedev/wayscribe/packages/sdk-go\n\ngo 1.26\n" {
+	if string(goMod) != "module gitlab.com/jojithedev/wayscribe/packages/sdk-go\n\ngo 1.22\n" {
 		t.Fatalf("unexpected module declaration:\n%s", goMod)
 	}
 	if SDKName != "wayscribe-go" || Version != "0.1.0-dev" {
@@ -33,11 +35,17 @@ func TestModuleIdentityLegalFilesAndDependencies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if len(packageCopy) == 0 {
+			t.Fatalf("%s is empty", name)
+		}
 		repositoryCopy, err := os.ReadFile(filepath.Join(root, name))
+		if errors.Is(err, fs.ErrNotExist) && !insideRepository(module) {
+			continue // a module-only copy, as a consumer downloads it
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(packageCopy) == 0 || !bytes.Equal(packageCopy, repositoryCopy) {
+		if !bytes.Equal(packageCopy, repositoryCopy) {
 			t.Fatalf("%s is missing or differs from the repository copy", name)
 		}
 	}
@@ -53,6 +61,36 @@ func TestModuleIdentityLegalFilesAndDependencies(t *testing.T) {
 		if dependency != "gitlab.com/jojithedev/wayscribe/packages/sdk-go" &&
 			!strings.HasPrefix(dependency, "gitlab.com/jojithedev/wayscribe/packages/sdk-go/") {
 			t.Fatalf("non-standard-library dependency %s", dependency)
+		}
+	}
+}
+
+// insideRepository reports whether module sits at packages/sdk-go of the
+// Wayscribe repository, where the shared sources beside it must be compared.
+func insideRepository(module string) bool {
+	_, err := os.Stat(filepath.Join(module, "..", "protocol", "fixtures"))
+	return err == nil
+}
+
+// The vectors in testdata are copies, so a module-only checkout can run them.
+// Inside the repository they must stay byte-identical to the shared sources.
+func TestSharedFixtureCopiesMatchTheirSources(t *testing.T) {
+	_, source, _, _ := runtime.Caller(0)
+	module := filepath.Dir(source)
+	if !insideRepository(module) {
+		t.Skip("module-only copy: no shared fixtures to compare")
+	}
+	for _, name := range []string{"propagation.json", "journey-id-derivation.json"} {
+		copied, err := os.ReadFile(filepath.Join(module, "testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		shared, err := os.ReadFile(filepath.Join(module, "..", "protocol", "fixtures", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(copied, shared) {
+			t.Fatalf("testdata/%s differs from packages/protocol/fixtures/%s; copy it again", name, name)
 		}
 	}
 }

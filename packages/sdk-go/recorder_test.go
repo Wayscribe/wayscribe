@@ -400,3 +400,47 @@ func TestDeliveryPanicAndClassifierKeepAttemptOperation(t *testing.T) {
 		t.Fatal(es[1])
 	}
 }
+
+func settledGoroutines(limit int) int {
+	n := runtime.NumGoroutine()
+	for i := 0; i < 200 && n > limit; i++ {
+		time.Sleep(5 * time.Millisecond)
+		n = runtime.NumGoroutine()
+	}
+	return n
+}
+func TestUnusedRecordersStartNoGoroutines(t *testing.T) {
+	before := settledGoroutines(0)
+	recorders := make([]*Recorder, 0, 100)
+	for i := 0; i < 100; i++ {
+		recorders = append(recorders, New(Config{Endpoint: "https://localhost:9999", APIKey: "k", Service: "s", Environment: "e", MaxConcurrentSends: 4}))
+	}
+	if after := settledGoroutines(before); after > before {
+		t.Fatalf("100 unused recorders left %d goroutines", after-before)
+	}
+	for _, r := range recorders {
+		if !r.Shutdown(context.Background()) {
+			t.Fatal("shutdown of an unused recorder failed")
+		}
+	}
+	if after := settledGoroutines(before); after > before {
+		t.Fatalf("shutdown of unused recorders left %d goroutines", after-before)
+	}
+}
+func TestFirstEventStartsWorkersAndShutdownStopsThem(t *testing.T) {
+	r, sink := testRecorder(t, func(c *Config) { c.MaxConcurrentSends = 3 })
+	before := settledGoroutines(0)
+	r.Journey(Entity{"order", "1"}).Complete("")
+	if n := runtime.NumGoroutine(); n < before+4 {
+		t.Fatalf("first event started %d goroutines, want the workers and the reporter", n-before)
+	}
+	if len(flushedEvents(t, r, sink)) != 1 {
+		t.Fatal("event not delivered after lazy start")
+	}
+	if !r.Shutdown(context.Background()) {
+		t.Fatal("shutdown failed")
+	}
+	if after := settledGoroutines(before); after > before {
+		t.Fatalf("shutdown left %d goroutines", after-before)
+	}
+}
