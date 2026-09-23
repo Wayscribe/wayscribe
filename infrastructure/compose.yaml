@@ -47,8 +47,9 @@ services:
       PORT: "8080"
       LOG_LEVEL: info
       DEFAULT_RETENTION_DAYS: "7"
-      # OTLP_LOGS_ENABLED and OTLP_MAX_REQUEST_BYTES come from env_file so
-      # repository-root .env values win over defaults.env.
+      # OTLP_LOGS_ENABLED and OTLP_MAX_REQUEST_BYTES are not set here, so the
+      # root .env reaches the API for both; unset, the config schema's defaults
+      # apply (off, 4 MiB).
       MAX_EVENT_PAYLOAD_BYTES: "262144"
       ALLOW_FULL_PAYLOAD_CAPTURE: "false"
       REPLAY_ALLOWED_HOSTS: localhost,host.docker.internal,demo-integration
