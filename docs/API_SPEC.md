@@ -908,9 +908,14 @@ and the number of runs, not the base URL or the headers.
 ## Optional OTLP logs
 
 `POST /v1/logs` exists only with `OTLP_LOGS_ENABLED=true` (default false).
-Environment API keys authenticate; admin tokens cannot ingest. JSON/protobuf
-and identity/gzip are supported, with scoped parsing and fixed OTLP response
-shapes. Explicit attributes are required; body/severity do not become business
-events. HTTP 200 may contain permanent partial success; transient storage errors
-return 503 even after earlier commits. Retry with unchanged IDs/timestamps.
+Environment API keys authenticate before the body is read; admin tokens cannot
+ingest. JSON/protobuf and identity/gzip are supported with scoped parsing. The
+`wayscribe.*` journey, entity, operation, name, input and output attributes are
+required; body/severity do not become business events. The environment defaults
+to the key's scope, and the event id falls back to `log.record.uid`, then to a
+keyed id derived from the record's content. A JSON body with no known top-level
+field returns 400. HTTP 200 may contain permanent partial success, whose
+`error_message` names the first refusal codes with counts. Transient storage
+errors return retryable 503 even after earlier commits; other failures return
+500. Retry with unchanged IDs/timestamps.
 See [OTLP logs](OTLP_LOGS.md) for the full mapping, bounds and response contract.
