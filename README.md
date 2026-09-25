@@ -413,7 +413,7 @@ service**: no Kafka, no Elasticsearch, no object store, no sidecar, no agent.
 - Retention sweeps per environment, on an interval, inside the API process.
 
 Every non-obvious decision is written down with its reasoning in
-[the decision log](docs/DECISIONS.md): 66 ADRs, including the several that were
+[the decision log](docs/DECISIONS.md): 67 ADRs, including the several that were
 wrong the first time and say so.
 
 ---
@@ -456,7 +456,7 @@ development module with standard-library-only runtime and test dependencies. Its
 35 applicable fixtures pass from public-recorder request bytes through the real
 dry-run API, and the external [Go worker example](examples/go-worker/README.md)
 proves a searchable completed journey through a local module replacement. Its
-development identity is `wayscribe-go` / `0.1.0-dev`; no public module release is
+development identity is `wayscribe.dev/go` / `0.1.0-dev`; no public module release is
 claimed.
 
 An adversarial audit of the first-contact experience on 2026-08-09 found that
@@ -690,7 +690,7 @@ site/                   wayscribe.dev: the landing page, and these docs rendered
 
 AI agents write most of the code in this repository. Jorge, the owner, makes the
 decisions, and each one is recorded with its reasoning in
-[the decision log](docs/DECISIONS.md), which holds 66 ADRs.
+[the decision log](docs/DECISIONS.md), which holds 67 ADRs.
 [What running it found](docs/WHAT_RUNNING_IT_FOUND.md) lists the defects the
 agents' tests missed and running the software found, and what changed in the
 testing because of them.

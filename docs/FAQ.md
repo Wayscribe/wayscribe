@@ -65,11 +65,11 @@ no contract to build one against. There is one now, so the cost of a second SDK
 is its build and its maintenance rather than a second design, and ADR-059
 supersedes that condition for Python. ADR-065 approves Go after Python, then
 optional OTLP log ingestion; languages after Go follow what pilot teams ask
-for. The Python SDK is implemented locally as the unpublished `wayscribe-sdk`
+for. The Python SDK is implemented locally as the unpublished `wayscribe`
 `0.1.0a1`: all applicable SDK and propagation fixtures pass, its captured bytes
 pass the real dry-run API, and an installed wheel records from outside the
-checkout. Its Leadline pilot is still open. The Go SDK and OTLP endpoint are not
-built yet.
+checkout. Its Leadline pilot is still open. The Go SDK (module `wayscribe.dev/go`)
+and optional OTLP log ingestion are built too, and are likewise unpublished.
 
 What was built instead is the contract a recorder in any language is written
 against: the [ingestion contract](INGESTION_CONTRACT.md), JSON Schema generated

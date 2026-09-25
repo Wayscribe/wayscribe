@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	wayscribe "gitlab.com/jojithedev/wayscribe/packages/sdk-go"
+	wayscribe "wayscribe.dev/go"
 )
 
 func TestMalformedRequestReturnsSafeCountersAndShutsDownRecorder(t *testing.T) {

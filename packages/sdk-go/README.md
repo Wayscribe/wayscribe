@@ -1,8 +1,13 @@
 # Wayscribe Go SDK (unreleased)
 
-Module `gitlab.com/jojithedev/wayscribe/packages/sdk-go`, package `wayscribe`,
-requires Go 1.22 or newer. This local development module is **not published**. Its fixed
-identity is `wayscribe-go` / `0.1.0-dev`; protocol version remains `0.1`.
+Module `wayscribe.dev/go`, package `wayscribe`,
+requires Go 1.22 or newer. The module lives in `packages/sdk-go` of the
+repository, and `wayscribe.dev/go` points there with a `go-import` tag that
+names a subdirectory. Through the default module proxy (`proxy.golang.org`)
+that works on every supported Go version. Fetching straight from the
+repository (`GOPROXY=direct`, or `GOPRIVATE` covering `wayscribe.dev`) needs
+Go 1.25 or newer, the first release that reads the subdirectory field. This local development module is **not published**. Its fixed
+identity is `wayscribe.dev/go` / `0.1.0-dev`; protocol version remains `0.1`.
 Recording captures immediately and sends asynchronously through the batch route.
 Runtime and tests use only the Go standard library.
 
@@ -258,7 +263,7 @@ import (
     "fmt"
     "os"
     "time"
-    wayscribe "gitlab.com/jojithedev/wayscribe/packages/sdk-go"
+    wayscribe "wayscribe.dev/go"
 )
 
 func main() {

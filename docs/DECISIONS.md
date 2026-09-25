@@ -4465,3 +4465,41 @@ Authentication/parser/storage diagnostics are fixed safe summaries. Admin tokens
 cannot ingest and the failed-admin-auth throttle does not cover logs. An official
 pinned Python exporter is isolated example/test tooling; native SDKs never depend
 on it. Publication/deployment are separate from local source implementation.
+
+## ADR-067: Python and Go SDKs publish as `wayscribe` and `wayscribe.dev/go`
+
+**Status:** Accepted, 2026-09-25. Names the Python and Go SDKs before either is
+published; neither name can change afterwards without breaking the people who
+installed it.
+
+**Python.** The distribution is `wayscribe` on PyPI, the same as its import
+name, instead of `wayscribe-sdk`. One name for both install and import leaves
+nothing to look up, and it claims the project's own name on PyPI. Both names
+were unclaimed on 2026-09-25.
+
+**Go.** The module path is `wayscribe.dev/go`, instead of
+`gitlab.com/jojithedev/wayscribe/packages/sdk-go`. The code stays in
+`packages/sdk-go`. The site serves `wayscribe.dev/go` (and one page per command
+package) with a `go-import` tag that names the repository and that
+subdirectory, so the import path carries neither a personal account nor a
+hosting provider, and moving the repository changes one page instead of every
+user's imports.
+
+The subdirectory field of `go-import` is read by Go 1.25 and later. The module
+still supports Go 1.22, because users normally fetch through
+`proxy.golang.org`, which resolves the path with a current Go; only a direct
+fetch (`GOPROXY=direct`, or `GOPRIVATE` covering `wayscribe.dev`) needs 1.25.
+The SDK README says so. Go prefixes version tags with the module's directory in
+the repository, so releases are tagged `packages/sdk-go/vX.Y.Z` (checked in
+`cmd/go/internal/modfetch/coderepo.go`, Go 1.26), and that tag pattern must be
+protected like `v*` before the first one is pushed.
+
+**Runtime identity.** `runtime.sdk.name` becomes the installed name in every
+SDK, as it already was for Node (`@wayscribe/node`): Python sends `wayscribe`
+and Go sends `wayscribe.dev/go`, replacing the unpublished development names
+`wayscribe-sdk` and `wayscribe-go`. No released SDK ever sent the old names.
+
+**Rejected.** Keeping `wayscribe-sdk`: a second name to learn for no gain.
+Keeping the GitLab module path: long, personal, and tied to one host for good.
+Moving the Go module to the repository root to avoid the subdirectory field: it
+would put a Go module over a pnpm workspace and still need the vanity page.

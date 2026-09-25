@@ -309,3 +309,20 @@ describe("the landing page", () => {
     );
   });
 });
+
+describe("the wayscribe.dev/go import pages", () => {
+  const goImport =
+    'name="go-import" content="wayscribe.dev/go git https://gitlab.com/jojithedev/wayscribe packages/sdk-go"';
+
+  it("point the module path in go.mod at the directory that holds it", () => {
+    expect(read("packages/sdk-go/go.mod").split("\n")[0]).toBe("module wayscribe.dev/go");
+    expect(existsSync(join(root, "packages/sdk-go/go.mod"))).toBe(true);
+  });
+
+  it("answer for the module and for every command package in it", () => {
+    const commands = readdirSync(join(root, "packages/sdk-go/cmd"));
+    for (const page of ["go", ...commands.map((name) => `go/cmd/${name}`)]) {
+      expect(read(`site/public/${page}/index.html`).replace(/\s+/g, " ")).toContain(goImport);
+    }
+  });
+});

@@ -2,6 +2,6 @@ module gitlab.com/jojithedev/wayscribe/examples/go-worker
 
 go 1.22
 
-require gitlab.com/jojithedev/wayscribe/packages/sdk-go v0.0.0
+require wayscribe.dev/go v0.0.0
 
-replace gitlab.com/jojithedev/wayscribe/packages/sdk-go => ../../packages/sdk-go
+replace wayscribe.dev/go => ../../packages/sdk-go

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"gitlab.com/jojithedev/wayscribe/packages/sdk-go/internal/conformance"
+	"wayscribe.dev/go/internal/conformance"
 )
 
 func main() {

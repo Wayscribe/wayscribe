@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	wayscribe "gitlab.com/jojithedev/wayscribe/packages/sdk-go"
+	wayscribe "wayscribe.dev/go"
 )
 
 type DeliveryRejected struct{ message string }

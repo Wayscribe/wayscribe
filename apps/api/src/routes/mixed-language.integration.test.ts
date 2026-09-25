@@ -25,13 +25,7 @@ import { buildApp } from "../app.js";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const example = join(root, "examples", "mixed-language");
-const wheel = join(
-  root,
-  "packages",
-  "sdk-python",
-  "dist",
-  "wayscribe_sdk-0.1.0a1-py3-none-any.whl"
-);
+const wheel = join(root, "packages", "sdk-python", "dist", "wayscribe-0.1.0a1-py3-none-any.whl");
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 const outputLimit = 128 * 1024;
 

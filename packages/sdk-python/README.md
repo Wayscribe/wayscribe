@@ -1,6 +1,6 @@
 # Wayscribe Python SDK — development preview
 
-Distribution: `wayscribe-sdk`. Import: `wayscribe`. Version: `0.1.0a1`.
+Distribution: `wayscribe`. Import: `wayscribe`. Version: `0.1.0a1`.
 This package is **unpublished**. Python 3.11 or newer is required. Runtime code
 uses only the standard library; setuptools is a build dependency only.
 
@@ -14,10 +14,10 @@ Build and install the development artifact from the repository root:
 
 ```sh
 uv build --out-dir packages/sdk-python/dist packages/sdk-python
-python3 -m pip install --no-deps packages/sdk-python/dist/wayscribe_sdk-0.1.0a1-py3-none-any.whl
+python3 -m pip install --no-deps packages/sdk-python/dist/wayscribe-0.1.0a1-py3-none-any.whl
 ```
 
-The distribution name is `wayscribe-sdk`; application imports use `wayscribe`.
+The distribution and import name are both `wayscribe`.
 
 The recorder captures events synchronously and delivers immutable, redacted bytes
 from one bounded daemon sender. Record calls never wait for network work.

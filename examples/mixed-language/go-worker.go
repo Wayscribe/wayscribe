@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	wayscribe "gitlab.com/jojithedev/wayscribe/packages/sdk-go"
+	wayscribe "wayscribe.dev/go"
 )
 
 const maxBody = 64 * 1024

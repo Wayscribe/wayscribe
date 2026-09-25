@@ -22,10 +22,10 @@ func TestModuleIdentityLegalFilesAndDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(goMod) != "module gitlab.com/jojithedev/wayscribe/packages/sdk-go\n\ngo 1.22\n" {
+	if string(goMod) != "module wayscribe.dev/go\n\ngo 1.22\n" {
 		t.Fatalf("unexpected module declaration:\n%s", goMod)
 	}
-	if SDKName != "wayscribe-go" || Version != "0.1.0-dev" {
+	if SDKName != "wayscribe.dev/go" || Version != "0.1.0-dev" {
 		t.Fatalf("unexpected development identity %s/%s", SDKName, Version)
 	}
 
@@ -58,8 +58,8 @@ func TestModuleIdentityLegalFilesAndDependencies(t *testing.T) {
 		t.Fatalf("go list: %v\n%s", err, output)
 	}
 	for _, dependency := range strings.Fields(string(output)) {
-		if dependency != "gitlab.com/jojithedev/wayscribe/packages/sdk-go" &&
-			!strings.HasPrefix(dependency, "gitlab.com/jojithedev/wayscribe/packages/sdk-go/") {
+		if dependency != "wayscribe.dev/go" &&
+			!strings.HasPrefix(dependency, "wayscribe.dev/go/") {
 			t.Fatalf("non-standard-library dependency %s", dependency)
 		}
 	}

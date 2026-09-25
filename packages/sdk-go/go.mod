@@ -1,3 +1,3 @@
-module gitlab.com/jojithedev/wayscribe/packages/sdk-go
+module wayscribe.dev/go
 
 go 1.22

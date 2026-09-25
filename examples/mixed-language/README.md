@@ -20,7 +20,7 @@ cd examples/mixed-language
 npm install
 python3 -m venv .venv
 .venv/bin/python -m pip install --no-index \
-  ../../packages/sdk-python/dist/wayscribe_sdk-0.1.0a1-py3-none-any.whl
+  ../../packages/sdk-python/dist/wayscribe-0.1.0a1-py3-none-any.whl
 ```
 
 Run it against a local API with an ingestion key for the named environment:

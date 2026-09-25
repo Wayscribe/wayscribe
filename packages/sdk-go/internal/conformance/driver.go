@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	wayscribe "gitlab.com/jojithedev/wayscribe/packages/sdk-go"
+	wayscribe "wayscribe.dev/go"
 )
 
 var skipReasons = map[string]string{
