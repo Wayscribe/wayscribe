@@ -1763,6 +1763,35 @@ checked again; the credentialed publication keeps npm's normal version guards.
 To verify a published version's provenance, run `npm audit signatures` in a
 project that depends on it, or read the provenance panel on the package page.
 
+### Publishing the Python SDK to PyPI
+
+`wayscribe` is published by two manual jobs on a
+`packages/sdk-python/v<version>` tag, where the version is the one in
+`packages/sdk-python/pyproject.toml` (PEP 440, so `0.1.0a1` or `0.2.0`):
+`publish-python-testpypi` uploads to TestPyPI and `publish-python` to PyPI. As
+with npm, no PyPI token exists anywhere in the project. The job's GitLab OIDC
+token (audience `pypi`, or `testpypi`) is exchanged by twine for a short-lived
+upload token, and a second token with the audience `sigstore` signs the PEP 740
+attestations that PyPI shows beside each file (ADR-067).
+
+**One-time setup, done on 2026-09-25:**
+
+1. On pypi.org, *Your account, Publishing*, a pending GitLab trusted publisher:
+   PyPI project `wayscribe`, namespace `jojithedev`, project `wayscribe`,
+   top-level pipeline file `.gitlab-ci.yml`, environment `pypi`. The first
+   upload creates the project under that account.
+2. The same on test.pypi.org, with environment `testpypi`.
+3. Protect `packages/sdk-python/v*` tags, as `v*` is. Anyone who can create one
+   can run the jobs.
+
+Rehearse on TestPyPI first, then install from it in a clean container:
+`pip install --index-url https://test.pypi.org/simple/ wayscribe==<version>`
+(add `--pre` for an alpha). To check a release anywhere without uploading, run
+`DRY_RUN=1 scripts/publish-python.sh packages/sdk-python/v<version>`, which
+builds the sdist and wheel, checks the wheel's file list, and runs
+`twine check --strict`; the `python-publish-dry-run` job runs the same on
+`main`.
+
 ### Verifying a published image
 
 Every released `api` and `web` image is signed, and carries a CycloneDX software

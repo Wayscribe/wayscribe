@@ -801,6 +801,68 @@ sdk-publish-dry-run:
   script:
     - DRY_RUN=1 scripts/publish-sdk.sh "v$(node -p "require('./packages/sdk-node/package.json').version")"
 
+# PyPI trusted publishing with attestations for the Python SDK (`wayscribe`),
+# on a `packages/sdk-python/v<version>` tag: the same prefix Go requires for
+# packages/sdk-go, so each SDK versions on its own. There is no PyPI credential
+# in this project. GitLab mints PYPI_ID_TOKEN (or TESTPYPI_ID_TOKEN) for the job
+# alone, twine exchanges it for an upload token that expires almost at once, and
+# SIGSTORE_ID_TOKEN signs the PEP 740 attestations. PyPI and TestPyPI each hold
+# a pending trusted publisher for this project with the environment named below
+# (docs/OPERATIONS.md), so a token minted for one index cannot upload to the
+# other. Whoever can create the tag can publish: `packages/sdk-python/v*` must
+# be a protected tag before the first release.
+#
+# In the release stage with no `needs`, so every earlier stage of the tag's
+# pipeline has passed before either job can be started.
+.python-release: &python-release
+  stage: release
+  image: python:3.11-slim
+  before_script: []
+  cache: []
+  when: manual
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^packages\/sdk-python\/v\d+\.\d+\.\d+((a|b|rc)\d+)?$/
+
+publish-python-testpypi:
+  <<: *python-release
+  environment: testpypi
+  id_tokens:
+    TESTPYPI_ID_TOKEN:
+      aud: testpypi
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  script:
+    - INDEX=testpypi scripts/publish-python.sh "$CI_COMMIT_TAG"
+
+publish-python:
+  <<: *python-release
+  environment: pypi
+  id_tokens:
+    PYPI_ID_TOKEN:
+      aud: pypi
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  script:
+    - INDEX=pypi scripts/publish-python.sh "$CI_COMMIT_TAG"
+
+# The Python counterpart of sdk-publish-dry-run: builds and checks the release
+# files on main and on a merge request that touches them, uploading nothing.
+python-publish-dry-run:
+  stage: build
+  image: python:3.11-slim
+  before_script: []
+  cache: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - scripts/publish-python.sh
+        - packages/sdk-python/**/*
+        - .gitlab-ci.yml
+  script:
+    - DRY_RUN=1 scripts/publish-python.sh "packages/sdk-python/v$(python3 -c 'import tomllib; print(tomllib.load(open("packages/sdk-python/pyproject.toml", "rb"))["project"]["version"])')"
+
 # The GitHub mirror.
 #
 # GitLab is canonical: every push and every pipeline happens here. GitHub gets a
