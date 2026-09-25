@@ -121,6 +121,10 @@ describe("the SDK publication rehearsal", () => {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       DRY_RUN: "1",
+      // A caller's locale must not reorder the tarball listing the script
+      // compares: en_US sorts dist/ before LICENSE, C sorts it after.
+      LANG: "en_US.UTF-8",
+      LC_ALL: "en_US.UTF-8",
       PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
       PUBLISH_CALL: publishCall,
       REAL_NPM: realNpm

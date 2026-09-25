@@ -91,7 +91,7 @@ TARBALL="$1"
 # and NOTICE that Apache-2.0 asks a redistributor to pass on, and nothing else.
 # Thirteen internal declaration files and their maps once shipped, importable
 # under legacy module resolution and failing at runtime.
-FILES="$(tar -tzf "$TARBALL" | sort | tr '\n' ' ')"
+FILES="$(tar -tzf "$TARBALL" | LC_ALL=C sort | tr '\n' ' ')"
 EXPECTED="package/LICENSE package/NOTICE package/README.md package/dist/index.d.ts package/dist/index.js package/package.json "
 if [ "$FILES" != "$EXPECTED" ]; then
   echo "FAIL: the tarball holds ${FILES}; expected ${EXPECTED}" >&2
