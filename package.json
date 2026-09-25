@@ -15,6 +15,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "build:python": "sh packages/sdk-python/scripts/build.sh",
     "test:python": "sh packages/sdk-python/scripts/test.sh discover -s packages/sdk-python/tests -v",
     "test:python:conformance": "sh packages/sdk-python/scripts/test.sh packages/sdk-python/tests/test_conformance_driver.py -v",
     "test:go": "GOTOOLCHAIN=local GOWORK=off go -C packages/sdk-go test ./...",

@@ -314,6 +314,8 @@ database:
     - apt-get install -y -qq --no-install-recommends postgresql-client-18
     - scripts/install-go.sh 1.26.4
     - export PATH="/usr/local/go/bin:$PATH"
+    # mixed-language installs the built wheel; nothing else produces one here.
+    - pnpm build:python
     - pnpm test:integration
 
 build:
