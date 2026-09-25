@@ -1,6 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -568,7 +570,17 @@ describe.runIf(restoreSupported)("private archive and owned restore on PostgreSQ
     let tlsUrl: string;
     let root: string;
     let wrong: string;
+    let tlsHost: string;
+    let wrongHost: string;
     beforeAll(async () => {
+      // The certificate names the host testcontainers publishes ports on:
+      // localhost on a workstation, the `docker` service under CI's docker:dind,
+      // where localhost reaches nothing. The wrong-host case connects to that
+      // host's address, which reaches the same server under a name the
+      // certificate does not carry, so it fails on the name and not on routing.
+      const published = new URL(databaseUrl).hostname;
+      tlsHost = isIP(published) === 0 ? published : "localhost";
+      wrongHost = (await lookup(tlsHost, { family: 4 })).address;
       root = join(dir, "ca.crt");
       wrong = join(dir, "wrong.crt");
       for (const name of ["ca", "wrong"])
@@ -593,7 +605,7 @@ describe.runIf(restoreSupported)("private archive and owned restore on PostgreSQ
         "rsa:2048",
         "-nodes",
         "-subj",
-        "/CN=localhost",
+        `/CN=${tlsHost}`,
         "-keyout",
         join(dir, "server.key"),
         "-out",
@@ -601,7 +613,7 @@ describe.runIf(restoreSupported)("private archive and owned restore on PostgreSQ
       ]);
       await writeFile(
         join(dir, "extensions"),
-        "subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n"
+        `subjectAltName=DNS:${tlsHost}\nextendedKeyUsage=serverAuth\n`
       );
       await exec("openssl", [
         "x509",
@@ -633,7 +645,7 @@ describe.runIf(restoreSupported)("private archive and owned restore on PostgreSQ
           ])
       );
       const url = new URL(tlsContainer.getConnectionUri());
-      url.hostname = "localhost";
+      url.hostname = tlsHost;
       url.searchParams.set("sslmode", "verify-full");
       url.searchParams.set("sslrootcert", root);
       tlsUrl = url.toString();
@@ -691,7 +703,7 @@ describe.runIf(restoreSupported)("private archive and owned restore on PostgreSQ
         const url = new URL(failure === "non-tls" ? databaseUrl : tlsUrl);
         url.searchParams.set("sslmode", "verify-full");
         url.searchParams.set("sslrootcert", failure === "wrong-ca" ? wrong : root);
-        if (failure === "wrong-host") url.hostname = "127.0.0.1";
+        if (failure === "wrong-host") url.hostname = wrongHost;
         await expect(
           createBackup({
             databaseUrl: url.toString(),
