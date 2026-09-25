@@ -230,7 +230,7 @@ describe("the public SDK mixed-language example against the real API", () => {
       {
         cwd: installedExample,
         env: driverEnvironment,
-        timeoutMs: 60_000
+        timeoutMs: 150_000
       }
     );
     result = JSON.parse(stdout) as DriverResult;
@@ -250,7 +250,7 @@ describe("the public SDK mixed-language example against the real API", () => {
       }
       throw setupError;
     }
-  }, 240_000);
+  }, 360_000);
 
   afterAll(cleanup);
 
@@ -331,7 +331,7 @@ describe("the public SDK mixed-language example against the real API", () => {
       {
         cwd: installedExample,
         env: driverEnvironment,
-        timeoutMs: 60_000
+        timeoutMs: 150_000
       }
     );
     expect(completed.status).not.toBe(0);

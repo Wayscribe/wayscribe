@@ -226,7 +226,7 @@ export async function runMixedLanguage(options) {
   const total = new globalThis.AbortController();
   const totalTimer = setTimeout(
     () => total.abort(new Error("mixed-language run exceeded its total deadline")),
-    options.totalTimeoutMs ?? 30_000
+    options.totalTimeoutMs ?? 120_000
   );
   const children = [];
   let buildDirectory;
@@ -251,7 +251,9 @@ export async function runMixedLanguage(options) {
         cwd: here,
         env: goEnvironment
       },
-      15_000,
+      // A bound against a hung toolchain, not a speed target: a first build
+      // with an empty Go cache on a busy CI runner took longer than 15 s.
+      90_000,
       DEFAULT_OUTPUT_LIMIT,
       total.signal
     );
