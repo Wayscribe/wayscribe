@@ -69,6 +69,22 @@ trap 'rm -rf "$tools"' EXIT
 "$tools/bin/python" -m pip install --quiet --disable-pip-version-check $BUILD_TOOLS
 "$tools/bin/twine" check --strict "$dist"/*
 
+# twine attaches an attestation only when its file is among the arguments; it
+# never looks beside a distribution for one. Upload the four files by name, and
+# ask twine's own input splitter now whether each distribution has its
+# attestation, so the dry run on main catches what the release job would.
+WHEEL=$dist/wayscribe-$VERSION-py3-none-any.whl
+SDIST=$dist/wayscribe-$VERSION.tar.gz
+set -- "$WHEEL" "$SDIST" "$WHEEL.publish.attestation" "$SDIST.publish.attestation"
+"$tools/bin/python" - "$@" <<'EOF'
+import sys
+from twine.commands import _split_inputs
+uploads, _, attestations = _split_inputs(sys.argv[1:])
+missing = [u for u in uploads if len(attestations.get(u, [])) != 1]
+if len(uploads) != 2 or missing:
+    sys.exit(f"FAIL: twine would upload {uploads} without an attestation for {missing}")
+EOF
+
 if [ "${DRY_RUN:-}" = "1" ]; then
   echo "DRY RUN: $TAG builds and checks; nothing uploaded to $INDEX."
   exit 0
@@ -77,6 +93,8 @@ fi
 [ -n "$ID_TOKEN" ] || fail "no OIDC token for $INDEX; run this from the GitLab release job"
 [ -n "${SIGSTORE_ID_TOKEN:-}" ] || fail "no SIGSTORE_ID_TOKEN; the attestations cannot be signed"
 
-set -- "$dist/wayscribe-$VERSION-py3-none-any.whl" "$dist/wayscribe-$VERSION.tar.gz"
-"$tools/bin/python" -m pypi_attestations sign "$@"
+"$tools/bin/python" -m pypi_attestations sign "$WHEEL" "$SDIST"
+for file in "$WHEEL" "$SDIST"; do
+  [ -s "$file.publish.attestation" ] || fail "pypi_attestations wrote no attestation for $file"
+done
 TWINE_NON_INTERACTIVE=1 "$tools/bin/twine" upload --repository "$INDEX" --attestations "$@"
