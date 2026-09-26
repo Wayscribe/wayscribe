@@ -45,6 +45,12 @@ for IMAGE in "$@"; do
 
   # `push-by-digest` uploads the manifests without creating a tag, and
   # `name-canonical` records the repository@digest form in the metadata.
+  # `oci-artifact=false` keeps the provenance attestation in the index form
+  # BuildKit wrote before v0.32. The newer form points back at the image
+  # manifest through `subject` and is pushed first, and gitlab.com's registry
+  # refuses a reference to a manifest it has not received yet: the v0.2.0
+  # publish failed twice with `blob unknown to registry` naming the image
+  # manifest (moby/buildkit#7007).
   #
   # The build arguments are what `GET /ready` reports as the running version
   # (F-007), and what the web app's version line reports as its own (F-045).
@@ -57,7 +63,7 @@ for IMAGE in "$@"; do
     --build-arg "WAYSCRIBE_BUILD_VERSION=$TAG" \
     --build-arg "WAYSCRIBE_BUILD_COMMIT=$COMMIT" \
     --file "$DOCKERFILE" \
-    --output "type=image,name=$REPOSITORY,push-by-digest=true,name-canonical=true,push=true" \
+    --output "type=image,name=$REPOSITORY,push-by-digest=true,name-canonical=true,oci-artifact=false,push=true" \
     --metadata-file "$METADATA" \
     .
 

@@ -21,6 +21,8 @@ variables:
   # The web package's scripts set this too; here it also covers any job that
   # reaches Next another way. Next otherwise reports usage to Vercel.
   NEXT_TELEMETRY_DISABLED: "1"
+  # The builder publish-images and its rehearsal use: BuildKit v0.32.2.
+  BUILDKIT_IMAGE: "moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8"
 
 stages:
   - verify
@@ -770,7 +772,11 @@ publish-images:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     # buildx for multi-arch: the images are built on x86 runners and a great
     # many developers are on arm64 laptops.
-    - docker buildx create --use --name wayscribe-builder
+    # BuildKit pinned by digest: the floating `buildx-stable-1` moved to v0.32,
+    # whose default attestation form gitlab.com's registry rejects (see
+    # scripts/publish-image.sh), and a release should not change builder
+    # between rehearsal and tag.
+    - docker buildx create --use --name wayscribe-builder --driver-opt "image=$BUILDKIT_IMAGE"
   script:
     # Both images are pushed by digest with no tag, an SBOM per platform is
     # attached, each digest is signed and verified the way an operator will
@@ -787,6 +793,35 @@ publish-images:
     when: always
     paths:
       - sboms/
+
+# publish-images against the real registry, under a throwaway path, with the
+# signing calls printed instead of made (DRY_RUN=1). gitlab.com's registry is
+# stricter than a local one about the order manifests arrive in, and the v0.2.0
+# tag pipeline was the first place that showed. Play it on the branch that
+# changes the build or the builder, and before any release tag after a long gap.
+# The rehearsal/ repositories can be deleted at any time.
+publish-images-rehearsal:
+  stage: release
+  image: docker:27-cli
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      when: manual
+      allow_failure: true
+  needs: []
+  before_script:
+    - apk add --no-cache jq
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker buildx create --use --name wayscribe-builder --driver-opt "image=$BUILDKIT_IMAGE"
+  script:
+    - >-
+      DRY_RUN=1 scripts/publish-image.sh "rehearsal-$CI_COMMIT_SHORT_SHA"
+      "apps/api/Dockerfile=$CI_REGISTRY_IMAGE/rehearsal/api"
+      "apps/web/Dockerfile=$CI_REGISTRY_IMAGE/rehearsal/web"
 
 # npm trusted publishing with provenance. There is no npm credential in this
 # project: GitLab mints NPM_ID_TOKEN for this job alone, npm exchanges it for a
