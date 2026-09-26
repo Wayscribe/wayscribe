@@ -975,14 +975,18 @@ async function main() {
     j4.json
   );
 
-  // Migration 020 has no backfill. An event the baseline stored says its
-  // aliases were not recorded, which is null and not an empty list, and its
-  // journey still has them; an event this build stored says what it stated.
+  // Migration 020 has no backfill. An event stored by a baseline older than it
+  // says its aliases were not recorded, which is null and not an empty list,
+  // and its journey still has them. A baseline that already has 020 (v0.1.0
+  // does) recorded them, and the upgrade must return exactly what it did. An
+  // event this build stored says what it stated.
   const oldEvent = await request("GET", "/v1/events/evt_upgrade_j1_received");
+  const oldEventAliases = recorded.get("event evt_upgrade_j1_received")?.data?.aliases ?? null;
   check(
-    oldEvent.status === 200 && oldEvent.json.data.aliases === null,
-    "after upgrade: an event the baseline stored reads aliases null, not recorded",
-    oldEvent.json?.data?.aliases
+    oldEvent.status === 200 &&
+      JSON.stringify(oldEvent.json.data.aliases) === JSON.stringify(oldEventAliases),
+    `after upgrade: an event the baseline stored reads the aliases the baseline reported (${oldEventAliases === null ? "null, not recorded" : "recorded"})`,
+    { baseline: oldEventAliases, current: oldEvent.json?.data?.aliases }
   );
   const newEvent = await request("GET", "/v1/events/evt_upgrade_j4_received");
   check(
