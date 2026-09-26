@@ -4,7 +4,8 @@ This checklist is ordered to produce a working vertical slice early.
 
 **State as of 2026-09-20.** Epics 0 through 14 are implemented and merged; the
 boxes below were audited against the code and committed review evidence rather
-than ticked from memory. The 0.1.0 preview is published. What remains for V0 is
+than ticked from memory. The 0.1.0 preview is published, and 0.2.0 followed on
+2026-09-26 with the Epic 16 items ticked below. What remains for V0 is
 the human evidence for clean-machine onboarding, time to first journey,
 first-contact clarity and outside-pilot feedback.
 
@@ -336,16 +337,21 @@ the honest picture.
       through the real local dry run, verify a clean wheel install and a real
       queryable worker. Published on PyPI as `wayscribe` 0.2.0.
 - [ ] Dogfood the Python SDK in the live Leadline project.
-- [ ] Build the native Go SDK with the same fixture and dry-run gates, idiomatic
-      context and cancellation, concurrency safety, and race tests.
-- [ ] Exercise one Node → Python → Go journey with identity, transformation,
-      retry/failure, and HTTP or queue-style propagation.
-- [ ] Add an explicit setup check and secret-masked redaction preview over the
-      dry-run contract without silently storing journey events.
-- [ ] Add optional OTLP logs over HTTP, disabled by default, after the native
+- [x] Build the native Go SDK with the same fixture and dry-run gates, idiomatic
+      context and cancellation, concurrency safety, and race tests. Published
+      as the module `wayscribe.dev/go` v0.2.0.
+- [x] Exercise one Node → Python → Go journey with identity, transformation,
+      retry/failure, and HTTP or queue-style propagation
+      (`examples/mixed-language`).
+- [x] Add an explicit setup check and secret-masked redaction preview over the
+      dry-run contract without silently storing journey events (`wayscribe
+      check`, `wayscribe preview`).
+- [x] Add optional OTLP logs over HTTP, disabled by default, after the native
       SDKs. Traces, metrics, gRPC, and a required Collector stay out of scope.
-- [ ] Add PostgreSQL backup and isolated-restore helpers with separate key
-      custody and no overwrite of an existing database.
+      Released in 0.2.0 (`docs/OTLP_LOGS.md`).
+- [x] Add PostgreSQL backup and isolated-restore helpers with separate key
+      custody and no overwrite of an existing database. Released in 0.2.0
+      (`docs/OPERATIONS.md`); verify and restore need PostgreSQL 17 or newer.
 - [ ] Add bounded per-project ingestion controls shared by native and OTLP
       paths, with honest process and replica scope.
 - [ ] Add a project-scoped view-only capability for journey status and

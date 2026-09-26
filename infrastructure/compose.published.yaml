@@ -17,7 +17,7 @@
 # reads, so the one-off commands below see the same stack.
 #
 # WAYSCRIBE_VERSION is required, and names a release by its git tag, v
-# included (releases are 0.x, so a tag looks like v0.1.0). There is no `latest`
+# included (releases are 0.x, so a tag looks like v0.2.0). There is no `latest`
 # fallback on purpose: the migrate service applies the schema of whatever image
 # it pulls, so an unpinned `docker compose pull` could move a database forward
 # across a minor release, which before 1.0 may change the API, with no way
@@ -69,13 +69,13 @@ services:
   # schema. If your team applies migrations through its own process, skip this
   # service and run the same command when you choose to.
   migrate:
-    image: registry.gitlab.com/jojithedev/wayscribe/api:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag to run, such as v0.1.0}
+    image: registry.gitlab.com/jojithedev/wayscribe/api:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag to run, such as v0.2.0}
     environment: *database
     entrypoint: ["node", "packages/database/dist/cli.js", "migrate"]
     restart: "no"
 
   api:
-    image: registry.gitlab.com/jojithedev/wayscribe/api:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag to run, such as v0.1.0}
+    image: registry.gitlab.com/jojithedev/wayscribe/api:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag to run, such as v0.2.0}
     environment:
       <<: *database
       # Where this stack is reached from outside. A second stack on other
@@ -120,7 +120,7 @@ services:
         condition: service_completed_successfully
 
   web:
-    image: registry.gitlab.com/jojithedev/wayscribe/web:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag to run, such as v0.1.0}
+    image: registry.gitlab.com/jojithedev/wayscribe/web:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag to run, such as v0.2.0}
     environment:
       # Server-side only. The browser never contacts the API, so this is the
       # internal service name rather than a host-reachable address.

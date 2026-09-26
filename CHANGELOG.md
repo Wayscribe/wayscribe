@@ -14,8 +14,35 @@ changes far less often.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-26
+
+The `api` and `web` images are tagged `v0.2.0` and `@wayscribe/node` is 0.2.0.
+The Go SDK gets its first public tag, `packages/sdk-go/v0.2.0`.
+
 ### Added
 
+- **Optional OTLP log ingestion.** `POST /v1/logs` accepts annotated
+  OpenTelemetry log records (JSON or protobuf, optionally gzip) and maps them to
+  journey events. It is off by default and turned on with
+  `OTLP_LOGS_ENABLED=true` (Helm: `api.otlpLogsEnabled`). Logs only: no
+  traces, metrics or gRPC ([OTLP logs](docs/OTLP_LOGS.md)).
+- **OTLP examples**: `examples/otlp-json` (curl with a JSON export),
+  `examples/otlp-java` (a Java service) and `examples/otlp-collector` (an
+  OpenTelemetry Collector forwarding logs), alongside `examples/otlp-logs`
+  ([OTLP logs](docs/OTLP_LOGS.md#examples-and-local-verification)).
+- The Go SDK is published as the module `wayscribe.dev/go`
+  (`go get wayscribe.dev/go@v0.2.0`, Go 1.22 or newer), with no third-party Go
+  dependencies ([packages/sdk-go](packages/sdk-go/README.md)).
+  `examples/go-worker`, `examples/python-worker` and `examples/mixed-language`
+  show the native SDKs, including one journey across Node, Python and Go.
+- **CLI ingestion check and redaction preview.** `wayscribe check` confirms an
+  ingestion key, URL and environment through the server dry run, and
+  `wayscribe preview` shows a batch file in its stored, redacted form. Neither
+  stores journey evidence ([packages/cli](packages/cli/README.md)).
+- **Database backup helpers** in a source checkout: `pnpm run backup:create`,
+  `backup:verify` and `backup:restore`. Verify and restore need a PostgreSQL 17
+  or newer server
+  ([OPERATIONS.md](docs/OPERATIONS.md#from-a-source-checkout)).
 - The Python SDK is published on PyPI as
   [`wayscribe`](https://pypi.org/project/wayscribe/) 0.2.0
   (`pip install wayscribe`, Python 3.11 or newer). It is released on its own

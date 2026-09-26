@@ -44,12 +44,13 @@ ids onto each event, so you can move between the two. It never writes
 `traceparent`; OpenTelemetry owns that header.
 
 [ADR-049](DECISIONS.md#adr-049-the-contract-is-the-deliverable-and-a-second-sdk-waits-for-a-team-that-needs-one)
-makes OpenTelemetry log records over OTLP HTTP a planned, optional way to send
-events, and [ADR-065](DECISIONS.md#adr-065-python-then-go-then-optional-otlp-on-one-propagation-contract)
+makes OpenTelemetry log records over OTLP HTTP an optional way to send events,
+and [ADR-065](DECISIONS.md#adr-065-python-then-go-then-optional-otlp-on-one-propagation-contract)
 places it after the Python and Go SDKs. It rejected becoming a pure
 OpenTelemetry backend: the pairing of input and output that the payload diff
-depends on would become a convention nothing enforces. OTLP ingestion is not
-built yet.
+depends on would become a convention nothing enforces. OTLP log ingestion
+shipped in 0.2.0: `POST /v1/logs` is off by default and turned on with
+`OTLP_LOGS_ENABLED=true` ([OTLP logs](OTLP_LOGS.md)).
 
 ## Why is Node the first SDK?
 
@@ -68,8 +69,8 @@ optional OTLP log ingestion; languages after Go follow what pilot teams ask
 for. The Python SDK is published on PyPI as `wayscribe` 0.2.0: all applicable
 SDK and propagation fixtures pass, its captured bytes pass the real dry-run API,
 and an install from the index records from outside the checkout. Its Leadline
-pilot is still open. The Go SDK (module `wayscribe.dev/go`) and optional OTLP log
-ingestion are built too, and are not yet released.
+pilot is still open. The Go SDK is published as the module `wayscribe.dev/go`
+v0.2.0, and optional OTLP log ingestion is in the 0.2.0 images.
 
 What was built instead is the contract a recorder in any language is written
 against: the [ingestion contract](INGESTION_CONTRACT.md), JSON Schema generated

@@ -2352,4 +2352,5 @@ than letting the Collector retry. A 200 permanent partial success reports the
 rejected count and, in `error_message`, the first refusal codes with counts;
 the API also logs the codes. See
 [OTLP logs](OTLP_LOGS.md) and the [official exporter example](../examples/otlp-logs/README.md).
-Local source/Helm/Compose verification does not publish an image or deploy it.
+The published API images include the receiver from `v0.2.0`, disabled unless
+`OTLP_LOGS_ENABLED=true`.

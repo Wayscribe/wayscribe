@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { LEGAL_FILES, releaseManifest } from "./release-manifest.mjs";
+import { LEGAL_FILES, releaseManifest, releaseReadme } from "./release-manifest.mjs";
 
 /**
  * Pack the release tarball: `node scripts/pack.mjs <destination>`.
@@ -46,6 +46,8 @@ try {
   const manifestPath = join(directory, "package.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   writeFileSync(manifestPath, `${JSON.stringify(releaseManifest(manifest), null, 2)}\n`);
+  const readmePath = join(directory, "README.md");
+  writeFileSync(readmePath, releaseReadme(readFileSync(readmePath, "utf8"), manifest.version));
   for (const name of LEGAL_FILES) {
     copyFileSync(join(repositoryRoot, name), join(directory, name));
   }

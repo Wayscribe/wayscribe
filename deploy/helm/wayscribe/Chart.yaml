@@ -2,8 +2,8 @@ apiVersion: v2
 name: wayscribe
 description: Record-level debugging for distributed workflows, on a local cluster
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
 home: https://gitlab.com/jojithedev/wayscribe
 sources:
   - https://gitlab.com/jojithedev/wayscribe

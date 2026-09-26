@@ -5,13 +5,13 @@ template: splash
 editUrl: false
 banner:
   content: |
-    Wayscribe 0.1.0 is a published preview. Pin the SDK and images to this release; minor versions may change the API before 1.0.
+    Wayscribe 0.2.0 is a published preview. Pin the SDK and images to this release; minor versions may change the API before 1.0.
 hero:
   title: A customer's record is wrong, and you can't tell which service changed it.
-  tagline: Wayscribe follows one record across your services, shows what each step received and produced, and points at the field that changed. Install the verified 0.1.0 preview on your own PostgreSQL.
+  tagline: Wayscribe follows one record across your services, shows what each step received and produced, and points at the field that changed. Install the 0.2.0 preview on your own PostgreSQL.
   actions:
-    - text: Install 0.1.0
-      link: /docs/quick-start/#install-010-without-a-checkout
+    - text: Install 0.2.0
+      link: /docs/quick-start/#install-020-without-a-checkout
       icon: right-arrow
     - text: Watch the demo
       link: "#watch-the-demo"
@@ -186,7 +186,7 @@ token and encryption key before the stack holds anything real; the
 Install the Node SDK by exact version:
 
 ```bash
-npm install @wayscribe/node@0.1.0
+npm install @wayscribe/node@0.2.0
 ```
 
 The [Node SDK guide](/docs/sdk/) also explains how to pack an unreleased source
@@ -255,10 +255,11 @@ needs Node.js 22.12 or later and has no runtime dependencies.
   source. The pre-release security review it cites (2026-09-16) was done by an
   AI review agent at the maintainer's direction. It is not an independent audit,
   and no outside party has reviewed the code.
-- **A verified 0.x preview.** `@wayscribe/node@0.1.0` and the API and web images
-  for `v0.1.0` are public with provenance, Sigstore signatures, and signed
-  CycloneDX SBOM attestations. The automated public install ran on an existing
-  ARM64 development host; it was not an unaided clean-machine trial. See the
+- **A 0.x preview.** `@wayscribe/node@0.2.0` and the API and web images for
+  `v0.2.0` are public. For 0.1.0, provenance, Sigstore signatures, and signed
+  CycloneDX SBOM attestations were verified, and an automated public install
+  ran on an existing ARM64 development host; it was not an unaided
+  clean-machine trial. That verification has not been repeated for 0.2.0. See the
   [release status and verification record](/docs/overview/#status). A minor
   release may change the API before 1.0.
 - **How it is built.** AI agents write most of the code; the maintainer makes

@@ -56,7 +56,7 @@ pipeline, and each platform's image carries a signed CycloneDX software bill of
 materials. The
 signing certificate names the pipeline and the release tag, so a check like this
 one proves the image came from a tagged release of this repository. Replace
-`vX.Y.Z` with the release you run; releases will be 0.x, such as `v0.1.0`:
+`vX.Y.Z` with the release you run; releases will be 0.x, such as `v0.2.0`:
 
 ```bash
 cosign verify registry.gitlab.com/jojithedev/wayscribe/api:vX.Y.Z \

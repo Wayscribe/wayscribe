@@ -198,5 +198,5 @@ Each example was run against a real local API, and CI checks each one.
 Compose source and published-image definitions expose only
 `OTLP_LOGS_ENABLED` and `OTLP_MAX_REQUEST_BYTES`; Helm exposes
 `api.otlpLogsEnabled` and `api.otlpMaxRequestBytes`. Defaults preserve existing
-behavior. Source implementation and local rendering do not imply published
-images or a deployment contain the receiver.
+behavior. The published API images include the receiver from `v0.2.0`, disabled
+unless `OTLP_LOGS_ENABLED=true`.

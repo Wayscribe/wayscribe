@@ -221,7 +221,7 @@ For a common stack, start from a [recipe](docs/recipes/README.md).
 Install the released SDK by exact version:
 
 ```bash
-npm install @wayscribe/node@0.1.0
+npm install @wayscribe/node@0.2.0
 ```
 
 To use source changes that have not been released, pack the SDK from a clone,
@@ -231,7 +231,7 @@ commit the tarball to your application, and depend on it by path:
 pnpm install
 pnpm --silent --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
 cd /path/to/your-app
-npm install ./vendor/wayscribe-node-0.1.0.tgz   # records "file:vendor/…tgz"
+npm install ./vendor/wayscribe-node-0.2.0.tgz   # records "file:vendor/…tgz"
 ```
 
 A tarball is a built copy that travels with your application. A path into the
@@ -420,17 +420,23 @@ wrong the first time and say so.
 
 ## Status
 
-**The 0.1.0 preview is published.**
+**The 0.2.0 preview is published.**
 
 Ingestion, search, journey timelines, field-level diffs, the Node SDK,
 cross-process propagation, retention, the demo, development replay, and a
-read-only CLI are built, tested, and released. `@wayscribe/node@0.1.0` and the
-`api:v0.1.0` and `web:v0.1.0` images are public. npm provenance points at release
-commit `f6707c66ea2697a199871a4ef4263e52aa34c11c`; both image indexes and their
-linux/amd64 and linux/arm64 manifests have verified Sigstore signatures and
-signed CycloneDX SBOM attestations.
+read-only CLI were released in 0.1.0. 0.2.0 adds the native Python and Go SDKs,
+optional OTLP log ingestion (off by default), the CLI ingestion check and
+redaction preview, and database backup helpers. `@wayscribe/node@0.2.0`, the
+`api:v0.2.0` and `web:v0.2.0` images, the Go module `wayscribe.dev/go` v0.2.0
+and the Python package `wayscribe` 0.2.0 are public. [CHANGELOG.md](CHANGELOG.md)
+lists what changed.
 
-The protected-tag [release pipeline](https://gitlab.com/jojithedev/wayscribe/-/pipelines/2865565660)
+The 0.1.0 release was verified in detail; that verification has not been
+repeated for 0.2.0. For 0.1.0, npm provenance points at release commit
+`f6707c66ea2697a199871a4ef4263e52aa34c11c`; both image indexes and their
+linux/amd64 and linux/arm64 manifests have verified Sigstore signatures and
+signed CycloneDX SBOM attestations. Its protected-tag
+[release pipeline](https://gitlab.com/jojithedev/wayscribe/-/pipelines/2865565660)
 passed 23 jobs. An automated installation then used only the tagged public
 Compose files, public images, and public npm package on an existing ARM64 macOS
 Docker host. It applied migrations, passed all 12 `doctor` checks, recorded and
@@ -452,13 +458,12 @@ published on PyPI as [`wayscribe`](https://pypi.org/project/wayscribe/) 0.2.0
 (`pip install wayscribe`), with a publish attestation on each file; the Leadline
 pilot is still a separate open gate.
 
-The native [Go SDK](packages/sdk-go/README.md) is an unpublished Go 1.26
-development module with standard-library-only runtime and test dependencies. Its
-35 applicable fixtures pass from public-recorder request bytes through the real
-dry-run API, and the external [Go worker example](examples/go-worker/README.md)
-proves a searchable completed journey through a local module replacement. Its
-development identity is `wayscribe.dev/go` / `0.1.0-dev`; no public module release is
-claimed.
+The native [Go SDK](packages/sdk-go/README.md) is published as the module
+`wayscribe.dev/go` v0.2.0 (`go get wayscribe.dev/go@v0.2.0`, Go 1.22 or newer),
+with standard-library-only runtime and test dependencies. Its 35 applicable
+fixtures pass from public-recorder request bytes through the real dry-run API,
+and the external [Go worker example](examples/go-worker/README.md) proves a
+searchable completed journey through a local module replacement.
 
 An adversarial audit of the first-contact experience on 2026-08-09 found that
 the demo which verified all of it was systematically narrow: ten flat
@@ -485,9 +490,9 @@ ones and not a credential in an unfamiliar shape (ADR-046). The
 The source quick start above remains useful for the broken demo and for
 contributors. The released installation below needs no checkout.
 
-## Install 0.1.0 without a checkout
+## Install 0.2.0 without a checkout
 
-These commands download Compose files from the immutable `v0.1.0` tag and pull
+These commands download Compose files from the immutable `v0.2.0` tag and pull
 the released images. They need no source checkout.
 
 [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
@@ -498,9 +503,9 @@ expects you to bring your own: the one your team already backs up, monitors,
 and holds the credentials for.
 
 ```bash
-curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.1.0/infrastructure/compose.published.yaml
+curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.0/infrastructure/compose.published.yaml
 export COMPOSE_FILE=compose.published.yaml
-export WAYSCRIBE_VERSION=v0.1.0
+export WAYSCRIBE_VERSION=v0.2.0
 
 export DATABASE_URL=postgresql://user:password@db.internal:5432/wayscribe
 export ENCRYPTION_KEY=$(openssl rand -hex 32)
@@ -519,7 +524,7 @@ To try it without standing a database up first, add the bundled overlay to that
 list. It runs PostgreSQL alongside and sets `DATABASE_URL` for you:
 
 ```bash
-curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.1.0/infrastructure/compose.bundled.yaml
+curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.0/infrastructure/compose.bundled.yaml
 export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
 docker compose up -d
 ```
@@ -625,7 +630,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention, deleting data, `doctor`, metrics |
 | [Node SDK](packages/sdk-node/README.md) | The SDK's full surface |
 | [Python SDK](packages/sdk-python/README.md) | The native Python recorder (`pip install wayscribe`), configuration and lifecycle |
-| [Go SDK](packages/sdk-go/README.md) | The unpublished native Go recorder, configuration and lifecycle |
+| [Go SDK](packages/sdk-go/README.md) | The native Go recorder (`wayscribe.dev/go`), configuration and lifecycle |
 | [SDK specification](docs/SDK_SPEC.md) | What a recorder in any language must do, as numbered requirements with a source for each |
 | [Propagation specification](docs/PROPAGATION_SPEC.md) | The fixed HTTP, SQS/SNS, and payload-envelope carrier contract and language-neutral vectors |
 | [Demo scenario](docs/DEMO_SCENARIO.md) | The reference journey, end to end |
@@ -671,7 +676,7 @@ packages/
   protocol/             event schema and version
   sdk-node/             published as @wayscribe/node
   sdk-python/           published as wayscribe on PyPI, plus its conformance driver
-  sdk-go/               unpublished Go SDK and public fixture driver
+  sdk-go/               Go SDK (wayscribe.dev/go) and public fixture driver
   cli/                  read-only CLI over the HTTP API
   database/             migrations, repositories, operator CLI
   payload-security/     redaction, encryption, keys, search tokens

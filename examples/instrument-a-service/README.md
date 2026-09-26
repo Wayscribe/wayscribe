@@ -70,5 +70,5 @@ WAYSCRIBE_URL=http://localhost:8081 WAYSCRIBE_WEB=http://localhost:3001 \
 In your own project, install the released SDK by exact version:
 
 ```bash
-npm install @wayscribe/node@0.1.0
+npm install @wayscribe/node@0.2.0
 ```

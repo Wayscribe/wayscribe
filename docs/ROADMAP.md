@@ -15,10 +15,11 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. The 0.1.0 preview is published:
-`@wayscribe/node@0.1.0` and signed multi-platform API and web images. On
-its protected tag, the release pipeline passed every required job.
-Counted on 2026-09-20: 3,422 unit tests, 979 integration tests on each of PostgreSQL 15,
+the step against a development destination. The 0.2.0 preview is published:
+`@wayscribe/node@0.2.0`, the `v0.2.0` API and web images, the Go module
+`wayscribe.dev/go` v0.2.0 and the Python package `wayscribe` 0.2.0. The 0.1.0
+preview came first, with signed multi-platform images; on its protected tag,
+the release pipeline passed every required job. Counted on 2026-09-20: 3,422 unit tests, 979 integration tests on each of PostgreSQL 15,
 17 and 18, 796 SDK tests on each of Node 22.12.0 and 24, two 71-test browser
 runs, and 7 release acceptance tests. The
 [release verification](reviews/2026-09-20-release-verification.md) records the
@@ -73,23 +74,28 @@ Presenting the work, and closing what the last review opened.
   release is uploaded from GitLab CI with trusted publishing and a publish
   attestation on each file. Adding a Python service to Leadline
   remains a separate open pilot gate.
-- **A native Go SDK, after Python.** It uses the same contracts and literal
-  propagation vectors, sends directly to the existing API, and adds idiomatic
-  context, cancellation, concurrency safety and race tests. It is followed by a
-  mixed Node → Python → Go workflow; neither the SDK nor that workflow is built
-  yet.
-- **Optional OpenTelemetry log ingest, after Go.** `POST /v1/logs` accepts OTLP
+- ~~**A native Go SDK, after Python.**~~ **Published as `wayscribe.dev/go`
+  v0.2.0:** it uses the same contracts and literal propagation vectors, sends
+  directly to the existing API, and adds idiomatic context, cancellation,
+  concurrency safety and race tests. `examples/mixed-language` carries one
+  journey from Node through Python to Go.
+- ~~**Optional OpenTelemetry log ingest, after Go.**~~ **Shipped in 0.2.0,
+  off by default:** `POST /v1/logs` accepts OTLP
   over HTTP only when enabled, so a team already exporting logs can map them
   onto journey events without adding a recorder. gRPC, traces and metrics are
   out of scope. Native SDKs do not depend on this path. The Node SDK stays the
   recommended path for Node because a recorder enforces the input/output pairing
-  the payload diff needs. The endpoint is planned and is not built yet.
+  the payload diff needs. `OTLP_LOGS_ENABLED=true` turns it on
+  ([OTLP logs](OTLP_LOGS.md)).
 - **Practical self-hosting additions after the carrier contract.** The approved
   program includes a setup check and secret-masked redaction preview over dry
   run; backup and isolated-restore helpers; bounded per-project ingestion
   controls with explicit replica scope; and a project-scoped view-only
-  capability that excludes payloads, replay, deletion and administration. Each
-  is separate implementation work and none is shipped yet (ADR-065).
+  capability that excludes payloads, replay, deletion and administration
+  (ADR-065). **Shipped in 0.2.0:** the setup check and redaction preview
+  (`wayscribe check`, `wayscribe preview`) and the backup, verify and restore
+  helpers (verify and restore need PostgreSQL 17 or newer). The ingestion
+  controls and the view-only capability are not built yet.
 
 - ~~**Per-record timing and context, before the first release.**~~ **Built:**
   Wayscribe presents bounded evidence about one record; aggregate latency and

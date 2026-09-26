@@ -6,9 +6,9 @@ retry, and completion. Its input has a secret-named field so the stored payload
 shows client-side redaction while the phone change remains available as a field
 diff.
 
-The Go SDK is an unpublished development module. From this repository checkout,
-the example's `go.mod` uses a local `replace` directive rather than implying that
-the module can be downloaded from a public registry.
+The Go SDK is published as `wayscribe.dev/go`. This example's `go.mod` uses a
+local `replace` directive so it builds against this repository checkout; in your
+own module, run `go get wayscribe.dev/go@v0.2.0` instead.
 
 Configure the worker explicitly in application code:
 

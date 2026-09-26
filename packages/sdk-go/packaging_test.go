@@ -25,8 +25,8 @@ func TestModuleIdentityLegalFilesAndDependencies(t *testing.T) {
 	if string(goMod) != "module wayscribe.dev/go\n\ngo 1.22\n" {
 		t.Fatalf("unexpected module declaration:\n%s", goMod)
 	}
-	if SDKName != "wayscribe.dev/go" || Version != "0.1.0-dev" {
-		t.Fatalf("unexpected development identity %s/%s", SDKName, Version)
+	if SDKName != "wayscribe.dev/go" || Version != "0.2.0" {
+		t.Fatalf("unexpected module identity %s/%s", SDKName, Version)
 	}
 
 	root := filepath.Clean(filepath.Join(module, "../.."))

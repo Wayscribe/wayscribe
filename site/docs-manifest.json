@@ -15,7 +15,7 @@
         {
           "source": "README.md",
           "sections": [
-            "Install 0.1.0 without a checkout",
+            "Install 0.2.0 without a checkout",
             "Try it",
             "Supported versions",
             "Instrument your own service"

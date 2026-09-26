@@ -28,3 +28,36 @@ export function releaseManifest(packed) {
     publishConfig: { access: "public" }
   };
 }
+
+/**
+ * The README a release ships, with every relative link made absolute.
+ *
+ * The repository's README links to `../../docs/...` so the documentation site
+ * (site/scripts/sync-docs.mjs) can turn those links into its own pages. On the
+ * npm page there is no repository around the file, so the same links lead
+ * nowhere. At pack time each one is resolved against this package's directory
+ * and pinned to the release tag, so the page shows the documents as they were
+ * when this version was published. Absolute URLs, `#anchors` and `mailto:` are
+ * left alone.
+ */
+export const REPOSITORY_BLOB = "https://gitlab.com/jojithedev/wayscribe/-/blob";
+export const PACKAGE_DIRECTORY = "packages/sdk-node";
+
+export function releaseReadme(markdown, version) {
+  const base = `${REPOSITORY_BLOB}/v${version}/`;
+  return markdown.replace(/\]\(([^)\s]+)\)/g, (link, target) => {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("#")) return link;
+    const hash = target.indexOf("#");
+    const path = hash === -1 ? target : target.slice(0, hash);
+    const anchor = hash === -1 ? "" : target.slice(hash);
+    const segments = [];
+    for (const part of `${PACKAGE_DIRECTORY}/${path}`.split("/")) {
+      if (part === "" || part === ".") continue;
+      if (part === "..") {
+        if (segments.length === 0) throw new Error(`README link leaves the repository: ${target}`);
+        segments.pop();
+      } else segments.push(part);
+    }
+    return `](${base}${segments.join("/")}${anchor})`;
+  });
+}
