@@ -11,7 +11,8 @@
  * one below it and no further — so `config.headers.authorization`, the shape
  * every axios error carries, was stored in the clear, along with anything
  * inside an array. Twenty-two rules covered two levels; eleven covered all of
- * them. Eight webhook signature headers joined them with ADR-055.
+ * them. Eight webhook signature headers joined them with ADR-055, and three
+ * card-number names with ADR-068.
  *
  * Breadth is a separate question from reach, and this list is deliberately
  * narrow: each name means a secret in essentially every payload it appears in.
@@ -41,5 +42,14 @@ export const DEFAULT_SECRET_PATHS: readonly string[] = Object.freeze([
   "**.x-hubspot-signature",
   "**.x-hubspot-signature-v3",
   "**.x-twilio-signature",
-  "**.x-shopify-hmac-sha256"
+  "**.x-shopify-hmac-sha256",
+  // Card numbers (ADR-068). Personal data rather than a credential, so the
+  // secret-name warning does not know them, but a stored card number is a
+  // liability in every payload it appears in, and an OTLP sender without a
+  // Collector has nothing else between it and the database. Folded, these
+  // also match `cardNumber`, `creditCardNumber` and `ccNumber`. Bare `pan` is
+  // left out: it has too many innocent meanings.
+  "**.card_number",
+  "**.credit_card_number",
+  "**.cc_number"
 ]);

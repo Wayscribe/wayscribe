@@ -223,11 +223,39 @@ class HostileBoundaryTests(unittest.TestCase):
             "x-hubspot-signature-v3",
             "x-twilio-signature",
             "x-shopify-hmac-sha256",
+            "card_number",
+            "credit_card_number",
+            "cc_number",
         ]
         payload = {key.upper().replace("-", "_"): "private" for key in names}
         self.assertEqual(
             set(event(c, d, input=payload)["input"].values()), {"[REDACTED]"}
         )
+
+    def test_card_number_spellings_are_redacted_at_every_depth(self):
+        # ADR-068: built-in names, so every spelling folds to one of them.
+        c, d, _ = setup()
+        spellings = [
+            "cardNumber",
+            "card_number",
+            "CARD-NUMBER",
+            "creditCardNumber",
+            "credit-card-number",
+            "cc_number",
+            "ccNumber",
+        ]
+        for name in spellings:
+            for payload in (
+                {name: "4111111111111111"},
+                {"order": {"payment": {name: "4111111111111111"}}},
+                {"payments": [{name: 4111111111111111}]},
+            ):
+                with self.subTest(name=name, payload=payload):
+                    stored = json.dumps(event(c, d, input=payload)["input"])
+                    self.assertNotIn("4111111111111111", stored)
+                    self.assertIn("[REDACTED]", stored)
+        kept = {"pan": "camera pan", "cardNumberLast4": "1111", "cardType": "visa"}
+        self.assertEqual(event(c, d, input=kept)["input"], kept)
 
 
 class RepairedIntegerReviewTests(unittest.TestCase):

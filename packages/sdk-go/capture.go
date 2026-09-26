@@ -24,7 +24,7 @@ const (
 
 var secrets = func() map[string]bool {
 	m := map[string]bool{}
-	for _, s := range strings.Fields("authorization proxy-authorization cookie set-cookie x-api-key password access_token refresh_token client_secret api_key secret stripe-signature x-hub-signature x-hub-signature-256 x-slack-signature x-hubspot-signature x-hubspot-signature-v3 x-twilio-signature x-shopify-hmac-sha256") {
+	for _, s := range strings.Fields("authorization proxy-authorization cookie set-cookie x-api-key password access_token refresh_token client_secret api_key secret stripe-signature x-hub-signature x-hub-signature-256 x-slack-signature x-hubspot-signature x-hubspot-signature-v3 x-twilio-signature x-shopify-hmac-sha256 card_number credit_card_number cc_number") {
 		m[fold(s)] = true
 	}
 	return m

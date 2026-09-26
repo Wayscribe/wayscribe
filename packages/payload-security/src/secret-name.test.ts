@@ -175,7 +175,7 @@ const NOT_SECRET: readonly (readonly [name: string, source: string])[] = [
   ["ClientRequestToken", "AWS idempotency"],
   ["hmac_algorithm", "webhook settings"],
   ["ssn", "personal data, not a credential; out of scope by decision"],
-  ["cardNumber", "personal data, not a credential; out of scope by decision"],
+  ["cardNumber", "personal data, not a credential; redacted by name instead (ADR-068)"],
   ["dsnName", "ODBC settings"]
 ];
 
@@ -208,9 +208,16 @@ describe("looksLikeSecretName", () => {
   });
 
   it("accepts every built-in secret name, so the walk is what keeps them quiet", () => {
-    // Shopify's header ends in its algorithm, not in a term; it is redacted by
-    // name all the same, so the heuristic need not recognise it.
-    for (const path of DEFAULT_SECRET_PATHS.filter((one) => one !== "**.x-shopify-hmac-sha256")) {
+    // Shopify's header ends in its algorithm, not in a term, and a card number
+    // is personal data, not a credential (ADR-068). They are redacted by name
+    // all the same, so the heuristic need not recognise them.
+    const byNameOnly = new Set([
+      "**.x-shopify-hmac-sha256",
+      "**.card_number",
+      "**.credit_card_number",
+      "**.cc_number"
+    ]);
+    for (const path of DEFAULT_SECRET_PATHS.filter((one) => !byNameOnly.has(one))) {
       expect(looksLikeSecretName(path.slice("**.".length)), path).toBe(true);
     }
   });

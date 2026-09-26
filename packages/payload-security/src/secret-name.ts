@@ -29,7 +29,9 @@ export interface Term {
  * bare `session` (a Stripe Checkout session id), bare `code`, plurals such as
  * `tokens` (usage counts), and personal data such as `ssn` or `cardNumber`:
  * this warns about credentials, and whether personal data is captured is the
- * capture mode's question, not a naming one.
+ * capture mode's question, not a naming one. Card-number names are redacted
+ * all the same, by name, as built-in secret paths (ADR-068); that is a rule
+ * about three exact names, not a term this heuristic matches the end of.
  */
 export const SECRET_NAME_TERMS: readonly Term[] = [
   {

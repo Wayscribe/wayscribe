@@ -135,7 +135,7 @@ func TestHostileSharedCycleLimits(t *testing.T) {
 	}
 }
 func TestAllSecretsAndHeaders(t *testing.T) {
-	names := strings.Fields("authorization proxy-authorization cookie set-cookie x-api-key password access_token refresh_token client_secret api_key secret stripe-signature x-hub-signature x-hub-signature-256 x-slack-signature x-hubspot-signature x-hubspot-signature-v3 x-twilio-signature x-shopify-hmac-sha256")
+	names := strings.Fields("authorization proxy-authorization cookie set-cookie x-api-key password access_token refresh_token client_secret api_key secret stripe-signature x-hub-signature x-hub-signature-256 x-slack-signature x-hubspot-signature x-hubspot-signature-v3 x-twilio-signature x-shopify-hmac-sha256 card_number credit_card_number cc_number")
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			for _, v := range []any{map[string]any{name: "sentinel"}, []any{[]any{name, "sentinel"}}, []any{map[string]any{"name": name, "value": "sentinel"}}, []any{map[string]any{"name": 12, "key": name, "value": "sentinel"}}, []any{"Accept", "json", name, "sentinel"}, "Accept: json\r\n" + name + ": sentinel"} {
@@ -145,6 +145,24 @@ func TestAllSecretsAndHeaders(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+func TestCardNumberSpellingsAtEveryDepth(t *testing.T) {
+	// ADR-068: built-in names, so every spelling folds to one of them.
+	for _, name := range strings.Fields("cardNumber card_number CARD-NUMBER creditCardNumber credit-card-number cc_number ccNumber") {
+		t.Run(name, func(t *testing.T) {
+			for _, v := range []any{map[string]any{name: "4111111111111111"}, map[string]any{"order": map[string]any{"payment": map[string]any{name: "4111111111111111"}}}, map[string]any{"payments": []any{map[string]any{name: 4111111111111111}}}} {
+				wire := buildTestEnvelope(t, Event{Operation: Received, Name: "x", Input: Payload(v)})
+				if bytes.Contains(wire, []byte("4111111111111111")) || !bytes.Contains(wire, []byte(redacted)) {
+					t.Fatal(string(wire))
+				}
+			}
+		})
+	}
+	kept := map[string]any{"pan": "camera pan", "cardNumberLast4": "1111", "cardType": "visa"}
+	wire := buildTestEnvelope(t, Event{Operation: Received, Name: "x", Input: Payload(kept)})
+	if bytes.Contains(wire, []byte(redacted)) {
+		t.Fatal(string(wire))
 	}
 }
 func TestLimitsRedactionBeforeTruncation(t *testing.T) {

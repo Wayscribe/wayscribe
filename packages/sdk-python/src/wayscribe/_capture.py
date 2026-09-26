@@ -45,6 +45,9 @@ SECRET_NAMES = [
     "x-hubspot-signature-v3",
     "x-twilio-signature",
     "x-shopify-hmac-sha256",
+    "card_number",
+    "credit_card_number",
+    "cc_number",
 ]
 
 

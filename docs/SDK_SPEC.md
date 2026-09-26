@@ -172,13 +172,20 @@ x-hubspot-signature
 x-hubspot-signature-v3
 x-twilio-signature
 x-shopify-hmac-sha256
+card_number
+credit_card_number
+cc_number
 ```
 
 The list is deliberately narrow: each name means a secret in essentially every
-payload it appears in. The last eight are webhook signature headers: a signature
+payload it appears in. Eight are webhook signature headers: a signature
 stored beside its body is a request the receiver accepts, and GitHub's carries no
-timestamp, so the pair stays valid for as long as the signing secret (ADR-055). A name that is only sometimes a secret belongs in an
-operator's own configuration, where over-redaction is their call to make.
+timestamp, so the pair stays valid for as long as the signing secret (ADR-055).
+The last three are card numbers, which are personal data rather than
+credentials but a liability wherever they are stored; folded, they also match
+`cardNumber`, `creditCardNumber` and `ccNumber` (ADR-068). A name that is only
+sometimes a secret belongs in an operator's own configuration, where
+over-redaction is their call to make.
 
 ### The repairs
 
@@ -653,7 +660,8 @@ exactly, so that every SDK and `doctor` agree:
 
 Personal data such as `ssn` or `cardNumber` is not on the list: the rule is
 about credentials, and whether personal data is captured is the capture mode's
-question.
+question. Card-number names are redacted all the same, as built-in secret names
+(ADR-068), so they never reach this rule.
 
 A value under such a name **could be a credential** when it is a number, or a
 string that is not empty, not `[REDACTED]`, and not, once trimmed and in lower

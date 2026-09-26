@@ -87,6 +87,43 @@ describe("the built-in list reaches real payloads", () => {
     expect(stored).toContain("hooks.example.com");
   });
 
+  it("replaces card numbers in every spelling, at every depth and inside arrays (ADR-068)", () => {
+    const spellings = [
+      "cardNumber",
+      "card_number",
+      "CARD-NUMBER",
+      "CardNumber",
+      "creditCardNumber",
+      "credit-card-number",
+      "cc_number",
+      "ccNumber",
+      "CC-NUMBER"
+    ];
+    for (const name of spellings) {
+      for (const payload of [
+        { [name]: "4111111111111111" },
+        { order: { payment: { [name]: "4111111111111111" } } },
+        { payments: [{ [name]: 4111111111111111 }] }
+      ]) {
+        const stored = store(payload);
+        expect(stored, name).not.toContain("4111111111111111");
+        expect(stored, name).toContain("[REDACTED]");
+      }
+    }
+  });
+
+  it("does not take a card number's neighbours for it", () => {
+    // `pan` is deliberately absent, and a name is matched whole, not by its end.
+    const payload = {
+      pan: "camera pan",
+      cardNumberLast4: "1111",
+      cardType: "visa",
+      giftCardNumbers: 3,
+      number: 7
+    };
+    expect(JSON.parse(store(payload))).toEqual(payload);
+  });
+
   it("leaves ordinary business data alone", () => {
     // The control. A list that redacted everything would pass every test above
     // and make the tool useless.
