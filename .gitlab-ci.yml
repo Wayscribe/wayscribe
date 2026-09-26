@@ -283,6 +283,44 @@ examples-go:
     - pnpm test:go:consumer
     - pnpm test:mixed-language
 
+# The OTLP Collector example must load in the Collector release its compose file
+# pins; `validate` parses every OTTL statement, so a typo in a processor fails
+# here. The published image has no shell, so the job uses the release binary,
+# checked against a pinned digest. The curl JSON example is covered by the
+# database job (otlp.integration.test.ts posts the committed file).
+examples-otlp-collector:
+  stage: test
+  image: alpine:3.22
+  before_script: []
+  cache: []
+  variables:
+    OTELCOL_VERSION: "0.161.0"
+    OTELCOL_SHA256: 778c689efa681ff6e4722ce9f66b9b7f57c3ba009ab2e2b43dc2e0315862c731
+    WAYSCRIBE_LOGS_ENDPOINT: http://wayscribe.invalid/v1/logs
+    WAYSCRIBE_API_KEY: validate-only-placeholder
+  script:
+    - grep -q "opentelemetry-collector-contrib:${OTELCOL_VERSION}$" examples/otlp-collector/compose.yaml
+    - wget -q -O /tmp/otelcol.tar.gz "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTELCOL_VERSION}/otelcol-contrib_${OTELCOL_VERSION}_linux_amd64.tar.gz"
+    - echo "${OTELCOL_SHA256}  /tmp/otelcol.tar.gz" | sha256sum -c -
+    - tar -xzf /tmp/otelcol.tar.gz -C /tmp otelcol-contrib
+    - /tmp/otelcol-contrib validate --config=examples/otlp-collector/collector.yaml
+
+# The Java example must compile against the OpenTelemetry release its pom pins.
+examples-otlp-java:
+  stage: test
+  image: maven:3.9-eclipse-temurin-21
+  before_script: []
+  variables:
+    MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  cache:
+    key: examples-otlp-java
+    paths:
+      - .m2/repository
+  script:
+    - cd examples/otlp-java
+    - mvn -B -q package
+    - ls target/invoice-sync-1.0.0.jar target/lib/opentelemetry-sdk-logs-1.66.0.jar
+
 # Once per PostgreSQL release docs/OPERATIONS.md supports and CI tests: 15, the
 # oldest, 17, which Compose and the Helm chart run, and 18, the newest. 16 is
 # between two tested releases and is not run. vitest.integration.config.ts reads

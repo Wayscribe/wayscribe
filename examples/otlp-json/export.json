@@ -1,0 +1,163 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "order-import-cron" } },
+          { "key": "service.version", "value": { "stringValue": "2026.09.1" } }
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": { "name": "order-import" },
+          "logRecords": [
+            {
+              "timeUnixNano": "1790409600000000000",
+              "severityNumber": 9,
+              "body": { "stringValue": "picked up order ord-7731" },
+              "attributes": [
+                {
+                  "key": "wayscribe.event.id",
+                  "value": { "stringValue": "evt_otlp_json_received" }
+                },
+                {
+                  "key": "wayscribe.journey.id",
+                  "value": { "stringValue": "jrn_otlp_json_ord_7731" }
+                },
+                {
+                  "key": "wayscribe.journey.label",
+                  "value": { "stringValue": "Order ord-7731 into the ERP" }
+                },
+                { "key": "wayscribe.entity.type", "value": { "stringValue": "order" } },
+                { "key": "wayscribe.entity.id", "value": { "stringValue": "ord-7731" } },
+                { "key": "wayscribe.operation", "value": { "stringValue": "received" } },
+                { "key": "wayscribe.name", "value": { "stringValue": "fetch-shop-order" } },
+                {
+                  "key": "wayscribe.aliases",
+                  "value": {
+                    "kvlistValue": {
+                      "values": [{ "key": "shop", "value": { "stringValue": "SHOP-100482" } }]
+                    }
+                  }
+                },
+                {
+                  "key": "wayscribe.output",
+                  "value": {
+                    "kvlistValue": {
+                      "values": [
+                        { "key": "currency", "value": { "stringValue": "EUR" } },
+                        { "key": "totalCents", "value": { "intValue": "12950" } },
+                        {
+                          "key": "lines",
+                          "value": {
+                            "arrayValue": {
+                              "values": [
+                                {
+                                  "kvlistValue": {
+                                    "values": [
+                                      { "key": "sku", "value": { "stringValue": "TEA-EARL-250" } },
+                                      { "key": "qty", "value": { "intValue": "3" } }
+                                    ]
+                                  }
+                                },
+                                {
+                                  "kvlistValue": {
+                                    "values": [
+                                      { "key": "sku", "value": { "stringValue": "MUG-STONE" } },
+                                      { "key": "qty", "value": { "intValue": "1" } }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "timeUnixNano": "1790409600250000000",
+              "severityNumber": 9,
+              "attributes": [
+                {
+                  "key": "wayscribe.event.id",
+                  "value": { "stringValue": "evt_otlp_json_transformed" }
+                },
+                {
+                  "key": "wayscribe.journey.id",
+                  "value": { "stringValue": "jrn_otlp_json_ord_7731" }
+                },
+                { "key": "wayscribe.entity.type", "value": { "stringValue": "order" } },
+                { "key": "wayscribe.entity.id", "value": { "stringValue": "ord-7731" } },
+                { "key": "wayscribe.operation", "value": { "stringValue": "transformed" } },
+                { "key": "wayscribe.name", "value": { "stringValue": "map-to-erp-order" } },
+                {
+                  "key": "wayscribe.parent_event.id",
+                  "value": { "stringValue": "evt_otlp_json_received" }
+                },
+                { "key": "wayscribe.duration_ms", "value": { "intValue": "12" } },
+                {
+                  "key": "wayscribe.input",
+                  "value": {
+                    "kvlistValue": {
+                      "values": [
+                        { "key": "currency", "value": { "stringValue": "EUR" } },
+                        { "key": "totalCents", "value": { "intValue": "12950" } },
+                        { "key": "warehouse", "value": { "stringValue": "BER-2" } }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "key": "wayscribe.output",
+                  "value": {
+                    "kvlistValue": {
+                      "values": [
+                        { "key": "currency", "value": { "stringValue": "EUR" } },
+                        { "key": "totalCents", "value": { "intValue": "12950" } },
+                        { "key": "warehouse", "value": {} }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "timeUnixNano": "1790409600900000000",
+              "severityNumber": 17,
+              "attributes": [
+                { "key": "wayscribe.event.id", "value": { "stringValue": "evt_otlp_json_failed" } },
+                {
+                  "key": "wayscribe.journey.id",
+                  "value": { "stringValue": "jrn_otlp_json_ord_7731" }
+                },
+                { "key": "wayscribe.entity.type", "value": { "stringValue": "order" } },
+                { "key": "wayscribe.entity.id", "value": { "stringValue": "ord-7731" } },
+                { "key": "wayscribe.operation", "value": { "stringValue": "failed" } },
+                { "key": "wayscribe.name", "value": { "stringValue": "post-erp-order" } },
+                {
+                  "key": "wayscribe.parent_event.id",
+                  "value": { "stringValue": "evt_otlp_json_transformed" }
+                },
+                {
+                  "key": "wayscribe.error",
+                  "value": {
+                    "kvlistValue": {
+                      "values": [
+                        { "key": "type", "value": { "stringValue": "ErpValidationError" } },
+                        { "key": "message", "value": { "stringValue": "warehouse is required" } }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

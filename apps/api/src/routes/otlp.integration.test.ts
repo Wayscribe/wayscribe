@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import { createKnexConfig, insertReturningId } from "@wayscribe/database";
 import { startPostgres } from "@wayscribe/database/testing";
@@ -673,6 +674,41 @@ describe("OTLP real storage", () => {
       expect(await db("journey_events").where({ journey_id: "jrn_otlp_official" })).toHaveLength(2);
     }
   );
+  it("the curl OTLP JSON example stores its journey, diff and error, and a resend is a duplicate", async () => {
+    // The committed file examples/otlp-json/README.md tells readers to POST, unchanged.
+    const example: unknown = JSON.parse(await readFile("examples/otlp-json/export.json", "utf8"));
+    const post = () =>
+      app.inject({
+        method: "POST",
+        url: "/v1/logs",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        payload: JSON.stringify(example)
+      });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await post();
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({});
+    }
+    expect((await get("/v1/journeys/jrn_otlp_json_ord_7731")).json().data).toMatchObject({
+      status: "failed",
+      failedStep: "post-erp-order",
+      label: "Order ord-7731 into the ERP",
+      services: ["order-import-cron"],
+      eventCount: 3
+    });
+    expect((await get("/v1/search?q=SHOP-100482")).json().data.items[0].journeyId).toBe(
+      "jrn_otlp_json_ord_7731"
+    );
+    const transformed = (await get("/v1/events/evt_otlp_json_transformed")).json().data;
+    expect(transformed.payloadDiff.changes).toEqual([
+      { path: "warehouse", kind: "changed", before: "BER-2", after: null }
+    ]);
+    const failed = (await get("/v1/events/evt_otlp_json_failed")).json().data;
+    expect(failed.error).toEqual({ type: "ErpValidationError", message: "warehouse is required" });
+    expect(await db("journey_events").where({ journey_id: "jrn_otlp_json_ord_7731" })).toHaveLength(
+      3
+    );
+  });
   it("valid OTLP ingestion bypasses an already locked admin address", async () => {
     for (let i = 0; i < 5; i++) await get("/v1/projects", "wrong-admin");
     expect((await get("/v1/projects", adminToken)).statusCode).toBe(429);

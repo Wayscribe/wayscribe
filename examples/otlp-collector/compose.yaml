@@ -1,0 +1,26 @@
+# A Collector in front of Wayscribe, and the Java invoice-sync service sending
+# through it. Wayscribe itself runs elsewhere (for example the stack in
+# infrastructure/) with OTLP_LOGS_ENABLED=true.
+name: wayscribe-otlp-collector
+
+services:
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.161.0
+    command: ["--config=/etc/otelcol/collector.yaml"]
+    volumes:
+      - ./collector.yaml:/etc/otelcol/collector.yaml:ro
+    environment:
+      WAYSCRIBE_LOGS_ENDPOINT: ${WAYSCRIBE_LOGS_ENDPOINT:-http://host.docker.internal:8080/v1/logs}
+      WAYSCRIBE_API_KEY: ${WAYSCRIBE_API_KEY:?set WAYSCRIBE_API_KEY to an environment API key}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:4318:4318"
+
+  invoice-sync:
+    build: ../otlp-java
+    environment:
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://collector:4318/v1/logs
+    depends_on:
+      - collector
+    restart: "no"

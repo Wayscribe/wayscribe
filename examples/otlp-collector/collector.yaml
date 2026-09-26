@@ -1,0 +1,108 @@
+# OpenTelemetry Collector in front of Wayscribe's optional POST /v1/logs.
+#
+# Services send every log record here without credentials. The pipeline keeps
+# only journey records and only their mapped attributes, strips secret-named
+# payload fields and masks card numbers on this host, batches to Wayscribe's
+# 100-record limit, and forwards with the environment API key, which only the
+# Collector holds.
+#
+# Every processor below is deterministic. A record that changed between two
+# export attempts would be a new event, not a retry (docs/OTLP_LOGS.md, Event
+# IDs), so do not add processors that stamp a changing value, and keep the
+# redaction summary silent.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Ordinary application logging names no journey. Drop it here instead of
+  # sending it to be refused with missing_attribute.
+  filter/journey-records-only:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'log.attributes["wayscribe.journey.id"] == nil'
+
+  # Only attributes Wayscribe maps leave the host. Everything else a logging
+  # library or auto-instrumentation attaches (thread names, code paths, SDK
+  # details) is deleted here: Wayscribe would ignore it anyway, but it would
+  # still cross the network. This processor applies the list to resource
+  # attributes too, so the three resource keys Wayscribe reads are on it;
+  # without service.name every record is refused with missing_attribute.
+  redaction/mapped-attributes-only:
+    allow_all_keys: false
+    allowed_keys:
+      # resource
+      - service.name
+      - service.version
+      - deployment.environment.name
+      # log record
+      - wayscribe.event.id
+      - log.record.uid
+      - wayscribe.journey.id
+      - wayscribe.journey.label
+      - wayscribe.entity.type
+      - wayscribe.entity.id
+      - wayscribe.operation
+      - wayscribe.name
+      - wayscribe.input
+      - wayscribe.output
+      - wayscribe.metadata
+      - wayscribe.aliases
+      - wayscribe.displayable_aliases
+      - wayscribe.attempt
+      - wayscribe.duration_ms
+      - wayscribe.error
+      - wayscribe.parent_event.id
+      - wayscribe.message.id
+      - wayscribe.correlation.id
+    summary: silent
+
+  # The redaction processor matches keys and values of top-level attributes
+  # only; it does not look inside map values such as wayscribe.input. Payload
+  # fields are handled here instead. Secret-named fields are deleted and card
+  # numbers are masked before they leave the host. Wayscribe's own redaction
+  # happens after the network, and matches configured field names exactly
+  # (`apiKey`, not `gatewayApiToken`), so it is not a substitute.
+  # These statements reach the first level of each payload map; name deeper
+  # paths explicitly if your payloads nest sensitive fields.
+  transform/scrub-payloads:
+    error_mode: ignore
+    log_statements:
+      - delete_matching_keys(log.attributes["wayscribe.input"], "(?i).*(password|passwd|secret|token|api_?key|authorization).*") where IsMap(log.attributes["wayscribe.input"])
+      - delete_matching_keys(log.attributes["wayscribe.output"], "(?i).*(password|passwd|secret|token|api_?key|authorization).*") where IsMap(log.attributes["wayscribe.output"])
+      - replace_all_patterns(log.attributes["wayscribe.input"], "value", "\\b(?:\\d[ -]?){12,18}\\d\\b", "****") where IsMap(log.attributes["wayscribe.input"])
+      - replace_all_patterns(log.attributes["wayscribe.output"], "value", "\\b(?:\\d[ -]?){12,18}\\d\\b", "****") where IsMap(log.attributes["wayscribe.output"])
+
+  # Wayscribe accepts at most 100 records per export.
+  batch:
+    send_batch_size: 100
+    send_batch_max_size: 100
+    timeout: 1s
+
+exporters:
+  otlp_http/wayscribe:
+    logs_endpoint: ${env:WAYSCRIBE_LOGS_ENDPOINT}
+    headers:
+      Authorization: "Bearer ${env:WAYSCRIBE_API_KEY}"
+    compression: gzip
+    encoding: proto
+    # 503 means a transient database failure: the Collector resends the same
+    # export and stable event IDs make earlier commits duplicates.
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 300s
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors:
+        - filter/journey-records-only
+        - redaction/mapped-attributes-only
+        - transform/scrub-payloads
+        - batch
+      exporters: [otlp_http/wayscribe]

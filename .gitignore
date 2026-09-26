@@ -27,3 +27,6 @@ examples/*/package-lock.json
 /packages/sdk-python/*.egg-info/
 /packages/sdk-python/src/*.egg-info/
 /packages/sdk-python/.venv/
+
+# Maven output of the Java OTLP example.
+/examples/otlp-java/target/

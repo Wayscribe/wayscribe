@@ -20,9 +20,13 @@ redact secret-named fields inside your process before anything is sent; an
 OpenTelemetry logging SDK does not. Every attribute, including
 `wayscribe.input`/`wayscribe.output`, crosses the network as your code wrote it,
 and is redacted only when it reaches this server. If raw values must not leave
-the host, run an OpenTelemetry Collector with the
+the host, run an OpenTelemetry Collector in front of this endpoint, and use
+TLS. The [Collector example](../examples/otlp-collector/README.md) does this.
+Note that the
 [`redaction` processor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/redactionprocessor)
-(or `transform`/`attributes` processors) in front of this endpoint, and use TLS.
+matches top-level attribute keys and values only and does not look inside map
+values, where `wayscribe.input`/`wayscribe.output` payloads live, so the example
+scrubs payload fields with the `transform` processor.
 
 ## Attributes
 
@@ -170,13 +174,26 @@ deleted to compensate. Retry the identical export: stable IDs make prior commits
 duplicates instead of extra evidence. Permanent partial success is not retryable.
 The failed-admin-authentication address throttle does not cover this route.
 
-## Example and local verification
+## Examples and local verification
 
-See [the runnable official Python exporter example](../examples/otlp-logs/README.md).
-It pins the official SDK/exporter to 1.44.0 and sends gzip protobuf directly to
-your local receiver. This is optional example/test tooling, never an API runtime
-dependency. Query the alias `crm-otlp-9001`, journey `jrn_otlp_official`, and event
-`evt_otlp_official_transform` to see server redaction and the phone-field diff.
+Each example was run against a real local API, and CI checks each one.
+
+- [OTLP JSON with curl](../examples/otlp-json/README.md): one committed export
+  with a received, transformed and failed record, sent with `curl`. The
+  integration suite posts the file unchanged, twice.
+- [A Java service](../examples/otlp-java/README.md): a billing worker using the
+  stable OpenTelemetry Java logs SDK (1.66.0) with map-valued payload
+  attributes, a failed delivery, a successful retry and completion. CI builds it.
+- [A Collector in front of Wayscribe](../examples/otlp-collector/README.md):
+  keeps only journey records and mapped attributes, deletes secret-named payload
+  fields, masks card numbers and holds the API key. CI runs
+  `otelcol-contrib validate` on it.
+- [The official Python exporter](../examples/otlp-logs/README.md): pins the
+  official SDK/exporter to 1.44.0 and sends gzip protobuf directly to your local
+  receiver. This is optional example/test tooling, never an API runtime
+  dependency. Query the alias `crm-otlp-9001`, journey `jrn_otlp_official`, and
+  event `evt_otlp_official_transform` to see server redaction and the
+  phone-field diff.
 
 Compose source and published-image definitions expose only
 `OTLP_LOGS_ENABLED` and `OTLP_MAX_REQUEST_BYTES`; Helm exposes
