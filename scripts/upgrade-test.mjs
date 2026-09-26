@@ -598,16 +598,20 @@ async function replayThroughEcho(image, destinationId, label) {
 
 /**
  * The journey list and read over journeys the baseline recorded, before any
- * event reaches them through this build. Migrations 018 and 021 add the label,
- * last-step and failed-step columns with no backfill, so the list must read
- * those rows, every new parameter must work against them, and each must come
- * back with `label`, `lastStep` and `failedStep` null and no displayable
- * aliases, J1, which the baseline failed, included. A list that fails on old
- * rows answers 500, which fails here.
+ * event reaches them through this build. Every new parameter must work against
+ * those rows, and each journey must come back with the `label`, `lastStep` and
+ * `failedStep` the baseline itself returned (null where the baseline predates
+ * migrations 018 and 021, which add those columns with no backfill) and no
+ * displayable aliases, J1, which the baseline failed, included. A list that
+ * fails on old rows answers 500, which fails here.
  */
-async function checkLegacyJourneyList() {
+async function checkLegacyJourneyList(recorded) {
   step("Current: the journey list reads the baseline's journeys");
   const baselineIds = [J1.journeyId, J2.journeyId, J3.journeyId];
+  const baseline = new Map(
+    baselineIds.map((id) => [id, recorded.get(`journey ${id}`)?.data ?? {}])
+  );
+  const reported = (id, field) => baseline.get(id)[field] ?? null;
   const window =
     `since=${encodeURIComponent(new Date(STARTED_AT.getTime() - 60_000).toISOString())}` +
     `&until=${encodeURIComponent(new Date(Date.now() + 60_000).toISOString())}`;
@@ -638,10 +642,13 @@ async function checkLegacyJourneyList() {
   ];
   for (const [name, query, journeys] of cases) {
     const response = await request("GET", `/v1/journeys?${query}`);
-    const problems = legacyJourneyListProblems(response.status, response.json, journeys);
+    const problems = legacyJourneyListProblems(response.status, response.json, {
+      ...journeys,
+      baseline
+    });
     check(
       problems.length === 0,
-      `GET /v1/journeys, ${name}: ${journeys.expected === undefined ? "lists none of the baseline's journeys" : "lists the baseline's journeys with label, lastStep and failedStep null"}`,
+      `GET /v1/journeys, ${name}: ${journeys.expected === undefined ? "lists none of the baseline's journeys" : "lists the baseline's journeys with the label, lastStep and failedStep the baseline reported"}`,
       problems.join("\n")
     );
   }
@@ -657,11 +664,11 @@ async function checkLegacyJourneyList() {
     const detail = await request("GET", `/v1/journeys/${journeyId}`);
     check(
       detail.status === 200 &&
-        detail.json.data.label === null &&
-        detail.json.data.lastStep === null &&
-        detail.json.data.failedStep === null,
-      `GET /v1/journeys/${journeyId} reads with label, lastStep and failedStep null`,
-      detail.json
+        ["label", "lastStep", "failedStep"].every(
+          (field) => detail.json.data[field] === reported(journeyId, field)
+        ),
+      `GET /v1/journeys/${journeyId} reads with the label, lastStep and failedStep the baseline reported`,
+      { baseline: baseline.get(journeyId), current: detail.json }
     );
   }
 }
@@ -933,7 +940,7 @@ async function main() {
     upgradedJ1.json?.data?.aliases
   );
 
-  await checkLegacyJourneyList();
+  await checkLegacyJourneyList(recorded);
 
   const nullKeyIdsBefore = Number(
     await sql(CURRENT_IMAGE, "select count(*) from api_keys where key_hash_key_id is null")

@@ -154,10 +154,10 @@ export function doctorVerdict(exitCode, stdout, required) {
  * Problems with a `GET /v1/journeys` answer that should list journeys an
  * earlier build recorded, before any event reached them after the upgrade.
  *
- * Migrations 018 and 021 add the label, last-step and failed-step columns
- * with no backfill, so each of those journeys must be listed with `label`,
- * `lastStep` and `failedStep` null (present and null, not missing), the failed
- * baseline journey included, and no displayable aliases: the earlier build had no
+ * Each of those journeys must be listed with `label`, `lastStep` and
+ * `failedStep` present and equal to what the baseline reported (see `baseline`
+ * below), the failed baseline journey included, and no displayable aliases:
+ * the earlier build had no
  * `displayableAliases` field, so every alias it stored is masked and has no
  * plain-text copy. A status other than 200, which is what a list that cannot
  * read old rows answers, is a problem on its own.
@@ -165,12 +165,25 @@ export function doctorVerdict(exitCode, stdout, required) {
  * `expected` lists the journey ids that must appear; `absent` those that must
  * not, for a filter that should exclude them.
  *
+ *
+ * `baseline` holds, per journey id, the `label`, `lastStep` and `failedStep`
+ * the baseline build itself returned for that journey. Those are what the
+ * current build must return: an upgrade changes nothing a journey already
+ * reported. A field the baseline did not return, because its build predates
+ * the column (migrations 018 and 021 add them with no backfill), must read
+ * null. A journey with no baseline entry expects null for all three, so a
+ * baseline older than those migrations needs none.
+ *
  * @param {number} status
  * @param {unknown} body
- * @param {{ expected?: readonly string[], absent?: readonly string[] }} journeys
+ * @param {{ expected?: readonly string[], absent?: readonly string[], baseline?: ReadonlyMap<string, Record<string, unknown>> }} journeys
  * @returns {string[]}
  */
-export function legacyJourneyListProblems(status, body, { expected = [], absent = [] }) {
+export function legacyJourneyListProblems(
+  status,
+  body,
+  { expected = [], absent = [], baseline = new Map() }
+) {
   if (status !== 200) return [`status ${String(status)}: ${JSON.stringify(body)}`];
   const items = /** @type {{ data?: { items?: unknown } } | undefined} */ (body)?.data?.items;
   if (!Array.isArray(items)) return [`no items array: ${JSON.stringify(body)}`];
@@ -183,13 +196,14 @@ export function legacyJourneyListProblems(status, body, { expected = [], absent 
       problems.push(`${id}: not listed`);
       continue;
     }
-    if (item.label !== null)
-      problems.push(`${id}: label ${JSON.stringify(item.label)}, expected null`);
-    if (item.lastStep !== null) {
-      problems.push(`${id}: lastStep ${JSON.stringify(item.lastStep)}, expected null`);
-    }
-    if (item.failedStep !== null) {
-      problems.push(`${id}: failedStep ${JSON.stringify(item.failedStep)}, expected null`);
+    const before = baseline.get(id) ?? {};
+    for (const field of ["label", "lastStep", "failedStep"]) {
+      const want = before[field] ?? null;
+      if (item[field] !== want) {
+        problems.push(
+          `${id}: ${field} ${JSON.stringify(item[field])}, expected ${JSON.stringify(want)}`
+        );
+      }
     }
     if (!Array.isArray(item.displayableAliases) || item.displayableAliases.length !== 0) {
       problems.push(

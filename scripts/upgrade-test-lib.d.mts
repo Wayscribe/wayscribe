@@ -19,5 +19,9 @@ export declare function doctorVerdict(
 export declare function legacyJourneyListProblems(
   status: number,
   body: unknown,
-  journeys: { expected?: readonly string[]; absent?: readonly string[] }
+  journeys: {
+    expected?: readonly string[];
+    absent?: readonly string[];
+    baseline?: ReadonlyMap<string, Record<string, unknown>>;
+  }
 ): string[];

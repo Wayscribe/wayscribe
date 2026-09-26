@@ -169,6 +169,27 @@ describe("legacyJourneyListProblems, the journey list over an earlier build's ro
     ).toEqual([]);
   });
 
+  it("expects what the baseline reported, null for a field it did not return", () => {
+    // A v0.1.0 baseline already fills lastStep and failedStep (migration 021 is
+    // in it); an older one returns no such fields and expects null.
+    const baseline = new Map<string, Record<string, unknown>>([
+      ["a", { label: null, lastStep: "deliver", failedStep: "deliver" }],
+      ["b", { label: null }]
+    ]);
+    const listed = body(row("a", { lastStep: "deliver", failedStep: "deliver" }), row("b"));
+    expect(legacyJourneyListProblems(200, listed, { expected: ["a", "b"], baseline })).toEqual([]);
+    expect(
+      legacyJourneyListProblems(200, body(row("a"), row("b", { lastStep: "x" })), {
+        expected: ["a", "b"],
+        baseline
+      })
+    ).toEqual([
+      'a: lastStep null, expected "deliver"',
+      'a: failedStep null, expected "deliver"',
+      'b: lastStep "x", expected null'
+    ]);
+  });
+
   it("fails when the list does not answer 200, as a list that cannot read old rows does", () => {
     expect(
       legacyJourneyListProblems(
