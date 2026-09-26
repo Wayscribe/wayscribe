@@ -567,4 +567,128 @@ describe("ingestion stores labels, last steps and plain-text copies", () => {
       ]);
     });
   });
+
+  describe("secret-looking names it stored (ADR-055, ADR-068)", () => {
+    const sentinel = "sentinel-value-7Qx";
+    const payloadContext = (): ApiKeyContext => ({ ...context, captureMode: "redacted-payload" });
+    const stored = async (id: string): Promise<string> =>
+      JSON.stringify(
+        await db("journey_events")
+          .where({ id })
+          .first("input_payload", "output_payload", "custom_metadata")
+      );
+
+    it("reports every spelling at every depth, and redacts none of them", async () => {
+      const names = ["gatewayApiToken", "stripeWebhookSecret", "dbPassword2", "x-auth-token"];
+      const input = Object.fromEntries(names.map((name) => [name, sentinel]));
+      const result = await ingestEvent(
+        db,
+        keyring,
+        payloadContext(),
+        envelope({
+          id: "evt_secret_names",
+          journeyId: "jrn_secret_names",
+          input,
+          output: { nested: { deeper: input } },
+          metadata: { batches: [[{ sessionToken: sentinel }]] }
+        }),
+        undefined,
+        false,
+        true
+      );
+      expect(result.status, JSON.stringify(result)).toBe("accepted");
+      expect(result.secretLookingPaths).toEqual([
+        ...names.map((name) => `input.${name}`),
+        ...names.map((name) => `output.nested.deeper.${name}`),
+        "metadata.batches[*][*].sessionToken"
+      ]);
+      expect(JSON.stringify(result)).not.toContain(sentinel);
+      // A warning, never a redaction on a guess.
+      expect((await stored("evt_secret_names")).split(sentinel)).toHaveLength(10);
+    });
+
+    it("reports a duplicate too, since the row it matched holds the same names", async () => {
+      const event = envelope({
+        id: "evt_secret_dup",
+        journeyId: "jrn_secret_dup",
+        input: { gatewayApiToken: sentinel }
+      });
+      const first = await ingestEvent(db, keyring, payloadContext(), event, undefined, false, true);
+      const again = await ingestEvent(db, keyring, payloadContext(), event, undefined, false, true);
+      expect(first.duplicate).toBe(false);
+      expect(again.duplicate).toBe(true);
+      expect(again.secretLookingPaths).toEqual(["input.gatewayApiToken"]);
+    });
+
+    it("reports nothing unless asked, nothing a rule covers, and nothing metadata-only drops", async () => {
+      const input = { gatewayApiToken: sentinel, cardNumber: sentinel };
+      const unasked = await ingestEvent(
+        db,
+        keyring,
+        payloadContext(),
+        envelope({ id: "evt_secret_unasked", journeyId: "jrn_secret_unasked", input })
+      );
+      expect(unasked.status).toBe("accepted");
+      expect(unasked).not.toHaveProperty("secretLookingPaths");
+
+      const covered = await ingestEvent(
+        db,
+        keyring,
+        { ...payloadContext(), redactionPaths: ["**.gateway_api_token"] },
+        envelope({ id: "evt_secret_covered", journeyId: "jrn_secret_covered", input }),
+        undefined,
+        false,
+        true
+      );
+      expect(covered.status).toBe("accepted");
+      expect(covered).not.toHaveProperty("secretLookingPaths");
+      expect(await stored("evt_secret_covered")).not.toContain(sentinel);
+
+      const dropped = await ingestEvent(
+        db,
+        keyring,
+        context,
+        envelope({ id: "evt_secret_dropped", journeyId: "jrn_secret_dropped", input }),
+        undefined,
+        false,
+        true
+      );
+      expect(dropped.status).toBe("accepted");
+      expect(dropped).not.toHaveProperty("secretLookingPaths");
+    });
+
+    it("redacts card numbers in every spelling, at depth and in arrays", async () => {
+      const spellings = [
+        "cardNumber",
+        "card_number",
+        "CARD-NUMBER",
+        "creditCardNumber",
+        "cc_number",
+        "ccNumber"
+      ];
+      for (const [index, name] of spellings.entries()) {
+        const id = `evt_card_${String(index)}`;
+        const result = await ingestEvent(
+          db,
+          keyring,
+          payloadContext(),
+          envelope({
+            id,
+            journeyId: `jrn_card_${String(index)}`,
+            input: { [name]: sentinel, order: { payment: { [name]: sentinel } } },
+            output: { payments: [{ [name]: sentinel }] },
+            metadata: { [name]: sentinel }
+          }),
+          undefined,
+          false,
+          true
+        );
+        expect(result.status, name).toBe("accepted");
+        expect(result, name).not.toHaveProperty("secretLookingPaths");
+        const row = await stored(id);
+        expect(row, name).not.toContain(sentinel);
+        expect(row.split("[REDACTED]"), name).toHaveLength(5);
+      }
+    });
+  });
 });

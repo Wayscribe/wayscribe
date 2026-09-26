@@ -19,7 +19,9 @@ export const OTLP_LIMITS = Object.freeze({
   jsonWork: 262_144,
   numericCharacters: 128,
   exponentMagnitude: 10_000,
-  responseBytes: 256
+  // Room for the refusal summary and the secret-name warning together, each
+  // bounded by construction below.
+  responseBytes: 1_024
 });
 export type OtlpDecodeCode = "invalid_otlp" | "otlp_limit_exceeded";
 export class OtlpDecodeError extends Error {
@@ -507,6 +509,33 @@ export function refusalMessage(refusals: ReadonlyMap<string, number>): string {
   const more = entries.length - named.length;
   return `Rejected: ${named.join(", ")}${more > 0 ? ` (+${String(more)} more codes)` : ""}`;
 }
+const SECRET_PATHS_NAMED = 5;
+const SECRET_PATH_SHOWN = 64;
+/**
+ * A path as the warning may show it: printable ASCII other than quote and
+ * backslash, so JSON cannot lengthen it, and at most 64 characters. A path is
+ * made of key names the sender chose, never of values.
+ */
+function shownPath(path: string): string {
+  const safe = path.replace(/[^\x20-\x21\x23-\x5b\x5d-\x7e]/g, "?");
+  return safe.length > SECRET_PATH_SHOWN ? `${safe.slice(0, SECRET_PATH_SHOWN - 3)}...` : safe;
+}
+/**
+ * The warning for records stored with a value under a secret-looking name that
+ * no redaction rule covered (ADR-068). Names the first five distinct paths and
+ * counts the rest; the text around them is fixed, so no value can reach it.
+ */
+export function secretNameWarning(paths: readonly string[]): string {
+  const distinct = [...new Set(paths)];
+  const named = distinct.slice(0, SECRET_PATHS_NAMED).map(shownPath);
+  const more = distinct.length - named.length;
+  return (
+    `Warning: stored unredacted under secret-looking names: ${named.join(", ")}` +
+    `${more > 0 ? ` (+${String(more)} more)` : ""}. ` +
+    "If these hold secrets, add the names to this environment's redaction paths " +
+    "or redact them in a Collector."
+  );
+}
 function response(
   value: Record<string, unknown>,
   type: protobuf.Type,
@@ -519,8 +548,18 @@ function response(
   if (result.length > OTLP_LIMITS.responseBytes) throw new RangeError("invalid_otlp_response");
   return result;
 }
+/**
+ * The export response. Records stored with secret-looking names are reported
+ * as the OTLP specification allows a fully accepted request to warn: a
+ * `partial_success` with `rejected_log_records` 0 and a message. With
+ * refusals too, the warning follows the refusal summary.
+ */
 export function encodeExportResponse(
-  value: { rejectedLogRecords?: number; refusals?: ReadonlyMap<string, number> },
+  value: {
+    rejectedLogRecords?: number;
+    refusals?: ReadonlyMap<string, number>;
+    secretLookingPaths?: readonly string[];
+  },
   encoding: OtlpEncoding
 ): Buffer {
   const rejected = value.rejectedLogRecords ?? 0;
@@ -530,15 +569,27 @@ export function encodeExportResponse(
     value.refusals !== undefined && value.refusals.size > 0
       ? value.refusals
       : new Map([["rejected", rejected]]);
+  const warning =
+    value.secretLookingPaths !== undefined && value.secretLookingPaths.length > 0
+      ? secretNameWarning(value.secretLookingPaths)
+      : undefined;
+  if (rejected === 0) {
+    return response(
+      warning === undefined
+        ? {}
+        : { partialSuccess: { rejectedLogRecords: "0", errorMessage: warning } },
+      responseType,
+      encoding
+    );
+  }
+  const summary = refusalMessage(refusals);
   return response(
-    rejected === 0
-      ? {}
-      : {
-          partialSuccess: {
-            rejectedLogRecords: String(rejected),
-            errorMessage: refusalMessage(refusals)
-          }
-        },
+    {
+      partialSuccess: {
+        rejectedLogRecords: String(rejected),
+        errorMessage: warning === undefined ? summary : `${summary}; ${warning}`
+      }
+    },
     responseType,
     encoding
   );

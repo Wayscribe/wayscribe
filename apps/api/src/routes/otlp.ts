@@ -17,6 +17,7 @@ import {
 } from "../otlp/codec.js";
 import { otlpFallbackEventIds } from "../otlp/event-id.js";
 import { mapExport, type MappedLog } from "../otlp/mapping.js";
+import { LOGGED_PATHS, otlpPath, WarnedSecretNames } from "../otlp/secret-names.js";
 import { isTransientDatabaseError } from "../otlp/transient.js";
 
 const unzip = promisify(gunzip);
@@ -72,6 +73,7 @@ export function registerOtlpRoutes(app: FastifyInstance, options: OtlpOptions): 
       );
     });
     const fallbackEventIds = otlpFallbackEventIds(options.keyring);
+    const warnedSecretNames = new WarnedSecretNames();
     const authenticated = new WeakMap<FastifyRequest, ApiKeyContext>();
     // onRequest runs before the body is read, so an unauthenticated request
     // never costs a read, an inflate or a decode.
@@ -150,6 +152,9 @@ export function registerOtlpRoutes(app: FastifyInstance, options: OtlpOptions): 
       });
       let rejected = 0;
       const refusals = new Map<string, number>();
+      // An OTLP sender runs no SDK, so nothing else tells it that a name such as
+      // `gatewayApiToken` was stored as sent (ADR-055, ADR-068). Names only.
+      const secretLookingPaths = new Set<string>();
       const refuse = (code: string): void => {
         scoped.metrics.countEvent("rejected");
         rejected++;
@@ -170,7 +175,8 @@ export function registerOtlpRoutes(app: FastifyInstance, options: OtlpOptions): 
             context,
             record.envelope,
             options.maxEventPayloadBytes,
-            options.allowFullPayload
+            options.allowFullPayload,
+            true
           );
         } catch (error) {
           const storage = storageRejection(error);
@@ -194,6 +200,8 @@ export function registerOtlpRoutes(app: FastifyInstance, options: OtlpOptions): 
           continue;
         }
         scoped.metrics.countEvent(eventResult(result));
+        // A duplicate counts too: the row it matched holds the same names.
+        for (const path of result.secretLookingPaths ?? []) secretLookingPaths.add(otlpPath(path));
       }
       if (rejected > 0) {
         // Codes only: fixed identifiers, never record values.
@@ -207,10 +215,31 @@ export function registerOtlpRoutes(app: FastifyInstance, options: OtlpOptions): 
           "OTLP log records rejected"
         );
       }
+      const fresh = warnedSecretNames.fresh(context.environmentId, secretLookingPaths);
+      if (fresh.length > 0) {
+        // Once per environment and path in this process. Paths are key names
+        // the sender chose, never values.
+        scoped.log.warn(
+          {
+            route: request.routeOptions.url,
+            requestId: request.id,
+            environmentId: context.environmentId,
+            environment: context.environmentName,
+            paths: fresh.slice(0, LOGGED_PATHS),
+            ...(fresh.length > LOGGED_PATHS ? { morePaths: fresh.length - LOGGED_PATHS } : {})
+          },
+          "OTLP records stored unredacted under secret-looking names"
+        );
+      }
       return reply
         .code(200)
         .type(contentType(encoding))
-        .send(encodeExportResponse({ rejectedLogRecords: rejected, refusals }, encoding));
+        .send(
+          encodeExportResponse(
+            { rejectedLogRecords: rejected, refusals, secretLookingPaths: [...secretLookingPaths] },
+            encoding
+          )
+        );
     });
     done();
   });

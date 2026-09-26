@@ -7,7 +7,8 @@ import {
   encodeExportResponse,
   encodeStatus,
   OtlpDecodeError,
-  OTLP_LIMITS
+  OTLP_LIMITS,
+  secretNameWarning
 } from "./codec.js";
 
 const json = (value: unknown): Buffer => Buffer.from(JSON.stringify(value));
@@ -174,6 +175,71 @@ describe("OTLP export codecs", () => {
     expect(unsafe).not.toContain("secret");
     expect(unsafe).toContain("Rejected: rejected x1");
   });
+  it("warns with rejected 0 when records were stored under secret-looking names", () => {
+    const paths = ["wayscribe.input.gatewayApiToken", "wayscribe.input.items[*].x-auth-token"];
+    const message =
+      "Warning: stored unredacted under secret-looking names: " +
+      "wayscribe.input.gatewayApiToken, wayscribe.input.items[*].x-auth-token. " +
+      "If these hold secrets, add the names to this environment's redaction paths " +
+      "or redact them in a Collector.";
+    expect(secretNameWarning(paths)).toBe(message);
+    expect(
+      JSON.parse(encodeExportResponse({ secretLookingPaths: paths }, "json").toString())
+    ).toEqual({ partialSuccess: { rejectedLogRecords: "0", errorMessage: message } });
+    expect(
+      officialResponse.toObject(
+        officialResponse.decode(encodeExportResponse({ secretLookingPaths: paths }, "protobuf")),
+        { longs: String, defaults: true }
+      )
+    ).toEqual({ partialSuccess: { rejectedLogRecords: "0", errorMessage: message } });
+    // No paths, no warning: a clean export stays an empty success.
+    expect(encodeExportResponse({ secretLookingPaths: [] }, "json").toString()).toBe("{}");
+  });
+
+  it("follows the refusal summary with the warning, leaving the summary as it was", () => {
+    const refusals = new Map([["missing_attribute", 2]]);
+    const parsed = JSON.parse(
+      encodeExportResponse(
+        { rejectedLogRecords: 2, refusals, secretLookingPaths: ["wayscribe.input.dbPassword2"] },
+        "json"
+      ).toString()
+    ) as { partialSuccess: { rejectedLogRecords: string; errorMessage: string } };
+    expect(parsed.partialSuccess.rejectedLogRecords).toBe("2");
+    expect(parsed.partialSuccess.errorMessage).toBe(
+      "Rejected: missing_attribute x2; Warning: stored unredacted under secret-looking names: " +
+        "wayscribe.input.dbPassword2. If these hold secrets, add the names to this " +
+        "environment's redaction paths or redact them in a Collector."
+    );
+  });
+
+  it("names five distinct paths, counts the rest, and stays bounded whatever the names", () => {
+    const paths = Array.from({ length: 12 }, (_, i) => `wayscribe.input.token${String(i)}`);
+    const warning = secretNameWarning([...paths, ...paths]);
+    expect(warning).toContain("token0, wayscribe.input.token1");
+    expect(warning).toContain("wayscribe.input.token4 (+7 more).");
+    expect(warning).not.toContain("token5");
+
+    // The longest refusal summary with the longest names, in both encodings.
+    const refusals = new Map(
+      ["a", "b", "c", "d"].map((letter) => [letter.repeat(40), 100] as [string, number])
+    );
+    const hostile = Array.from(
+      { length: 100 },
+      (_, i) => `wayscribe.input.${'"\\\u0000\u2028é'.repeat(200)}${String(i)}Token`
+    );
+    for (const encoding of ["json", "protobuf"] as const) {
+      const bounded = encodeExportResponse(
+        { rejectedLogRecords: 100, refusals, secretLookingPaths: hostile },
+        encoding
+      );
+      expect(bounded.length).toBeLessThanOrEqual(OTLP_LIMITS.responseBytes);
+    }
+    const shown = secretNameWarning(hostile);
+    expect(shown).toMatch(/^[\x20-\x7e]+$/);
+    expect(shown).not.toMatch(/["\\]/);
+    expect(shown).toContain("... (+95 more)");
+  });
+
   it("refuses a JSON export whose only top-level fields are unknown", () => {
     const snake = json({ resource_logs: [{ scope_logs: [{ log_records: [{}] }] }] });
     expect(() => decodeExport(snake, "json")).toThrow(

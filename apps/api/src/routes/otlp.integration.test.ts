@@ -387,6 +387,87 @@ describe("OTLP real storage", () => {
     expect(logs.join("")).not.toContain("poison");
     expect(logs.join("")).not.toContain("synthetic-secret");
   });
+  it("warns an OTLP sender about secret-looking names it stored, and redacts card numbers (ADR-068)", async () => {
+    const sentinel = "sentinel-value-7Qx";
+    const card = "4111111111111111";
+    const warning = (paths: string): string =>
+      `Warning: stored unredacted under secret-looking names: ${paths}. If these hold ` +
+      "secrets, add the names to this environment's redaction paths or redact them in a Collector.";
+    const secretRecord = record("otlp_secret_names", {
+      "wayscribe.input": {
+        gatewayApiToken: sentinel,
+        cardNumber: card,
+        items: [{ "x-auth-token": sentinel, CARD_NUMBER: card }]
+      },
+      "wayscribe.output": { ok: true },
+      "wayscribe.metadata": { stripeWebhookSecret: sentinel }
+    });
+    const logsBefore = logs.length;
+    for (const encoding of ["json", "protobuf"]) {
+      const response = await send(body([secretRecord]), encoding);
+      expect(response.statusCode, response.body).toBe(200);
+      const parsed =
+        encoding === "json"
+          ? response.json()
+          : responseType.toObject(responseType.decode(response.rawPayload), { longs: String });
+      // The second send is a duplicate of the first: nothing is stored anew,
+      // but the stored row holds the same names, so the sender is told again.
+      expect(parsed).toEqual({
+        partialSuccess: {
+          rejectedLogRecords: "0",
+          errorMessage: warning(
+            "wayscribe.input.gatewayApiToken, wayscribe.input.items[*].x-auth-token, " +
+              "wayscribe.metadata.stripeWebhookSecret"
+          )
+        }
+      });
+      expect(response.body).not.toContain(sentinel);
+      expect(response.body).not.toContain(card);
+    }
+    const detail = (await get("/v1/events/otlp_secret_names")).json().data;
+    // A card number is a built-in name; a secret-looking name is a warning,
+    // never a redaction on a guess (ADR-055).
+    expect(detail.inputPayload).toEqual({
+      gatewayApiToken: sentinel,
+      cardNumber: "[REDACTED]",
+      items: [{ "x-auth-token": sentinel, CARD_NUMBER: "[REDACTED]" }]
+    });
+    expect(JSON.stringify(detail)).not.toContain(card);
+
+    // Logged once per environment and path in this process, names only.
+    const warned = logs
+      .slice(logsBefore)
+      .filter((line) => line.includes("stored unredacted under secret-looking names"));
+    expect(warned).toHaveLength(1);
+    expect(JSON.parse(warned[0] ?? "{}")).toMatchObject({
+      level: 40,
+      route: "/v1/logs",
+      environmentId,
+      environment: "development",
+      paths: [
+        "wayscribe.input.gatewayApiToken",
+        "wayscribe.input.items[*].x-auth-token",
+        "wayscribe.metadata.stripeWebhookSecret"
+      ]
+    });
+    expect(logs.join("")).not.toContain(sentinel);
+    expect(logs.join("")).not.toContain(card);
+
+    // With a refusal in the same export, the warning follows the summary.
+    const mixed = await send(
+      body([
+        record("otlp_secret_mixed", { "wayscribe.input": { dbPassword2: sentinel } }),
+        record("otlp_secret_bad", { "wayscribe.event.id": null })
+      ])
+    );
+    expect(mixed.json()).toEqual({
+      partialSuccess: {
+        rejectedLogRecords: "1",
+        errorMessage: `Rejected: invalid_attribute_type x1; ${warning("wayscribe.input.dbPassword2")}`
+      }
+    });
+    expect(mixed.body).not.toContain(sentinel);
+  });
   it("accepts stock OpenTelemetry records: key environment, log.record.uid, then a keyed content id", async () => {
     const stock = (extra: Record<string, unknown>): object => ({
       timeUnixNano: "1786032000120000123",

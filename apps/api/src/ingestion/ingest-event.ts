@@ -21,7 +21,8 @@ import {
   searchTokens,
   type CaptureMode,
   type CapturePolicy,
-  type Keyring
+  type Keyring,
+  type UnredactedObserver
 } from "@wayscribe/payload-security";
 import { PROTOCOL_ERROR_CODES, parseEnvelope } from "@wayscribe/protocol";
 import type { JourneyEvent, ParseDetail } from "@wayscribe/protocol";
@@ -46,6 +47,15 @@ export interface IngestResult {
    * search.
    */
   details?: ParseDetail[];
+  /**
+   * Where the stored event keeps a value under a secret-looking name that no
+   * redaction rule covered, such as `input.gatewayApiToken`: distinct paths,
+   * each prefixed with the event field, array indexes written `[*]`. Names
+   * only, never values. Present only when asked for and non-empty, on an
+   * accepted event, duplicates included, since a duplicate's stored row
+   * holds the same names (ADR-055, ADR-068).
+   */
+  secretLookingPaths?: string[];
   httpStatus: number;
 }
 
@@ -65,7 +75,9 @@ export async function ingestEvent(
   /** From MAX_EVENT_PAYLOAD_BYTES. Defaults to the shared limit for callers that have none. */
   maxPayloadBytes: number = DEFAULT_LIMITS.maxBytes,
   /** From ALLOW_FULL_PAYLOAD_CAPTURE. */
-  allowFullPayload = false
+  allowFullPayload = false,
+  /** Report `secretLookingPaths`; off by default, since it costs a name test per kept key. */
+  observeSecretNames = false
 ): Promise<IngestResult> {
   // The same call the SDK makes before it sends (ADR-051), so an event the SDK
   // fitted is one this check has already passed.
@@ -92,8 +104,24 @@ export async function ingestEvent(
     allowlist: context.captureAllowlist,
     allowFullPayload
   };
-  const input = applyCapture(event.input, policy);
-  const output = applyCapture(event.output, policy);
+  // Found by the redaction walk itself rather than a second traversal.
+  const secretPaths = observeSecretNames ? new Set<string>() : undefined;
+  const observe = (field: string): UnredactedObserver | undefined =>
+    secretPaths === undefined
+      ? undefined
+      : (_name, path) => {
+          secretPaths.add(path.startsWith("[") ? `${field}${path}` : `${field}.${path}`);
+        };
+  const input = applyCapture(event.input, policy, observe("input"));
+  const output = applyCapture(event.output, policy, observe("output"));
+  const error = redactAlways(storedError(event.error, policy), policy, observe("error"));
+  const runtimeMetadata = redactAlways(event.runtime, policy, observe("runtime"));
+  const deploymentMetadata = redactAlways(event.deployment, policy, observe("deployment"));
+  const customMetadata = redactAlways(event.metadata, policy, observe("metadata"));
+  const reported =
+    secretPaths === undefined || secretPaths.size === 0
+      ? {}
+      : { secretLookingPaths: [...secretPaths] };
   const diff =
     input !== undefined && output !== undefined ? diffPayloads(input, output) : undefined;
 
@@ -232,10 +260,10 @@ export async function ingestEvent(
         inputPayload: input,
         outputPayload: output,
         payloadDiff: diff,
-        error: redactAlways(storedError(event.error, policy), policy),
-        runtimeMetadata: redactAlways(event.runtime, policy),
-        deploymentMetadata: redactAlways(event.deployment, policy),
-        customMetadata: redactAlways(event.metadata, policy),
+        error,
+        runtimeMetadata,
+        deploymentMetadata,
+        customMetadata,
         statedAliasIds
       },
       (storedHash) => contentHashMatches(keyring, event, storedHash)
@@ -258,6 +286,7 @@ export async function ingestEvent(
         journeyId: event.journeyId,
         status: "accepted" as const,
         duplicate: true,
+        ...reported,
         httpStatus: 202
       };
     }
@@ -269,6 +298,7 @@ export async function ingestEvent(
       journeyId: event.journeyId,
       status: "accepted" as const,
       duplicate: false,
+      ...reported,
       httpStatus: 202
     };
   }
