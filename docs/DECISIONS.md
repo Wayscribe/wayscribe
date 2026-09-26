@@ -4535,8 +4535,8 @@ storage would leave a Collector that retried after a lost response with no warni
 
 **The API logs it once.** The route logs a warning with the route, request id, environment
 id and name, and the paths, never a value, once per environment and path per process. The
-set that remembers them holds at most 10,000 pairs and is cleared when full, so a sender
-inventing names costs a repeated line rather than memory. The response is not rate-limited:
+set that remembers them holds at most 10,000 pairs, each path cut to 256 characters, and is
+cleared when full, so a sender inventing names costs a repeated line rather than memory. The response is not rate-limited:
 it is the sender's only copy.
 
 **Card-number names join the built-in list.** `card_number`, `credit_card_number` and

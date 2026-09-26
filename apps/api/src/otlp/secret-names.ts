@@ -10,12 +10,21 @@ const ATTRIBUTE_OF_FIELD: Readonly<Record<string, string>> = Object.freeze({
   error: "wayscribe.error"
 });
 
-/** An ingestion path, `input.gatewayApiToken`, as the OTLP attribute path. */
+/** The longest path kept, logged or remembered; the response shows fewer. */
+export const MAX_PATH_KEPT = 256;
+
+/**
+ * An ingestion path, `input.gatewayApiToken`, as the OTLP attribute path, cut
+ * to {@link MAX_PATH_KEPT} characters. Key names are the sender's to choose and
+ * a payload may hold one of any length, so without the cut one request could
+ * fill a log line, and the process's memory of what it warned about.
+ */
 export function otlpPath(path: string): string {
   const end = path.search(/[.[]/);
   const field = end === -1 ? path : path.slice(0, end);
   const attribute = ATTRIBUTE_OF_FIELD[field];
-  return attribute === undefined ? path : `${attribute}${path.slice(field.length)}`;
+  const named = attribute === undefined ? path : `${attribute}${path.slice(field.length)}`;
+  return named.length > MAX_PATH_KEPT ? `${named.slice(0, MAX_PATH_KEPT - 3)}...` : named;
 }
 
 /** The most paths one log line names; the rest are counted. */

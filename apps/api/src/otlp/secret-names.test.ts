@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { otlpPath, WarnedSecretNames } from "./secret-names.js";
+import { MAX_PATH_KEPT, otlpPath, WarnedSecretNames } from "./secret-names.js";
 
 describe("otlpPath", () => {
   it("names the attribute each field is read from", () => {
@@ -13,6 +13,13 @@ describe("otlpPath", () => {
   it("keeps a field no attribute fills, and never matches a field by prefix", () => {
     expect(otlpPath("runtime.sessionId")).toBe("runtime.sessionId");
     expect(otlpPath("inputs.token")).toBe("inputs.token");
+  });
+
+  it("cuts a long path, so a sender's key names cannot size the log or the memory", () => {
+    const long = otlpPath(`input.${"a".repeat(100_000)}Token`);
+    expect(long).toHaveLength(MAX_PATH_KEPT);
+    expect(long.startsWith("wayscribe.input.aaa")).toBe(true);
+    expect(long.endsWith("...")).toBe(true);
   });
 });
 
