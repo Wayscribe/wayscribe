@@ -14,6 +14,28 @@ changes far less often.
 
 ## [Unreleased]
 
+### Added
+
+- **OTLP senders are warned about secret-looking names.** When `POST /v1/logs`
+  stores a value under a name that looks like a secret but no rule covers, such
+  as `gatewayApiToken` inside `wayscribe.input`, the 200 response carries a
+  `partialSuccess` with `rejectedLogRecords` 0 and a warning naming up to five
+  paths, after the refusal summary when there are refusals. The API logs a
+  warning once per environment and path per process. Neither carries a value,
+  and the value is still stored as sent (ADR-055, ADR-068;
+  [OTLP logs](docs/OTLP_LOGS.md#limits-and-responses)).
+
+### Changed
+
+- **Card-number names are built-in secret names.** `card_number`,
+  `credit_card_number` and `cc_number` are redacted on the server and in the
+  Node, Python and Go SDKs, in every spelling (`cardNumber`, `CARD-NUMBER`,
+  `creditCardNumber`, `ccNumber`) and at every depth. Values under these names
+  that were previously stored as sent are now stored as `[REDACTED]`; rows
+  already stored are not rewritten (ADR-068).
+- OTLP responses are bounded to 1,024 bytes, up from 256, to hold the refusal
+  summary and the warning together.
+
 ## [0.2.0] - 2026-09-26
 
 The `api` and `web` images are tagged `v0.2.0` and `@wayscribe/node` is 0.2.0.

@@ -240,7 +240,7 @@ built-in list nor an operator's rules name is stored in plain text. Renaming
 `authToken` to `sessionCredential` is enough. Nothing redacts such a value on a
 guess: a heuristic that replaced values would change what the timeline and its
 diffs show, which is the evidence this product exists to keep (ADR-055).
-Instead it is reported, in two places:
+Instead it is reported, in three places:
 
 - **The Node SDK**, as it records. When redaction keeps a name that looks like
   a secret, under an object key or in one of the header shapes above, with a
@@ -251,6 +251,16 @@ Instead it is reported, in two places:
   off, and sends the event unchanged (SDK-61). The printed line is masked;
   `onDiagnostic` receives the name as written, cut to 128 characters, as it
   receives other diagnostics.
+- **The OTLP logs route**, to the sender, as it stores (ADR-068). An
+  OpenTelemetry sender runs no Wayscribe SDK, so without this nothing would tell
+  it. When records it stored keep a secret-looking name with a value that could
+  be a credential, the `200` response carries a `partial_success` with
+  `rejected_log_records` 0, which the OTLP specification allows as a warning,
+  and a fixed message naming up to five distinct attribute paths, such as
+  `wayscribe.input.gatewayApiToken`, and counting the rest. A duplicate record
+  is reported too, since the stored row holds the same names. The API logs a
+  warning with the route, request id, environment and paths, once per
+  environment and path per process. Neither carries a value.
 - **`doctor`**, for every sender, from what was stored. It samples the latest
   events of every environment's most recently active journeys and lists the
   secret-looking key names that hold plain values, with how many sampled events
@@ -267,6 +277,13 @@ strings under 8 characters under a name ending in `auth` are not reported.
 Personal data such as `ssn` is not a term: whether it is captured is the
 capture mode's question.
 
+Card numbers are the exception on the redaction side, not the warning side:
+`card_number`, `credit_card_number` and `cc_number` are on the built-in list
+(ADR-068), so `cardNumber`, `CARD-NUMBER`, `creditCardNumber` and `ccNumber`
+are replaced wherever they are filed, in every SDK and on the server. A card
+number under any other name, or bare `pan`, which has too many innocent
+meanings to be on the list, is still stored unless a rule names it.
+
 Webhook signature headers (`stripe-signature`, `x-hub-signature`,
 `x-hub-signature-256`, `x-slack-signature`, `x-hubspot-signature`,
 `x-hubspot-signature-v3`, `x-twilio-signature`, `x-shopify-hmac-sha256`) are on
@@ -279,7 +296,9 @@ What to do about a name reported:
 
 - **It holds a secret.** Add `**.<name>` to the SDK's `redact` option, or to the
   environment's `redaction_paths` column for another sender, which the server
-  applies in every mode but effective full capture. New values are replaced
+  applies in every mode but effective full capture. An OTLP sender without a
+  Collector has no SDK, so the environment's redaction paths are its only
+  arrival rule; a Collector can also remove the field before it leaves the host. New values are replaced
   from then on. Values already stored stay until retention removes them or they
   are deleted (`OPERATIONS.md` §8). A name containing `.`, `*`, `[` or `]`
   cannot be named by any rule: rename the field, or leave it out of what is

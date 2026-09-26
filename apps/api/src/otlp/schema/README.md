@@ -109,5 +109,6 @@ than the native per-event size/depth/key limits. No route is registered here.
 Failures expose only `OtlpDecodeError.code`: `invalid_otlp` or
 `otlp_limit_exceeded`, with the same fixed message and no parser cause. Response
 encoding accepts only the fixed exported OTLP_STATUS_MESSAGES code/message
-pairs, counts 0..100, and OTLP_PARTIAL_MESSAGE. Full success omits partialSuccess.
+pairs, counts 0..100, the bounded refusal summary and the bounded secret-name
+warning (ADR-068). Full success with no warning omits partialSuccess.
 Invalid response construction throws fixed `invalid_otlp_response` RangeError.

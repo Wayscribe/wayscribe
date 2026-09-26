@@ -28,6 +28,17 @@ matches top-level attribute keys and values only and does not look inside map
 values, where `wayscribe.input`/`wayscribe.output` payloads live, so the example
 scrubs payload fields with the `transform` processor.
 
+**Without a Collector, name your own secret fields.** Arrival redaction replaces
+a value only when its key name, with case, `-` and `_` ignored, is a built-in
+secret name (`password`, `authorization`, `api_key`, `card_number` and the rest
+in [SECURITY.md](SECURITY.md) section 4) or one of the environment's redaction
+paths. A name that only contains one, such as `gatewayApiToken`, is stored as
+sent. Add such names to the environment's redaction paths (`**.gatewayApiToken`
+in its `redaction_paths`), or remove them in a Collector. Wayscribe does not
+redact on a guess (ADR-055), but it does warn: when a request stored a value
+under a secret-looking name, the response says so (see
+[Limits and responses](#limits-and-responses)).
+
 ## Attributes
 
 Resource attribute `service.name` is a required string and supplies the service.
@@ -139,9 +150,9 @@ mapped envelope (`MAX_EVENT_PAYLOAD_BYTES` defaults to 262,144).
 Supported requests receive matching JSON/protobuf responses, including parser
 and authentication failures. Unsupported media types use JSON. Authentication
 is checked first, so an unauthenticated request gets 401 whatever its body,
-encoding or media type. Responses are bounded to 256 bytes and contain fixed
-safe summaries or refusal codes, never request values or library/database
-errors.
+encoding or media type. Responses are bounded to 1,024 bytes and contain fixed
+safe summaries, refusal codes or key names, never request values or
+library/database errors.
 
 | HTTP | Meaning |
 | --- | --- |
@@ -167,6 +178,28 @@ unknown operation); ingestion codes such as `unauthorized_environment`,
 `event_id_conflict`, `payload_too_large` and `unstorable_payload` pass through
 unchanged. All are permanent refusals. HTTP failures use `google.rpc.Status`
 with fixed code/message pairs.
+
+**A warning about secret-looking names** (ADR-068). When a stored record keeps a
+value that could be a credential under a name that looks like a secret but no
+rule covers, such as `gatewayApiToken` or `stripeWebhookSecret` inside
+`wayscribe.input`, the response is a partial success with nothing rejected, as
+the OTLP specification allows for a warning:
+
+```json
+{"partialSuccess":{"rejectedLogRecords":"0","errorMessage":"Warning: stored unredacted under secret-looking names: wayscribe.input.gatewayApiToken. If these hold secrets, add the names to this environment's redaction paths or redact them in a Collector."}}
+```
+
+It names up to five distinct paths, array elements written `[*]`, and counts
+the rest as `(+N more)`; a path longer than 64 characters is cut and any
+character outside printable ASCII is shown as `?`. With refusals in the same
+export it follows the refusal summary after `; `. A record resent as a duplicate
+is reported again, since what is stored under that id holds the same names. The
+value is never included. The API also logs `OTLP records stored unredacted
+under secret-looking names` at warn level with the route, request id,
+environment and paths, once per environment and path per process. Which names
+look like secrets is the rule in [SDK_SPEC.md](SDK_SPEC.md) section 13. A
+record is still stored as sent: to stop storing the value, name it in the
+environment's redaction paths or remove it in a Collector.
 
 On the first transient failure the receiver returns 503 **without partialSuccess**
 and stops starting subsequent records. Earlier commits remain; nothing is

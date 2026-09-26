@@ -4503,3 +4503,58 @@ and Go sends `wayscribe.dev/go`, replacing the unpublished development names
 Keeping the GitLab module path: long, personal, and tied to one host for good.
 Moving the Go module to the repository root to avoid the subdirectory field: it
 would put a Go module over a pnpm workspace and still need the vanity page.
+
+## ADR-068: OTLP senders are warned about secret-looking names, and card numbers are redacted by name
+
+**Status:** Accepted, 2026-09-26. Extends ADR-055 and ADR-066; ADR-055's rule that a
+secret-looking name warns and never redacts stands.
+
+**Context.** Arrival redaction replaces a value only when its folded key name is a
+built-in secret name or one of the environment's redaction paths. ADR-055 added a warning
+for names that only look like secrets, such as `gatewayApiToken`, but it reached people
+through the Node SDK and `doctor`. An OpenTelemetry sender runs neither in its process, so
+`gatewayApiToken` or `cardNumber` inside `wayscribe.input`, sent to `/v1/logs` without a
+Collector, was stored as sent and nothing said so.
+
+**The OTLP response warns.** `redact` already reports, through an optional observer, each
+kept name that looks like a secret with a value that could be a credential. `applyCapture`,
+`redactAlways` and `ingestEvent` pass it through, and `ingestEvent` can return the distinct
+paths it stored, prefixed with the event field, names only. The OTLP route collects them
+across the export and, as the OTLP specification allows for a fully accepted request, answers
+with a `partial_success` whose `rejected_log_records` is 0 and whose `error_message` is a
+fixed warning naming up to five distinct attribute paths (`wayscribe.input.gatewayApiToken`),
+counting the rest, and saying to add the names to the environment's redaction paths or
+redact them in a Collector. With refusals in the same export, the warning follows the
+refusal summary, which is unchanged. A path is cut to 64 characters and shown in printable
+ASCII without quotes or backslashes, so the message stays bounded; the response ceiling
+grows from 256 to 1,024 bytes to hold both parts.
+
+**Duplicates warn too.** A resent record matched by id and content is not stored again, but
+the row it matched holds the same names, so the sender is told again. Warning only on first
+storage would leave a Collector that retried after a lost response with no warning at all.
+
+**The API logs it once.** The route logs a warning with the route, request id, environment
+id and name, and the paths, never a value, once per environment and path per process. The
+set that remembers them holds at most 10,000 pairs and is cleared when full, so a sender
+inventing names costs a repeated line rather than memory. The response is not rate-limited:
+it is the sender's only copy.
+
+**Card-number names join the built-in list.** `card_number`, `credit_card_number` and
+`cc_number` are redacted by name in the server, the Node, Python and Go SDKs, and the SDK
+specification. Folded, they match `cardNumber`, `CARD-NUMBER`, `creditCardNumber` and
+`ccNumber` at any depth. A card number is personal data rather than a credential, so the
+warning heuristic still does not know it; it is on the list because a stored card number is
+a liability in essentially every payload it appears in, and an OTLP sender without a
+Collector has nothing else in front of the database. Bare `pan` is not added: it has too
+many innocent meanings.
+
+**Consequences.** Values under the three card-number names that were previously stored as
+sent are now `[REDACTED]` on arrival, including for SDK users. Operators who relied on
+seeing them must stop. Existing rows are not rewritten. Only the OTLP route asks
+`ingestEvent` for the paths; the native event routes, whose senders run an SDK that warns in
+process, are unchanged.
+
+**Rejected.** Redacting secret-looking names on the OTLP path only: the same guess ADR-055
+refused, and a diff would differ by transport. A warning in an HTTP header: OTLP exporters
+do not surface response headers, while they do log a partial success. Adding `pan`: `pan`
+is a camera move, a cooking vessel and a surname far more often than a card number.

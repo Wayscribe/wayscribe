@@ -49,14 +49,19 @@ refused with `missing_attribute`. The HTTP answer is still 200, with a
 `partialSuccess` count; the Java exporter does not print it, and the API logs
 `OTLP log records rejected` with the refusal code.
 
-Nothing on this path removes the token or the card number. Both cross the
-network, and both are stored as sent: Wayscribe's arrival redaction matches
-configured field names such as `password` or `apiKey` (case and separators
-ignored), not names that merely contain one, so `gatewayApiToken` and
-`cardNumber` pass. That is the reason to put the Collector in front. (An
-environment's redaction paths can name them too, see
-[SECURITY.md](../../docs/SECURITY.md), but only after they crossed the
-network.)
+Nothing on this path removes the token or the card number before the network.
+Both cross it as your code wrote them. On arrival, Wayscribe replaces a value
+only when its field name, with case and separators ignored, is a built-in
+secret name or one of the environment's redaction paths. `cardNumber` is a
+built-in name (`card_number`), so it is stored as `[REDACTED]`.
+`gatewayApiToken` only contains one, so it is stored as sent. The same 200
+answer carries a warning naming `wayscribe.input.gatewayApiToken`, and the API
+logs `OTLP records stored unredacted under secret-looking names`; see
+[OTLP_LOGS.md](../../docs/OTLP_LOGS.md#limits-and-responses). Without a
+Collector, add your own secret field names to the environment's redaction
+paths, see [SECURITY.md](../../docs/SECURITY.md), and they are replaced from
+then on, though only after they crossed the network. That is the reason to put
+the Collector in front.
 
 Check the result:
 

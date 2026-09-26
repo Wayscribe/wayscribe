@@ -58,13 +58,18 @@ curl -sS -H "Authorization: Bearer $WAYSCRIBE_API_KEY" \
 ```
 
 Expect a `completed` journey of five events from `invoice-sync`. The transform
-event's input has `"cardNumber": "****"` and no `gatewayApiToken`: both were
-removed on this host, before the network. Run the service again and the event
+event's input has no `gatewayApiToken`, and its card number was masked as
+`****` on this host, before the network. It shows as `"cardNumber":
+"[REDACTED]"`, because `card_number` is also a built-in secret name that
+Wayscribe replaces on arrival, whatever the value. Run the service again and the event
 count stays at five.
 
 If the Collector's log shows `Partial success response` with
 `missing_attribute`, a required attribute did not survive the pipeline; the
-usual cause is an allowlist missing `service.name`. To see exactly what leaves
+usual cause is an allowlist missing `service.name`. A partial success with
+`rejected 0` and `Warning: stored unredacted under secret-looking names` means a
+secret-looking field got through the scrub, usually one nested deeper than the
+statements reach; it names the path to add. To see exactly what leaves
 the host, add the `debug` exporter (`verbosity: detailed`) to the pipeline's
 exporters while testing.
 

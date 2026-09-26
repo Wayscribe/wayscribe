@@ -26,6 +26,15 @@ same, with no new events, because each record states a stable
 `wayscribe.event.id`. A record Wayscribe refuses still gets HTTP 200, with a
 `partialSuccess` object naming the refusal codes; check for it.
 
+Nothing between `curl` and Wayscribe redacts anything. On arrival, a value is
+replaced only when its field name is a built-in secret name such as `password`
+or `cardNumber`, or one of the environment's redaction paths. If your payloads
+carry a secret under a name of your own, such as `gatewayApiToken`, add it to
+the environment's redaction paths. Until you do, the answer is a
+`partialSuccess` with `"rejectedLogRecords":"0"` and a warning naming the path,
+and the value is stored as sent
+([OTLP_LOGS.md](../../docs/OTLP_LOGS.md#limits-and-responses)).
+
 Read the journey back:
 
 ```sh
