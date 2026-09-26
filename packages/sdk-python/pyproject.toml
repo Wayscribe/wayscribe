@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wayscribe"
-version = "0.1.0a1"
+version = "0.2.0"
 description = "Native Python recorder for Wayscribe record-level debugging"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +21,13 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
   "Typing :: Typed",
 ]
+
+[project.urls]
+Homepage = "https://wayscribe.dev"
+Source = "https://gitlab.com/jojithedev/wayscribe"
+Documentation = "https://gitlab.com/jojithedev/wayscribe/-/blob/main/packages/sdk-python/README.md"
+Changelog = "https://gitlab.com/jojithedev/wayscribe/-/blob/main/CHANGELOG.md"
+Issues = "https://gitlab.com/jojithedev/wayscribe/-/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -58,6 +58,6 @@ class ConfigTests(unittest.TestCase):
         e = event(c, d, runtime={"sdk": {"version": "spoof"}})
         self.assertEqual(e["deployment"], {"version": "one"})
         self.assertEqual(
-            e["runtime"]["sdk"], {"name": "wayscribe", "version": "0.1.0a1"}
+            e["runtime"]["sdk"], {"name": "wayscribe", "version": "0.2.0"}
         )
         self.assertNotIn("hostname", e["runtime"])

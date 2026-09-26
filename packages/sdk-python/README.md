@@ -1,20 +1,27 @@
-# Wayscribe Python SDK — development preview
+# Wayscribe Python SDK
 
-Distribution: `wayscribe`. Import: `wayscribe`. Version: `0.1.0a1`.
-This package is **unpublished**. Python 3.11 or newer is required. Runtime code
-uses only the standard library; setuptools is a build dependency only.
+Distribution: `wayscribe`. Import: `wayscribe`. Version: `0.2.0`.
+Python 3.11 or newer is required. Runtime code uses only the standard library;
+setuptools is a build dependency only.
+
+```sh
+python3 -m pip install wayscribe
+```
+
+Each release file on PyPI carries a publish attestation: PyPI verified that it
+was uploaded by this repository's GitLab CI release job, with no long-lived
+upload token involved. The recorder works with the published Wayscribe API
+from `v0.1.0` onward.
 
 The controlled
-[`examples/mixed-language`](../../examples/mixed-language/README.md) workflow
-installs this built wheel and continues one real journey from Node through
-Python to the local Go SDK. It is an interoperability example, not a
-publication claim.
-
-Build and install the development artifact from the repository root:
+[`examples/mixed-language`](https://gitlab.com/jojithedev/wayscribe/-/blob/main/examples/mixed-language/README.md)
+workflow installs a wheel built from this checkout and continues one real
+journey from Node through Python to the Go SDK. To build and install that
+wheel from the repository root:
 
 ```sh
 uv build --out-dir packages/sdk-python/dist packages/sdk-python
-python3 -m pip install --no-deps packages/sdk-python/dist/wayscribe-0.1.0a1-py3-none-any.whl
+python3 -m pip install --no-deps packages/sdk-python/dist/wayscribe-0.2.0-py3-none-any.whl
 ```
 
 The distribution and import name are both `wayscribe`.
@@ -316,7 +323,7 @@ lost.
 
 ## Check your installed recorder
 
-[CLI `check`](../cli/README.md#check-ingestion-and-preview-stored-events) exercises
+[CLI `check`](https://gitlab.com/jojithedev/wayscribe/-/blob/main/packages/cli/README.md#check-ingestion-and-preview-stored-events) exercises
 explicit protocol/key/server configuration through a dry run. It does not inspect
 an installed Python SDK. This separate synthetic public-SDK probe **stores an
 event** in the configured environment:

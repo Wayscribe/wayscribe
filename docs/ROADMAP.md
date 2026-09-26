@@ -62,15 +62,16 @@ Presenting the work, and closing what the last review opened.
   literal vectors freeze the released HTTP, SQS/SNS and payload-envelope
   behavior, and the Node SDK runs them (ADR-065).
 
-- ~~**A Python SDK, after the first release.**~~ **Implemented locally,
-  unpublished:** Python is where most of the
+- ~~**A Python SDK, after the first release.**~~ **Published on PyPI
+  as `wayscribe` 0.2.0:** Python is where most of the
   pipelines, workers and integrations this tool is for are written, so it is the
   second recorder rather than one that waits for a request. It is built against
   `docs/SDK_SPEC.md` and `docs/PROPAGATION_SPEC.md`, checked with the conformance
   fixtures through the real local dry run, including replay of its raw captured
   request bodies. Wheel and sdist contents, an external clean-wheel install,
   Python 3.11 through 3.14, and a real queryable Python worker are verified. The
-  package remains `0.1.0a1` and unpublished. Adding a Python service to Leadline
+  release is uploaded from GitLab CI with trusted publishing and a publish
+  attestation on each file. Adding a Python service to Leadline
   remains a separate open pilot gate.
 - **A native Go SDK, after Python.** It uses the same contracts and literal
   propagation vectors, sends directly to the existing API, and adds idiomatic

@@ -6,7 +6,7 @@
 # upload token that expires almost immediately, and SIGSTORE_ID_TOKEN signs the
 # attestation PyPI shows beside each file (docs/OPERATIONS.md).
 #
-#   scripts/publish-python.sh packages/sdk-python/v0.1.0a1
+#   scripts/publish-python.sh packages/sdk-python/v0.2.0
 #
 # INDEX=testpypi uploads to TestPyPI instead of PyPI. DRY_RUN=1 builds and
 # checks everything and uploads nothing; it needs no token and runs anywhere

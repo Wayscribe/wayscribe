@@ -5,10 +5,11 @@ transformation, a failed delivery, a retry and completion. The input includes a
 secret-named field so the recorded payload demonstrates client-side redaction;
 the phone change remains visible as a field diff.
 
-Install the unpublished development package from a built wheel, then configure
-the recorder explicitly in the application process:
+Install the package from PyPI, then configure the recorder explicitly in the
+application process:
 
 ```sh
+python3 -m pip install wayscribe
 export WAYSCRIBE_ENDPOINT=http://127.0.0.1:8080
 export WAYSCRIBE_API_KEY=replace-with-a-project-environment-key
 export WAYSCRIBE_ENVIRONMENT=development

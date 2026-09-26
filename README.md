@@ -447,9 +447,10 @@ first-journey target. Those checks remain open.
 The native [Python SDK](packages/sdk-python/README.md) is also implemented and
 locally verified on Python 3.11 through 3.14. All 35 applicable SDK fixtures pass
 through the real dry-run API from the recorder's captured request bytes, and a
-clean installed wheel records a loopback delivery outside the checkout. Its
-development version is `0.1.0a1`; it is not published, and the Leadline pilot is
-still a separate open gate.
+clean installed wheel records a loopback delivery outside the checkout. It is
+published on PyPI as [`wayscribe`](https://pypi.org/project/wayscribe/) 0.2.0
+(`pip install wayscribe`), with a publish attestation on each file; the Leadline
+pilot is still a separate open gate.
 
 The native [Go SDK](packages/sdk-go/README.md) is an unpublished Go 1.26
 development module with standard-library-only runtime and test dependencies. Its
@@ -623,7 +624,7 @@ principles](docs/PRODUCT_PRINCIPLES.md) and in ADR-011 and ADR-014 of
 | [Local development](docs/LOCAL_DEVELOPMENT.md) | Setup, commands, keys, troubleshooting |
 | [Operations](docs/OPERATIONS.md) | Backup, restore, upgrade, key rotation, retention, deleting data, `doctor`, metrics |
 | [Node SDK](packages/sdk-node/README.md) | The SDK's full surface |
-| [Python SDK](packages/sdk-python/README.md) | The unpublished native Python recorder, configuration and lifecycle |
+| [Python SDK](packages/sdk-python/README.md) | The native Python recorder (`pip install wayscribe`), configuration and lifecycle |
 | [Go SDK](packages/sdk-go/README.md) | The unpublished native Go recorder, configuration and lifecycle |
 | [SDK specification](docs/SDK_SPEC.md) | What a recorder in any language must do, as numbered requirements with a source for each |
 | [Propagation specification](docs/PROPAGATION_SPEC.md) | The fixed HTTP, SQS/SNS, and payload-envelope carrier contract and language-neutral vectors |
@@ -669,7 +670,7 @@ apps/
 packages/
   protocol/             event schema and version
   sdk-node/             published as @wayscribe/node
-  sdk-python/           unpublished Python SDK and conformance driver
+  sdk-python/           published as wayscribe on PyPI, plus its conformance driver
   sdk-go/               unpublished Go SDK and public fixture driver
   cli/                  read-only CLI over the HTTP API
   database/             migrations, repositories, operator CLI

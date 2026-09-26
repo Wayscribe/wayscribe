@@ -1,4 +1,4 @@
-"""Wayscribe native Python core (development preview, unpublished)."""
+"""Wayscribe native Python recorder."""
 
 from ._version import __version__
 from .propagation import (

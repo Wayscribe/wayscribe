@@ -14,6 +14,15 @@ changes far less often.
 
 ## [Unreleased]
 
+### Added
+
+- The Python SDK is published on PyPI as
+  [`wayscribe`](https://pypi.org/project/wayscribe/) 0.2.0
+  (`pip install wayscribe`, Python 3.11 or newer). It is released on its own
+  tag, `packages/sdk-python/v0.2.0`, from GitLab CI with trusted publishing, and
+  each file carries a publish attestation (ADR-067). It records to the
+  published `v0.1.0` API as well as to this one.
+
 ### Changed
 
 - `@wayscribe/node`: an event whose 30-second retry budget has run out is now
