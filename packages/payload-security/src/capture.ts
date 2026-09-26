@@ -1,5 +1,5 @@
 import { DEFAULT_SECRET_PATHS } from "./default-secrets.js";
-import { defineKey, redact } from "./redact.js";
+import { defineKey, redact, type UnredactedObserver } from "./redact.js";
 
 export type CaptureMode =
   "metadata-only" | "allowlisted-fields" | "redacted-payload" | "full-payload";
@@ -25,13 +25,20 @@ export interface CapturePolicy {
  * Server policy may capture less than the SDK requested; it never captures more.
  * Built-in secret paths are appended to whatever the operator configured, and
  * apply in every mode that stores a payload at all.
+ *
+ * `onUnredacted` is passed to {@link redact}: it hears of each secret-looking
+ * name this stores unredacted, and of nothing a mode drops (ADR-055, ADR-068).
  */
-export function applyCapture(payload: unknown, policy: CapturePolicy): unknown {
+export function applyCapture(
+  payload: unknown,
+  policy: CapturePolicy,
+  onUnredacted?: UnredactedObserver
+): unknown {
   if (payload === undefined) return undefined;
   if (policy.mode === "metadata-only") return undefined;
 
   if (policy.mode === "allowlisted-fields") {
-    return pickAllowlisted(payload, policy.allowlist ?? []);
+    return pickAllowlisted(payload, policy.allowlist ?? [], onUnredacted);
   }
 
   // An environment set to full-payload on an installation that has not allowed
@@ -42,10 +49,14 @@ export function applyCapture(payload: unknown, policy: CapturePolicy): unknown {
       ? DEFAULT_SECRET_PATHS
       : [...(policy.redactionPaths ?? []), ...DEFAULT_SECRET_PATHS];
 
-  return redact(payload, paths);
+  return redact(payload, paths, onUnredacted);
 }
 
-function pickAllowlisted(payload: unknown, allowlist: readonly string[]): unknown {
+function pickAllowlisted(
+  payload: unknown,
+  allowlist: readonly string[],
+  onUnredacted: UnredactedObserver | undefined
+): unknown {
   if (typeof payload !== "object" || payload === null) return {};
 
   const result: Record<string, unknown> = {};
@@ -57,7 +68,7 @@ function pickAllowlisted(payload: unknown, allowlist: readonly string[]): unknow
 
   // Built-in secrets still apply: an operator can allowlist a path that happens
   // to hold a token, and an allowlist must not override secret filtering.
-  return redact(result, DEFAULT_SECRET_PATHS);
+  return redact(result, DEFAULT_SECRET_PATHS, onUnredacted);
 }
 
 function readPath(source: unknown, segments: readonly string[]): unknown {
@@ -105,8 +116,14 @@ function writePath(
  * and path redaction matches names. Ingestion masks that text by shape with
  * `maskSecretsInText` before this runs, and drops the stack below full capture
  * (ADR-046).
+ *
+ * `onUnredacted` is passed to {@link redact}, as in {@link applyCapture}.
  */
-export function redactAlways(value: unknown, policy: CapturePolicy): unknown {
+export function redactAlways(
+  value: unknown,
+  policy: CapturePolicy,
+  onUnredacted?: UnredactedObserver
+): unknown {
   if (value === undefined) return undefined;
-  return redact(value, [...(policy.redactionPaths ?? []), ...DEFAULT_SECRET_PATHS]);
+  return redact(value, [...(policy.redactionPaths ?? []), ...DEFAULT_SECRET_PATHS], onUnredacted);
 }
