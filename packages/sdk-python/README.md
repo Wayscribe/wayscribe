@@ -1,6 +1,6 @@
 # Wayscribe Python SDK
 
-Distribution: `wayscribe`. Import: `wayscribe`. Version: `0.2.0`.
+Distribution: `wayscribe`. Import: `wayscribe`. Version: `0.2.1`.
 Python 3.11 or newer is required. Runtime code uses only the standard library;
 setuptools is a build dependency only.
 
@@ -21,7 +21,7 @@ wheel from the repository root:
 
 ```sh
 uv build --out-dir packages/sdk-python/dist packages/sdk-python
-python3 -m pip install --no-deps packages/sdk-python/dist/wayscribe-0.2.0-py3-none-any.whl
+python3 -m pip install --no-deps packages/sdk-python/dist/wayscribe-0.2.1-py3-none-any.whl
 ```
 
 The distribution and import name are both `wayscribe`.

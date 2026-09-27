@@ -221,7 +221,7 @@ For a common stack, start from a [recipe](docs/recipes/README.md).
 Install the released SDK by exact version:
 
 ```bash
-npm install @wayscribe/node@0.2.0
+npm install @wayscribe/node@0.2.1
 ```
 
 To use source changes that have not been released, pack the SDK from a clone,
@@ -231,7 +231,7 @@ commit the tarball to your application, and depend on it by path:
 pnpm install
 pnpm --silent --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
 cd /path/to/your-app
-npm install ./vendor/wayscribe-node-0.2.0.tgz   # records "file:vendor/…tgz"
+npm install ./vendor/wayscribe-node-0.2.1.tgz   # records "file:vendor/…tgz"
 ```
 
 A tarball is a built copy that travels with your application. A path into the
@@ -420,19 +420,22 @@ wrong the first time and say so.
 
 ## Status
 
-**The 0.2.0 preview is published.**
+**The 0.2.1 preview is published.**
 
 Ingestion, search, journey timelines, field-level diffs, the Node SDK,
 cross-process propagation, retention, the demo, development replay, and a
-read-only CLI were released in 0.1.0. 0.2.0 adds the native Python and Go SDKs,
+read-only CLI were released in 0.1.0. 0.2.0 added the native Python and Go SDKs,
 optional OTLP log ingestion (off by default), the CLI ingestion check and
-redaction preview, and database backup helpers. `@wayscribe/node@0.2.0`, the
-`api:v0.2.0` and `web:v0.2.0` images, the Go module `wayscribe.dev/go` v0.2.0
-and the Python package `wayscribe` 0.2.0 are public. [CHANGELOG.md](CHANGELOG.md)
-lists what changed.
+redaction preview, and database backup helpers. 0.2.1 redacts card-number names
+by default and warns OTLP senders about secret-looking names stored as sent.
+`@wayscribe/node@0.2.1`, the `api:v0.2.1` and `web:v0.2.1` images, the Go
+module `wayscribe.dev/go` v0.2.1 and the Python package `wayscribe` 0.2.1 are
+public. The 0.2.0 images were never published because of a registry
+incompatibility, so the first images after 0.1.0 are `v0.2.1`.
+[CHANGELOG.md](CHANGELOG.md) lists what changed.
 
 The 0.1.0 release was verified in detail; that verification has not been
-repeated for 0.2.0. For 0.1.0, npm provenance points at release commit
+repeated for 0.2.x. For 0.1.0, npm provenance points at release commit
 `f6707c66ea2697a199871a4ef4263e52aa34c11c`; both image indexes and their
 linux/amd64 and linux/arm64 manifests have verified Sigstore signatures and
 signed CycloneDX SBOM attestations. Its protected-tag
@@ -454,12 +457,12 @@ The native [Python SDK](packages/sdk-python/README.md) is also implemented and
 locally verified on Python 3.11 through 3.14. All 35 applicable SDK fixtures pass
 through the real dry-run API from the recorder's captured request bytes, and a
 clean installed wheel records a loopback delivery outside the checkout. It is
-published on PyPI as [`wayscribe`](https://pypi.org/project/wayscribe/) 0.2.0
+published on PyPI as [`wayscribe`](https://pypi.org/project/wayscribe/) 0.2.1
 (`pip install wayscribe`), with a publish attestation on each file; the Leadline
 pilot is still a separate open gate.
 
 The native [Go SDK](packages/sdk-go/README.md) is published as the module
-`wayscribe.dev/go` v0.2.0 (`go get wayscribe.dev/go@v0.2.0`, Go 1.22 or newer),
+`wayscribe.dev/go` v0.2.1 (`go get wayscribe.dev/go@v0.2.1`, Go 1.22 or newer),
 with standard-library-only runtime and test dependencies. Its 35 applicable
 fixtures pass from public-recorder request bytes through the real dry-run API,
 and the external [Go worker example](examples/go-worker/README.md) proves a
@@ -490,9 +493,9 @@ ones and not a credential in an unfamiliar shape (ADR-046). The
 The source quick start above remains useful for the broken demo and for
 contributors. The released installation below needs no checkout.
 
-## Install 0.2.0 without a checkout
+## Install 0.2.1 without a checkout
 
-These commands download Compose files from the immutable `v0.2.0` tag and pull
+These commands download Compose files from the immutable `v0.2.1` tag and pull
 the released images. They need no source checkout.
 
 [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
@@ -503,9 +506,9 @@ expects you to bring your own: the one your team already backs up, monitors,
 and holds the credentials for.
 
 ```bash
-curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.0/infrastructure/compose.published.yaml
+curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.1/infrastructure/compose.published.yaml
 export COMPOSE_FILE=compose.published.yaml
-export WAYSCRIBE_VERSION=v0.2.0
+export WAYSCRIBE_VERSION=v0.2.1
 
 export DATABASE_URL=postgresql://user:password@db.internal:5432/wayscribe
 export ENCRYPTION_KEY=$(openssl rand -hex 32)
@@ -524,7 +527,7 @@ To try it without standing a database up first, add the bundled overlay to that
 list. It runs PostgreSQL alongside and sets `DATABASE_URL` for you:
 
 ```bash
-curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.0/infrastructure/compose.bundled.yaml
+curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.1/infrastructure/compose.bundled.yaml
 export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
 docker compose up -d
 ```

@@ -4,8 +4,9 @@ This checklist is ordered to produce a working vertical slice early.
 
 **State as of 2026-09-20.** Epics 0 through 14 are implemented and merged; the
 boxes below were audited against the code and committed review evidence rather
-than ticked from memory. The 0.1.0 preview is published, and 0.2.0 followed on
-2026-09-26 with the Epic 16 items ticked below. What remains for V0 is
+than ticked from memory. The 0.1.0 preview is published, and 0.2.0 (SDKs) followed on
+2026-09-26 with the Epic 16 items ticked below, and 0.2.1 published the first
+images since 0.1.0. What remains for V0 is
 the human evidence for clean-machine onboarding, time to first journey,
 first-contact clarity and outside-pilot feedback.
 

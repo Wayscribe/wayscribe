@@ -14,6 +14,13 @@ changes far less often.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-27
+
+The `api` and `web` images are tagged `v0.2.1` and are the first images
+published since `v0.1.0`; the 0.2.0 images were never published (see 0.2.0
+below). `@wayscribe/node`, the Python package `wayscribe` and the Go module
+`wayscribe.dev/go` (tag `packages/sdk-go/v0.2.1`) are 0.2.1 as well.
+
 ### Added
 
 - **OTLP senders are warned about secret-looking names.** When `POST /v1/logs`
@@ -36,10 +43,24 @@ changes far less often.
 - OTLP responses are bounded to 1,024 bytes, up from 256, to hold the refusal
   summary and the warning together.
 
+### Fixed
+
+- **Release images publish to the GitLab registry.** The image job writes
+  provenance attestations in the form the registry accepts
+  (`oci-artifact=false`), pins the BuildKit image by digest, and a manual
+  `publish-images-rehearsal` job pushes to a rehearsal path in the real
+  registry before a tag is cut.
+
 ## [0.2.0] - 2026-09-26
 
-The `api` and `web` images are tagged `v0.2.0` and `@wayscribe/node` is 0.2.0.
-The Go SDK gets its first public tag, `packages/sdk-go/v0.2.0`.
+0.2.0: SDKs only. `@wayscribe/node` 0.2.0, the Python package `wayscribe`
+0.2.0 and the Go module `wayscribe.dev/go` (first public tag,
+`packages/sdk-go/v0.2.0`) are published. The `api` and `web` images were not
+published because of a registry incompatibility: the release builder wrote its
+provenance attestations in a form the GitLab container registry refuses
+([moby/buildkit#7007](https://github.com/moby/buildkit/issues/7007)), and no
+`v0.2.0` image tag exists. Use 0.2.1, which carries every 0.2.0 change below in
+published images.
 
 ### Added
 

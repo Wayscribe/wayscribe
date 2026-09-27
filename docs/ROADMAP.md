@@ -15,9 +15,10 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. The 0.2.0 preview is published:
-`@wayscribe/node@0.2.0`, the `v0.2.0` API and web images, the Go module
-`wayscribe.dev/go` v0.2.0 and the Python package `wayscribe` 0.2.0. The 0.1.0
+the step against a development destination. The 0.2.1 preview is published:
+`@wayscribe/node@0.2.1`, the `v0.2.1` API and web images, the Go module
+`wayscribe.dev/go` v0.2.1 and the Python package `wayscribe` 0.2.1. 0.2.0
+shipped the SDKs only; its images were never published. The 0.1.0
 preview came first, with signed multi-platform images; on its protected tag,
 the release pipeline passed every required job. Counted on 2026-09-20: 3,422 unit tests, 979 integration tests on each of PostgreSQL 15,
 17 and 18, 796 SDK tests on each of Node 22.12.0 and 24, two 71-test browser
@@ -79,8 +80,8 @@ Presenting the work, and closing what the last review opened.
   directly to the existing API, and adds idiomatic context, cancellation,
   concurrency safety and race tests. `examples/mixed-language` carries one
   journey from Node through Python to Go.
-- ~~**Optional OpenTelemetry log ingest, after Go.**~~ **Shipped in 0.2.0,
-  off by default:** `POST /v1/logs` accepts OTLP
+- ~~**Optional OpenTelemetry log ingest, after Go.**~~ **Shipped in 0.2.0
+  (first published images `v0.2.1`), off by default:** `POST /v1/logs` accepts OTLP
   over HTTP only when enabled, so a team already exporting logs can map them
   onto journey events without adding a recorder. gRPC, traces and metrics are
   out of scope. Native SDKs do not depend on this path. The Node SDK stays the
