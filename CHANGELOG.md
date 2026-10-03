@@ -14,11 +14,26 @@ changes far less often.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-03
+
+The `api` and `web` images, `@wayscribe/node`, the Python package `wayscribe`
+and the Go module `wayscribe.dev/go` (tag `packages/sdk-go/v0.2.2`) are 0.2.2.
+No API, protocol or SDK behavior changes.
+
 ### Security
 
-- The API depends on `fastify` 5.12.5 or later and `fast-uri` 3.1.8 / 4.1.5 or
-  later (moderate advisories, including a fastify denial of service). The
-  `v0.2.1` images carry the earlier versions; the next release picks these up.
+- The API image ships `fastify` 5.12.5 and patched `fast-uri` (moderate
+  advisories, including a fastify denial of service). The `v0.2.1` images carry
+  the earlier versions.
+
+### Fixed
+
+- **Documentation that led a first install to store nothing.** The README now
+  says the SDK's `environment` must match the environment the API key was
+  issued for (otherwise every event is refused), and the Node examples say
+  `shutdown()` must run before the process exits. The install steps ask for the
+  database choice before starting the stack and say where the interface is. The
+  Go SDK example pointed at the web port instead of the API.
 
 ## [0.2.1] - 2026-09-27
 

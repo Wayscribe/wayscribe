@@ -8,7 +8,7 @@ diff.
 
 The Go SDK is published as `wayscribe.dev/go`. This example's `go.mod` uses a
 local `replace` directive so it builds against this repository checkout; in your
-own module, run `go get wayscribe.dev/go@v0.2.1` instead.
+own module, run `go get wayscribe.dev/go@v0.2.2` instead.
 
 Configure the worker explicitly in application code:
 
