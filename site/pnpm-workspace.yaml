@@ -11,3 +11,18 @@
 allowBuilds:
   esbuild: true
   sharp: false
+
+# Transitive advisories the direct dependency has not yet picked up, pinned
+# forward as in the root workspace. Drop each entry once astro resolves it.
+overrides:
+  # GHSA-j22f-vq7h-c4qm, GHSA-mcm9-63f2-9j32, GHSA-x5rw-q4pp-hg5g. Reached through astro.
+  devalue@<5.9.3: "^5.9.3"
+
+# GHSA-ch52-4w7c-c8xp (http-cache-semantics max-stale) has no patched release:
+# 4.2.0 is the latest published version and the advisory asks for 4.2.1. It is
+# reached through astro at build time only; the site is served as static files,
+# so no response cache runs. Ignored on 2026-10-03; remove this entry and update
+# once 4.2.1 is published.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-ch52-4w7c-c8xp

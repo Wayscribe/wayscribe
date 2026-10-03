@@ -14,6 +14,12 @@ changes far less often.
 
 ## [Unreleased]
 
+### Security
+
+- The API depends on `fastify` 5.12.5 or later and `fast-uri` 3.1.8 / 4.1.5 or
+  later (moderate advisories, including a fastify denial of service). The
+  `v0.2.1` images carry the earlier versions; the next release picks these up.
+
 ## [0.2.1] - 2026-09-27
 
 The `api` and `web` images are tagged `v0.2.1` and are the first images

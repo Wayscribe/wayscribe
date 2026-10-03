@@ -15,7 +15,7 @@
     "@wayscribe/payload-diff": "workspace:*",
     "@wayscribe/payload-security": "workspace:*",
     "@wayscribe/protocol": "workspace:*",
-    "fastify": "^5.12.4",
+    "fastify": "^5.12.5",
     "knex": "^3.3.0",
     "pg": "^8.23.0",
     "protobufjs": "7.6.6",

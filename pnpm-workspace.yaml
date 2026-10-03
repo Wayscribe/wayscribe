@@ -30,3 +30,13 @@ overrides:
   postcss@<8.5.18: ">=8.5.18"
   # CVE-2026-333xx in libvips, inherited by sharp. Reached through next.
   sharp@<0.35.0: ">=0.35.0"
+  # GHSA-qhr7-859c-m2p7 and GHSA-6j4f-fj2g-mc7p: brace-expansion recursion DoS.
+  # Reached through eslint, typescript-eslint and testcontainers (development only).
+  brace-expansion@<1.1.21: "^1.1.21"
+  brace-expansion@>=2.0.0 <2.1.7: "^2.1.7"
+  brace-expansion@>=4.0.0 <5.0.12: "^5.0.12"
+  # GHSA-m9gg-hp2v-232j. Reached through testcontainers (development only).
+  "@grpc/grpc-js@>=1.14.0 <1.14.5": "^1.14.5"
+  # Moderate, but in the API image: reached through fastify's ajv compiler.
+  fast-uri@>=3.0.0 <3.1.8: "^3.1.8"
+  fast-uri@>=4.0.0 <4.1.5: "^4.1.5"
