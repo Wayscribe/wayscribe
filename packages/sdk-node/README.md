@@ -119,7 +119,9 @@ async function handleWebhook(account) {
 }
 ```
 
-Then search Wayscribe for `account.Id` and read the timeline.
+Call `await recorder.shutdown()` before the process exits, or the last batch is
+never sent; a short script that skips it stores nothing. Then search Wayscribe
+for `account.Id` and read the timeline.
 
 **Aliases are masked when they are read**, because they are other identifiers
 for the record and a reader may not be entitled to them. An identifier that is
