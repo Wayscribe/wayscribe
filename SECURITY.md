@@ -49,7 +49,7 @@ Out of scope, because they are known and documented rather than undiscovered:
 
 ## Verifying the images you run
 
-Releases `v0.1.0` and `v0.2.1` are published, and their signatures and
+Releases `v0.1.0`, `v0.2.1` and `v0.2.2` are published, and their signatures and
 attestations were verified after publication. No `v0.2.0` images exist. Images at `registry.gitlab.com/jojithedev/wayscribe/api` and
 `/web` are signed with Sigstore keyless signing by this project's GitLab release
 pipeline, and each platform's image carries a signed CycloneDX software bill of
@@ -69,7 +69,8 @@ Extracting and checking the SBOM is described in
 that fails this check, or a signature from any other identity, is in scope:
 report it as above. The exact digests, SBOM downloads and verification results are in the release
 records for [`v0.1.0`](docs/reviews/2026-09-20-release-verification.md) and
-[`v0.2.1`](docs/reviews/2026-10-03-release-verification-0.2.1.md).
+[`v0.2.1`](docs/reviews/2026-10-03-release-verification-0.2.1.md) and
+[`v0.2.2`](docs/reviews/2026-10-03-release-verification-0.2.2.md).
 
 That claim rests on who can create a `v*` tag, because the certificate names the
 tag and nothing else about who pushed it. The `v*` tags are protected in GitLab

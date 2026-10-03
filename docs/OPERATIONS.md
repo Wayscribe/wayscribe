@@ -1800,10 +1800,11 @@ Both are made in the `publish-images` job with keyless signing: GitLab gives the
 job an OIDC token, and Sigstore's certificate authority issues a short-lived
 certificate naming the pipeline file and the tag it ran for. There is no signing
 key for anyone to steal, and the signature is recorded in Sigstore's public
-transparency log. Releases `v0.1.0` and `v0.2.1` completed and verified this path; their exact
+transparency log. Releases `v0.1.0`, `v0.2.1` and `v0.2.2` completed and verified this path; their exact
 digests and public SBOM downloads are in the release records for
 [`v0.1.0`](reviews/2026-09-20-release-verification.md) and
-[`v0.2.1`](reviews/2026-10-03-release-verification-0.2.1.md).
+[`v0.2.1`](reviews/2026-10-03-release-verification-0.2.1.md) and
+[`v0.2.2`](reviews/2026-10-03-release-verification-0.2.2.md).
 
 The job pushes each image by digest with no tag, attaches the SBOMs to that
 digest, signs it, verifies the signature and attestations as below, and only

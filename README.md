@@ -448,6 +448,11 @@ and public images passed all 12 `doctor` checks, and the Node, Python and Go
 SDKs each recorded and read back events. It ran on an existing ARM64 macOS
 Docker host, not a clean machine; see the
 [0.2.1 release verification](docs/reviews/2026-10-03-release-verification-0.2.1.md).
+The 0.2.2 maintenance release was checked the same way the same day: npm
+registry signature and attestation, the Go checksum entry, Sigstore signatures
+and SBOM attestations on every image digest, `doctor` 12 of 12, and events
+recorded and read back from Node, Python and Go
+([0.2.2 release verification](docs/reviews/2026-10-03-release-verification-0.2.2.md)).
 
 The 0.1.0 release was verified in detail. For 0.1.0, npm provenance points at release commit
 `f6707c66ea2697a199871a4ef4263e52aa34c11c`; both image indexes and their
