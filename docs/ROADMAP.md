@@ -23,7 +23,8 @@ preview came first, with signed multi-platform images; on its protected tag,
 the release pipeline passed every required job. Counted on 2026-09-20: 3,422 unit tests, 979 integration tests on each of PostgreSQL 15,
 17 and 18, 796 SDK tests on each of Node 22.12.0 and 24, two 71-test browser
 runs, and 7 release acceptance tests. The
-[release verification](reviews/2026-09-20-release-verification.md) records the
+release verifications for [0.1.0](reviews/2026-09-20-release-verification.md)
+and [0.2.1](reviews/2026-10-03-release-verification-0.2.1.md) record the
 public provenance, image and SBOM digests, and installation exercise.
 
 The released install uses tagged Compose files and public images without a

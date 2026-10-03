@@ -130,7 +130,7 @@ checkout's source; an application outside the repository uses
 
 ```go
 recorder := wayscribe.New(wayscribe.Config{
-    Endpoint: "http://localhost:3001",
+    Endpoint: "http://localhost:8080",
     APIKey: "explicit-ingestion-key",
     Service: "orders",
     Environment: "development",

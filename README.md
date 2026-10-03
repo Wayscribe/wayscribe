@@ -250,6 +250,7 @@ const recorder = createRecorder({
   endpoint: "http://localhost:8080",
   apiKey: process.env.WAYSCRIBE_API_KEY,
   serviceName: "billing-api",
+  // Must match the environment the API key was issued for.
   environment: "development",
   // Prints `delivered_first` once events are stored, or why they are not.
   // Turn it off once the service is known to send.
@@ -274,6 +275,10 @@ const id = await journey.persist("save-customer", customer, () =>
 // Aliases are the other identifiers this record answers to. Now a colleague who
 // only has the internal ID can still find this journey.
 journey.identify({ internalCustomerId: String(id) });
+
+// Sends what is still buffered. A service calls this on shutdown; a script that
+// exits without it stores nothing.
+await recorder.shutdown();
 ```
 
 Then search for `account.Id`. Or the internal ID. Or any other identifier you
@@ -434,8 +439,16 @@ public. The 0.2.0 images were never published because of a registry
 incompatibility, so the first images after 0.1.0 are `v0.2.1`.
 [CHANGELOG.md](CHANGELOG.md) lists what changed.
 
-The 0.1.0 release was verified in detail; that verification has not been
-repeated for 0.2.x. For 0.1.0, npm provenance points at release commit
+The 0.2.1 release was verified from public artifacts on 2026-10-03: the npm
+signature and provenance, the PyPI publish attestation, the Go checksum entry,
+Sigstore signatures on both image indexes and all four platform manifests, and
+signed CycloneDX SBOMs equal to the published files. The tagged Compose files
+and public images passed all 12 `doctor` checks, and the Node, Python and Go
+SDKs each recorded and read back events. It ran on an existing ARM64 macOS
+Docker host, not a clean machine; see the
+[0.2.1 release verification](docs/reviews/2026-10-03-release-verification-0.2.1.md).
+
+The 0.1.0 release was verified in detail. For 0.1.0, npm provenance points at release commit
 `f6707c66ea2697a199871a4ef4263e52aa34c11c`; both image indexes and their
 linux/amd64 and linux/arm64 manifests have verified Sigstore signatures and
 signed CycloneDX SBOM attestations. Its protected-tag
@@ -501,19 +514,14 @@ the released images. They need no source checkout.
 [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
 pulls the images and migrates on first boot.
 
-Wayscribe keeps everything in one PostgreSQL database, 15 or later, and
-expects you to bring your own: the one your team already backs up, monitors,
-and holds the credentials for.
+Start with the release and two secrets:
 
 ```bash
 curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.1/infrastructure/compose.published.yaml
 export COMPOSE_FILE=compose.published.yaml
 export WAYSCRIBE_VERSION=v0.2.1
-
-export DATABASE_URL=postgresql://user:password@db.internal:5432/wayscribe
 export ENCRYPTION_KEY=$(openssl rand -hex 32)
 export ADMIN_TOKEN=$(openssl rand -hex 32)
-docker compose up -d
 ```
 
 `COMPOSE_FILE` names the files every `docker compose` command in this shell
@@ -521,16 +529,29 @@ reads, so the commands below always see the same stack you started.
 `WAYSCRIBE_VERSION` is required: the file has no `latest` fallback,
 because the `migrate` service applies the schema of whatever image it pulls,
 and an unpinned pull could move your database across a minor release. Export
-both again in a new shell.
+both again in a new shell, along with the two secrets.
 
-To try it without standing a database up first, add the bundled overlay to that
-list. It runs PostgreSQL alongside and sets `DATABASE_URL` for you:
+Then choose a database. Wayscribe keeps everything in one PostgreSQL database,
+15 or later. For real use, bring your own: the one your team already backs up,
+monitors, and holds the credentials for.
+
+```bash
+export DATABASE_URL=postgresql://user:password@db.internal:5432/wayscribe
+docker compose up -d
+```
+
+To try it without standing a database up first, use the bundled overlay
+instead. It runs PostgreSQL alongside, publishes it on `127.0.0.1:5432` (stop a
+local PostgreSQL on that port first), and sets `DATABASE_URL` for you:
 
 ```bash
 curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.1/infrastructure/compose.bundled.yaml
 export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
 docker compose up -d
 ```
+
+The API listens on `http://localhost:8080` and the interface on
+`http://localhost:3000`, where you sign in with your `ADMIN_TOKEN`.
 
 A command that leaves the overlay out reports the PostgreSQL container as an
 orphan and suggests `--remove-orphans`. Do not take that advice: it removes the
@@ -548,8 +569,10 @@ docker compose run --rm --entrypoint node api \
   packages/database/dist/cli.js key:create acme production checkout-worker
 ```
 
-The key is printed once. Before giving it to anything, check the installation
-with it:
+The key is printed once. It may only send events for the environment named when
+it was issued, `production` here: the SDK's `environment` setting must name the
+same one, or every event is refused. Before giving the key to anything, check
+the installation with it:
 
 ```bash
 docker compose run --rm --entrypoint node api \
