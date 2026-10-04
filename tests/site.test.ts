@@ -280,7 +280,7 @@ describe("the landing page", () => {
     );
     const section = (findSection(readme, "Alternatives") ?? "").replace(/\s+/g, " ");
     expect(section).toContain(
-      "As of September 2026, I have not found an open-source tool that does all four for services you already run"
+      "As of October 2026, I have not found an open-source tool that does all four for services you already run"
     );
     expect(section).toContain("open an issue");
   });
