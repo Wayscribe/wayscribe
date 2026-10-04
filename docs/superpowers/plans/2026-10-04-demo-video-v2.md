@@ -35,6 +35,8 @@
 8. **Scene 7 also gets a highlight** (green, on the completed journey's phone rows). The spec lists highlights for scenes 6 and 10; the contrast scene reads better with one, and it plays no tick.
 9. **Posters** are the midpoint of scene 6 (the zoom onto the lost phone), the frame that says most on its own.
 10. **One merge, after approval.** All tooling lands with the new video. Narration is retired in Task 3 so no commit leaves orphaned narration scripts.
+11. **Real device scale, PNG frames (from Task 1, approved by Jorge 2026-10-04).** A context `deviceScaleFactor` does not enlarge CDP screencast frames, so Task 3 launches Chromium with `--force-device-scale-factor=2` and sets no context scale; frames are 3840x2160 PNG.
+12. **Scene 4 caption (from Task 1, approved by Jorge 2026-10-04).** The failed journey's `failedStep` is `move-message-to-dead-letter`, not a delivery step, so scene 4 reads "Delivery failed twice. Was that where the phone was lost?" (10 words, inside the 5 s scene).
 
 ## Spike results (filled in by Task 1)
 
@@ -477,8 +479,8 @@ describe("demo capture manifest", () => {
     viewport: VIEWPORT,
     scale: 2,
     frames: [
-      { at: 0, file: "frames/000000.jpg" },
-      { at: 40, file: "frames/000001.jpg" }
+      { at: 0, file: "frames/000000.png" },
+      { at: 40, file: "frames/000001.png" }
     ],
     marks: [
       { name: "home", at: 10, boxes: { query: { x: 0, y: 0, width: 10, height: 10 } } },
@@ -706,7 +708,7 @@ This task has no unit test of its own (the helpers are tested in Task 2); it is 
 
 Replace the whole file with the following. The block from `const WANTED` through `waitOutLiveWindow` is the current file's lines 57 to 167 unchanged (seeding, replay destination, live window); it is reproduced here so the file is complete.
 
-If Task 1 recorded `rowOf`'s ancestry as something other than `tr` or `li`, change the XPath in `rowOf` to match. If Task 1 chose PNG frames, set `FRAME = { format: "png" }` and `EXTENSION = "png"`.
+Task 1 recorded the result link ancestry as `a < li < ul < main < div` (so `rowOf` stays as written) and chose PNG frames with real DSF: the code below already uses PNG, launches Chromium with `--force-device-scale-factor=2`, and sets no context `deviceScaleFactor` (that option does not enlarge screencast frames).
 
 ```js
 /**
@@ -766,11 +768,12 @@ const VIDEO = join(dirname(fileURLToPath(import.meta.url)), "..", "video");
 // Laid out at 1920x1080 CSS pixels and captured at twice that, so the render
 // can zoom 2x onto a table row and still have a device pixel for every output
 // pixel. The capture spike in docs/superpowers/plans/2026-10-04-demo-video-v2.md
-// measured the alternatives.
+// measured the alternatives. The scale comes from a Chromium launch flag: a
+// context deviceScaleFactor does not enlarge screencast frames.
 const VIEWPORT = { width: 1920, height: 1080 };
 const SCALE = 2;
-const FRAME = { format: "jpeg", quality: 92 };
-const EXTENSION = "jpg";
+const FRAME = { format: "png" };
+const EXTENSION = "png";
 // The render glides its drawn cursor to each click over this long
 // (LEAD_MS in video/src/cursor.ts), so the capture waits that long before clicking.
 const CLICK_LEAD_MS = 800;
@@ -1105,7 +1108,7 @@ async function capture() {
   await mkdir(join(CAPTURE, "frames"), { recursive: true });
   await mkdir(join(CAPTURE, "review"), { recursive: true });
 
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ args: [`--force-device-scale-factor=${SCALE}`] });
   try {
     // Sign in where nothing is captured, then hand the session over.
     const signIn = await browser.newContext({ viewport: VIEWPORT });
@@ -1117,7 +1120,7 @@ async function capture() {
     const storageState = await signIn.storageState();
     await signIn.close();
 
-    const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: SCALE, storageState });
+    const context = await browser.newContext({ viewport: VIEWPORT, storageState });
     const page = await context.newPage();
     startedAt = Date.now();
     const stop = await startScreencast(page);
@@ -1177,7 +1180,7 @@ Expected: one line per mark (`home`, `results`, `timeline`, `diff`, `good-diff`,
 
 - [ ] **Step 4: Review the geometry**
 
-Open every PNG in `$SCRATCH/out/capture/review/` (Read tool). Each outlined box must sit on what its name says: `query` on the search box; `failed` and `completed` on whole result rows; `steps` around the step list; `failure` on the failed step; `diff` on the diff table; `phone` on the Phone and phone rows; `replay` on the "Replay this input" link; `form` around the destination select and the Send button; `response` on the response status; `comparison` and its `phone` on the replay comparison. Fix and recapture until all are right. Also check frame dimensions: `ffprobe -v error -show_entries stream=width,height -of csv=p=0 "$SCRATCH/out/capture/frames/000010.jpg"` gives `3840,2160`.
+Open every PNG in `$SCRATCH/out/capture/review/` (Read tool). Each outlined box must sit on what its name says: `query` on the search box; `failed` and `completed` on whole result rows; `steps` around the step list; `failure` on the failed step; `diff` on the diff table; `phone` on the Phone and phone rows; `replay` on the "Replay this input" link; `form` around the destination select and the Send button; `response` on the response status; `comparison` and its `phone` on the replay comparison. Fix and recapture until all are right. Also check frame dimensions: `ffprobe -v error -show_entries stream=width,height -of csv=p=0 "$SCRATCH/out/capture/frames/000010.png"` gives `3840,2160`.
 
 - [ ] **Step 5: Lint, full tests, commit**
 
@@ -2065,7 +2068,7 @@ export const SCENES: readonly Scene[] = [
   {
     id: "timeline",
     kind: "capture",
-    caption: "It failed at delivery. Was that where the phone was lost?",
+    caption: "Delivery failed twice. Was that where the phone was lost?",
     seconds: 5,
     from: "timeline",
     until: "diff",
@@ -2206,8 +2209,8 @@ Expected: all pass.
   "viewport": { "width": 1920, "height": 1080 },
   "scale": 2,
   "frames": [
-    { "at": 0, "file": "frames/000000.jpg" },
-    { "at": 1000, "file": "frames/000001.jpg" }
+    { "at": 0, "file": "frames/000000.png" },
+    { "at": 1000, "file": "frames/000001.png" }
   ],
   "marks": [
     { "name": "home", "at": 1000, "boxes": { "query": { "x": 560, "y": 220, "width": 800, "height": 48 } } },
