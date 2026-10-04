@@ -1,16 +1,19 @@
 # Alternatives
 
-**Last checked: 19 September 2026.**
+**Last checked: 4 October 2026.**
 
 The original comparison was checked on 16 September 2026 and Honeycomb was
 added the next day. A focused recheck on 19 September corrected current
-capabilities, licences, pricing qualifications and source links. Individual
-sources retain the date of the check that supports each statement.
+capabilities, licences, pricing qualifications and source links. A recheck on
+4 October searched for new open-source projects and found none that does all
+four, and confirmed the Convoy, NiFi and Tempo entries; Tempo's note now
+covers its 3.1 traces diff. Individual sources retain the date of the check that
+supports each statement.
 
 This page backs the claim in the README's
 [Alternatives](../README.md#alternatives) section:
 
-> As of September 2026, I have not found an open-source tool that does all four
+> As of October 2026, I have not found an open-source tool that does all four
 > for services you already run: (1) follow one record by its business id and
 > aliases across services; (2) capture what each step received and produced and
 > show the field that changed; (3) replay a recorded input against development;
@@ -34,7 +37,7 @@ a proof that the capability is absent.
 | Apache NiFi (provenance) | Apache-2.0 | Yes | Search one piece of data, see its attributes and content at each step, replay it | Covers only data moving through a NiFi dataflow |
 | Temporal | MIT | Yes | Per-execution history with each activity's input and result; search by workflow id and custom attributes | Covers only code written as Temporal Workflows and Activities |
 | Jaeger | Apache-2.0 | Yes | Find traces by span and resource attributes | No documented capture of step payloads, field diff or replay |
-| Grafana Tempo | AGPL-3.0 | Yes | Find traces by span and resource attributes with TraceQL | No documented capture of step payloads, field diff or replay |
+| Grafana Tempo | AGPL-3.0 | Yes | Find traces by span and resource attributes with TraceQL | No documented capture of step payloads, field diff or replay; the experimental 3.1 traces diff compares spans, durations and numeric attributes between two traces, not payloads |
 | Svix server | MIT | Yes | Sends webhooks with retries and a retry schedule | Covers outbound webhook delivery, not a record's path through your services |
 | PaperTrail | MIT | Yes | Before and after values for each changed attribute of a model | One Rails application's ActiveRecord models, not a cross-service journey |
 | django-simple-history | BSD-3-Clause | Yes | Model state on every change, with diffs between versions | One Django application's models, not a cross-service journey |
@@ -111,9 +114,13 @@ commercial products are not in it.
 - **What they lack for this job:** a span carries the attributes you set on it.
   Neither project's documentation describes capturing the payload a step
   received and produced, comparing the two field by field, or replaying a
-  recorded input. Wayscribe reads the active trace and span ids onto its
-  events so the two can be used together.
+  recorded input. Tempo 3.1 adds an experimental traces diff, which compares
+  two traces' spans, durations and an allow-listed set of numeric attributes;
+  it does not capture or compare payloads. Wayscribe reads the active trace and
+  span ids onto its events so the two can be used together.
 - **Sources:**
+  [Tempo 3.1 release notes, traces diff](https://grafana.com/docs/tempo/latest/release-notes/v3-1/#traces-diff-and-trace-summary-experimental)
+  (checked 2026-10-04);
   [Jaeger query service definition, `TraceQueryParameters`](https://github.com/jaegertracing/jaeger-idl/blob/main/proto/api_v3/query_service.proto),
   [Tempo, construct a TraceQL query](https://grafana.com/docs/tempo/latest/traceql/construct-traceql-queries/)
   (both checked 2026-09-16);

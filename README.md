@@ -351,7 +351,7 @@ two. It does not write `traceparent`; OTel owns that header.
 
 ## Alternatives
 
-As of September 2026, I have not found an open-source tool that does all four
+As of October 2026, I have not found an open-source tool that does all four
 for services you already run: (1) follow one record by its business id and
 aliases across services; (2) capture what each step received and produced and
 show the field that changed; (3) replay a recorded input against development;
