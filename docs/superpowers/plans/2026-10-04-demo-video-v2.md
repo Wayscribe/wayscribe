@@ -40,17 +40,17 @@
 
 | Item | Result |
 |---|---|
-| (a) recordVideo 1920x1080: SSIM of the 2x phone crop against the reference | |
-| (b) CDP screencast DSF 2, JPEG 92: SSIM, frame size, frames/s while scrolling, mean bytes/frame | |
-| (b) CDP screencast DSF 2, PNG: SSIM, frame size, frames/s while scrolling, mean bytes/frame | |
-| (c) timed screenshots DSF 2: median ms per screenshot | |
-| Chosen method and frame format | |
-| Phone rows box at 1920x1080 (CSS px), diff table box | |
-| Search result link ancestry (for `rowOf`) | |
-| Failed journey's `failedStep` | |
-| Transform step status shown in the UI (decides scene 6 wording) | |
-| Remotion licence for an individual's open-source project | |
-| Comparison image path | |
+| (a) recordVideo 1920x1080: SSIM of the 2x phone crop against the reference | SSIM 0.960 against the emulated-DSF reference (0.957 to 0.962 over three runs), 0.956 against the real-DSF reference; 25 fps; clip 440 to 780 KB. A 1x frame upscaled 2x: visibly soft and blotchy at the 2.2x zoom cap |
+| (b) CDP screencast DSF 2, JPEG 92: SSIM, frame size, frames/s while scrolling, mean bytes/frame | Context `deviceScaleFactor: 2` does NOT enlarge screencast frames: 1920x1080, SSIM 0.968 (1x crop upscaled 2x), 14.9 fps, 231 KB/frame. Real DSF (launch flag `--force-device-scale-factor=2`, no context deviceScaleFactor): 3840x2160, SSIM 0.987 against a same-mode reference, 13.3 fps, 628 KB/frame |
+| (b) CDP screencast DSF 2, PNG: SSIM, frame size, frames/s while scrolling, mean bytes/frame | Context DSF 2: 1920x1080, SSIM 0.985 (1x crop upscaled 2x), 14.8 fps, 299 KB/frame. Real DSF (launch flag): 3840x2160, SSIM 1.000 against the same-mode reference (a lossless capture of the same surface), 13.3 fps, 741 KB/frame |
+| (c) timed screenshots DSF 2: median ms per screenshot | Median per run: 124, 101 and 103 ms (emulated DSF), 100 ms (CDP screenshot, real DSF), so about 10 screenshots/s at best |
+| Chosen method and frame format | CDP screencast, PNG, with Chromium launched with `--force-device-scale-factor=2` and no context deviceScaleFactor: frames 3840x2160 at scale 2, as Tasks 3 and 10 assume, but those tasks must use the launch flag instead of `deviceScaleFactor: 2`. PNG over JPEG by 0.013 SSIM (rule: more than 0.01); JPEG is only 1.18x smaller. Gate A does not trip (recordVideo scores lowest). Under the flag the page reports devicePixelRatio 1 and Playwright's `page.screenshot()` returns 1920x1080, so a full-resolution still needs CDP `Page.captureScreenshot`. At the 2.2x zoom cap: reference, flag PNG and flag JPEG sharp; emulated-DSF PNG softer; recordVideo soft |
+| Phone rows box at 1920x1080 (CSS px), diff table box | Phone rows box 861,274,691,180 (emulated DSF) and 861,275,691,179 (real DSF: layout snaps 1 px differently, so boxes are measured in the capture's own mode). The box spans five rows (Phone, Status__c, externalId, name, phone). Gate B does not trip: 691 is under 1016. Diff table box 861.6,175.0,690.4,314.1. The diff page is at its maximum scrollY of 468 (scrollHeight 1548), so "What changed" cannot sit higher than y of about 66 |
+| Search result link ancestry (for `rowOf`) | `a < li < ul < main < div` |
+| Failed journey's `failedStep` | `move-message-to-dead-letter`, which is NOT a delivery step (delivery steps are `deliver-customer-to-target` and `retry-customer-delivery`); scene 4's "It failed at delivery" does not match the page header "failed at move-message-to-dead-letter" |
+| Transform step status shown in the UI (decides scene 6 wording) | Not shown as succeeded: a neutral grey outlined badge reading "transformed" (lowercase, no icon, no colour), detail header "transformed · demo-integration · 0 ms"; no succeeded or ok text anywhere. The badge is the event operation, and the event has hasError=false; failing steps (delivered, retried) get red outlined badges. Keep the caption "The phone goes in with a value and comes out null. This step lost it." |
+| Remotion licence for an individual's open-source project | Free. LICENSE.md at tag v4.0.532 lists an individual as eligible, commercial use included; a company licence is needed from 4 employees up (the docs, written for Remotion 5, say 3 people). No attribution, notice or registration is required, and server-side rendering sends no telemetry. Read 2026-10-04: remotion.dev/docs/license (with its pricing, FAQ, telemetry and terms pages) and LICENSE.md at v4.0.532 |
+| Comparison image path | Emulated DSF: /var/folders/jt/rbg7dqqn3bb8_8lsvxrfnw2w0000gn/T/wayscribe-demo-video-v2/spike/compare.png. Fair comparison at the 2.2x zoom cap (top to bottom: same-mode reference, flag PNG, flag JPEG, emulated-DSF PNG, recordVideo): .../wayscribe-demo-video-v2/spike-fair/legibility.png |
 
 ---
 
