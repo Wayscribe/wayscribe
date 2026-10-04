@@ -68,8 +68,9 @@ supersedes that condition for Python. ADR-065 approves Go after Python, then
 optional OTLP log ingestion; languages after Go follow what pilot teams ask
 for. The Python SDK is published on PyPI as `wayscribe` 0.2.2: all applicable
 SDK and propagation fixtures pass, its captured bytes pass the real dry-run API,
-and an install from the index records from outside the checkout. Its Leadline
-pilot is still open. The Go SDK is published as the module `wayscribe.dev/go`
+and an install from the index records from outside the checkout. Its pilot
+inside a real service (Leadline, which already runs the Node SDK) is still to
+come. The Go SDK is published as the module `wayscribe.dev/go`
 v0.2.2, and optional OTLP log ingestion is in the images from `v0.2.1` (the 0.2.0
 images were never published).
 

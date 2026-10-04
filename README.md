@@ -487,7 +487,8 @@ fixtures pass from public-recorder request bytes through the real dry-run API,
 and the external [Go worker example](examples/go-worker/README.md) proves a
 searchable completed journey through a local module replacement.
 
-An adversarial audit of the first-contact experience on 2026-08-09 found that
+An adversarial review of the first-contact experience on 2026-08-09, run by AI
+agents at the maintainer's direction, found that
 the demo which verified all of it was systematically narrow: ten flat
 plain-JSON events that never contained a `Date`, a shared object reference, a
 control character, a 101st event, or a rejected one. Thirty claims were raised,
@@ -734,6 +735,24 @@ agents' tests missed and running the software found, and what changed in the
 testing because of them.
 
 ---
+
+## Looking for pilot teams
+
+Wayscribe is a 0.x preview, and the next thing it needs is a few outside teams
+running it on one real flow. It fits best if your team writes its own
+integrations (webhooks, transforms, queues, workers, calls to SaaS APIs), runs
+on Node, Python or Go without Temporal or an iPaaS in the middle, often gets
+"this customer's data is wrong" tickets, and is allowed to store payloads in its
+own PostgreSQL.
+
+What you get: help instrumenting that first flow, and fixes for what gets in
+your way. What I ask: an honest account of where it broke, what was confusing,
+and whether it answered the question you had.
+
+Write to [pilots@wayscribe.dev](mailto:pilots@wayscribe.dev), or open a public
+issue with the
+[pilot template](https://gitlab.com/jojithedev/wayscribe/-/issues/new?issuable_template=pilot). If you only
+tried the install, telling me where it stopped is just as useful.
 
 ## Contributing
 

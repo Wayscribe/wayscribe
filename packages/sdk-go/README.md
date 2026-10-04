@@ -299,3 +299,8 @@ one-time `delivered_first` diagnostic does. Kinds and codes match the Node SDK
 (see `docs/SDK_SPEC.md`, "Go SDK alignment"). Diagnostic
 kind/code avoid caller-written names/paths and payloads. The deferred shutdown
 uses its own default deadline rather than a potentially expired flush context.
+
+Events carry `runtime.sdk` with the name `wayscribe.dev/go` and its version, but
+no commit yet. The Node SDK also reports the commit it was built from. The
+[SDK specification](https://gitlab.com/jojithedev/wayscribe/-/blob/main/docs/SDK_SPEC.md)
+makes the commit optional, so this is a gap, not a fault.

@@ -352,3 +352,8 @@ Flush completion includes rejected/dropped work. Inspect delivery counters after
 recording; an idle recorder's zero counters do not prove connectivity. The
 context manager shuts down the recorder. Log diagnostic kind/code, not payloads,
 keys or caller-written details.
+
+Events carry `runtime.sdk` with the name `wayscribe` and its version, but no
+commit yet. The Node SDK also reports the commit it was built from. The
+[SDK specification](https://gitlab.com/jojithedev/wayscribe/-/blob/main/docs/SDK_SPEC.md)
+makes the commit optional, so this is a gap, not a fault.

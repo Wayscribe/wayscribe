@@ -91,11 +91,13 @@ is on ([ADR-046](DECISIONS.md#adr-046-error-text-is-masked-by-shape-and-stacks-a
 
 ## Supply chain
 
-CI blocks on `pnpm audit`, gitleaks and Trivy. Release `v0.1.0` is public. Its
-images have verified Sigstore keyless signatures and a verified signed CycloneDX
-SBOM attestation per platform; `@wayscribe/node@0.1.0` has verified registry
-signatures and GitLab OIDC provenance tied to the release commit
-([release record](reviews/2026-09-20-release-verification.md),
+CI blocks on `pnpm audit`, gitleaks and Trivy. The current release is `v0.2.2`.
+Its images have verified Sigstore keyless signatures and a verified signed
+CycloneDX SBOM attestation per platform; `@wayscribe/node@0.2.2` has verified
+registry signatures and GitLab OIDC provenance tied to the release commit, and
+the PyPI `wayscribe` 0.2.2 files carry a PEP 740 attestation from GitLab trusted
+publishing ([release record](reviews/2026-10-03-release-verification-0.2.2.md),
+[`v0.1.0` record](reviews/2026-09-20-release-verification.md),
 [OPERATIONS §11](OPERATIONS.md#11-security-scanning)). To verify, with your tag
 ([full steps](OPERATIONS.md#verifying-a-published-image)):
 
