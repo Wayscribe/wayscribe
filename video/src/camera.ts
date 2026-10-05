@@ -1,7 +1,7 @@
-import { boxOf, type Capture, markNamed } from "./capture";
+import { boxOf, type Capture, findMark, markNamed } from "./capture";
 import { clamp01, easeInOutCubic } from "./ease";
 import type { Box, Point } from "./geometry";
-import type { CaptureScene, Format } from "./scenes";
+import type { CaptureScene, Format, Scene } from "./scenes";
 import { frameAtSourceMs, GLIDE_FRAMES, type Timeline, type TimedScene } from "./timeline";
 
 /** A view of the page: its top-left corner in CSS pixels, and output pixels per CSS pixel. */
@@ -68,6 +68,12 @@ export const projectBox = (c: Camera, b: Box): Box => ({
   height: b.height * c.zoom
 });
 
+/** The zoom at which `box` and its margin just fill the safe area. */
+function fitZoom(box: Box, format: Format): number {
+  const safe = safeArea(format);
+  return Math.min(safe.width / (box.width + 2 * PADDING), safe.height / (box.height + 2 * PADDING));
+}
+
 /** Whether `box`, seen through `c`, lies inside the safe area: in frame and clear of the caption band. */
 function isFramed(box: Box, c: Camera, format: Format): boolean {
   const safe = safeArea(format);
@@ -99,10 +105,7 @@ function isFramed(box: Box, c: Camera, format: Format): boolean {
  */
 export function frameBox(box: Box, format: Format, viewport: Viewport, maxZoom: number): Camera {
   const safe = safeArea(format);
-  const fit = Math.min(
-    safe.width / (box.width + 2 * PADDING),
-    safe.height / (box.height + 2 * PADDING)
-  );
+  const fit = fitZoom(box, format);
   const floor = minZoom(format, viewport);
   const aim = (zoom: number): Camera => ({
     zoom,
@@ -119,6 +122,53 @@ export function frameBox(box: Box, format: Format, viewport: Viewport, maxZoom: 
   // A guard: for a box inside the page neither bound exceeds box.y, so it only matters for a box that starts above the page.
   const highest = box.y;
   return { ...onPage, y: Math.min(Math.max(onPage.y, lowest), highest) };
+}
+
+/**
+ * Every shot whose subject the camera cannot frame, in each of `formats`, as
+ * sentences (none when all frame). `frameBox` quietly returns a view that does
+ * not frame a subject it cannot, so the story's fixture test and the render
+ * both ask here. A shot whose mark or box the capture lacks is left to
+ * `missingForScenes`.
+ */
+export function framingProblems(
+  scenes: readonly Scene[],
+  capture: Capture,
+  formats: readonly Format[]
+): string[] {
+  const problems: string[] = [];
+  const px = (n: number) => `${String(Math.round(n))} px`;
+  for (const scene of scenes) {
+    if (scene.kind !== "capture") continue;
+    for (const format of formats) {
+      const safe = safeArea(format);
+      for (const shot of scene.shots[format.id]) {
+        const box = findMark(capture, shot.mark)?.boxes[shot.box];
+        if (box === undefined) continue;
+        const view = frameBox(box, format, capture.viewport, shot.maxZoom);
+        if (isFramed(box, view, format)) continue;
+        const p = projectBox(view, box);
+        const fit = fitZoom(box, format);
+        const why: string[] = [];
+        if (fit < MIN_ZOOM)
+          why.push(
+            `it needs zoom ${fit.toFixed(2)} to fit with its margin, below the least the camera uses (${String(MIN_ZOOM)})`
+          );
+        if (p.x < -TOLERANCE) why.push(`it starts ${px(-p.x)} left of the frame`);
+        if (p.y < -TOLERANCE) why.push(`it starts ${px(-p.y)} above the frame`);
+        if (p.x + p.width > safe.width + TOLERANCE)
+          why.push(`it ends ${px(p.x + p.width - safe.width)} right of the frame`);
+        if (p.y + p.height > format.height + TOLERANCE)
+          why.push(`it ends ${px(p.y + p.height - format.height)} below the frame`);
+        else if (p.y + p.height > safe.height + TOLERANCE)
+          why.push(`it ends ${px(p.y + p.height - safe.height)} into the caption band`);
+        problems.push(
+          `Scene "${scene.id}": its ${format.id} shot on mark "${shot.mark}" (box "${shot.box}") is not framed: ${why.join("; ")}.`
+        );
+      }
+    }
+  }
+  return problems;
 }
 
 const centre = (c: Camera, format: Format): Point => ({

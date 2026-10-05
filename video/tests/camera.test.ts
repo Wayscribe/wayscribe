@@ -4,6 +4,7 @@ import {
   type Camera,
   clampCamera,
   frameBox,
+  framingProblems,
   glide,
   MIN_ZOOM,
   minZoom,
@@ -12,11 +13,11 @@ import {
   safeArea,
   sceneCamera
 } from "../src/camera";
-import { boxOf, type Capture } from "../src/capture";
+import type { Capture } from "../src/capture";
 import fixture from "../src/fixtures/capture.json";
 import type { Box } from "../src/geometry";
-import { type CaptureScene, type Format, FORMATS, SCENES } from "../src/scenes";
-import { buildTimeline, GLIDE_FRAMES } from "../src/timeline";
+import { type CaptureScene, type Format, FORMATS, type Scene, SCENES } from "../src/scenes";
+import { buildTimeline, GLIDE_FRAMES, missingForScenes } from "../src/timeline";
 
 const capture = fixture as Capture;
 const viewport = { width: 1920, height: 1080 };
@@ -432,22 +433,7 @@ describe("a camera that may leave the page", () => {
 
 describe("the real story's framing", () => {
   it("keeps every shot's subject inside the frame and clear of the caption band, in both formats", () => {
-    for (const scene of SCENES) {
-      if (scene.kind !== "capture") continue;
-      for (const format of Object.values(FORMATS)) {
-        const safe = safeArea(format);
-        for (const shot of scene.shots[format.id]) {
-          const box = boxOf(capture, shot.mark, shot.box);
-          const p = projectBox(frameBox(box, format, capture.viewport, shot.maxZoom), box);
-          const inside =
-            p.x >= -0.5 &&
-            p.y >= -0.5 &&
-            p.x + p.width <= safe.width + 0.5 &&
-            p.y + p.height <= safe.height + 0.5;
-          expect(inside, `${scene.id} ${format.id} ${shot.box}`).toBe(true);
-        }
-      }
-    }
+    expect(framingProblems(SCENES, capture, formats)).toEqual([]);
   });
 
   it("starts a gliding scene exactly where the previous one stopped", () => {
@@ -462,5 +448,107 @@ describe("the real story's framing", () => {
       expect(a.x).toBeCloseTo(b.x);
       expect(a.y).toBeCloseTo(b.y);
     }
+  });
+});
+
+describe("framingProblems", () => {
+  const boxes: Record<string, Box> = {
+    // Frames in both formats.
+    fine: { x: 368, y: 300, width: 474, height: 179 },
+    // Wider than the square window can take above MIN_ZOOM (needs 0.58), fine in the wide one.
+    broad: { x: 60, y: 300, width: 1800, height: 40 },
+    // Taller than the wide safe area can take above MIN_ZOOM (needs 0.799): its foot is in the caption band.
+    tall: { x: 368, y: 40, width: 474, height: 1000 },
+    // Runs off the page's right edge, and the window cannot follow it.
+    beyond: { x: 1700, y: 300, width: 400, height: 100 }
+  };
+  const synthetic: Capture = {
+    version: 1,
+    viewport,
+    scale: 2,
+    frames: [{ at: 0, file: "f0" }],
+    marks: [
+      { name: "a", at: 1000, boxes },
+      { name: "b", at: 3000, boxes }
+    ],
+    clicks: []
+  };
+  const scene = (
+    id: string,
+    wideShots: [string, string][],
+    squareShots: [string, string][] = wideShots
+  ): CaptureScene => {
+    const shots = (list: [string, string][]) =>
+      list.map(([mark, box]) => ({ mark, box, maxZoom: 1.6 }));
+    return {
+      id,
+      kind: "capture",
+      caption: "x",
+      seconds: 4,
+      from: "a",
+      until: "b",
+      enter: "fade",
+      shots: { wide: shots(wideShots), square: shots(squareShots) }
+    };
+  };
+
+  it("finds nothing where every subject frames", () => {
+    expect(framingProblems([scene("ok", [["a", "fine"]])], synthetic, formats)).toEqual([]);
+  });
+
+  it("names the scene, format, mark, box and zoom of a subject too wide for MIN_ZOOM", () => {
+    const problems = framingProblems([scene("wide-row", [["a", "broad"]])], synthetic, formats);
+    // The wide cut frames it; only the square cut cannot.
+    expect(problems).toHaveLength(1);
+    const [problem] = problems;
+    expect(problem).toContain('Scene "wide-row"');
+    expect(problem).toContain("square");
+    expect(problem).toContain('mark "a"');
+    expect(problem).toContain('box "broad"');
+    expect(problem).toContain("0.58");
+    expect(problem).toContain(String(MIN_ZOOM));
+  });
+
+  it("says when a subject ends in the caption band", () => {
+    const problems = framingProblems([scene("tall-card", [["a", "tall"]])], synthetic, [wide]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('Scene "tall-card"');
+    expect(problems[0]).toContain("wide");
+    expect(problems[0]).toContain("caption band");
+  });
+
+  it("says when a subject lies outside the frame", () => {
+    const problems = framingProblems([scene("off-page", [["a", "beyond"]])], synthetic, [wide]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('Scene "off-page"');
+    expect(problems[0]).toContain("right of the frame");
+  });
+
+  it("checks only the formats it is given", () => {
+    const scenes = [scene("wide-row", [["a", "broad"]])];
+    expect(framingProblems(scenes, synthetic, [wide])).toEqual([]);
+    expect(framingProblems(scenes, synthetic, [FORMATS.square])).toHaveLength(1);
+  });
+
+  it("reports each failing shot of each scene on its own, and skips cards", () => {
+    const scenes: Scene[] = [
+      { id: "card", kind: "card", layout: "statement", lines: ["x"], seconds: 2 },
+      scene("one", [
+        ["a", "fine"],
+        ["b", "tall"]
+      ]),
+      scene("two", [["a", "beyond"]], [["a", "fine"]])
+    ];
+    const problems = framingProblems(scenes, synthetic, formats);
+    expect(problems.filter((p) => p.includes('Scene "one"'))).toHaveLength(2);
+    expect(problems.filter((p) => p.includes('Scene "two"'))).toHaveLength(1);
+    expect(problems.some((p) => p.includes('mark "b"') && p.includes('box "tall"'))).toBe(true);
+    expect(problems.some((p) => p.includes("card"))).toBe(false);
+  });
+
+  it("leaves a mark or box the capture lacks to missingForScenes", () => {
+    const scenes = [scene("gone", [["nope", "fine"]]), scene("gone-box", [["a", "nope"]])];
+    expect(framingProblems(scenes, synthetic, formats)).toEqual([]);
+    expect(missingForScenes(scenes, synthetic)).not.toEqual([]);
   });
 });

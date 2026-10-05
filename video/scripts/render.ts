@@ -8,6 +8,7 @@ import { parseArgs } from "node:util";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import { renderMusic } from "../src/audio/music";
 import { encodeWav } from "../src/audio/wav";
+import { framingProblems } from "../src/camera";
 import {
   crfSummary,
   encodeWithinBudget,
@@ -65,6 +66,9 @@ await clearOutputs(OUT, [
 ]);
 const capture = await readCapture(values.capture);
 const timeline = buildTimeline(SCENES, capture);
+// frameBox quietly returns a view that does not frame a subject it cannot, so ask here, before any
+// expensive work. The render still runs, to leave the stills that show what is wrong, and fails at the end.
+const problems: string[] = framingProblems(SCENES, capture, Object.values(FORMATS));
 const totalSec = timeline.totalFrames / timeline.fps;
 const sceneById = (id: string) => {
   const found = timeline.scenes.find((t) => t.scene.id === id);
@@ -96,7 +100,6 @@ loudnorm(raw, music);
 
 // Picture: one bundle, two silent near-lossless renders, then the final encodes.
 const serveUrl = await prepareBundle(values.capture, OUT);
-const problems: string[] = [];
 const report: string[] = [];
 const phone = sceneById("phone");
 const posterAt = seconds(phone.startFrame + phone.frames / 2);
