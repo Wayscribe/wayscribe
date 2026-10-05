@@ -12,6 +12,10 @@ export function toBox(box, name, viewport) {
   if (box === null || box === undefined) {
     throw new Error(`Nothing measurable for "${name}": is it on the page?`);
   }
+  // Refuse before rounding, which would otherwise grow an empty box at a fractional position to 1 px.
+  if (box.width <= 0 || box.height <= 0) {
+    throw new Error(`Nothing measurable for "${name}": it has no size.`);
+  }
   const x = Math.max(0, Math.floor(box.x));
   const y = Math.max(0, Math.floor(box.y));
   const right = Math.min(viewport.width, Math.ceil(box.x + box.width));
@@ -68,6 +72,11 @@ export function manifestProblems(manifest) {
     if (seen.has(mark.name)) problems.push(`Mark "${mark.name}" appears twice.`);
     seen.add(mark.name);
     for (const [key, box] of Object.entries(mark.boxes)) {
+      // A box with no size would be drawn across the whole frame by ffmpeg's drawbox (w=0 means full width).
+      if (box.width <= 0 || box.height <= 0) {
+        problems.push(`Box "${key}" of mark "${mark.name}" has no size.`);
+        continue;
+      }
       const inside =
         box.x >= 0 &&
         box.y >= 0 &&
@@ -86,7 +95,8 @@ export function manifestProblems(manifest) {
     }
   }
   for (const click of clicks) {
-    if (click.x < 0 || click.y < 0 || click.x > viewport.width || click.y > viewport.height) {
+    // Pixels run 0 to width - 1, so a click on the far edge is already outside the viewport.
+    if (click.x < 0 || click.y < 0 || click.x >= viewport.width || click.y >= viewport.height) {
       problems.push(`Click at ${String(click.at)} ms is off screen.`);
     }
   }
