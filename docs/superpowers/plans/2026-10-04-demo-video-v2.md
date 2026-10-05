@@ -37,6 +37,8 @@
 10. **One merge, after approval.** All tooling lands with the new video. Narration is retired in Task 3 so no commit leaves orphaned narration scripts.
 11. **Real device scale, PNG frames (from Task 1, approved by Jorge 2026-10-04).** A context `deviceScaleFactor` does not enlarge CDP screencast frames, so Task 3 launches Chromium with `--force-device-scale-factor=2` and sets no context scale; frames are 3840x2160 PNG.
 12. **Scene 4 caption (from Task 1, approved by Jorge 2026-10-04).** The failed journey's `failedStep` is `move-message-to-dead-letter`, not a delivery step, so scene 4 reads "Delivery failed twice. Was that where the phone was lost?" (10 words, inside the 5 s scene).
+13. **The camera may leave the page (decided during Task 9, for Jorge's review at Task 14).** The app's content column is 1184 CSS px wide, wider than the square cut's 1080 px window at zoom 1, and the timeline's steps list cannot clear the caption band at the page's maximum scroll. The page is uniformly white outside the content column, so the camera may zoom below 1 (floor `MIN_ZOOM`, 0.8) and extend past the page's top or bottom edge, filled with `PAGE_BACKGROUND`, only as far as the subject needs. Where the plan's framing already worked it is unchanged.
+14. **Reading hold measured, not enforced (Task 9, for Jorge's review at Task 14).** Against the real capture, four scenes start their action before the caption's reading time: search by 2969 ms, replay by 1956 ms, timeline by 642 ms, results by 362 ms. The caption stays on screen through the action. Enforcing the hold would lengthen search by 0.5 s and speed three actions up to 2.5x; left as is unless the cuts read rushed.
 
 ## Spike results (filled in by Task 1)
 
