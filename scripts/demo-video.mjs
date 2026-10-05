@@ -189,16 +189,27 @@ const frames = [];
 const marks = [];
 const clicks = [];
 
-/** Starts the screencast; returns a function that stops it once every frame is on disk. */
+/**
+ * Starts the screencast; returns a function that stops it once every frame is
+ * on disk, and throws the first frame that could not be written.
+ */
 async function startScreencast(page) {
   const session = await page.context().newCDPSession(page);
   const writes = [];
+  let accepting = true;
+  let writeError;
   session.on("Page.screencastFrame", ({ data, metadata, sessionId }) => {
+    if (!accepting) return;
     const at =
       metadata.timestamp === undefined ? now() : Math.round(metadata.timestamp * 1000 - startedAt);
     const file = `frames/${String(frames.length).padStart(6, "0")}.${EXTENSION}`;
     frames.push({ at, file });
-    writes.push(writeFile(join(CAPTURE, file), Buffer.from(data, "base64")));
+    // Caught here, so a failed write cannot end the process before stop() reports it.
+    writes.push(
+      writeFile(join(CAPTURE, file), Buffer.from(data, "base64")).catch((error) => {
+        writeError ??= error;
+      })
+    );
     session.send("Page.screencastFrameAck", { sessionId }).catch(() => undefined);
   });
   await session.send("Page.startScreencast", {
@@ -208,9 +219,15 @@ async function startScreencast(page) {
     everyNthFrame: 1
   });
   return async () => {
-    await session.send("Page.stopScreencast");
+    try {
+      await session.send("Page.stopScreencast");
+    } finally {
+      // No frame is taken after this, so the frames and writes awaited below are final.
+      accepting = false;
+      await session.detach().catch(() => undefined);
+    }
     await Promise.all(writes);
-    await session.detach();
+    if (writeError !== undefined) throw writeError;
   };
 }
 
@@ -234,9 +251,28 @@ function createActions(page) {
     );
     return unionBox(rects.map((rect, index) => toBox(rect, `${name}[${String(index)}]`, VIEWPORT)));
   };
+  /**
+   * The box of `locator`, which must show inside `outer`'s box (to 1 px of
+   * rounding). toBox clips to the window only, so a row scrolled out of a list
+   * that scrolls in a box of its own would otherwise still get a box.
+   */
+  const boxWithin = async (locator, outer, name, outerName) => {
+    const inner = await box(locator, name);
+    const limit = await box(outer, outerName);
+    const inside =
+      inner.x >= limit.x - 1 &&
+      inner.y >= limit.y - 1 &&
+      inner.x + inner.width <= limit.x + limit.width + 1 &&
+      inner.y + inner.height <= limit.y + limit.height + 1;
+    if (!inside) {
+      throw new Error(`"${name}" is not inside the visible part of "${outerName}".`);
+    }
+    return inner;
+  };
   return {
     box,
     boxAll,
+    boxWithin,
     /** Records a moment of the story once it has settled, with the boxes of what it is about. */
     async mark(name, boxes = {}) {
       await sleep(SETTLE_MS);
@@ -316,8 +352,9 @@ async function captureStory(page, journeys, replayDestinationId, failedStep) {
   );
   await act.mark("timeline", {
     steps,
-    failure: stepLink(failedStep),
-    transform: stepLink("transform-salesforce")
+    failure: () => act.boxWithin(stepLink(failedStep), steps, "timeline.failure", "timeline.steps"),
+    transform: () =>
+      act.boxWithin(stepLink("transform-salesforce"), steps, "timeline.transform", "timeline.steps")
   });
 
   // The transform step: what it received and what it produced.
@@ -431,9 +468,14 @@ async function capture() {
     const stop = await startScreencast(page);
     try {
       await captureStory(page, journeys, replayDestinationId, failedStep);
-    } finally {
-      await stop();
+    } catch (error) {
+      // Keep the error that ended the story: a crashed page makes stopping fail too.
+      await stop().catch((stopError) => {
+        console.error(`  stopping the screencast also failed: ${String(stopError)}`);
+      });
+      throw error;
     }
+    await stop();
     await context.close();
   } finally {
     await browser.close();
