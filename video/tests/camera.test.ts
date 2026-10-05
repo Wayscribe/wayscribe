@@ -263,6 +263,37 @@ describe("a camera that may leave the page", () => {
     expect(view.x).toBeCloseTo((viewport.width - wide.width / 0.8) / 2);
   });
 
+  it("(f) centres a subject in the safe area when the window is taller than the page, padding above and below", () => {
+    const square = FORMATS.square;
+    const safe = safeArea(square);
+    // Centres of these boxes fall where the centred window still covers the page.
+    for (const y of [290, 300, 400, 440]) {
+      const box = { x: 368, y, width: 1184, height: 40 };
+      const view = frameBox(box, square, viewport, 2.2);
+      const reason = `y ${y}`;
+      expect(view.zoom, reason).toBeLessThan(1);
+      expect(view.y, reason).toBeLessThan(0);
+      expect(view.y + square.height / view.zoom, reason).toBeGreaterThan(viewport.height);
+      const p = projectBox(view, box);
+      expect(Math.abs(p.y + p.height / 2 - safe.height / 2), reason).toBeLessThan(3);
+      expect(inSafeArea(box, view, square), reason).toBe(true);
+    }
+  });
+
+  it("(f) keeps covering the page when centring would uncover it: a low subject sits below the centre", () => {
+    const square = FORMATS.square;
+    const safe = safeArea(square);
+    const box = { x: 368, y: 700, width: 1184, height: 40 };
+    const view = frameBox(box, square, viewport, 2.2);
+    expect(view.zoom).toBeLessThan(1);
+    // The window rests on the page's top, so the padding falls below the page only.
+    expect(view.y).toBe(0);
+    expect(view.y + square.height / view.zoom).toBeGreaterThan(viewport.height);
+    const p = projectBox(view, box);
+    expect(p.y + p.height / 2).toBeGreaterThan(safe.height / 2 + 3);
+    expect(inSafeArea(box, view, square)).toBe(true);
+  });
+
   it("(e) glides continuously across a shot below zoom 1, from a scene that stopped on one", () => {
     const frameBoxes = { x: 861, y: 275, width: 691, height: 179 };
     const wideBox = { x: 368, y: 316, width: 1184, height: 44 };
@@ -331,29 +362,46 @@ describe("a camera that may leave the page", () => {
     expect(last.x).toBeCloseTo(smallView.x);
     expect(last.y).toBeCloseTo(smallView.y);
 
-    // No frame moves more than a fixed share of the whole journey, and the zoom stays between its ends.
+    // Scene two glides on from where scene one stopped to a low subject, running off the page below.
+    const lowView = frameBox(lowBox, square, viewport, 1.4);
+    expect(lowView.y + square.height / lowView.zoom).toBeGreaterThan(viewport.height);
+
+    // No frame moves more than a fixed share of its scene's whole journey, and the zoom stays above MIN_ZOOM.
     const centreOf = (c: { x: number; y: number; zoom: number }) => ({
       x: c.x + square.width / c.zoom / 2,
       y: c.y + square.height / c.zoom / 2
     });
-    const travel = {
-      x: Math.abs(centreOf(smallView).x - centreOf(wideView).x),
-      y: Math.abs(centreOf(smallView).y - centreOf(wideView).y),
-      z: Math.abs(Math.log(smallView.zoom) - Math.log(wideView.zoom))
-    };
+    const journey = (from: Camera, to: Camera) => ({
+      x: centreOf(to).x - centreOf(from).x,
+      y: centreOf(to).y - centreOf(from).y,
+      z: Math.log(to.zoom) - Math.log(from.zoom)
+    });
+    // Scene one's journey is to its second shot, scene two's is to its first: the second shot of each starts too late to count.
+    const travels = [journey(wideView, smallView), journey(last, lowView)];
+    // A swerve would show as a step bigger than a share of an axis that moves, or a step the wrong way, so each must move.
+    for (const travel of travels) {
+      expect(Math.abs(travel.x)).toBeGreaterThan(1);
+      expect(Math.abs(travel.y)).toBeGreaterThan(1);
+      expect(Math.abs(travel.z)).toBeGreaterThan(0.01);
+    }
     for (const [index, timed] of t.scenes.entries()) {
+      const travel = travels[index];
+      if (travel === undefined) throw new Error("no journey");
       let previous = sceneCamera(t, index, 0, square, tiny);
       for (let frame = 1; frame < timed.frames; frame++) {
         const now = sceneCamera(t, index, frame, square, tiny);
         const step = {
-          x: Math.abs(centreOf(now).x - centreOf(previous).x),
-          y: Math.abs(centreOf(now).y - centreOf(previous).y),
-          z: Math.abs(Math.log(now.zoom) - Math.log(previous.zoom))
+          x: centreOf(now).x - centreOf(previous).x,
+          y: centreOf(now).y - centreOf(previous).y,
+          z: Math.log(now.zoom) - Math.log(previous.zoom)
         };
-        if (index === 0) {
-          expect(step.x, `frame ${frame}`).toBeLessThanOrEqual(0.15 * travel.x + 1e-9);
-          expect(step.y, `frame ${frame}`).toBeLessThanOrEqual(0.15 * travel.y + 1e-9);
-          expect(step.z, `frame ${frame}`).toBeLessThanOrEqual(0.15 * travel.z + 1e-9);
+        for (const axis of ["x", "y", "z"] as const) {
+          const reason = `scene ${index} frame ${frame} ${axis}`;
+          expect(Math.abs(step[axis]), reason).toBeLessThanOrEqual(
+            0.15 * Math.abs(travel[axis]) + 1e-9
+          );
+          // Never back the way it came.
+          expect(step[axis] * Math.sign(travel[axis]), reason).toBeGreaterThanOrEqual(-1e-9);
         }
         expect(now.zoom).toBeGreaterThanOrEqual(MIN_ZOOM - 1e-9);
         previous = now;
@@ -365,11 +413,20 @@ describe("a camera that may leave the page", () => {
     expect(start.zoom).toBeCloseTo(last.zoom);
     expect(start.x).toBeCloseTo(last.x);
     expect(start.y).toBeCloseTo(last.y);
-    const lowView = frameBox(lowBox, square, viewport, 1.4);
     const settled = sceneCamera(t, 1, GLIDE_FRAMES, square, tiny);
     expect(settled.zoom).toBeCloseTo(lowView.zoom);
     expect(settled.x).toBeCloseTo(lowView.x);
     expect(settled.y).toBeCloseTo(lowView.y);
+
+    // Both ends of that glide are off the page, and the path between them is the plain eased one: it
+    // does not swerve onto the page and back as it crosses zoom 1.
+    for (let frame = 0; frame <= GLIDE_FRAMES; frame++) {
+      const eased = between(last, lowView, frame / GLIDE_FRAMES, square);
+      const seen = sceneCamera(t, 1, frame, square, tiny);
+      expect(seen.zoom, `frame ${frame}`).toBeCloseTo(eased.zoom);
+      expect(seen.x, `frame ${frame}`).toBeCloseTo(eased.x);
+      expect(seen.y, `frame ${frame}`).toBeCloseTo(eased.y);
+    }
   });
 });
 

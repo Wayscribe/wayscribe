@@ -190,6 +190,74 @@ describe("the timeline", () => {
     expect(() => buildTimeline([early], tiny, 30)).toThrow(/highlight on mark "a" falls outside/);
   });
 
+  describe("shot spacing", () => {
+    // Scene "c" to "d" over 5 s at 30 fps plays at 2x with no hold, so a mark at M ms
+    // first shows on frame ceil((M - 3000) / 2 * 0.03): "h" on 3, "j" on 23, "i" on 24, "k" on 50.
+    const spaced: Capture = {
+      ...tiny,
+      marks: [
+        ...tiny.marks,
+        { name: "h", at: 3200, boxes: { b: box } },
+        { name: "j", at: 4500, boxes: { b: box } },
+        { name: "i", at: 4600, boxes: { b: box } },
+        { name: "k", at: 6300, boxes: { b: box } }
+      ]
+    };
+    const shotsOn = (...marks: string[]) => marks.map((mark) => ({ mark, box: "b", maxZoom: 2 }));
+    const spacedScene = (...marks: string[]) =>
+      scene({
+        from: "c",
+        until: "d",
+        seconds: 5,
+        shots: { wide: shotsOn(...marks), square: shotsOn("c") }
+      });
+
+    it("places the marks where the comments above say", () => {
+      const [s] = buildTimeline([spacedScene("c")], spaced, 30).scenes;
+      if (s === undefined) throw new Error("no scene");
+      expect(
+        ["h", "j", "i", "k"].map((m) => frameAtSourceMs(s, markNamed(spaced, m).at, 30))
+      ).toEqual([3, 23, 24, 50]);
+    });
+
+    it("refuses a shot that starts less than a glide after the shot before it", () => {
+      expect(() => buildTimeline([spacedScene("c", "k", "k")], spaced, 30)).toThrow(
+        /its shot on mark "k" \(wide\) starts on frame 50, less than 24 frames after frame 50/
+      );
+      // Out of order is the same fault: it starts before the shot ahead of it.
+      expect(() => buildTimeline([spacedScene("c", "k", "i")], spaced, 30)).toThrow(
+        /its shot on mark "i" \(wide\) starts on frame 24, less than 24 frames after frame 50/
+      );
+    });
+
+    it("refuses a shot that starts less than a glide after the scene starts", () => {
+      // The opening shot glides in from the scene's first frame whatever its mark.
+      expect(() => buildTimeline([spacedScene("c", "h")], spaced, 30)).toThrow(
+        /its shot on mark "h" \(wide\) starts on frame 3, less than 24 frames after frame 0/
+      );
+      expect(() => buildTimeline([spacedScene("c", "j")], spaced, 30)).toThrow(
+        /its shot on mark "j" \(wide\) starts on frame 23, less than 24 frames after frame 0/
+      );
+    });
+
+    it("names the format whose shots are too close", () => {
+      const square = scene({
+        from: "c",
+        until: "d",
+        seconds: 5,
+        shots: { wide: shotsOn("c", "k"), square: shotsOn("c", "h") }
+      });
+      expect(() => buildTimeline([square], spaced, 30)).toThrow(
+        /its shot on mark "h" \(square\) starts on frame 3/
+      );
+    });
+
+    it("accepts shots exactly one glide apart", () => {
+      expect(() => buildTimeline([spacedScene("c", "i", "k")], spaced, 30)).not.toThrow();
+      expect(GLIDE_FRAMES).toBe(24);
+    });
+  });
+
   it("sounds each tick once the camera has arrived", () => {
     const t = buildTimeline(
       [card("one", 2), scene({ tick: true, highlight: { mark: "a", box: "b", tone: "lost" } })],

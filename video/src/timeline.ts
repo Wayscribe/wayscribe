@@ -1,5 +1,5 @@
 import { type Capture, findMark, markNamed } from "./capture";
-import { FPS, type Scene } from "./scenes";
+import { type CaptureScene, FPS, type Scene } from "./scenes";
 
 /** Fastest a scene may play its capture. */
 export const MAX_RATE = 3;
@@ -52,6 +52,31 @@ export function missingForScenes(scenes: readonly Scene[], capture: Capture): st
     }
   }
   return problems;
+}
+
+/**
+ * Each shot's camera glide takes GLIDE_FRAMES from the shot's first frame, and
+ * the next glide starts from the finished view of this one. So a shot may start
+ * no sooner than GLIDE_FRAMES after the one before it, or the camera would jump
+ * from where it had got to the view it never reached. The opening shot's glide
+ * starts on the scene's first frame, whatever its mark, so the second shot is
+ * measured from frame 0: this covers the glide in from the previous scene or
+ * the widest view alike. Shots out of order (a negative gap) fail the same way.
+ */
+function checkShotSpacing(scene: CaptureScene, timed: TimedScene, capture: Capture, fps: number) {
+  for (const [format, shots] of Object.entries(scene.shots)) {
+    let before = 0;
+    for (const [i, shot] of shots.entries()) {
+      // The camera starts the opening shot at frame 0 and every other at its mark.
+      const start = i === 0 ? 0 : frameAtSourceMs(timed, markNamed(capture, shot.mark).at, fps);
+      if (i > 0 && start - before < GLIDE_FRAMES) {
+        throw new Error(
+          `Scene "${scene.id}": its shot on mark "${shot.mark}" (${format}) starts on frame ${String(start)}, less than ${String(GLIDE_FRAMES)} frames after frame ${String(before)}, where the shot before it starts its glide. Move the mark, or drop the shot.`
+        );
+      }
+      before = start;
+    }
+  }
 }
 
 export function buildTimeline(scenes: readonly Scene[], capture: Capture, fps = FPS): Timeline {
@@ -109,7 +134,9 @@ export function buildTimeline(scenes: readonly Scene[], capture: Capture, fps = 
       holdMs = Math.max(0, outMs - spanMs);
       if (scene.tick === true) ticks.push((startFrame + GLIDE_FRAMES) / fps);
     }
-    timed.push({ scene, index, startFrame, frames, fromMs, spanMs, holdMs, rate });
+    const entry: TimedScene = { scene, index, startFrame, frames, fromMs, spanMs, holdMs, rate };
+    if (scene.kind === "capture") checkShotSpacing(scene, entry, capture, fps);
+    timed.push(entry);
     startFrame += frames;
   }
   return { fps, totalFrames: startFrame, scenes: timed, ticks };

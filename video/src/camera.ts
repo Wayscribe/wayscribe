@@ -89,10 +89,13 @@ function isFramed(box: Box, c: Camera, format: Format): boolean {
  * - zoom drops below the floor to the zoom at which the box and its margin fit
  *   (never below MIN_ZOOM; a box needing less is left to the preferred framing,
  *   which does not frame it);
- * - the window leaves the page only vertically, and only as far as it takes to
- *   keep the box's margin clear of the caption band (a box low on a page at its
- *   maximum scroll) and the box's top in frame. A window wider than the page
- *   centres the page horizontally.
+ * - below zoom 1 the window can be taller than the page, and then the subject
+ *   stays centred in the safe area (while the window still covers the page), so
+ *   padding may fall above and below the page; this is intended. Otherwise the
+ *   window leaves the page only vertically, and only as far as the caption band
+ *   needs: it keeps the box's margin clear of the band (a box low on a page at
+ *   its maximum scroll) and the box's top in frame. A window wider than the
+ *   page centres the page horizontally.
  */
 export function frameBox(box: Box, format: Format, viewport: Viewport, maxZoom: number): Camera {
   const safe = safeArea(format);
@@ -108,10 +111,12 @@ export function frameBox(box: Box, format: Format, viewport: Viewport, maxZoom: 
   });
   const preferred = clampCamera(aim(Math.max(floor, Math.min(maxZoom, fit))), format, viewport);
   if (isFramed(box, preferred, format) || fit < MIN_ZOOM) return preferred;
-  const zoom = Math.max(MIN_ZOOM, Math.min(fit, Math.max(maxZoom, floor)));
+  // No clamp to MIN_ZOOM is needed: fit >= MIN_ZOOM here, and maxZoom and the floor are at least 1 for the story's shots and page.
+  const zoom = Math.min(fit, Math.max(maxZoom, floor));
   const onPage = clampCamera(aim(zoom), format, viewport);
   // The least y that keeps the box's margin above the band, and the greatest that keeps its top in frame.
   const lowest = box.y + box.height + PADDING - safe.height / zoom;
+  // A guard: for a box inside the page neither bound exceeds box.y, so it only matters for a box that starts above the page.
   const highest = box.y;
   return { ...onPage, y: Math.min(Math.max(onPage.y, lowest), highest) };
 }
