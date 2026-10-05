@@ -29,4 +29,15 @@ describe("the demo video project", () => {
         expect(version, name).toBe("4.0.532");
     }
   });
+
+  it("type-checks and tests in CI, only when it changes", () => {
+    const ci = parse(read(".gitlab-ci.yml")) as Record<
+      string,
+      { script?: string[]; before_script?: string[]; rules?: unknown[] }
+    >;
+    const job = ci["video"];
+    expect(job?.before_script).toContain("pnpm --dir video install --frozen-lockfile");
+    expect(job?.script).toEqual(["pnpm --dir video run typecheck", "pnpm --dir video test"]);
+    expect(JSON.stringify(job?.rules)).toContain("video/**/*");
+  });
 });

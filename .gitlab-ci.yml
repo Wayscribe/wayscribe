@@ -426,6 +426,37 @@ site:
       - site/dist/
     expire_in: 7 days
 
+# The demo video project (video/) is its own pnpm project, outside the
+# workspace, so the default before_script would install everything else and
+# not it. Rendering stays local; CI only type-checks it and runs its tests.
+.video-changes: &video-changes
+  - video/**/*
+  - .gitlab-ci.yml
+
+video:
+  stage: test
+  needs: []
+  cache:
+    key:
+      files:
+        - video/pnpm-lock.yaml
+      prefix: video
+    paths:
+      - .pnpm-store
+  before_script:
+    - corepack enable
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
+    - pnpm --dir video install --frozen-lockfile
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_COMMIT_TAG
+      when: never
+    - changes: *video-changes
+  script:
+    - pnpm --dir video run typecheck
+    - pnpm --dir video test
+
 # GitLab Pages, from main only. `dependencies` rather than `needs`, so the site
 # is published only after every earlier stage has passed, `site` included, not
 # as soon as it is built. The rules match `site` on main, so the job it takes
