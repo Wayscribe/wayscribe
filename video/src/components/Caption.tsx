@@ -35,8 +35,8 @@ export const Caption = ({
         fontSize: format.captionPx,
         lineHeight: 1.25,
         textAlign: "center",
-        // Keeps a lone word off the last line ("it." on its own line).
-        textWrap: "pretty",
+        // Evens the lines out, so a short tail ("lost it.") is not left under a full line.
+        textWrap: "balance",
         boxShadow: "0 8px 30px rgba(0, 0, 0, 0.35)"
       }}
     >

@@ -7,34 +7,40 @@
   "scale": 2,
   "frames": [
     {
-      "at": 12,
+      "at": 18,
       "file": "frames/000000.png"
     },
     {
-      "at": 62,
+      "at": 89,
       "file": "frames/000001.png"
     },
     {
-      "at": 80,
+      "at": 115,
       "file": "frames/000002.png"
     }
   ],
   "marks": [
     {
       "name": "home",
-      "at": 1007,
+      "at": 1053,
       "boxes": {
         "query": {
           "x": 368,
           "y": 157,
           "width": 1106,
           "height": 41
+        },
+        "row": {
+          "x": 368,
+          "y": 157,
+          "width": 1184,
+          "height": 41
         }
       }
     },
     {
       "name": "results",
-      "at": 4976,
+      "at": 5055,
       "boxes": {
         "failed": {
           "x": 368,
@@ -58,7 +64,7 @@
     },
     {
       "name": "timeline",
-      "at": 6338,
+      "at": 6430,
       "boxes": {
         "steps": {
           "x": 368,
@@ -82,7 +88,7 @@
     },
     {
       "name": "diff",
-      "at": 7647,
+      "at": 7744,
       "boxes": {
         "diff": {
           "x": 861,
@@ -100,7 +106,7 @@
     },
     {
       "name": "good-diff",
-      "at": 8199,
+      "at": 8331,
       "boxes": {
         "diff": {
           "x": 861,
@@ -118,7 +124,7 @@
     },
     {
       "name": "replay-link",
-      "at": 8749,
+      "at": 8885,
       "boxes": {
         "replay": {
           "x": 861,
@@ -130,7 +136,7 @@
     },
     {
       "name": "replay-form",
-      "at": 10113,
+      "at": 10239,
       "boxes": {
         "destination": {
           "x": 445,
@@ -148,7 +154,7 @@
     },
     {
       "name": "replay-response",
-      "at": 12038,
+      "at": 12218,
       "boxes": {
         "response": {
           "x": 368,
@@ -160,7 +166,7 @@
     },
     {
       "name": "comparison",
-      "at": 12461,
+      "at": 12644,
       "boxes": {
         "comparison": {
           "x": 368,
@@ -178,38 +184,38 @@
     },
     {
       "name": "end",
-      "at": 12863,
+      "at": 13046,
       "boxes": {}
     }
   ],
   "clicks": [
     {
-      "at": 1842,
+      "at": 1880,
       "x": 488,
       "y": 178
     },
     {
-      "at": 3910,
+      "at": 3964,
       "x": 1517,
       "y": 178
     },
     {
-      "at": 5803,
+      "at": 5897,
       "x": 472,
       "y": 338
     },
     {
-      "at": 7171,
+      "at": 7260,
       "x": 489,
       "y": 219
     },
     {
-      "at": 9592,
+      "at": 9713,
       "x": 927,
       "y": 516
     },
     {
-      "at": 10941,
+      "at": 11078,
       "x": 420,
       "y": 531
     }

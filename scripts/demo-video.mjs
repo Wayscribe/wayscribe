@@ -317,12 +317,17 @@ async function captureStory(page, journeys, replayDestinationId, failedStep) {
   await page.goto(`${WEB_URL}/`);
   await page.waitForLoadState("networkidle");
   const query = page.locator("input[name=q]");
-  await act.mark("home", { query });
+  const searchButton = page.locator("button[type=submit]", { hasText: "Search" });
+  // The input is much wider than the search and the button sits beside it, so
+  // the "row" box (both) is what the render frames to keep the click in shot.
+  await act.mark("home", {
+    query,
+    row: async () =>
+      unionBox([await act.box(query, "input"), await act.box(searchButton, "search button")])
+  });
   await act.click(query, { wait: null });
   await query.pressSequentially(ENTITY_ID, { delay: 90 });
-  await act.click(page.locator("button[type=submit]", { hasText: "Search" }), {
-    wait: "networkidle"
-  });
+  await act.click(searchButton, { wait: "networkidle" });
   if (page.url().includes("/projects")) {
     await act.click(page.locator("button", { hasText: PROJECT }).first(), { wait: "networkidle" });
   }

@@ -96,7 +96,7 @@ export const SCENES: readonly Scene[] = [
     from: "home",
     until: "results",
     enter: "fade",
-    shots: same("home", "query", 1.6)
+    shots: same("home", "row", 1.6)
   },
   {
     id: "results",
