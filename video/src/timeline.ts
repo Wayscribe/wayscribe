@@ -134,8 +134,20 @@ export function buildTimeline(scenes: readonly Scene[], capture: Capture, fps = 
       holdMs = Math.max(0, outMs - spanMs);
     }
     const entry: TimedScene = { scene, index, startFrame, frames, fromMs, spanMs, holdMs, rate };
-    if (scene.kind === "capture" && scene.tick === true) {
-      ticks.push((startFrame + highlightFrame(entry, capture, fps)) / fps);
+    if (scene.kind === "capture" && (scene.highlight !== undefined || scene.tick === true)) {
+      // The highlight (and the tick) wait a glide after their mark shows, and nothing
+      // else stops that glide running past the scene's end, where it would never appear.
+      const at = highlightFrame(entry, capture, fps);
+      if (at >= frames - 1) {
+        const what =
+          scene.highlight === undefined
+            ? "its tick"
+            : `its highlight on mark "${scene.highlight.mark}"`;
+        throw new Error(
+          `Scene "${scene.id}": ${what} would appear on frame ${String(at)}, at or past the scene's last frame (${String(frames - 1)}). Lengthen the scene, or move the mark earlier.`
+        );
+      }
+      if (scene.tick === true) ticks.push((startFrame + at) / fps);
     }
     if (scene.kind === "capture") checkShotSpacing(scene, entry, capture, fps);
     timed.push(entry);

@@ -1,14 +1,15 @@
 import { spawnSync } from "node:child_process";
 import { integratedLufs, loudnormMeasure, LUFS_TARGET, type Probe } from "../src/checks";
+import { spawnFailure } from "../src/spawn";
 
 const FFMPEG = process.env["FFMPEG"] ?? "ffmpeg";
 const FFPROBE = process.env["FFPROBE"] ?? "ffprobe";
 
 function run(command: string, args: string[]): { stdout: string; stderr: string } {
   const result = spawnSync(command, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed:\n${result.stderr.slice(-2000)}`);
-  }
+  // A program that never started (not installed) or was killed has no stderr: say that first.
+  const failure = spawnFailure(command, args, result);
+  if (failure !== undefined) throw new Error(failure);
   return { stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -19,7 +20,7 @@ export function probe(file: string): Probe {
     "-v",
     "error",
     "-show_entries",
-    "format=duration,size:stream=codec_type,codec_name,width,height,color_space",
+    "format=duration,size:stream=codec_type,codec_name,width,height,color_space,color_primaries,color_transfer,color_range",
     "-of",
     "json",
     file
@@ -90,6 +91,16 @@ export function encodeFinal(silent: string, music: string, output: string, crf: 
     "stillimage",
     "-pix_fmt",
     "yuv420p",
+    // Tagged explicitly, not passed through from the silent render: untagged HD video is
+    // decoded however the player guesses. Limited ("tv") range is what yuv420p carries.
+    "-colorspace",
+    "bt709",
+    "-color_primaries",
+    "bt709",
+    "-color_trc",
+    "bt709",
+    "-color_range",
+    "tv",
     "-c:a",
     "aac",
     "-b:a",

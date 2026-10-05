@@ -196,6 +196,37 @@ describe("the timeline", () => {
     expect(() => buildTimeline([early], tiny, 30)).toThrow(/highlight on mark "a" falls outside/);
   });
 
+  describe("a highlight that would appear after the scene ends", () => {
+    // Scene "a" to "c" holds the opening and plays 2 s of capture; a highlight on the
+    // opening mark appears one glide in, on frame 24, so a scene needs 26 frames to show it.
+    const highlighted = (frames: number, mark = "a") =>
+      scene({ seconds: frames / 30, highlight: { mark, box: "b", tone: "lost" } });
+
+    it("refuses a highlight that lands on the scene's last frame", () => {
+      expect(() => buildTimeline([highlighted(25)], tiny, 30)).toThrow(
+        /Scene "s": its highlight on mark "a" would appear on frame 24, at or past the scene's last frame \(24\)/
+      );
+    });
+
+    it("refuses a highlight past the end, so the glide cannot run out of the scene", () => {
+      // Mark "c" is the scene's last moment, so its frame is the last one, plus a glide.
+      expect(() => buildTimeline([highlighted(90, "c")], tiny, 30)).toThrow(
+        /its highlight on mark "c" would appear on frame 113, at or past the scene's last frame \(89\)/
+      );
+    });
+
+    it("accepts a highlight one frame before the last", () => {
+      const [timed] = buildTimeline([highlighted(26)], tiny, 30).scenes;
+      if (timed === undefined) throw new Error("no scene");
+      expect(highlightFrame(timed, tiny, 30)).toBe(24);
+    });
+
+    it("holds a ticking scene without a highlight to the same limit", () => {
+      const quick = scene({ seconds: 25 / 30, tick: true });
+      expect(() => buildTimeline([quick], tiny, 30)).toThrow(/its tick would appear on frame 24/);
+    });
+  });
+
   describe("shot spacing", () => {
     // Scene "c" to "d" over 5 s at 30 fps plays at 2x with no hold, so a mark at M ms
     // first shows on frame ceil((M - 3000) / 2 * 0.03): "h" on 3, "j" on 23, "i" on 24, "k" on 50.

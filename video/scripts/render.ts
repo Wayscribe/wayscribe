@@ -9,10 +9,13 @@ import { renderMedia, selectComposition } from "@remotion/renderer";
 import { renderMusic } from "../src/audio/music";
 import { encodeWav } from "../src/audio/wav";
 import {
+  crfSummary,
+  encodeWithinBudget,
   LUFS_TARGET,
   LUFS_TOLERANCE,
   MAX_GIF_BYTES,
   MAX_MP4_BYTES,
+  parseNumber,
   videoProblems
 } from "../src/checks";
 import { FORMATS, type FormatId, SCENES } from "../src/scenes";
@@ -20,6 +23,7 @@ import { buildTimeline } from "../src/timeline";
 import { transcript } from "../src/transcript";
 import { prepareBundle, readCapture } from "./bundle";
 import { encodeFinal, gif, loudness, loudnorm, probe, still } from "./ffmpeg";
+import { clearOutputs, writeThenRename } from "./outputs";
 
 const { values } = parseArgs({
   options: {
@@ -31,6 +35,34 @@ const { values } = parseArgs({
 if (values.capture === undefined || values.out === undefined)
   throw new Error("Pass --capture and --out.");
 const OUT = values.out;
+const CUTS: { id: string; format: FormatId; file: string; poster: string }[] = [
+  {
+    id: "DemoWide",
+    format: "wide",
+    file: "wayscribe-demo.mp4",
+    poster: "wayscribe-demo-poster.png"
+  },
+  {
+    id: "DemoSquare",
+    format: "square",
+    file: "wayscribe-demo-square.mp4",
+    poster: "wayscribe-demo-square-poster.png"
+  }
+];
+const GIF = "demo-diff.gif";
+const TRANSCRIPT = "wayscribe-demo-transcript.txt";
+const REPORT = "report.txt";
+const STILLS = "stills";
+
+// Clear the last run's outputs first, before anything that can fail, so a run that fails
+// partway leaves no report.txt saying "All checks pass." and no MP4 that looks current.
+await clearOutputs(OUT, [
+  REPORT,
+  ...CUTS.flatMap((cut) => [cut.file, cut.poster]),
+  GIF,
+  TRANSCRIPT,
+  STILLS
+]);
 const capture = await readCapture(values.capture);
 const timeline = buildTimeline(SCENES, capture);
 const totalSec = timeline.totalFrames / timeline.fps;
@@ -64,20 +96,6 @@ loudnorm(raw, music);
 
 // Picture: one bundle, two silent near-lossless renders, then the final encodes.
 const serveUrl = await prepareBundle(values.capture, OUT);
-const CUTS: { id: string; format: FormatId; file: string; poster: string }[] = [
-  {
-    id: "DemoWide",
-    format: "wide",
-    file: "wayscribe-demo.mp4",
-    poster: "wayscribe-demo-poster.png"
-  },
-  {
-    id: "DemoSquare",
-    format: "square",
-    file: "wayscribe-demo-square.mp4",
-    poster: "wayscribe-demo-square-poster.png"
-  }
-];
 const problems: string[] = [];
 const report: string[] = [];
 const phone = sceneById("phone");
@@ -103,17 +121,16 @@ for (const cut of CUTS) {
   });
   process.stdout.write("\n");
   const output = join(OUT, cut.file);
-  for (let crf = 20; ; crf += 2) {
-    encodeFinal(silent, music, output, crf);
-    if ((await stat(output)).size <= MAX_MP4_BYTES) {
-      report.push(`${cut.file}: CRF ${String(crf)}`);
-      break;
-    }
-    if (crf >= 30) {
-      problems.push(`${cut.file}: still over budget at CRF 30.`);
-      break;
-    }
-  }
+  // Each attempt overwrites the temporary file; only the last is renamed into place.
+  const budget = await writeThenRename(output, (partial) =>
+    encodeWithinBudget(async (crf) => {
+      encodeFinal(silent, music, partial, crf);
+      return (await stat(partial)).size;
+    }, MAX_MP4_BYTES)
+  );
+  const crf = crfSummary(cut.file, budget, MAX_MP4_BYTES);
+  report.push(crf.line);
+  if (crf.problem !== undefined) problems.push(crf.problem);
   const format = FORMATS[cut.format];
   const probed = probe(output);
   problems.push(
@@ -127,48 +144,58 @@ for (const cut of CUTS) {
   );
   const video = probed.streams.find((s) => s.codec_type === "video");
   const audio = probed.streams.find((s) => s.codec_type === "audio");
+  const duration = parseNumber(probed.format.duration);
+  const size = parseNumber(probed.format.size);
   report.push(
-    `${cut.file}: ${Number(probed.format.duration).toFixed(1)} s (55 to 65), ${(Number(probed.format.size) / 1e6).toFixed(2)} MB (max ${(MAX_MP4_BYTES / 1e6).toFixed(1)}), ${String(video?.codec_name)} ${String(video?.width)}x${String(video?.height)} (h264 ${String(format.width)}x${String(format.height)}), audio ${String(audio?.codec_name)}`
+    `${cut.file}: ${duration === undefined ? "unreadable" : duration.toFixed(1)} s (55 to 65), ${size === undefined ? "unreadable" : (size / 1e6).toFixed(2)} MB (max ${(MAX_MP4_BYTES / 1e6).toFixed(1)}), ${String(video?.codec_name)} ${String(video?.width)}x${String(video?.height)} (h264 ${String(format.width)}x${String(format.height)}), audio ${String(audio?.codec_name)}`
+  );
+  report.push(
+    `${cut.file}: colour ${String(video?.color_space)} / ${String(video?.color_primaries)} / ${String(video?.color_transfer)}, range ${String(video?.color_range)} (bt709 / bt709 / bt709, tv)`
   );
   const lufs = loudness(output);
   report.push(`${cut.file}: ${lufs.toFixed(1)} LUFS integrated`);
   if (Math.abs(lufs - LUFS_TARGET) > LUFS_TOLERANCE)
     problems.push(`${cut.file}: ${lufs.toFixed(1)} LUFS, not about ${String(LUFS_TARGET)}.`);
-  still(output, posterAt, join(OUT, cut.poster));
+  await writeThenRename(join(OUT, cut.poster), (partial) => {
+    still(output, posterAt, partial);
+  });
 
   // A still at the middle of every caption, to review without playing the video.
-  const dir = join(OUT, "stills", cut.format);
-  await rm(dir, { recursive: true, force: true });
+  const dir = join(OUT, STILLS, cut.format);
   await mkdir(dir, { recursive: true });
   for (const timed of timeline.scenes) {
     const name = `${String(timed.index + 1).padStart(2, "0")}-${timed.scene.id}.png`;
-    still(output, seconds(timed.startFrame + timed.frames / 2), join(dir, name));
+    await writeThenRename(join(dir, name), (partial) => {
+      still(output, seconds(timed.startFrame + timed.frames / 2), partial);
+    });
   }
 }
 
 // The README's GIF: the zoom onto the lost phone, from the 16:9 cut.
-const gifPath = join(OUT, "demo-diff.gif");
-for (const colors of [128, 64]) {
-  gif(
-    join(OUT, CUTS[0]?.file ?? ""),
-    seconds(phone.startFrame),
-    seconds(phone.startFrame + phone.frames),
-    colors,
-    gifPath
-  );
-  if ((await stat(gifPath)).size <= MAX_GIF_BYTES) break;
-}
+const gifPath = join(OUT, GIF);
+await writeThenRename(gifPath, async (partial) => {
+  for (const colors of [128, 64]) {
+    gif(
+      join(OUT, CUTS[0]?.file ?? ""),
+      seconds(phone.startFrame),
+      seconds(phone.startFrame + phone.frames),
+      colors,
+      partial
+    );
+    if ((await stat(partial)).size <= MAX_GIF_BYTES) break;
+  }
+});
 const gifBytes = (await stat(gifPath)).size;
-report.push(`demo-diff.gif: ${(gifBytes / 1e6).toFixed(2)} MB`);
+report.push(`${GIF}: ${(gifBytes / 1e6).toFixed(2)} MB`);
 if (gifBytes > MAX_GIF_BYTES)
-  problems.push(`demo-diff.gif: ${(gifBytes / 1e6).toFixed(2)} MB, over 2 MB.`);
+  problems.push(`${GIF}: ${(gifBytes / 1e6).toFixed(2)} MB, over 2 MB.`);
 
-await writeFile(join(OUT, "wayscribe-demo-transcript.txt"), transcript(SCENES));
+await writeFile(join(OUT, TRANSCRIPT), transcript(SCENES));
 const summary = [
   ...report,
   "",
   problems.length === 0 ? "All checks pass." : `Problems:\n  ${problems.join("\n  ")}`
 ].join("\n");
-await writeFile(join(OUT, "report.txt"), `${summary}\n`);
+await writeFile(join(OUT, REPORT), `${summary}\n`);
 console.log(`\n${summary}\n\n  ${OUT}`);
 if (problems.length > 0) process.exitCode = 1;
