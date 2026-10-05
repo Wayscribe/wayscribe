@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "viewport": { "width": 1920, "height": 1080 },
+  "scale": 2,
+  "frames": [
+    { "at": 0, "file": "frames/000000.png" },
+    { "at": 1000, "file": "frames/000001.png" }
+  ],
+  "marks": [
+    {
+      "name": "home",
+      "at": 1000,
+      "boxes": { "query": { "x": 560, "y": 220, "width": 800, "height": 48 } }
+    },
+    {
+      "name": "results",
+      "at": 5200,
+      "boxes": {
+        "failed": { "x": 480, "y": 300, "width": 960, "height": 56 },
+        "completed": { "x": 480, "y": 356, "width": 960, "height": 56 },
+        "results": { "x": 480, "y": 300, "width": 960, "height": 112 }
+      }
+    },
+    {
+      "name": "timeline",
+      "at": 9800,
+      "boxes": {
+        "steps": { "x": 480, "y": 140, "width": 960, "height": 520 },
+        "failure": { "x": 480, "y": 600, "width": 960, "height": 60 },
+        "transform": { "x": 480, "y": 320, "width": 960, "height": 60 }
+      }
+    },
+    {
+      "name": "diff",
+      "at": 13900,
+      "boxes": {
+        "diff": { "x": 480, "y": 120, "width": 960, "height": 560 },
+        "phone": { "x": 480, "y": 400, "width": 960, "height": 96 }
+      }
+    },
+    {
+      "name": "good-diff",
+      "at": 16500,
+      "boxes": {
+        "diff": { "x": 480, "y": 120, "width": 960, "height": 560 },
+        "phone": { "x": 480, "y": 380, "width": 960, "height": 96 }
+      }
+    },
+    {
+      "name": "replay-link",
+      "at": 19800,
+      "boxes": { "replay": { "x": 480, "y": 300, "width": 180, "height": 32 } }
+    },
+    {
+      "name": "replay-form",
+      "at": 22400,
+      "boxes": {
+        "destination": { "x": 480, "y": 260, "width": 600, "height": 40 },
+        "form": { "x": 480, "y": 260, "width": 600, "height": 360 }
+      }
+    },
+    {
+      "name": "replay-response",
+      "at": 25600,
+      "boxes": { "response": { "x": 480, "y": 60, "width": 960, "height": 140 } }
+    },
+    {
+      "name": "comparison",
+      "at": 26600,
+      "boxes": {
+        "comparison": { "x": 480, "y": 120, "width": 960, "height": 400 },
+        "phone": { "x": 480, "y": 300, "width": 960, "height": 48 }
+      }
+    },
+    { "name": "end", "at": 27400, "boxes": {} }
+  ],
+  "clicks": [
+    { "at": 1800, "x": 680, "y": 244 },
+    { "at": 3900, "x": 1300, "y": 244 },
+    { "at": 6000, "x": 600, "y": 328 },
+    { "at": 10600, "x": 600, "y": 350 },
+    { "at": 20600, "x": 570, "y": 316 },
+    { "at": 23200, "x": 900, "y": 600 }
+  ]
+}
