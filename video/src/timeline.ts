@@ -20,6 +20,7 @@ export type TimedScene = {
   rate: number;
 };
 
+/** `ticks` are when each tick sounds, in seconds from the start of the video. */
 export type Timeline = { fps: number; totalFrames: number; scenes: TimedScene[]; ticks: number[] };
 
 /** Every mark and box the scenes refer to that the capture lacks, as sentences. */
@@ -63,6 +64,11 @@ export function buildTimeline(scenes: readonly Scene[], capture: Capture, fps = 
   let startFrame = 0;
   for (const [index, scene] of scenes.entries()) {
     const frames = Math.round(scene.seconds * fps);
+    if (!(frames > 0)) {
+      throw new Error(
+        `Scene "${scene.id}" lasts ${String(scene.seconds)} s, ${String(frames)} frames at ${String(fps)} fps, and needs at least one.`
+      );
+    }
     const outMs = (frames / fps) * 1000;
     let fromMs = 0;
     let spanMs = 0;
@@ -84,6 +90,14 @@ export function buildTimeline(scenes: readonly Scene[], capture: Capture, fps = 
               `Scene "${scene.id}": its shot on mark "${shot.mark}" falls outside the scene.`
             );
           }
+        }
+      }
+      if (scene.highlight !== undefined) {
+        const at = markNamed(capture, scene.highlight.mark).at;
+        if (at < fromMs || at > untilMs) {
+          throw new Error(
+            `Scene "${scene.id}": its highlight on mark "${scene.highlight.mark}" falls outside the scene.`
+          );
         }
       }
       rate = Math.max(1, spanMs / outMs);
@@ -108,9 +122,13 @@ export function sourceMsAt(t: TimedScene, frame: number, fps = FPS): number {
   return t.fromMs + Math.min(t.spanMs, (u - t.holdMs) * t.rate);
 }
 
-/** The frame within a capture scene that first shows capture moment `ms`. */
+/**
+ * The frame within a capture scene that first shows capture moment `ms`: the
+ * first frame at or after it, never past the scene's last frame. The small
+ * allowance keeps float noise from pushing an exact frame time to the next one.
+ */
 export function frameAtSourceMs(t: TimedScene, ms: number, fps = FPS): number {
   if (ms <= t.fromMs) return 0;
   const u = t.holdMs + (Math.min(ms, t.fromMs + t.spanMs) - t.fromMs) / t.rate;
-  return Math.round((u / 1000) * fps);
+  return Math.min(t.frames - 1, Math.ceil((u / 1000) * fps - 1e-9));
 }

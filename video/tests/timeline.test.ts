@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Capture, frameAt } from "../src/capture";
+import { boxOf, type Capture, frameAt, markNamed } from "../src/capture";
 import fixture from "../src/fixtures/capture.json";
 import { type CaptureScene, type CardScene, SCENES } from "../src/scenes";
 import { buildTimeline, frameAtSourceMs, GLIDE_FRAMES, sourceMsAt } from "../src/timeline";
@@ -54,6 +54,28 @@ describe("frame lookup", () => {
     expect(frameAt(frames, 100).file).toBe("b");
     expect(frameAt(frames, -1).file).toBe("a");
   });
+
+  it("finds the right frame among several, at the edges and between", () => {
+    const frames = [0, 100, 200, 300].map((at) => ({ at, file: `f${String(at)}` }));
+    expect(frameAt(frames, 0).file).toBe("f0");
+    expect(frameAt(frames, 99).file).toBe("f0");
+    expect(frameAt(frames, 100).file).toBe("f100");
+    expect(frameAt(frames, 250).file).toBe("f200");
+    expect(frameAt(frames, 300).file).toBe("f300");
+    expect(frameAt(frames, 99999).file).toBe("f300");
+  });
+
+  it("refuses a capture with no frames", () => {
+    expect(() => frameAt([], 0)).toThrow(/no frames/);
+  });
+
+  it("names the mark or box it cannot find", () => {
+    expect(markNamed(tiny, "c").at).toBe(3000);
+    expect(() => markNamed(tiny, "nope")).toThrow(/no mark "nope"/);
+    expect(boxOf(tiny, "a", "b")).toEqual(box);
+    expect(() => boxOf(tiny, "zz", "b")).toThrow(/no mark "zz"/);
+    expect(() => boxOf(tiny, "a", "nope")).toThrow(/Mark "a" has no box "nope"/);
+  });
 });
 
 describe("the timeline", () => {
@@ -106,6 +128,34 @@ describe("the timeline", () => {
     expect(frameAtSourceMs(s, 2000, 30)).toBe(60);
   });
 
+  it("answers with the first frame that shows the moment, rounding up", () => {
+    const [s] = buildTimeline([scene({})], tiny, 30).scenes;
+    if (s === undefined) throw new Error("no scene");
+    // 2010 ms is 60.3 frames in: frame 60 is too early, frame 61 shows it.
+    expect(frameAtSourceMs(s, 2010, 30)).toBe(61);
+    expect(sourceMsAt(s, 61, 30)).toBeGreaterThanOrEqual(2010);
+    expect(sourceMsAt(s, 60, 30)).toBeLessThan(2010);
+  });
+
+  it("keeps a moment at or past the scene's end on the scene's last frame", () => {
+    const [s] = buildTimeline([scene({})], tiny, 30).scenes;
+    if (s === undefined) throw new Error("no scene");
+    expect(frameAtSourceMs(s, 3000, 30)).toBe(s.frames - 1);
+    expect(frameAtSourceMs(s, 99999, 30)).toBe(s.frames - 1);
+  });
+
+  it("refuses a scene that ends before it starts", () => {
+    expect(() => buildTimeline([scene({ from: "c", until: "a" })], tiny, 30)).toThrow(
+      /mark "a" comes before "c"/
+    );
+  });
+
+  it("refuses a scene without a positive number of frames", () => {
+    expect(() => buildTimeline([scene({ seconds: 0 })], tiny, 30)).toThrow(/needs at least one/);
+    expect(() => buildTimeline([card("back", -1)], tiny, 30)).toThrow(/needs at least one/);
+    expect(() => buildTimeline([card("nan", Number.NaN)], tiny, 30)).toThrow(/needs at least one/);
+  });
+
   it("names every mark and box the scenes need that the capture lacks", () => {
     const broken = scene({
       until: "zz",
@@ -130,6 +180,16 @@ describe("the timeline", () => {
     expect(() => buildTimeline([early], tiny, 30)).toThrow(/shot on mark "a" falls outside/);
   });
 
+  it("refuses a highlight whose mark falls outside its scene", () => {
+    const early = scene({
+      from: "c",
+      until: "d",
+      seconds: 6,
+      highlight: { mark: "a", box: "b", tone: "lost" }
+    });
+    expect(() => buildTimeline([early], tiny, 30)).toThrow(/highlight on mark "a" falls outside/);
+  });
+
   it("sounds each tick once the camera has arrived", () => {
     const t = buildTimeline(
       [card("one", 2), scene({ tick: true, highlight: { mark: "a", box: "b", tone: "lost" } })],
@@ -143,5 +203,29 @@ describe("the timeline", () => {
     const t = buildTimeline(SCENES, capture);
     expect(t.totalFrames).toBe(1845);
     expect(t.ticks).toHaveLength(2);
+  });
+
+  it("finds, for any moment the real story shows, the first frame that shows it", () => {
+    const t = buildTimeline(SCENES, capture);
+    let checked = 0;
+    for (const timed of t.scenes) {
+      if (timed.scene.kind !== "capture") continue;
+      // The last frame shows a little before the scene's end; later moments never show.
+      const last = sourceMsAt(timed, timed.frames - 1, t.fps);
+      for (let ms = timed.fromMs; ms <= last; ms += 7.3) {
+        const frame = frameAtSourceMs(timed, ms, t.fps);
+        expect(frame).toBeGreaterThanOrEqual(0);
+        expect(frame).toBeLessThan(timed.frames);
+        expect(sourceMsAt(timed, frame, t.fps)).toBeGreaterThanOrEqual(ms - 1e-6);
+        if (frame > 0) expect(sourceMsAt(timed, frame - 1, t.fps)).toBeLessThan(ms + 1e-6);
+        checked++;
+      }
+      if (timed.spanMs > 0) {
+        const end = timed.fromMs + timed.spanMs;
+        expect(frameAtSourceMs(timed, end, t.fps)).toBe(timed.frames - 1);
+        expect(frameAtSourceMs(timed, end + 5000, t.fps)).toBe(timed.frames - 1);
+      }
+    }
+    expect(checked).toBeGreaterThan(1000);
   });
 });
