@@ -26,6 +26,7 @@ playwright-report
 # The website (ADR-058). Its own dependencies and sources, none of which an image
 # builds or runs; scripts/verify-image-contents.sh checks it stayed out.
 site
+video
 
 # Native recorders are application dependencies, not API or web runtime inputs.
 # Keep the approved Go package excluded when it is introduced as well.

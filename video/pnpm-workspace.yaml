@@ -1,0 +1,11 @@
+# The demo video is its own pnpm project, with its own lockfile, and not a
+# member of the root workspace: Remotion and the browser it renders with stay
+# out of every install except this one and the CI job that tests it. This file
+# makes pnpm treat video/ as a root of its own (the same arrangement as site/).
+
+# Build scripts are denied by default in pnpm 11; each must be decided explicitly.
+#
+#   esbuild  Vitest's and Remotion's bundler. Its postinstall fetches the
+#            platform binary, so it must run.
+allowBuilds:
+  esbuild: true
