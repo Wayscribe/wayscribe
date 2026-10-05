@@ -26,7 +26,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 import {
@@ -47,7 +47,9 @@ const ENTITY_ID = process.env["ENTITY_ID"] ?? "0018Z00002ABC";
 const PROJECT = process.env["PROJECT_NAME"] ?? "Demo";
 const REPLAY_URL = process.env["DEMO_REPLAY_URL"] ?? "http://demo-integration:3200";
 const FFMPEG = process.env["FFMPEG"] ?? "ffmpeg";
-const OUT = process.env["OUT_DIR"] ?? join(tmpdir(), "wayscribe-demo-video");
+// Resolved once, here: the render runs from video/ (pnpm --dir), so a relative OUT_DIR
+// would point at video/<dir> there while the capture wrote to <dir> under the cwd.
+const OUT = resolve(process.env["OUT_DIR"] ?? join(tmpdir(), "wayscribe-demo-video"));
 const CAPTURE = join(OUT, "capture");
 const CAPTURE_ONLY = process.argv.includes("--capture-only");
 const RENDER_ONLY = process.argv.includes("--render-only");
