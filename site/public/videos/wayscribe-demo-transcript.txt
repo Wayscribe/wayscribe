@@ -1,35 +1,29 @@
 Wayscribe demo: finding a lost phone number
 
-Narration transcript
+Caption transcript. The video has no narration: these are its on-screen captions, in order.
 
-A customer's phone number vanished somewhere between Salesforce and the CRM.
+A phone number left Salesforce.
+It never reached the CRM.
 
-Start with the account's Salesforce ID.
+Search by the account's Salesforce ID.
 
-Two journeys come back for this account. One completed, and one failed.
+Two journeys for this account. One completed, one failed.
 
-The timeline begins with the webhook and follows work from the integration
-service into the worker.
+Delivery failed twice. Was that where the phone was lost?
 
-But delivery isn't where it broke. Open the transform step.
+The transform step: what it received and what it produced.
 
-This is the payload before and after the step, field by field.
+The phone goes in with a value and comes out null. This step lost it.
 
-The phone goes in with a value, and comes out null. This is the step that lost
-it.
+For contrast: this input carried Phone__c, so the phone survived.
 
-Now the journey that completed, for contrast.
+Replay the step's recorded input against development, where the fix runs.
 
-Its payload carried the field the transform reads, so the phone kept its
-value.
+The fixed transform answers 200.
 
-Back on the failed journey, replay the step's recorded input.
+Original against replay: null before, the phone number after.
 
-It goes to a development destination running the fix, not to the original
-system.
-
-The fixed transform answers with a 200.
-
-Original against replay. The phone was null, and now it's back.
-
-Wayscribe. Self-hosted, open source, at wayscribe.dev.
+Wayscribe
+Follow one record through every service, see what each step changed, and replay it.
+Self-hosted and open source: wayscribe.dev
+Looking for pilot teams: pilots@wayscribe.dev

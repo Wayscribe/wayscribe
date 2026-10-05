@@ -65,34 +65,38 @@ Neither of these has an API worth scripting, and both are done once.
 
 ## The published demo video
 
-The homepage's **Watch the demo** section serves the approved narrated recording
-from `public/videos/wayscribe-demo.mp4`. The MP4 is 7,038,666 bytes, 1280x720,
-91.433 seconds, H.264 with AAC audio, and has its MP4 metadata before the media
+The homepage's **Watch the demo** section serves the approved captioned recording
+from `public/videos/wayscribe-demo.mp4`. The MP4 is 7,901,981 bytes, 1920x1080,
+61.5 seconds, H.264 with AAC audio, and has its MP4 metadata before the media
 data for progressive playback. Its SHA-256 is
-`82af51213f4a2d52fb756f2b2cea86a7ed1937a5925097045aa1651faeaa373c`.
+`4f237943dfe76436e760cd9e595424b80ebd00753f07c706d6adc5d6dbbe7d6a`. The
+recording has no narration: it is made to be followed with the sound off, and
+quiet music plays underneath. A 1080x1080 cut for social feeds sits beside it
+as `public/videos/wayscribe-demo-square.mp4` (5,649,185 bytes); the page does
+not link it.
 
 The player uses native browser controls, inline playback, and `preload="none"`.
-The poster is the recording's title card. Narration captions are in
-`public/videos/wayscribe-demo.en.vtt`; their 14 cues use the approved recording's
-voice start/end times. A plain-text narration transcript sits beside them.
-The recording already includes on-screen captions, so the optional narration
-track is not enabled by default. No external video host, player script, or
-analytics is used.
+The poster is the still from the scene that zooms onto the lost phone number.
+The demo's captions are burned into the video, so there is no caption track, and
+the transcript at `public/videos/wayscribe-demo-transcript.txt` carries their
+text. No external video host, player script, or analytics is used.
 
 The `pages` job uses `FF_USE_FASTZIP: "true"` and
 `ARTIFACT_COMPRESSION_LEVEL: "fastest"`. GitLab Pages needs uncompressed ZIP
 entries to serve HTTP byte ranges, which enable seeking and are required for
 [Safari media playback](https://docs.gitlab.com/user/project/pages/introduction/#cannot-play-media-content-on-safari).
 After deployment, a request with `Range: bytes=0-1023` must return HTTP 206,
-`Content-Range: bytes 0-1023/7038666`, and exactly 1,024 bytes. A full-file HTTP
+`Content-Range: bytes 0-1023/7901981`, and exactly 1,024 bytes. A full-file HTTP
 200 response alone does not verify browser media support.
 
-When replacing the recording, update the MP4, poster, caption track and
-transcript together. Check playback and seeking in a browser, verify captions,
-and update the duration, size and hash here. The `site/**/*` CI rule includes
-these files, so the normal site pipeline publishes them. The existing
-`.dockerignore` rule keeps all of `site/`, including the video, out of product
-images.
+When replacing the recording, update both MP4s, both posters and the
+transcript together (`pnpm demo:video` produces them, see
+[docs/DEMO_RECORDING.md](../docs/DEMO_RECORDING.md)). Check playback and seeking
+in a browser, verify the burned-in captions, update the download size on the
+landing page, and update the duration, size and hash here. The `site/**/*` CI
+rule includes these files, so the normal site pipeline publishes them. The
+existing `.dockerignore` rule keeps all of `site/`, including the video, out of
+product images.
 
 ## Dependencies
 

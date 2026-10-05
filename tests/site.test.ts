@@ -308,6 +308,19 @@ describe("the landing page", () => {
       "[confidential issue on GitLab](https://gitlab.com/jojithedev/wayscribe/-/issues/new)"
     );
   });
+
+  it("shows the captioned demo with its real download size and no caption track", () => {
+    const video = landing.slice(
+      landing.indexOf('<figure class="shot">'),
+      landing.indexOf("</figure>")
+    );
+    expect(video).not.toContain("<track");
+    expect(video).toContain('href="/videos/wayscribe-demo-transcript.txt"');
+    expect(video).toContain('width="1920"');
+    const bytes = statSync(join(root, "site/public/videos/wayscribe-demo.mp4")).size;
+    expect(video).toContain(`Download video (MP4, ${String(Math.round(bytes / 1e6))} MB)`);
+    expect(existsSync(join(root, "site/public/videos/wayscribe-demo.en.vtt"))).toBe(false);
+  });
 });
 
 describe("the wayscribe.dev/go import pages", () => {

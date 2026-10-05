@@ -14,6 +14,13 @@ changes far less often.
 
 ## [Unreleased]
 
+### Changed
+
+- The demo video is remade: about a minute, captioned for watching with the
+  sound off, with no synthetic narration and quiet music, in 16:9 and a 1:1
+  cut for social feeds. `pnpm demo:video` now captures the real web app and
+  renders both cuts with the new `video/` project (docs/DEMO_RECORDING.md).
+
 ## [0.2.2] - 2026-10-03
 
 The `api` and `web` images, `@wayscribe/node`, the Python package `wayscribe`
