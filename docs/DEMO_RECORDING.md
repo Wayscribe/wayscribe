@@ -11,21 +11,33 @@ narration: the video is made to be understood with the sound off.
 
 ## Run it
 
-Start the demo stack, install the video project once, then capture and render:
+Start the demo stack and install the dependencies once. The capture drives
+Chromium through the root workspace's Playwright, and the render uses the video
+project's own dependencies:
 
 ```bash
 docker compose -f infrastructure/compose.yaml \
   -f infrastructure/compose.demo.yaml up --build -d
+pnpm install
+pnpm exec playwright install chromium
 pnpm --dir video install
-pnpm demo:video
 ```
 
-The services are ready when `ps` shows them healthy, which takes a few
-minutes:
+Wait for the stack, which takes a few minutes the first time:
 
 ```bash
 docker compose -f infrastructure/compose.yaml \
   -f infrastructure/compose.demo.yaml ps
+```
+
+Only `postgres` and `api` define a healthcheck, so they are the two that show
+`healthy`; wait for both. `web`, `elasticmq`, `demo-target`,
+`demo-integration`, `demo-worker` and `demo-source` have none and show
+`running`. `demo-bootstrap` runs once and exits, so `ps` leaves it out
+(`ps -a` shows it as `Exited (0)`). Then capture and render:
+
+```bash
+pnpm demo:video
 ```
 
 The video project is its own pnpm project outside the root workspace and needs
@@ -106,17 +118,20 @@ The music (the calm arrangement, fading in over the hook card and out over the
 end card) is synthesized once and normalized to -20 LUFS. Then, for each cut
 (16:9 at 1920x1080 and 1:1 at 1080x1080):
 
-1. Remotion renders a silent, near-lossless H.264 video (CRF 12, PNG frames)
-   tagged `bt709`. Remotion's default is untagged BT.601, which players decode
-   as BT.709 and which shifts saturated colours.
+1. Remotion renders a silent, near-lossless H.264 video (CRF 12, PNG frames),
+   also tagged `bt709`. Remotion's default is untagged BT.601, which players
+   decode as BT.709 and which shifts saturated colours.
 2. ffmpeg encodes the final H.264 video with the music as AAC at 128 kbit/s,
-   starting at CRF 20 and raising it by 2 until the file is under 8 MB. As
-   built, the wide cut lands at CRF 22 and 7.90 MB, close to that cap, so a
-   busier capture can push it up another step. A cut still over budget at
-   CRF 30 fails the check.
+   starting at CRF 20 and raising it by 2 until the file is under 8 MB. The
+   final encode sets the colour tags itself (`bt709` colour space, primaries
+   and transfer, and `tv` range) rather than passing through whatever the
+   silent render carries. As built, the wide cut lands at CRF 22 and 7.90 MB,
+   close to that cap, so a busier capture can push it up another step. A cut
+   still over budget at CRF 30 fails the check.
 3. The checks run on the file itself: 55 to 65 seconds, under 8 MB, exactly
-   one H.264 video stream at the format's size tagged `bt709` (untagged or any
-   other colour space is rejected), exactly one AAC stream, and an integrated
+   one H.264 video stream at the format's size with `bt709` colour space,
+   primaries and transfer and `tv` (limited) range (an untagged stream or any
+   other value is rejected), exactly one AAC stream, and an integrated
    loudness within 1.5 LUFS of -20.
 
 The poster is the midpoint of the `phone` scene, the zoom onto the lost phone.
@@ -140,6 +155,16 @@ The poster is the midpoint of the `phone` scene, the zoom onto the lost phone.
   files, and the Remotion bundle). The bundle always goes in the same
   `render-bundle/` directory, replaced on each render. They can be deleted
   once the cuts are final.
+
+A new run replaces the last one's outputs, so copy out of `OUT_DIR` any cut
+you want to keep, such as ones under review, before running again. A capture
+deletes the previous `capture/` just before it starts recording, after seeding
+and the Live-window wait. A render first deletes the
+previous cuts, posters, `demo-diff.gif`, transcript, `report.txt` and
+`stills/`, before anything that can fail. It then writes each output under a
+`.partial` name and renames it into place only when it is complete. A render
+that crashes therefore leaves no `report.txt` (so no stale `All checks pass.`)
+and no cut that looks current, and `--render-only` leaves the capture alone.
 
 ## Changing the story
 

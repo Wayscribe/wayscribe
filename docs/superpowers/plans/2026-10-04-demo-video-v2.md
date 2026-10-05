@@ -4056,10 +4056,10 @@ Expected: no dashes, no stale references (the CHANGELOG mentions narration on pu
 ```bash
 git add -A site/public/videos docs/images/demo-diff.gif site/src/content/docs/index.mdx site/README.md tests/site.test.ts CHANGELOG.md
 git commit -m "feat(site): publish demo video v2 (captioned, muted-first, 16:9 and 1:1)"
-git push origin demo-video-v2
+git push -o ci.skip origin demo-video-v2
 ```
 
-Start the pipeline explicitly: earlier pushes used `ci.skip`, and on a push GitLab's `changes:` only compares that push's own commits, so the `video` job may not be created. Run `glab ci run -b demo-video-v2` (API-started pipelines treat `changes:` as true) or check the job list and stop if `video` is missing. (Task 13 review, 2026-10-04.)
+The push uses `-o ci.skip` because the pipeline is started explicitly with `glab ci run -b demo-video-v2` (otherwise two pipelines start). On a push GitLab's `changes:` only compares that push's own commits, so a push pipeline may not create the `video` job; an API-started pipeline treats `changes:` as true. Check the job list and stop if `video` is missing. (Task 13 review, 2026-10-04.)
 
 Find the pipeline (`glab ci list --ref demo-video-v2 -P 1`) and wait on it with a 40-minute deadline (a loop that polls `glab api projects/:id/pipelines/<id>` every 30 s and gives up at the deadline). Expected: green, including the new `video` job and `site`.
 
