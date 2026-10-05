@@ -132,9 +132,11 @@ export function buildTimeline(scenes: readonly Scene[], capture: Capture, fps = 
         );
       }
       holdMs = Math.max(0, outMs - spanMs);
-      if (scene.tick === true) ticks.push((startFrame + GLIDE_FRAMES) / fps);
     }
     const entry: TimedScene = { scene, index, startFrame, frames, fromMs, spanMs, holdMs, rate };
+    if (scene.kind === "capture" && scene.tick === true) {
+      ticks.push((startFrame + highlightFrame(entry, capture, fps)) / fps);
+    }
     if (scene.kind === "capture") checkShotSpacing(scene, entry, capture, fps);
     timed.push(entry);
     startFrame += frames;
@@ -158,4 +160,20 @@ export function frameAtSourceMs(t: TimedScene, ms: number, fps = FPS): number {
   if (ms <= t.fromMs) return 0;
   const u = t.holdMs + (Math.min(ms, t.fromMs + t.spanMs) - t.fromMs) / t.rate;
   return Math.min(t.frames - 1, Math.ceil((u / 1000) * fps - 1e-9));
+}
+
+/**
+ * The frame within a capture scene at which its highlight appears, and so
+ * where its tick sounds: one glide after the first frame that shows the
+ * highlight's mark, once the camera has arrived. A scene with no highlight
+ * measures from its opening mark. The highlight and the tick both come from
+ * here, so they cannot drift apart.
+ */
+export function highlightFrame(t: TimedScene, capture: Capture, fps = FPS): number {
+  if (t.scene.kind !== "capture") {
+    throw new Error(`Scene "${t.scene.id}" is a card, and a card has no highlight.`);
+  }
+  const at =
+    t.scene.highlight === undefined ? t.fromMs : markNamed(capture, t.scene.highlight.mark).at;
+  return frameAtSourceMs(t, at, fps) + GLIDE_FRAMES;
 }

@@ -18,11 +18,8 @@ export const Card = ({ scene, format }: { scene: CardScene; format: Format }) =>
       }}
     >
       {scene.layout === "statement"
-        ? scene.lines.map((text) => (
-            <div
-              key={text}
-              style={{ fontSize: square ? 60 : 72, fontWeight: 600, lineHeight: 1.3 }}
-            >
+        ? scene.lines.map((text, i) => (
+            <div key={i} style={{ fontSize: square ? 60 : 72, fontWeight: 600, lineHeight: 1.3 }}>
               {text}
             </div>
           ))
@@ -42,8 +39,8 @@ export const Card = ({ scene, format }: { scene: CardScene; format: Format }) =>
             >
               {line}
             </div>,
-            ...rest.map((text) => (
-              <div key={text} style={{ marginTop: 24, fontSize: square ? 34 : 40, color: MUTED }}>
+            ...rest.map((text, i) => (
+              <div key={i} style={{ marginTop: 24, fontSize: square ? 34 : 40, color: MUTED }}>
                 {text}
               </div>
             ))

@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { boxOf, type Capture, frameAt, markNamed } from "../src/capture";
 import fixture from "../src/fixtures/capture.json";
 import { type CaptureScene, type CardScene, SCENES } from "../src/scenes";
-import { buildTimeline, frameAtSourceMs, GLIDE_FRAMES, sourceMsAt } from "../src/timeline";
+import {
+  buildTimeline,
+  frameAtSourceMs,
+  GLIDE_FRAMES,
+  highlightFrame,
+  sourceMsAt
+} from "../src/timeline";
 
 const capture = fixture as Capture;
 const box = { x: 0, y: 0, width: 100, height: 100 };
@@ -267,10 +273,46 @@ describe("the timeline", () => {
     expect(t.ticks).toEqual([(60 + GLIDE_FRAMES) / 30]);
   });
 
+  describe("a highlight that is not the scene's first shot", () => {
+    // Marks 1 s apart inside a 4 s scene: the opening state holds for 2 s, then the action plays at 1x.
+    const late: Capture = {
+      ...tiny,
+      marks: [
+        { name: "a", at: 1000, boxes: { b: box } },
+        { name: "m", at: 2000, boxes: { b: box } },
+        { name: "c", at: 3000, boxes: { b: box } }
+      ]
+    };
+    const lateScene = (mark: string) =>
+      scene({ seconds: 4, tick: true, highlight: { mark, box: "b", tone: "lost" } });
+
+    it("sounds the tick when the highlight appears, a glide after its mark shows", () => {
+      const t = buildTimeline([card("one", 2), lateScene("m")], late, 30);
+      const timed = t.scenes[1] as (typeof t.scenes)[number];
+      // Mark "m" first shows 3 s into the scene (2 s hold, then 1 s of action): frame 90.
+      expect(highlightFrame(timed, late, 30)).toBe(90 + GLIDE_FRAMES);
+      expect(t.ticks).toEqual([(60 + 90 + GLIDE_FRAMES) / 30]);
+    });
+
+    it("keeps a highlight on the opening mark at one glide into the scene", () => {
+      const t = buildTimeline([card("one", 2), lateScene("a")], late, 30);
+      const timed = t.scenes[1] as (typeof t.scenes)[number];
+      expect(highlightFrame(timed, late, 30)).toBe(GLIDE_FRAMES);
+      expect(t.ticks).toEqual([(60 + GLIDE_FRAMES) / 30]);
+    });
+  });
+
   it("covers the real story with the recorded capture", () => {
     const t = buildTimeline(SCENES, capture);
     expect(t.totalFrames).toBe(1845);
-    expect(t.ticks).toHaveLength(2);
+    expect(t.ticks).toEqual([24.3, 46.3]);
+    // Every ticking scene's highlight appears on the tick, and none appears sooner than one glide in.
+    for (const timed of t.scenes) {
+      if (timed.scene.kind !== "capture" || timed.scene.highlight === undefined) continue;
+      const frame = highlightFrame(timed, capture, t.fps);
+      expect(frame).toBe(GLIDE_FRAMES);
+      if (timed.scene.tick === true) expect(t.ticks).toContain((timed.startFrame + frame) / t.fps);
+    }
   });
 
   it("finds, for any moment the real story shows, the first frame that shows it", () => {

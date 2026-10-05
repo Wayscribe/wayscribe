@@ -3,7 +3,7 @@ import { PAGE_BACKGROUND, project, projectBox, sceneCamera } from "../camera";
 import { boxOf, type Capture, frameAt } from "../capture";
 import { cursorAt, rippleAt, showsCursor } from "../cursor";
 import type { CaptureScene, Format } from "../scenes";
-import { GLIDE_FRAMES, sourceMsAt, type Timeline, type TimedScene } from "../timeline";
+import { highlightFrame, sourceMsAt, type Timeline, type TimedScene } from "../timeline";
 import { Caption } from "./Caption";
 import { Cursor } from "./Cursor";
 import { Highlight } from "./Highlight";
@@ -50,7 +50,7 @@ export const CaptureView = ({
           box={projectBox(camera, boxOf(capture, scene.highlight.mark, scene.highlight.box))}
           tone={scene.highlight.tone}
           frame={frame}
-          at={GLIDE_FRAMES}
+          at={highlightFrame(timed, capture, timeline.fps)}
         />
       )}
       {showsCursor(capture.clicks, timed.fromMs, timed.spanMs) ? (
