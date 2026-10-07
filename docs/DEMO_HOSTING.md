@@ -122,12 +122,16 @@ dropped; Caddy is never slowed.
 ## Rebuild from nothing
 
 1. Jorge: steps J1 and J2 below.
-2. Jorge: step J3 (generate the deploy key, then run `setup.sh`). On the VM as root: `git clone --depth 1 --branch <tag> https://gitlab.com/jojithedev/wayscribe.git /opt/wayscribe`
+2. Jorge: tag `vX.Y.Z`, a release that contains this work, play `publish-images` on its
+   pipeline, and wait for it to finish. `setup.sh` pulls and verifies that tag's images, so
+   the tag must exist first. On a first deploy there is no earlier tag to use.
+3. Jorge: step J3 (generate the deploy key, then run `setup.sh` with that tag). On the VM as
+   root: `git clone --depth 1 --branch <tag> https://gitlab.com/jojithedev/wayscribe.git /opt/wayscribe`
    then `sh /opt/wayscribe/deploy/demo/host/setup.sh "<deploy public key>" <tag>`. It
    installs Docker, configures `ufw` and SSH, generates the secrets, installs the deploy
    script, sudoers rule and timers, and runs the first reset.
-3. Jorge: step J4, then step J5.
-4. Check that `https://demo.wayscribe.dev` loads and shows the banner, and run
+4. Jorge: step J4 (CI variables and the protected `v*` tag), then step J5.
+5. Check that `https://demo.wayscribe.dev` loads and shows the banner, and run
    `sh /opt/wayscribe/deploy/demo/smoke-check.sh https://demo.wayscribe.dev`.
 
 ## Jorge's manual steps

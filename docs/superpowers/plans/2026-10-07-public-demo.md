@@ -4917,9 +4917,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 20: Jorge's manual steps (STOP)
+### Task 20: Jorge's manual steps before the first tag (STOP)
 
-- [ ] **Step 1: JORGE ONLY — J1 to J5 in `docs/DEMO_HOSTING.md`.** The executor stops here and reports: "Waiting on Jorge for demo hosting steps J1 to J5 (VM, DNS, deploy key and setup, CI variables, ntfy)." Do not create accounts, run `setup.sh`, add DNS records, or set CI variables.
+- [ ] **Step 1: JORGE ONLY — J1 and J2 in `docs/DEMO_HOSTING.md`.** The executor stops here and reports: "Waiting on Jorge for demo hosting steps J1 and J2 (VM, DNS)." Do not create accounts, add DNS records, or run `setup.sh`. J3 to J5 come after the first tag (Task 21), because `setup.sh` needs a published release.
 
 - [ ] **Step 2: Merge decision.** Jorge reviews and merges the branch (the plan does not merge to `main`).
 
@@ -4927,11 +4927,13 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 21: First deploy (GATE)
 
-- [ ] **Step 1: JORGE ONLY — tag a release** that contains Tasks 2 to 19, and play `publish-images` on its pipeline. `setup.sh` (J3) runs against that tag.
+- [ ] **Step 1: JORGE ONLY — tag a release** that contains Tasks 2 to 19, play `publish-images` on its pipeline, and wait for it to finish. `setup.sh` (J3) runs against that tag.
 
-- [ ] **Step 2: JORGE ONLY — play `deploy-demo`** on the same tag pipeline. It must pass (the remote reset's smoke check and the job's own).
+- [ ] **Step 2: JORGE ONLY — J3 to J5 in `docs/DEMO_HOSTING.md`.** J3: generate the deploy key and run `setup.sh` with that tag. J4: the CI variables and the protected `v*` tag. J5: subscribe to the ntfy topics. The executor reports: "Waiting on Jorge for demo hosting steps J3 to J5 (deploy key and setup, CI variables, ntfy)." Do not run `setup.sh` or set CI variables.
 
-- [ ] **Step 3: Verify from outside (executor, read-only)** — from any machine: `sh deploy/demo/smoke-check.sh https://demo.wayscribe.dev` → `smoke-check: ok`. Load the page in the browser pane, confirm the banner, search `+1 555 0100`, open the failed journey, select the transform step, and see the phone diff. Confirm `curl --silent --head https://demo.wayscribe.dev/` (captured, then matched) carries `x-robots-tag: noindex, nofollow`. **GATE:** if any of this fails, stop and report; Task 22 must not run, because it publishes links to the demo.
+- [ ] **Step 3: JORGE ONLY — play `deploy-demo`** on the same tag pipeline. It must pass (the remote reset's smoke check and the job's own). Later releases redeploy the same way.
+
+- [ ] **Step 4: Verify from outside (executor, read-only)** — from any machine: `sh deploy/demo/smoke-check.sh https://demo.wayscribe.dev` → `smoke-check: ok`. Load the page in the browser pane, confirm the banner, search `+1 555 0100`, open the failed journey, select the transform step, and see the phone diff. Confirm `curl --silent --head https://demo.wayscribe.dev/` (captured, then matched) carries `x-robots-tag: noindex, nofollow`. **GATE:** if any of this fails, stop and report; Task 22 must not run, because it publishes links to the demo.
 
 ---
 
