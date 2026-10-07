@@ -54,11 +54,21 @@ describe("a reader against a real database", () => {
       replayAllowedHosts: ["localhost"]
     });
 
+    await ingest(JOURNEY, "evt_reader");
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await db.destroy();
+    await container.stop();
+  });
+
+  const ingest = async (journeyId: string, prefix: string): Promise<void> => {
     const event = (id: string, operation: string, name: string, extra: object) => ({
       protocolVersion: "0.1",
       event: {
         id,
-        journeyId: JOURNEY,
+        journeyId,
         environment: "development",
         service: "demo-integration",
         entity: { type: "customer", id: ACCOUNT },
@@ -74,22 +84,16 @@ describe("a reader against a real database", () => {
       headers: { authorization: `Bearer ${apiKey}` },
       payload: {
         events: [
-          event("evt_reader_1", "transformed", "transform-salesforce-account", {
+          event(`${prefix}_1`, "transformed", "transform-salesforce-account", {
             input: { Id: ACCOUNT, Phone: PHONE },
             output: { externalId: ACCOUNT, phone: null }
           }),
-          event("evt_reader_2", "identified", "identify", { aliases: { phone: PHONE } })
+          event(`${prefix}_2`, "identified", "identify", { aliases: { phone: PHONE } })
         ]
       }
     });
     expect(ingested.statusCode, ingested.body).toBeLessThan(300);
-  });
-
-  afterAll(async () => {
-    await app.close();
-    await db.destroy();
-    await container.stop();
-  });
+  };
 
   const asReader = (method: string, url: string, payload?: object) =>
     app.inject({
@@ -117,7 +121,8 @@ describe("a reader against a real database", () => {
       search.json<{ data: { items: { journeyId: string }[] } }>().data.items.map((i) => i.journeyId)
     ).toContain(JOURNEY);
 
-    expect((await asReader("GET", `/v1/journeys?since=${encodeURIComponent(new Date(Date.now() - 86_400_000).toISOString())}`)).statusCode).toBe(200);
+    const since = encodeURIComponent(new Date(Date.now() - 86_400_000).toISOString());
+    expect((await asReader("GET", `/v1/journeys?since=${since}`)).statusCode).toBe(200);
     expect((await asReader("GET", `/v1/journeys/${JOURNEY}`)).statusCode).toBe(200);
     expect((await asReader("GET", `/v1/journeys/${JOURNEY}/events`)).statusCode).toBe(200);
 
@@ -154,10 +159,12 @@ describe("a reader against a real database", () => {
   });
 
   it("counts would have caught a write: an admin deletion adds an audit row", async () => {
+    const control = "jrn_reader_control";
+    await ingest(control, "evt_control");
     const before = await counts();
     const deleted = await app.inject({
       method: "DELETE",
-      url: `/v1/journeys/${JOURNEY}`,
+      url: `/v1/journeys/${control}`,
       headers: { authorization: `Bearer ${ADMIN_TOKEN}` }
     });
     expect(deleted.statusCode, deleted.body).toBe(204);
