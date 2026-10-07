@@ -17,6 +17,14 @@ allowBuilds:
 overrides:
   # GHSA-j22f-vq7h-c4qm, GHSA-mcm9-63f2-9j32, GHSA-x5rw-q4pp-hg5g. Reached through astro.
   devalue@<5.9.3: "^5.9.3"
+  # CVE-2026-96889 / GHSA-wq5f-xc86-pv6w (librsvg). Reached through astro.
+  sharp@<0.35.5: ">=0.35.5"
+  # GHSA-68fv-2mgg-jv7q: event-loop DoS. Reached through astro (magicast, svgo).
+  source-map-js@>=1.0.0 <1.2.2: "^1.2.2"
+  # GHSA-r4xh-jqrq-34v2: quadratic parse. Reached through starlight and astro.
+  smol-toml@<=1.8.0: "^1.8.1"
+  # GHSA-rj75-hqrm-r3gf: quadratic selector parsing. Reached through expressive-code.
+  postcss-selector-parser@>=7.0.0 <7.1.6: "^7.1.6"
 
 # GHSA-ch52-4w7c-c8xp (http-cache-semantics max-stale) has no patched release:
 # 4.2.0 is the latest published version and the advisory asks for 4.2.1. It is

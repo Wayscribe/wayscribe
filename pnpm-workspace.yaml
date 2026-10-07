@@ -28,8 +28,8 @@ overrides:
   # GHSA-r28c-9q8g-f849 and one other: arbitrary file read via sourceMappingURL.
   # Reached through next.
   postcss@<8.5.18: ">=8.5.18"
-  # CVE-2026-333xx in libvips, inherited by sharp. Reached through next.
-  sharp@<0.35.0: ">=0.35.0"
+  # libvips (earlier) and CVE-2026-96889 / GHSA-wq5f-xc86-pv6w (librsvg), inherited by sharp. Reached through next.
+  sharp@<0.35.5: ">=0.35.5"
   # GHSA-qhr7-859c-m2p7 and GHSA-6j4f-fj2g-mc7p: brace-expansion recursion DoS.
   # Reached through eslint, typescript-eslint and testcontainers (development only).
   brace-expansion@<1.1.21: "^1.1.21"
@@ -40,3 +40,7 @@ overrides:
   # Moderate, but in the API image: reached through fastify's ajv compiler.
   fast-uri@>=3.0.0 <3.1.8: "^3.1.8"
   fast-uri@>=4.0.0 <4.1.5: "^4.1.5"
+  # GHSA-68fv-2mgg-jv7q: event-loop DoS. Reached through vite > postcss (development only).
+  source-map-js@>=1.0.0 <1.2.2: "^1.2.2"
+  # GHSA-w5hq-g745-h8pq: buffer bounds check. Reached through testcontainers > dockerode (development only).
+  uuid@<11.1.1: "^11.1.1"
