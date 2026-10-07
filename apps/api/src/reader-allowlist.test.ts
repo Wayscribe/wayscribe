@@ -1,5 +1,5 @@
 import { createKeyring } from "@wayscribe/payload-security";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import type { Knex } from "knex";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
@@ -8,6 +8,7 @@ import { READER_ROUTES } from "./reader-routes.js";
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
 const READ_TOKEN = "read-token-for-tests-000000000000";
+const GUARD_MESSAGE = "The read-only token may call search and read routes only.";
 
 /**
  * No query here reaches a database. A handler that tries meets a TypeError,
@@ -51,7 +52,7 @@ describe("the reader allowlist", () => {
     await app.close();
   });
 
-  const asReader = (method: string, url: string) =>
+  const asReader = (method: string, url: string): Promise<LightMyRequestResponse> =>
     app.inject({
       method: method as "GET",
       url: concrete(url),
@@ -97,7 +98,9 @@ describe("the reader allowlist", () => {
       const response = await asReader(route.method, route.url);
       expect(response.statusCode, `${route.method} ${route.url}`).toBe(403);
       if (route.method !== "HEAD") {
-        expect(response.json<{ error: { code: string } }>().error.code).toBe("forbidden");
+        const error = response.json<{ error: { code: string; message: string } }>().error;
+        expect(error.code).toBe("forbidden");
+        expect(error.message, `${route.method} ${route.url}`).toBe(GUARD_MESSAGE);
       }
     }
   });
@@ -118,6 +121,7 @@ describe("the reader allowlist", () => {
     const response = await asReader(method, url);
     expect(response.statusCode).toBe(403);
     expect(response.json<{ error: { code: string } }>().error.code).toBe("forbidden");
+    expect(response.json<{ error: { message: string } }>().error.message).toBe(GUARD_MESSAGE);
   });
 
   it("lets a reader past the guard on every allowlisted route", async () => {
