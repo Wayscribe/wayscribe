@@ -571,6 +571,7 @@ container-scan:
   script:
     - docker build -f apps/api/Dockerfile -t scan/api:$CI_COMMIT_SHA .
     - docker build -f apps/web/Dockerfile -t scan/web:$CI_COMMIT_SHA .
+    - docker build -f apps/demo/Dockerfile -t scan/demo:$CI_COMMIT_SHA .
     # Trivy is pinned by version and digest, like Syft and cosign: a new scanner
     # release changes what blocks, and that should be somebody's decision.
     # What is in the image, before what is vulnerable in it. Trivy reports CVEs
@@ -587,7 +588,7 @@ container-scan:
     # the legal files and its entry point.
     - ./scripts/verify-image-contents.sh scan/web:$CI_COMMIT_SHA web
     - |
-      for image in scan/api:$CI_COMMIT_SHA scan/web:$CI_COMMIT_SHA; do
+      for image in scan/api:$CI_COMMIT_SHA scan/web:$CI_COMMIT_SHA scan/demo:$CI_COMMIT_SHA; do
         echo "=== $image ==="
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
           -v "$CI_PROJECT_DIR/.trivy-cache:/root/.cache/trivy" \
@@ -629,8 +630,10 @@ sbom:
   script:
     - docker build -f apps/api/Dockerfile -t sbom/api:$CI_COMMIT_SHA .
     - docker build -f apps/web/Dockerfile -t sbom/web:$CI_COMMIT_SHA .
+    - docker build -f apps/demo/Dockerfile -t sbom/demo:$CI_COMMIT_SHA .
     - scripts/sbom.sh "docker:sbom/api:$CI_COMMIT_SHA" sboms/api.cdx.json
     - scripts/sbom.sh "docker:sbom/web:$CI_COMMIT_SHA" sboms/web.cdx.json
+    - scripts/sbom.sh "docker:sbom/demo:$CI_COMMIT_SHA" sboms/demo.cdx.json
   artifacts:
     paths:
       - sboms/
@@ -728,8 +731,13 @@ demo:
 # Caddy's, noindex, the rate limit, and the visit notifier on Node 22.12.
 # A new job: it must pass on two consecutive pipelines before it is trusted,
 # because a first run has no cache and hides cache-state failures.
+#
+# In the release stage with no needs, so it starts with the pipeline and gates
+# only deploy-demo: a red overlay must not hold back release-verify, the
+# published images, the npm release, or main's mirror, site and pages.
 demo-overlay:
-  stage: demo
+  stage: release
+  needs: []
   image: node:24-alpine
   services:
     - docker:dind
@@ -745,6 +753,9 @@ demo-overlay:
     - apk add --no-cache docker-cli docker-cli-buildx docker-cli-compose curl openssl
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    # Scheduled pipelines run on a branch; the overlay has nothing to learn there.
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
     - if: $CI_COMMIT_BRANCH
       changes:
         - deploy/demo/**/*
@@ -849,8 +860,9 @@ publish-images:
     # Every image is pushed by digest with no tag, an SBOM per platform is
     # attached, each digest is signed and verified the way an operator will
     # verify it, and only when all have passed do :TAG and :latest point at
-    # them. The demo image is published for the public demo's VM, which pulls
-    # and verifies it rather than building from source (ADR-069). A failure anywhere before that leaves no release tag behind. Scripts
+    # them. A failure anywhere before that leaves no release tag behind. The
+    # demo image is published for the public demo's VM, which pulls and
+    # verifies it rather than building from source (ADR-069). Scripts
     # rather than inline YAML, so the SBOM step runs in the `sbom` job on every
     # default-branch pipeline and the whole flow can be rehearsed with DRY_RUN=1
     # against a throwaway registry (docs/OPERATIONS.md §11).
@@ -918,7 +930,7 @@ deploy-demo:
   before_script:
     - apk add --no-cache openssh-client curl
   script:
-    - test -n "$DEMO_DEPLOY_SSH_KEY_B64" && test -n "$DEMO_SSH_KNOWN_HOSTS"
+    - '[ -n "$DEMO_DEPLOY_SSH_KEY_B64" ] && [ -n "$DEMO_SSH_KNOWN_HOSTS" ] || { echo "deploy variables absent: is the tag protected?" >&2; exit 1; }'
     - install -d -m 0700 "$HOME/.ssh"
     - printf '%s' "$DEMO_DEPLOY_SSH_KEY_B64" | base64 -d > "$HOME/.ssh/demo_deploy"
     - chmod 0600 "$HOME/.ssh/demo_deploy"

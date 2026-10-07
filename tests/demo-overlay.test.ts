@@ -181,6 +181,14 @@ describe("the demo's CI jobs", () => {
   const script = (name: string): string => (job(name).script ?? []).join("\n");
   const releaseTag = "$CI_COMMIT_TAG =~ /^v\\d+\\.\\d+\\.\\d+$/";
 
+  it("scans and inventories the demo image beside api and web", () => {
+    expect(script("container-scan")).toContain("-t scan/demo:$CI_COMMIT_SHA");
+    expect(script("container-scan")).toContain(
+      "scan/web:$CI_COMMIT_SHA scan/demo:$CI_COMMIT_SHA; do"
+    );
+    expect(script("sbom")).toContain('"docker:sbom/demo:$CI_COMMIT_SHA" sboms/demo.cdx.json');
+  });
+
   it("publishes and rehearses the demo image beside api and web", () => {
     expect(script("publish-images")).toContain('"apps/demo/Dockerfile=$CI_REGISTRY_IMAGE/demo"');
     expect(script("publish-images-rehearsal")).toContain(
@@ -196,6 +204,10 @@ describe("the demo's CI jobs", () => {
     expect(deploy.resource_group).toBe("demo");
     const body = script("deploy-demo");
     expect(body).toContain('"$CI_COMMIT_TAG"');
+    // Absent variables (an unprotected tag) fail the job at once.
+    expect(body).toContain(
+      '|| { echo "deploy variables absent: is the tag protected?" >&2; exit 1; }'
+    );
     expect(body).toContain("StrictHostKeyChecking=yes");
     expect(body).toContain("sh deploy/demo/smoke-check.sh https://demo.wayscribe.dev");
     // The key is decoded to a file and never echoed.
@@ -205,9 +217,12 @@ describe("the demo's CI jobs", () => {
 
   it("tests the overlay on every release tag and on branches that change it", () => {
     const overlay = job("demo-overlay");
-    expect(overlay.stage).toBe("demo");
+    // It gates deploy-demo only: in the release stage, started with the pipeline.
+    expect(overlay.stage).toBe("release");
+    expect(overlay.needs).toEqual([]);
     expect(overlay.rules?.[0]).toEqual({ if: releaseTag });
-    expect(overlay.rules?.[1]?.changes).toContain("deploy/demo/**/*");
+    expect(overlay.rules?.[1]).toEqual({ if: '$CI_PIPELINE_SOURCE == "schedule"', when: "never" });
+    expect(overlay.rules?.[2]?.changes).toContain("deploy/demo/**/*");
     expect(script("demo-overlay")).toBe("sh deploy/demo/ci/overlay-test.sh");
     // The overlay test's project name is the one the compose files declare.
     expect((overlay.after_script ?? []).join("\n")).toContain("docker compose -p wayscribe down");

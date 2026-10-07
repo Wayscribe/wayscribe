@@ -13,7 +13,9 @@ VERSION="${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION}"
 HOST="${DEMO_TEST_HOST:-docker}"
 REGISTRY=registry.gitlab.com/jojithedev/wayscribe
 ENV_FILE=$(mktemp)
-trap 'rm -f "${ENV_FILE}"' EXIT
+# On failure, the stack's state and recent logs go to the job log before the
+# env file is removed. compose() is defined below; the trap only runs at exit.
+trap 'rc=$?; if [ "${rc}" -ne 0 ]; then compose ps -a >&2; compose logs --no-color --tail 150 >&2; fi; rm -f "${ENV_FILE}"; exit "${rc}"' EXIT
 
 fail() {
   echo "overlay-test: $1" >&2
@@ -66,9 +68,11 @@ sh "${ROOT}/deploy/demo/wait-for-smoke.sh" "http://${HOST}" 600
 
 # 1. Nothing but Caddy answers from outside the Compose network...
 for port in 3000 3100 3200 3300 5432 8080 9324; do
-  if curl --silent --max-time 5 --output /dev/null "http://${HOST}:${port}/"; then
-    fail "port ${port} is reachable from outside the Compose network"
-  fi
+  # Only "could not connect" (7) or a timeout (28) counts as unreachable; any
+  # other curl outcome, an answer included, means something is listening.
+  rc=0
+  curl --silent --max-time 5 --output /dev/null "http://${HOST}:${port}/" || rc=$?
+  [ "${rc}" = 7 ] || [ "${rc}" = 28 ] || fail "port ${port} is reachable from outside the Compose network (curl exit ${rc})"
 done
 # ...while the API is up inside it, so the refusals above are the network's.
 inside=$(compose exec -T caddy wget -qO- http://api:8080/health) || fail "the API does not answer inside the network"
