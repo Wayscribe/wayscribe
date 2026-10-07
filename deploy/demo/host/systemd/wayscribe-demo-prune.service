@@ -1,0 +1,7 @@
+[Unit]
+Description=Prune unused Docker images on the demo VM
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker image prune --all --force --filter until=168h

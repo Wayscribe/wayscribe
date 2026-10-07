@@ -1,0 +1,17 @@
+[Unit]
+Description=Reset the Wayscribe public demo to generated data
+Wants=network-online.target
+After=docker.service network-online.target
+# The first run and three retries, 30 minutes apart. systemd counts starts in
+# a window that opens at the first one: four runs of up to 30 minutes each and
+# three 30-minute waits put the fifth start at 4h at the latest, so the window
+# must be longer than that or a run that hits its timeout would retry forever.
+StartLimitIntervalSec=5h
+StartLimitBurst=4
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/wayscribe/deploy/demo/host/reset.sh
+Restart=on-failure
+RestartSec=30min
+TimeoutStartSec=30min

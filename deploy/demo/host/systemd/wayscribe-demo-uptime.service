@@ -1,0 +1,7 @@
+[Unit]
+Description=Smoke-check the Wayscribe public demo
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/wayscribe/deploy/demo/host/uptime.sh
