@@ -766,3 +766,13 @@ describe("JourneyTimeline", () => {
     expect(window.location.search).toBe("?event=evt_2&from=search");
   });
 });
+
+describe("JourneyTimeline replay by principal", () => {
+  it("offers replay when allowed and omits it when not", () => {
+    const { unmount } = mount();
+    expect(screen.queryByRole("link", { name: /Replay this input/ })).not.toBeNull();
+    unmount();
+    mount({ canReplay: false });
+    expect(screen.queryByRole("link", { name: /Replay this input/ })).toBeNull();
+  });
+});
