@@ -10,6 +10,8 @@
 
 	header {
 		X-Robots-Tag "noindex, nofollow"
+		# One year, for this host only (no includeSubDomains).
+		Strict-Transport-Security "max-age=31536000"
 		-Server
 	}
 
@@ -33,6 +35,16 @@
 	}
 
 	reverse_proxy web:3000
+
+	# Error responses (a 429 from the limiter, a 502 while web restarts) skip the
+	# header block above, so repeat it.
+	handle_errors {
+		header {
+			X-Robots-Tag "noindex, nofollow"
+			Strict-Transport-Security "max-age=31536000"
+			-Server
+		}
+	}
 
 	# Read by the visit notifier and by Jorge. Kept 7 days. 0644 inside a
 	# directory only root can reach on the host (docs/DEMO_HOSTING.md).

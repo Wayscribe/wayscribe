@@ -13,6 +13,8 @@ interface Service {
   build?: unknown;
   image?: string;
   command?: string[];
+  volumes?: string[];
+  read_only?: boolean;
 }
 
 // Compose's `!reset null` removes an inherited attribute. Unknown tags parse as
@@ -104,6 +106,53 @@ describe("the public demo overlay", () => {
     expect(caddyfile).toContain('X-Robots-Tag "noindex, nofollow"');
     expect(caddyfile).toContain("Disallow: /");
     expect(caddyfile).toMatch(/rate_limit/);
+    // Keyed on the TCP peer, which at the edge is the visitor. A header key
+    // (X-Forwarded-For) is whatever the client sends.
+    expect(caddyfile).toContain("key {remote_host}");
+    expect(caddyfile).toContain("events 300");
     expect(caddyfile).toContain("format json");
+  });
+
+  it("sends the security headers on errors too, including 429s", () => {
+    const caddyfile = read("deploy/demo/caddy/Caddyfile");
+    expect(caddyfile).toContain('Strict-Transport-Security "max-age=31536000"');
+    const errors = /handle_errors \{([\s\S]*?)\n\t\}/.exec(caddyfile)?.[1] ?? "";
+    expect(errors).toContain('X-Robots-Tag "noindex, nofollow"');
+    expect(errors).toContain("-Server");
+  });
+
+  it("publishes exactly HTTP and HTTPS on Caddy", () => {
+    expect(overlay["caddy"]?.ports).toEqual(["80:80", "443:443", "443:443/udp"]);
+  });
+
+  it("gives the visit notifier the access log read-only and nothing writable", () => {
+    const notifier = overlay["visit-notifier"];
+    expect(notifier?.read_only).toBe(true);
+    expect(notifier?.volumes?.length).toBeGreaterThan(0);
+    for (const volume of notifier?.volumes ?? []) {
+      expect(volume, "notifier volume").toMatch(/:ro$/);
+    }
+  });
+
+  it("matches markup the web app really renders", () => {
+    const smoke = read("deploy/demo/smoke-check.sh");
+    const pins: [string, string, string][] = [
+      // React writes className as class.
+      [
+        'class="mono removed">',
+        "apps/web/app/components/DiffTable.tsx",
+        'className="mono removed"'
+      ],
+      ["What changed", "apps/web/app/components/EventDetail.tsx", "What changed"],
+      [
+        "Public demo. Read-only, sample data.",
+        "apps/web/app/components/DemoBanner.tsx",
+        "Public demo. Read-only, sample data."
+      ]
+    ];
+    for (const [inSmoke, file, inSource] of pins) {
+      expect(smoke, "smoke-check.sh").toContain(inSmoke);
+      expect(read(file), file).toContain(inSource);
+    }
   });
 });

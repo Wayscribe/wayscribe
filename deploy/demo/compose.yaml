@@ -41,7 +41,8 @@ services:
       READ_TOKEN: ${READ_TOKEN:?set READ_TOKEN in the demo env file}
       # A public web container holds no admin token; blank reads as unset.
       ADMIN_TOKEN: ""
-      # Caddy appends X-Forwarded-For.
+      # Caddy sets X-Forwarded-For to the client address, discarding any the
+      # client sent.
       TRUSTED_PROXY_COUNT: "1"
 
   postgres:
@@ -106,6 +107,12 @@ services:
   caddy:
     build: ../deploy/demo/caddy
     image: wayscribe-demo-caddy:local
+    # IPv4 only: publish no AAAA record for the demo. This Compose network has
+    # no IPv6, so Docker's userland proxy would accept IPv6 connections and
+    # hand them to Caddy from the bridge gateway's address, hiding every IPv6
+    # client behind one address: one visitor could get all IPv6 visitors rate
+    # limited, and the visit notifier would merge them. Adding AAAA needs
+    # `enable_ipv6` on the network and `"userland-proxy": false` first.
     ports:
       - "80:80"
       - "443:443"
