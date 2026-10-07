@@ -1,8 +1,19 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { listProjects, type ProjectSummary } from "./api";
-import { sessionAdminToken } from "./config";
-import { SESSION_COOKIE_NAME, verifySession } from "./session";
+import { SESSION_COOKIE_NAME, type VerifiedSession } from "./session";
+import { resolveSession } from "./web-session";
+
+/**
+ * The session behind the current page, or a redirect to the login page.
+ * Pages that need to know whom they are showing to (replay, delete) call this.
+ */
+export async function currentSession(): Promise<VerifiedSession> {
+  const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+  const session = resolveSession(cookie, Date.now());
+  if (session === null) redirect("/login");
+  return session;
+}
 
 /**
  * The project the current session reads from.
@@ -47,17 +58,7 @@ export type CurrentProject =
   | { kind: "unchosen"; projects: ProjectSummary[] };
 
 export async function currentProject(): Promise<CurrentProject> {
-  const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
-  // No token means nothing can be verified, so nothing is: verifying against an
-  // empty key would admit a cookie signed with an empty key, turning a
-  // misconfiguration into a way in.
-  const adminToken = sessionAdminToken();
-  const session =
-    adminToken === null || cookie === undefined
-      ? null
-      : verifySession(adminToken, cookie, Date.now());
-
-  if (session === null) redirect("/login");
+  const session = await currentSession();
   if (session.projectId !== "") {
     return { kind: "chosen", projectId: session.projectId, projects: null };
   }

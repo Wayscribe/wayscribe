@@ -28,7 +28,8 @@ describe("requestSession", () => {
   it("returns null for a cookie signed with another token", () => {
     const cookie = signSession("some-other-token-000000000000000000", {
       projectId: "proj_1",
-      expiresAt: NOW + 1000
+      expiresAt: NOW + 1000,
+      principal: "admin"
     });
     expect(requestSession(requestWithCookie(cookie), NOW)).toBeNull();
   });
@@ -42,7 +43,8 @@ describe("requestSession", () => {
     const cookie = signSession(ADMIN_TOKEN, { projectId: "proj_1", expiresAt: NOW + 1000 });
     expect(requestSession(requestWithCookie(cookie), NOW)).toEqual({
       projectId: "proj_1",
-      expiresAt: NOW + 1000
+      expiresAt: NOW + 1000,
+      principal: "admin"
     });
   });
 
@@ -50,7 +52,8 @@ describe("requestSession", () => {
     const cookie = signSession(ADMIN_TOKEN, { projectId: "", expiresAt: NOW + 1000 });
     expect(requestSession(requestWithCookie(cookie), NOW)).toEqual({
       projectId: "",
-      expiresAt: NOW + 1000
+      expiresAt: NOW + 1000,
+      principal: "admin"
     });
   });
 });

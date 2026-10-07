@@ -145,3 +145,24 @@ describe("the authenticated layout", () => {
     expect(await enter()).toBe("REDIRECT:/login");
   });
 });
+
+describe("the auth gate in anonymous read-only mode", () => {
+  it("lets a visitor with no cookie through as a reader", async () => {
+    vi.stubEnv("ADMIN_TOKEN", "");
+    vi.stubEnv("ADMIN_TOKEN_FILE", undefined);
+    vi.stubEnv("READ_TOKEN", "read-token-for-tests-000000000000000");
+    vi.stubEnv("WEB_ANONYMOUS_READ_ONLY", "true");
+    cookiesMock.mockResolvedValue({ get: () => undefined });
+
+    expect(await enter()).toBe("(rendered the authenticated shell)");
+  });
+
+  it("still redirects when the read token is missing", async () => {
+    vi.stubEnv("ADMIN_TOKEN", "");
+    vi.stubEnv("READ_TOKEN", "");
+    vi.stubEnv("WEB_ANONYMOUS_READ_ONLY", "true");
+    presenting(forged());
+
+    expect(await enter()).toBe("REDIRECT:/login");
+  });
+});

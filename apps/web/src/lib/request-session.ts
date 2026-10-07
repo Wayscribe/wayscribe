@@ -1,9 +1,11 @@
 import type { NextRequest } from "next/server";
-import { apiToken, webConfig } from "./config";
-import { SESSION_COOKIE_NAME, verifySession, type SessionPayload } from "./session";
+import { webConfig } from "./config";
+import { SESSION_COOKIE_NAME, type VerifiedSession } from "./session";
+import { resolveSession } from "./web-session";
 
 /**
- * The signed-in operator behind a route handler request.
+ * The session behind a route handler request: a signed-in operator, or in
+ * anonymous read-only mode any visitor as a reader.
  *
  * Route handlers are not covered by the route group's layout gate, so each one
  * verifies the cookie itself. This is the one place that does it.
@@ -16,8 +18,9 @@ import { SESSION_COOKIE_NAME, verifySession, type SessionPayload } from "./sessi
  * on every request for no different outcome — including the two-second poll
  * the events route handler makes.
  */
-export function requestSession(request: NextRequest, now = Date.now()): SessionPayload | null {
-  const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  if (cookie === undefined) return null;
-  return verifySession(apiToken(webConfig()), cookie, now);
+export function requestSession(request: NextRequest, now = Date.now()): VerifiedSession | null {
+  // Loaded first so a misconfigured app still throws here, as it always has,
+  // rather than reading as "not signed in".
+  webConfig();
+  return resolveSession(request.cookies.get(SESSION_COOKIE_NAME)?.value, now);
 }

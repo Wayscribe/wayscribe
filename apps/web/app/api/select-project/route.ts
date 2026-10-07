@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { seeOther } from "../../../src/lib/redirect-url";
-import { apiToken, webConfig } from "../../../src/lib/config";
+import { sessionSigner } from "../../../src/lib/config";
 import { listProjects } from "../../../src/lib/api";
 import { safeReturnTo } from "../../../src/lib/return-to";
 import { SESSION_COOKIE_NAME, signSession } from "../../../src/lib/session";
@@ -20,7 +20,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const refused = rejectCrossOrigin(request);
   if (refused !== null) return refused;
 
-  const config = webConfig();
   const now = Date.now();
 
   const session = requestSession(request, now);
@@ -42,10 +41,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return seeOther("/projects");
   }
 
+  // Signed for the mode this app runs in: a reader's choice under the reader
+  // label, an operator's under the operator label, so neither verifies in the
+  // other mode.
+  const signer = sessionSigner();
+  if (signer === null) return seeOther("/login");
   const response = seeOther(next);
   response.cookies.set(
     SESSION_COOKIE_NAME,
-    signSession(apiToken(config), { projectId, expiresAt: session.expiresAt }),
+    signSession(
+      signer.secret,
+      { projectId, expiresAt: session.expiresAt, principal: session.principal },
+      signer.label
+    ),
     {
       httpOnly: true,
       sameSite: "strict",

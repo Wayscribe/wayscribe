@@ -1,4 +1,4 @@
-import { apiToken, webConfig } from "./config";
+import { apiToken, apiTokenName, webConfig } from "./config";
 import {
   eventForDisplay,
   rowForDisplay,
@@ -241,7 +241,7 @@ async function get<T>(path: string, projectId?: string): Promise<T | null> {
     // outage. Collapsing it into "unreachable" sent people to check whether the
     // API was running when it was running and refusing them.
     throw new ApiUnavailableError(
-      "The API rejected this request. The web and API containers may hold different ADMIN_TOKEN values."
+      `The API rejected this request. The web and API containers may hold different ${apiTokenName(config)} values.`
     );
   }
   if (response.status === 400) {
@@ -443,7 +443,7 @@ export async function deleteJourney(
   }
   if (response.status === 401 || response.status === 403) {
     throw new ApiUnavailableError(
-      "The API rejected this request. The web and API containers may hold different ADMIN_TOKEN values."
+      `The API rejected this request. The web and API containers may hold different ${apiTokenName(config)} values.`
     );
   }
   throw new ApiUnavailableError(`API responded ${String(response.status)}.`);

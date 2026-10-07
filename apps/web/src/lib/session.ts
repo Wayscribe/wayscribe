@@ -2,32 +2,47 @@ import { createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 
 export const SESSION_COOKIE_NAME = "wayscribe_session";
 
-/** Who a web session signs in. Task 8 carries it on the session itself. */
+/** Who a session signs in. Only an admin sees replay and delete. */
 export type WebPrincipal = "admin" | "reader";
 
-/** The label predates the rename to Wayscribe and must not change (ADR-057). */
+/**
+ * The HKDF label for sessions signed with the admin token. It predates the
+ * rename to Wayscribe and must not change: it determines the signing key, so
+ * renaming it ends every session (ADR-057).
+ */
 export const OPERATOR_SESSION_LABEL = "flight-recorder/web-session";
-/** Distinct from the operator label, so a session from one mode never verifies in the other. */
+
+/**
+ * The HKDF label for anonymous read-only mode, keyed from the read token
+ * (ADR-070). Distinct from the operator label so a session from one mode never
+ * verifies in the other, even if both tokens held the same value.
+ */
 export const READER_SESSION_LABEL = "wayscribe/web-session-anonymous-reader";
 
 export interface SessionPayload {
   projectId: string;
   /** Unix milliseconds. */
   expiresAt: number;
+  /** Absent in cookies issued before principals existed, which were all an admin's. */
+  principal?: WebPrincipal;
+}
+
+export interface VerifiedSession {
+  projectId: string;
+  expiresAt: number;
+  principal: WebPrincipal;
 }
 
 /**
- * Derive the cookie signing key from the admin token.
+ * Derive the cookie signing key from a token.
  *
  * The same HKDF pattern the API uses for its three subkeys. The web application
- * therefore needs one secret rather than two, and rotating the admin token
+ * therefore needs one secret rather than two, and rotating the token
  * invalidates every existing session — which is correct behavior, not an
  * inconvenience (ADR-029).
  */
-function signingKey(adminToken: string): Buffer {
-  // The label predates the rename to Wayscribe and must not change: it
-  // determines the signing key, so renaming it ends every session (ADR-057).
-  return Buffer.from(hkdfSync("sha256", adminToken, "", "flight-recorder/web-session", 32));
+function signingKey(secret: string, label: string): Buffer {
+  return Buffer.from(hkdfSync("sha256", secret, "", label, 32));
 }
 
 /**
@@ -35,25 +50,30 @@ function signingKey(adminToken: string): Buffer {
  *
  * Signed, not encrypted: nothing in the payload is secret, and what matters is
  * that it cannot be altered. A user who decodes their own cookie learns only
- * which project they are already looking at.
+ * which project they are already looking at, and whom they are signed in as.
  */
-export function signSession(adminToken: string, payload: SessionPayload): string {
+export function signSession(
+  secret: string,
+  payload: SessionPayload,
+  label: string = OPERATOR_SESSION_LABEL
+): string {
   const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  return `${body}.${sign(adminToken, body)}`;
+  return `${body}.${sign(secret, label, body)}`;
 }
 
 export function verifySession(
-  adminToken: string,
+  secret: string,
   cookie: string,
-  now: number
-): SessionPayload | null {
+  now: number,
+  label: string = OPERATOR_SESSION_LABEL
+): VerifiedSession | null {
   const separator = cookie.lastIndexOf(".");
   if (separator <= 0) return null;
 
   const body = cookie.slice(0, separator);
   const presented = cookie.slice(separator + 1);
 
-  const expected = Buffer.from(sign(adminToken, body), "utf8");
+  const expected = Buffer.from(sign(secret, label, body), "utf8");
   const actual = Buffer.from(presented, "utf8");
   // Length is not secret; timingSafeEqual throws on a mismatch.
   if (expected.length !== actual.length) return null;
@@ -67,13 +87,18 @@ export function verifySession(
   }
 
   if (typeof payload !== "object" || payload === null) return null;
-  const { projectId, expiresAt } = payload as Record<string, unknown>;
+  const { projectId, expiresAt, principal } = payload as Record<string, unknown>;
   if (typeof projectId !== "string" || typeof expiresAt !== "number") return null;
   if (expiresAt <= now) return null;
 
-  return { projectId, expiresAt };
+  const resolved: unknown = principal ?? (label === READER_SESSION_LABEL ? "reader" : "admin");
+  if (resolved !== "admin" && resolved !== "reader") return null;
+  // A key derived from the read token can only ever sign a reader in.
+  if (label === READER_SESSION_LABEL && resolved !== "reader") return null;
+
+  return { projectId, expiresAt, principal: resolved };
 }
 
-function sign(adminToken: string, body: string): string {
-  return createHmac("sha256", signingKey(adminToken)).update(body, "utf8").digest("base64url");
+function sign(secret: string, label: string, body: string): string {
+  return createHmac("sha256", signingKey(secret, label)).update(body, "utf8").digest("base64url");
 }

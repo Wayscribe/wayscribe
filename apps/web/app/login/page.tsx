@@ -1,8 +1,13 @@
+import { redirect } from "next/navigation";
+import { anonymousReadOnly } from "../../src/lib/config";
+
 export default async function LoginPage({
   searchParams
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  // Every visitor is already signed in as a reader (ADR-069).
+  if (anonymousReadOnly()) redirect("/");
   const { error } = await searchParams;
   const message =
     error === "throttled"

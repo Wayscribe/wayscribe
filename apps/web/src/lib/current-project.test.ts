@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SESSION_COOKIE_NAME, signSession } from "./session";
-import { currentProject, requireProjectId } from "./current-project";
+import { currentProject, currentSession, requireProjectId } from "./current-project";
 
 /**
  * The project picker verifies the session cookie itself, so it has the same
@@ -109,5 +109,29 @@ describe("currentProject", () => {
     vi.stubEnv("ADMIN_TOKEN", ADMIN_TOKEN);
     presenting("not-a-session");
     await expect(currentProject()).rejects.toThrow("REDIRECT:/login");
+  });
+});
+
+describe("in anonymous read-only mode", () => {
+  const anonymous = (): void => {
+    vi.stubEnv("ADMIN_TOKEN", "");
+    vi.stubEnv("ADMIN_TOKEN_FILE", undefined);
+    vi.stubEnv("READ_TOKEN", "read-token-for-tests-000000000000000");
+    vi.stubEnv("WEB_ANONYMOUS_READ_ONLY", "true");
+    cookiesMock.mockResolvedValue({ get: () => undefined });
+  };
+
+  it("resolves a visitor with no cookie as a reader, not the login page", async () => {
+    anonymous();
+    listProjectsMock.mockResolvedValue([
+      { id: "proj_1", name: "Demo", slug: "demo", environments: ["production"] }
+    ]);
+    expect(await resolve()).toBe("proj_1");
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  it("hands pages a reader's session", async () => {
+    anonymous();
+    expect(await currentSession()).toMatchObject({ projectId: "", principal: "reader" });
   });
 });

@@ -21,6 +21,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (refused !== null) return refused;
 
   const config = webConfig();
+  // Nobody signs in in anonymous read-only mode: everybody already is a reader,
+  // and the read token must never work as a password for an admin session.
+  if (config.WEB_ANONYMOUS_READ_ONLY) return seeOther("/");
+  const adminToken = apiToken(config);
+
   // The socket's address, never a header the client wrote, unless the operator
   // has said how many proxies stand in front of this app.
   const key = clientAddress(
@@ -48,7 +53,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return seeOther("/login?error=throttled");
   }
 
-  if (!constantTimeEquals(presented, apiToken(config))) {
+  if (!constantTimeEquals(presented, adminToken)) {
     limiter.recordFailure(key, now);
     // One outcome regardless of cause: a near-miss must not read differently
     // from a wild guess.
@@ -63,7 +68,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const response = seeOther("/");
   response.cookies.set(
     SESSION_COOKIE_NAME,
-    signSession(apiToken(config), { projectId: "", expiresAt: now + SESSION_DURATION_MS }),
+    signSession(adminToken, {
+      projectId: "",
+      expiresAt: now + SESSION_DURATION_MS,
+      principal: "admin"
+    }),
     {
       httpOnly: true,
       sameSite: "strict",

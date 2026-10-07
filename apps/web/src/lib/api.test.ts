@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiUnavailableError,
   InvalidPageLinkError,
+  deleteJourney,
   getEvent,
   listEvents,
-  listJourneys
+  listJourneys,
+  listProjects
 } from "./api";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -153,5 +155,26 @@ describe("listEvents", () => {
     });
     expect(Object.hasOwn(item ?? {}, "deploymentMetadata")).toBe(false);
     expect(page?.nextCursor).toBeNull();
+  });
+});
+
+describe("a refused token", () => {
+  const refused = (): Response => new Response("{}", { status: 401 });
+
+  it("names ADMIN_TOKEN when the app runs with the admin token", async () => {
+    fetchMock.mockResolvedValueOnce(refused());
+    await expect(listProjects()).rejects.toThrow(/different ADMIN_TOKEN values/);
+    fetchMock.mockResolvedValueOnce(refused());
+    await expect(deleteJourney("j1", "p1")).rejects.toThrow(/different ADMIN_TOKEN values/);
+  });
+
+  it("names READ_TOKEN in anonymous read-only mode, where the app holds no admin token", async () => {
+    vi.stubEnv("ADMIN_TOKEN", "");
+    vi.stubEnv("READ_TOKEN", "read-token-for-tests-000000000000000");
+    vi.stubEnv("WEB_ANONYMOUS_READ_ONLY", "true");
+    fetchMock.mockResolvedValueOnce(refused());
+    await expect(listProjects()).rejects.toThrow(/different READ_TOKEN values/);
+    fetchMock.mockResolvedValueOnce(refused());
+    await expect(deleteJourney("j1", "p1")).rejects.toThrow(/different READ_TOKEN values/);
   });
 });

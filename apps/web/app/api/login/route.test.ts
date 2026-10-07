@@ -94,3 +94,20 @@ function response303(response: Response): string | null {
   expect(response.status).toBe(303);
   return response.headers.get("location");
 }
+
+describe("POST /api/login in anonymous read-only mode", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("signs nobody in, since every visitor already is a reader, and never accepts the read token as a password", async () => {
+    vi.stubEnv("ADMIN_TOKEN", "");
+    vi.stubEnv("READ_TOKEN", "read-token-for-tests-000000000000000");
+    vi.stubEnv("WEB_ANONYMOUS_READ_ONLY", "true");
+    vi.stubEnv("API_URL", "http://api:8080");
+    const response = await login("203.0.113.90", "read-token-for-tests-000000000000000");
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/");
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+});

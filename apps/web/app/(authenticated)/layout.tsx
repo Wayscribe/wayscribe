@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactElement, ReactNode } from "react";
-import { sessionAdminToken } from "../../src/lib/config";
-import { SESSION_COOKIE_NAME, verifySession } from "../../src/lib/session";
+import { SESSION_COOKIE_NAME } from "../../src/lib/session";
+import { resolveSession } from "../../src/lib/web-session";
 import { SiteNav } from "../components/SiteNav";
 import { VersionFooter } from "../components/VersionFooter";
 
@@ -18,6 +18,8 @@ import { VersionFooter } from "../components/VersionFooter";
  *
  * It also carries the nav, the two ways in and the glossary, and under every
  * page the version line: what this web app and the API are running.
+ *
+ * In anonymous read-only mode every visitor is signed in as a reader (ADR-069).
  */
 export default async function AuthenticatedLayout({
   children
@@ -25,14 +27,7 @@ export default async function AuthenticatedLayout({
   children: ReactNode;
 }): Promise<ReactElement> {
   const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
-  // No token means nothing can be verified, so nothing is: verifying against an
-  // empty key would admit a cookie signed with an empty key, turning a
-  // misconfiguration into a way in.
-  const adminToken = sessionAdminToken();
-  const session =
-    adminToken === null || cookie === undefined
-      ? null
-      : verifySession(adminToken, cookie, Date.now());
+  const session = resolveSession(cookie, Date.now());
 
   if (session === null) redirect("/login");
 

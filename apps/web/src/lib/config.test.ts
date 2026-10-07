@@ -183,7 +183,12 @@ describe("anonymous read-only mode", () => {
 
   it("refuses to start holding ADMIN_TOKEN as well", () => {
     expect(() =>
-      loadWebConfig({ ...base, WEB_ANONYMOUS_READ_ONLY: "true", READ_TOKEN: READ, ADMIN_TOKEN: ADMIN })
+      loadWebConfig({
+        ...base,
+        WEB_ANONYMOUS_READ_ONLY: "true",
+        READ_TOKEN: READ,
+        ADMIN_TOKEN: ADMIN
+      })
     ).toThrow(/ADMIN_TOKEN: must not be set when WEB_ANONYMOUS_READ_ONLY is true/);
   });
 
@@ -201,7 +206,11 @@ describe("anonymous read-only mode", () => {
   it("reads READ_TOKEN from READ_TOKEN_FILE", () => {
     const path = join(mkdtempSync(join(tmpdir(), "wayscribe-web-read-")), "read-token");
     writeFileSync(path, `${READ}\n`, "utf8");
-    const config = loadWebConfig({ ...base, WEB_ANONYMOUS_READ_ONLY: "true", READ_TOKEN_FILE: path });
+    const config = loadWebConfig({
+      ...base,
+      WEB_ANONYMOUS_READ_ONLY: "true",
+      READ_TOKEN_FILE: path
+    });
     expect(config.READ_TOKEN).toBe(READ);
   });
 
