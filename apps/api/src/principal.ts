@@ -10,9 +10,15 @@ import { authenticatePresentedKey, bearerToken, type ApiKeyAuthenticator } from 
  * identifies the operator, reads across every environment of a named project, and
  * may not ingest — ingestion writes into a specific environment and an admin
  * token names none, so accepting it there would mean guessing (ADR-029).
+ *
+ * A reader reads exactly what an admin reads, payloads included, and may call
+ * nothing else: `reader-routes.ts` refuses it every route outside an allowlist
+ * before the route runs (ADR-070).
  */
 export type Principal =
-  { kind: "apiKey"; context: ApiKeyContext } | { kind: "admin"; projectId: string };
+  | { kind: "apiKey"; context: ApiKeyContext }
+  | { kind: "admin"; projectId: string }
+  | { kind: "reader"; projectId: string };
 
 export type PrincipalResult =
   | { ok: true; principal: Principal }
@@ -31,24 +37,29 @@ export interface ResolveOptions {
   db: Knex;
   apiKeys: ApiKeyAuthenticator;
   adminToken: string;
+  /** READ_TOKEN, or undefined when this installation has no reader (ADR-070). */
+  readToken?: string | undefined;
   authorizationHeader: string | undefined;
-  /** Which project an admin is asking about. Ignored for API keys. */
+  /** Which project an admin or reader is asking about. Ignored for API keys. */
   requestedProjectId?: string | undefined;
 }
 
 /**
  * Resolve a bearer token to a principal.
  *
- * The admin token is checked first and in constant time. Every failure returns
- * the same message, so the response cannot be used to distinguish an unknown key
- * from a revoked one or a near-miss admin token.
+ * The admin token, then the read token, are checked first and in constant time.
+ * Every failure returns the same message, so the response cannot be used to
+ * distinguish an unknown key from a revoked one or a near-miss token.
  */
 export async function resolvePrincipal(options: ResolveOptions): Promise<PrincipalResult> {
   const presented = bearerToken(options.authorizationHeader);
   if (presented === undefined) return UNAUTHORIZED;
 
   if (constantTimeEquals(presented, options.adminToken)) {
-    return resolveAdminProject(options.db, options.requestedProjectId);
+    return resolveNamedProject("admin", options.db, options.requestedProjectId);
+  }
+  if (options.readToken !== undefined && constantTimeEquals(presented, options.readToken)) {
+    return resolveNamedProject("reader", options.db, options.requestedProjectId);
   }
 
   const context = await authenticatePresentedKey(presented, options.apiKeys);
@@ -58,12 +69,13 @@ export async function resolvePrincipal(options: ResolveOptions): Promise<Princip
 }
 
 /**
- * An admin names the project it wants. That is not an escalation — an admin can
+ * An admin or reader names the project it wants. That is not an escalation — both
  * read any project by definition — but the project must exist. Returning an empty
  * result set instead would read as "this record has no events", which is a
  * different and far more misleading answer than "wrong project".
  */
-async function resolveAdminProject(
+async function resolveNamedProject(
+  kind: "admin" | "reader",
   db: Knex,
   requestedProjectId: string | undefined
 ): Promise<PrincipalResult> {
@@ -90,7 +102,7 @@ async function resolveAdminProject(
     };
   }
 
-  return { ok: true, principal: { kind: "admin", projectId } };
+  return { ok: true, principal: { kind, projectId } };
 }
 
 /**
@@ -121,7 +133,7 @@ async function onlyProjectId(db: Knex): Promise<string | undefined> {
   return projects.length === 1 ? projects[0]?.id : undefined;
 }
 
-function constantTimeEquals(a: string, b: string): boolean {
+export function constantTimeEquals(a: string, b: string): boolean {
   const left = Buffer.from(a, "utf8");
   const right = Buffer.from(b, "utf8");
   // Length is not secret; timingSafeEqual throws on a mismatch.
@@ -131,7 +143,7 @@ function constantTimeEquals(a: string, b: string): boolean {
 
 /** The project a principal reads from. */
 export function principalProjectId(principal: Principal): string {
-  return principal.kind === "admin" ? principal.projectId : principal.context.projectId;
+  return principal.kind === "apiKey" ? principal.context.projectId : principal.projectId;
 }
 
 /**
@@ -141,5 +153,5 @@ export function principalProjectId(principal: Principal): string {
  * project — every read query still filters on project_id (ADR-029).
  */
 export function principalEnvironmentId(principal: Principal): string | undefined {
-  return principal.kind === "admin" ? undefined : principal.context.environmentId;
+  return principal.kind === "apiKey" ? principal.context.environmentId : undefined;
 }
