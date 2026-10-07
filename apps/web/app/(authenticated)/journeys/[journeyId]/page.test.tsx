@@ -47,9 +47,7 @@ async function page(principal: "admin" | "reader") {
   });
   const all = elements(tree);
   return {
-    deleteLink: all.find(
-      (e) => String((e.props as { href?: unknown }).href ?? "") === "/journeys/jrn_1/delete"
-    ),
+    deleteLink: all.find((e) => (e.props as { href?: unknown }).href === "/journeys/jrn_1/delete"),
     timeline: all.find((e) => e.type === JourneyTimeline)
   };
 }
