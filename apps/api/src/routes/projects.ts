@@ -20,7 +20,7 @@ export function registerProjectRoutes(
   app: FastifyInstance,
   adminToken: string,
   /** READ_TOKEN: a reader lists projects as an admin does, to choose one (ADR-070). */
-  readToken?: string | undefined
+  readToken?: string
 ): void {
   app.get("/v1/projects", async (request, reply) => {
     const presented = bearerToken(request.headers.authorization);

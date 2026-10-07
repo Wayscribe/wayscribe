@@ -35,7 +35,7 @@ export function registerQueryRoutes(
   /** Told the id of a key a read needed and the keyring lacks. */
   warnUnknownKey: (keyId: string) => void,
   /** READ_TOKEN, or undefined when there is no reader (ADR-070). */
-  readToken?: string | undefined
+  readToken?: string
 ): void {
   const apiKeys = databaseApiKeys(app.db, keyring, logVerifierReplaceFailure(app.log));
 
