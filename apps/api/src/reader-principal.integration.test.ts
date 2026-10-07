@@ -28,7 +28,10 @@ describe("the reader principal", () => {
     await container.stop();
   });
 
-  const resolve = (token: string, options: { readToken?: string | undefined; project?: string } = {}) =>
+  const resolve = (
+    token: string,
+    options: { readToken?: string | undefined; project?: string } = {}
+  ) =>
     resolvePrincipal({
       db,
       apiKeys: databaseApiKeys(db, keyring, (error) => {
@@ -52,6 +55,10 @@ describe("the reader principal", () => {
   it("is not a reader when no read token is configured", async () => {
     const result = await resolve(READ_TOKEN, { readToken: undefined });
     expect(result).toMatchObject({ ok: false, status: 401 });
+  });
+
+  it("never resolves a reader from an empty read token", async () => {
+    expect(await resolve("", { readToken: "" })).toMatchObject({ ok: false, status: 401 });
   });
 
   it("answers a reader naming no project, among several, as an admin is answered", async () => {

@@ -58,7 +58,11 @@ export async function resolvePrincipal(options: ResolveOptions): Promise<Princip
   if (constantTimeEquals(presented, options.adminToken)) {
     return resolveNamedProject("admin", options.db, options.requestedProjectId);
   }
-  if (options.readToken !== undefined && constantTimeEquals(presented, options.readToken)) {
+  if (
+    options.readToken !== undefined &&
+    options.readToken.length > 0 &&
+    constantTimeEquals(presented, options.readToken)
+  ) {
     return resolveNamedProject("reader", options.db, options.requestedProjectId);
   }
 
