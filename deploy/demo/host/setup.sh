@@ -50,6 +50,13 @@ ufw allow proto udp from 0.0.0.0/0 to any port 443
 ufw --force enable
 
 CHECKOUT=/opt/wayscribe
+# Held from here to the end: a rerun must not move the checkout or the env
+# file under a nightly reset or a deploy. The final reset runs under it.
+exec 9>/run/wayscribe-demo.lock
+flock -w 900 9 || {
+  echo "a reset or deploy is running" >&2
+  exit 1
+}
 if [ ! -d "${CHECKOUT}/.git" ]; then
   git clone --quiet --depth 1 --branch "${TAG}" https://gitlab.com/jojithedev/wayscribe.git "${CHECKOUT}"
 else
@@ -127,5 +134,5 @@ install -m 0644 "${CHECKOUT}"/deploy/demo/host/systemd/* /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now wayscribe-demo-reset.timer wayscribe-demo-uptime.timer wayscribe-demo-prune.timer
 
-sh "${CHECKOUT}/deploy/demo/host/reset.sh"
+WAYSCRIBE_DEMO_LOCKED=1 sh "${CHECKOUT}/deploy/demo/host/reset.sh"
 echo "Demo is up. Subscribe to the two ntfy topics named NTFY_VISIT_TOPIC and NTFY_ALERT_TOPIC in /etc/wayscribe-demo/env."
