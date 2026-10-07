@@ -6,7 +6,11 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    // deploy/demo/visit-notifier runs under Node's type stripping, which needs
+    // the real file extension on relative imports. Allowed because this
+    // project never emits.
+    "allowImportingTsExtensions": true
   },
-  "include": ["*.config.ts", "tests/**/*.ts"]
+  "include": ["*.config.ts", "tests/**/*.ts", "deploy/**/*.ts"]
 }
