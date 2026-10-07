@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { commandHelp } from "./cli-commands.js";
 import {
+  anonymousReadOnlyResult,
   apiKeyShapeProblem,
   doctorExitCode,
   DOCTOR_USAGE,
@@ -262,5 +263,27 @@ describe("statementTimeoutResult", () => {
   it("warns at 0 and fails on a value that is not a whole number, as before", () => {
     expect(statementTimeoutResult({ DATABASE_STATEMENT_TIMEOUT_MS: "0" }).status).toBe("WARN");
     expect(statementTimeoutResult({ DATABASE_STATEMENT_TIMEOUT_MS: "1.5" }).status).toBe("FAIL");
+  });
+});
+
+describe("anonymousReadOnlyResult", () => {
+  it("warns, naming the setting and what it exposes, when the mode is on", () => {
+    const result = anonymousReadOnlyResult({ WEB_ANONYMOUS_READ_ONLY: "true" });
+    expect(result?.status).toBe("WARN");
+    expect(result?.check).toBe("Anonymous read-only web");
+    expect(result?.detail).toContain("WEB_ANONYMOUS_READ_ONLY is true");
+    expect(result?.detail).toContain("every recorded payload");
+  });
+
+  it("says nothing when the mode is off or unset, so ordinary output is unchanged", () => {
+    expect(anonymousReadOnlyResult({})).toBeNull();
+    expect(anonymousReadOnlyResult({ WEB_ANONYMOUS_READ_ONLY: "false" })).toBeNull();
+  });
+});
+
+describe("secretsIn READ_TOKEN", () => {
+  it("scrubs READ_TOKEN from doctor's output like the other secrets", () => {
+    const token = "read-token-for-tests-000000000000";
+    expect(secretsIn({ READ_TOKEN: token }, undefined)).toContain(token);
   });
 });

@@ -201,6 +201,8 @@ export async function runDoctor(options: DoctorOptions): Promise<CheckResult[]> 
   }
 
   results.push(statementTimeoutResult(env));
+  const anonymous = anonymousReadOnlyResult(env);
+  if (anonymous !== null) results.push(anonymous);
 
   return scrub(results, secretsIn(env, options.apiKey));
 }
@@ -813,12 +815,31 @@ export function statementTimeoutResult(env: Record<string, string | undefined>):
   );
 }
 
+/**
+ * A warning while the web app would sign every visitor in as a reader.
+ *
+ * Only when the mode is on, so every other installation's output is unchanged.
+ * Read from this environment, like the statement timeout: the demo overlay sets
+ * it on the API container too, which is where doctor runs.
+ */
+export function anonymousReadOnlyResult(
+  env: Record<string, string | undefined>
+): CheckResult | null {
+  if (env["WEB_ANONYMOUS_READ_ONLY"] !== "true") return null;
+  return warn(
+    "Anonymous read-only web",
+    "WEB_ANONYMOUS_READ_ONLY is true here, so a web app started with this environment signs every visitor in as a reader with no login. Anyone who can reach it can search and read every recorded payload of the project.",
+    "Turn it off unless this is a public demo holding only generated data (docs/DEMO_HOSTING.md): set WEB_ANONYMOUS_READ_ONLY=false or remove it."
+  );
+}
+
 export function secretsIn(
   env: Record<string, string | undefined>,
   apiKey: string | undefined
 ): string[] {
   const secrets = [
     env["ADMIN_TOKEN"],
+    env["READ_TOKEN"],
     env["ENCRYPTION_KEY"],
     env["ENCRYPTION_KEY_PREVIOUS"],
     apiKey,
