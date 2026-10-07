@@ -118,6 +118,12 @@ importers:
       '@wayscribe/node':
         specifier: workspace:*
         version: link:../../packages/sdk-node
+      '@wayscribe/payload-security':
+        specifier: workspace:*
+        version: link:../../packages/payload-security
+      '@wayscribe/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       fastify:
         specifier: ^5.12.5
         version: 5.12.5

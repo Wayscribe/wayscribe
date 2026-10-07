@@ -11,6 +11,8 @@
     "@aws-sdk/client-sqs": "^3.1131.0",
     "@wayscribe/database": "workspace:*",
     "@wayscribe/node": "workspace:*",
+    "@wayscribe/payload-security": "workspace:*",
+    "@wayscribe/protocol": "workspace:*",
     "fastify": "^5.12.5",
     "knex": "^3.3.0",
     "pg": "^8.23.0"
