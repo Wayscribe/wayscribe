@@ -19,8 +19,18 @@ vi.mock("../../../../../src/lib/api", async (importOriginal) => {
   };
 });
 
+const { currentSessionMock, notFoundMock } = vi.hoisted(() => ({
+  currentSessionMock: vi.fn(),
+  notFoundMock: vi.fn(() => {
+    throw new Error("NOT_FOUND");
+  })
+}));
+
+vi.mock("next/navigation", () => ({ notFound: notFoundMock }));
+
 vi.mock("../../../../../src/lib/current-project", () => ({
-  requireProjectId: vi.fn(() => Promise.resolve("proj_1"))
+  requireProjectId: vi.fn(() => Promise.resolve("proj_1")),
+  currentSession: currentSessionMock
 }));
 
 /** Only the fields the page reads. */
@@ -51,6 +61,20 @@ describe("ReplayPage", () => {
     getEventMock.mockReset().mockResolvedValue(event);
     getReplayMock.mockReset().mockResolvedValue(null);
     listReplayDestinationsMock.mockReset().mockResolvedValue([destination]);
+    currentSessionMock
+      .mockReset()
+      .mockResolvedValue({ projectId: "", expiresAt: Date.now() + 60_000, principal: "admin" });
+    notFoundMock.mockClear();
+  });
+
+  it("is not found for a reader who types the URL, and reads nothing", async () => {
+    currentSessionMock.mockResolvedValue({
+      projectId: "",
+      expiresAt: Date.now() + 60_000,
+      principal: "reader"
+    });
+    await expect(renderPage({ event: "evt_1" })).rejects.toThrow("NOT_FOUND");
+    expect(getEventMock).not.toHaveBeenCalled();
   });
 
   it("shows no alert when the route handler named no error", async () => {

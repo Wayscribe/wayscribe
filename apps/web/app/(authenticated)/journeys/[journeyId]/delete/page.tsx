@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ApiUnavailableError, getJourney } from "../../../../../src/lib/api";
-import { requireProjectId } from "../../../../../src/lib/current-project";
+import { currentSession, requireProjectId } from "../../../../../src/lib/current-project";
 
 /**
  * Confirm deleting one journey.
@@ -25,6 +25,8 @@ export default async function DeleteJourneyPage({
   params: Promise<{ journeyId: string }>;
   searchParams: Promise<{ error?: string }>;
 }) {
+  // Not offered to a reader, and not reachable by typing the URL either.
+  if ((await currentSession()).principal !== "admin") notFound();
   const { journeyId } = await params;
   const { error: failure } = await searchParams;
 

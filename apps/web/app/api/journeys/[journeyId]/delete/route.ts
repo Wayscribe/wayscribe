@@ -37,6 +37,13 @@ export async function POST(
     return seeOther("/login");
   }
 
+  if (session.principal !== "admin") {
+    return NextResponse.json(
+      { error: { code: "forbidden", message: "A read-only session cannot do this." } },
+      { status: 403 }
+    );
+  }
+
   const { journeyId } = await params;
   const form = await request.formData();
   const entityType = form.get("entityType");

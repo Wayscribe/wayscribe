@@ -10,7 +10,7 @@ import {
   getReplay,
   listReplayDestinations
 } from "../../../../../src/lib/api";
-import { requireProjectId } from "../../../../../src/lib/current-project";
+import { currentSession, requireProjectId } from "../../../../../src/lib/current-project";
 
 /**
  * Prepare and send a replay.
@@ -28,6 +28,8 @@ export default async function ReplayPage({
   params: Promise<{ journeyId: string }>;
   searchParams: Promise<{ event?: string; replay?: string; error?: string }>;
 }) {
+  // Not offered to a reader, and not reachable by typing the URL either.
+  if ((await currentSession()).principal !== "admin") notFound();
   const { journeyId } = await params;
   const { event: eventId, replay: replayId, error: failure } = await searchParams;
   const projectId = await requireProjectId();

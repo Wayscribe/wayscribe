@@ -40,7 +40,9 @@ export default function Error({
           <span className="mono">pnpm db:migrate</span>.
         </li>
         <li>
-          Do the web and API containers hold the same <span className="mono">ADMIN_TOKEN</span>?
+          Does the web container hold a token the API accepts? Normally the same{" "}
+          <span className="mono">ADMIN_TOKEN</span>; in a public read-only demo, the{" "}
+          <span className="mono">READ_TOKEN</span>.
         </li>
       </ul>
 

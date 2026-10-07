@@ -806,3 +806,13 @@ h2,
 .wrap {
   overflow-wrap: anywhere;
 }
+
+.demo-banner {
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+}
+.demo-banner p {
+  margin: 0;
+}

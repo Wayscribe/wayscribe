@@ -6,7 +6,7 @@ import { JourneyTimeline } from "../../../components/JourneyTimeline";
 import { JourneyTimingSummary } from "../../../components/JourneyTimingSummary";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
 import { failedStepOf } from "../../../../src/lib/failed-step";
-import { requireProjectId } from "../../../../src/lib/current-project";
+import { currentSession, requireProjectId } from "../../../../src/lib/current-project";
 import { backFromJourney, toQueryString } from "../../../../src/lib/journey-filters";
 import { isRecent } from "../../../../src/lib/timeline";
 
@@ -31,6 +31,9 @@ export default async function JourneyPage({
     const projectId = await requireProjectId(
       `/journeys/${journeyId}${search === "" ? "" : `?${search}`}`
     );
+    // By principal, not by the anonymous setting: a reader sees the same page
+    // whichever mode signed it in (ADR-070).
+    const canOperate = (await currentSession()).principal === "admin";
     const journey = await getJourney(journeyId, projectId);
     if (journey === null) notFound();
 
@@ -52,11 +55,13 @@ export default async function JourneyPage({
 
         <AliasList aliases={journey.aliases} />
 
-        <p className="muted">
-          <Link href={`/journeys/${encodeURIComponent(journeyId)}/delete`}>
-            Delete this journey
-          </Link>
-        </p>
+        {canOperate ? (
+          <p className="muted">
+            <Link href={`/journeys/${encodeURIComponent(journeyId)}/delete`}>
+              Delete this journey
+            </Link>
+          </p>
+        ) : null}
 
         <JourneyTimeline
           journeyId={journeyId}
@@ -72,6 +77,7 @@ export default async function JourneyPage({
           // Decided here, on one clock: a journey marked failed can still be
           // recording retries, and re-deciding it in the browser against a
           // different clock would be a hydration mismatch.
+          canReplay={canOperate}
           initialLive={journey.status === "active" || isRecent(journey.lastEventAt, Date.now())}
         />
       </main>

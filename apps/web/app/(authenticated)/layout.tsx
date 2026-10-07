@@ -1,8 +1,10 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactElement, ReactNode } from "react";
+import { anonymousReadOnly } from "../../src/lib/config";
 import { SESSION_COOKIE_NAME } from "../../src/lib/session";
 import { resolveSession } from "../../src/lib/web-session";
+import { DemoBanner } from "../components/DemoBanner";
 import { SiteNav } from "../components/SiteNav";
 import { VersionFooter } from "../components/VersionFooter";
 
@@ -33,6 +35,7 @@ export default async function AuthenticatedLayout({
 
   return (
     <>
+      {anonymousReadOnly() ? <DemoBanner /> : null}
       <SiteNav />
       {children}
       <VersionFooter />

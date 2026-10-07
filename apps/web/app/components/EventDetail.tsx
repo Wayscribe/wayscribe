@@ -15,11 +15,14 @@ export interface DetailNotice {
 
 export function EventDetail({
   event,
-  notice = null
+  notice = null,
+  canReplay = true
 }: {
   event: EventDetailData;
   /** Rendered under the heading and its meta line, where the eye already is. */
   notice?: DetailNotice | null;
+  /** False for a reader: replay is an admin's act (ADR-070). */
+  canReplay?: boolean;
 }) {
   return (
     <section>
@@ -51,7 +54,7 @@ export function EventDetail({
         </>
       )}
 
-      {!event.hasInput ? null : (
+      {!event.hasInput || !canReplay ? null : (
         <>
           <p>
             {/* A link, not a button. REPLAY_SPEC section 13 prohibits one-click

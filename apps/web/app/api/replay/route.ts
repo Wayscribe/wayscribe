@@ -30,6 +30,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return seeOther("/login");
   }
 
+  if (session.principal !== "admin") {
+    return NextResponse.json(
+      { error: { code: "forbidden", message: "A read-only session cannot do this." } },
+      { status: 403 }
+    );
+  }
+
   const form = await request.formData();
   const field = (name: string): string => {
     const value = form.get(name);

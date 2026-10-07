@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SESSION_COOKIE_NAME, signSession } from "../../src/lib/session";
+import { DemoBanner } from "../components/DemoBanner";
 import { VersionFooter } from "../components/VersionFooter";
 import AuthenticatedLayout from "./layout";
 
@@ -164,5 +165,30 @@ describe("the auth gate in anonymous read-only mode", () => {
     presenting(forged());
 
     expect(await enter()).toBe("REDIRECT:/login");
+  });
+});
+
+describe("anonymous read-only mode", () => {
+  const hasBanner = (element: { props: unknown }): boolean =>
+    (element.props as { children: unknown[] }).children.some(
+      (child) => (child as { type?: unknown } | null)?.type === DemoBanner
+    );
+
+  it("renders for a visitor with no cookie and shows the demo banner", async () => {
+    vi.stubEnv("WEB_ANONYMOUS_READ_ONLY", "true");
+    vi.stubEnv("READ_TOKEN", "read-token-for-tests-000000000000000");
+    vi.stubEnv("ADMIN_TOKEN", "");
+    cookiesMock.mockResolvedValue({ get: () => undefined });
+    const element = await AuthenticatedLayout({ children: null });
+    expect(hasBanner(element)).toBe(true);
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  it("shows no banner with the mode off", async () => {
+    vi.stubEnv("ADMIN_TOKEN", ADMIN_TOKEN);
+    vi.stubEnv("ADMIN_TOKEN_FILE", undefined);
+    presenting(signSession(ADMIN_TOKEN, { projectId: "", expiresAt: Date.now() + 60_000 }));
+    const element = await AuthenticatedLayout({ children: null });
+    expect(hasBanner(element)).toBe(false);
   });
 });

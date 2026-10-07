@@ -44,6 +44,8 @@ export interface JourneyTimelineProps {
    * render cannot disagree about whether the Live control exists.
    */
   initialLive: boolean;
+  /** Whether the viewer may replay: false for a reader (ADR-070). */
+  canReplay: boolean;
 }
 
 const POLL_MS = 2000;
@@ -383,7 +385,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
               <p className="muted">This journey has no events yet.</p>
             </>
           ) : (
-            <EventDetail event={detail} notice={detailNotice} />
+            <EventDetail event={detail} notice={detailNotice} canReplay={props.canReplay} />
           )}
         </div>
       </div>

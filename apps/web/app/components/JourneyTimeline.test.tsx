@@ -77,6 +77,7 @@ function mount(props: Partial<Parameters<typeof JourneyTimeline>[0]> = {}) {
       // What the page computes: an active journey is followed, and a finished
       // one only when a test says its last event was recent.
       initialLive={status === "active"}
+      canReplay
       totalEvents={4}
       knownServices={["webhook-api", "sync-worker"]}
       selectionQuery="event=evt_1"

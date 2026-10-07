@@ -28,7 +28,7 @@ const FAILURES: Record<string, string> = {
   project_not_found:
     "The API could not tell which project to use, so nothing was sent. Choose a project and try again.",
   unauthorized:
-    "The API refused the web app's admin token, so nothing was sent. The web app and the API must be configured with the same ADMIN_TOKEN.",
+    "The API refused the web app's token, so nothing was sent. Replay needs the admin token: the web app and the API must be configured with the same ADMIN_TOKEN.",
   too_many_attempts:
     "The API is refusing this address after too many failed authentication attempts, so nothing was sent. Try again later.",
   query_timeout:

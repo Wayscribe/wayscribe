@@ -244,3 +244,16 @@ describe("EventDetail aliases", () => {
     expect(group.innerHTML).toContain("&lt;img");
   });
 });
+
+describe("EventDetail replay link", () => {
+  const withInput = (): EventDetailData =>
+    event({ operation: "transformed", hasInput: true, inputPayload: { a: 1 } });
+
+  it("offers replay to an admin and hides it from a reader", () => {
+    const { unmount } = render(<EventDetail event={withInput()} canReplay />);
+    expect(screen.queryByRole("link", { name: /Replay this input/ })).not.toBeNull();
+    unmount();
+    render(<EventDetail event={withInput()} canReplay={false} />);
+    expect(screen.queryByRole("link", { name: /Replay this input/ })).toBeNull();
+  });
+});
