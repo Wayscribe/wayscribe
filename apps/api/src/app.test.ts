@@ -593,3 +593,11 @@ describe("keys the JSON parser used to refuse the whole request for", () => {
     expect(({} as Record<string, unknown>)["injected2"]).toBeUndefined();
   });
 });
+
+describe("buildApp tokens", () => {
+  it("refuses to build when the read token equals the admin token", () => {
+    expect(() =>
+      buildApp({ db, keyring, adminToken: ADMIN_TOKEN, readToken: ADMIN_TOKEN, logLevel: "silent" })
+    ).toThrow(/readToken must differ from adminToken/);
+  });
+});

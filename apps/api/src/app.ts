@@ -130,6 +130,9 @@ const LOG_REDACT_PATHS = [
 
 export function buildApp(options: BuildAppOptions): FastifyInstance {
   const maxEventPayloadBytes = options.maxEventPayloadBytes ?? 262_144;
+  if (options.readToken !== undefined && options.readToken === options.adminToken) {
+    throw new Error("readToken must differ from adminToken: a reader would be an admin.");
+  }
   const metrics = options.metrics ?? createApiMetrics(options.db);
 
   const app = Fastify({
