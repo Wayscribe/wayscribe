@@ -382,13 +382,38 @@ describe("review hardening", () => {
     expect(state.seen.size).toBe(1);
   });
 
-  it("forgets every remembered client when the salt rotates", () => {
+  it("forgets every remembered client when the salt rotates, not only the old ones", () => {
     const state = createState(T0, newSalt);
-    handle(state, record({}));
-    handle(state, record({ ip: "198.51.100.9" }));
-    expect(state.seen.size).toBe(2);
-    handle(state, record({ ip: "192.0.2.5", ts: T0 + 24 * HOUR }));
+    handle(state, record({ ts: T0 + 9 * HOUR })); // 23:00Z, same day
     expect(state.seen.size).toBe(1);
+    handle(state, record({ ip: "198.51.100.9", ts: T0 + 11 * HOUR })); // 01:00Z next day
+    expect(state.seen.size).toBe(1);
+  });
+
+  it("bounds a visitor-chosen referrer host", () => {
+    const state = createState(T0, newSalt);
+    const [huge] = handle(state, record({ referer: `https://${"a".repeat(5000)}.example/` }));
+    expect(huge?.body.length).toBeLessThan(300);
+    expect(huge?.body).toContain("From other site");
+
+    const label63 = "b".repeat(63);
+    const atLimit = [label63, label63, label63, "c".repeat(61)].join("."); // 253 chars
+    expect(atLimit).toHaveLength(253);
+    const [ok] = handle(state, record({ ip: "10.1.1.1", referer: `https://${atLimit}/` }));
+    expect(ok?.body).toContain(`From ${atLimit.slice(0, 64)}\n`);
+    expect(ok?.body).not.toContain(atLimit.slice(0, 65));
+
+    const [tooLong] = handle(state, record({ ip: "10.1.1.2", referer: `https://${atLimit}d/` }));
+    expect(tooLong?.body).toContain("From other site");
+    const [longLabel] = handle(
+      state,
+      record({ ip: "10.1.1.3", referer: `https://${"e".repeat(64)}.com/` })
+    );
+    expect(longLabel?.body).toContain("From other site");
+  });
+
+  it("has no length cap in routeShape", () => {
+    expect(routeShape(`/journeys/${"x".repeat(2000)}`)).toBe("/journeys/:id");
   });
 
   it("gives up on a hanging fetch within the timeout", async () => {

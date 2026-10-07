@@ -149,11 +149,22 @@ export function osFamily(userAgent: string): string {
   return "other OS";
 }
 
+const MAX_HOST_LENGTH = 253;
+const MAX_LABEL_LENGTH = 63;
+const SHOWN_HOST_LENGTH = 64;
+
 export function referrerHost(referer: string | null, ownHost: string): string {
   if (referer === null) return "direct";
   try {
     const host = new URL(referer).hostname;
-    return host === "" || host === ownHost ? "direct" : host;
+    if (host === "" || host === ownHost) return "direct";
+    if (
+      host.length > MAX_HOST_LENGTH ||
+      host.split(".").some((label) => label.length > MAX_LABEL_LENGTH)
+    ) {
+      return "other site";
+    }
+    return host.slice(0, SHOWN_HOST_LENGTH);
   } catch {
     return "direct";
   }
@@ -230,7 +241,6 @@ const ROUTE_SHAPES: ReadonlyArray<readonly [RegExp, string]> = [
 
 /** A visitor chooses the path, so only a known route shape is ever sent. */
 export function routeShape(path: string): string {
-  if (path.length > 512) return "other page";
   for (const [pattern, shape] of ROUTE_SHAPES) {
     if (pattern.test(path)) return shape;
   }
