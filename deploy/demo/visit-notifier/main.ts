@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import {
   closeWindowIfOver,
@@ -14,7 +14,9 @@ import {
  * Tails Caddy's access log and posts visits to ntfy. A separate process that
  * only reads a file, so it can never block or slow Caddy. Starts at the end of
  * the log: a restart does not replay old visits. Follows Caddy's roll, which
- * renames the file and starts a new one.
+ * renames the file and starts a new one. Rename-based rolling is assumed:
+ * copytruncate is not supported, and up to about 1 s of lines written just
+ * before a roll can be lost.
  */
 const logPath = process.env["ACCESS_LOG"] ?? "/logs/access.log";
 const ntfyUrl = process.env["NTFY_URL"] ?? "https://ntfy.sh";
@@ -43,36 +45,55 @@ let offset = 0;
 let partial = "";
 let decoder = new StringDecoder("utf8");
 const CHUNK_BYTES = 1_048_576;
+const MAX_PARTIAL_CHARS = 256 * 1024;
+let skipping = false;
 
 function poll(): void {
-  let stats;
+  let fd: number;
   try {
-    stats = statSync(logPath);
+    fd = openSync(logPath, "r");
   } catch {
     first = false; // Not written yet: read it from the start once it is.
     return;
   }
-  if (stats.ino !== inode || stats.size < offset) {
-    offset = first ? stats.size : 0;
-    inode = stats.ino;
-    partial = "";
-    decoder = new StringDecoder("utf8");
-  }
-  first = false;
-  if (stats.size === offset) return;
-
-  const fd = openSync(logPath, "r");
   try {
+    // Stat the open descriptor, so a roll between stat and open cannot mix files.
+    const stats = fstatSync(fd);
+    if (stats.ino !== inode || stats.size < offset) {
+      offset = first ? stats.size : 0;
+      inode = stats.ino;
+      partial = "";
+      skipping = false;
+      decoder = new StringDecoder("utf8");
+    }
+    first = false;
+    if (stats.size === offset) return;
+
     const length = Math.min(stats.size - offset, CHUNK_BYTES);
     const buffer = Buffer.alloc(length);
     const read = readSync(fd, buffer, 0, length, offset);
     offset += read;
     const lines = (partial + decoder.write(buffer.subarray(0, read))).split("\n");
     partial = lines.pop() ?? "";
+    if (skipping) {
+      // Discarding an oversized line: its tail ends at the first newline.
+      if (lines.length === 0) {
+        partial = "";
+        return;
+      }
+      lines.shift();
+      skipping = false;
+    }
+    if (partial.length > MAX_PARTIAL_CHARS) {
+      partial = "";
+      skipping = true;
+    }
     for (const line of lines) {
       const record = parseCaddyLine(line);
       if (record !== null) send(handleRecord(state, record, { now: Date.now(), ownHost, newSalt }));
     }
+  } catch (error) {
+    log(`visit-notifier: poll failed: ${String(error)}`);
   } finally {
     closeSync(fd);
   }
