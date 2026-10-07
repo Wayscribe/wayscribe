@@ -122,7 +122,11 @@ describe("the public demo overlay", () => {
   });
 
   it("publishes exactly HTTP and HTTPS on Caddy", () => {
-    expect(overlay["caddy"]?.ports).toEqual(["80:80", "443:443", "443:443/udp"]);
+    expect(overlay["caddy"]?.ports).toEqual([
+      "0.0.0.0:80:80",
+      "0.0.0.0:443:443",
+      "0.0.0.0:443:443/udp"
+    ]);
   });
 
   it("gives the visit notifier the access log read-only and nothing writable", () => {

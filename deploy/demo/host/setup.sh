@@ -43,35 +43,66 @@ sshd -t
 systemctl reload ssh
 ufw default deny incoming
 ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 443/udp
+# The web is IPv4 only (deploy/demo/compose.yaml, caddy ports): no AAAA
+# record, and nothing on IPv6 80/443.
+ufw allow proto tcp from 0.0.0.0/0 to any port 80,443
+ufw allow proto udp from 0.0.0.0/0 to any port 443
 ufw --force enable
 
 CHECKOUT=/opt/wayscribe
 if [ ! -d "${CHECKOUT}/.git" ]; then
   git clone --quiet --depth 1 --branch "${TAG}" https://gitlab.com/jojithedev/wayscribe.git "${CHECKOUT}"
+else
+  # A rerun installs deploy.sh and the units from this tag, as deploy.sh would.
+  git -C "${CHECKOUT}" fetch --quiet --depth 1 origin "refs/tags/${TAG}:refs/tags/${TAG}"
+  git -C "${CHECKOUT}" -c advice.detachedHead=false checkout --quiet "refs/tags/${TAG}"
 fi
 
 install -d -m 0700 /etc/wayscribe-demo /var/lib/wayscribe-demo
 install -d -m 0700 /var/lib/wayscribe-demo/caddy-data /var/lib/wayscribe-demo/caddy-config
 install -d -m 0755 /var/lib/wayscribe-demo/caddy-logs
 
-if [ ! -f /etc/wayscribe-demo/env ]; then
+ENV_FILE=/etc/wayscribe-demo/env
+# secret <hex bytes>: a random hex string, checked for length. An assignment
+# from a command substitution fails under set -e; one inside a heredoc does not.
+secret() {
+  value=$(openssl rand -hex "$1")
+  if [ "${#value}" -ne $(($1 * 2)) ]; then
+    echo "openssl rand gave a short secret" >&2
+    exit 1
+  fi
+  printf '%s' "${value}"
+}
+if [ ! -f "${ENV_FILE}" ]; then
+  encryption_key=$(secret 32)
+  admin_token=$(secret 32)
+  read_token=$(secret 32)
+  demo_api_key=$(secret 16)
+  visit_suffix=$(secret 8)
+  alert_suffix=$(secret 8)
   umask 077
-  cat >/etc/wayscribe-demo/env <<EOF
+  cat >"${ENV_FILE}.tmp" <<EOF
 WAYSCRIBE_VERSION=${TAG}
-ENCRYPTION_KEY=$(openssl rand -hex 32)
-ADMIN_TOKEN=$(openssl rand -hex 32)
-READ_TOKEN=$(openssl rand -hex 32)
-DEMO_API_KEY=wsk_$(openssl rand -hex 16)
+ENCRYPTION_KEY=${encryption_key}
+ADMIN_TOKEN=${admin_token}
+READ_TOKEN=${read_token}
+DEMO_API_KEY=wsk_${demo_api_key}
 DEMO_SITE_ADDRESS=demo.wayscribe.dev
 DEMO_DATA_DIR=/var/lib/wayscribe-demo
 NTFY_URL=https://ntfy.sh
-NTFY_VISIT_TOPIC=wayscribe-demo-visits-$(openssl rand -hex 8)
-NTFY_ALERT_TOPIC=wayscribe-demo-alerts-$(openssl rand -hex 8)
+NTFY_VISIT_TOPIC=wayscribe-demo-visits-${visit_suffix}
+NTFY_ALERT_TOPIC=wayscribe-demo-alerts-${alert_suffix}
 EOF
   umask 022
+  mv "${ENV_FILE}.tmp" "${ENV_FILE}"
+  unset encryption_key admin_token read_token demo_api_key visit_suffix alert_suffix
+else
+  sed -i "s/^WAYSCRIBE_VERSION=.*/WAYSCRIBE_VERSION=${TAG}/" "${ENV_FILE}"
+fi
+recorded=$(sed -n 's/^WAYSCRIBE_VERSION=//p' "${ENV_FILE}")
+if [ "${recorded}" != "${TAG}" ]; then
+  echo "${ENV_FILE} does not record WAYSCRIBE_VERSION=${TAG}" >&2
+  exit 1
 fi
 
 id wayscribe-deploy >/dev/null 2>&1 || useradd --create-home --shell /bin/sh wayscribe-deploy
@@ -83,9 +114,11 @@ chown wayscribe-deploy:wayscribe-deploy /home/wayscribe-deploy/.ssh/authorized_k
 chmod 0600 /home/wayscribe-deploy/.ssh/authorized_keys
 install -m 0755 "${CHECKOUT}/deploy/demo/host/deploy.sh" /usr/local/sbin/wayscribe-demo-deploy
 # Validated before it goes live: sudo skips files whose names contain a dot, and
-# a broken file in /etc/sudoers.d would break sudo for every user.
+# a broken file in /etc/sudoers.d would break sudo for every user. The argument
+# is held to a release tag by sudo's own regex match (sudo 1.9.10 or newer);
+# `[.]`, not `\.`, because sudoers reads a backslash as its own escape.
 SUDOERS_TMP=/etc/sudoers.d/wayscribe-demo-deploy.tmp
-echo 'wayscribe-deploy ALL=(root) NOPASSWD: /usr/local/sbin/wayscribe-demo-deploy' >"${SUDOERS_TMP}"
+echo 'wayscribe-deploy ALL=(root) NOPASSWD: /usr/local/sbin/wayscribe-demo-deploy ^v[0-9]+[.][0-9]+[.][0-9]+$' >"${SUDOERS_TMP}"
 chmod 0440 "${SUDOERS_TMP}"
 visudo -cf "${SUDOERS_TMP}"
 mv "${SUDOERS_TMP}" /etc/sudoers.d/wayscribe-demo-deploy

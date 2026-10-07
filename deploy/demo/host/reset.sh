@@ -17,11 +17,23 @@ load_env
 on_exit() {
   status=$?
   if [ "${status}" -ne 0 ]; then
-    notify "Demo ${DEMO_ACTION:-reset} failed" \
-      "${DEMO_ACTION:-reset} of ${WAYSCRIBE_VERSION} failed at $(date -u +%H:%M) UTC. A nightly reset retries every 30 minutes, up to three times. journalctl -u wayscribe-demo-reset"
+    action="${DEMO_ACTION:-reset}"
+    if [ "${action}" = "deploy" ]; then
+      next="See the deploy-demo job log."
+    else
+      next="A nightly reset retries every 30 minutes, up to three times. journalctl -u wayscribe-demo-reset"
+    fi
+    notify "Demo ${action} failed" \
+      "${action} of ${WAYSCRIBE_VERSION} failed at $(date -u +%H:%M) UTC. ${next}"
   fi
 }
 trap on_exit EXIT
+# dash skips the EXIT trap when a signal kills it, and systemd's
+# TimeoutStartSec stops a hung reset with SIGTERM: exit instead, so the EXIT
+# trap runs and the timeout is alerted like any other failure.
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 
 demo_compose pull --quiet --ignore-buildable
 verify_images "${WAYSCRIBE_VERSION}"

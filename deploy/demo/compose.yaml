@@ -112,11 +112,12 @@ services:
     # hand them to Caddy from the bridge gateway's address, hiding every IPv6
     # client behind one address: one visitor could get all IPv6 visitors rate
     # limited, and the visit notifier would merge them. Adding AAAA needs
-    # `enable_ipv6` on the network and `"userland-proxy": false` first.
+    # `enable_ipv6` on the network and `"userland-proxy": false` first. Bound to
+    # 0.0.0.0 so Docker does not listen on IPv6 at all.
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+      - "0.0.0.0:443:443/udp"
     environment:
       DEMO_SITE_ADDRESS: ${DEMO_SITE_ADDRESS:?set DEMO_SITE_ADDRESS in the demo env file}
     # Bind mounts, not named volumes: `down -v` at every reset must not delete

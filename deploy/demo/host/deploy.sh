@@ -25,5 +25,12 @@ flock -w 900 9 || {
 git -C "${CHECKOUT}" fetch --quiet --depth 1 origin "refs/tags/${TAG}:refs/tags/${TAG}"
 git -C "${CHECKOUT}" -c advice.detachedHead=false checkout --quiet "refs/tags/${TAG}"
 sed -i "s/^WAYSCRIBE_VERSION=.*/WAYSCRIBE_VERSION=${TAG}/" "${ENV_FILE}"
+# The env file must now name this tag, once: a missing line would leave the
+# reset running the old release. Captured, then matched (no pipe to grep -q).
+recorded=$(sed -n 's/^WAYSCRIBE_VERSION=//p' "${ENV_FILE}")
+if [ "${recorded}" != "${TAG}" ]; then
+  echo "${ENV_FILE} does not record WAYSCRIBE_VERSION=${TAG}" >&2
+  exit 1
+fi
 
 WAYSCRIBE_DEMO_LOCKED=1 DEMO_ACTION=deploy exec sh "${CHECKOUT}/deploy/demo/host/reset.sh"
