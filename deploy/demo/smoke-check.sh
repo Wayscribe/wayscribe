@@ -18,7 +18,7 @@ USER_AGENT="wayscribe-smoke/1"
 PINNED_PHONE="+1 555 0100"
 PINNED_QUERY="%2B1%20555%200100"
 # apps/demo/src/history.ts: PINNED_JOURNEY_ID and PINNED_TRANSFORM_EVENT_ID.
-# tests/demo-overlay.test.ts fails if these drift from it.
+# tests/demo-overlay.test.ts (Task 16) fails if these drift from it.
 PINNED_JOURNEY_ID="jrn_demo_pinned_5550100"
 PINNED_TRANSFORM_EVENT_ID="evt_demo_pinned_5550100_transform"
 
@@ -31,7 +31,7 @@ fail() {
 }
 
 fetch() {
-  curl --silent --show-error --fail --location --max-time 20 \
+  curl --silent --show-error --fail --location --max-redirs 5 --connect-timeout 5 --max-time 20 \
     --user-agent "${USER_AGENT}" --cookie "${JAR}" --cookie-jar "${JAR}" "$1"
 }
 
@@ -53,9 +53,11 @@ case "${journey}" in
   *"What changed"*) ;;
   *) fail "the pinned journey's transform step shows no diff" ;;
 esac
+# The banner on every page also contains the text "${PINNED_PHONE}", so match the
+# diff's own markup: a removed-value cell (DiffTable.tsx, values via JSON.stringify).
 case "${journey}" in
-  *"${PINNED_PHONE}"*) ;;
-  *) fail "the diff does not show ${PINNED_PHONE}" ;;
+  *'class="mono removed">&quot;+1 555 0100&quot;</td>'*) ;;
+  *) fail "the diff has no removed-value cell showing ${PINNED_PHONE}" ;;
 esac
 
 echo "smoke-check: ok ${BASE}"
