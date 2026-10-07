@@ -125,7 +125,7 @@ describe("backfilled history", () => {
 
   it("keeps history up to six days old through a 7-day retention sweep, and removes older", async () => {
     // Backfilled at reset: up to 5 days old. Just before the next reset, 24 h
-    // later: up to 6 days old. 6 days and an hour gives margin for a reset
+    // later: up to 6 days old. 6 days and two hours gives margin for a reset
     // that retries for 90 minutes.
     await journeyAged("jrn_spike_backfill_fresh", 5 * DAY_MS);
     await journeyAged("jrn_spike_backfill_before_reset", 6 * DAY_MS + 2 * HOUR_MS);
