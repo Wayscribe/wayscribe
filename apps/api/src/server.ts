@@ -26,6 +26,7 @@ const app = buildApp({
   db,
   keyring,
   adminToken: env.ADMIN_TOKEN,
+  readToken: env.READ_TOKEN,
   logLevel: env.LOG_LEVEL,
   maxEventPayloadBytes: env.MAX_EVENT_PAYLOAD_BYTES,
   otlpLogsEnabled: env.OTLP_LOGS_ENABLED,

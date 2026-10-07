@@ -8,6 +8,7 @@ import type { FastifyInstance } from "fastify";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
 const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
+const READ_TOKEN = "read-token-for-tests-000000000000";
 
 describe("GET /v1/projects", () => {
   let container: TestDatabase;
@@ -41,7 +42,13 @@ describe("GET /v1/projects", () => {
       key_hash_key_id: generated.keyHashKeyId
     });
 
-    app = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    app = buildApp({
+      db,
+      keyring,
+      adminToken: ADMIN_TOKEN,
+      readToken: READ_TOKEN,
+      logLevel: "silent"
+    });
     await app.ready();
   });
 
@@ -80,6 +87,30 @@ describe("GET /v1/projects", () => {
       ["alpha", []],
       ["zebra", ["development", "production", "staging"]]
     ]);
+  });
+
+  it("lists every project for a reader, which chooses one as an admin does (ADR-070)", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/projects",
+      headers: { authorization: `Bearer ${READ_TOKEN}` }
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.data.items.map((p: { slug: string }) => p.slug)).toEqual(["alpha", "zebra"]);
+  });
+
+  it("rejects the read token when the installation has no reader", async () => {
+    const noReader = buildApp({ db, keyring, adminToken: ADMIN_TOKEN, logLevel: "silent" });
+    await noReader.ready();
+    const response = await noReader.inject({
+      method: "GET",
+      url: "/v1/projects",
+      headers: { authorization: `Bearer ${READ_TOKEN}` }
+    });
+    await noReader.close();
+    expect(response.statusCode).toBe(401);
   });
 
   it("rejects a valid API key", async () => {

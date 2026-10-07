@@ -15,12 +15,21 @@ import { registerQueryRoutes } from "./routes/queries.js";
 import { registerReplayRoutes } from "./routes/replays.js";
 import { errorBody } from "./admin.js";
 import { registerAuthThrottle } from "./auth-throttle.js";
+import { registerReaderGuard } from "./reader-routes.js";
 import type { RunningVersion } from "./version.js";
+
+/** One registered route, as the router knows it. */
+export interface RegisteredRoute {
+  method: string;
+  url: string;
+}
 
 declare module "fastify" {
   interface FastifyInstance {
     db: Knex;
     metrics: ApiMetrics;
+    /** Every route registered on this app, plugins included, in registration order. */
+    registeredRoutes: readonly RegisteredRoute[];
   }
 }
 
@@ -29,6 +38,8 @@ export interface BuildAppOptions {
   /** Current key, and the previous one during a rotation's grace period. */
   keyring: Keyring;
   adminToken: string;
+  /** READ_TOKEN. Undefined means no reader principal exists (ADR-070). */
+  readToken?: string | undefined;
   logLevel?: string;
   /**
    * Per-request body cap. Defaults to the batch ceiling plus headroom.
@@ -181,6 +192,17 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     }
   });
 
+  // Every route, as registered, so the reader allowlist can be tested as a
+  // property over all of them rather than over a list typed a second time.
+  // Added before any route: an onRoute hook sees only routes after it.
+  const registeredRoutes: RegisteredRoute[] = [];
+  app.addHook("onRoute", (route) => {
+    for (const method of [route.method].flat()) {
+      registeredRoutes.push({ method, url: route.url });
+    }
+  });
+  app.decorate("registeredRoutes", registeredRoutes as readonly RegisteredRoute[]);
+
   // Counted in onResponse, once the status is final. The route label is the
   // pattern the router matched, never the path: `/v1/journeys/:journeyId` is
   // one series however many journeys are read, and a request that matched
@@ -265,6 +287,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   });
 
   registerAuthThrottle(app, { trustedProxyCount: options.trustedProxyCount ?? 0 });
+  registerReaderGuard(app, options.readToken);
 
   app.decorate("db", options.db);
   app.decorate("metrics", metrics);
@@ -286,8 +309,8 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       maxRequestBytes: options.otlpMaxRequestBytes ?? 4_194_304
     });
   }
-  registerProjectRoutes(app, options.adminToken);
-  registerQueryRoutes(app, options.keyring, options.adminToken, warnUnknownKey);
+  registerProjectRoutes(app, options.adminToken, options.readToken);
+  registerQueryRoutes(app, options.keyring, options.adminToken, warnUnknownKey, options.readToken);
   registerReplayRoutes(app, {
     adminToken: options.adminToken,
     keyring: options.keyring,

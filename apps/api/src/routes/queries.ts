@@ -33,7 +33,9 @@ export function registerQueryRoutes(
   keyring: Keyring,
   adminToken: string,
   /** Told the id of a key a read needed and the keyring lacks. */
-  warnUnknownKey: (keyId: string) => void
+  warnUnknownKey: (keyId: string) => void,
+  /** READ_TOKEN, or undefined when there is no reader (ADR-070). */
+  readToken?: string | undefined
 ): void {
   const apiKeys = databaseApiKeys(app.db, keyring, logVerifierReplaceFailure(app.log));
 
@@ -46,6 +48,7 @@ export function registerQueryRoutes(
       db: app.db,
       apiKeys,
       adminToken,
+      readToken,
       authorizationHeader: request.headers.authorization,
       requestedProjectId:
         (request.headers["x-wayscribe-project-id"] as string | undefined) ?? undefined
