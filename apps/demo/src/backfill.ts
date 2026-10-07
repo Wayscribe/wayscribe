@@ -8,7 +8,8 @@ import { generateHistory, historyEnvelopes, pinnedEnvelopes } from "./history.js
  * first, so the smoke check can pass as early as possible, then about 300
  * journeys over the past five days. Exits non-zero on any refusal, so a reset
  * that produced a half-empty demo fails loudly (deploy/demo/host/reset.sh).
- * Event ids are derived, so a rerun stores nothing twice.
+ * Not idempotent: rerun only after a reset (down -v). A rerun with different
+ * random content conflicts and exits non-zero.
  */
 const endpoint = optionalEnv("WAYSCRIBE_ENDPOINT", "http://api:8080");
 const apiKey = requiredEnv("WAYSCRIBE_API_KEY");
@@ -36,7 +37,6 @@ const envelopes = [
 ];
 
 let stored = 0;
-let duplicates = 0;
 for (const batch of inBatches(envelopes, MAX_BATCH_EVENTS)) {
   const response = await fetch(`${endpoint}/v1/events/batch`, {
     method: "POST",
@@ -47,7 +47,6 @@ for (const batch of inBatches(envelopes, MAX_BATCH_EVENTS)) {
     data?: {
       results?: {
         status: string;
-        duplicate?: boolean;
         error?: { code?: string; message?: string };
       }[];
     };
@@ -58,12 +57,11 @@ for (const batch of inBatches(envelopes, MAX_BATCH_EVENTS)) {
     throw new Error(
       `The API refused backfill: HTTP ${String(response.status)}, ${String(rejected.length)} rejected (${rejected
         .map((result) => result.error?.code ?? "unknown")
-        .join(", ")}).`
+        .join(", ")}), ${String(results.length)} results for ${String(batch.length)} events sent.`
     );
   }
-  duplicates += results.filter((result) => result.duplicate === true).length;
   stored += batch.length;
 }
 console.log(
-  `[backfill] ${String(stored)} events accepted (${String(duplicates)} already present): the pinned journey and ${String(count)} over ${String(days)} days`
+  `[backfill] ${String(stored)} events accepted: the pinned journey and ${String(count)} over ${String(days)} days`
 );
