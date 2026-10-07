@@ -59,6 +59,13 @@ services:
     environment:
       # The real key, over the published default the env_file supplies.
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in the demo env file}
+    # Bootstrap runs knex migrations too. Started beside the published stack's
+    # migrate, one of them meets the other's migration lock and exits 1, so it
+    # waits; the schema is then current and its own run applies nothing.
+    # Merged with the base file's postgres dependency.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
   demo-target:
     <<: *demo-image

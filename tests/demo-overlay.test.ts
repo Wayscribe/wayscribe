@@ -17,6 +17,7 @@ interface Service {
   command?: string[];
   volumes?: string[];
   read_only?: boolean;
+  depends_on?: Record<string, { condition?: string }>;
 }
 
 // Compose's `!reset null` removes an inherited attribute. Unknown tags parse as
@@ -91,6 +92,15 @@ describe("the public demo overlay", () => {
       // build from source instead of pulling the signed image.
       expect(overlayUnmerged[name]?.build, name).toBeNull();
     }
+  });
+
+  it("bootstraps the demo only after the published stack's migrate has finished", () => {
+    // Both run knex migrations against one database. Started together, the
+    // second meets the first's migration lock and exits 1 (CI job 17011407800).
+    expect(services("infrastructure/compose.published.yaml")["migrate"]).toBeDefined();
+    expect(overlay["demo-bootstrap"]?.depends_on?.["migrate"]).toEqual({
+      condition: "service_completed_successfully"
+    });
   });
 
   it("smoke-checks the pinned journey the backfill writes", () => {
