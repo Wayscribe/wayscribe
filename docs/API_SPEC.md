@@ -36,7 +36,8 @@ Authorization: Bearer <read-token>
 The read token (`READ_TOKEN`, ADR-070) reads exactly what the admin token reads, payloads
 included, on `GET /v1/projects`, `/v1/search`, `/v1/journeys`, `/v1/journeys/{journeyId}`,
 `/v1/journeys/{journeyId}/events` and `/v1/events/{eventId}`. Every other route answers it
-with `403` and the code `forbidden`, before the route runs.
+with `403` and the code `forbidden`, before the route runs. `/health` and `/ready` take no
+credential and are unaffected.
 
 Authentication for reads, with an API key:
 

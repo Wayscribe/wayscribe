@@ -121,12 +121,12 @@ dropped; Caddy is never slowed.
 
 ## Rebuild from nothing
 
-1. Jorge: steps J1 to J4 below.
-2. On the VM as root: `git clone --depth 1 --branch <tag> https://gitlab.com/jojithedev/wayscribe.git /opt/wayscribe`
+1. Jorge: steps J1 and J2 below.
+2. Jorge: step J3 (generate the deploy key, then run `setup.sh`). On the VM as root: `git clone --depth 1 --branch <tag> https://gitlab.com/jojithedev/wayscribe.git /opt/wayscribe`
    then `sh /opt/wayscribe/deploy/demo/host/setup.sh "<deploy public key>" <tag>`. It
    installs Docker, configures `ufw` and SSH, generates the secrets, installs the deploy
    script, sudoers rule and timers, and runs the first reset.
-3. Jorge: step J5.
+3. Jorge: step J4, then step J5.
 4. Check that `https://demo.wayscribe.dev` loads and shows the banner, and run
    `sh /opt/wayscribe/deploy/demo/smoke-check.sh https://demo.wayscribe.dev`.
 
@@ -141,8 +141,11 @@ These need Jorge's accounts. Nothing automated performs them.
   record**, pointing to the VM, **DNS only (grey cloud), not proxied**, so Caddy obtains and
   serves its own certificate.
 - **J3. Deploy key and setup.** On your machine: `ssh-keygen -t ed25519 -N "" -C wayscribe-demo-deploy -f demo-deploy`.
-  On the VM, run step 2 of "Rebuild from nothing" with the contents of `demo-deploy.pub` and
-  the release tag.
+  On the VM, run the `setup.sh` command in step 2 of "Rebuild from nothing" with the
+  contents of `demo-deploy.pub` and the release tag. `setup.sh` pulls that tag's images,
+  verifies their signatures and waits for the smoke check, so the tag must be a `vX.Y.Z`
+  tag whose `publish-images` job has finished and which includes the `demo` image (the
+  first release made after this work).
 - **J4. CI variables.** In GitLab (Settings, CI/CD, Variables), add
   `DEMO_DEPLOY_SSH_KEY_B64` = the output of `base64 < demo-deploy | tr -d '\n'` (type
   Variable, **protected and masked**), and `DEMO_SSH_KNOWN_HOSTS` = the output of
