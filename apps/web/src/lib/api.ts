@@ -1,4 +1,4 @@
-import { webConfig } from "./config";
+import { apiToken, webConfig } from "./config";
 import {
   eventForDisplay,
   rowForDisplay,
@@ -216,7 +216,7 @@ async function get<T>(path: string, projectId?: string): Promise<T | null> {
   try {
     response = await fetch(`${config.API_URL}${path}`, {
       headers: {
-        authorization: `Bearer ${config.ADMIN_TOKEN}`,
+        authorization: `Bearer ${apiToken(config)}`,
         // An admin token reads one named project. Omitted, the API falls back to
         // "the only project", which stops resolving the moment a second exists.
         ...(projectId === undefined || projectId === ""
@@ -366,7 +366,7 @@ async function post(path: string, body: unknown, projectId: string): Promise<Pos
     response = await fetch(`${config.API_URL}${path}`, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${config.ADMIN_TOKEN}`,
+        authorization: `Bearer ${apiToken(config)}`,
         "content-type": "application/json",
         ...(projectId === "" ? {} : { "x-wayscribe-project-id": projectId })
       },
@@ -424,7 +424,7 @@ export async function deleteJourney(
     response = await fetch(`${config.API_URL}/v1/journeys/${encodeURIComponent(journeyId)}`, {
       method: "DELETE",
       headers: {
-        authorization: `Bearer ${config.ADMIN_TOKEN}`,
+        authorization: `Bearer ${apiToken(config)}`,
         ...(projectId === "" ? {} : { "x-wayscribe-project-id": projectId })
       },
       cache: "no-store"
