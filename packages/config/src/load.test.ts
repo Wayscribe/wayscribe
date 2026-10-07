@@ -265,3 +265,31 @@ describe("optional OTLP configuration", () => {
     );
   });
 });
+
+describe("READ_TOKEN", () => {
+  const READ_TOKEN = "read-token-for-tests-000000000000";
+
+  it("is optional, and absent means no reader principal exists", () => {
+    expect(loadServerEnv(validEnv).READ_TOKEN).toBeUndefined();
+  });
+
+  it("reads blank as unset, as Compose passes an unset variable", () => {
+    expect(loadServerEnv({ ...validEnv, READ_TOKEN: "  " }).READ_TOKEN).toBeUndefined();
+  });
+
+  it("trims, as ADMIN_TOKEN does", () => {
+    expect(loadServerEnv({ ...validEnv, READ_TOKEN: ` ${READ_TOKEN}\n` }).READ_TOKEN).toBe(
+      READ_TOKEN
+    );
+  });
+
+  it("refuses one shorter than 32 characters", () => {
+    expect(attempt({ ...validEnv, READ_TOKEN: "short" })).toContain("READ_TOKEN");
+  });
+
+  it("refuses the admin token reused as the read token", () => {
+    expect(attempt({ ...validEnv, READ_TOKEN: validEnv.ADMIN_TOKEN })).toContain(
+      "READ_TOKEN: must differ from ADMIN_TOKEN"
+    );
+  });
+});

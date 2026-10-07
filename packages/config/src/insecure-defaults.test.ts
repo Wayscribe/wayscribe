@@ -112,3 +112,13 @@ describe("findInsecureDefaults", () => {
     ).toEqual(["ADMIN_TOKEN", "ENCRYPTION_KEY"]);
   });
 });
+
+describe("READ_TOKEN", () => {
+  it("is flagged when it is a published default", () => {
+    expect(
+      findInsecureDefaults({ READ_TOKEN: "local-admin-token-000000000000000" }).map(
+        (finding) => finding.variable
+      )
+    ).toEqual(["READ_TOKEN"]);
+  });
+});

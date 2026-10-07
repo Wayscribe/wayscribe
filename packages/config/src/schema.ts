@@ -73,6 +73,11 @@ export const serverEnvSchema = z
     // the login form, with nothing said about why. apps/web/src/lib/config.ts
     // trims it the same way, and the two have to stay identical.
     ADMIN_TOKEN: z.string().trim().min(32),
+    // The reader principal's token (ADR-070): search and read routes only.
+    // Unset means no reader exists. Trimmed and at least 32 characters for the
+    // reasons ADMIN_TOKEN is; blank is unset because Compose passes an unset
+    // variable as an empty string.
+    READ_TOKEN: z.preprocess(blankAsUnset, z.string().trim().min(32).optional()),
     DEFAULT_RETENTION_DAYS: z.coerce.number().int().positive().default(7),
     OTLP_LOGS_ENABLED: z
       .enum(["true", "false"])
@@ -110,6 +115,11 @@ export const serverEnvSchema = z
   .refine((env) => env.METRICS_PORT === undefined || env.METRICS_PORT !== env.PORT, {
     path: ["METRICS_PORT"],
     message: "must differ from PORT. Metrics are served on their own port, never beside ingestion."
+  })
+  .refine((env) => env.READ_TOKEN === undefined || env.READ_TOKEN !== env.ADMIN_TOKEN, {
+    path: ["READ_TOKEN"],
+    message:
+      "must differ from ADMIN_TOKEN. The read token may be held by a web app that serves the public; the admin token can delete."
   });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

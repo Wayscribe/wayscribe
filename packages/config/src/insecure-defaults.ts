@@ -49,10 +49,15 @@ export interface InsecureDefault {
 export function findInsecureDefaults(env: Record<string, string | undefined>): InsecureDefault[] {
   const findings: InsecureDefault[] = [];
 
-  for (const variable of ["ENCRYPTION_KEY", "ENCRYPTION_KEY_PREVIOUS", "ADMIN_TOKEN"]) {
+  for (const variable of [
+    "ENCRYPTION_KEY",
+    "ENCRYPTION_KEY_PREVIOUS",
+    "ADMIN_TOKEN",
+    "READ_TOKEN"
+  ]) {
     // Trimmed before comparing. The configuration trims the two keys, so a
     // trailing newline there does not hide a published value that is in use.
-    // It does not trim ADMIN_TOKEN, but a published token with stray whitespace
+    // It does not trim ADMIN_TOKEN or READ_TOKEN, but a published token with stray whitespace
     // around it is no more secret, so that is flagged as well.
     const value = env[variable]?.trim();
     if (value !== undefined && PUBLISHED_DEFAULTS.has(value)) {

@@ -17,7 +17,8 @@ import { ConfigError } from "./config-error.js";
 export const SECRET_FILE_SETTINGS = [
   "ENCRYPTION_KEY",
   "ENCRYPTION_KEY_PREVIOUS",
-  "ADMIN_TOKEN"
+  "ADMIN_TOKEN",
+  "READ_TOKEN"
 ] as const;
 
 /**

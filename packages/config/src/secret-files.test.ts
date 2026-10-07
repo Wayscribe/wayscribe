@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ConfigError } from "./config-error.js";
-import { MAX_SECRET_FILE_BYTES, resolveSecretFiles } from "./secret-files.js";
+import { MAX_SECRET_FILE_BYTES, resolveSecretFiles, SECRET_FILE_SETTINGS } from "./secret-files.js";
 
 const KEY = "an-encryption-key-of-enough-length-00";
 const TOKEN = "an-admin-token-of-enough-length-00000";
@@ -139,5 +139,17 @@ describe("resolveSecretFiles", () => {
   it("does not leave the file path where the value is expected", () => {
     const path = fileHolding(KEY);
     expect(resolveSecretFiles({ ENCRYPTION_KEY_FILE: path })["ENCRYPTION_KEY"]).not.toBe(path);
+  });
+});
+
+describe("READ_TOKEN_FILE", () => {
+  it("reads READ_TOKEN from the file it names, trailing newline removed", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "wayscribe-read-token-")), "read-token");
+    writeFileSync(path, `${"r".repeat(40)}\n`, "utf8");
+    expect(resolveSecretFiles({ READ_TOKEN_FILE: path })["READ_TOKEN"]).toBe("r".repeat(40));
+  });
+
+  it("is listed with the other settings that may come from a file", () => {
+    expect(SECRET_FILE_SETTINGS).toContain("READ_TOKEN");
   });
 });
