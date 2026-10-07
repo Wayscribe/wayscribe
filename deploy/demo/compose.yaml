@@ -1,0 +1,140 @@
+# The public demo at demo.wayscribe.dev (ADR-069, docs/DEMO_HOSTING.md).
+# Layered over the published stack, the bundled database and the demo services:
+#
+#   docker compose --env-file /etc/wayscribe-demo/env \
+#     -f infrastructure/compose.published.yaml \
+#     -f infrastructure/compose.bundled.yaml \
+#     -f infrastructure/compose.demo.yaml \
+#     -f deploy/demo/compose.yaml up -d
+#
+# Compose resolves relative paths from the first file's directory,
+# infrastructure/, so paths here start with ../deploy/demo.
+#
+# Nothing here is part of an install: it lives outside infrastructure/ and
+# deploy/helm, so no file a customer runs carries demo pieces.
+#
+# Only Caddy publishes ports. `!reset []` removes the loopback ports the base
+# files publish (Compose 2.24 or newer).
+#
+# Each demo service resets `build:` itself. Compose ignores a `!reset` that
+# arrives through a `<<:` merge, so in the anchor it would leave the base
+# file's source build in place and the VM could build instead of pulling the
+# signed image.
+
+x-demo-image: &demo-image
+  image: registry.gitlab.com/jojithedev/wayscribe/demo:${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION to the release tag}
+
+services:
+  api:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      READ_TOKEN: ${READ_TOKEN:?set READ_TOKEN in the demo env file}
+      # Read by doctor, which runs in this container and warns while it is true.
+      WEB_ANONYMOUS_READ_ONLY: "true"
+
+  web:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      WEB_ANONYMOUS_READ_ONLY: "true"
+      READ_TOKEN: ${READ_TOKEN:?set READ_TOKEN in the demo env file}
+      # A public web container holds no admin token; blank reads as unset.
+      ADMIN_TOKEN: ""
+      # Caddy appends X-Forwarded-For.
+      TRUSTED_PROXY_COUNT: "1"
+
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+
+  elasticmq:
+    ports: !reset []
+    restart: unless-stopped
+
+  demo-bootstrap:
+    <<: *demo-image
+    build: !reset null
+    environment:
+      # The real key, over the published default the env_file supplies.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in the demo env file}
+
+  demo-target:
+    <<: *demo-image
+    build: !reset null
+    ports: !reset []
+    restart: unless-stopped
+
+  demo-integration:
+    <<: *demo-image
+    build: !reset null
+    ports: !reset []
+    restart: unless-stopped
+
+  demo-worker:
+    <<: *demo-image
+    build: !reset null
+    restart: unless-stopped
+
+  demo-source:
+    <<: *demo-image
+    build: !reset null
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      DEMO_LOOP_INTERVAL_MS: "60000"
+
+  # Runs once after bootstrap: the pinned journey, then five days of history.
+  demo-history:
+    <<: *demo-image
+    build: !reset null
+    command: ["node", "apps/demo/dist/backfill.js"]
+    restart: "no"
+    environment:
+      WAYSCRIBE_ENDPOINT: http://api:8080
+      WAYSCRIBE_API_KEY: ${DEMO_API_KEY:?set DEMO_API_KEY in the demo env file}
+      WAYSCRIBE_ENVIRONMENT: development
+      DEMO_HISTORY_JOURNEYS: "300"
+      DEMO_HISTORY_DAYS: "5"
+      DEFAULT_RETENTION_DAYS: ${DEFAULT_RETENTION_DAYS:-7}
+    depends_on:
+      demo-bootstrap:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+
+  caddy:
+    build: ../deploy/demo/caddy
+    image: wayscribe-demo-caddy:local
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DEMO_SITE_ADDRESS: ${DEMO_SITE_ADDRESS:?set DEMO_SITE_ADDRESS in the demo env file}
+    # Bind mounts, not named volumes: `down -v` at every reset must not delete
+    # the certificate (Let's Encrypt allows 5 duplicates a week) or the log.
+    volumes:
+      - ${DEMO_DATA_DIR:?set DEMO_DATA_DIR in the demo env file}/caddy-data:/data
+      - ${DEMO_DATA_DIR}/caddy-config:/config
+      - ${DEMO_DATA_DIR}/caddy-logs:/var/log/caddy
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+
+  visit-notifier:
+    build: ../deploy/demo/visit-notifier
+    image: wayscribe-demo-visit-notifier:local
+    environment:
+      ACCESS_LOG: /logs/access.log
+      NTFY_URL: ${NTFY_URL:-https://ntfy.sh}
+      NTFY_TOPIC: ${NTFY_VISIT_TOPIC:?set NTFY_VISIT_TOPIC in the demo env file}
+      DEMO_HOST: ${DEMO_SITE_ADDRESS}
+    volumes:
+      - ${DEMO_DATA_DIR}/caddy-logs:/logs:ro
+    read_only: true
+    restart: unless-stopped
+    depends_on:
+      caddy:
+        condition: service_started
