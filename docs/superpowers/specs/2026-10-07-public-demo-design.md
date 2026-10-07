@@ -122,6 +122,27 @@ One script used by the deploy job, the uptime monitor, and CI: load the home pag
 Caddy, search `+1 555 0100` through the web app, and confirm the pinned failed journey and
 its phone diff come back.
 
+### 7. Visit notifications (`deploy/demo/`, not product code)
+
+Jorge gets a phone notification when someone visits the demo. Modeled on ask-jorge's visit
+notifications, which have run since 2026-09-13.
+
+- A small sidecar container in the demo overlay reads Caddy's JSON access log. Nothing in
+  `apps/` or `packages/` changes, so no customer install carries visitor tracking.
+- A visit is a page request (not an asset, health, or API request) from a client not seen
+  in the last 6 hours. The client key is a hash of IP and user agent with a salt that
+  rotates daily and is held only in memory; raw IPs are never stored by the sidecar.
+- Not counted: the uptime monitor and the CI and deploy smoke checks (they send a fixed
+  `User-Agent: wayscribe-smoke/1`), and user agents that identify as bots or crawlers.
+- One ntfy message per visit: time in America/New_York, landing path, referrer host (or
+  "direct"), and browser and OS family. Search terms are not sent.
+- At most 10 messages per hour; after that one "muted until HH:MM" notice, then a summary
+  ("N more visits in the last hour") when the hour ends.
+- Its own ntfy topic, separate from ask-jorge's, held in the box's root-only env file and
+  never committed. Jorge subscribes to it on his phone.
+- If ntfy is unreachable the sidecar logs and drops the message; it never blocks or slows
+  Caddy. Caddy's access log rolls daily and keeps 7 days.
+
 ## Failure handling
 
 - Uptime: an external check runs the smoke check every 5 minutes and alerts through ntfy.
@@ -142,6 +163,10 @@ its phone diff come back.
   hidden for a reader in both modes; startup fails without `READ_TOKEN`; with the mode off
   the login flow is unchanged.
 - **doctor:** warns when anonymous mode is on.
+- **Visit notifier:** unit tests over sample Caddy log lines: a first visit notifies; a
+  repeat within 6 hours does not; assets, health checks, the smoke user agent, and bots
+  are ignored; the eleventh visit in an hour produces the mute notice and the hour's end
+  produces the summary; an ntfy failure is logged and dropped.
 - **Demo overlay in CI:** bring up the overlay with a local Caddy, run the smoke check, and
   assert the API port is not reachable from outside the compose network.
 - **Backfill:** past timestamps are stored and ordered correctly, and retention does not
@@ -165,6 +190,7 @@ its phone diff come back.
 - Add the `demo.wayscribe.dev` DNS record in Cloudflare as DNS only (not proxied), so Caddy
   obtains and serves its own certificate.
 - Add the protected CI variable for the deploy key.
+- Subscribe to the demo's ntfy topic on his phone.
 
 ## Out of scope
 
@@ -172,4 +198,4 @@ its phone diff come back.
 - A government-style second story (first candidate for the next addition).
 - A Kubernetes demo on DigitalOcean.
 - SSO (next spec).
-- Visitor analytics beyond Caddy access logs.
+- Visitor analytics beyond the visit notifications and Caddy access logs.
