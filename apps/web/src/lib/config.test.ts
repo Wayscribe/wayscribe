@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadWebConfig, sessionAdminToken } from "./config";
+import { apiToken, apiTokenName, loadWebConfig, sessionAdminToken, sessionSigner } from "./config";
 
 const valid = { ADMIN_TOKEN: "admin-token-for-tests-0000000000", API_URL: "http://api:8080" };
 
@@ -167,5 +167,62 @@ describe("loadWebConfig", () => {
         loadWebConfig({ ...withoutToken, ADMIN_TOKEN_FILE: join(tmpdir(), "wayscribe-no-such") })
       ).toThrow(/ADMIN_TOKEN_FILE/);
     });
+  });
+});
+
+describe("anonymous read-only mode", () => {
+  const ADMIN = "admin-token-for-tests-00000000000000";
+  const READ = "read-token-for-tests-000000000000000";
+  const base = { API_URL: "http://api:8080" };
+
+  it("requires READ_TOKEN", () => {
+    expect(() => loadWebConfig({ ...base, WEB_ANONYMOUS_READ_ONLY: "true" })).toThrow(
+      /READ_TOKEN: is required when WEB_ANONYMOUS_READ_ONLY is true/
+    );
+  });
+
+  it("refuses to start holding ADMIN_TOKEN as well", () => {
+    expect(() =>
+      loadWebConfig({ ...base, WEB_ANONYMOUS_READ_ONLY: "true", READ_TOKEN: READ, ADMIN_TOKEN: ADMIN })
+    ).toThrow(/ADMIN_TOKEN: must not be set when WEB_ANONYMOUS_READ_ONLY is true/);
+  });
+
+  it("reads a blank ADMIN_TOKEN as unset, which is how the demo overlay clears it", () => {
+    const config = loadWebConfig({
+      ...base,
+      WEB_ANONYMOUS_READ_ONLY: "true",
+      READ_TOKEN: READ,
+      ADMIN_TOKEN: ""
+    });
+    expect(apiToken(config)).toBe(READ);
+    expect(apiTokenName(config)).toBe("READ_TOKEN");
+  });
+
+  it("reads READ_TOKEN from READ_TOKEN_FILE", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "wayscribe-web-read-")), "read-token");
+    writeFileSync(path, `${READ}\n`, "utf8");
+    const config = loadWebConfig({ ...base, WEB_ANONYMOUS_READ_ONLY: "true", READ_TOKEN_FILE: path });
+    expect(config.READ_TOKEN).toBe(READ);
+  });
+
+  it("leaves the operator mode as it was: ADMIN_TOKEN is required and is what the API is sent", () => {
+    expect(() => loadWebConfig(base)).toThrow(/ADMIN_TOKEN/);
+    const config = loadWebConfig({ ...base, ADMIN_TOKEN: ADMIN });
+    expect(config.WEB_ANONYMOUS_READ_ONLY).toBe(false);
+    expect(apiToken(config)).toBe(ADMIN);
+  });
+
+  it("signs reader sessions with the read token under the reader label, admin sessions as before", () => {
+    expect(sessionSigner({ WEB_ANONYMOUS_READ_ONLY: "true", READ_TOKEN: READ })).toEqual({
+      secret: READ,
+      label: "wayscribe/web-session-anonymous-reader",
+      principal: "reader"
+    });
+    expect(sessionSigner({ ADMIN_TOKEN: ADMIN })).toEqual({
+      secret: ADMIN,
+      label: "flight-recorder/web-session",
+      principal: "admin"
+    });
+    expect(sessionSigner({ WEB_ANONYMOUS_READ_ONLY: "true" })).toBeNull();
   });
 });

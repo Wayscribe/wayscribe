@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { seeOther } from "../../../src/lib/redirect-url";
-import { webConfig } from "../../../src/lib/config";
+import { apiToken, webConfig } from "../../../src/lib/config";
 import { listProjects } from "../../../src/lib/api";
 import { safeReturnTo } from "../../../src/lib/return-to";
 import { SESSION_COOKIE_NAME, signSession } from "../../../src/lib/session";
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const response = seeOther(next);
   response.cookies.set(
     SESSION_COOKIE_NAME,
-    signSession(config.ADMIN_TOKEN, { projectId, expiresAt: session.expiresAt }),
+    signSession(apiToken(config), { projectId, expiresAt: session.expiresAt }),
     {
       httpOnly: true,
       sameSite: "strict",

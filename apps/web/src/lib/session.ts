@@ -2,6 +2,14 @@ import { createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 
 export const SESSION_COOKIE_NAME = "wayscribe_session";
 
+/** Who a web session signs in. Task 8 carries it on the session itself. */
+export type WebPrincipal = "admin" | "reader";
+
+/** The label predates the rename to Wayscribe and must not change (ADR-057). */
+export const OPERATOR_SESSION_LABEL = "flight-recorder/web-session";
+/** Distinct from the operator label, so a session from one mode never verifies in the other. */
+export const READER_SESSION_LABEL = "wayscribe/web-session-anonymous-reader";
+
 export interface SessionPayload {
   projectId: string;
   /** Unix milliseconds. */

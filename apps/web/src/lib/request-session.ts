@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { webConfig } from "./config";
+import { apiToken, webConfig } from "./config";
 import { SESSION_COOKIE_NAME, verifySession, type SessionPayload } from "./session";
 
 /**
@@ -19,5 +19,5 @@ import { SESSION_COOKIE_NAME, verifySession, type SessionPayload } from "./sessi
 export function requestSession(request: NextRequest, now = Date.now()): SessionPayload | null {
   const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   if (cookie === undefined) return null;
-  return verifySession(webConfig().ADMIN_TOKEN, cookie, now);
+  return verifySession(apiToken(webConfig()), cookie, now);
 }

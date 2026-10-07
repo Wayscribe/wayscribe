@@ -84,3 +84,15 @@ describe("refuseToStartMisconfigured", () => {
     expect(run(withoutUrl).written[0]).not.toMatch(/\n\s+at /);
   });
 });
+
+it("refuses to start in anonymous read-only mode without READ_TOKEN", () => {
+  const errors: string[] = [];
+  const exits: number[] = [];
+  const allowed = refuseToStartMisconfigured(
+    { API_URL: "http://api:8080", WEB_ANONYMOUS_READ_ONLY: "true" },
+    { exit: (code) => exits.push(code), error: (message) => errors.push(message) }
+  );
+  expect(allowed).toBe(false);
+  expect(exits).toEqual([1]);
+  expect(errors.join("\n")).toContain("READ_TOKEN");
+});

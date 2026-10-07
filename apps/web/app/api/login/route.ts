@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { clientAddress } from "../../../src/lib/client-address";
 import { seeOther } from "../../../src/lib/redirect-url";
-import { webConfig } from "../../../src/lib/config";
+import { apiToken, webConfig } from "../../../src/lib/config";
 import { LoginLimiter } from "../../../src/lib/login-limiter";
 import { rejectCrossOrigin } from "../../../src/lib/same-origin";
 import { SESSION_COOKIE_NAME, signSession } from "../../../src/lib/session";
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return seeOther("/login?error=throttled");
   }
 
-  if (!constantTimeEquals(presented, config.ADMIN_TOKEN)) {
+  if (!constantTimeEquals(presented, apiToken(config))) {
     limiter.recordFailure(key, now);
     // One outcome regardless of cause: a near-miss must not read differently
     // from a wild guess.
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const response = seeOther("/");
   response.cookies.set(
     SESSION_COOKIE_NAME,
-    signSession(config.ADMIN_TOKEN, { projectId: "", expiresAt: now + SESSION_DURATION_MS }),
+    signSession(apiToken(config), { projectId: "", expiresAt: now + SESSION_DURATION_MS }),
     {
       httpOnly: true,
       sameSite: "strict",
