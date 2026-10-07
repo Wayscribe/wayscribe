@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   browserFamily,
+  clientKey,
   closeWindowIfOver,
   createState,
   handleRecord,
   newYorkTime,
   osFamily,
   parseCaddyLine,
+  routeShape,
   sendToNtfy,
   type AccessRecord,
   type Message
@@ -98,7 +100,7 @@ describe("handleRecord", () => {
     );
     expect(messages).toHaveLength(1);
     expect(messages[0]?.body).toContain("10:00 AM ET");
-    expect(messages[0]?.body).toContain("/journeys/jrn_x");
+    expect(messages[0]?.body).toContain("/journeys/:id");
     expect(messages[0]?.body).not.toContain("event=e");
     expect(messages[0]?.body).toContain("news.ycombinator.com");
     expect(messages[0]?.body).toContain("Safari on macOS");
@@ -225,5 +227,196 @@ describe("sendToNtfy", () => {
       expect.objectContaining({ method: "POST" })
     );
     expect(log).toHaveBeenCalledWith(expect.stringContaining("500"));
+  });
+});
+
+describe("review hardening", () => {
+  const HOUR = 60 * MINUTE;
+
+  it("ignores redirects and informational statuses, counts only 2xx", () => {
+    const state = createState(T0, newSalt);
+    for (const status of [100, 101, 301, 308, 399]) {
+      expect(handle(state, record({ status, ip: `10.0.0.${String(status % 200)}` }))).toEqual([]);
+    }
+    expect(handle(state, record({ status: 204, ip: "10.9.9.9" }))).toHaveLength(1);
+  });
+
+  it("reduces any path to a known route shape", () => {
+    const state = createState(T0, newSalt);
+    const [long] = handle(state, record({ uri: `/URGENT-call-555-0199-${"A".repeat(10_000)}/` }));
+    expect(long?.body.length).toBeLessThan(200);
+    expect(long?.body).toContain("other page");
+    expect(long?.body).not.toContain("URGENT");
+    for (const [path, shape] of [
+      ["/", "/"],
+      ["/journeys", "/journeys"],
+      ["/journeys/jrn_abc", "/journeys/:id"],
+      ["/recent", "/recent"],
+      ["/projects", "/projects"],
+      ["/login", "/login"],
+      ["/journeys/a/b/c", "other page"],
+      ["/call-me", "other page"]
+    ] as const) {
+      expect(routeShape(path)).toBe(shape);
+    }
+  });
+
+  it("never leaks addresses, agent text, queries or referrer paths", () => {
+    const state = createState(T0, newSalt);
+    const agents = [
+      SAFARI,
+      CHROME_WINDOWS,
+      "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0 SECRETAGENTTOKEN"
+    ];
+    const paths = [
+      "/",
+      "/journeys?x=1#frag",
+      "/journeys/jrn_1?secret=1",
+      "/weird/path?a=b",
+      "/recent#h"
+    ];
+    const referers = [
+      undefined,
+      "https://example.org/private/path?token=abc",
+      "https://news.ycombinator.com/item?id=9#c"
+    ];
+    let count = 0;
+    for (let i = 0; i < 60; i += 1) {
+      const ip = `198.51.${String(i)}.${String(i + 1)}`;
+      const ua = agents[i % agents.length] ?? SAFARI;
+      const messages = handle(
+        state,
+        record({
+          ip,
+          ua,
+          uri: paths[i % paths.length],
+          referer: referers[i % referers.length],
+          ts: T0 + i * 1000
+        })
+      );
+      for (const message of messages) {
+        count += 1;
+        const text = `${message.title}\n${message.body}`;
+        expect(text).not.toContain(ip);
+        expect(text).not.toContain("SECRETAGENTTOKEN");
+        expect(text).not.toContain("Mozilla");
+        expect(text).not.toContain("AppleWebKit");
+        expect(text).not.toContain("?");
+        expect(text).not.toContain("#");
+        expect(text).not.toContain("/private");
+        expect(text).not.toContain("token");
+        expect(text).not.toContain("/item");
+      }
+    }
+    expect(count).toBeGreaterThan(0);
+  });
+
+  it("changes the client key with the salt, the address and the agent", () => {
+    expect(clientKey("a", "1.1.1.1", SAFARI)).not.toBe(clientKey("b", "1.1.1.1", SAFARI));
+    expect(clientKey("a", "1.1.1.1", SAFARI)).not.toBe(clientKey("a", "1.1.1.2", SAFARI));
+    expect(clientKey("a", "1.1.1.1", SAFARI)).not.toBe(clientKey("a", "1.1.1.1", CHROME_WINDOWS));
+  });
+
+  it("counts the same address with a different agent as a new visit", () => {
+    const state = createState(T0, newSalt);
+    expect(handle(state, record({}))).toHaveLength(1);
+    expect(handle(state, record({ ua: CHROME_WINDOWS }))).toHaveLength(1);
+  });
+
+  it("pins the dedupe at six hours exactly", () => {
+    const state = createState(T0, newSalt);
+    handle(state, record({}));
+    expect(handle(state, record({ ts: T0 + 6 * HOUR - 1 }))).toHaveLength(0);
+    const fresh = createState(T0, newSalt);
+    handle(fresh, record({}));
+    expect(handle(fresh, record({ ts: T0 + 6 * HOUR }))).toHaveLength(1);
+  });
+
+  it("slides the dedupe window: a visit every five hours is notified once", () => {
+    // Early in the UTC day so the daily salt rotation does not interfere.
+    const base = Date.parse("2026-10-07T00:30:00.000Z");
+    const state = createState(base, newSalt);
+    expect(handle(state, record({ ts: base }))).toHaveLength(1);
+    expect(handle(state, record({ ts: base + 5 * HOUR }))).toHaveLength(0);
+    expect(handle(state, record({ ts: base + 10 * HOUR }))).toHaveLength(0);
+  });
+
+  it("ignores each kind of tool and robot agent", () => {
+    const state = createState(T0, newSalt);
+    for (const ua of [
+      "curl/8.4.0",
+      "Wget/1.21",
+      "python-requests/2.31",
+      "Go-http-client/2.0",
+      "okhttp/4.12",
+      "axios/1.6",
+      "node-fetch/1.0",
+      "libwww-perl/6.6",
+      "Scrapy/2.11",
+      "Java/17.0.1",
+      "Mozilla/5.0 (compatible; MyBot/1.0)",
+      "Mozilla/5.0 (compatible; Crawler)",
+      "Mozilla/5.0 Spider",
+      "Yahoo! Slurp",
+      "facebookexternalhit/1.1",
+      "Embedly/0.2",
+      "LinkPreview/1.0",
+      "HeadlessChrome/129",
+      "Chrome-Lighthouse"
+    ]) {
+      expect(handle(state, record({ ua })), ua).toEqual([]);
+    }
+  });
+
+  it("clears the remembered clients past the limit", () => {
+    const state = createState(T0, newSalt);
+    const options = { ownHost: "demo.wayscribe.dev", newSalt, maxRemembered: 3 };
+    for (let i = 0; i < 4; i += 1) {
+      handleRecord(state, record({ ip: `192.0.2.${String(i + 1)}`, ts: T0 + i }), {
+        ...options,
+        now: T0 + i
+      });
+    }
+    expect(state.seen.size).toBe(4);
+    handleRecord(state, record({ ip: "192.0.2.99", ts: T0 + 10 }), { ...options, now: T0 + 10 });
+    expect(state.seen.size).toBe(1);
+  });
+
+  it("forgets every remembered client when the salt rotates", () => {
+    const state = createState(T0, newSalt);
+    handle(state, record({}));
+    handle(state, record({ ip: "198.51.100.9" }));
+    expect(state.seen.size).toBe(2);
+    handle(state, record({ ip: "192.0.2.5", ts: T0 + 24 * HOUR }));
+    expect(state.seen.size).toBe(1);
+  });
+
+  it("gives up on a hanging fetch within the timeout", async () => {
+    const log = vi.fn();
+    const hanging = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "TimeoutError"));
+          });
+        })
+    );
+    const started = Date.now();
+    await expect(
+      sendToNtfy(
+        { title: "t", body: "b" },
+        { url: "https://ntfy.sh", topic: "t", fetch: hanging, log, timeoutMs: 50 }
+      )
+    ).resolves.toBe(false);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("encodes the topic in the ntfy URL", async () => {
+    const ok = vi.fn(() => Promise.resolve(new Response("ok", { status: 200 })));
+    await sendToNtfy(
+      { title: "t", body: "b" },
+      { url: "https://ntfy.sh", topic: "a b/c", fetch: ok, log: vi.fn() }
+    );
+    expect(ok).toHaveBeenCalledWith("https://ntfy.sh/a%20b%2Fc", expect.anything());
   });
 });

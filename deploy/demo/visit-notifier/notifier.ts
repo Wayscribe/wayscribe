@@ -111,12 +111,13 @@ const FILE_EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
 /** A page a person asked for: not an asset, API, health check or error. */
 export function isPageRequest(record: AccessRecord): boolean {
   if (record.method !== "GET") return false;
-  if (record.status < 200 || record.status >= 400) return false;
+  if (record.status < 200 || record.status >= 300) return false;
   if (NOT_PAGES.some((prefix) => record.path.startsWith(prefix))) return false;
   return !FILE_EXTENSION.test(record.path);
 }
 
-const ROBOT = /bot|crawl|spider|slurp|facebookexternalhit|embedly|preview|headless|lighthouse/i;
+const ROBOT =
+  /bot|crawl|spider|slurp|facebookexternalhit|embedly|preview|headless|lighthouse|curl|wget|python-requests|go-http-client|okhttp|axios|node-fetch|libwww|scrapy|java\//i;
 
 /** Not the smoke check (CI, deploy, uptime), and not a self-declared robot. */
 export function isCountedAgent(userAgent: string): boolean {
@@ -211,11 +212,29 @@ function rotateSaltIfNewDay(state: NotifierState, now: number, newSalt: () => st
   state.seen.clear();
 }
 
-function forgetOld(state: NotifierState, now: number): void {
+function forgetOld(state: NotifierState, now: number, limit: number): void {
   for (const [key, last] of state.seen) {
     if (now - last >= DEDUPE_WINDOW_MS) state.seen.delete(key);
   }
-  if (state.seen.size > MAX_REMEMBERED_CLIENTS) state.seen.clear();
+  if (state.seen.size > limit) state.seen.clear();
+}
+
+const ROUTE_SHAPES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^\/$/, "/"],
+  [/^\/journeys$/, "/journeys"],
+  [/^\/journeys\/[^/]+$/, "/journeys/:id"],
+  [/^\/recent$/, "/recent"],
+  [/^\/projects$/, "/projects"],
+  [/^\/login$/, "/login"]
+];
+
+/** A visitor chooses the path, so only a known route shape is ever sent. */
+export function routeShape(path: string): string {
+  if (path.length > 512) return "other page";
+  for (const [pattern, shape] of ROUTE_SHAPES) {
+    if (pattern.test(path)) return shape;
+  }
+  return "other page";
 }
 
 function visitMessage(record: AccessRecord, ownHost: string): Message {
@@ -223,7 +242,7 @@ function visitMessage(record: AccessRecord, ownHost: string): Message {
     title: "Demo visit",
     body: [
       newYorkTime(record.at),
-      `Landed on ${record.path}`,
+      `Landed on ${routeShape(record.path)}`,
       `From ${referrerHost(record.referer, ownHost)}`,
       `${browserFamily(record.userAgent)} on ${osFamily(record.userAgent)}`
     ].join("\n")
@@ -234,13 +253,13 @@ function visitMessage(record: AccessRecord, ownHost: string): Message {
 export function handleRecord(
   state: NotifierState,
   record: AccessRecord,
-  options: { now: number; ownHost: string; newSalt: () => string }
+  options: { now: number; ownHost: string; newSalt: () => string; maxRemembered?: number }
 ): Message[] {
   const out = closeWindowIfOver(state, options.now);
   if (!isPageRequest(record) || !isCountedAgent(record.userAgent)) return out;
 
   rotateSaltIfNewDay(state, options.now, options.newSalt);
-  forgetOld(state, options.now);
+  forgetOld(state, options.now, options.maxRemembered ?? MAX_REMEMBERED_CLIENTS);
   const key = clientKey(state.salt, record.clientIp, record.userAgent);
   const last = state.seen.get(key);
   state.seen.set(key, options.now);
