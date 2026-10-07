@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse, type ScalarTag } from "yaml";
@@ -154,5 +154,74 @@ describe("the public demo overlay", () => {
       expect(smoke, "smoke-check.sh").toContain(inSmoke);
       expect(read(file), file).toContain(inSource);
     }
+  });
+});
+
+interface CiJob {
+  stage?: string;
+  script?: string[];
+  rules?: { if?: string; when?: string; changes?: string[] }[];
+  when?: string;
+  needs?: string[];
+  resource_group?: string;
+  after_script?: string[];
+}
+
+describe("the demo's CI jobs", () => {
+  const ci = parse(read(".gitlab-ci.yml"), { merge: true }) as Record<string, CiJob>;
+  const job = (name: string): CiJob => {
+    const found = ci[name];
+    if (found === undefined) throw new Error(`.gitlab-ci.yml has no ${name} job`);
+    return found;
+  };
+  const script = (name: string): string => (job(name).script ?? []).join("\n");
+  const releaseTag = "$CI_COMMIT_TAG =~ /^v\\d+\\.\\d+\\.\\d+$/";
+
+  it("publishes and rehearses the demo image beside api and web", () => {
+    expect(script("publish-images")).toContain('"apps/demo/Dockerfile=$CI_REGISTRY_IMAGE/demo"');
+    expect(script("publish-images-rehearsal")).toContain(
+      '"apps/demo/Dockerfile=$CI_REGISTRY_IMAGE/rehearsal/demo"'
+    );
+  });
+
+  it("deploys only by hand, on a release tag, after the images are published", () => {
+    const deploy = job("deploy-demo");
+    expect(deploy.rules).toEqual([{ if: releaseTag }]);
+    expect(deploy.when).toBe("manual");
+    expect(deploy.needs).toEqual(["publish-images"]);
+    expect(deploy.resource_group).toBe("demo");
+    const body = script("deploy-demo");
+    expect(body).toContain('"$CI_COMMIT_TAG"');
+    expect(body).toContain("StrictHostKeyChecking=yes");
+    expect(body).toContain("sh deploy/demo/smoke-check.sh https://demo.wayscribe.dev");
+    // The key is decoded to a file and never echoed.
+    expect(body).not.toMatch(/echo[^\n]*DEMO_DEPLOY_SSH_KEY/);
+    expect(body).not.toMatch(/set -x/);
+  });
+
+  it("tests the overlay on every release tag and on branches that change it", () => {
+    const overlay = job("demo-overlay");
+    expect(overlay.stage).toBe("demo");
+    expect(overlay.rules?.[0]).toEqual({ if: releaseTag });
+    expect(overlay.rules?.[1]?.changes).toContain("deploy/demo/**/*");
+    expect(script("demo-overlay")).toBe("sh deploy/demo/ci/overlay-test.sh");
+    // The overlay test's project name is the one the compose files declare.
+    expect((overlay.after_script ?? []).join("\n")).toContain("docker compose -p wayscribe down");
+    expect(read("infrastructure/compose.published.yaml")).toContain("\nname: wayscribe\n");
+  });
+
+  it("builds images under the names the compose files run", () => {
+    const test = read("deploy/demo/ci/overlay-test.sh");
+    expect(statSync(`${root}deploy/demo/ci/overlay-test.sh`).mode & 0o111).not.toBe(0);
+    const registry = /^REGISTRY=(\S+)$/m.exec(test)?.[1];
+    expect(registry).toBe("registry.gitlab.com/jojithedev/wayscribe");
+    for (const name of ["api", "web"]) {
+      expect(read("infrastructure/compose.published.yaml")).toContain(
+        `image: ${registry ?? ""}/${name}:\${WAYSCRIBE_VERSION`
+      );
+    }
+    expect(read("deploy/demo/compose.yaml")).toContain(
+      `image: ${registry ?? ""}/demo:\${WAYSCRIBE_VERSION`
+    );
   });
 });
