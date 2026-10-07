@@ -13,9 +13,18 @@ VERSION="${WAYSCRIBE_VERSION:?set WAYSCRIBE_VERSION}"
 HOST="${DEMO_TEST_HOST:-docker}"
 REGISTRY=registry.gitlab.com/jojithedev/wayscribe
 ENV_FILE=$(mktemp)
+compose() {
+  docker compose --env-file "${ENV_FILE}" \
+    -f "${ROOT}/infrastructure/compose.published.yaml" \
+    -f "${ROOT}/infrastructure/compose.bundled.yaml" \
+    -f "${ROOT}/infrastructure/compose.demo.yaml" \
+    -f "${ROOT}/deploy/demo/compose.yaml" "$@"
+}
+
 # On failure, the stack's state and recent logs go to the job log before the
-# env file is removed. compose() is defined below; the trap only runs at exit.
-trap 'rc=$?; if [ "${rc}" -ne 0 ]; then compose ps -a >&2; compose logs --no-color --tail 150 >&2; fi; rm -f "${ENV_FILE}"; exit "${rc}"' EXIT
+# env file is removed. `set -e` holds inside the trap, so neither compose call
+# may end it early: the exit code stays the failing command's.
+trap 'rc=$?; if [ "${rc}" -ne 0 ]; then compose ps -a >&2 || true; compose logs --no-color --tail 150 >&2 || true; fi; rm -f "${ENV_FILE}"; exit "${rc}"' EXIT
 
 fail() {
   echo "overlay-test: $1" >&2
@@ -39,14 +48,6 @@ NTFY_URL=http://127.0.0.1:9
 NTFY_VISIT_TOPIC=ci-never-sent
 EOF
 umask 022
-
-compose() {
-  docker compose --env-file "${ENV_FILE}" \
-    -f "${ROOT}/infrastructure/compose.published.yaml" \
-    -f "${ROOT}/infrastructure/compose.bundled.yaml" \
-    -f "${ROOT}/infrastructure/compose.demo.yaml" \
-    -f "${ROOT}/deploy/demo/compose.yaml" "$@"
-}
 
 compose config --quiet
 # The resolved configuration publishes Caddy's ports and nobody else's. The
