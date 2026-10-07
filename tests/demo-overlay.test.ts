@@ -192,7 +192,7 @@ describe("the demo's CI jobs", () => {
     const deploy = job("deploy-demo");
     expect(deploy.rules).toEqual([{ if: releaseTag }]);
     expect(deploy.when).toBe("manual");
-    expect(deploy.needs).toEqual(["publish-images"]);
+    expect(deploy.needs).toEqual(["publish-images", "demo-overlay"]);
     expect(deploy.resource_group).toBe("demo");
     const body = script("deploy-demo");
     expect(body).toContain('"$CI_COMMIT_TAG"');
