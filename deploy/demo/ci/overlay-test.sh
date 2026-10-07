@@ -66,6 +66,11 @@ published=$(compose config --format json | node -e '
 
 compose up --detach
 sh "${ROOT}/deploy/demo/wait-for-smoke.sh" "http://${HOST}" 600
+# The smoke check passes once the pinned journey exists, which the backfill
+# writes first: a backfill that fails after it shows only in its exit code.
+history=$(compose ps --all --quiet demo-history) || fail "could not find the demo-history container"
+[ -n "${history}" ] || fail "no demo-history container"
+sh "${ROOT}/deploy/demo/wait-for-exit.sh" "${history}" 900 || fail "demo-history did not exit 0"
 
 # 1. Nothing but Caddy answers from outside the Compose network...
 for port in 3000 3100 3200 3300 5432 8080 9324; do

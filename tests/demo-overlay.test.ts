@@ -1,4 +1,6 @@
-import { readFileSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse, type ScalarTag } from "yaml";
@@ -242,5 +244,61 @@ describe("the demo's CI jobs", () => {
     expect(read("deploy/demo/compose.yaml")).toContain(
       `image: ${registry ?? ""}/demo:\${WAYSCRIBE_VERSION`
     );
+  });
+});
+
+describe("the demo's history backfill", () => {
+  // The smoke check passes as soon as the pinned journey exists, which the
+  // backfill writes first, so only demo-history's exit code shows a failed
+  // backfill (apps/demo/src/backfill.ts).
+  it.each(["deploy/demo/host/reset.sh", "deploy/demo/ci/overlay-test.sh"])(
+    "%s fails unless demo-history exits 0, after the smoke check",
+    (path) => {
+      const script = read(path);
+      const smoke = script.indexOf("wait-for-smoke.sh");
+      const lookup = script.indexOf("ps --all --quiet demo-history");
+      const wait = script.indexOf("deploy/demo/wait-for-exit.sh");
+      expect(smoke).toBeGreaterThan(-1);
+      expect(lookup).toBeGreaterThan(smoke);
+      expect(wait).toBeGreaterThan(lookup);
+      expect(script.slice(wait)).toMatch(/wait-for-exit\.sh" "\$\{history\}" 900/);
+    }
+  );
+
+  describe("wait-for-exit.sh", () => {
+    const run = (state: string, deadline: string): number => {
+      const bin = mkdtempSync(`${tmpdir()}/wait-for-exit-`);
+      try {
+        writeFileSync(`${bin}/docker`, `#!/bin/sh\necho "${state}"\n`);
+        chmodSync(`${bin}/docker`, 0o755);
+        const result = spawnSync(
+          "sh",
+          [`${root}deploy/demo/wait-for-exit.sh`, "abc123", deadline],
+          {
+            env: { ...process.env, PATH: `${bin}:${process.env["PATH"] ?? ""}` },
+            encoding: "utf8",
+            timeout: 20_000
+          }
+        );
+        return result.status ?? -1;
+      } finally {
+        rmSync(bin, { recursive: true, force: true });
+      }
+    };
+
+    it("passes only on a clean exit", () => {
+      expect(run("exited 0", "60")).toBe(0);
+      expect(run("exited 1", "60")).toBe(1);
+      expect(run("dead 137", "60")).toBe(1);
+    });
+
+    it("gives up at the deadline instead of waiting forever", () => {
+      expect(run("running 0", "0")).toBe(1);
+      expect(run("created 0", "3")).toBe(1);
+    });
+
+    it("refuses a deadline that is not whole seconds", () => {
+      expect(run("exited 0", "soon")).toBe(2);
+    });
   });
 });

@@ -29,8 +29,30 @@ case "${DEPLOY_KEY}" in
 esac
 
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends docker.io docker-compose-v2 git curl openssl ufw
+apt-get install -y -qq --no-install-recommends docker.io docker-compose-v2 docker-buildx git curl openssl ufw
 systemctl enable --now docker
+
+# The overlay needs Compose 2.24 or newer: `!reset` in deploy/demo/compose.yaml
+# and `pull --ignore-buildable` in reset.sh. --short prints 2.27.0, maybe with
+# a leading v or a suffix such as +ds1.
+compose_version=$(docker compose version --short) || {
+  echo "docker compose is not installed" >&2
+  exit 1
+}
+version="${compose_version#v}"
+major="${version%%.*}"
+rest="${version#*.}"
+minor="${rest%%[!0-9]*}"
+case "${major}" in '' | *[!0-9]*) major=x ;; esac
+case "${minor}" in '' | *[!0-9]*) minor=x ;; esac
+if [ "${major}" = x ] || [ "${minor}" = x ]; then
+  echo "cannot read the Docker Compose version: ${compose_version}" >&2
+  exit 1
+fi
+if [ "${major}" -lt 2 ] || { [ "${major}" -eq 2 ] && [ "${minor}" -lt 24 ]; }; then
+  echo "Docker Compose ${compose_version} is too old: the demo needs 2.24 or newer" >&2
+  exit 1
+fi
 
 # Keys only. Docker-published ports bypass ufw; only Caddy publishes, on 80/443.
 cat >/etc/ssh/sshd_config.d/10-wayscribe-demo.conf <<'EOF'
@@ -134,5 +156,5 @@ install -m 0644 "${CHECKOUT}"/deploy/demo/host/systemd/* /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now wayscribe-demo-reset.timer wayscribe-demo-uptime.timer wayscribe-demo-prune.timer
 
-WAYSCRIBE_DEMO_LOCKED=1 sh "${CHECKOUT}/deploy/demo/host/reset.sh"
+WAYSCRIBE_DEMO_LOCKED=1 DEMO_ACTION=setup sh "${CHECKOUT}/deploy/demo/host/reset.sh"
 echo "Demo is up. Subscribe to the two ntfy topics named NTFY_VISIT_TOPIC and NTFY_ALERT_TOPIC in /etc/wayscribe-demo/env."

@@ -18,11 +18,11 @@ on_exit() {
   status=$?
   if [ "${status}" -ne 0 ]; then
     action="${DEMO_ACTION:-reset}"
-    if [ "${action}" = "deploy" ]; then
-      next="See the deploy-demo job log."
-    else
-      next="A nightly reset retries every 30 minutes, up to three times. journalctl -u wayscribe-demo-reset"
-    fi
+    case "${action}" in
+      deploy) next="See the deploy-demo job log." ;;
+      setup) next="setup.sh stopped at its first reset; rerun it after fixing the cause." ;;
+      *) next="A nightly reset retries every 30 minutes, up to three times. journalctl -u wayscribe-demo-reset" ;;
+    esac
     notify "Demo ${action} failed" \
       "${action} of ${WAYSCRIBE_VERSION} failed at $(date -u +%H:%M) UTC. ${next}"
   fi
@@ -41,3 +41,11 @@ demo_compose build caddy visit-notifier
 demo_compose down --volumes --remove-orphans
 demo_compose up --detach
 sh "${DEMO_CHECKOUT}/deploy/demo/wait-for-smoke.sh" "$(site_url)" 600
+# The smoke check passes once the pinned journey exists, which the backfill
+# writes first: a backfill that fails after it shows only in its exit code.
+history=$(demo_compose ps --all --quiet demo-history)
+[ -n "${history}" ] || {
+  echo "no demo-history container" >&2
+  exit 1
+}
+sh "${DEMO_CHECKOUT}/deploy/demo/wait-for-exit.sh" "${history}" 900
