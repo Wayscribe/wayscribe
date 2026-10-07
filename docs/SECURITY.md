@@ -532,8 +532,8 @@ paths Docker access to the host is equivalent to holding the encryption key and
 the admin token. Read "not a published default", which `doctor` checks, as
 saying the value is not public, not that it is not exposed.
 
-`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE`
-read each value from a file at startup instead, and
+`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE`, `ADMIN_TOKEN_FILE` and
+`READ_TOKEN_FILE` read each value from a file at startup instead, and
 `infrastructure/compose.secret-files.yaml` mounts those files with Docker's own
 secrets mechanism (docs/OPERATIONS.md §6). A Helm install does the equivalent
 with `existingSecret`. Either way the value is still readable by anything that

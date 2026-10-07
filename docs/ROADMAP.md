@@ -98,7 +98,9 @@ Presenting the work, and closing what the last review opened.
   (ADR-065). **Shipped in 0.2.0:** the setup check and redaction preview
   (`wayscribe check`, `wayscribe preview`) and the backup, verify and restore
   helpers (verify and restore need PostgreSQL 17 or newer). The ingestion
-  controls and the view-only capability are not built yet.
+  controls and the view-only capability are not built yet. The reader principal
+  (ADR-070) is related but reads payloads, so it does not discharge the payload-free
+  capability ADR-065 describes.
 
 - ~~**Per-record timing and context, before the first release.**~~ **Built:**
   Wayscribe presents bounded evidence about one record; aggregate latency and
@@ -167,9 +169,9 @@ Release 0.1.0 made the distribution path visible. The operational follow-up is:
   that actually authenticates (`OPERATIONS.md` §12)
 - ~~the SDK saying something on its first successful flush~~ **Built:**
   `logDiagnostics: true` prints `delivered_first` once the server stores a batch
-- a read-only principal: journeys and timelines without payloads, which is the
-  cheap answer to "management should see this too" and much less work than
-  accounts
+- ~~a read-only principal: journeys and timelines without payloads~~ **Built**, with one
+  difference: the reader (`READ_TOKEN`, ADR-070) reads payloads, because the public demo's
+  value is the diff. A payload-free viewer is left for the SSO roles work.
 - admin endpoints (`POST /v1/projects`, key lifecycle) so the CLI's admin half
   works remotely rather than only inside the container
 - rate limiting and quotas on ingestion. (~~a `statement_timeout`~~ **Built:**

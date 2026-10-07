@@ -694,7 +694,7 @@ anywhere else never arrives, and nothing says so.
 | `compose.published.yaml` | the shell, or a `.env` beside `compose.published.yaml`. A shell export wins over that file. |
 | Helm | `secrets.encryptionKey` and `secrets.encryptionKeyPrevious`, or the `ENCRYPTION_KEY` and `ENCRYPTION_KEY_PREVIOUS` keys of your `existingSecret`. |
 | `pnpm` commands in a source checkout | the repository-root `.env`. A variable exported in the shell wins over it. |
-| Either Compose stack, from files | `ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE`, each naming a file the value is read from at startup. See "Secrets the container's environment does not hold" below. |
+| Either Compose stack, from files | `ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE`, `ADMIN_TOKEN_FILE` and `READ_TOKEN_FILE`, each naming a file the value is read from at startup. See "Secrets the container's environment does not hold" below. |
 
 Surrounding whitespace is trimmed from both keys and from `ADMIN_TOKEN`, so a
 trailing newline from a secrets file, or a space either side of a pasted value,
@@ -716,10 +716,16 @@ knowing before deciding who gets that access. A Helm install already avoids it
 with `existingSecret`, a Kubernetes Secret rather than a container environment
 variable.
 
-`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE` and `ADMIN_TOKEN_FILE` are
-the Compose equivalent. When one is set, the value is read from that file at
-startup by the API, the web app, `doctor`, and the key rotation commands. The
+`ENCRYPTION_KEY_FILE`, `ENCRYPTION_KEY_PREVIOUS_FILE`, `ADMIN_TOKEN_FILE` and
+`READ_TOKEN_FILE` are the Compose equivalent. When one is set, the value is read from
+that file at startup by the API, the web app, `doctor`, and the key rotation commands. The
 plain variables stay supported and unchanged.
+
+`READ_TOKEN` is optional. Set, it lets a reader principal search and read one project,
+payloads included, and nothing else (ADR-070); it must differ from `ADMIN_TOKEN`. The web
+app's `WEB_ANONYMOUS_READ_ONLY=true` signs every visitor in as that reader with no login;
+it needs `READ_TOKEN`, refuses to start with `ADMIN_TOKEN` set, and is meant for a public
+demo of generated data only (`docs/DEMO_HOSTING.md`). `doctor` warns while it is on.
 
 `infrastructure/compose.secret-files.yaml` is an overlay that wires this up with
 Docker's own secrets mechanism:

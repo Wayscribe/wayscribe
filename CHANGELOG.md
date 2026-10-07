@@ -14,6 +14,15 @@ changes far less often.
 
 ## [Unreleased]
 
+### Added
+
+- A reader principal: `READ_TOKEN` (or `READ_TOKEN_FILE`) searches and reads one project,
+  payloads included, and every other route answers it 403 (ADR-070).
+- `WEB_ANONYMOUS_READ_ONLY=true` signs every web visitor in as a reader with no login, for
+  a public demo of generated data. `doctor` warns while it is on.
+- A `demo` image is published and signed beside `api` and `web`, and the public demo's
+  deployment lives in `deploy/demo/` (ADR-069, `docs/DEMO_HOSTING.md`).
+
 ### Changed
 
 - The demo video is remade: about a minute, captioned for watching with the

@@ -4558,3 +4558,69 @@ process, are unchanged.
 refused, and a diff would differ by transport. A warning in an HTTP header: OTLP exporters
 do not surface response headers, while they do log a partial success. Adding `pan`: `pan`
 is a camera move, a cooking vessel and a surname far more often than a card number.
+
+## ADR-069: The public demo holds generated data only and accepts nothing from visitors
+
+**Status:** Accepted, 2026-10-07. Clarifies the scope of `AGENTS.md`'s "hosted SaaS
+infrastructure" and `docs/ROADMAP.md`'s "Not doing" entry for a hosted offering; both stand.
+
+**Context.** Prospects, larger companies and government agencies among them, need to see
+Wayscribe work in under a minute, from a link, without installing it. The reason Wayscribe
+has no hosted offering is that it must never be custodian of customer payloads.
+
+**Decision.** demo.wayscribe.dev runs the latest release on one small VM, from the published
+Compose files plus an overlay in `deploy/demo/`. Every journey on it is generated: about 300
+backfilled over the past five days, one new one a minute, and one pinned failed journey for
+`+1 555 0100`, all written by the demo app with its own API key. A visitor can search and
+read and can do nothing else: the web app runs in anonymous read-only mode (ADR-070), and no
+route a visitor can reach ingests, replays or deletes. Nothing a visitor sends is stored
+other than Caddy's access log, kept 7 days, and the visit notifications the operator
+receives, which carry only the time, a route shape, the referrer's host and the browser and
+operating system family. The data is wiped and regenerated every night. The demo's pieces
+live in `deploy/demo/` and a `demo` image; nothing in `infrastructure/` or `deploy/helm` that
+a customer installs carries them.
+
+**Consequences.** The demo never holds customer data, so the custody argument against a
+hosted offering is untouched. The demo image is published and signed beside `api` and `web`.
+A deploy is a manual job on a protected `v*` tag, and every deploy is a full reset. The demo
+is served over IPv4 only, because Docker's userland proxy would present every IPv6 visitor
+to Caddy as the bridge gateway, merging them in the rate limiter and the visit notifier.
+
+**Rejected.** A managed Kubernetes cluster (cost, for a demo; the managed-cluster test of the
+Helm chart stays on the roadmap). Visitor-triggered journeys (a visitor would supply data).
+A per-visitor instance (cost and complexity for no gain over read-only).
+
+## ADR-070: A reader principal reads one project, payloads included, and may call only allowlisted routes
+
+**Status:** Accepted, 2026-10-07. Adds a third principal to ADR-029. Amends ADR-065 item 6:
+that item's view-only capability excluded payloads; this one reads them. A payload-free
+viewer is left to the SSO roles work.
+
+**Context.** The public demo (ADR-069) needs a visitor to read the field diff that shows
+where a value was lost, which is a payload. An admin token in a public web app would also
+grant replay and deletion.
+
+**Decision.** `READ_TOKEN` (at least 32 characters, never equal to `ADMIN_TOKEN`, readable
+from `READ_TOKEN_FILE`, checked against the published defaults) resolves to a **reader**. A
+reader's read scope is an admin's: one named project, or the only one, across all its
+environments. A reader may call only the routes in `apps/api/src/reader-routes.ts`:
+`GET /v1/projects`, `/v1/search`, `/v1/journeys`, `/v1/journeys/:journeyId`,
+`/v1/journeys/:journeyId/events`, `/v1/events/:eventId`, and the credential-free `/health`
+and `/ready`. A root `onRequest` guard answers every other route with 403 `forbidden` before
+it runs, including routes added later, until they are allowlisted on purpose; a test calls
+every registered route with the read token. A reader may list every project's name, as an
+admin may, because the web app chooses the project from that list. No read is audited, and a
+reader's refused requests write nothing.
+
+The web app's `WEB_ANONYMOUS_READ_ONLY=true` signs every visitor in as a reader without a
+login page. It holds only the read token and refuses to start if `ADMIN_TOKEN` is set too.
+Its sessions are signed with a key derived from `READ_TOKEN` under the HKDF label
+`wayscribe/web-session-anonymous-reader`, so a session from one mode never verifies in the
+other. Replay and delete are hidden by the session's principal, not by the setting. `doctor`
+warns while the setting is on.
+
+**Consequences.** Anyone holding the read token can read every payload of the project. It is
+for public demos of generated data, and for internal viewers who are trusted with payloads.
+
+**Rejected.** Hiding controls in the web app with an admin token behind it (enforced in the
+browser, not the API). A denylist of write routes (a new route would be open by default).
