@@ -41,7 +41,18 @@ app.post("/trigger", async (request, reply) => {
  * A failed trigger is logged and the loop goes on: the integration may still be
  * starting.
  */
-const loopIntervalMs = Number.parseInt(optionalEnv("DEMO_LOOP_INTERVAL_MS", "0"), 10);
+const loopIntervalRaw = optionalEnv("DEMO_LOOP_INTERVAL_MS", "0").trim();
+const loopIntervalMs = loopIntervalRaw === "" ? 0 : Number(loopIntervalRaw);
+if (
+  loopIntervalRaw !== "" &&
+  loopIntervalRaw !== "0" &&
+  !(Number.isInteger(loopIntervalMs) && loopIntervalMs > 0)
+) {
+  app.log.warn(
+    { value: loopIntervalRaw },
+    "DEMO_LOOP_INTERVAL_MS is not a positive integer number of milliseconds; loop mode stays off"
+  );
+}
 if (Number.isInteger(loopIntervalMs) && loopIntervalMs > 0) {
   setInterval(() => {
     const account = loopAccount(new Date(), Math.random);
