@@ -52,8 +52,12 @@ function poll(): void {
   let fd: number;
   try {
     fd = openSync(logPath, "r");
-  } catch {
-    first = false; // Not written yet: read it from the start once it is.
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      first = false; // Not written yet: read it from the start once it is.
+    } else {
+      log(`visit-notifier: cannot open ${logPath}: ${String(error)}`);
+    }
     return;
   }
   try {
