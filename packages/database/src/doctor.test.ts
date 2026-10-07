@@ -1,3 +1,4 @@
+import type { Knex } from "knex";
 import { describe, expect, it } from "vitest";
 import { commandHelp } from "./cli-commands.js";
 import {
@@ -7,6 +8,7 @@ import {
   DOCTOR_USAGE,
   formatDoctor,
   parseDoctorArgs,
+  runDoctor,
   scrub,
   secretsIn,
   statementTimeoutResult,
@@ -278,6 +280,29 @@ describe("anonymousReadOnlyResult", () => {
   it("says nothing when the mode is off or unset, so ordinary output is unchanged", () => {
     expect(anonymousReadOnlyResult({})).toBeNull();
     expect(anonymousReadOnlyResult({ WEB_ANONYMOUS_READ_ONLY: "false" })).toBeNull();
+  });
+});
+
+describe("runDoctor anonymous read-only warning", () => {
+  // An unreachable database: the check list still ends with the env-only checks.
+  const unreachable = {
+    raw: () => Promise.reject(new Error("connection refused"))
+  } as unknown as Knex;
+  const run = (env: Record<string, string | undefined>): Promise<CheckResult[]> =>
+    runDoctor({ db: unreachable, env });
+
+  it("includes the WARN when WEB_ANONYMOUS_READ_ONLY is true", async () => {
+    const results = await run({ WEB_ANONYMOUS_READ_ONLY: "true" });
+    expect(results.some((r) => r.check === "Anonymous read-only web" && r.status === "WARN")).toBe(
+      true
+    );
+  });
+
+  it("omits it otherwise", async () => {
+    for (const env of [{}, { WEB_ANONYMOUS_READ_ONLY: "false" }]) {
+      const results = await run(env);
+      expect(results.some((r) => r.check === "Anonymous read-only web")).toBe(false);
+    }
   });
 });
 
