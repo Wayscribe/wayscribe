@@ -1,5 +1,5 @@
 """Build identity. Never populated from the host environment at import time."""
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 SDK_NAME = "wayscribe"
 SDK_COMMIT = None

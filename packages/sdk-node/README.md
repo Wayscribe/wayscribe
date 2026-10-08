@@ -18,7 +18,7 @@ leaves your infrastructure.
 Install a published release by exact version:
 
 ```bash
-npm install @wayscribe/node@0.2.2
+npm install @wayscribe/node@0.2.3
 ```
 
 To use a source preview before that version is published, pack it from a clone
@@ -40,7 +40,7 @@ of stdout rather than its last line.
 ```json
 {
   "dependencies": {
-    "@wayscribe/node": "file:vendor/wayscribe-node-0.2.2.tgz"
+    "@wayscribe/node": "file:vendor/wayscribe-node-0.2.3.tgz"
   }
 }
 ```
@@ -48,7 +48,7 @@ of stdout rather than its last line.
 ```bash
 # In your application.
 npm install
-git add vendor/wayscribe-node-0.2.2.tgz package.json package-lock.json
+git add vendor/wayscribe-node-0.2.3.tgz package.json package-lock.json
 ```
 
 **Why a tarball rather than a path into the clone.** `npm install
@@ -71,7 +71,7 @@ To take a newer source preview, pack again, replace the tarball, run
 the source preview with the released version:
 
 ```bash
-npm install @wayscribe/node@0.2.2
+npm install @wayscribe/node@0.2.3
 ```
 
 [`examples/instrument-a-service`](../../examples/instrument-a-service/README.md)

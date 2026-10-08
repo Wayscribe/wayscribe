@@ -1,10 +1,10 @@
 # Wayscribe Go SDK
 
-Module `wayscribe.dev/go`, package `wayscribe`, version 0.2.2. It requires Go
+Module `wayscribe.dev/go`, package `wayscribe`, version 0.2.3. It requires Go
 1.22 or newer. Install it with:
 
 ```sh
-go get wayscribe.dev/go@v0.2.2
+go get wayscribe.dev/go@v0.2.3
 ```
 
 The module lives in `packages/sdk-go` of the repository, and
@@ -14,7 +14,7 @@ that works on every supported Go version. Fetching straight from the
 repository (`GOPROXY=direct`, or `GOPRIVATE` covering `wayscribe.dev`) needs
 Go 1.25 or newer, the first release that reads the subdirectory field. The
 module is released on tags named `packages/sdk-go/vX.Y.Z`. Its identity is
-`wayscribe.dev/go` / `0.2.2`; protocol version remains `0.1`.
+`wayscribe.dev/go` / `0.2.3`; protocol version remains `0.1`.
 Recording captures immediately and sends asynchronously through the batch route.
 Runtime and tests use only the Go standard library.
 
@@ -123,7 +123,7 @@ the exact request bytes captured from the public recorder through the real API's
 dry-run route and runs the external module in `examples/go-worker` against a real
 test database. That example uses a local `replace` directive so it tests this
 checkout's source; an application outside the repository uses
-`go get wayscribe.dev/go@v0.2.2`.
+`go get wayscribe.dev/go@v0.2.3`.
 
 
 ## Recording and wrappers

@@ -14,14 +14,34 @@ changes far less often.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-08
+
+The `api` and `web` images, `@wayscribe/node`, the Python package `wayscribe`
+and the Go module `wayscribe.dev/go` (tag `packages/sdk-go/v0.2.3`) are 0.2.3.
+The event protocol and the SDKs' behavior do not change. A new `demo` image is
+published beside them. Nothing changes for a deployment that leaves the new
+settings unset.
+
 ### Added
 
-- A reader principal: `READ_TOKEN` (or `READ_TOKEN_FILE`) searches and reads one project,
-  payloads included, and every other route answers it 403 (ADR-070).
-- `WEB_ANONYMOUS_READ_ONLY=true` signs every web visitor in as a reader with no login, for
-  a public demo of generated data. `doctor` warns while it is on.
-- A `demo` image is published and signed beside `api` and `web`, and the public demo's
-  deployment lives in `deploy/demo/` (ADR-069, `docs/DEMO_HOSTING.md`).
+- **A reader principal.** `READ_TOKEN` (or `READ_TOKEN_FILE`) searches and reads
+  one project, payloads included, and every other route answers it 403. The API
+  refuses the token on anything outside an allowlist, an empty token never
+  matches, and the app will not start when `READ_TOKEN` equals the admin token
+  (ADR-070).
+- **Anonymous read-only web mode.** `WEB_ANONYMOUS_READ_ONLY=true` signs every
+  web visitor in as a reader with no login, for a public demo of generated
+  data. The web app shows a banner and hides replay and delete from a reader.
+  `doctor` warns while the mode is on.
+- **Generated demo history.** The demo generator can backfill two hours of
+  history, including a pinned journey for +1 555 0100, with timestamps, order and
+  retention preserved. A loop mode then adds one generated customer a minute.
+- **Demo deployment tooling.** A `demo` image is published and signed beside
+  `api` and `web`, and `deploy/demo/` holds the Caddy configuration, the Compose
+  overlay, the VM setup, reset, deploy and uptime scripts, a smoke check and a
+  visit notifier that records only route shapes (ADR-069,
+  `docs/DEMO_HOSTING.md`). It is the tooling behind the public demo
+  deployment, not something a self-hosted install needs.
 
 ### Changed
 
@@ -29,6 +49,12 @@ changes far less often.
   sound off, with no synthetic narration and quiet music, in 16:9 and a 1:1
   cut for social feeds. `pnpm demo:video` now captures the real web app and
   renders both cuts with the new `video/` project (docs/DEMO_RECORDING.md).
+
+### Security
+
+- The dependency audit overrides pick up patched `sharp` 0.35.5,
+  `source-map-js` 1.2.2, `uuid` 11.1.1, `smol-toml` 1.8.1 and
+  `postcss-selector-parser` 7.1.6 for new advisories.
 
 ## [0.2.2] - 2026-10-03
 
