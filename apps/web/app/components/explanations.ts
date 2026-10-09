@@ -22,7 +22,7 @@ export const EXPLANATIONS = {
     "An alias is another identifier for the same record, such as its ID in a CRM or in another internal system.",
   /** GLOSSARY.md, Transformation. */
   transformation:
-    "A step that changes the shape or values of data on purpose is a transformation, so some differences are expected. Look for the one that should not be there.",
+    "A step that changes the shape or values of data on purpose is a transformation, so some differences are expected.",
   /** GLOSSARY.md, Replay and Replay destination. */
   replay:
     "A replay sends this step's recorded input again, to an approved local, development, or test destination, so you can check a fix against it. Nothing is sent until you review it on the next page."

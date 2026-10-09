@@ -641,6 +641,22 @@ button[aria-busy="true"] {
 .diff .added {
   background: var(--added-bg);
 }
+.diff .kind {
+  white-space: nowrap;
+  color: var(--muted);
+}
+/* A value that became null or missing: the row the reader came for. */
+.diff tr.lost td {
+  color: var(--failed);
+  font-weight: 600;
+}
+.diff tr.lost td:first-child {
+  box-shadow: inset 3px 0 0 var(--failed);
+}
+/* A rename that kept its value: expected, so it stays out of the way. */
+.diff tr.renamed td {
+  color: var(--muted);
+}
 
 .block {
   background: var(--panel);

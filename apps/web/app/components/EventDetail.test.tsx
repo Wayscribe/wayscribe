@@ -65,6 +65,70 @@ describe("EventDetail without payloads", () => {
 });
 
 /**
+ * The demo's transform renames every field and loses phone on the way. The
+ * page used to list eight unrelated rows and ask the reader to find the odd
+ * one out; it now pairs the renames and leads with the lost value.
+ */
+describe("EventDetail what changed", () => {
+  const transformed = (): EventDetailData =>
+    event({
+      operation: "transformed",
+      hasInput: true,
+      hasOutput: true,
+      inputPayload: {
+        Id: "0018Z00005PIN01",
+        Name: "Dana Whitfield",
+        Phone: "+1 555 0100",
+        Status__c: "Active"
+      },
+      outputPayload: {
+        externalId: "0018Z00005PIN01",
+        name: "Dana Whitfield",
+        phone: null,
+        status: "active"
+      },
+      payloadDiff: {
+        changes: [
+          { path: "Id", kind: "removed", before: "0018Z00005PIN01" },
+          { path: "Name", kind: "removed", before: "Dana Whitfield" },
+          { path: "Phone", kind: "removed", before: "+1 555 0100" },
+          { path: "Status__c", kind: "removed", before: "Active" },
+          { path: "externalId", kind: "added", after: "0018Z00005PIN01" },
+          { path: "name", kind: "added", after: "Dana Whitfield" },
+          { path: "phone", kind: "added", after: null },
+          { path: "status", kind: "added", after: "active" }
+        ],
+        truncated: false
+      }
+    });
+
+  it("leads with the lost phone and lists the renames last", () => {
+    render(<EventDetail event={transformed()} />);
+    const [, tbody] = within(screen.getByRole("table")).getAllByRole("rowgroup");
+    const fields = within(tbody as HTMLElement)
+      .getAllByRole("row")
+      .map((row) => within(row).getAllByRole("cell")[0]?.textContent);
+    expect(fields).toEqual([
+      "Phone → phone",
+      "Status__c → status",
+      "Id → externalId",
+      "Name → name"
+    ]);
+    expect(screen.getByText("value lost")).toBeTruthy();
+  });
+
+  it("says how the table is arranged, not that the reader must find the odd one out", () => {
+    render(<EventDetail event={transformed()} />);
+    const heading = screen.getByRole("heading", { level: 3, name: "What changed" });
+    const explanation = heading.nextElementSibling?.textContent ?? "";
+    expect(explanation).toContain(
+      "Renamed fields are paired and muted; lost or altered values are listed first."
+    );
+    expect(explanation).not.toMatch(/should not be there/);
+  });
+});
+
+/**
  * F-044: the API returned all three kinds of metadata and the page showed
  * none, so an HTTP status an SDK user had moved into metadata, as the SDK
  * advises, disappeared from the screen.
