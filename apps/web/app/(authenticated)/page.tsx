@@ -9,6 +9,7 @@ import {
   search,
   type SearchItem
 } from "../../src/lib/api";
+import { anonymousReadOnly } from "../../src/lib/config";
 import { currentProject } from "../../src/lib/current-project";
 import {
   toQueryString,
@@ -21,6 +22,7 @@ import {
   searchApiQuery,
   type SearchFilters
 } from "../../src/lib/search-filters";
+import { DEMO_SEARCH, DEMO_SEARCH_HREF } from "../components/DemoBanner";
 import { JourneyListItem } from "../components/JourneyListItem";
 import { SearchForm } from "../components/SearchForm";
 
@@ -44,6 +46,7 @@ export default async function SearchPage({
   if (cleaned !== null) redirect(cleaned === "" ? "/" : `/?${cleaned}`);
   const filters = readSearchFilters(params, new Date());
   const deleted = typeof params["deleted"] === "string" ? params["deleted"] : undefined;
+  const demo = anonymousReadOnly();
 
   let environments: string[] = [];
   // False when no project is chosen yet and there is nothing to list.
@@ -105,7 +108,8 @@ export default async function SearchPage({
         You do not need to know which system it came from.
       </p>
 
-      <SearchForm filters={filters} environments={environments} />
+      <SearchForm filters={filters} environments={environments} demo={demo} />
+      {demo && outcome.kind === "idle" ? <DemoStart /> : null}
       {projectKnown ? null : (
         <p className="muted">
           <Link href={pickerHref(params)}>Choose a project</Link> to narrow by environment.
@@ -122,8 +126,32 @@ export default async function SearchPage({
         </div>
       )}
 
-      <Results filters={filters} outcome={outcome} />
+      {demo && outcome.kind === "idle" ? null : <Results filters={filters} outcome={outcome} />}
     </main>
+  );
+}
+
+/**
+ * The public demo's way in (ADR-069): a visitor has no identifier of their
+ * own, so the page offers the pinned one. Plain links, so it works without
+ * JavaScript.
+ */
+function DemoStart(): ReactElement {
+  return (
+    <section className="demo-start" aria-label="Start here">
+      <p>
+        <Link className="button-link" href={DEMO_SEARCH_HREF}>
+          Try a sample record: {DEMO_SEARCH}
+        </Link>
+      </p>
+      <p className="muted">
+        You will find a customer sync that failed; open it and see the step that dropped the phone
+        number.
+      </p>
+      <p>
+        <Link href="/journeys?status=failed">Or browse recent failures</Link>
+      </p>
+    </section>
   );
 }
 

@@ -78,4 +78,49 @@ describe("SearchForm", () => {
     renderForm({ q: "x", environment: "staging" });
     expect(selected("Environment")).toBe("staging");
   });
+
+  it("outside the demo, shows the narrowing openly with no disclosure", () => {
+    const form = renderForm({});
+    expect(form.querySelector("details")).toBeNull();
+    expect(screen.getByLabelText("Search").getAttribute("placeholder")).toBe("0018Z00002ABC");
+  });
+});
+
+/** The public demo (ADR-069): the narrowing folds away until the URL uses it. */
+describe("SearchForm in the demo", () => {
+  const renderDemo = (params: Record<string, string>): HTMLDetailsElement | null => {
+    render(
+      <SearchForm filters={readSearchFilters(params, NOW)} environments={["production"]} demo />
+    );
+    return screen.getByRole("search").querySelector("details");
+  };
+
+  it("folds time, range and environment behind a closed Filters disclosure", () => {
+    const details = renderDemo({});
+    expect(details).not.toBeNull();
+    expect(details?.open).toBe(false);
+    expect(details?.querySelector("summary")?.textContent).toBe("Filters");
+    for (const label of ["Time", "From", "To", "Environment"]) {
+      expect(details?.contains(screen.getByLabelText(label)), label).toBe(true);
+    }
+    // The box itself stays outside it.
+    expect(details?.contains(screen.getByLabelText("Search"))).toBe(false);
+  });
+
+  it("suggests the sample record in the box", () => {
+    renderDemo({});
+    expect(screen.getByLabelText("Search").getAttribute("placeholder")).toBe("e.g. +1 555 0100");
+  });
+
+  it.each([
+    ["a time window", { window: "24h" }],
+    ["an environment", { environment: "production" }],
+    ["a custom range", { window: "custom", since: "2026-09-10T08:00" }]
+  ])("opens the disclosure when the URL sets %s", (_case, params) => {
+    expect(renderDemo({ q: "x", ...params })?.open).toBe(true);
+  });
+
+  it("stays closed for a search with no narrowing", () => {
+    expect(renderDemo({ q: "x" })?.open).toBe(false);
+  });
 });
