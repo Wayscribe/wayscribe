@@ -28,6 +28,16 @@ case "${DEPLOY_KEY}" in
     ;;
 esac
 
+# Ubuntu 26.04 ships sudo-rs, which has no regex in sudoers; the rule below
+# needs one. Refuse before anything changes. The path is overridable for tests.
+OS_RELEASE="${WAYSCRIBE_OS_RELEASE:-/etc/os-release}"
+os_id=$(sed -n 's/^ID=//p' "${OS_RELEASE}" 2>/dev/null | tr -d '"' | head -n 1) || os_id=
+os_version=$(sed -n 's/^VERSION_ID=//p' "${OS_RELEASE}" 2>/dev/null | tr -d '"' | head -n 1) || os_version=
+if [ "${os_id}" != ubuntu ] || [ "${os_version}" != 24.04 ]; then
+  echo "this host is ${os_id:-unknown} ${os_version:-unknown}: setup needs Ubuntu 24.04 (the sudoers rules use regexes that sudo-rs, on 26.04, does not support)" >&2
+  exit 1
+fi
+
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends docker.io docker-compose-v2 docker-buildx git curl openssl ufw
 systemctl enable --now docker

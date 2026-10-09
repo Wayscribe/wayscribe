@@ -129,7 +129,8 @@ dropped; Caddy is never slowed.
    root: `git clone --depth 1 --branch <tag> https://gitlab.com/jojithedev/wayscribe.git /opt/wayscribe`
    then `sh /opt/wayscribe/deploy/demo/host/setup.sh "<deploy public key>" <tag>`. It
    installs Docker, configures `ufw` and SSH, generates the secrets, installs the deploy
-   script, sudoers rule and timers, and runs the first reset.
+   script, sudoers rule and timers, and runs the first reset. It refuses to start on anything
+   but Ubuntu 24.04, because the sudoers rule needs regexes that Ubuntu 26.04's sudo-rs lacks.
 4. Jorge: step J4 (CI variables and the protected `v*` tag), then step J5.
 5. Check that `https://demo.wayscribe.dev` loads and shows the banner, and run
    `sh /opt/wayscribe/deploy/demo/smoke-check.sh https://demo.wayscribe.dev`.
