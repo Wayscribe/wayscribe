@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { JOURNEY_PRESETS } from "../../src/lib/journey-filters";
 import type { SearchFilters } from "../../src/lib/search-filters";
+import { DEMO_SEARCH } from "./DemoBanner";
 import { PendingForm, PendingSubmit } from "./PendingForm";
 
 /**
@@ -17,15 +18,80 @@ import { PendingForm, PendingSubmit } from "./PendingForm";
  */
 export function SearchForm({
   filters,
-  environments
+  environments,
+  demo = false
 }: {
   filters: SearchFilters;
   environments: readonly string[];
+  /**
+   * The public demo (ADR-069): a visitor arrives with no identifier, so the
+   * box suggests the pinned sample and the narrowing folds away behind a
+   * native disclosure, open only when the URL already narrows.
+   */
+  demo?: boolean;
 }): ReactElement {
   const environmentOptions =
     filters.environment === "" || environments.includes(filters.environment)
       ? environments
       : [...environments, filters.environment];
+
+  const narrowing = (
+    <div className="journey-filters search-narrowing">
+      <div className="field">
+        <label htmlFor="search-window" className="label">
+          Time
+        </label>
+        <select id="search-window" name="window" defaultValue={filters.window}>
+          <option value="">any time</option>
+          {Object.entries(JOURNEY_PRESETS).map(([value, { label }]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+          <option value="custom">custom range</option>
+        </select>
+      </div>
+      <fieldset className="range" aria-describedby="search-range-hint">
+        <legend className="label">Custom range, UTC</legend>
+        <label htmlFor="search-since" className="visually-hidden">
+          From
+        </label>
+        <input
+          id="search-since"
+          name="since"
+          type="datetime-local"
+          defaultValue={filters.sinceInput}
+        />
+        <span aria-hidden="true">to</span>
+        <label htmlFor="search-until" className="visually-hidden">
+          To
+        </label>
+        <input
+          id="search-until"
+          name="until"
+          type="datetime-local"
+          defaultValue={filters.untilInput}
+        />
+      </fieldset>
+      <div className="field">
+        <label htmlFor="search-environment" className="label">
+          Environment
+        </label>
+        <select id="search-environment" name="environment" defaultValue={filters.environment}>
+          <option value="">all</option>
+          {environmentOptions.map((environment) => (
+            <option key={environment} value={environment}>
+              {environment}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p id="search-range-hint" className="muted hint">
+        Time is a journey&apos;s last activity. The range applies when Time is set to custom range;
+        leave To empty for up to now.
+      </p>
+    </div>
+  );
 
   return (
     // Keyed on what the fields show, for the reason JourneyFilterBar gives: an
@@ -40,64 +106,34 @@ export function SearchForm({
       pendingMessage="Searching…"
     >
       <div className="search-row">
-        <input name="q" defaultValue={filters.q} placeholder="0018Z00002ABC" aria-label="Search" />
+        <input
+          name="q"
+          defaultValue={filters.q}
+          placeholder={demo ? `e.g. ${DEMO_SEARCH}` : "0018Z00002ABC"}
+          aria-label="Search"
+        />
         <PendingSubmit>Search</PendingSubmit>
       </div>
-      <div className="journey-filters search-narrowing">
-        <div className="field">
-          <label htmlFor="search-window" className="label">
-            Time
-          </label>
-          <select id="search-window" name="window" defaultValue={filters.window}>
-            <option value="">any time</option>
-            {Object.entries(JOURNEY_PRESETS).map(([value, { label }]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-            <option value="custom">custom range</option>
-          </select>
-        </div>
-        <fieldset className="range" aria-describedby="search-range-hint">
-          <legend className="label">Custom range, UTC</legend>
-          <label htmlFor="search-since" className="visually-hidden">
-            From
-          </label>
-          <input
-            id="search-since"
-            name="since"
-            type="datetime-local"
-            defaultValue={filters.sinceInput}
-          />
-          <span aria-hidden="true">to</span>
-          <label htmlFor="search-until" className="visually-hidden">
-            To
-          </label>
-          <input
-            id="search-until"
-            name="until"
-            type="datetime-local"
-            defaultValue={filters.untilInput}
-          />
-        </fieldset>
-        <div className="field">
-          <label htmlFor="search-environment" className="label">
-            Environment
-          </label>
-          <select id="search-environment" name="environment" defaultValue={filters.environment}>
-            <option value="">all</option>
-            {environmentOptions.map((environment) => (
-              <option key={environment} value={environment}>
-                {environment}
-              </option>
-            ))}
-          </select>
-        </div>
-        <p id="search-range-hint" className="muted hint">
-          Time is a journey&apos;s last activity. The range applies when Time is set to custom
-          range; leave To empty for up to now.
-        </p>
-      </div>
+      {demo ? (
+        // Native, so it opens and closes without JavaScript. Closed fields are
+        // still sent with the form.
+        <details className="search-filters" open={narrows(filters)}>
+          <summary>Filters</summary>
+          {narrowing}
+        </details>
+      ) : (
+        narrowing
+      )}
     </PendingForm>
+  );
+}
+
+/** Whether the URL sets any narrowing away from its default. */
+export function narrows(filters: SearchFilters): boolean {
+  return (
+    filters.window !== "" ||
+    filters.environment !== "" ||
+    filters.sinceInput !== "" ||
+    filters.untilInput !== ""
   );
 }

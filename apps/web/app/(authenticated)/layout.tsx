@@ -33,12 +33,13 @@ export default async function AuthenticatedLayout({
 
   if (session === null) redirect("/login");
 
+  const demo = anonymousReadOnly();
   return (
     <>
-      {anonymousReadOnly() ? <DemoBanner /> : null}
+      {demo ? <DemoBanner /> : null}
       <SiteNav />
       {children}
-      <VersionFooter />
+      <VersionFooter demo={demo} />
     </>
   );
 }
