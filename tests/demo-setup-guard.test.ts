@@ -6,7 +6,9 @@ import { afterAll, describe, expect, it } from "vitest";
 
 const SETUP = join(import.meta.dirname, "..", "deploy", "demo", "host", "setup.sh");
 const dir = mkdtempSync(join(tmpdir(), "setup-guard-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+afterAll(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
 
 // apt-get is the first command past the guard. The stub exits 97, so 97 means
 // "got past the guard" and the marker file proves it ran.
@@ -16,7 +18,7 @@ spawnSync("mkdir", ["-p", bin]);
 writeFileSync(join(bin, "apt-get"), `#!/bin/sh\ntouch '${marker}'\nexit 97\n`);
 chmodSync(join(bin, "apt-get"), 0o755);
 
-function run(osRelease: string | null) {
+function run(osRelease: string | null): ReturnType<typeof spawnSync> & { ranApt: boolean } {
   const path = join(dir, "os-release");
   rmSync(path, { force: true });
   rmSync(marker, { force: true });
@@ -28,7 +30,7 @@ function run(osRelease: string | null) {
   return { ...result, ranApt: spawnSync("test", ["-e", marker]).status === 0 };
 }
 
-const release = (id: string, version: string) =>
+const release = (id: string, version: string): string =>
   `NAME="x"\nVERSION_ID="${version}"\nID=${id}\nID_LIKE=debian\n`;
 
 describe("setup.sh OS guard", () => {
