@@ -10,6 +10,8 @@ where its data changed.**
 Free, self-hosted, and small enough to run on a laptop. No account, no hosted
 service, and nothing captured is sent anywhere you did not configure.
 
+**Live demo:** [demo.wayscribe.dev](https://demo.wayscribe.dev), read-only with sample data and no sign-in.
+
 Wayscribe was called Flight Recorder until September 2026.
 
 ![A customer's journey across two services, with the transformation step open

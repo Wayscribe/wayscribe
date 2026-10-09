@@ -321,6 +321,17 @@ describe("the landing page", () => {
     expect(video).toContain(`Download video (MP4, ${String(Math.round(bytes / 1e6))} MB)`);
     expect(existsSync(join(root, "site/public/videos/wayscribe-demo.en.vtt"))).toBe(false);
   });
+
+  it("links the live demo from the hero and beside the video", () => {
+    const hero = landing.slice(landing.indexOf("actions:"), landing.indexOf("---", 4));
+    expect(hero).toContain("text: Live demo");
+    expect(hero).toContain("link: https://demo.wayscribe.dev");
+    const afterVideo = landing.slice(
+      landing.indexOf("</figure>"),
+      landing.indexOf("## What it does")
+    );
+    expect(afterVideo).toContain("https://demo.wayscribe.dev");
+  });
 });
 
 describe("the wayscribe.dev/go import pages", () => {
