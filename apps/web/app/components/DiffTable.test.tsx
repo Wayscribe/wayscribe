@@ -1,5 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DiffChange } from "../../src/lib/api";
 import { displayChange, displayChanges, type DisplayedChange } from "../../src/lib/event-display";
@@ -160,5 +163,19 @@ describe("DiffTable", () => {
     rerender(<DiffTable key="event-2" changes={changes(30)} collapsible />);
     expect(tbodyRows()).toHaveLength(8);
     expect(screen.getByRole("button", { name: "Show 22 more changed fields" })).toBeInTheDocument();
+  });
+
+  // The demo's deploy smoke check (deploy/demo/smoke-check.sh) greps the
+  // server-rendered journey page for literal diff markup. Pinning the source
+  // text was not enough: adding table roles changed the rendered attributes
+  // while `className="mono removed"` still appeared in the source.
+  it("renders every diff pattern the demo smoke check looks for", () => {
+    const smoke = readFileSync(join(__dirname, "../../../../deploy/demo/smoke-check.sh"), "utf8");
+    const patterns = [...smoke.matchAll(/^\s*\*'([^']*)'\*\)/gm)].map((m) => m[1] ?? "");
+    expect(patterns.length).toBeGreaterThanOrEqual(2);
+    const html = renderToStaticMarkup(<DiffTable changes={displayChanges(DEMO)} collapsible />);
+    for (const pattern of patterns) {
+      expect(html, pattern).toContain(pattern);
+    }
   });
 });

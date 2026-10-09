@@ -53,11 +53,17 @@ case "${journey}" in
   *"What changed"*) ;;
   *) fail "the pinned journey's transform step shows no diff" ;;
 esac
-# The banner on every page also contains the text "${PINNED_PHONE}", so match the
-# diff's own markup: a removed-value cell (DiffTable.tsx, values via JSON.stringify).
+# The alias line and the payloads also contain "${PINNED_PHONE}", so match the
+# diff's own markup: a removed-value cell (DiffTable.tsx, values via
+# JSON.stringify), on the row flagged as a lost value. DiffTable.test.tsx renders
+# the demo diff and checks these exact strings against it.
 case "${journey}" in
-  *'class="mono removed">&quot;+1 555 0100&quot;</td>'*) ;;
+  *'class="mono removed" role="cell">&quot;+1 555 0100&quot;</td>'*) ;;
   *) fail "the diff has no removed-value cell showing ${PINNED_PHONE}" ;;
+esac
+case "${journey}" in
+  *'>value lost<'*) ;;
+  *) fail "the diff does not flag ${PINNED_PHONE} as a lost value" ;;
 esac
 
 echo "smoke-check: ok ${BASE}"
