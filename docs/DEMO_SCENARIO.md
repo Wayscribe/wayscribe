@@ -214,3 +214,26 @@ Then open the web UI and search:
 ```text
 0018Z00002ABC
 ```
+
+## 13. Other failure shapes
+
+The defect above is the demo's story, and the reference journey (and the public demo's
+pinned `+1 555 0100` journey) always fail that way. A demo whose every failure is that one
+journey reads as canned, so the public demo's loop and its generated history also fail in
+other ways a Salesforce-to-target sync really does. One definition,
+`apps/demo/src/failures.ts`, drives the loop, the worker, the target and the history.
+
+| Shape | Share of failures | What goes wrong | Events | Ends at |
+|---|---|---|---|---|
+| `dead-letter` | 40% | the defect: `phone_required` on all three attempts | 10 | `move-message-to-dead-letter` |
+| `schema-rejected` | 20% | `Status__c` is `Former Customer`, which the target's `status` enum refuses with 422 `invalid_property_value`; the worker does not retry it | 7 | `deliver-customer-to-target` |
+| `timeout` | 15% | the target is slow for the account, every attempt times out after 6 seconds, the worker backs off 4, 8 and 16 seconds, and the queue dead-letters it | 10 | `move-message-to-dead-letter` |
+| `transform-failed` | 15% | the webhook arrives without `Status__c`, and the transformation throws | 2 | `transform-salesforce-account` |
+| `persist-failed` | 10% | the webhook arrives without `Name`, and the insert breaks `name not null` | 3 | `persist-customer` |
+
+The worker gives up at once only on a target error it knows no retry can change
+(`invalid_property_value`). It still retries `phone_required`, which is the second half of
+the defect: three attempts at a payload that could never succeed.
+
+`POST /trigger` takes a `shape` field naming one of these, and the end-to-end test
+triggers each.

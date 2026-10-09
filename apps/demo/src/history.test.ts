@@ -1,17 +1,29 @@
+import { createHash } from "node:crypto";
 import { normalizeSearchValue } from "@wayscribe/payload-security";
+import { parseEnvelope } from "@wayscribe/protocol";
 import { describe, expect, it } from "vitest";
+import { contactResponse } from "./contacts.js";
+import { isPermanentRejection } from "./delivery.js";
+import {
+  DELIVERY_TIMEOUT_MS,
+  FAILURE_SHAPES,
+  isSlowAccount,
+  type FailureShape
+} from "./failures.js";
 import {
   generateHistory,
   historyEnvelopes,
-  loopAccount,
+  loopRun,
   PINNED_ACCOUNT_ID,
   PINNED_JOURNEY_ID,
   PINNED_PHONE,
   PINNED_TRANSFORM_EVENT_ID,
   pinnedEnvelopes,
   type HistoryEnvelope,
-  type HistoryEvent
+  type HistoryEvent,
+  type LoopRun
 } from "./history.js";
+import { transformAccount } from "./transform.js";
 
 /** mulberry32: a seeded generator, so a failure here is reproducible. */
 function seeded(seed: number): () => number {
@@ -69,20 +81,89 @@ describe("generateHistory", () => {
     }
   });
 
-  it("fails about a fifth of journeys, the ones whose account lacks Phone__c", () => {
+  it("fails about a fifth of journeys; only the dead-letter ones lack Phone__c", () => {
     const history = generateHistory(options);
     const failed = history.filter((customer) => customer.fails);
     expect(failed.length / history.length).toBeGreaterThan(0.12);
     expect(failed.length / history.length).toBeLessThan(0.28);
     for (const customer of history) {
-      expect(customer.account.Phone__c === undefined).toBe(customer.fails);
+      expect(customer.failure !== undefined).toBe(customer.fails);
+      expect(customer.account.Phone__c === undefined).toBe(customer.failure === "dead-letter");
+    }
+  });
+
+  it("fails in several shapes, with different lengths, spans and last steps", () => {
+    const failed = generateHistory(options).filter((customer) => customer.fails);
+    const shapes = new Map<string, { count: number; spanMs: number; last: string }>();
+    for (const customer of failed) {
+      const events = eventsOf(historyEnvelopes(customer, "development"));
+      const times = events.map((event) => Date.parse(event.timestamp));
+      const shape = {
+        count: events.length,
+        spanMs: Math.max(...times) - Math.min(...times),
+        last: events.at(-1)?.name ?? ""
+      };
+      // Every journey of one shape looks the same, so one sample stands for it.
+      const seen = shapes.get(customer.failure ?? "");
+      if (seen !== undefined) expect(shape).toEqual(seen);
+      shapes.set(customer.failure ?? "", shape);
+      // Every failed journey ends on a step that carries an error.
+      expect(events.at(-1)?.error?.message).toBeTruthy();
+    }
+
+    expect([...shapes.keys()].sort()).toEqual([...FAILURE_SHAPES].sort());
+    const all = [...shapes.values()];
+    expect(new Set(all.map((shape) => shape.last)).size).toBeGreaterThanOrEqual(3);
+    expect(new Set(all.map((shape) => shape.count)).size).toBeGreaterThanOrEqual(2);
+    expect(shapes.get("dead-letter")).toEqual({
+      count: 10,
+      spanMs: 9_400,
+      last: "move-message-to-dead-letter"
+    });
+    expect(shapes.get("schema-rejected")).toMatchObject({
+      count: 7,
+      last: "deliver-customer-to-target"
+    });
+    expect(shapes.get("timeout")).toMatchObject({ count: 10, last: "move-message-to-dead-letter" });
+    expect(shapes.get("timeout")?.spanMs).toBeGreaterThanOrEqual(30_000);
+    expect(shapes.get("timeout")?.spanMs).toBeLessThanOrEqual(90_000);
+    expect(shapes.get("transform-failed")).toMatchObject({
+      count: 2,
+      last: "transform-salesforce-account"
+    });
+    expect(shapes.get("persist-failed")).toMatchObject({ count: 3, last: "persist-customer" });
+  });
+
+  it("keeps the defect the commonest failure, and draws the same shapes for the same seed", () => {
+    const failures = (seed: number): (FailureShape | undefined)[] =>
+      generateHistory({ ...options, random: seeded(seed) }).map((customer) => customer.failure);
+    expect(failures(7)).toEqual(failures(7));
+    const counts = new Map<string, number>();
+    for (const failure of failures(7)) {
+      if (failure !== undefined) counts.set(failure, (counts.get(failure) ?? 0) + 1);
+    }
+    const commonest = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    expect(commonest).toBe("dead-letter");
+  });
+
+  it("produces only envelopes the ingestion API accepts", () => {
+    const history = generateHistory(options);
+    const envelopes = [
+      ...pinnedEnvelopes(NOW, "development"),
+      ...history.flatMap((customer) => historyEnvelopes(customer, "development"))
+    ];
+    for (const envelope of envelopes) {
+      const parsed = parseEnvelope(envelope);
+      expect(parsed.ok ? "ok" : JSON.stringify(parsed.details), envelope.event.id).toBe("ok");
     }
   });
 });
 
 describe("historyEnvelopes", () => {
   it("records the live services' steps in time order, ending failed or completed", () => {
-    const [failing] = generateHistory({ ...options, failureRate: 1 });
+    const failing = generateHistory({ ...options, failureRate: 1 }).find(
+      (customer) => customer.failure === "dead-letter"
+    );
     const [passing] = generateHistory({ ...options, failureRate: 0 });
     for (const [customer, last] of [
       [failing, "failed"],
@@ -119,18 +200,72 @@ describe("pinnedEnvelopes", () => {
   it("is deterministic for a given now", () => {
     expect(pinnedEnvelopes(NOW, "development")).toEqual(pinnedEnvelopes(NOW, "development"));
   });
+
+  it("is byte for byte the journey the docs, the site and the smoke check describe", () => {
+    // Recorded before failure shapes were added. A change here changes what
+    // the banner, DEMO_SCENARIO.md and the smoke check point at: update them
+    // together, then this digest.
+    const digest = createHash("sha256")
+      .update(JSON.stringify(pinnedEnvelopes(NOW, "development")))
+      .digest("hex");
+    expect(digest).toBe("2a782328ec371be628fec8f6dc003140a10ba7760aa633edcb7a054b8f5562a0");
+  });
 });
 
-describe("loopAccount", () => {
-  it("fails about a fifth of runs and gives each run its own account id", () => {
+describe("loopRun", () => {
+  const runs = (): LoopRun[] => {
     const random = seeded(11);
-    const accounts = Array.from({ length: 1000 }, (_, i) =>
-      loopAccount(new Date(NOW.getTime() + i), random, 0.2)
+    return Array.from({ length: 1000 }, (_, i) =>
+      loopRun(new Date(NOW.getTime() + i), random, 0.2)
     );
-    const failing = accounts.filter((account) => account.Phone__c === undefined).length;
-    expect(failing / accounts.length).toBeGreaterThan(0.15);
-    expect(failing / accounts.length).toBeLessThan(0.25);
-    expect(new Set(accounts.map((account) => normalizeSearchValue(account.Id))).size).toBe(1000);
-    expect(accounts.map((account) => account.Phone)).not.toContain(PINNED_PHONE);
+  };
+
+  it("fails about a fifth of runs and gives each run its own account id", () => {
+    const all = runs();
+    const failing = all.filter((run) => run.failure !== undefined).length;
+    expect(failing / all.length).toBeGreaterThan(0.15);
+    expect(failing / all.length).toBeLessThan(0.25);
+    expect(new Set(all.map((run) => normalizeSearchValue(run.account.Id))).size).toBe(1000);
+    expect(all.map((run) => run.account.Phone)).not.toContain(PINNED_PHONE);
+  });
+
+  it("fails in every shape, the defect commonest, and the same mix for the same seed", () => {
+    expect(runs()).toEqual(runs());
+    const counts = new Map<string, number>();
+    for (const { failure } of runs()) {
+      if (failure !== undefined) counts.set(failure, (counts.get(failure) ?? 0) + 1);
+    }
+    expect([...counts.keys()].sort()).toEqual([...FAILURE_SHAPES].sort());
+    expect([...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]).toBe("dead-letter");
+  });
+
+  it("sends accounts that fail the way their shape says, through the real transform and target", () => {
+    for (const { account, failure } of runs()) {
+      expect(account.Phone__c === undefined, account.Id).toBe(failure === "dead-letter");
+      expect(isSlowAccount(account.Id), account.Id).toBe(failure === "timeout");
+
+      if (failure === "transform-failed") {
+        expect(() => transformAccount(account)).toThrow(TypeError);
+        continue;
+      }
+      const customer = transformAccount(account);
+      if (failure === "persist-failed") {
+        // The insert's `name not null` refuses it; the database is not here.
+        expect(customer.name).toBeUndefined();
+        continue;
+      }
+      expect(customer.name).toEqual(expect.any(String));
+
+      const answer = contactResponse(customer);
+      const expected = {
+        undefined: 201,
+        timeout: 201,
+        "dead-letter": 422,
+        "schema-rejected": 422
+      }[String(failure) as "undefined" | "timeout" | "dead-letter" | "schema-rejected"];
+      expect(answer.status, account.Id).toBe(expected);
+      expect(answer.delayMs > DELIVERY_TIMEOUT_MS).toBe(failure === "timeout");
+      expect(isPermanentRejection(answer)).toBe(failure === "schema-rejected");
+    }
   });
 });

@@ -235,3 +235,99 @@ describe("the reference journey", () => {
     expect(journeyIdsIn(await get("/v1/search?q=18492"))).toContain(journeyId);
   });
 });
+
+/**
+ * The other ways a journey fails (failures.ts), which the public demo's loop
+ * sends alongside the defect. Triggered after the reference journey, so its
+ * internal customer ID stays 18492.
+ */
+describe("the other failure shapes", () => {
+  const run = Date.now().toString(36).toUpperCase();
+  const cases = [
+    { shape: "schema-rejected", id: `0018ZSR${run}`, count: 7, last: "deliver-customer-to-target" },
+    { shape: "timeout", id: `0018ZTO${run}`, count: 10, last: "move-message-to-dead-letter" },
+    {
+      shape: "transform-failed",
+      id: `0018ZTF${run}`,
+      count: 2,
+      last: "transform-salesforce-account"
+    },
+    { shape: "persist-failed", id: `0018ZPF${run}`, count: 3, last: "persist-customer" }
+  ] as const;
+  const journeys = new Map<string, { journeyId: string; events: EventItem[] }>();
+
+  /** The Salesforce ID as the source sent it: a timeout's carries the slow-account marker. */
+  const sentId = (shape: string, id: string): string =>
+    shape === "timeout" ? `001TO${id.slice(5)}` : id;
+
+  beforeAll(async () => {
+    if (projectId === "") projectId = await resolveDemoProject();
+    await Promise.all(
+      cases.map(async ({ shape, id, count, last }) => {
+        // The integration answers 500 when the transform or the insert throws,
+        // so the journey is found by searching for the account, as a person would.
+        await fetch(`${SOURCE}/trigger`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ Id: id, shape })
+        });
+
+        const deadline = Date.now() + 110_000;
+        for (;;) {
+          const hits = journeyIdsIn(await get(`/v1/search?q=${sentId(shape, id)}`));
+          const journeyId = hits[0];
+          if (journeyId !== undefined) {
+            const page = await get(`/v1/journeys/${journeyId}/events`);
+            const events = (page["items"] ?? []) as EventItem[];
+            if (events.length >= count && events.at(-1)?.name === last) {
+              journeys.set(shape, { journeyId, events });
+              return;
+            }
+          }
+          if (Date.now() > deadline) throw new Error(`The ${shape} journey never finished.`);
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+        }
+      })
+    );
+  });
+
+  const errorOf = async (event: EventItem | undefined): Promise<Record<string, unknown>> =>
+    (await get(`/v1/events/${event?.id ?? ""}`))["error"] as Record<string, unknown>;
+
+  it.each(cases)("$shape ends failed at $last after $count events", async (expected) => {
+    const journey = journeys.get(expected.shape);
+    expect(journey?.events).toHaveLength(expected.count);
+    expect(journey?.events.at(-1)?.hasError).toBe(true);
+    const summary = await get(`/v1/journeys/${journey?.journeyId ?? ""}`);
+    expect(summary["status"]).toBe("failed");
+  });
+
+  it("refuses an unmapped status once, with the target's reason, and no retry", async () => {
+    const events = journeys.get("schema-rejected")?.events ?? [];
+    expect(events.filter((event) => event.name === "retry-customer-delivery")).toHaveLength(0);
+    const error = await errorOf(events.at(-1));
+    expect(error["code"]).toBe("invalid_property_value");
+  });
+
+  it("times out every delivery, then dead-letters with the reason", async () => {
+    const events = journeys.get("timeout")?.events ?? [];
+    const deliveries = events.filter((event) =>
+      ["deliver-customer-to-target", "retry-customer-delivery"].includes(event.name)
+    );
+    expect(deliveries).toHaveLength(3);
+    for (const delivery of deliveries) {
+      expect((await errorOf(delivery))["type"]).toBe("TimeoutError");
+    }
+    expect((await errorOf(events.at(-1)))["message"]).toBe(
+      "Delivery timed out on every attempt; the message moved to the dead-letter queue."
+    );
+  });
+
+  it("records the transform's own error and the database's constraint", async () => {
+    const transform = await errorOf(journeys.get("transform-failed")?.events.at(-1));
+    expect(transform["type"]).toBe("TypeError");
+    const persist = await errorOf(journeys.get("persist-failed")?.events.at(-1));
+    expect(persist["code"]).toBe("23502");
+    expect(persist["message"]).toContain('null value in column "name"');
+  });
+});

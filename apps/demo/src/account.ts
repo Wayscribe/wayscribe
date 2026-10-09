@@ -1,3 +1,5 @@
+import { accountFor, isFailureShape } from "./failures.js";
+
 /**
  * The Salesforce account shape, as `DEMO_SCENARIO.md` section 3 defines it.
  *
@@ -44,4 +46,18 @@ export function accountFrom(overrides: unknown): SalesforceAccount {
   // reads, so setting it is how a caller asks for the journey that succeeds.
   const custom = text("Phone__c");
   return custom === undefined ? account : { ...account, Phone__c: custom };
+}
+
+/**
+ * The account `POST /trigger` sends: `accountFrom`, then shaped to fail the way
+ * a `shape` field names (failures.ts), when it names one. Any other `shape` is
+ * ignored, as `accountFrom` ignores any other unknown key.
+ */
+export function triggerAccount(body: unknown): SalesforceAccount {
+  const account = accountFrom(body);
+  const shape =
+    typeof body === "object" && body !== null
+      ? (body as Record<string, unknown>)["shape"]
+      : undefined;
+  return isFailureShape(shape) ? accountFor(account, shape) : account;
 }

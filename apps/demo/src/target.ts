@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { contactResponse } from "./contacts.js";
 
 /**
  * Stands in for HubSpot.
@@ -12,16 +13,10 @@ const app = Fastify({ logger: true });
 
 app.get("/health", () => ({ status: "ok" }));
 
-app.post("/contacts", (request, reply) => {
-  const body = request.body as { externalId?: string; phone?: string | null };
-
-  if (body.phone === null || body.phone === undefined || body.phone === "") {
-    return reply.code(422).send({
-      error: { code: "phone_required", message: "A phone number is required." }
-    });
-  }
-
-  return reply.code(201).send({ id: `contact_${body.externalId ?? "unknown"}` });
+app.post("/contacts", async (request, reply) => {
+  const { delayMs, status, body } = contactResponse(request.body);
+  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  return reply.code(status).send(body);
 });
 
 await app.listen({ host: "0.0.0.0", port: 3300 });

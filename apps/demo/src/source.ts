@@ -1,7 +1,7 @@
 import Fastify from "fastify";
-import { accountFrom } from "./account.js";
+import { triggerAccount } from "./account.js";
 import { optionalEnv } from "./env.js";
-import { loopAccount } from "./history.js";
+import { loopRun } from "./history.js";
 
 /**
  * Stands in for Salesforce. Not instrumented, for the same reason
@@ -20,10 +20,12 @@ app.get("/health", () => ({ status: "ok" }));
  * overrides the account's fields, so the demo can produce more than one journey
  * to look at: another customer, or the same account carrying `Phone__c`, which
  * the broken transformation does read and which therefore reaches the target
- * and completes. The stack stays the only source of the data either way.
+ * and completes. A `shape` names one of the failure shapes (failures.ts) and
+ * shapes the account to fail that way. The stack stays the only source of the
+ * data either way.
  */
 app.post("/trigger", async (request, reply) => {
-  const account = accountFrom(request.body);
+  const account = triggerAccount(request.body);
   const response = await fetch(`${integrationUrl}/webhooks/salesforce`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -36,8 +38,9 @@ app.post("/trigger", async (request, reply) => {
 
 /**
  * The public demo's live traffic: one new customer every DEMO_LOOP_INTERVAL_MS
- * (60000 there), about a fifth of them without `Phone__c`, so they take the
- * 422, retry, dead-letter path. Unset or 0, as everywhere else, means no loop.
+ * (60000 there), about a fifth of them failing, in the shapes and at the odds
+ * the history uses (failures.ts), so the newest failed journeys are not one
+ * journey repeated. Unset or 0, as everywhere else, means no loop.
  * A failed trigger is logged and the loop goes on: the integration may still be
  * starting.
  */
@@ -55,7 +58,7 @@ if (
 }
 if (Number.isInteger(loopIntervalMs) && loopIntervalMs > 0) {
   setInterval(() => {
-    const account = loopAccount(new Date(), Math.random);
+    const { account } = loopRun(new Date(), Math.random);
     void fetch(`${integrationUrl}/webhooks/salesforce`, {
       method: "POST",
       headers: { "content-type": "application/json" },
