@@ -14,6 +14,18 @@ RUN pnpm --filter @wayscribe/demo... build
 RUN find . -name node_modules -type d -prune -exec rm -rf {} + \
  && CI=true pnpm --filter @wayscribe/demo... install --prod --ignore-scripts
 
+# Everything the runtime never executes, as in apps/api/Dockerfile: the demo
+# runs `dist`, so tests, TypeScript sources and the other applications are dead
+# weight, and the test fixtures hold credential-shaped strings that a scanner
+# reading a published image cannot tell from a leak. packages/sdk-node stays: the
+# demo imports it. scripts/verify-image-contents.sh demo checks the result.
+RUN rm -rf apps/api apps/web packages/protocol/conformance tests \
+ && find . -path ./node_modules -prune -o -type d -name src -print0 \
+      | xargs -0 -r rm -rf \
+ && find . -path ./node_modules -prune -o -type f \
+      \( -name '*.test.ts' -o -name '*.spec.ts' -o -name 'tsconfig*.json' \) -print0 \
+      | xargs -0 -r rm -f
+
 FROM node:24-alpine AS runtime
 # The base image lags Alpine's own security releases by days to weeks. Upgrading
 # its packages here means a fix Alpine has already published (libcrypto3 3.5.8
@@ -28,6 +40,10 @@ LABEL org.opencontainers.image.source="https://gitlab.com/jojithedev/wayscribe"
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /app /app
+# Apache-2.0 asks a redistributor to pass on the LICENSE and NOTICE, and this
+# image is published. Same path as the API and web images;
+# scripts/verify-image-contents.sh checks they are there.
+COPY --from=build /app/LICENSE /app/NOTICE /licenses/
 
 # The base image ships npm and corepack, and neither is used at runtime — the
 # container runs `node` directly. Container scanning reported seven CVEs against

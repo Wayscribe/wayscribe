@@ -10,20 +10,21 @@
 # This runs against the built image rather than reading the Dockerfile, because
 # the question is what shipped, not what the build intended to ship.
 #
-# Usage: scripts/verify-image-contents.sh <image> [api|web]
+# Usage: scripts/verify-image-contents.sh <image> [api|web|demo]
 #
 # The kind defaults to api, which runs every check below. web runs only the
 # checks that apply to the web image: the legal files and its entry point. The
 # rest are written against the API image's layout, a whole workspace tree under
-# /app, which the web image, a Next standalone bundle, does not have.
+# /app, which the web image, a Next standalone bundle, does not have. demo is
+# the same kind of tree, so it gets the absence checks and its own entry points.
 set -eu
 
-IMAGE="${1:?usage: verify-image-contents.sh <image> [api|web]}"
+IMAGE="${1:?usage: verify-image-contents.sh <image> [api|web|demo]}"
 KIND="${2:-api}"
 case "$KIND" in
-  api | web) ;;
+  api | web | demo) ;;
   *)
-    echo "usage: verify-image-contents.sh <image> [api|web]" >&2
+    echo "usage: verify-image-contents.sh <image> [api|web|demo]" >&2
     exit 2
     ;;
 esac
@@ -49,6 +50,85 @@ for FILE in /licenses/LICENSE /licenses/NOTICE; do
   report "$FILE present" "$RC"
 done
 
+# Nothing under node_modules is our doing — a dependency shipping its own tests
+# is that dependency's decision, and pruning it is a job for the package manager.
+count_in_image() {
+  # `wc -l` pads its output on some shells, so the result is stripped rather
+  # than compared as a string.
+  docker run --rm --entrypoint sh "$IMAGE" -c "$1" | tr -d '[:space:]'
+}
+
+# Present is not the same as loadable: pruning a directory an entry point
+# imports leaves the file in place and breaks it on first use.
+#
+# The check that used to live here ran the CLI with no arguments and accepted
+# any output mentioning DATABASE_URL. The CLI exits on that guard at the top of
+# the file, and every subcommand is behind a dynamic import, so nothing past the
+# guard was ever resolved: deleting payload-diff/dist and payload-security/dist
+# left this green while the server could not start. It proved the file existed,
+# which the check above already did.
+#
+# So both entry points are made to resolve their whole graph, and the failure
+# looked for is `ERR_MODULE_NOT_FOUND` specifically. In ESM the module graph is
+# evaluated before the entry module's body runs, so a missing workspace `dist`
+# surfaces ahead of any configuration guard, and the two are told apart by what
+# is printed rather than by an exit code they share.
+loads() {
+  NAME="$1"
+  OUTPUT=$(docker run --rm --entrypoint sh "$IMAGE" -c "$2" 2>&1 || true)
+  case "$OUTPUT" in
+    *ERR_MODULE_NOT_FOUND* | *"Cannot find module"* | *"Cannot find package"*)
+      report "$NAME resolves its imports" 1
+      echo "        $(echo "$OUTPUT" | grep -m1 'Cannot find')"
+      return
+      ;;
+  esac
+  case "$OUTPUT" in
+    *$3*) report "$NAME resolves its imports" 0 ;;
+    *)
+      report "$NAME resolves its imports" 1
+      echo "        unexpected output: $(echo "$OUTPUT" | head -3)"
+      ;;
+  esac
+}
+
+if [ "$KIND" = "demo" ]; then
+  # The demo image is the API image's layout minus the API. Its sdk-node and
+  # protocol packages stay (the demo imports both), so what is asserted absent
+  # is the applications it does not run, the fixtures and the repository folders.
+  COUNT=$(count_in_image 'find /app -path /app/node_modules -prune -o -type f \( -name "*.test.*" -o -name "*.spec.*" \) -print | wc -l')
+  report "no test files (found $COUNT)" "$([ "$COUNT" -eq 0 ] && echo 0 || echo 1)"
+  COUNT=$(count_in_image 'find /app -path /app/node_modules -prune -o -type d -name src -print | wc -l')
+  report "no source directories (found $COUNT)" "$([ "$COUNT" -eq 0 ] && echo 0 || echo 1)"
+  for DIR in /app/apps/api /app/apps/web /app/packages/protocol/conformance /app/tests /app/video /app/site; do
+    docker run --rm --entrypoint sh "$IMAGE" -c "test ! -e $DIR" && RC=0 || RC=1
+    report "$DIR absent" "$RC"
+  done
+  MARKER='cfx''-fake'
+  COUNT=$(count_in_image "find /app -path /app/node_modules -prune -o -type f ! -name .gitleaks.toml -print0 | xargs -0 -r grep -l '$MARKER' 2>/dev/null | wc -l")
+  report "no conformance fixture values (found $COUNT files)" "$([ "$COUNT" -eq 0 ] && echo 0 || echo 1)"
+  # Every command the compose files run, bootstrap through backfill.
+  for NAME in bootstrap source target integration worker backfill; do
+    docker run --rm --entrypoint sh "$IMAGE" -c "test -f /app/apps/demo/dist/$NAME.js" && RC=0 || RC=1
+    report "/app/apps/demo/dist/$NAME.js present" "$RC"
+  done
+  # The entry points start servers and connect on import, so resolution is
+  # checked on modules that only import: between them they reach the database,
+  # sdk-node (recorder), payload-security and protocol (history) packages.
+  for NAME in account batches history recorder; do
+    loads "demo $NAME" "node --input-type=module -e 'await import(\"/app/apps/demo/dist/$NAME.js\"); console.log(\"LOADED\")'" "LOADED"
+  done
+  # bootstrap is the one entry that imports the database package, and it
+  # connects on import, so the package is resolved from the demo directly.
+  loads "demo database package" "cd /app/apps/demo && node --input-type=module -e 'await import(\"@wayscribe/database\"); console.log(\"LOADED\")'" "LOADED"
+  if [ "$FAILED" -ne 0 ]; then
+    echo "Image contains files it should not, or is missing files it must have."
+    exit 1
+  fi
+  echo "Image contents verified."
+  exit 0
+fi
+
 if [ "$KIND" = "web" ]; then
   docker run --rm --entrypoint sh "$IMAGE" -c "test -f /app/apps/web/server.js" && RC=0 || RC=1
   report "/app/apps/web/server.js present" "$RC"
@@ -59,14 +139,6 @@ if [ "$KIND" = "web" ]; then
   echo "Image contents verified."
   exit 0
 fi
-
-# Nothing under node_modules is our doing — a dependency shipping its own tests
-# is that dependency's decision, and pruning it is a job for the package manager.
-count_in_image() {
-  # `wc -l` pads its output on some shells, so the result is stripped rather
-  # than compared as a string.
-  docker run --rm --entrypoint sh "$IMAGE" -c "$1" | tr -d '[:space:]'
-}
 
 COUNT=$(count_in_image 'find /app -path /app/node_modules -prune -o -type f \( -name "*.test.*" -o -name "*.spec.*" \) -print | wc -l')
 report "no test files (found $COUNT)" "$([ "$COUNT" -eq 0 ] && echo 0 || echo 1)"
@@ -116,40 +188,6 @@ for FILE in /app/apps/api/dist/server.js /app/packages/database/dist/cli.js; do
   docker run --rm --entrypoint sh "$IMAGE" -c "test -f $FILE" && RC=0 || RC=1
   report "$FILE present" "$RC"
 done
-
-# Present is not the same as loadable: pruning a directory an entry point
-# imports leaves the file in place and breaks it on first use.
-#
-# The check that used to live here ran the CLI with no arguments and accepted
-# any output mentioning DATABASE_URL. The CLI exits on that guard at the top of
-# the file, and every subcommand is behind a dynamic import, so nothing past the
-# guard was ever resolved: deleting payload-diff/dist and payload-security/dist
-# left this green while the server could not start. It proved the file existed,
-# which the check above already did.
-#
-# So both entry points are made to resolve their whole graph, and the failure
-# looked for is `ERR_MODULE_NOT_FOUND` specifically. In ESM the module graph is
-# evaluated before the entry module's body runs, so a missing workspace `dist`
-# surfaces ahead of any configuration guard, and the two are told apart by what
-# is printed rather than by an exit code they share.
-loads() {
-  NAME="$1"
-  OUTPUT=$(docker run --rm --entrypoint sh "$IMAGE" -c "$2" 2>&1 || true)
-  case "$OUTPUT" in
-    *ERR_MODULE_NOT_FOUND* | *"Cannot find module"* | *"Cannot find package"*)
-      report "$NAME resolves its imports" 1
-      echo "        $(echo "$OUTPUT" | grep -m1 'Cannot find')"
-      return
-      ;;
-  esac
-  case "$OUTPUT" in
-    *$3*) report "$NAME resolves its imports" 0 ;;
-    *)
-      report "$NAME resolves its imports" 1
-      echo "        unexpected output: $(echo "$OUTPUT" | head -3)"
-      ;;
-  esac
-}
 
 # The server statically imports config, database, protocol, payload-security and
 # payload-diff, so reaching its own configuration error means all five resolved.

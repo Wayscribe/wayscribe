@@ -587,6 +587,8 @@ container-scan:
     # The web image gets the checks that apply to a Next standalone bundle:
     # the legal files and its entry point.
     - ./scripts/verify-image-contents.sh scan/web:$CI_COMMIT_SHA web
+    # The demo image gets the absence checks, its entry points and a load check.
+    - ./scripts/verify-image-contents.sh scan/demo:$CI_COMMIT_SHA demo
     - |
       for image in scan/api:$CI_COMMIT_SHA scan/web:$CI_COMMIT_SHA scan/demo:$CI_COMMIT_SHA; do
         echo "=== $image ==="

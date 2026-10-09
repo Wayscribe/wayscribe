@@ -19,6 +19,7 @@ examples
 test-results
 playwright-report
 .superpowers
+.claude
 .pnpm-store
 *.md
 !README.md
