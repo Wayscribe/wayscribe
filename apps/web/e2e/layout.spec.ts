@@ -212,38 +212,36 @@ test.describe("the Journeys table", () => {
       await expect(shown.nth(0)).toHaveText(`${LONG_ALIASES.company.slice(0, 199)}…`);
 
       // No environment is chosen, so the list spans environments and the
-      // Environment column is present; a phone drops it with the other two.
-      // A CSS locator: a hidden header leaves the accessibility tree, so a role
-      // query could not tell "hidden" from "not rendered".
+      // Environment column is present. A CSS locator: a hidden header leaves
+      // the accessibility tree, so a role query could not tell "hidden" from
+      // "not rendered".
       const environment = page.locator("thead th.col-environment");
       await expect(environment).toHaveCount(1);
+      await expect(page.locator("tbody td.col-environment").first()).toHaveText("development");
+      await expect(page.locator("tbody td.col-environment").first()).toBeVisible();
       if (width === 400) {
-        await expect(environment).toBeHidden();
-        // Phones see the short labels; assistive technology keeps the full ones.
-        for (const [column, short, full] of [
-          ["col-activity", "When", "Last activity"],
-          ["col-span", "Span", "Recorded span"],
-          ["col-shown", "Item", "Shown as"],
-          ["col-events", "#", "Events"]
+        // A phone shows cards: the headers are hidden from sight only, so
+        // assistive technology still has every column's full name.
+        for (const [column, full] of [
+          ["col-activity", "Last activity"],
+          ["col-span", "Recorded span"],
+          ["col-shown", "Shown as"],
+          ["col-events", "Events"]
         ] as const) {
-          const header = page.locator(`thead th.${column}`);
-          await expect(header.locator(".header-short")).toBeVisible();
-          await expect(header.locator(".header-short")).toHaveText(short);
-          await expect(header).toHaveAccessibleName(full);
+          await expect(page.locator(`thead th.${column}`)).toHaveAccessibleName(full);
         }
       } else {
         await expect(environment).toBeVisible();
-        await expect(page.locator("tbody td.col-environment").first()).toHaveText("development");
+        const cutHeaders = await page.locator("thead th").evaluateAll((headers) =>
+          headers
+            .filter((header) => header.getClientRects().length > 0)
+            .filter((header) => header.scrollWidth > header.clientWidth)
+            .map((header) => header.textContent)
+        );
+        expect(cutHeaders).toEqual([]);
       }
 
       expect(await horizontalOverflow(page)).toBe(0);
-      const cutHeaders = await page.locator("thead th").evaluateAll((headers) =>
-        headers
-          .filter((header) => header.getClientRects().length > 0)
-          .filter((header) => header.scrollWidth > header.clientWidth)
-          .map((header) => header.textContent)
-      );
-      expect(cutHeaders).toEqual([]);
 
       // The table keeps to the page, and each long value is cut rather than wrapped.
       const tableBox = await page.locator("table").boundingBox();
@@ -255,11 +253,62 @@ test.describe("the Journeys table", () => {
           true
         );
         const box = await cell.boundingBox();
-        // One line: no taller than two lines of the table's text.
-        expect(box?.height).toBeLessThan(40);
+        // One line: no taller than two lines of the table's text, or than a
+        // tap target on a phone's card.
+        expect(box?.height).toBeLessThanOrEqual(width === 400 ? 44 : 40);
       }
     });
   }
+
+  // A phone at 375 px. Eight columns once squeezed "Shown as", each row's only
+  // link, to 3 px wide; each journey is now a card whose first line is that
+  // link, the card's full width and a full tap target tall.
+  test("gives every journey a full-width tap target on a phone at 375 px", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    await signIn(page, JOURNEY_ID);
+    await page.goto(`/journeys?status=failed&service=${LIST_SERVICE}`);
+    const links = page.locator("tbody td.col-shown a");
+    await expect(links).toHaveCount(2);
+
+    expect(await horizontalOverflow(page)).toBe(0);
+    for (const link of await links.all()) {
+      const box = await link.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(200);
+    }
+
+    // Nothing the desktop row shows is missing from the card: the failed step,
+    // the event count with its unit, the environment and the entity type.
+    const card = page.locator("tbody tr").first();
+    for (const column of ["col-status", "col-step", "col-events", "col-environment", "col-type"]) {
+      await expect(card.locator(`td.${column}`)).toBeVisible();
+    }
+    await expect(card.locator("td.col-step")).toHaveClass("col-step failed");
+    expect(
+      await card
+        .locator("td.col-events")
+        .evaluate((cell) => getComputedStyle(cell, "::after").content.includes("event"))
+    ).toBe(true);
+  });
+
+  // Every list of journeys on the page, unfiltered, at the same width.
+  test("keeps every journey link a tap target on the unfiltered list at 375 px", async ({
+    page
+  }) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    await signIn(page, JOURNEY_ID);
+    await page.goto("/journeys?status=failed");
+    const links = page.locator("tbody td.col-shown a");
+    expect(await links.count()).toBeGreaterThan(0);
+    expect(await horizontalOverflow(page)).toBe(0);
+    const small = await links.evaluateAll((all) =>
+      all
+        .map((link) => link.getBoundingClientRect())
+        .filter((box) => box.height < 44 || box.width < 200)
+        .map((box) => `${String(Math.round(box.width))}x${String(Math.round(box.height))}`)
+    );
+    expect(small).toEqual([]);
+  });
 
   // The same failed journeys found by search, whose status reads
   // `failed at <step>` (ADR-063). A review measured a 256-character step name

@@ -22,43 +22,48 @@ export function JourneyTable({
 }): ReactElement {
   const showEnvironment = filters.environment === "";
   return (
-    <table className="journey-table">
+    // The roles are explicit because a phone lays each row out as a card
+    // (globals.css), and a table whose rows are restyled with `display` loses
+    // its table semantics in some browsers. Stated here, a screen reader keeps
+    // reading rows and column headers at every width.
+    <table className="journey-table" role="table">
       <caption className="journeys-summary">{describeJourneyFilters(filters)}</caption>
-      <thead>
-        <tr>
-          <th scope="col" className="col-activity" title="Last activity">
-            <HeaderLabel full="Last activity" short="When" />
+      <thead role="rowgroup">
+        <tr role="row">
+          <th scope="col" role="columnheader" className="col-activity" title="Last activity">
+            Last activity
           </th>
           <th
             scope="col"
+            role="columnheader"
             className="col-span"
             title="Time from first recorded event start to last recorded event start"
           >
-            <HeaderLabel full="Recorded span" short="Span" />
+            Recorded span
           </th>
-          <th scope="col" className="col-status">
+          <th scope="col" role="columnheader" className="col-status">
             Status
           </th>
           {showEnvironment ? (
-            <th scope="col" className="col-environment">
+            <th scope="col" role="columnheader" className="col-environment">
               Environment
             </th>
           ) : null}
-          <th scope="col" className="col-type">
+          <th scope="col" role="columnheader" className="col-type">
             Entity type
           </th>
-          <th scope="col" className="col-shown">
-            <HeaderLabel full="Shown as" short="Item" />
+          <th scope="col" role="columnheader" className="col-shown">
+            Shown as
           </th>
-          <th scope="col" className="col-step">
+          <th scope="col" role="columnheader" className="col-step">
             Step
           </th>
-          <th scope="col" className="col-events" title="Events">
-            <HeaderLabel full="Events" short="#" />
+          <th scope="col" role="columnheader" className="col-events" title="Events">
+            Events
           </th>
         </tr>
       </thead>
-      <tbody>
+      <tbody role="rowgroup">
         {items.map((item) => (
           <JourneyRow
             key={item.journeyId}
@@ -69,22 +74,5 @@ export function JourneyTable({
         ))}
       </tbody>
     </table>
-  );
-}
-
-/**
- * A header with a shorter visible label for a phone, where its column is too
- * narrow for the full one. The full label stays in the accessibility tree
- * (visually hidden on a phone), and the short one is hidden from it, so a
- * screen reader hears "Last activity" at every width.
- */
-function HeaderLabel({ full, short }: { full: string; short: string }): ReactElement {
-  return (
-    <>
-      <span className="header-full">{full}</span>
-      <span className="header-short" aria-hidden="true">
-        {short}
-      </span>
-    </>
   );
 }

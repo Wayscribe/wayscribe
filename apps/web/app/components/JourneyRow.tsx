@@ -46,6 +46,11 @@ export function shownAs(item: JourneyListRow): ShownAs {
  * One journey on the Journeys page: a table row, one line, every long value
  * cut with an ellipsis by the stylesheet (`.journey-table`) and given in full
  * as a title.
+ *
+ * On a phone the stylesheet lays the row out as a card: what it is shown as
+ * (the row's link) across the top, the status and step under it, then the
+ * rest in one muted line. Each cell's class names its place on the card, and
+ * the roles keep it a table to a screen reader.
  */
 export function JourneyRow({
   item,
@@ -67,8 +72,8 @@ export function JourneyRow({
         : "shown-entity mono";
   const span = journeySpan(item.startedAt, item.lastEventAt);
   return (
-    <tr>
-      <td className="col-activity">
+    <tr role="row">
+      <td className="col-activity" role="cell">
         <time dateTime={item.lastEventAt} title={fullTimestamp(item.lastEventAt)}>
           <span className="day">{item.lastEventAt.slice(0, 10)}</span>{" "}
           <span>{item.lastEventAt.slice(11, 16)}</span>
@@ -76,22 +81,23 @@ export function JourneyRow({
       </td>
       <td
         className="col-span mono"
+        role="cell"
         title="Time from first recorded event start to last recorded event start"
       >
         {span === null ? "unknown" : formatDuration(span)}
       </td>
-      <td className="col-status">
+      <td className="col-status" role="cell">
         <span className={item.status === "failed" ? "status failed" : "status"}>{item.status}</span>
       </td>
       {showEnvironment ? (
-        <td className="col-environment" title={item.environment}>
+        <td className="col-environment" role="cell" title={item.environment}>
           {item.environment}
         </td>
       ) : null}
-      <td className="col-type" title={item.entity.type}>
+      <td className="col-type" role="cell" title={item.entity.type}>
         {item.entity.type}
       </td>
-      <td className="col-shown">
+      <td className="col-shown" role="cell">
         <Link
           href={journeyHref(item.journeyId, listQuery)}
           className={shownClass}
@@ -102,7 +108,11 @@ export function JourneyRow({
         </Link>
       </td>
       <StepCell item={item} />
-      <td className="col-events">{item.eventCount}</td>
+      {/* The card spells the unit out ("14 events"); the column header names it
+          on a desktop and to a screen reader. */}
+      <td className="col-events" role="cell" data-unit={item.eventCount === 1 ? "event" : "events"}>
+        {item.eventCount}
+      </td>
     </tr>
   );
 }
@@ -117,7 +127,7 @@ function StepCell({ item }: { item: JourneyListRow }): ReactElement {
   const failedStep = failedStepOf(item);
   if (failedStep === null) {
     return (
-      <td className="col-step" title={item.lastStep ?? undefined}>
+      <td className="col-step" role="cell" title={item.lastStep ?? undefined}>
         {item.lastStep ?? ""}
       </td>
     );
@@ -127,7 +137,7 @@ function StepCell({ item }: { item: JourneyListRow }): ReactElement {
       ? `Failed at ${failedStep}`
       : `Failed at ${failedStep}; last step ${item.lastStep}`;
   return (
-    <td className="col-step failed" title={title}>
+    <td className="col-step failed" role="cell" title={title}>
       {failedStep}
     </td>
   );

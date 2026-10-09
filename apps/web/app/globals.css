@@ -410,9 +410,6 @@ button[aria-busy="true"] {
   width: 4.5rem;
   text-align: right;
 }
-.journey-table .header-short {
-  display: none;
-}
 .journey-table .shown-label {
   font-weight: 600;
 }
@@ -420,26 +417,23 @@ button[aria-busy="true"] {
   font-size: 0.8rem;
 }
 
+/* A phone: eight columns squeezed "Shown as", the row's only link, to a few
+   pixels, so each journey becomes a card. Line one is the link, the full width
+   and a full tap target tall; line two is the status and the step (`at` the
+   step that failed it, else its last step); line three, muted, is the rest.
+   Every value the desktop shows is on the card. Still a table to a screen
+   reader: JourneyTable states the roles, and the column headers are only
+   hidden from sight. */
 @media (max-width: 40rem) {
-  /* A phone keeps what a row is shown as, and drops the three columns the
-     journey page repeats; the date sits above the time. */
-  .journey-table .col-environment,
-  .journey-table .col-type,
-  .journey-table .col-step {
-    display: none;
-  }
-  .journey-table .col-activity {
-    width: 5.5rem;
-  }
-  .journey-table .col-span {
-    width: 5.5rem;
-    font-size: 0.75rem;
-  }
-  .journey-table .col-activity .day {
+  .journey-table,
+  .journey-table caption,
+  .journey-table tbody {
     display: block;
   }
-  /* Visually hidden, as .visually-hidden, so a screen reader still reads it. */
-  .journey-table .header-full {
+  /* A block, so the clip holds: a hidden header row group would otherwise
+     still lay its row out at full width and widen the page. */
+  .journey-table thead {
+    display: block;
     position: absolute;
     width: 1px;
     height: 1px;
@@ -448,22 +442,98 @@ button[aria-busy="true"] {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
-  .journey-table .header-short {
-    display: inline;
+  .journey-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.15rem 0.4rem;
+    padding: 0.1rem 0 0.6rem;
+    border-bottom: 1px solid var(--line);
+  }
+  /* The attribute outweighs the desktop's column widths. Each cell keeps the
+     desktop's one line, cut with an ellipsis; the card wraps between cells. */
+  .journey-table td[role="cell"] {
+    width: auto;
+    min-width: 0;
+    padding: 0;
+    border-bottom: none;
+    text-align: left;
+  }
+  .journey-table .col-shown {
+    order: 1;
+    flex: 0 0 100%;
+  }
+  .journey-table .col-shown > a {
+    min-height: 2.75rem;
+    line-height: 2.75rem;
   }
   .journey-table .col-status {
-    width: 5.75rem;
+    order: 2;
   }
-  /* "COMPLETED" fits whole without the wide letter spacing. */
-  .journey-table .col-status .status {
-    font-size: 0.7rem;
-    letter-spacing: 0;
+  /* A step name may be 256 characters: cut, as on a desktop, and whole in
+     the title and on the journey page. */
+  .journey-table .col-step {
+    order: 3;
+    flex: 1 1 0;
   }
-  .journey-table th.col-shown {
-    letter-spacing: 0;
+  .journey-table .col-step:empty {
+    display: none;
+  }
+  .journey-table .col-step.failed::before {
+    content: "at ";
+    content: "at " / "";
+  }
+  .journey-table .col-step:not(.failed)::before {
+    content: "last step ";
+    content: "last step " / "";
+    color: var(--muted);
+  }
+  /* Ends line two: the rest of the card starts a line of its own. */
+  .journey-table tbody tr::after {
+    content: "";
+    order: 4;
+    flex-basis: 100%;
+  }
+  .journey-table .col-activity,
+  .journey-table .col-span,
+  .journey-table .col-events,
+  .journey-table .col-environment,
+  .journey-table .col-type {
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .journey-table .col-activity {
+    order: 5;
+  }
+  .journey-table .col-span {
+    order: 6;
   }
   .journey-table .col-events {
-    width: 3.5rem;
+    order: 7;
+  }
+  .journey-table .col-environment {
+    order: 8;
+  }
+  .journey-table .col-type {
+    order: 9;
+  }
+  /* An environment or entity type may be 128 characters with no space: cut
+     at the card's width, whole in the title. */
+  .journey-table .col-environment,
+  .journey-table .col-type {
+    max-width: 100%;
+  }
+  .journey-table .col-span::before,
+  .journey-table .col-events::before,
+  .journey-table .col-environment::before,
+  .journey-table .col-type::before {
+    content: "·";
+    content: "·" / "";
+    margin-right: 0.4rem;
+  }
+  .journey-table .col-events::after {
+    content: " " attr(data-unit);
+    content: " " attr(data-unit) / "";
   }
 }
 

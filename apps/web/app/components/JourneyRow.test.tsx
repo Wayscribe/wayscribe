@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { JourneyListRow } from "../../src/lib/api";
 import { fullTimestamp } from "../../src/lib/time";
@@ -117,6 +117,39 @@ describe("shownAs", () => {
 });
 
 describe("JourneyRow", () => {
+  it("states its roles and names each cell's place on the phone's card", () => {
+    // globals.css lays the row out as a card below 40rem by these class names:
+    // the shown-as link on line one, status and step on line two, the rest muted.
+    const row = renderRow(item, true);
+    expect(row).toHaveAttribute("role", "row");
+    const parts = within(row)
+      .getAllByRole("cell")
+      .map((cell) => {
+        expect(cell).toHaveAttribute("role", "cell");
+        return cell.className;
+      });
+    expect(parts).toEqual([
+      "col-activity",
+      "col-span mono",
+      "col-status",
+      "col-environment",
+      "col-type",
+      "col-shown",
+      "col-step",
+      "col-events"
+    ]);
+  });
+
+  it("gives the card the event count's unit, singular for one, without changing the cell's text", () => {
+    const events = (count: number): HTMLElement =>
+      within(renderRow({ ...item, eventCount: count })).getAllByRole("cell")[6] as HTMLElement;
+    const many = events(14);
+    expect(many).toHaveAttribute("data-unit", "events");
+    expect(many.textContent).toBe("14");
+    cleanup();
+    expect(events(1)).toHaveAttribute("data-unit", "event");
+  });
+
   it("shows one line per journey in the column order", () => {
     const row = renderRow(item);
     expect(cells(row)).toEqual([
