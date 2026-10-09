@@ -8,7 +8,11 @@ import {
 } from "../../src/lib/timing-presentation";
 import { dayLabel, fullTimestamp, timeOfDay } from "../../src/lib/time";
 
-const NO_JOURNEY_CLOCK: JourneyClockCondition = { caveat: null, allSkewed: false };
+const NO_JOURNEY_CLOCK: JourneyClockCondition = {
+  caveat: null,
+  allSkewed: false,
+  hostless: false
+};
 
 /** DOM id of a row, referenced by `aria-activedescendant` on the list. */
 export const rowId = (eventId: string): string => `event-${eventId}`;
@@ -100,7 +104,8 @@ export function TimelineList({
                   </span>
                 )}
                 {/* A caveat the whole journey shares is stated once above the
-                  timeline; a row repeats it only when its own differs. */}
+                  timeline, or in About this view when no event records a host
+                  (ADR-071); a row repeats it only when its own differs. */}
                 {evidence.clockCaveat === null || evidence.clockCaveat === clock.caveat ? null : (
                   <span className="muted clock-caveat">{evidence.clockCaveat}</span>
                 )}

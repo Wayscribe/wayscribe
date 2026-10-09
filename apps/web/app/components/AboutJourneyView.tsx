@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { EXPLANATIONS } from "./explanations";
+import { HostlessClockNote } from "./JourneyClockContext";
 import { JourneyTimingSummary } from "./JourneyTimingSummary";
 import { GLOSSARY_URL } from "./SiteNav";
 
@@ -50,7 +51,12 @@ export function AboutJourneyView({
         <dt>
           <a href={`${GLOSSARY_URL}#clock-comparison`}>Clock comparison</a>
         </dt>
-        <dd>{EXPLANATIONS.clockComparison}</dd>
+        <dd>
+          {EXPLANATIONS.clockComparison}
+          {/* Said here, not as a warning above the timeline, when no event
+              records a host: the Node SDK's normal condition (ADR-071). */}
+          <HostlessClockNote />
+        </dd>
       </dl>
     </details>
   );

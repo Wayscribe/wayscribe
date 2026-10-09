@@ -532,10 +532,17 @@ export function historyEnvelopes(
 }
 
 /**
- * The journey the banner points at: `+1 555 0100`, failed, half an hour old.
+ * The journey the banner points at: `+1 555 0100`, failed.
  * The phone is an alias, so the search finds it, and is marked displayable so
  * the alias list shows it in full. Recreated with the same ids on every reset,
  * which the smoke check relies on.
+ *
+ * Its first event is recorded at `now`, the moment the backfill sends it, and
+ * the rest keep their offsets from it (the 9.4 s span). It used to start half
+ * an hour earlier, so every event arrived more than two minutes late and the
+ * journey wore a clock warning that described the backfill, not the story
+ * (ADR-071). The historical journeys keep their past times: their late
+ * receipt is real and their warning is accurate.
  */
 export function pinnedEnvelopes(now: Date, environment: string): HistoryEnvelope[] {
   const customer: HistoryCustomer = {
@@ -547,7 +554,7 @@ export function pinnedEnvelopes(now: Date, environment: string): HistoryEnvelope
     },
     internalCustomerId: String(HISTORY_INTERNAL_ID_START - 1),
     fails: true,
-    startedAt: new Date(now.getTime() - 30 * 60 * 1000)
+    startedAt: new Date(now.getTime())
   };
   return envelopesFor(
     customer,

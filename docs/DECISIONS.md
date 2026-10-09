@@ -4624,3 +4624,46 @@ for public demos of generated data, and for internal viewers who are trusted wit
 
 **Rejected.** Hiding controls in the web app with an admin token behind it (enforced in the
 browser, not the API). A denylist of write routes (a new route would be open by default).
+
+## ADR-071: No recorded host is said once in About this view, not as a journey warning
+
+**Status:** Accepted, 2026-10-09. Narrows the journey-wide clock notice added to the journey
+page on `ui/demo-release`. Follows ADR-063, which keeps `hostname` and `processId` out of
+every Node SDK event.
+
+**Context.** When every row of a journey would carry the same clock caveat, the journey page
+states it once, above the timeline, in a warning styled `⚠ Clock`. One such caveat is
+"recorded host evidence is missing". The Node SDK never sends a hostname (ADR-063, F-046), so
+that caveat holds for every journey it records: the warning appeared on every journey and
+described the SDK, not anything the journey's data showed. The demo's pinned journey
+(`jrn_demo_pinned_5550100`) also carried "every event was received more than two minutes
+after its recorded time", because the backfill recorded it half an hour before sending it.
+
+**Decision.**
+
+1. When the only reason for the shared caveat is that **no loaded event records a host**,
+   the journey page shows no warning for it. The "About this view" disclosure says it once,
+   in a neutral sentence beside the clock-comparison definition: "These events do not record
+   a host, so a gap between steps may compare times from different processes; a small
+   negative gap can be clock disagreement rather than overlap." `hostless` in
+   `journeyClockCondition` decides it from the loaded events, and the timeline hands it to
+   the disclosure, so a poll that brings a hosted event brings the warning back.
+2. The warning stays, at journey or row level, for what the data shows: late receipt, events
+   from different recorded hosts, a journey where some events record a host and some do not,
+   and a row that differs from the rest. A hostless journey received late shows only the
+   late-receipt sentence; the host sentence is in About this view.
+3. Each row's gap line keeps its own words ("unknown (start-to-start 12 ms)", "13 ms overlap
+   / clock disagreement"). Nothing is hidden: the host sentence moves, it does not disappear.
+4. The demo's pinned journey is recorded from the moment the backfill sends it, keeping its
+   offsets (a 9.4 s span), so it is not received late. Its ids, aliases, payloads and failure
+   are unchanged, which a test proves against the old digest. The roughly 300 historical
+   journeys keep their past times, and their late-receipt warning is accurate.
+
+**Consequences.** A journey recorded by the Node SDK and received promptly has no clock
+warning. A reader who wants the host caveat finds it in About this view and in the glossary.
+If the SDK ever sends a host, the condition stops applying without a change here.
+
+**Rejected.** Sending a hostname from the Node SDK to make the caveat go away (ADR-063 left
+that to its own decision). Dropping the host caveat entirely (it is true, and a negative gap
+is easier to misread without it). Keeping the warning and rewording it (a warning on every
+journey is noise however it is worded).

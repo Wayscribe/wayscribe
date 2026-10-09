@@ -168,6 +168,9 @@ test("presents recorded spans, gaps, queue evidence, and explicit retries", asyn
   await expect(page.getByText(/^Recorded span: 5 s/)).toBeVisible();
   await expect(page.getByText("Publish → consume gap: 900 ms")).toBeVisible();
   await expect(page.getByText(/different recorded hosts/).first()).toBeVisible();
+  // These events record their hosts, so the hostless sentence (ADR-071) is not
+  // in About this view: what differs between hosts stays a warning.
+  await expect(page.locator(".about-view .hostless-clock-note")).toHaveCount(0);
 
   const retryGroup = page.getByRole("group", {
     name: `Recorded attempts for call-target, retry identity delivery-${RUN}`

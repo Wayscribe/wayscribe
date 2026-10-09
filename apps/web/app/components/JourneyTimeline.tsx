@@ -22,6 +22,7 @@ import {
   presentTimelineTiming
 } from "../../src/lib/timing-presentation";
 import { EventDetail } from "./EventDetail";
+import { HostlessJourneyContext } from "./JourneyClockContext";
 import { FilterBar } from "./FilterBar";
 import { TimelineList } from "./TimelineList";
 import { RetrySummary } from "./RetrySummary";
@@ -151,6 +152,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const visible = useMemo(() => applyFilters(events, filters), [events, filters]);
   const timing = useMemo(() => presentTimelineTiming(events), [events]);
   // Decided once for the journey, so a caveat every row shares is said once.
+  // A hostless journey's caveat is said in About this view instead (ADR-071).
   const clock = useMemo(() => journeyClockCondition(events, timing), [events, timing]);
   const clockNotice = journeyClockNotice(clock);
   // From the merged list, not a server prop: a journey whose first page fell on
@@ -394,7 +396,9 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
           {span === null ? "unknown" : formatDuration(span)} · times UTC
         </span>
       </p>
-      {props.children}
+      <HostlessJourneyContext.Provider value={clock.hostless}>
+        {props.children}
+      </HostlessJourneyContext.Provider>
       <FilterBar
         services={services}
         filters={filters}

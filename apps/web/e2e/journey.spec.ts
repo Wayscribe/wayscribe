@@ -210,15 +210,25 @@ test("says a clock condition every step shares once, above the timeline", async 
   await expect(page.locator(".timeline li")).toHaveCount(8);
 
   // Seeded with no recorded host and received long after their 2026-08-06
-  // timestamps: both conditions hold for every step.
+  // timestamps. Late receipt is what the data shows, so it is the warning; no
+  // recorded host is the Node SDK's normal condition, so it is said once in
+  // About this view instead (ADR-071).
   const notice = page.getByRole("note");
   await expect(notice).toHaveCount(1);
-  await expect(notice).toContainText("recorded host evidence is missing");
-  await expect(notice).toContainText("Every event was received more than two minutes");
+  await expect(notice).toHaveText(
+    "⚠ Clock Applies to every step: Every event was received more than two minutes after its recorded time."
+  );
   await expect(page.locator(".timeline .clock-caveat")).toHaveCount(0);
   await expect(page.locator(".timeline .clock-badge")).toHaveCount(0);
   // The gaps stay on their rows.
   await expect(page.locator(".timeline .timeline-gap")).toHaveCount(7);
+  // The host sentence moved, it did not disappear.
+  const hostless = page.locator(".about-view .hostless-clock-note");
+  await expect(hostless).toBeHidden();
+  await page.getByText("About this view").click();
+  await expect(hostless).toHaveText(
+    /^\s*These events do not record a host, so a gap between steps/
+  );
 });
 
 test("shows the new step while its detail loads, never the old payloads, and follows Back", async ({

@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { EventListItem } from "../../src/lib/api";
 import { TimelineList } from "./TimelineList";
-import { presentTimelineTiming } from "../../src/lib/timing-presentation";
+import { journeyClockCondition, presentTimelineTiming } from "../../src/lib/timing-presentation";
 
 function event(id: string, overrides: Partial<EventListItem> = {}): EventListItem {
   return {
@@ -120,7 +120,7 @@ describe("TimelineList rows", () => {
       <TimelineList
         journeyId="jrn_1"
         events={events.map((item) => ({ ...item, ...late }))}
-        clock={{ caveat: null, allSkewed: true }}
+        clock={{ caveat: null, allSkewed: true, hostless: false }}
         selectedId={null}
         multiDay={false}
         onSelect={() => undefined}
@@ -143,7 +143,8 @@ describe("TimelineList rows", () => {
         timing={presentTimelineTiming(events)}
         clock={{
           caveat: "Clock comparison is uncertain because recorded host evidence is missing.",
-          allSkewed: false
+          allSkewed: false,
+          hostless: false
         }}
         selectedId={null}
         multiDay={false}
@@ -154,6 +155,82 @@ describe("TimelineList rows", () => {
     const caveats = [...document.querySelectorAll(".clock-caveat")].map((item) => item.textContent);
     expect(caveats).toEqual([
       "Clock comparison is uncertain because these events came from different recorded hosts."
+    ]);
+  });
+
+  // ADR-071: a journey with no recorded host says so in About this view, so
+  // no row carries the caveat, and each row's gap line keeps its own words.
+  it("keeps every gap line and puts no caveat on any row of a hostless journey", () => {
+    const variants: [EventListItem[], string[]][] = [
+      [
+        [
+          event("evt_1", { durationMs: null }),
+          event("evt_2", { eventTimestamp: "2026-09-16T08:00:00.012Z", durationMs: 35 }),
+          event("evt_3", { eventTimestamp: "2026-09-16T08:00:00.034Z" })
+        ],
+        [
+          "Recorded gap: unknown (start-to-start 12 ms)",
+          "Recorded gap: 13 ms overlap / clock disagreement"
+        ]
+      ],
+      [
+        [
+          event("evt_1", { durationMs: 100, recordedHost: null }),
+          event("evt_2", { eventTimestamp: "2026-09-16T08:00:00.500Z", recordedHost: null })
+        ],
+        ["Recorded gap: 400 ms"]
+      ]
+    ];
+    for (const [events, gaps] of variants) {
+      const timing = presentTimelineTiming(events);
+      const clock = journeyClockCondition(events, timing);
+      expect(clock.hostless).toBe(true);
+      const { unmount } = render(
+        <TimelineList
+          journeyId="jrn_1"
+          events={events}
+          timing={timing}
+          clock={clock}
+          selectedId={null}
+          multiDay={false}
+          onSelect={() => undefined}
+          onArrow={() => undefined}
+        />
+      );
+      expect(document.querySelectorAll(".clock-caveat")).toHaveLength(0);
+      expect(
+        [...document.querySelectorAll(".timeline-gap > span:first-child")].map(
+          (item) => item.textContent
+        )
+      ).toEqual(gaps);
+      unmount();
+    }
+  });
+
+  it("still badges the one late row of a hostless journey", () => {
+    const events = [
+      event("evt_1"),
+      event("evt_2", { receivedAt: "2026-09-16T08:10:00.000Z" }),
+      event("evt_3")
+    ];
+    const timing = presentTimelineTiming(events);
+    render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={events}
+        timing={timing}
+        clock={journeyClockCondition(events, timing)}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+    const rows = screen.getAllByRole("option");
+    expect(rows.map((row) => row.querySelector(".clock-badge")?.textContent ?? null)).toEqual([
+      null,
+      "⚠ clock",
+      null
     ]);
   });
 

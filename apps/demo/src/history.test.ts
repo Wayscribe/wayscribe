@@ -194,21 +194,72 @@ describe("pinnedEnvelopes", () => {
     expect((transform?.input as { Phone: string }).Phone).toBe(PINNED_PHONE);
     expect((transform?.output as { phone: unknown }).phone).toBeNull();
     expect(events.at(-1)?.operation).toBe("failed");
-    expect(Date.parse(events.at(-1)?.timestamp ?? "")).toBeLessThan(NOW.getTime());
+    expect(Date.parse(events.at(-1)?.timestamp ?? "")).toBe(NOW.getTime() + 9_400);
   });
 
   it("is deterministic for a given now", () => {
     expect(pinnedEnvelopes(NOW, "development")).toEqual(pinnedEnvelopes(NOW, "development"));
   });
 
-  it("is byte for byte the journey the docs, the site and the smoke check describe", () => {
-    // Recorded before failure shapes were added. A change here changes what
-    // the banner, DEMO_SCENARIO.md and the smoke check point at: update them
-    // together, then this digest.
-    const digest = createHash("sha256")
-      .update(JSON.stringify(pinnedEnvelopes(NOW, "development")))
-      .digest("hex");
-    expect(digest).toBe("2a782328ec371be628fec8f6dc003140a10ba7760aa633edcb7a054b8f5562a0");
+  it("starts at the moment it is sent, so no event is received late", () => {
+    for (const now of [NOW, new Date("2027-02-28T23:59:59.999Z")]) {
+      const events = eventsOf(pinnedEnvelopes(now, "development"));
+      expect(events[0]?.timestamp).toBe(now.toISOString());
+      for (const event of events) {
+        const recorded = Date.parse(event.timestamp);
+        expect(recorded).toBeGreaterThanOrEqual(now.getTime());
+        // Recorded no earlier than it is sent, so it cannot arrive late.
+        expect(recorded - now.getTime()).toBeLessThanOrEqual(9_400);
+      }
+    }
+  });
+
+  it("keeps the story's relative offsets: 12 ms, 22 ms, 3 s retries, a 9.4 s span", () => {
+    const events = eventsOf(pinnedEnvelopes(NOW, "development"));
+    const start = NOW.getTime();
+    expect(
+      events.map((event) => [event.id, event.name, Date.parse(event.timestamp) - start])
+    ).toEqual([
+      ["evt_demo_pinned_5550100_0", "receive-salesforce-webhook", 0],
+      [PINNED_TRANSFORM_EVENT_ID, "transform-salesforce-account", 12],
+      ["evt_demo_pinned_5550100_2", "persist-customer", 35],
+      ["evt_demo_pinned_5550100_3", "identify", 40],
+      ["evt_demo_pinned_5550100_4", "publish-customer-updated", 55],
+      ["evt_demo_pinned_5550100_5", "consume-customer-updated", 260],
+      ["evt_demo_pinned_5550100_6", "deliver-customer-to-target", 290],
+      ["evt_demo_pinned_5550100_7", "retry-customer-delivery", 3310],
+      ["evt_demo_pinned_5550100_8", "retry-customer-delivery", 6330],
+      ["evt_demo_pinned_5550100_9", "move-message-to-dead-letter", 9400]
+    ]);
+  });
+
+  it("is, apart from absolute times, the journey the docs, the site and the smoke check describe", () => {
+    // Everything but each event's absolute timestamp, which now follows the
+    // send time: ids, aliases, payloads, the transform event and the failure.
+    // A change here changes what the banner, DEMO_SCENARIO.md and the smoke
+    // check point at: update them together, then this digest.
+    const content = (now: Date): string =>
+      JSON.stringify(
+        pinnedEnvelopes(now, "development").map((envelope) => ({
+          ...envelope,
+          event: {
+            ...envelope.event,
+            timestamp: Date.parse(envelope.event.timestamp) - now.getTime()
+          }
+        }))
+      );
+    expect(content(new Date("2027-02-28T23:59:59.999Z"))).toBe(content(NOW));
+    expect(createHash("sha256").update(content(NOW)).digest("hex")).toBe(
+      "b3b22f5b19ff29017d660d9c3a383791ca0d639e5651f5df1bc71f0dabd48959"
+    );
+    // Before ADR-071 the journey started half an hour before `now`, and this
+    // was its digest: the same envelopes, byte for byte, moved in time.
+    const halfAnHourEarlier = new Date(NOW.getTime() - 30 * 60 * 1000);
+    expect(
+      createHash("sha256")
+        .update(JSON.stringify(pinnedEnvelopes(halfAnHourEarlier, "development")))
+        .digest("hex")
+    ).toBe("2a782328ec371be628fec8f6dc003140a10ba7760aa633edcb7a054b8f5562a0");
   });
 });
 

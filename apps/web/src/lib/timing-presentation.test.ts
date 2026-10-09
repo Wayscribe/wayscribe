@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EventListItem } from "./api";
 import {
+  HOSTLESS_CLOCK_NOTE,
   isSkewed,
   journeyClockCondition,
   journeyClockNotice,
@@ -144,9 +145,88 @@ describe("journey-wide clock condition", () => {
   const late = { receivedAt: "2026-09-18T10:05:00.000Z" };
 
   it("lifts a caveat every comparable row shares to the journey, once", () => {
-    const events = [event("a"), event("b"), event("c")];
-    expect(condition(events)).toEqual({ caveat: MISSING, allSkewed: false });
+    // Some events record a host and some do not: the data shows missing
+    // evidence, so it stays a warning.
+    const events = [event("a"), event("b"), event("c", { recordedHost: "h2" })];
+    expect(condition(events)).toEqual({ caveat: MISSING, allSkewed: false, hostless: false });
     expect(journeyClockNotice(condition(events))).toBe(`Applies to every step: ${MISSING}`);
+  });
+
+  // ADR-071: no host recorded anywhere is the Node SDK's normal condition.
+  describe("a journey whose events record no host", () => {
+    const nulled = { recordedHost: null };
+    const variants: [string, EventListItem[]][] = [
+      ["two events, host absent", [event("a"), event("b")]],
+      ["three events, host absent", [event("a"), event("b"), event("c")]],
+      ["host null", [event("a", nulled), event("b", nulled), event("c", nulled)]],
+      ["null and absent mixed", [event("a", nulled), event("b"), event("c")]],
+      [
+        "several services with durations",
+        [
+          event("a", { service: "api", durationMs: 12 }),
+          event("b", { service: "worker", durationMs: 30 }),
+          event("c", { service: "mailer", durationMs: null })
+        ]
+      ]
+    ];
+
+    for (const [label, events] of variants) {
+      it(`gives no warning when received promptly: ${label}`, () => {
+        expect(condition(events)).toEqual({ caveat: MISSING, allSkewed: false, hostless: true });
+        expect(journeyClockNotice(condition(events))).toBeNull();
+      });
+
+      it(`warns with only the late-receipt sentence when every event is late: ${label}`, () => {
+        const lateEvents = events.map((item) => ({ ...item, ...late }));
+        expect(condition(lateEvents)).toEqual({ caveat: MISSING, allSkewed: true, hostless: true });
+        expect(journeyClockNotice(condition(lateEvents))).toBe(
+          "Applies to every step: Every event was received more than two minutes after its recorded time."
+        );
+      });
+    }
+
+    it("keeps the row caveat lifted, so it moves to About and is not repeated per row", () => {
+      // The caveat is still the shared one rows compare against.
+      expect(condition([event("a"), event("b")]).caveat).toBe(MISSING);
+    });
+
+    it("is not hostless when any one event records a host, wherever it sits", () => {
+      for (const at of [0, 1, 2]) {
+        const events = [event("a"), event("b"), event("c")].map((item, index) =>
+          index === at ? { ...item, recordedHost: "h1" } : item
+        );
+        expect(condition(events).hostless).toBe(false);
+        expect(journeyClockNotice(condition(events))).toBe(`Applies to every step: ${MISSING}`);
+      }
+    });
+
+    it("is not hostless with one event or none: there is no gap to qualify", () => {
+      expect(condition([event("a")]).hostless).toBe(false);
+      expect(condition([]).hostless).toBe(false);
+    });
+
+    it("says it in a neutral sentence that does not read as a warning", () => {
+      expect(HOSTLESS_CLOCK_NOTE).toBe(
+        "These events do not record a host, so a gap between steps may compare times from different processes; a small negative gap can be clock disagreement rather than overlap."
+      );
+      expect(HOSTLESS_CLOCK_NOTE).not.toMatch(/uncertain|⚠|warning/i);
+    });
+  });
+
+  it("keeps the warning for events from different recorded hosts, late or not", () => {
+    const DIFFERENT =
+      "Clock comparison is uncertain because these events came from different recorded hosts.";
+    const events = [
+      event("a", { recordedHost: "h1" }),
+      event("b", { recordedHost: "h2" }),
+      event("c", { recordedHost: "h3" })
+    ];
+    expect(condition(events)).toEqual({ caveat: DIFFERENT, allSkewed: false, hostless: false });
+    expect(journeyClockNotice(condition(events))).toBe(`Applies to every step: ${DIFFERENT}`);
+    const lateEvents = events.map((item) => ({ ...item, ...late }));
+    expect(journeyClockNotice(condition(lateEvents))).toBe(
+      `Applies to every step: ${DIFFERENT} Every event was received more than two minutes after its recorded time.`
+    );
   });
 
   it("lifts nothing when one comparable row differs from the rest", () => {
@@ -171,9 +251,9 @@ describe("journey-wide clock condition", () => {
   });
 
   it("lifts nothing from a journey with no comparable row", () => {
-    expect(condition([event("a")])).toEqual({ caveat: null, allSkewed: false });
-    expect(condition([])).toEqual({ caveat: null, allSkewed: false });
-    expect(journeyClockNotice({ caveat: null, allSkewed: false })).toBeNull();
+    expect(condition([event("a")])).toEqual({ caveat: null, allSkewed: false, hostless: false });
+    expect(condition([])).toEqual({ caveat: null, allSkewed: false, hostless: false });
+    expect(journeyClockNotice({ caveat: null, allSkewed: false, hostless: false })).toBeNull();
   });
 
   it("calls late arrival journey-wide only when every event arrived late, and two or more did", () => {
@@ -182,7 +262,7 @@ describe("journey-wide clock condition", () => {
     expect(condition([event("a", late)]).allSkewed).toBe(false);
     expect(isSkewed(event("a", late))).toBe(true);
     expect(isSkewed(event("a"))).toBe(false);
-    expect(journeyClockNotice({ caveat: MISSING, allSkewed: true })).toBe(
+    expect(journeyClockNotice({ caveat: MISSING, allSkewed: true, hostless: false })).toBe(
       `Applies to every step: ${MISSING} Every event was received more than two minutes after its recorded time.`
     );
   });

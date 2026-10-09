@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventDetailData, EventListItem, EventsPageResponse } from "../../src/lib/api";
 import { eventForDisplay } from "../../src/lib/event-display";
+import { AboutJourneyView } from "./AboutJourneyView";
 import { JourneyTimeline } from "./JourneyTimeline";
 
 function event(id: string, overrides: Partial<EventListItem> = {}): EventListItem {
@@ -704,19 +705,76 @@ describe("JourneyTimeline", () => {
     expect(window.location.search).toBe("");
   });
 
-  it("states a clock caveat every row shares once, above the timeline, and on no row", () => {
-    // EVENTS carry no recorded host, so every adjacent pair is uncertain.
-    mount();
-    const notices = screen.getAllByRole("note");
-    expect(notices).toHaveLength(1);
-    expect(notices[0]).toHaveTextContent(
-      "Applies to every step: Clock comparison is uncertain because recorded host evidence is missing."
-    );
+  const HOSTLESS =
+    "These events do not record a host, so a gap between steps may compare times from different processes; a small negative gap can be clock disagreement rather than overlap.";
+  const LATE = "Every event was received more than two minutes after its recorded time.";
+  const about = (
+    <AboutJourneyView
+      startedAt="2026-09-14T10:00:01.000Z"
+      lastEventAt="2026-09-14T10:00:04.000Z"
+      hasAliases={false}
+    />
+  );
+  const aboutView = (): HTMLElement => {
+    const details = document.querySelector<HTMLElement>("details.about-view");
+    if (details === null) throw new Error("no About this view");
+    return details;
+  };
+  const lateBy = (item: EventListItem): EventListItem => ({
+    ...item,
+    receivedAt: new Date(Date.parse(item.eventTimestamp) + 30 * 60_000).toISOString()
+  });
+
+  // ADR-071: no recorded host is the Node SDK's normal condition, not a warning.
+  it("gives a hostless journey received promptly no warning, and says it in About this view", () => {
+    // EVENTS carry no recorded host and arrive within a second.
+    mount({ children: about });
+    expect(screen.queryByRole("note")).toBeNull();
+    expect(screen.queryByText(/Applies to every step/)).toBeNull();
+    expect(aboutView()).toHaveTextContent(HOSTLESS);
     const listbox = screen.getByRole("listbox");
-    expect(notices[0]?.compareDocumentPosition(listbox)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(within(listbox).queryByText(/Clock comparison is uncertain/)).toBeNull();
     // The gaps themselves stay on the rows.
     expect(within(listbox).getAllByText(/^Recorded gap:/)).toHaveLength(3);
+  });
+
+  it("warns a hostless journey received late with the late-receipt sentence only", () => {
+    mount({ children: about, initialEvents: EVENTS.map(lateBy) });
+    const notices = screen.getAllByRole("note");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.textContent).toBe(`⚠ Clock Applies to every step: ${LATE}`);
+    expect(notices[0]?.compareDocumentPosition(screen.getByRole("listbox"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+    // The host sentence moved, it did not disappear.
+    expect(aboutView()).toHaveTextContent(HOSTLESS);
+  });
+
+  it("keeps the journey warning, and no About sentence, for skew across recorded hosts", () => {
+    const hosts = ["host-a", "host-b", "host-c", "host-d"];
+    for (const lateness of [false, true]) {
+      const events = EVENTS.map((item, index) => ({
+        ...(lateness ? lateBy(item) : item),
+        recordedHost: hosts[index] ?? null
+      }));
+      const { unmount } = mount({ children: about, initialEvents: events });
+      expect(screen.getByRole("note")).toHaveTextContent(
+        `Applies to every step: Clock comparison is uncertain because these events came from different recorded hosts.${lateness ? ` ${LATE}` : ""}`
+      );
+      expect(aboutView()).not.toHaveTextContent(HOSTLESS);
+      unmount();
+    }
+  });
+
+  it("keeps the missing-host warning when some events do record a host", () => {
+    const events = EVENTS.map((item, index) =>
+      index === 3 ? { ...item, recordedHost: "host-a" } : item
+    );
+    mount({ children: about, initialEvents: events });
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Applies to every step: Clock comparison is uncertain because recorded host evidence is missing."
+    );
+    expect(aboutView()).not.toHaveTextContent(HOSTLESS);
   });
 
   it("keeps a caveat on the one row that differs, with no journey-wide notice", () => {
