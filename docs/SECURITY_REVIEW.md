@@ -76,6 +76,17 @@ is on ([ADR-046](DECISIONS.md#adr-046-error-text-is-masked-by-shape-and-stacks-a
   [web Dockerfile](../apps/web/Dockerfile)). A nonce-based CSP and
   anti-framing headers are set on every page
   ([SECURITY §2](SECURITY.md#script-injection-in-the-interface)).
+- **Reader token** (optional, `READ_TOKEN`): reads one project, payloads
+  included, and may call only an allowlist of read routes. Anonymous read-only
+  web mode signs every visitor in as that reader and refuses to start with an
+  admin token set; it exists for a public demo of generated data only
+  ([ADR-070](DECISIONS.md#adr-070-a-reader-principal-reads-one-project-payloads-included-and-may-call-only-allowlisted-routes),
+  [ADR-069](DECISIONS.md#adr-069-the-public-demo-holds-generated-data-only-and-accepts-nothing-from-visitors),
+  [OPERATIONS](OPERATIONS.md#secrets-the-containers-environment-does-not-hold)).
+  The hosted demo runs IPv4 only with 22, 80 and 443 open, a deploy user limited
+  by sudoers, `noindex`, and HSTS and CSP checked from outside
+  ([DEMO_HOSTING](DEMO_HOSTING.md#ipv4-only),
+  [DEMO_HOSTING](DEMO_HOSTING.md#the-deploy-key-is-restricted)).
 
 ## Deletion, retention, key rotation
 
@@ -91,12 +102,18 @@ is on ([ADR-046](DECISIONS.md#adr-046-error-text-is-masked-by-shape-and-stacks-a
 
 ## Supply chain
 
-CI blocks on `pnpm audit`, gitleaks and Trivy. The current release is `v0.2.2`.
-Its images have verified Sigstore keyless signatures and a verified signed
-CycloneDX SBOM attestation per platform; `@wayscribe/node@0.2.2` has verified
-registry signatures and GitLab OIDC provenance tied to the release commit, and
-the PyPI `wayscribe` 0.2.2 files carry a PEP 740 attestation from GitLab trusted
-publishing ([release record](reviews/2026-10-03-release-verification-0.2.2.md),
+CI blocks on `pnpm audit`, gitleaks and Trivy. The current release is `v0.2.3`
+(2026-10-08, annotated tag on `b12397b`). Its api, web and demo images were
+signed by the tag pipeline and verified with cosign 3.1.3 in the release
+session; cosign 2.x cannot read the v3 signature bundles and reports no
+signatures. `@wayscribe/node`, the PyPI `wayscribe` wheel and sdist, and the Go
+module `wayscribe.dev/go` all resolve to 0.2.3 on their public registries
+(rechecked 2026-10-09). The release raises dependency overrides for new
+advisories (`sharp` 0.35.5, `source-map-js`, `uuid` 11); a moderate `sprintf-js`
+advisory has no fixed version yet
+([CHANGELOG](../CHANGELOG.md#023-2026-10-08)). The full artifact checks, SBOM
+attestations and npm and PyPI provenance are recorded for `v0.2.2`
+([release record](reviews/2026-10-03-release-verification-0.2.2.md),
 [`v0.1.0` record](reviews/2026-09-20-release-verification.md),
 [OPERATIONS §11](OPERATIONS.md#11-security-scanning)). To verify, with your tag
 ([full steps](OPERATIONS.md#verifying-a-published-image)):
