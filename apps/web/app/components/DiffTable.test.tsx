@@ -108,6 +108,27 @@ describe("DiffTable", () => {
     expect(within(renamed as HTMLElement).getAllByRole("cell")[2]).toHaveAttribute("colspan", "2");
   });
 
+  it("states its table roles and names each cell's part, for the phone's stacked cards", () => {
+    // A phone restyles the rows with `display` (globals.css), which strips the
+    // implicit table roles in some browsers; the explicit ones keep it a table.
+    render(<DiffTable changes={displayChanges(DEMO)} />);
+    const table = screen.getByRole("table");
+    expect(table).toHaveAttribute("role", "table");
+    for (const header of within(table).getAllByRole("columnheader")) {
+      expect(header).toHaveAttribute("role", "columnheader");
+    }
+    const [lost, changed, renamed] = tbodyRows();
+    for (const row of [lost, changed, renamed]) expect(row).toHaveAttribute("role", "row");
+    // The card's two lines are laid out by these class names.
+    const parts = (row: HTMLElement | undefined): string[] =>
+      within(row as HTMLElement)
+        .getAllByRole("cell")
+        .map((cell) => cell.className);
+    expect(parts(lost)).toEqual(["mono field", "kind", "mono removed", "mono added"]);
+    expect(parts(changed)).toEqual(["mono field", "kind", "mono removed", "mono added"]);
+    expect(parts(renamed)).toEqual(["mono field", "kind", "mono same"]);
+  });
+
   it("never hides a lost value behind the toggle, wherever it sits", async () => {
     const many: DisplayedChange[] = [
       ...changes(10),

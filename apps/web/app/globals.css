@@ -782,6 +782,85 @@ button[aria-busy="true"] {
 .diff tr.renamed td {
   color: var(--muted);
 }
+/* A phone: four columns cut "Phone → phone" mid-word, so each change becomes
+   a card. Line one is the field and its change in words; line two is the
+   value before, an arrow, and the value after (a pure rename's value once,
+   across the line). Still a table to a screen reader: DiffTable states the
+   roles, and the column headers are only hidden from sight. */
+@media (max-width: 40rem) {
+  .diff,
+  .diff tbody {
+    display: block;
+  }
+  .diff thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .diff tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 0.3rem 0.4rem;
+    align-items: start;
+    padding: 0.5rem 0.5rem 0.5rem 0.65rem;
+    border-top: 1px solid var(--line);
+  }
+  .diff td {
+    padding: 0;
+    border-top: none;
+    word-break: normal;
+  }
+  /* Field names wrap at their spaces; a single name longer than the line is
+     the only thing broken inside a word. */
+  .diff .field {
+    grid-column: 1 / 3;
+    grid-row: 1;
+    overflow-wrap: break-word;
+  }
+  .diff .kind {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    text-align: right;
+    white-space: normal;
+    font-size: 0.75rem;
+  }
+  /* Values are JSON: long unbroken strings, so they may break anywhere. */
+  .diff .removed,
+  .diff .added,
+  .diff .same {
+    grid-row: 2;
+    padding: 0.15rem 0.35rem;
+    border-radius: 3px;
+    overflow-wrap: anywhere;
+  }
+  .diff .removed {
+    grid-column: 1;
+  }
+  .diff .added {
+    grid-column: 3;
+  }
+  .diff .same {
+    grid-column: 1 / -1;
+  }
+  .diff tbody tr:not(.renamed)::after {
+    content: "→";
+    content: "→" / "";
+    grid-column: 2;
+    grid-row: 2;
+    color: var(--muted);
+  }
+  .diff tr.lost td:first-child {
+    box-shadow: none;
+  }
+  .diff tbody tr.lost {
+    box-shadow: inset 3px 0 0 var(--failed);
+  }
+}
 
 .block {
   background: var(--panel);
@@ -1005,6 +1084,14 @@ a.button-link:focus-visible {
 }
 .search-filters[open] > summary {
   margin-bottom: 0.5rem;
+}
+/* The Journeys page's form, folded the same way: the disclosure takes the
+   form's outer margin, and the form sits straight under its summary. */
+.journey-filters-fold {
+  margin: 1rem 0;
+}
+.journey-filters-fold > .journey-filters {
+  margin: 0;
 }
 .version-details > summary {
   cursor: pointer;

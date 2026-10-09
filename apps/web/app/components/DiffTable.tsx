@@ -64,34 +64,45 @@ export function DiffTable({
 
   return (
     <>
-      <table className="diff">
-        <thead>
-          <tr>
-            <th>Field</th>
-            <th>Change</th>
-            <th>Before</th>
-            <th>After</th>
+      {/* The roles are explicit because a phone lays this out as stacked
+          cards (globals.css), and a table whose rows are restyled with
+          `display` loses its table semantics in some browsers. Stated here,
+          a screen reader keeps reading rows and column headers either way. */}
+      <table className="diff" role="table">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th role="columnheader">Field</th>
+            <th role="columnheader">Change</th>
+            <th role="columnheader">Before</th>
+            <th role="columnheader">After</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {rows.map((change) => (
             <tr
               key={`${change.from ?? ""}-${change.path}-${change.kind}`}
+              role="row"
               className={change.lost ? "lost" : change.kind === "renamed" ? "renamed" : undefined}
             >
-              <td className="mono">
+              <td className="mono field" role="cell">
                 {change.from === null ? change.path : `${change.from} → ${change.path}`}
               </td>
-              <td className="kind">{kindLabel(change)}</td>
+              <td className="kind" role="cell">
+                {kindLabel(change)}
+              </td>
               {change.kind === "renamed" ? (
                 // The same value on both sides: shown once, across both columns.
-                <td className="mono" colSpan={2}>
+                <td className="mono same" role="cell" colSpan={2}>
                   {change.before}
                 </td>
               ) : (
                 <>
-                  <td className="mono removed">{change.before}</td>
-                  <td className="mono added">{change.after}</td>
+                  <td className="mono removed" role="cell">
+                    {change.before}
+                  </td>
+                  <td className="mono added" role="cell">
+                    {change.after}
+                  </td>
                 </>
               )}
             </tr>

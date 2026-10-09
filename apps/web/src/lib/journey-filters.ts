@@ -280,6 +280,29 @@ export function statusHref(filters: JourneyFilters, status: JourneyStatusFilter)
   });
 }
 
+/**
+ * Whether the URL sets a filter the form holds away from its default, other
+ * than status. The public demo folds the form away unless this is true, as the
+ * Search page's `narrows` does. Status is left out because the page's own
+ * All / Failures links set it, and following one should not unfold the form.
+ * A custom range that was set aside still counts: its fields echo what was
+ * typed, so the reader can correct it.
+ */
+export function narrowsBeyondStatus(filters: JourneyFilters): boolean {
+  return (
+    filters.q !== "" ||
+    filters.window !== DEFAULT_PRESET ||
+    filters.sinceInput !== "" ||
+    filters.untilInput !== "" ||
+    filters.entityType !== "" ||
+    filters.environment !== "" ||
+    filters.service !== "" ||
+    filters.minDurationMs !== "" ||
+    filters.minStepDurationMs !== "" ||
+    filters.inactiveForMs !== ""
+  );
+}
+
 /** Each filter that is set, in words: `contains "acme"`, `status failed`. */
 export function activeFilterList(filters: JourneyFilters): string[] {
   const parts: string[] = [];

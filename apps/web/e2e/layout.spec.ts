@@ -335,3 +335,100 @@ test.describe("metadata with a long key", () => {
     });
   }
 });
+
+const DIFF_JOURNEY_ID = `jrn_e2e_layout_diff_${VERSION}`;
+
+/**
+ * The "What changed" table at 375 px. Four table columns squeezed a field name
+ * until it broke inside a word ("Phon" / "e →" / "phon" / "e"); a phone now
+ * lays each change out as a card, and a field name only wraps at its spaces.
+ */
+test.describe("the What changed table on a phone", () => {
+  test.beforeAll(async () => {
+    const response = await fetch(`${API_URL}/v1/events`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        protocolVersion: "0.1",
+        event: {
+          id: `evt_layout_diff_${VERSION}`,
+          journeyId: DIFF_JOURNEY_ID,
+          environment: "development",
+          service: "customer-sync",
+          entity: { type: "customer", id: `layout-diff-${VERSION}` },
+          operation: "transformed",
+          name: "transform",
+          timestamp: "2026-09-16T08:00:00.000Z",
+          input: {
+            Id: "0018Z00005PIN01",
+            Name: "Dana Whitfield",
+            Phone: "+1 555 0100",
+            Status__c: "Active"
+          },
+          output: {
+            externalId: "0018Z00005PIN01",
+            name: "Dana Whitfield",
+            phone: null,
+            status: "active"
+          }
+        }
+      })
+    });
+    expect(response.ok, `seeding answered ${String(response.status)}`).toBe(true);
+  });
+
+  test("stacks each change as a card and never breaks a field name mid-word at 375 px", async ({
+    page
+  }) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    await signIn(page, DIFF_JOURNEY_ID);
+    await page.goto(`/journeys/${DIFF_JOURNEY_ID}?event=evt_layout_diff_${VERSION}`);
+    const lost = page.locator(".diff tbody tr").first();
+    await expect(lost).toContainText("Phone → phone");
+    await expect(lost).toContainText("value lost");
+
+    expect(await horizontalOverflow(page)).toBe(0);
+    // Still a table to assistive technology, with its column headers.
+    await expect(page.getByRole("table").getByRole("columnheader")).toHaveText([
+      "Field",
+      "Change",
+      "Before",
+      "After"
+    ]);
+
+    // Each word of every field name sits on one line: a Range over the word
+    // returns one box, or two when the browser broke it.
+    const field = lost.locator("td.field");
+    const brokenWords = await page.locator(".diff tbody td.field").evaluateAll((cells) =>
+      cells.flatMap((cell) => {
+        const text = cell.firstChild;
+        if (text === null) return [];
+        const value = text.textContent ?? "";
+        const broken: string[] = [];
+        for (const match of value.matchAll(/\S+/g)) {
+          const range = document.createRange();
+          range.setStart(text, match.index);
+          range.setEnd(text, match.index + match[0].length);
+          if (range.getClientRects().length > 1) broken.push(match[0]);
+        }
+        return broken;
+      })
+    );
+    expect(brokenWords).toEqual([]);
+    // And the short ones fit on a single line.
+    const lineHeight = await field.evaluate((cell) => {
+      const style = getComputedStyle(cell);
+      const stated = parseFloat(style.lineHeight);
+      // "normal" is about 1.2 times the font size.
+      return Number.isNaN(stated) ? parseFloat(style.fontSize) * 1.2 : stated;
+    });
+    expect((await field.boundingBox())?.height ?? Infinity).toBeLessThan(lineHeight * 1.5);
+
+    // Line two holds the values: below the field, before on the left of after.
+    const fieldBox = await field.boundingBox();
+    const beforeBox = await lost.locator("td.removed").boundingBox();
+    const afterBox = await lost.locator("td.added").boundingBox();
+    expect(beforeBox?.y ?? 0).toBeGreaterThanOrEqual((fieldBox?.y ?? 0) + (fieldBox?.height ?? 0));
+    expect(afterBox?.x ?? 0).toBeGreaterThan((beforeBox?.x ?? 0) + (beforeBox?.width ?? 0));
+  });
+});
