@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -b --pretty false",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

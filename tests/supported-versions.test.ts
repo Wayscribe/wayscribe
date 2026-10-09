@@ -148,7 +148,7 @@ describe("the README's Supported versions table", () => {
     expect(versions[0]).toBe("15");
     // The suite drives the Go and Python SDKs too, so the job installs both
     // before running it.
-    const script = job("database").script;
+    const script = job("database").script ?? [];
     expect(script.at(-1)).toBe("pnpm test:integration");
     expect(script.some((line: string) => line.startsWith("scripts/install-go.sh "))).toBe(true);
     expect(script.some((line: string) => line.includes("python3"))).toBe(true);

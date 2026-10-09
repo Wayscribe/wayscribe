@@ -2,6 +2,7 @@
   "name": "@wayscribe/web",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "NEXT_TELEMETRY_DISABLED=1 next build",
     "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --port 3000",

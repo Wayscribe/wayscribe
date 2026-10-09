@@ -26,10 +26,10 @@ function caddyLine(overrides: {
   ts?: number;
   ip?: string;
   ua?: string;
-  uri?: string;
+  uri?: string | undefined;
   method?: string;
   status?: number;
-  referer?: string;
+  referer?: string | undefined;
 }): string {
   const headers: Record<string, string[]> = { "User-Agent": [overrides.ua ?? SAFARI] };
   if (overrides.referer !== undefined) headers["Referer"] = [overrides.referer];
