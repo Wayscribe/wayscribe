@@ -118,4 +118,70 @@ describe("the Search page", () => {
     expect(listProjectsMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/to narrow by environment\./)).toBeNull();
   });
+
+  it("outside the demo, asks for an identifier and offers no sample", async () => {
+    signedIn("proj_1");
+    listProjectsMock.mockResolvedValue(TWO);
+
+    expect(await visit({})).toBeNull();
+    expect(screen.getByText("Enter an identifier above to begin.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Try a sample record/ })).toBeNull();
+    expect(screen.getByRole("search").querySelector("details")).toBeNull();
+  });
+});
+
+/** The public demo (ADR-069): a visitor arrives with no identifier of their own. */
+describe("the Search page in the demo", () => {
+  const READ_TOKEN = "read-token-for-tests-000000000000000";
+  const demo = (): void => {
+    vi.stubEnv("WEB_ANONYMOUS_READ_ONLY", "true");
+    vi.stubEnv("ADMIN_TOKEN", "");
+    vi.stubEnv("ADMIN_TOKEN_FILE", undefined);
+    vi.stubEnv("READ_TOKEN", READ_TOKEN);
+    const cookie = signSession(READ_TOKEN, {
+      projectId: "proj_1",
+      expiresAt: Date.now() + 60_000
+    });
+    cookiesMock.mockResolvedValue({
+      get: (name: string) => (name === SESSION_COOKIE_NAME ? { value: cookie } : undefined)
+    });
+    listProjectsMock.mockResolvedValue([project("proj_1", ["production"])]);
+  };
+
+  it("offers the sample record as a plain link straight under the search box", async () => {
+    demo();
+    expect(await visit({})).toBeNull();
+
+    const sample = screen.getByRole("link", { name: "Try a sample record: +1 555 0100" });
+    expect(sample.tagName).toBe("A");
+    expect(sample.getAttribute("href")).toBe("/?q=%2B1%20555%200100");
+    expect(sample.className).toContain("button-link");
+    // Directly after the form (and its pending status line), before anything else.
+    const status = screen.getByRole("search").nextElementSibling;
+    expect(status?.className).toContain("pending-status");
+    expect(status?.nextElementSibling?.contains(sample)).toBe(true);
+    expect(
+      screen.getByText(/a customer sync that failed; open it and see the step that dropped/)
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Or browse recent failures" }).getAttribute("href")
+    ).toBe("/journeys?status=failed");
+    expect(screen.queryByText("Enter an identifier above to begin.")).toBeNull();
+  });
+
+  it("folds the filters away, closed", async () => {
+    demo();
+    expect(await visit({})).toBeNull();
+    const details = screen.getByRole("search").querySelector("details");
+    expect(details?.open).toBe(false);
+    expect(details?.contains(screen.getByLabelText("Environment"))).toBe(true);
+  });
+
+  it("shows results, not the call to action, once there is a search", async () => {
+    demo();
+    searchMock.mockResolvedValue([]);
+    expect(await visit({ q: "+1 555 0100" })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Try a sample record/ })).toBeNull();
+    expect(screen.getByText(/Nothing matched/)).toBeTruthy();
+  });
 });

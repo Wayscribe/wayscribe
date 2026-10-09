@@ -157,16 +157,127 @@ test("renders the whole journey in order and shows where phone became null", asy
 
   await page.click("text=transformed");
 
-  // Per ADR-030 the transformation renames every field, so the defect reads as a
-  // pair: Phone leaves carrying a value, phone arrives null.
-  const before = page.locator(".diff tbody tr", { hasText: "Phone" }).first();
-  await expect(before).toContainText("+1 919 555 1234");
+  // Per ADR-030 the transformation renames every field. The table pairs the
+  // renames, and the defect (Phone carried a value, phone arrives null) leads
+  // as one row labelled as a lost value.
+  const lost = page.locator(".diff tbody tr").first();
+  await expect(lost).toContainText("Phone → phone");
+  await expect(lost).toContainText("value lost");
+  await expect(lost).toContainText("+1 919 555 1234");
+  await expect(lost).toContainText("null");
+});
 
-  const after = page
-    .locator(".diff tbody tr")
-    .filter({ hasText: /^phone/ })
-    .first();
-  await expect(after).toContainText("null");
+test("leads with the status line and keeps the definitions behind About this view", async ({
+  page
+}) => {
+  await signIn(page, JOURNEY_ID);
+  await page.goto(`/journeys/${JOURNEY_ID}`);
+
+  const status = page.locator("p[aria-live=polite]");
+  await expect(status).toHaveText(/^failed at [a-z-]+ · 8 events · .+ · span 3m 36s · times UTC$/);
+  await expect(status).toHaveClass(/\bfailed\b/);
+  // Straight after the heading: nothing stands between them.
+  expect(
+    await page.evaluate(() => {
+      const heading = document.querySelector("main h1");
+      const line = document.querySelector("p[aria-live=polite]");
+      if (heading === null || line === null) return false;
+      const between = document.createRange();
+      between.setStartAfter(heading);
+      between.setEndBefore(line);
+      return between.toString().trim();
+    })
+  ).toBe("");
+  // The aliases on one line, without the definition sentence.
+  await expect(page.locator(".aliases")).toContainText("Also known as salesforceAccountId");
+  await expect(page.locator(".aliases")).not.toContainText("An alias is");
+
+  // Hidden, not gone.
+  await expect(page.getByText(/^A journey is the complete recorded history/)).toBeHidden();
+  await page.getByText("About this view").click();
+  await expect(page.getByText(/^A journey is the complete recorded history/)).toBeVisible();
+  await expect(page.getByText(/^An alias is another identifier/)).toBeVisible();
+  await expect(page.getByText(/^Recorded span: 3m 36s/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Clock comparison" })).toHaveAttribute(
+    "href",
+    /GLOSSARY\.md#clock-comparison$/
+  );
+});
+
+test("says a clock condition every step shares once, above the timeline", async ({ page }) => {
+  await signIn(page, JOURNEY_ID);
+  await page.goto(`/journeys/${JOURNEY_ID}`);
+  await expect(page.locator(".timeline li")).toHaveCount(8);
+
+  // Seeded with no recorded host and received long after their 2026-08-06
+  // timestamps. Late receipt is what the data shows, so it is the warning; no
+  // recorded host is the Node SDK's normal condition, so it is said once in
+  // About this view instead (ADR-071).
+  const notice = page.getByRole("note");
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toHaveText(
+    "⚠ Clock Applies to every step: Every event was received more than two minutes after its recorded time."
+  );
+  await expect(page.locator(".timeline .clock-caveat")).toHaveCount(0);
+  await expect(page.locator(".timeline .clock-badge")).toHaveCount(0);
+  // The gaps stay on their rows.
+  await expect(page.locator(".timeline .timeline-gap")).toHaveCount(7);
+  // The host sentence moved, it did not disappear.
+  const hostless = page.locator(".about-view .hostless-clock-note");
+  await expect(hostless).toBeHidden();
+  await page.getByText("About this view").click();
+  await expect(hostless).toHaveText(
+    /^\s*These events do not record a host, so a gap between steps/
+  );
+});
+
+test("shows the new step while its detail loads, never the old payloads, and follows Back", async ({
+  page
+}) => {
+  await signIn(page, JOURNEY_ID);
+  await page.goto(`/journeys/${JOURNEY_ID}?event=evt_${SEED_VERSION}_2`);
+  await expect(page.locator(".detail h2")).toHaveText("transform-salesforce-account");
+  await expect(page.locator(".detail")).toContainText("+1 919 555 1234");
+  await page.waitForFunction(() => {
+    const list = document.querySelector(".timeline");
+    return list !== null && Object.keys(list).some((key) => key.startsWith("__reactFiber$"));
+  });
+
+  // Hold the next detail response until the loading state has been checked.
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/events/*", async (route) => {
+    await held;
+    await route.continue();
+  });
+
+  await page.getByRole("option").filter({ hasText: "persist-customer" }).getByRole("link").click();
+  await expect(page).toHaveURL(new RegExp(`event=evt_${SEED_VERSION}_3$`));
+  const panel = page.locator(".detail");
+  await expect(panel.locator("h2")).toHaveText("persist-customer");
+  await expect(panel).toHaveAttribute("aria-busy", "true");
+  await expect(panel.getByRole("status")).toHaveText("Loading…");
+  await expect(panel).not.toContainText("+1 919 555 1234");
+
+  release();
+  await expect(panel).not.toHaveAttribute("aria-busy");
+  await expect(panel.getByRole("heading", { name: "Payloads" })).toBeVisible();
+  await page.unroute("**/api/events/*");
+
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`event=evt_${SEED_VERSION}_2$`));
+  await expect(page.getByRole("option", { selected: true })).toContainText(
+    "transform-salesforce-account"
+  );
+  await expect(panel.locator("h2")).toHaveText("transform-salesforce-account");
+  await expect(panel).toContainText("+1 919 555 1234");
+
+  await page.goForward();
+  await expect(page).toHaveURL(new RegExp(`event=evt_${SEED_VERSION}_3$`));
+  await expect(panel.locator("h2")).toHaveText("persist-customer");
+  await expect(page.getByRole("option", { selected: true })).toContainText("persist-customer");
 });
 
 test("masks the alias display value", async ({ page }) => {

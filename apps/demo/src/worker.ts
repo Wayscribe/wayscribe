@@ -1,5 +1,17 @@
-import { DeleteMessageCommand, ReceiveMessageCommand, type Message } from "@aws-sdk/client-sqs";
+import {
+  ChangeMessageVisibilityCommand,
+  DeleteMessageCommand,
+  ReceiveMessageCommand,
+  type Message
+} from "@aws-sdk/client-sqs";
+import { deliveryFailure, nextAction, postCustomer, type DeliveryOutcome } from "./delivery.js";
 import { optionalEnv } from "./env.js";
+import {
+  DEAD_LETTER_MESSAGES,
+  DEAD_LETTER_QUEUE,
+  DELIVERY_TIMEOUT_MS,
+  type DeadLetterReason
+} from "./failures.js";
 import { deadLetterQueueUrl, queueUrl, sqsClient, type CustomerMessage } from "./queue.js";
 import { demoRecorder } from "./recorder.js";
 
@@ -17,19 +29,18 @@ const targetUrl = optionalEnv("TARGET_URL", "http://demo-target:3300");
  */
 const attempts = new Map<string, number>();
 
-interface DeliveryResult {
-  status: number;
-  body: unknown;
-}
+/**
+ * Why each in-flight customer's deliveries failed, keyed by external ID, so the
+ * dead-letter step can say whether they were refused or timed out. The body
+ * survives the redrive unchanged, and one process sees every delivery.
+ */
+const lastFailure = new Map<string, DeadLetterReason>();
 
-async function deliver(message: CustomerMessage): Promise<DeliveryResult> {
-  const response = await fetch(`${targetUrl}/contacts`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(message.customer)
-  });
-  return { status: response.status, body: await response.json() };
-}
+/**
+ * Received messages stay invisible long enough to outlast a timed-out
+ * delivery; after each attempt the worker sets the delay before the next one.
+ */
+const MAIN_VISIBILITY_SECONDS = Math.ceil(DELIVERY_TIMEOUT_MS / 1000) + 4;
 
 function attemptFor(message: Message): number {
   const messageId = message.MessageId ?? "unknown";
@@ -61,22 +72,28 @@ async function handleMain(message: Message): Promise<void> {
     });
   }
 
-  const result = await journey.deliver(
-    attempt === 1 ? "deliver-customer-to-target" : "retry-customer-delivery",
-    body.customer,
-    () => deliver(body),
-    {
+  let outcome: DeliveryOutcome;
+  try {
+    const result = await journey.deliver(
+      attempt === 1 ? "deliver-customer-to-target" : "retry-customer-delivery",
+      body.customer,
+      () => postCustomer(targetUrl, body.customer),
       // A 422 is a failure the target reports rather than throws, which is
       // exactly what `isFailure` exists for (ADR-022).
-      isFailure: (value) => value.status >= 400,
-      attempt
-    }
-  );
+      { isFailure: deliveryFailure, attempt }
+    );
+    outcome = { kind: "result", result };
+  } catch (error) {
+    // The SDK has already recorded the attempt with its error: a timeout, most
+    // often, since the target is slow for some accounts.
+    outcome = { kind: "threw", error };
+  }
 
-  if (result.status < 400) {
-    // Only a success deletes. A failure leaves the message to be redelivered
-    // after the visibility timeout, which is what drives the retries and,
-    // eventually, the redrive to the dead-letter queue.
+  const action = nextAction(outcome, attempt);
+  if (action.kind === "delete") {
+    // A success, or a rejection no retry can change. Anything else stays on
+    // the queue to be redelivered once its visibility runs out, which is what
+    // drives the retries and, eventually, the redrive to the dead-letter queue.
     await sqs.send(
       new DeleteMessageCommand({
         QueueUrl: queueUrl(),
@@ -84,8 +101,21 @@ async function handleMain(message: Message): Promise<void> {
       })
     );
     attempts.delete(message.MessageId ?? "unknown");
-    journey.finish({ status: "completed" });
+    lastFailure.delete(body.customer.externalId);
+    if (outcome.kind === "result" && outcome.result.status < 400) {
+      journey.finish({ status: "completed" });
+    }
+    return;
   }
+
+  lastFailure.set(body.customer.externalId, action.reason);
+  await sqs.send(
+    new ChangeMessageVisibilityCommand({
+      QueueUrl: queueUrl(),
+      ReceiptHandle: message.ReceiptHandle,
+      VisibilityTimeout: action.visibilitySeconds
+    })
+  );
 }
 
 async function handleDeadLetter(message: Message): Promise<void> {
@@ -95,11 +125,11 @@ async function handleDeadLetter(message: Message): Promise<void> {
     entity: { type: "customer", id: body.customer.externalId }
   });
 
-  journey.fail(
-    "move-message-to-dead-letter",
-    new Error("Delivery failed on every attempt; the message moved to the dead-letter queue."),
-    { metadata: { queue: "customer-updates-dlq", messageId: message.MessageId } }
-  );
+  const reason = lastFailure.get(body.customer.externalId) ?? "rejected";
+  lastFailure.delete(body.customer.externalId);
+  journey.fail("move-message-to-dead-letter", new Error(DEAD_LETTER_MESSAGES[reason]), {
+    metadata: { queue: DEAD_LETTER_QUEUE, messageId: message.MessageId }
+  });
 
   await sqs.send(
     new DeleteMessageCommand({
@@ -109,7 +139,11 @@ async function handleDeadLetter(message: Message): Promise<void> {
   );
 }
 
-async function poll(url: string, handle: (message: Message) => Promise<void>): Promise<void> {
+async function poll(
+  url: string,
+  handle: (message: Message) => Promise<void>,
+  visibilityTimeout?: number
+): Promise<void> {
   for (;;) {
     try {
       const response = await sqs.send(
@@ -118,7 +152,8 @@ async function poll(url: string, handle: (message: Message) => Promise<void>): P
           MaxNumberOfMessages: 1,
           WaitTimeSeconds: 2,
           MessageAttributeNames: ["All"],
-          MessageSystemAttributeNames: ["ApproximateReceiveCount"]
+          MessageSystemAttributeNames: ["ApproximateReceiveCount"],
+          ...(visibilityTimeout === undefined ? {} : { VisibilityTimeout: visibilityTimeout })
         })
       );
       for (const message of response.Messages ?? []) {
@@ -135,4 +170,7 @@ async function poll(url: string, handle: (message: Message) => Promise<void>): P
 }
 
 console.log("[demo-worker] polling");
-await Promise.all([poll(queueUrl(), handleMain), poll(deadLetterQueueUrl(), handleDeadLetter)]);
+await Promise.all([
+  poll(queueUrl(), handleMain, MAIN_VISIBILITY_SECONDS),
+  poll(deadLetterQueueUrl(), handleDeadLetter)
+]);

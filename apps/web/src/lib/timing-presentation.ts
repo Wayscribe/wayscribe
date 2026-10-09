@@ -1,4 +1,5 @@
 import type { EventListItem } from "./api";
+import { SKEW_THRESHOLD_SECONDS, skewSeconds } from "./time";
 
 export type GapPresentation =
   | { kind: "gap"; milliseconds: number; label: string; qualification?: string }
@@ -66,6 +67,76 @@ export function presentTimelineTiming(events: readonly EventListItem[]): Timelin
   });
 }
 
+/**
+ * The clock evidence that holds for the whole loaded journey, decided once.
+ *
+ * A caveat or a late-arrival badge that every row would carry says nothing
+ * about any one row: repeated ten times it reads as ten problems, and makes the
+ * timeline look less trustworthy than it is. When the condition is uniform it
+ * is stated once for the journey and each row is left to say only what differs.
+ *
+ * - `caveat`: the clock caveat shared by every row that has a previous row to
+ *   compare with, or null when the rows disagree or carry none.
+ * - `allSkewed`: every loaded event arrived more than `SKEW_THRESHOLD_SECONDS`
+ *   after its recorded time. Needs two events: one is not a pattern.
+ * - `hostless`: the shared caveat is the missing-host one only because no
+ *   loaded event records a host at all. That is the Node SDK's normal
+ *   condition (it never sends a hostname, ADR-063), not something this
+ *   journey's data shows, so it is not a warning: `journeyClockNotice` leaves
+ *   it out and the "About this view" disclosure says it in one neutral
+ *   sentence, `HOSTLESS_CLOCK_NOTE` (ADR-071). A journey where some events do
+ *   record a host keeps the warning.
+ *
+ * Derived from the complete loaded unfiltered timeline, like the gaps, so a
+ * filter does not change what counts as journey-wide.
+ */
+export interface JourneyClockCondition {
+  caveat: string | null;
+  allSkewed: boolean;
+  hostless: boolean;
+}
+
+const MISSING_HOST_CAVEAT =
+  "Clock comparison is uncertain because recorded host evidence is missing.";
+
+/** The neutral "About this view" sentence for a journey with no recorded host. */
+export const HOSTLESS_CLOCK_NOTE =
+  "These events do not record a host, so a gap between steps may compare times from different processes; a small negative gap can be clock disagreement rather than overlap.";
+
+export function journeyClockCondition(
+  events: readonly EventListItem[],
+  timing: readonly TimelineTiming[]
+): JourneyClockCondition {
+  const comparable = timing.filter((item) => item.previousEventId !== null);
+  const first = comparable[0]?.clockCaveat ?? null;
+  const caveat =
+    first !== null && comparable.every((item) => item.clockCaveat === first) ? first : null;
+  const allSkewed = events.length >= 2 && events.every(isSkewed);
+  const hostless =
+    caveat === MISSING_HOST_CAVEAT &&
+    events.every((event) => event.recordedHost === undefined || event.recordedHost === null);
+  return { caveat, allSkewed, hostless };
+}
+
+/** Received more than `SKEW_THRESHOLD_SECONDS` after the time it was recorded at. */
+export function isSkewed(event: Pick<EventListItem, "eventTimestamp" | "receivedAt">): boolean {
+  return skewSeconds(event.eventTimestamp, event.receivedAt) > SKEW_THRESHOLD_SECONDS;
+}
+
+/**
+ * The one-line journey-wide warning, or null when nothing the data shows is
+ * uniform. A hostless journey's caveat is not a warning (see `hostless`): it
+ * is left out here, so a hostless journey received promptly has no notice.
+ */
+export function journeyClockNotice(condition: JourneyClockCondition): string | null {
+  const parts: string[] = [];
+  if (condition.caveat !== null && !condition.hostless) parts.push(condition.caveat);
+  if (condition.allSkewed) {
+    parts.push("Every event was received more than two minutes after its recorded time.");
+  }
+  return parts.length === 0 ? null : `Applies to every step: ${parts.join(" ")}`;
+}
+
 export function retryGroups(
   events: readonly EventListItem[],
   complete: boolean
@@ -115,7 +186,7 @@ function clockCaveat(
   next: string | null | undefined
 ): string | null {
   if (previous === undefined || previous === null || next === undefined || next === null) {
-    return "Clock comparison is uncertain because recorded host evidence is missing.";
+    return MISSING_HOST_CAVEAT;
   }
   return previous === next
     ? null

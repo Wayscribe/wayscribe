@@ -1,4 +1,5 @@
 import type { DiffChange, EventDetailData, EventListItem, RowBuild } from "./api";
+import { pairChanges, type DisplayKind, type PairedChange } from "./diff-pairing";
 import { bounded, metadataEntries, runtimeFormat } from "./metadata";
 import { readRecordedHost, readTimingContext } from "./timing-context";
 
@@ -20,12 +21,20 @@ import { readRecordedHost, readTimingContext } from "./timing-context";
  * size limit arrives as a marker string, as before.
  */
 
-/** A diff change with its values as the diff table shows them. */
+/**
+ * A diff change with its values as the diff table shows them: a raw change,
+ * or a rename paired from a removed and an added one (`pairChanges`).
+ */
 export interface DisplayedChange {
+  /** The path in the output for a rename; otherwise the change's own path. */
   path: string;
-  kind: DiffChange["kind"];
+  /** The path in the input for a rename, null otherwise. */
+  from: string | null;
+  kind: DisplayKind;
   before: string;
   after: string;
+  /** A non-null value in the input became null or missing in the output. */
+  lost: boolean;
 }
 
 /** The event as `GET /v1/events/:id` answers it. */
@@ -82,7 +91,7 @@ export function eventForDisplay(raw: ApiEventDetail): EventDetailData {
     payloadDiff:
       payloadDiff === null
         ? null
-        : { changes: payloadDiff.changes.map(displayChange), truncated: payloadDiff.truncated },
+        : { changes: displayChanges(payloadDiff.changes), truncated: payloadDiff.truncated },
     metadata: {
       custom: metadataEntries(customMetadata),
       deployment: metadataEntries(deploymentMetadata),
@@ -132,13 +141,25 @@ function statedAliases(value: unknown): StatedAlias[] | null {
   });
 }
 
-/** One diff change as text. Also used for a replay's comparison. */
-export function displayChange(change: DiffChange): DisplayedChange {
+/**
+ * A diff's changes as the table shows them: renames paired, the most
+ * damaging first, values as text. Also used for a replay's comparison.
+ */
+export function displayChanges(changes: readonly DiffChange[]): DisplayedChange[] {
+  return pairChanges(changes).map(displayChange);
+}
+
+/** One change as text, unpaired: a raw `DiffChange` or a row `pairChanges` made. */
+export function displayChange(change: DiffChange | PairedChange): DisplayedChange {
+  const paired = "lost" in change ? change : pairChanges([change])[0];
+  if (paired === undefined) throw new Error("pairChanges dropped a change");
   return {
-    path: change.path,
-    kind: change.kind,
-    before: compact(change.before),
-    after: compact(change.after)
+    path: paired.path,
+    from: paired.from,
+    kind: paired.kind,
+    before: compact(paired.before),
+    after: compact(paired.after),
+    lost: paired.lost
   };
 }
 

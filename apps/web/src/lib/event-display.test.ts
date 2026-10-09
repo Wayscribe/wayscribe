@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   displayChange,
+  displayChanges,
   eventForDisplay,
   rowForDisplay,
   type ApiEventDetail,
@@ -65,17 +66,25 @@ describe("eventForDisplay", () => {
     expect(event.inputText).toBe("null");
   });
 
-  it("writes each diff value compactly, and a missing side as an em dash", () => {
+  it("pairs renames, writes each diff value compactly, and a missing side as an em dash", () => {
     const event = eventForDisplay(
       raw(
-        ',"payloadDiff":{"changes":[{"path":"Phone","kind":"removed","before":"+1 919"},' +
+        ',"payloadDiff":{"changes":[{"path":"extra","kind":"added","after":1},' +
+          '{"path":"Phone","kind":"removed","before":"+1 919"},' +
           '{"path":"phone","kind":"added","after":null}],"truncated":true}'
       )
     );
     expect(event.payloadDiff).toEqual({
       changes: [
-        { path: "Phone", kind: "removed", before: '"+1 919"', after: "—" },
-        { path: "phone", kind: "added", before: "—", after: "null" }
+        {
+          path: "phone",
+          from: "Phone",
+          kind: "renamed-changed",
+          before: '"+1 919"',
+          after: "null",
+          lost: true
+        },
+        { path: "extra", from: null, kind: "added", before: "—", after: "1", lost: false }
       ],
       truncated: true
     });
@@ -147,10 +156,32 @@ describe("displayChange", () => {
   it("is the rule the replay comparison is shown with too", () => {
     expect(displayChange({ path: "a", kind: "changed", before: 1, after: { b: 2 } })).toEqual({
       path: "a",
+      from: null,
       kind: "changed",
       before: "1",
-      after: '{"b":2}'
+      after: '{"b":2}',
+      lost: false
     });
+  });
+
+  it("pairs and orders a replay comparison as it does an event's diff", () => {
+    expect(
+      displayChanges([
+        { path: "Name", kind: "removed", before: "Dana" },
+        { path: "name", kind: "added", after: "Dana" },
+        { path: "phone", kind: "changed", before: "+1", after: null }
+      ])
+    ).toEqual([
+      { path: "phone", from: null, kind: "changed", before: '"+1"', after: "null", lost: true },
+      {
+        path: "name",
+        from: "Name",
+        kind: "renamed",
+        before: '"Dana"',
+        after: '"Dana"',
+        lost: false
+      }
+    ]);
   });
 });
 

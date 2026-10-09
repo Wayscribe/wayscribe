@@ -8,6 +8,8 @@
   --removed-bg: #fdecec;
   --added-bg: #e9f7ef;
   --failed: #c0392b;
+  --warn: #8a5a00;
+  --warn-bg: #fff7e0;
   --radius: 6px;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -23,6 +25,8 @@
     --removed-bg: #3a1f22;
     --added-bg: #16301f;
     --failed: #ff8a80;
+    --warn: #f0c060;
+    --warn-bg: #2e2612;
   }
 }
 
@@ -167,6 +171,15 @@ button {
    to break at; the link wraps rather than widening the page. */
 .results li > a {
   overflow-wrap: anywhere;
+}
+/* On a phone the result link is the first thing a visitor taps; give it a
+   44px target like the journeys list cards. */
+@media (max-width: 40rem) {
+  .results li > a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
 }
 .status {
   font-size: 0.75rem;
@@ -406,9 +419,6 @@ button[aria-busy="true"] {
   width: 4.5rem;
   text-align: right;
 }
-.journey-table .header-short {
-  display: none;
-}
 .journey-table .shown-label {
   font-weight: 600;
 }
@@ -416,26 +426,23 @@ button[aria-busy="true"] {
   font-size: 0.8rem;
 }
 
+/* A phone: eight columns squeezed "Shown as", the row's only link, to a few
+   pixels, so each journey becomes a card. Line one is the link, the full width
+   and a full tap target tall; line two is the status and the step (`at` the
+   step that failed it, else its last step); line three, muted, is the rest.
+   Every value the desktop shows is on the card. Still a table to a screen
+   reader: JourneyTable states the roles, and the column headers are only
+   hidden from sight. */
 @media (max-width: 40rem) {
-  /* A phone keeps what a row is shown as, and drops the three columns the
-     journey page repeats; the date sits above the time. */
-  .journey-table .col-environment,
-  .journey-table .col-type,
-  .journey-table .col-step {
-    display: none;
-  }
-  .journey-table .col-activity {
-    width: 5.5rem;
-  }
-  .journey-table .col-span {
-    width: 5.5rem;
-    font-size: 0.75rem;
-  }
-  .journey-table .col-activity .day {
+  .journey-table,
+  .journey-table caption,
+  .journey-table tbody {
     display: block;
   }
-  /* Visually hidden, as .visually-hidden, so a screen reader still reads it. */
-  .journey-table .header-full {
+  /* A block, so the clip holds: a hidden header row group would otherwise
+     still lay its row out at full width and widen the page. */
+  .journey-table thead {
+    display: block;
     position: absolute;
     width: 1px;
     height: 1px;
@@ -444,22 +451,98 @@ button[aria-busy="true"] {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
-  .journey-table .header-short {
-    display: inline;
+  .journey-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.15rem 0.4rem;
+    padding: 0.1rem 0 0.6rem;
+    border-bottom: 1px solid var(--line);
+  }
+  /* The attribute outweighs the desktop's column widths. Each cell keeps the
+     desktop's one line, cut with an ellipsis; the card wraps between cells. */
+  .journey-table td[role="cell"] {
+    width: auto;
+    min-width: 0;
+    padding: 0;
+    border-bottom: none;
+    text-align: left;
+  }
+  .journey-table .col-shown {
+    order: 1;
+    flex: 0 0 100%;
+  }
+  .journey-table .col-shown > a {
+    min-height: 2.75rem;
+    line-height: 2.75rem;
   }
   .journey-table .col-status {
-    width: 5.75rem;
+    order: 2;
   }
-  /* "COMPLETED" fits whole without the wide letter spacing. */
-  .journey-table .col-status .status {
-    font-size: 0.7rem;
-    letter-spacing: 0;
+  /* A step name may be 256 characters: cut, as on a desktop, and whole in
+     the title and on the journey page. */
+  .journey-table .col-step {
+    order: 3;
+    flex: 1 1 0;
   }
-  .journey-table th.col-shown {
-    letter-spacing: 0;
+  .journey-table .col-step:empty {
+    display: none;
+  }
+  .journey-table .col-step.failed::before {
+    content: "at ";
+    content: "at " / "";
+  }
+  .journey-table .col-step:not(.failed)::before {
+    content: "last step ";
+    content: "last step " / "";
+    color: var(--muted);
+  }
+  /* Ends line two: the rest of the card starts a line of its own. */
+  .journey-table tbody tr::after {
+    content: "";
+    order: 4;
+    flex-basis: 100%;
+  }
+  .journey-table .col-activity,
+  .journey-table .col-span,
+  .journey-table .col-events,
+  .journey-table .col-environment,
+  .journey-table .col-type {
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .journey-table .col-activity {
+    order: 5;
+  }
+  .journey-table .col-span {
+    order: 6;
   }
   .journey-table .col-events {
-    width: 3.5rem;
+    order: 7;
+  }
+  .journey-table .col-environment {
+    order: 8;
+  }
+  .journey-table .col-type {
+    order: 9;
+  }
+  /* An environment or entity type may be 128 characters with no space: cut
+     at the card's width, whole in the title. */
+  .journey-table .col-environment,
+  .journey-table .col-type {
+    max-width: 100%;
+  }
+  .journey-table .col-span::before,
+  .journey-table .col-events::before,
+  .journey-table .col-environment::before,
+  .journey-table .col-type::before {
+    content: "·";
+    content: "·" / "";
+    margin-right: 0.4rem;
+  }
+  .journey-table .col-events::after {
+    content: " " attr(data-unit);
+    content: " " attr(data-unit) / "";
   }
 }
 
@@ -467,12 +550,76 @@ button[aria-busy="true"] {
   margin-top: 1rem;
 }
 
+/* The journey page's header: the status line is the first thing read after
+   the heading, and the definitions wait in a disclosure. */
+.journey-status {
+  margin: 0.35rem 0 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.journey-status::first-letter {
+  text-transform: uppercase;
+}
+.journey-status.failed .journey-status-summary {
+  color: var(--failed);
+}
+.journey-status-extra {
+  color: var(--muted);
+  font-weight: 400;
+}
+.journey-header-line {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+}
+.about-view {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 0.9rem;
+}
+.about-view > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.about-view dl {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.about-view dt {
+  font-weight: 600;
+}
+.about-view dd {
+  margin: 0.1rem 0 0.6rem;
+}
+.about-view dd:last-child {
+  margin-bottom: 0;
+}
+.about-view .timing-summary {
+  margin: 0;
+}
+/* One line for a clock condition the whole journey shares. */
+.clock-notice {
+  margin: 0.75rem 0 0;
+  padding: 0.35rem 0.6rem;
+  border-left: 3px solid var(--warn);
+  background: var(--warn-bg);
+  color: var(--fg);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.clock-notice-label {
+  color: var(--warn);
+  font-weight: 600;
+}
+
 /* Master-detail: the timeline stays visible while an event is inspected. */
 .journey {
   display: grid;
   /* minmax(0, ...): a grid column's minimum is otherwise its widest content,
      so one long step name or service widened the whole page. */
-  grid-template-columns: minmax(18rem, 40%) minmax(0, 1fr);
+  grid-template-columns: minmax(22rem, 42%) minmax(0, 1fr);
   gap: 1.25rem;
   margin-top: 1rem;
   align-items: start;
@@ -515,11 +662,15 @@ button[aria-busy="true"] {
 .timeline-gap .clock-caveat {
   overflow-wrap: anywhere;
 }
+/* Two lines per row: the time and the whole step name, then the operation,
+   service and anything that singles the row out, under the name. */
 .timeline a {
-  display: flex;
-  gap: 0.6rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.6rem;
+  row-gap: 0.15rem;
   align-items: baseline;
-  padding: 0.55rem 0.7rem;
+  padding: 0.5rem 0.7rem;
   color: var(--fg);
 }
 .timeline a:hover {
@@ -534,29 +685,47 @@ button[aria-busy="true"] {
   font-weight: 600;
   font-size: 0.9rem;
 }
-/* One line per row: the name gives way first, and the service sits at the end. */
-.timeline a > * {
-  flex-shrink: 0;
+.timeline a > .time {
   white-space: nowrap;
 }
-.timeline a > .step,
-.timeline a > .service,
-.timeline a > .build {
-  flex-shrink: 1;
+/* Never cut: a 256-character name with no spaces still wraps inside the row. */
+.timeline a > .step {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
-.timeline a > .attempt {
+.timeline .row-meta {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.5rem;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+.row-meta > * {
+  white-space: nowrap;
+}
+.row-meta > .service {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.row-meta > .attempt {
   font-size: 0.72rem;
-}
-.timeline a > .service {
-  margin-left: auto;
 }
 /* A version can be 128 characters; cut on the row, whole in its title and in
    the event's Deployment group. */
-.timeline a > .build {
+.row-meta > .build {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 0.75rem;
+}
+.clock-badge {
+  font-size: 0.72rem;
+  color: var(--warn);
 }
 .step.failed {
   color: var(--failed);
@@ -590,6 +759,41 @@ button[aria-busy="true"] {
 .retry-summary h2 {
   margin-top: 0;
   font-size: 1rem;
+}
+.retry-summary details > summary {
+  cursor: pointer;
+}
+.retry-summary details > summary h2 {
+  display: inline;
+}
+.retry-summary-line {
+  margin-left: 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* The selected step while its detail loads: its name and kind from the
+   timeline, never the previous step's payloads. */
+.detail-pending .loading::after {
+  content: "";
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-left: 0.4em;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  vertical-align: -0.05em;
+  animation: detail-spin 0.8s linear infinite;
+}
+@keyframes detail-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .detail-pending .loading::after {
+    animation: none;
+  }
 }
 .retry-group + .retry-group {
   margin-top: 0.75rem;
@@ -640,6 +844,101 @@ button[aria-busy="true"] {
 }
 .diff .added {
   background: var(--added-bg);
+}
+.diff .kind {
+  white-space: nowrap;
+  color: var(--muted);
+}
+/* A value that became null or missing: the row the reader came for. */
+.diff tr.lost td {
+  color: var(--failed);
+  font-weight: 600;
+}
+.diff tr.lost td:first-child {
+  box-shadow: inset 3px 0 0 var(--failed);
+}
+/* A rename that kept its value: expected, so it stays out of the way. */
+.diff tr.renamed td {
+  color: var(--muted);
+}
+/* A phone: four columns cut "Phone → phone" mid-word, so each change becomes
+   a card. Line one is the field and its change in words; line two is the
+   value before, an arrow, and the value after (a pure rename's value once,
+   across the line). Still a table to a screen reader: DiffTable states the
+   roles, and the column headers are only hidden from sight. */
+@media (max-width: 40rem) {
+  .diff,
+  .diff tbody {
+    display: block;
+  }
+  .diff thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .diff tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 0.3rem 0.4rem;
+    align-items: start;
+    padding: 0.5rem 0.5rem 0.5rem 0.65rem;
+    border-top: 1px solid var(--line);
+  }
+  .diff td {
+    padding: 0;
+    border-top: none;
+    word-break: normal;
+  }
+  /* Field names wrap at their spaces; a single name longer than the line is
+     the only thing broken inside a word. */
+  .diff .field {
+    grid-column: 1 / 3;
+    grid-row: 1;
+    overflow-wrap: break-word;
+  }
+  .diff .kind {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    text-align: right;
+    white-space: normal;
+    font-size: 0.75rem;
+  }
+  /* Values are JSON: long unbroken strings, so they may break anywhere. */
+  .diff .removed,
+  .diff .added,
+  .diff .same {
+    grid-row: 2;
+    padding: 0.15rem 0.35rem;
+    border-radius: 3px;
+    overflow-wrap: anywhere;
+  }
+  .diff .removed {
+    grid-column: 1;
+  }
+  .diff .added {
+    grid-column: 3;
+  }
+  .diff .same {
+    grid-column: 1 / -1;
+  }
+  .diff tbody tr:not(.renamed)::after {
+    content: "→";
+    content: "→" / "";
+    grid-column: 2;
+    grid-row: 2;
+    color: var(--muted);
+  }
+  .diff tr.lost td:first-child {
+    box-shadow: none;
+  }
+  .diff tbody tr.lost {
+    box-shadow: inset 3px 0 0 var(--failed);
+  }
 }
 
 .block {
@@ -815,4 +1114,64 @@ h2,
 }
 .demo-banner p {
   margin: 0;
+}
+
+/* ---- Public demo: search entry and version line (ADR-069) ----
+   Demo mode only: the Search page's call to action, the folded search
+   filters, and the short version line. New rules; nothing above is changed. */
+.demo-start {
+  margin: 1rem 0 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.demo-start p {
+  margin: 0.4rem 0;
+}
+/* A link that reads as the primary button: the way in, not a form action. */
+a.button-link {
+  display: inline-block;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+a.button-link:hover {
+  color: #fff;
+  filter: brightness(1.08);
+}
+@media (prefers-color-scheme: dark) {
+  a.button-link,
+  a.button-link:hover {
+    color: #14161a;
+  }
+}
+a.button-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.search-filters {
+  margin: 0 0 0.5rem;
+}
+.search-filters > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.search-filters[open] > summary {
+  margin-bottom: 0.5rem;
+}
+/* The Journeys page's form, folded the same way: the disclosure takes the
+   form's outer margin, and the form sits straight under its summary. */
+.journey-filters-fold {
+  margin: 1rem 0;
+}
+.journey-filters-fold > .journey-filters {
+  margin: 0;
+}
+.version-details > summary {
+  cursor: pointer;
 }

@@ -1,13 +1,18 @@
 import { type KeyboardEvent, useEffect, useMemo } from "react";
 import type { EventListItem } from "../../src/lib/api";
-import { formatDuration, type TimelineTiming } from "../../src/lib/timing-presentation";
 import {
-  SKEW_THRESHOLD_SECONDS,
-  dayLabel,
-  fullTimestamp,
-  skewSeconds,
-  timeOfDay
-} from "../../src/lib/time";
+  type JourneyClockCondition,
+  type TimelineTiming,
+  formatDuration,
+  isSkewed
+} from "../../src/lib/timing-presentation";
+import { dayLabel, fullTimestamp, timeOfDay } from "../../src/lib/time";
+
+const NO_JOURNEY_CLOCK: JourneyClockCondition = {
+  caveat: null,
+  allSkewed: false,
+  hostless: false
+};
 
 /** DOM id of a row, referenced by `aria-activedescendant` on the list. */
 export const rowId = (eventId: string): string => `event-${eventId}`;
@@ -24,6 +29,7 @@ export function TimelineList({
   journeyId,
   events,
   timing = [],
+  clock = NO_JOURNEY_CLOCK,
   selectedId,
   multiDay,
   onSelect,
@@ -33,6 +39,11 @@ export function TimelineList({
   events: readonly EventListItem[];
   /** Derived from the complete loaded unfiltered timeline before `events` is filtered. */
   timing?: readonly TimelineTiming[];
+  /**
+   * What holds for the whole journey, from `journeyClockCondition`: a row
+   * leaves out a caveat or badge that is already stated once above it.
+   */
+  clock?: JourneyClockCondition;
   selectedId: string | null;
   multiDay: boolean;
   onSelect: (id: string) => void;
@@ -92,7 +103,10 @@ export function TimelineList({
                     {evidence.gapBefore.qualification}
                   </span>
                 )}
-                {evidence.clockCaveat === null ? null : (
+                {/* A caveat the whole journey shares is stated once above the
+                  timeline, or in About this view when no event records a host
+                  (ADR-071); a row repeats it only when its own differs. */}
+                {evidence.clockCaveat === null || evidence.clockCaveat === clock.caveat ? null : (
                   <span className="muted clock-caveat">{evidence.clockCaveat}</span>
                 )}
               </div>
@@ -110,43 +124,50 @@ export function TimelineList({
                 {multiDay ? `${dayLabel(event.eventTimestamp)} ` : ""}
                 {timeOfDay(event.eventTimestamp)}
               </span>
-              {/* The step's own name leads: a long journey is mostly one
-                operation, and rows labelled by it all read the same. An event
-                with no name falls back to its operation, shown once. */}
-              {event.name === "" ? (
-                <span className={failed ? "step failed" : "step"}>{event.operation}</span>
-              ) : (
-                <>
-                  <span className="step" title={event.name}>
-                    {event.name}
-                  </span>
+              {/* The step's own name leads, and whole: it wraps rather than
+                being cut, because the name is what a reader came to read. A
+                long journey is mostly one operation, so rows labelled by it
+                would all read the same. An event with no name falls back to
+                its operation, shown once. */}
+              <span
+                className={event.name === "" && failed ? "step failed" : "step"}
+                title={event.name === "" ? undefined : event.name}
+              >
+                {event.name === "" ? event.operation : event.name}
+              </span>
+              {/* The second line: what kind of step, where it ran, and
+                anything that singles this row out. */}
+              <span className="row-meta">
+                {event.name === "" ? null : (
                   <span
                     className={failed ? "op failed" : "op"}
                     title={`operation: ${event.operation}`}
                   >
                     {event.operation}
                   </span>
-                </>
-              )}
-              <span className="muted service">{event.service}</span>
-              {event.timingContext?.attempt === undefined ? null : (
-                <span className="muted attempt">attempt {event.timingContext.attempt}</span>
-              )}
-              {/* The build, beside the service it ran in (F-043): a journey
-                recorded by one build reads the same label down the list. */}
-              {event.build == null ? null : (
-                <span className="muted mono build" title={event.build.title}>
-                  {event.build.label}
-                </span>
-              )}
-              {skewSeconds(event.eventTimestamp, event.receivedAt) > SKEW_THRESHOLD_SECONDS ? (
-                <span
-                  className="muted"
-                  title={`Recorded at ${fullTimestamp(event.eventTimestamp)}, received at ${fullTimestamp(event.receivedAt)}. Received more than two minutes late: this service's clock may be behind, which would put the timeline out of order, or the event waited to be sent, or the step ran long.`}
-                >
-                  ⚠ clock
-                </span>
-              ) : null}
+                )}
+                <span className="muted service">{event.service}</span>
+                {event.timingContext?.attempt === undefined ? null : (
+                  <span className="muted attempt">attempt {event.timingContext.attempt}</span>
+                )}
+                {/* The build, beside the service it ran in (F-043): a journey
+                  recorded by one build reads the same label down the list. */}
+                {event.build == null ? null : (
+                  <span className="muted mono build" title={event.build.title}>
+                    {event.build.label}
+                  </span>
+                )}
+                {/* Only when it singles this row out: a journey whose every
+                  event arrived late says so once, above the timeline. */}
+                {!clock.allSkewed && isSkewed(event) ? (
+                  <span
+                    className="clock-badge"
+                    title={`Recorded at ${fullTimestamp(event.eventTimestamp)}, received at ${fullTimestamp(event.receivedAt)}. Received more than two minutes late: this service's clock may be behind, which would put the timeline out of order, or the event waited to be sent, or the step ran long.`}
+                  >
+                    ⚠ clock
+                  </span>
+                ) : null}
+              </span>
             </a>
           </li>
         );

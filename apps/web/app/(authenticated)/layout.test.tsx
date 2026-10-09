@@ -190,5 +190,23 @@ describe("anonymous read-only mode", () => {
     presenting(signSession(ADMIN_TOKEN, { projectId: "", expiresAt: Date.now() + 60_000 }));
     const element = await AuthenticatedLayout({ children: null });
     expect(hasBanner(element)).toBe(false);
+    expect(footerDemo(element)).toBe(false);
+  });
+
+  it("asks the version line for its short demo form", async () => {
+    vi.stubEnv("WEB_ANONYMOUS_READ_ONLY", "true");
+    vi.stubEnv("READ_TOKEN", "read-token-for-tests-000000000000000");
+    vi.stubEnv("ADMIN_TOKEN", "");
+    cookiesMock.mockResolvedValue({ get: () => undefined });
+    const element = await AuthenticatedLayout({ children: null });
+    expect(footerDemo(element)).toBe(true);
   });
 });
+
+/** The `demo` prop the layout gave the version line. */
+function footerDemo(element: { props: unknown }): unknown {
+  const footer = (element.props as { children: unknown[] }).children.find(
+    (child) => (child as { type?: unknown } | null)?.type === VersionFooter
+  ) as { props: { demo?: boolean } } | undefined;
+  return footer?.props.demo;
+}

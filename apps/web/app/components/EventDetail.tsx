@@ -40,7 +40,8 @@ export function EventDetail({
           <h3>What changed</h3>
           <p className="muted">
             The difference between what this step received and what it produced.{" "}
-            {EXPLANATIONS.transformation}
+            {EXPLANATIONS.transformation} Renamed fields are paired and muted; lost or altered
+            values are listed first.
           </p>
           <DiffTable
             key={event.id}

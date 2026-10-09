@@ -2,6 +2,21 @@ import { createHash } from "node:crypto";
 import { normalizeSearchValue } from "@wayscribe/payload-security";
 import { PROTOCOL_VERSION } from "@wayscribe/protocol";
 import { TEST_ACCOUNT, type SalesforceAccount } from "./account.js";
+import {
+  accountFor,
+  DEAD_LETTER_MESSAGES,
+  DEAD_LETTER_QUEUE,
+  DELIVERY_TIMEOUT_MS,
+  failureShape,
+  invalidStatus,
+  MAX_DELIVERIES,
+  PERSIST_FAILURE,
+  PHONE_REQUIRED,
+  TIMEOUT_ERROR,
+  timeoutBackoffSeconds,
+  type FailureShape
+} from "./failures.js";
+import { deliveryFailure } from "./delivery.js";
 import { transformAccount } from "./transform.js";
 
 /**
@@ -11,7 +26,8 @@ import { transformAccount } from "./transform.js";
  * come from them. These are the same journeys written straight to the ingestion
  * API with past timestamps: the same services, step names and payloads, and the
  * real, deliberately broken `transformAccount`, so the diff a visitor reads is
- * the one the live stack would record.
+ * the one the live stack would record. Failed journeys take one of the shapes in
+ * failures.ts, the same definition the live loop, worker and target use.
  */
 
 export const PINNED_PHONE = "+1 555 0100";
@@ -80,6 +96,8 @@ export interface HistoryCustomer {
   account: SalesforceAccount;
   internalCustomerId: string;
   fails: boolean;
+  /** How a failing journey fails. Absent on a failing one means `dead-letter`. */
+  failure?: FailureShape;
   startedAt: Date;
 }
 
@@ -113,7 +131,7 @@ export interface HistoryEvent {
   durationMs?: number;
   input?: unknown;
   output?: unknown;
-  error?: { message: string; code?: string };
+  error?: { message: string; type?: string; code?: string };
   metadata?: Record<string, unknown>;
 }
 
@@ -167,6 +185,7 @@ export function generateHistory(options: HistoryOptions): HistoryCustomer[] {
     for (const key of keys) taken.add(key);
 
     const fails = options.random() < options.failureRate;
+    const failure = fails ? failureShape(options.random) : undefined;
     const name = customerName(options.random);
     const status = options.random() < 0.85 ? "Active" : "Prospect";
     // Inside the window, and finished at least an hour before now so the
@@ -176,9 +195,10 @@ export function generateHistory(options: HistoryOptions): HistoryCustomer[] {
     );
     const base = { Id: id, Name: name, Phone: phone, Status__c: status };
     customers.push({
-      account: fails ? base : { ...base, Phone__c: phone },
+      account: accountFor(base, failure),
       internalCustomerId,
       fails,
+      ...(failure === undefined ? {} : { failure }),
       startedAt
     });
   }
@@ -186,8 +206,17 @@ export function generateHistory(options: HistoryOptions): HistoryCustomer[] {
   return customers.sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
 }
 
-/** One loop run's account: a new id each millisecond, failing at `failureRate`. */
-export function loopAccount(now: Date, random: () => number, failureRate = 0.2): SalesforceAccount {
+export interface LoopRun {
+  account: SalesforceAccount;
+  /** How this run's journey will fail; absent when it should complete. */
+  failure?: FailureShape;
+}
+
+/**
+ * One loop run's account: a new id each millisecond, failing at `failureRate`
+ * in the same shapes, at the same odds, as the history.
+ */
+export function loopRun(now: Date, random: () => number, failureRate = 0.2): LoopRun {
   const phone = phoneNumber(random);
   const base = {
     Id: `001LP${now.getTime().toString(36).toUpperCase()}`,
@@ -195,7 +224,11 @@ export function loopAccount(now: Date, random: () => number, failureRate = 0.2):
     Phone: phone,
     Status__c: "Active"
   };
-  return random() < failureRate ? base : { ...base, Phone__c: phone };
+  const failure = random() < failureRate ? failureShape(random) : undefined;
+  return {
+    account: accountFor(base, failure),
+    ...(failure === undefined ? {} : { failure })
+  };
 }
 
 const hash = (value: string): string =>
@@ -209,34 +242,85 @@ interface Step {
   fields?: Partial<HistoryEvent>;
 }
 
-/** The steps the live integration and worker record, with their usual spacing. */
+/** What the SDK records for a step whose callback threw: the error's message and name. */
+function thrownBy(fn: () => unknown): NonNullable<HistoryEvent["error"]> {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof Error) return { message: error.message, type: error.name };
+    return { message: String(error) };
+  }
+  throw new Error("Expected the step to throw.");
+}
+
+/**
+ * The steps the live integration and worker record, with their usual spacing.
+ * The `dead-letter` and successful paths are the live stack's; the other
+ * failure shapes are the same services breaking in other ways (see
+ * FAILURE_SHAPES).
+ */
 function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string>): Step[] {
   const { account } = customer;
+  const failure = customer.fails ? (customer.failure ?? "dead-letter") : undefined;
+  const received: Step = {
+    offsetMs: 0,
+    service: "demo-integration",
+    operation: "received",
+    name: "receive-salesforce-webhook",
+    fields: { input: account }
+  };
+
+  if (failure === "transform-failed") {
+    // The real transform, run on the account that arrived: the error is the
+    // one it throws, not a description of it.
+    return [
+      received,
+      {
+        offsetMs: 12,
+        service: "demo-integration",
+        operation: "transformed",
+        name: "transform-salesforce-account",
+        fields: { input: account, durationMs: 1, error: thrownBy(() => transformAccount(account)) }
+      }
+    ];
+  }
+
   const transformed = transformAccount(account);
+  const transformStep: Step = {
+    offsetMs: 12,
+    service: "demo-integration",
+    operation: "transformed",
+    name: "transform-salesforce-account",
+    fields: { input: account, output: transformed, durationMs: 1 }
+  };
+
+  if (failure === "persist-failed") {
+    return [
+      received,
+      transformStep,
+      {
+        offsetMs: 35,
+        service: "demo-integration",
+        operation: "persisted",
+        name: "persist-customer",
+        fields: {
+          input: transformed,
+          durationMs: 6,
+          error: { ...PERSIST_FAILURE }
+        }
+      }
+    ];
+  }
+
   const messageId = `msg-${hash(account.Id)}`;
   const message = {
     customer: transformed,
     internalCustomerId: Number(customer.internalCustomerId)
   };
-  const rejected = {
-    status: 422,
-    body: { error: { code: "phone_required", message: "A phone number is required." } }
-  };
+  const rejected = { status: 422, body: { error: { ...PHONE_REQUIRED } } };
   const steps: Step[] = [
-    {
-      offsetMs: 0,
-      service: "demo-integration",
-      operation: "received",
-      name: "receive-salesforce-webhook",
-      fields: { input: account }
-    },
-    {
-      offsetMs: 12,
-      service: "demo-integration",
-      operation: "transformed",
-      name: "transform-salesforce-account",
-      fields: { input: account, output: transformed, durationMs: 1 }
-    },
+    received,
+    transformStep,
     {
       offsetMs: 35,
       service: "demo-integration",
@@ -276,7 +360,62 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
     }
   ];
 
-  if (!customer.fails) {
+  if (failure === "schema-rejected") {
+    // A permanent validation error: retrying the same payload cannot change
+    // the answer, so the worker stops at the first attempt and records the
+    // target's own reason, as `deliveryFailure` does live.
+    const refused = { status: 422, body: { error: invalidStatus(transformed.status) } };
+    const verdict = deliveryFailure(refused);
+    steps.push({
+      offsetMs: 290,
+      service: "demo-worker",
+      operation: "delivered",
+      name: "deliver-customer-to-target",
+      fields: {
+        input: transformed,
+        output: refused,
+        durationMs: 23,
+        ...(typeof verdict === "object" ? { error: verdict } : {})
+      }
+    });
+    return steps;
+  }
+
+  if (failure === "timeout") {
+    // Each attempt waits out the worker's timeout, then the worker holds the
+    // message back for a doubling backoff; the queue dead-letters it after
+    // its last delivery.
+    let offsetMs = 290;
+    for (let attempt = 1; attempt <= MAX_DELIVERIES; attempt += 1) {
+      const first = attempt === 1;
+      steps.push({
+        offsetMs,
+        service: "demo-worker",
+        operation: first ? "delivered" : "retried",
+        name: first ? "deliver-customer-to-target" : "retry-customer-delivery",
+        fields: {
+          input: transformed,
+          durationMs: DELIVERY_TIMEOUT_MS,
+          ...(first ? {} : { metadata: { attempt } }),
+          error: { ...TIMEOUT_ERROR }
+        }
+      });
+      offsetMs += DELIVERY_TIMEOUT_MS + timeoutBackoffSeconds(attempt) * 1_000;
+    }
+    steps.push({
+      offsetMs: offsetMs + 100,
+      service: "demo-worker",
+      operation: "failed",
+      name: "move-message-to-dead-letter",
+      fields: {
+        error: { message: DEAD_LETTER_MESSAGES.timeout },
+        metadata: { queue: DEAD_LETTER_QUEUE, messageId }
+      }
+    });
+    return steps;
+  }
+
+  if (failure === undefined) {
     steps.push(
       {
         offsetMs: 290,
@@ -285,7 +424,7 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
         name: "deliver-customer-to-target",
         fields: {
           input: transformed,
-          output: { status: 201, body: { id: account.Id } },
+          output: { status: 201, body: { id: `contact_${account.Id}` } },
           durationMs: 21
         }
       },
@@ -349,9 +488,9 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
       name: "move-message-to-dead-letter",
       fields: {
         error: {
-          message: "Delivery failed on every attempt; the message moved to the dead-letter queue."
+          message: DEAD_LETTER_MESSAGES.rejected
         },
-        metadata: { queue: "customer-updates-dlq", messageId }
+        metadata: { queue: DEAD_LETTER_QUEUE, messageId }
       }
     }
   );
@@ -393,10 +532,17 @@ export function historyEnvelopes(
 }
 
 /**
- * The journey the banner points at: `+1 555 0100`, failed, half an hour old.
+ * The journey the banner points at: `+1 555 0100`, failed.
  * The phone is an alias, so the search finds it, and is marked displayable so
  * the alias list shows it in full. Recreated with the same ids on every reset,
  * which the smoke check relies on.
+ *
+ * Its first event is recorded at `now`, the moment the backfill sends it, and
+ * the rest keep their offsets from it (the 9.4 s span). It used to start half
+ * an hour earlier, so every event arrived more than two minutes late and the
+ * journey wore a clock warning that described the backfill, not the story
+ * (ADR-071). The historical journeys keep their past times: their late
+ * receipt is real and their warning is accurate.
  */
 export function pinnedEnvelopes(now: Date, environment: string): HistoryEnvelope[] {
   const customer: HistoryCustomer = {
@@ -408,7 +554,7 @@ export function pinnedEnvelopes(now: Date, environment: string): HistoryEnvelope
     },
     internalCustomerId: String(HISTORY_INTERNAL_ID_START - 1),
     fails: true,
-    startedAt: new Date(now.getTime() - 30 * 60 * 1000)
+    startedAt: new Date(now.getTime())
   };
   return envelopesFor(
     customer,

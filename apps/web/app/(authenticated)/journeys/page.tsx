@@ -9,6 +9,7 @@ import {
   listProjects,
   type JourneyListPage
 } from "../../../src/lib/api";
+import { anonymousReadOnly } from "../../../src/lib/config";
 import { requireProjectId } from "../../../src/lib/current-project";
 import {
   describeJourneyFilters,
@@ -53,6 +54,8 @@ export default async function JourneysPage({
   const filters = readJourneyFilters(params, new Date());
   const originalListQuery = toQueryString(params);
   const listQuery = addFrozenInactivityCutoff(originalListQuery, filters.inactiveBefore);
+  // The public demo (ADR-069) folds the filters away, so the list comes first.
+  const demo = anonymousReadOnly();
 
   let environments: string[] = [];
   let page: JourneyListPage;
@@ -81,7 +84,7 @@ export default async function JourneysPage({
       return (
         <Shell filters={filters}>
           {refused.offerNewest ? null : (
-            <JourneyFilterBar filters={filters} environments={environments} />
+            <JourneyFilterBar filters={filters} environments={environments} demo={demo} />
           )}
           <p className="error">
             {refused.text}
@@ -116,7 +119,7 @@ export default async function JourneysPage({
 
   return (
     <Shell filters={filters}>
-      <JourneyFilterBar filters={filters} environments={environments} />
+      <JourneyFilterBar filters={filters} environments={environments} demo={demo} />
 
       {filters.notes.length === 0 ? null : (
         // The role sits on a wrapper: on the list itself it would replace the

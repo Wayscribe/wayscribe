@@ -161,9 +161,16 @@ test("presents recorded spans, gaps, queue evidence, and explicit retries", asyn
   await expect(page.locator("tbody tr")).toHaveCount(0);
 
   await page.goto(`/journeys/${JOURNEY_ID}`);
+  // The span on the status line; its definition behind "About this view".
+  await expect(page.locator("p[aria-live=polite]")).toContainText("span 5 s · times UTC");
+  await expect(page.getByText(/^Recorded span: 5 s/)).toBeHidden();
+  await page.getByText("About this view").click();
   await expect(page.getByText(/^Recorded span: 5 s/)).toBeVisible();
   await expect(page.getByText("Publish → consume gap: 900 ms")).toBeVisible();
   await expect(page.getByText(/different recorded hosts/).first()).toBeVisible();
+  // These events record their hosts, so the hostless sentence (ADR-071) is not
+  // in About this view: what differs between hosts stays a warning.
+  await expect(page.locator(".about-view .hostless-clock-note")).toHaveCount(0);
 
   const retryGroup = page.getByRole("group", {
     name: `Recorded attempts for call-target, retry identity delivery-${RUN}`
@@ -173,9 +180,11 @@ test("presents recorded spans, gaps, queue evidence, and explicit retries", asyn
   await expect(retryGroup.getByText("failed", { exact: true })).toBeVisible();
   await expect(retryGroup.getByRole("link", { name: "Attempt 2" })).toBeVisible();
   await expect(retryGroup.getByText("observed retry delay 2 s")).toBeVisible();
-  await expect(page.getByRole("group", { name: "Unlinked recorded attempts" })).toContainText(
-    "cannot be safely linked"
-  );
+  // Attempts that cannot be linked are collapsed behind one line, not dropped.
+  const unlinked = page.getByRole("group", { name: "Unlinked recorded attempts" });
+  await expect(unlinked).toBeHidden();
+  await page.getByText(/^\d+ retry attempts? recorded, not linkable$/).click();
+  await expect(unlinked).toContainText("cannot be safely linked");
 
   await page.getByRole("option").filter({ hasText: "consume-order" }).getByRole("link").click();
   const context = page.getByRole("group", { name: "Operational context" });
@@ -243,6 +252,9 @@ test.describe("with JavaScript disabled", () => {
   test("keeps timing presentation and event links available", async ({ page }) => {
     await signIn(page, JOURNEY_ID);
     await page.goto(`/journeys/${JOURNEY_ID}`);
+    await expect(page.locator("p[aria-live=polite]")).toContainText("span 5 s · times UTC");
+    // A native disclosure: it opens with JavaScript off too.
+    await page.getByText("About this view").click();
     await expect(page.getByText(/^Recorded span: 5 s/)).toBeVisible();
     await expect(page.getByText("Publish → consume gap: 900 ms")).toBeVisible();
 

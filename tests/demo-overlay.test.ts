@@ -152,13 +152,10 @@ describe("the public demo overlay", () => {
 
   it("matches markup the web app really renders", () => {
     const smoke = read("deploy/demo/smoke-check.sh");
+    // The diff-cell patterns are checked against rendered markup in
+    // apps/web/app/components/DiffTable.test.tsx; a source-text pin passed
+    // while the rendered attributes changed.
     const pins: [string, string, string][] = [
-      // React writes className as class.
-      [
-        'class="mono removed">',
-        "apps/web/app/components/DiffTable.tsx",
-        'className="mono removed"'
-      ],
       ["What changed", "apps/web/app/components/EventDetail.tsx", "What changed"],
       [
         "Public demo. Read-only, sample data.",

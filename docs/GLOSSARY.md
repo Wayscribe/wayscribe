@@ -10,6 +10,12 @@ Example: Salesforce account ID, internal customer ID, and HubSpot contact ID.
 
 The environment policy controlling whether Wayscribe stores metadata only, allowlisted fields, redacted payloads, or full payloads.
 
+## Clock comparison
+
+Comparing the times that events in a journey were recorded at, such as the gap between two adjacent steps. Each service stamps its own events with its own clock, so a comparison is uncertain when the events came from different recorded hosts, or when the host was not recorded. An event received more than two minutes after its recorded time may mean that service's clock is behind, that the event waited to be sent, or that the step ran long.
+
+The Node SDK does not record a host (ADR-063), so for its journeys the journey page says this once, in About this view, rather than as a warning: these events do not record a host, so a gap between steps may compare times from different processes, and a small negative gap can be clock disagreement rather than overlap. The page keeps a warning for what the data shows: events received late, events from different recorded hosts, or a step that differs from the rest (ADR-071).
+
 ## Correlation
 
 The process of determining which events belong to the same journey.
@@ -49,6 +55,10 @@ A stable semantic category describing what an event represents.
 ## Payload diff
 
 A deterministic structural comparison between event input and output.
+
+## Recorded span
+
+The time from a journey's first recorded event start to its last recorded event start. It is not a sum of step durations, and different service clocks can disagree.
 
 ## Replay
 

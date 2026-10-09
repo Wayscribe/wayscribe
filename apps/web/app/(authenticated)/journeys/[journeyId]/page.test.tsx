@@ -1,5 +1,8 @@
 import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AboutJourneyView } from "../../../components/AboutJourneyView";
+import { AliasList } from "../../../components/AliasList";
+import { JourneyHeading } from "../../../components/JourneyHeading";
 import { JourneyTimeline } from "../../../components/JourneyTimeline";
 import JourneyPage from "./page";
 
@@ -71,6 +74,31 @@ describe("JourneyPage by principal", () => {
     const { deleteLink, timeline } = await page("admin");
     expect(deleteLink).toBeDefined();
     expect((timeline?.props as { canReplay: boolean }).canReplay).toBe(true);
+  });
+
+  it("goes back link, heading, then the timeline with the header lines in its slot", async () => {
+    currentSessionMock.mockResolvedValue(session("admin"));
+    const tree = (await JourneyPage({
+      params: Promise.resolve({ journeyId: "jrn_1" }),
+      searchParams: Promise.resolve({})
+    })) as ReactElement<{ children: ReactNode[] }>;
+    // Nothing between the heading and the status line the timeline draws:
+    // no definition paragraph, no "All times UTC." line.
+    expect(tree.props.children.map((child) => (child as ReactElement).type)).toEqual([
+      "p",
+      JourneyHeading,
+      JourneyTimeline
+    ]);
+    const timeline = tree.props.children[2] as ReactElement<{
+      children: ReactNode[];
+      startedAt: string;
+      lastEventAt: string;
+    }>;
+    expect(timeline.props.startedAt).toBe("2026-09-16T08:00:00.000Z");
+    expect(timeline.props.lastEventAt).toBe("2026-09-16T08:00:01.000Z");
+    const slot = elements(timeline.props.children);
+    expect(slot.map((element) => element.type)).toContain(AliasList);
+    expect(slot.map((element) => element.type)).toContain(AboutJourneyView);
   });
 
   it("shows a reader no delete link and no replay", async () => {

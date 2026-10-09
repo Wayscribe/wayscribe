@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import {
   JOURNEY_PRESETS,
   JOURNEY_STATUSES,
+  narrowsBeyondStatus,
   type JourneyFilters
 } from "../../src/lib/journey-filters";
 import { PendingForm, PendingSubmit } from "./PendingForm";
@@ -20,10 +21,17 @@ import { PendingForm, PendingSubmit } from "./PendingForm";
  */
 export function JourneyFilterBar({
   filters,
-  environments
+  environments,
+  demo = false
 }: {
   filters: JourneyFilters;
   environments: readonly string[];
+  /**
+   * The public demo (ADR-069): the list is what a visitor came for, so the
+   * form folds away behind a native disclosure, as the Search page's does,
+   * open only when the URL already sets a filter other than status.
+   */
+  demo?: boolean;
 }): ReactElement {
   // A shared URL can name an environment this project no longer lists; keep it
   // selectable so the form reflects the list it produced.
@@ -32,7 +40,7 @@ export function JourneyFilterBar({
       ? environments
       : [...environments, filters.environment];
 
-  return (
+  const form = (
     // Keyed on what the fields show. Next keeps this form mounted across a
     // client-side navigation, such as the Failures shortcut, and an
     // uncontrolled field ignores a new defaultValue, so the form showed the
@@ -207,5 +215,15 @@ export function JourneyFilterBar({
         widen Time if older active journeys are outside it.
       </p>
     </PendingForm>
+  );
+
+  return demo ? (
+    // Native, so it opens and closes without JavaScript.
+    <details className="search-filters journey-filters-fold" open={narrowsBeyondStatus(filters)}>
+      <summary>Filters</summary>
+      {form}
+    </details>
+  ) : (
+    form
   );
 }

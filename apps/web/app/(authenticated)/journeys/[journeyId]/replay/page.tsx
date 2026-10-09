@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DiffTable } from "../../../../components/DiffTable";
-import { displayChange } from "../../../../../src/lib/event-display";
+import { displayChanges } from "../../../../../src/lib/event-display";
 import { ReplayFailure } from "../../../../components/ReplayFailure";
 import { ReplayHeaders } from "../../../../components/ReplayHeaders";
 import {
@@ -178,7 +178,7 @@ function Result({ run }: { run: NonNullable<Awaited<ReturnType<typeof getReplay>
         </p>
       ) : (
         <>
-          <DiffTable changes={run.comparison.changes.map(displayChange)} />
+          <DiffTable changes={displayChanges(run.comparison.changes)} />
           <p className="muted">
             This compares what the step originally produced against what the destination returned
             now. Redacted fields compare as unchanged, so this cannot show that a redacted value was

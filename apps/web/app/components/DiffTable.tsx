@@ -17,9 +17,12 @@ const COLLAPSED_ROWS = 8;
  * The values arrive as text, written on the server (`displayChange`): a value
  * crossing to the browser as an object would lose a key named `__proto__`.
  *
- * Rows are never reordered when collapsed: the API's order is the order a
- * reader can reason about, and "the interesting rows first" is a judgement the
- * tool has no basis to make.
+ * Renames are paired and rows ordered on the server (`displayChanges`): a
+ * value lost first, then altered values, then fields that only came or went,
+ * then renames that kept their value, shown quietly. This component keeps that
+ * order, and collapsing never hides a lost value: lost rows always render.
+ *
+ * Each row names its kind in words, so nothing is carried by colour alone.
  */
 export function DiffTable({
   changes,
@@ -50,29 +53,58 @@ export function DiffTable({
     return <p className="muted">No fields changed between input and output.</p>;
   }
 
-  const rows = collapsible && !expanded ? changes.slice(0, COLLAPSED_ROWS) : changes;
+  // A lost value is the row the reader came for: never behind the toggle.
+  const collapsedRows = changes.filter((change, index) => index < COLLAPSED_ROWS || change.lost);
+  const rows = collapsible && !expanded ? collapsedRows : changes;
   // Whether there is anything to disclose at all, independent of whether it's
-  // currently shown — this decides whether the control renders, not `hiddenCount`.
-  const collapsedCount = Math.max(changes.length - COLLAPSED_ROWS, 0);
+  // currently shown — this decides whether the control renders.
+  const collapsedCount = changes.length - collapsedRows.length;
   const showToggle = collapsible && collapsedCount > 0;
   const fieldNoun = collapsedCount === 1 ? "changed field" : "changed fields";
 
   return (
     <>
-      <table className="diff">
-        <thead>
-          <tr>
-            <th>Field</th>
-            <th>Before</th>
-            <th>After</th>
+      {/* The roles are explicit because a phone lays this out as stacked
+          cards (globals.css), and a table whose rows are restyled with
+          `display` loses its table semantics in some browsers. Stated here,
+          a screen reader keeps reading rows and column headers either way. */}
+      <table className="diff" role="table">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th role="columnheader">Field</th>
+            <th role="columnheader">Change</th>
+            <th role="columnheader">Before</th>
+            <th role="columnheader">After</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {rows.map((change) => (
-            <tr key={`${change.path}-${change.kind}`}>
-              <td className="mono">{change.path}</td>
-              <td className="mono removed">{change.before}</td>
-              <td className="mono added">{change.after}</td>
+            <tr
+              key={`${change.from ?? ""}-${change.path}-${change.kind}`}
+              role="row"
+              className={change.lost ? "lost" : change.kind === "renamed" ? "renamed" : undefined}
+            >
+              <td className="mono field" role="cell">
+                {change.from === null ? change.path : `${change.from} → ${change.path}`}
+              </td>
+              <td className="kind" role="cell">
+                {kindLabel(change)}
+              </td>
+              {change.kind === "renamed" ? (
+                // The same value on both sides: shown once, across both columns.
+                <td className="mono same" role="cell" colSpan={2}>
+                  {change.before}
+                </td>
+              ) : (
+                <>
+                  <td className="mono removed" role="cell">
+                    {change.before}
+                  </td>
+                  <td className="mono added" role="cell">
+                    {change.after}
+                  </td>
+                </>
+              )}
             </tr>
           ))}
         </tbody>
@@ -93,4 +125,17 @@ export function DiffTable({
       ) : null}
     </>
   );
+}
+
+/** The row's kind in words: the table's colours only repeat it. */
+function kindLabel(change: DisplayedChange): string {
+  if (change.lost) return "value lost";
+  switch (change.kind) {
+    case "renamed":
+      return "renamed";
+    case "renamed-changed":
+      return "renamed, value changed";
+    default:
+      return change.kind;
+  }
 }

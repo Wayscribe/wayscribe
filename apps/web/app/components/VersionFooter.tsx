@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { webConfig } from "../../src/lib/config";
+import { anonymousReadOnly, webConfig } from "../../src/lib/config";
 import {
   cachedFor,
   describeVersions,
@@ -38,17 +38,47 @@ const cachedApiVersion = cachedFor(API_VERSION_PERIOD_MS, () => {
  */
 export async function VersionFooter({
   env = process.env,
-  readApi = cachedApiVersion
+  readApi = cachedApiVersion,
+  demo = anonymousReadOnly(env)
 }: {
   env?: Record<string, string | undefined>;
   readApi?: () => Promise<RunningVersion | null>;
+  /**
+   * The public demo (ADR-069): a visitor has no use for commits, so the line
+   * is the product and its version, with the full detail one click away.
+   */
+  demo?: boolean;
 } = {}): Promise<ReactElement> {
-  const versions = describeVersions(resolveWebVersion(env), await readApi());
+  const web = resolveWebVersion(env);
+  const versions = describeVersions(web, await readApi());
+  const line = `${versions.web} · ${versions.api}`;
+  if (demo) {
+    return (
+      <footer className="site-footer muted">
+        <details className="version-details">
+          <summary title={line}>Wayscribe {web.version}</summary>
+          <VersionDetail line={line} versions={versions} />
+        </details>
+      </footer>
+    );
+  }
   return (
     <footer className="site-footer muted">
-      <p>
-        {versions.web} · {versions.api}
-      </p>
+      <VersionDetail line={line} versions={versions} />
+    </footer>
+  );
+}
+
+function VersionDetail({
+  line,
+  versions
+}: {
+  line: string;
+  versions: ReturnType<typeof describeVersions>;
+}): ReactElement {
+  return (
+    <>
+      <p>{line}</p>
       {versions.mismatch ? (
         <p className="error">The web app and the API are different builds.</p>
       ) : null}
@@ -59,6 +89,6 @@ export async function VersionFooter({
           same build.
         </p>
       )}
-    </footer>
+    </>
   );
 }

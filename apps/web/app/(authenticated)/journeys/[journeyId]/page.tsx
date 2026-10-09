@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AboutJourneyView } from "../../../components/AboutJourneyView";
 import { AliasList } from "../../../components/AliasList";
 import { JourneyHeading } from "../../../components/JourneyHeading";
 import { JourneyTimeline } from "../../../components/JourneyTimeline";
-import { JourneyTimingSummary } from "../../../components/JourneyTimingSummary";
 import { ApiUnavailableError, getEvent, getJourney, listEvents } from "../../../../src/lib/api";
 import { failedStepOf } from "../../../../src/lib/failed-step";
 import { currentSession, requireProjectId } from "../../../../src/lib/current-project";
@@ -50,20 +50,13 @@ export default async function JourneyPage({
           <Link href={back.href}>← {back.label}</Link>
         </p>
         <JourneyHeading journey={journey} />
-        <p className="muted">All times UTC.</p>
-        <JourneyTimingSummary startedAt={journey.startedAt} lastEventAt={journey.lastEventAt} />
-
-        <AliasList aliases={journey.aliases} />
-
-        {canOperate ? (
-          <p className="muted">
-            <Link href={`/journeys/${encodeURIComponent(journeyId)}/delete`}>
-              Delete this journey
-            </Link>
-          </p>
-        ) : null}
-
+        {/* The timeline draws the status line straight under the heading,
+            since polling keeps it current, and these follow it: the aliases on
+            one line, the definitions behind a disclosure, then the admin's
+            delete link. */}
         <JourneyTimeline
+          startedAt={journey.startedAt}
+          lastEventAt={journey.lastEventAt}
           journeyId={journeyId}
           initialStatus={journey.status}
           initialFailedStep={failedStepOf(journey)}
@@ -79,7 +72,21 @@ export default async function JourneyPage({
           // different clock would be a hydration mismatch.
           canReplay={canOperate}
           initialLive={journey.status === "active" || isRecent(journey.lastEventAt, Date.now())}
-        />
+        >
+          <AliasList aliases={journey.aliases} />
+          <AboutJourneyView
+            startedAt={journey.startedAt}
+            lastEventAt={journey.lastEventAt}
+            hasAliases={journey.aliases.length > 0}
+          />
+          {canOperate ? (
+            <p className="muted journey-header-line">
+              <Link href={`/journeys/${encodeURIComponent(journeyId)}/delete`}>
+                Delete this journey
+              </Link>
+            </p>
+          ) : null}
+        </JourneyTimeline>
       </main>
     );
   } catch (error) {
