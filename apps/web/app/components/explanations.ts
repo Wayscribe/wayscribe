@@ -28,7 +28,7 @@ export const EXPLANATIONS = {
     "Each service stamps its events with its own clock, so a gap between steps is uncertain when the events came from different recorded hosts or the host was not recorded. An event received more than two minutes after its recorded time may mean that service's clock is behind, that the event waited to be sent, or that the step ran long.",
   /** GLOSSARY.md, Transformation. */
   transformation:
-    "A step that changes the shape or values of data on purpose is a transformation, so some differences are expected. Look for the one that should not be there.",
+    "A step that changes the shape or values of data on purpose is a transformation, so some differences are expected.",
   /** GLOSSARY.md, Replay and Replay destination. */
   replay:
     "A replay sends this step's recorded input again, to an approved local, development, or test destination, so you can check a fix against it. Nothing is sent until you review it on the next page."

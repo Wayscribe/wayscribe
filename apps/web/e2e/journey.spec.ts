@@ -157,16 +157,14 @@ test("renders the whole journey in order and shows where phone became null", asy
 
   await page.click("text=transformed");
 
-  // Per ADR-030 the transformation renames every field, so the defect reads as a
-  // pair: Phone leaves carrying a value, phone arrives null.
-  const before = page.locator(".diff tbody tr", { hasText: "Phone" }).first();
-  await expect(before).toContainText("+1 919 555 1234");
-
-  const after = page
-    .locator(".diff tbody tr")
-    .filter({ hasText: /^phone/ })
-    .first();
-  await expect(after).toContainText("null");
+  // Per ADR-030 the transformation renames every field. The table pairs the
+  // renames, and the defect (Phone carried a value, phone arrives null) leads
+  // as one row labelled as a lost value.
+  const lost = page.locator(".diff tbody tr").first();
+  await expect(lost).toContainText("Phone → phone");
+  await expect(lost).toContainText("value lost");
+  await expect(lost).toContainText("+1 919 555 1234");
+  await expect(lost).toContainText("null");
 });
 
 test("leads with the status line and keeps the definitions behind About this view", async ({
