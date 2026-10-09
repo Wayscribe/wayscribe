@@ -68,6 +68,8 @@ function mount(props: Partial<Parameters<typeof JourneyTimeline>[0]> = {}) {
   return render(
     <JourneyTimeline
       journeyId="jrn_1"
+      startedAt="2026-09-14T10:00:01.000Z"
+      lastEventAt="2026-09-14T10:00:04.000Z"
       initialStatus={status}
       initialFailedStep={null}
       initialEvents={EVENTS}
@@ -341,13 +343,69 @@ describe("JourneyTimeline", () => {
   it("says which step a failed journey failed at", () => {
     mount({ initialStatus: "failed", initialFailedStep: "push-hubspot" });
     expect(summaryLine().textContent).toBe(
-      "failed at push-hubspot · 4 events · webhook-api, sync-worker"
+      "failed at push-hubspot · 4 events · webhook-api, sync-worker · span 3 s · times UTC"
+    );
+    // The failure itself in the failure colour; the rest of the line quieter.
+    expect(summaryLine()).toHaveClass("journey-status", "failed");
+    expect(summaryLine().querySelector(".journey-status-summary")?.textContent).toBe(
+      "failed at push-hubspot"
     );
   });
 
   it("says only the status when there is no failed step", () => {
     mount({ initialStatus: "failed", initialFailedStep: null });
-    expect(summaryLine().textContent).toBe("failed · 4 events · webhook-api, sync-worker");
+    expect(summaryLine().textContent).toBe(
+      "failed · 4 events · webhook-api, sync-worker · span 3 s · times UTC"
+    );
+  });
+
+  it("puts the status line first, then what the page passes in, then the filters", () => {
+    render(
+      <JourneyTimeline
+        journeyId="jrn_1"
+        startedAt="2026-09-14T10:00:01.000Z"
+        lastEventAt="2026-09-14T10:00:04.000Z"
+        initialStatus="completed"
+        initialFailedStep={null}
+        initialEvents={EVENTS}
+        initialCursor={null}
+        initialSelectedId="evt_1"
+        initialDetail={detail("evt_1")}
+        initialLive={false}
+        canReplay
+        totalEvents={4}
+        knownServices={["webhook-api"]}
+        selectionQuery=""
+      >
+        <p data-testid="aliases">Also known as sf 1</p>
+      </JourneyTimeline>
+    );
+    const status = summaryLine();
+    const aliases = screen.getByTestId("aliases");
+    const filters = screen.getByRole("button", { name: "Failures only" });
+    expect(status.compareDocumentPosition(aliases) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      aliases.compareDocumentPosition(filters) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(status).not.toHaveClass("failed");
+  });
+
+  it("extends the span when polling brings a later event", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(
+      ok(
+        page({
+          items: [event("evt_9", { eventTimestamp: "2026-09-14T10:00:11.000Z" })],
+          journeyEventCount: 5
+        })
+      )
+    );
+    mount({ initialStatus: "active" });
+    expect(summaryLine().textContent).toContain("span 3 s");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(summaryLine().textContent).toContain("span 10 s");
   });
 
   it("learns the failed step on the same poll that brings the failure", async () => {
@@ -553,7 +611,7 @@ describe("JourneyTimeline", () => {
     expect(screen.getAllByRole("option")).toHaveLength(6);
   });
 
-  it("keeps the previous detail when a detail fetch fails", async () => {
+  it("names the newly selected step with the error when its detail fails, not the previous one", async () => {
     fetchMock.mockResolvedValueOnce(failed());
     mount();
 
@@ -562,7 +620,143 @@ describe("JourneyTimeline", () => {
     await waitFor(() => {
       expect(screen.getByText(/Could not load this event/)).toBeInTheDocument();
     });
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("step-evt_1");
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("step-evt_2");
+    expect(screen.queryByText(/"evt_1"/)).not.toBeInTheDocument();
+    expect(document.querySelector(".detail")).not.toHaveAttribute("aria-busy");
+  });
+
+  it("shows the new step at once while loading, busy, and never the previous step's payloads", async () => {
+    let resolve: (r: Response) => void = () => undefined;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((done) => {
+          resolve = done;
+        })
+    );
+    mount();
+    const panel = document.querySelector(".detail");
+    // The server-rendered detail, payload and all.
+    expect(panel?.textContent).toContain('"evt_1"');
+    expect(panel).not.toHaveAttribute("aria-busy");
+
+    await userEvent.click(within(screen.getByRole("listbox")).getByText("step-evt_3"));
+
+    expect(window.location.search).toBe("?event=evt_3");
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("step-evt_3");
+    expect(panel).toHaveAttribute("aria-busy", "true");
+    expect(within(panel as HTMLElement).getByRole("status")).toHaveTextContent("Loading…");
+    expect(panel?.textContent).toContain("received · sync-worker");
+    expect(panel?.textContent).not.toContain('"evt_1"');
+    expect(screen.queryByRole("heading", { name: "Payloads" })).not.toBeInTheDocument();
+
+    resolve(ok(detail("evt_3")));
+    await waitFor(() => {
+      expect(panel?.textContent).toContain('"evt_3"');
+    });
+    expect(panel).not.toHaveAttribute("aria-busy");
+  });
+
+  it("resyncs the selection from ?event= on Back and Forward", async () => {
+    fetchMock.mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const id = url.split("/").pop() ?? "";
+      return Promise.resolve(ok(detail(id)));
+    });
+    mount();
+    const listbox = screen.getByRole("listbox");
+    const historyLength = window.history.length;
+
+    await userEvent.click(within(listbox).getByText("step-evt_2"));
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("step-evt_2");
+    });
+    // A click is a step the reader can go Back from.
+    expect(window.history.length).toBe(historyLength + 1);
+    expect(window.location.search).toBe("?event=evt_2");
+
+    // What Back does: the address moves first, then popstate fires.
+    act(() => {
+      window.history.replaceState(null, "", "/journeys/jrn_1?event=evt_1");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.getByRole("option", { selected: true })).toHaveAttribute("id", "event-evt_1");
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("step-evt_1");
+    });
+    // Back does not write a new entry of its own.
+    expect(window.location.search).toBe("?event=evt_1");
+
+    // And an entry with no ?event= at all is the page as it first arrived.
+    act(() => {
+      window.history.replaceState(null, "", "/journeys/jrn_1?event=evt_4");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("step-evt_4");
+    });
+    act(() => {
+      window.history.replaceState(null, "", "/journeys/jrn_1");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("step-evt_1");
+    });
+    expect(window.location.search).toBe("");
+  });
+
+  it("states a clock caveat every row shares once, above the timeline, and on no row", () => {
+    // EVENTS carry no recorded host, so every adjacent pair is uncertain.
+    mount();
+    const notices = screen.getAllByRole("note");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toHaveTextContent(
+      "Applies to every step: Clock comparison is uncertain because recorded host evidence is missing."
+    );
+    const listbox = screen.getByRole("listbox");
+    expect(notices[0]?.compareDocumentPosition(listbox)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(within(listbox).queryByText(/Clock comparison is uncertain/)).toBeNull();
+    // The gaps themselves stay on the rows.
+    expect(within(listbox).getAllByText(/^Recorded gap:/)).toHaveLength(3);
+  });
+
+  it("keeps a caveat on the one row that differs, with no journey-wide notice", () => {
+    mount({
+      initialEvents: [
+        event("evt_1", { recordedHost: "host-a" }),
+        event("evt_2", { recordedHost: "host-a" }),
+        event("evt_3", { recordedHost: "host-b" })
+      ],
+      totalEvents: 3
+    });
+    expect(screen.queryByRole("note")).toBeNull();
+    const rows = screen.getAllByRole("option");
+    expect(rows[1]?.querySelector(".clock-caveat")).toBeNull();
+    expect(rows[2]?.querySelector(".clock-caveat")?.textContent).toBe(
+      "Clock comparison is uncertain because these events came from different recorded hosts."
+    );
+  });
+
+  it("puts recorded attempts below the timeline, collapsed when they cannot be linked", () => {
+    mount({
+      initialEvents: [
+        event("evt_1", { name: "push", timingContext: { attempt: 1 } }),
+        event("evt_2", { name: "push", hasError: true, timingContext: { attempt: 2 } })
+      ],
+      totalEvents: 2
+    });
+    const heading = screen.getByRole("heading", { level: 2, name: "Recorded attempts" });
+    const section = heading.closest("section");
+    const grid = document.querySelector(".journey");
+    expect(grid?.compareDocumentPosition(section as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const details = section?.querySelector("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(details?.querySelector("summary")?.textContent).toBe(
+      "Recorded attempts2 retry attempts recorded, not linkable"
+    );
+    // Collapsed, not removed: the attempts and why they are unlinked are inside.
+    expect(details?.textContent).toContain("cannot be safely linked");
+    expect(within(details as HTMLElement).getAllByRole("link")).toHaveLength(2);
   });
 
   it("applies only the latest detail when responses arrive out of order", async () => {

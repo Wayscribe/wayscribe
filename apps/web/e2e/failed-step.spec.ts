@@ -92,9 +92,11 @@ async function checkRows(page: Page): Promise<void> {
 async function checkSummary(page: Page): Promise<void> {
   await page.goto(`/journeys/${RETRIED.journeyId}`);
   const expected = "failed at push-hubspot";
-  await expect(page.locator("p[aria-live=polite]")).toHaveText(
-    `${expected} · 5 events · ${SERVICE}`
+  // The status line goes on to the span and the time zone.
+  await expect(page.locator("p[aria-live=polite]")).toContainText(
+    `${expected} · 5 events · ${SERVICE} · span `
   );
+  await expect(page.locator("p[aria-live=polite] .journey-status-summary")).toHaveText(expected);
 }
 
 async function checkSearch(page: Page): Promise<void> {
@@ -148,7 +150,7 @@ test("a followed journey's summary line learns the failed step with its status",
   await page.goto(`/journeys/${live.journeyId}`);
   const line = page.locator("p[aria-live=polite]");
   await expect(page.getByRole("checkbox", { name: "Live" })).toBeChecked();
-  await expect(line).toHaveText(`active · 1 event · ${SERVICE}`);
+  await expect(line).toContainText(`active · 1 event · ${SERVICE} · span `);
 
   // Every poll the page makes from here on, to read what the proxy sent.
   const polled: unknown[] = [];
@@ -163,7 +165,9 @@ test("a followed journey's summary line learns the failed step with its status",
 
   const expected = "failed at push-hubspot";
   // One text, so the status and the count came from the same render.
-  await expect(line).toHaveText(`${expected} · 3 events · ${SERVICE}`, { timeout: 15_000 });
+  await expect(line).toContainText(`${expected} · 3 events · ${SERVICE} · span `, {
+    timeout: 15_000
+  });
 
   const bodies = (await Promise.all(polled)) as Record<string, unknown>[];
   const last = bodies.at(-1);

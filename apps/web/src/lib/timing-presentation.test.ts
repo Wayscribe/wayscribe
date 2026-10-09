@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { EventListItem } from "./api";
 import {
+  isSkewed,
+  journeyClockCondition,
+  journeyClockNotice,
   journeySpan,
   formatDuration,
   presentTimelineTiming,
   retryGroups,
+  type JourneyClockCondition,
   type TimelineTiming
 } from "./timing-presentation";
 
@@ -130,6 +134,57 @@ describe("timeline adjacency timing", () => {
     const timing = presentTimelineTiming(all);
     expect(byId(timing, "b").previousEventId).toBe("hidden");
     expect(byId(timing, "b").gapBefore).toMatchObject({ milliseconds: 100 });
+  });
+});
+
+describe("journey-wide clock condition", () => {
+  const MISSING = "Clock comparison is uncertain because recorded host evidence is missing.";
+  const condition = (events: EventListItem[]): JourneyClockCondition =>
+    journeyClockCondition(events, presentTimelineTiming(events));
+  const late = { receivedAt: "2026-09-18T10:05:00.000Z" };
+
+  it("lifts a caveat every comparable row shares to the journey, once", () => {
+    const events = [event("a"), event("b"), event("c")];
+    expect(condition(events)).toEqual({ caveat: MISSING, allSkewed: false });
+    expect(journeyClockNotice(condition(events))).toBe(`Applies to every step: ${MISSING}`);
+  });
+
+  it("lifts nothing when one comparable row differs from the rest", () => {
+    // a→b same host (no caveat), b→c different hosts: not uniform.
+    const events = [
+      event("a", { recordedHost: "h1" }),
+      event("b", { recordedHost: "h1" }),
+      event("c", { recordedHost: "h2" })
+    ];
+    expect(condition(events).caveat).toBeNull();
+    // A known host beside a missing one is still missing evidence: uniform.
+    expect(condition([event("a"), event("b"), event("c", { recordedHost: "h2" })]).caveat).toBe(
+      MISSING
+    );
+    expect(
+      condition([
+        event("a", { recordedHost: "h1" }),
+        event("b", { recordedHost: "h2" }),
+        event("c")
+      ]).caveat
+    ).toBeNull(); // different hosts, then missing: two caveats, so neither is lifted
+  });
+
+  it("lifts nothing from a journey with no comparable row", () => {
+    expect(condition([event("a")])).toEqual({ caveat: null, allSkewed: false });
+    expect(condition([])).toEqual({ caveat: null, allSkewed: false });
+    expect(journeyClockNotice({ caveat: null, allSkewed: false })).toBeNull();
+  });
+
+  it("calls late arrival journey-wide only when every event arrived late, and two or more did", () => {
+    expect(condition([event("a", late), event("b", late)]).allSkewed).toBe(true);
+    expect(condition([event("a", late), event("b")]).allSkewed).toBe(false);
+    expect(condition([event("a", late)]).allSkewed).toBe(false);
+    expect(isSkewed(event("a", late))).toBe(true);
+    expect(isSkewed(event("a"))).toBe(false);
+    expect(journeyClockNotice({ caveat: MISSING, allSkewed: true })).toBe(
+      `Applies to every step: ${MISSING} Every event was received more than two minutes after its recorded time.`
+    );
   });
 });
 

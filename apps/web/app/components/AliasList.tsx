@@ -1,9 +1,9 @@
 import { Fragment } from "react";
 import type { JourneyDetail } from "../../src/lib/api";
-import { EXPLANATIONS } from "./explanations";
 
 /**
- * The other identifiers a journey's record is known by.
+ * The other identifiers a journey's record is known by, on one compact line.
+ * What an alias is lives in the page's "About this view" disclosure.
  *
  * The API masks an alias unless the instrumenting code marked it displayable
  * in every event that stated it (ADR-053). A masked value looks like a value
@@ -13,7 +13,7 @@ import { EXPLANATIONS } from "./explanations";
 export function AliasList({ aliases }: { aliases: JourneyDetail["aliases"] }) {
   if (aliases.length === 0) return null;
   return (
-    <p className="muted aliases">
+    <p className="muted aliases journey-header-line">
       Also known as{" "}
       {aliases.map((alias, index) => (
         <Fragment key={`${alias.type}-${String(index)}`}>
@@ -32,7 +32,6 @@ export function AliasList({ aliases }: { aliases: JourneyDetail["aliases"] }) {
           </span>
         </Fragment>
       ))}
-      . {EXPLANATIONS.alias}
     </p>
   );
 }

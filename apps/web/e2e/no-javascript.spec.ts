@@ -117,6 +117,24 @@ test.describe("with JavaScript disabled", () => {
     await expect(page.getByLabel("Environment")).toHaveValue("production");
   });
 
+  test("the journey page renders its status line, and About this view opens", async ({ page }) => {
+    await signIn(page, JOURNEY_ID);
+    const response = await page.goto(`/journeys/${JOURNEY_ID}`);
+    expect(response?.status()).toBe(200);
+    await expect(page.getByRole("heading", { level: 1, name: LABEL })).toBeVisible();
+    await expect(page.locator("p[aria-live=polite]")).toHaveText(
+      `failed at sync-customer · 1 event · ${SERVICE} · span 0 ms · times UTC`
+    );
+    await expect(page.locator(".detail h2")).toHaveText("sync-customer");
+    await expect(page.locator(".detail")).not.toHaveAttribute("aria-busy");
+
+    // A native disclosure: no script needed to read the definitions.
+    await expect(page.getByText(/^A journey is the complete recorded history/)).toBeHidden();
+    await page.getByText("About this view").click();
+    await expect(page.getByText(/^A journey is the complete recorded history/)).toBeVisible();
+    await expect(page.getByText(/^Recorded span: 0 ms/)).toBeVisible();
+  });
+
   test("a missing journey still answers 404", async ({ page }) => {
     await signIn(page, JOURNEY_ID);
     const response = await page.goto(`/journeys/jrn_nojs_missing_${RUN}`);

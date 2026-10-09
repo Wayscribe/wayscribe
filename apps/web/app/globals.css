@@ -8,6 +8,8 @@
   --removed-bg: #fdecec;
   --added-bg: #e9f7ef;
   --failed: #c0392b;
+  --warn: #8a5a00;
+  --warn-bg: #fff7e0;
   --radius: 6px;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -23,6 +25,8 @@
     --removed-bg: #3a1f22;
     --added-bg: #16301f;
     --failed: #ff8a80;
+    --warn: #f0c060;
+    --warn-bg: #2e2612;
   }
 }
 
@@ -467,12 +471,76 @@ button[aria-busy="true"] {
   margin-top: 1rem;
 }
 
+/* The journey page's header: the status line is the first thing read after
+   the heading, and the definitions wait in a disclosure. */
+.journey-status {
+  margin: 0.35rem 0 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.journey-status::first-letter {
+  text-transform: uppercase;
+}
+.journey-status.failed .journey-status-summary {
+  color: var(--failed);
+}
+.journey-status-extra {
+  color: var(--muted);
+  font-weight: 400;
+}
+.journey-header-line {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+}
+.about-view {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 0.9rem;
+}
+.about-view > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.about-view dl {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.about-view dt {
+  font-weight: 600;
+}
+.about-view dd {
+  margin: 0.1rem 0 0.6rem;
+}
+.about-view dd:last-child {
+  margin-bottom: 0;
+}
+.about-view .timing-summary {
+  margin: 0;
+}
+/* One line for a clock condition the whole journey shares. */
+.clock-notice {
+  margin: 0.75rem 0 0;
+  padding: 0.35rem 0.6rem;
+  border-left: 3px solid var(--warn);
+  background: var(--warn-bg);
+  color: var(--fg);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.clock-notice-label {
+  color: var(--warn);
+  font-weight: 600;
+}
+
 /* Master-detail: the timeline stays visible while an event is inspected. */
 .journey {
   display: grid;
   /* minmax(0, ...): a grid column's minimum is otherwise its widest content,
      so one long step name or service widened the whole page. */
-  grid-template-columns: minmax(18rem, 40%) minmax(0, 1fr);
+  grid-template-columns: minmax(22rem, 42%) minmax(0, 1fr);
   gap: 1.25rem;
   margin-top: 1rem;
   align-items: start;
@@ -515,11 +583,15 @@ button[aria-busy="true"] {
 .timeline-gap .clock-caveat {
   overflow-wrap: anywhere;
 }
+/* Two lines per row: the time and the whole step name, then the operation,
+   service and anything that singles the row out, under the name. */
 .timeline a {
-  display: flex;
-  gap: 0.6rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.6rem;
+  row-gap: 0.15rem;
   align-items: baseline;
-  padding: 0.55rem 0.7rem;
+  padding: 0.5rem 0.7rem;
   color: var(--fg);
 }
 .timeline a:hover {
@@ -534,29 +606,47 @@ button[aria-busy="true"] {
   font-weight: 600;
   font-size: 0.9rem;
 }
-/* One line per row: the name gives way first, and the service sits at the end. */
-.timeline a > * {
-  flex-shrink: 0;
+.timeline a > .time {
   white-space: nowrap;
 }
-.timeline a > .step,
-.timeline a > .service,
-.timeline a > .build {
-  flex-shrink: 1;
+/* Never cut: a 256-character name with no spaces still wraps inside the row. */
+.timeline a > .step {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
-.timeline a > .attempt {
+.timeline .row-meta {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.5rem;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+.row-meta > * {
+  white-space: nowrap;
+}
+.row-meta > .service {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.row-meta > .attempt {
   font-size: 0.72rem;
-}
-.timeline a > .service {
-  margin-left: auto;
 }
 /* A version can be 128 characters; cut on the row, whole in its title and in
    the event's Deployment group. */
-.timeline a > .build {
+.row-meta > .build {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 0.75rem;
+}
+.clock-badge {
+  font-size: 0.72rem;
+  color: var(--warn);
 }
 .step.failed {
   color: var(--failed);
@@ -590,6 +680,41 @@ button[aria-busy="true"] {
 .retry-summary h2 {
   margin-top: 0;
   font-size: 1rem;
+}
+.retry-summary details > summary {
+  cursor: pointer;
+}
+.retry-summary details > summary h2 {
+  display: inline;
+}
+.retry-summary-line {
+  margin-left: 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* The selected step while its detail loads: its name and kind from the
+   timeline, never the previous step's payloads. */
+.detail-pending .loading::after {
+  content: "";
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-left: 0.4em;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  vertical-align: -0.05em;
+  animation: detail-spin 0.8s linear infinite;
+}
+@keyframes detail-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .detail-pending .loading::after {
+    animation: none;
+  }
 }
 .retry-group + .retry-group {
   margin-top: 0.75rem;

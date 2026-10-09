@@ -73,6 +73,90 @@ describe("TimelineList rows", () => {
     expect(within(row).getAllByText("received")).toHaveLength(1);
   });
 
+  it("puts the name on its own line and the operation, service and badges on a second", () => {
+    renderList([
+      event("evt_1", {
+        name: "receive-salesforce-webhook",
+        service: "demo-integration",
+        timingContext: { attempt: 2 }
+      })
+    ]);
+    const row = screen.getByRole("option");
+    const link = row.querySelector("a");
+    // The link's own children: time, the whole name, then the meta line.
+    expect([...(link?.children ?? [])].map((child) => child.className)).toEqual([
+      "mono time",
+      "step",
+      "row-meta"
+    ]);
+    const meta = row.querySelector(".row-meta");
+    expect(meta?.textContent).toBe("transformeddemo-integrationattempt 2");
+    expect(row.querySelector(".step")?.textContent).toBe("receive-salesforce-webhook");
+  });
+
+  it("badges a late-arriving row only when it is not the whole journey", () => {
+    const late = { receivedAt: "2026-09-16T08:10:00.000Z" };
+    const events = [event("evt_1"), event("evt_2", late), event("evt_3")];
+    const { unmount } = render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={events}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+    const rows = screen.getAllByRole("option");
+    expect(rows.map((row) => row.querySelector(".clock-badge")?.textContent ?? null)).toEqual([
+      null,
+      "⚠ clock",
+      null
+    ]);
+    unmount();
+
+    // Every event late: the journey says so once, and no row repeats it.
+    render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={events.map((item) => ({ ...item, ...late }))}
+        clock={{ caveat: null, allSkewed: true }}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+    expect(screen.queryByText("⚠ clock")).toBeNull();
+  });
+
+  it("leaves out only the caveat the journey already states", () => {
+    const events = [
+      event("evt_1"),
+      event("evt_2", { recordedHost: "host-a" }),
+      event("evt_3", { recordedHost: "host-b" })
+    ];
+    render(
+      <TimelineList
+        journeyId="jrn_1"
+        events={events}
+        timing={presentTimelineTiming(events)}
+        clock={{
+          caveat: "Clock comparison is uncertain because recorded host evidence is missing.",
+          allSkewed: false
+        }}
+        selectedId={null}
+        multiDay={false}
+        onSelect={() => undefined}
+        onArrow={() => undefined}
+      />
+    );
+    const caveats = [...document.querySelectorAll(".clock-caveat")].map((item) => item.textContent);
+    expect(caveats).toEqual([
+      "Clock comparison is uncertain because these events came from different recorded hosts."
+    ]);
+  });
+
   it("names what the badge is when hovered", () => {
     renderList([event("evt_1", { name: "classify" })]);
     const badge = screen.getByText("transformed");

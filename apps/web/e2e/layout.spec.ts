@@ -96,7 +96,7 @@ async function horizontalOverflow(page: Page): Promise<number> {
   );
 }
 
-for (const width of [400, 1280]) {
+for (const width of [375, 768, 1280, 1440]) {
   test(`a journey with long names does not scroll sideways at ${String(width)} px`, async ({
     page
   }) => {
@@ -108,16 +108,30 @@ for (const width of [400, 1280]) {
 
     expect(await horizontalOverflow(page)).toBe(0);
 
-    // The row keeps to its column and cuts the name, rather than wrapping it.
+    // The row keeps to its column and wraps the name whole, never cutting it:
+    // no step name on the page overflows its box or ends in an ellipsis.
     const row = page.locator(".timeline li").first();
     const rowBox = await row.boundingBox();
     const list = await page.locator(".timeline").boundingBox();
     expect(rowBox?.width).toBeLessThanOrEqual(list?.width ?? 0);
-    const cut = await page
+    const cutNames = await page
       .locator(".timeline li .step")
-      .first()
-      .evaluate((element) => element.scrollWidth > element.clientWidth);
-    expect(cut).toBe(true);
+      .evaluateAll((names) =>
+        names
+          .filter(
+            (name) =>
+              name.scrollWidth > name.clientWidth ||
+              getComputedStyle(name).textOverflow === "ellipsis"
+          )
+          .map((name) => name.textContent)
+      );
+    expect(cutNames).toEqual([]);
+
+    // The operation and service sit on a second line, under the name.
+    const nameBox = await row.locator(".step").boundingBox();
+    const metaBox = await row.locator(".row-meta").boundingBox();
+    expect(metaBox?.y ?? 0).toBeGreaterThanOrEqual((nameBox?.y ?? 0) + (nameBox?.height ?? 0) - 1);
+    expect(metaBox?.x ?? 0).toBeGreaterThanOrEqual((nameBox?.x ?? 0) - 1);
 
     // The build is cut on the row too, and whole in its title.
     const build = row.locator(".build");

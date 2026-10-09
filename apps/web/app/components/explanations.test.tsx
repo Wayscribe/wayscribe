@@ -4,10 +4,12 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { EventDetailData } from "../../src/lib/api";
 import { eventForDisplay, type ApiEventDetail } from "../../src/lib/event-display";
+import { AboutJourneyView } from "./AboutJourneyView";
 import { AliasList } from "./AliasList";
 import { EventDetail } from "./EventDetail";
 import { EXPLANATIONS } from "./explanations";
 import { JourneyHeading } from "./JourneyHeading";
+import { GLOSSARY_URL } from "./SiteNav";
 
 const event = (overrides: Partial<ApiEventDetail>): EventDetailData =>
   eventForDisplay({
@@ -42,28 +44,62 @@ const mutedParagraphWith = (text: string): HTMLElement => {
 };
 
 describe("plain-language explanations", () => {
-  it("explains a journey under the journey page's heading, labelled or not", () => {
+  it("keeps the heading and the alias line free of definitions", () => {
     for (const label of ["Acme onboarding", null]) {
       const { unmount } = render(
         <JourneyHeading journey={{ entity: { type: "customer", id: "C-1" }, label }} />
       );
-      expect(mutedParagraphWith(EXPLANATIONS.journey).textContent).toBe(EXPLANATIONS.journey);
+      expect(screen.queryByText(EXPLANATIONS.journey, { exact: false })).toBeNull();
       unmount();
     }
-  });
-
-  it("explains an alias after the list of them, and not when there are none", () => {
-    const { unmount } = render(
+    render(
       <AliasList
         aliases={[{ type: "salesforceAccountId", displayValue: "0018Z", displayable: true }]}
       />
     );
-    expect(mutedParagraphWith(EXPLANATIONS.alias).textContent).toMatch(
-      new RegExp(`^Also known as .*\\. ${escape(EXPLANATIONS.alias)}$`)
+    expect(screen.getByText(/^Also known as/).textContent).toBe(
+      "Also known as salesforceAccountId 0018Z"
     );
+    expect(screen.queryByText(EXPLANATIONS.alias, { exact: false })).toBeNull();
+  });
+
+  it("defines every journey-page term in About this view, each linked to the glossary", () => {
+    const { container, unmount } = render(
+      <AboutJourneyView
+        startedAt="2026-09-16T08:00:00.000Z"
+        lastEventAt="2026-09-16T08:00:09.400Z"
+        hasAliases
+      />
+    );
+    const details = container.querySelector("details.about-view");
+    expect(details).not.toBeNull();
+    // Collapsed until asked: the timeline comes first.
+    expect(details).not.toHaveAttribute("open");
+    expect(details?.querySelector("summary")?.textContent).toBe("About this view");
+    for (const text of [EXPLANATIONS.journey, EXPLANATIONS.alias, EXPLANATIONS.clockComparison]) {
+      expect(details?.textContent).toContain(text);
+    }
+    expect(details?.textContent).toContain("Recorded span: 9.4 s");
+    expect(details?.textContent).toContain("All times UTC.");
+    const links = [...(details?.querySelectorAll("dt a") ?? [])].map((a) => [
+      a.textContent,
+      a.getAttribute("href")
+    ]);
+    expect(links).toEqual([
+      ["Journey", `${GLOSSARY_URL}#journey`],
+      ["Alias", `${GLOSSARY_URL}#alias`],
+      ["Recorded span", `${GLOSSARY_URL}#recorded-span`],
+      ["Clock comparison", `${GLOSSARY_URL}#clock-comparison`]
+    ]);
     unmount();
 
-    render(<AliasList aliases={[]} />);
+    render(
+      <AboutJourneyView
+        startedAt="2026-09-16T08:00:00.000Z"
+        lastEventAt="2026-09-16T08:00:09.400Z"
+        hasAliases={false}
+      />
+    );
     expect(screen.queryByText(EXPLANATIONS.alias, { exact: false })).toBeNull();
   });
 
@@ -95,22 +131,26 @@ describe("plain-language explanations", () => {
     expect(screen.queryByText(EXPLANATIONS.replay, { exact: false })).toBeNull();
   });
 
-  it("finds all four terms still defined in the glossary, and exactly those four keys", () => {
+  it("finds every term the page links still defined in the glossary, and exactly those keys", () => {
     // From the workspace root, where Vitest runs: under jsdom, import.meta.url
     // is not a file URL.
     const glossary = readFileSync(join(process.cwd(), "docs", "GLOSSARY.md"), "utf8");
-    for (const term of ["Journey", "Alias", "Transformation", "Replay"]) {
+    for (const term of [
+      "Journey",
+      "Alias",
+      "Clock comparison",
+      "Recorded span",
+      "Transformation",
+      "Replay"
+    ]) {
       expect(glossary).toContain(`## ${term}\n`);
     }
     expect(Object.keys(EXPLANATIONS).sort()).toEqual([
       "alias",
+      "clockComparison",
       "journey",
       "replay",
       "transformation"
     ]);
   });
 });
-
-function escape(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

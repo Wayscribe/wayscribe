@@ -1,6 +1,5 @@
 import type { ReactElement } from "react";
 import type { JourneyDetail } from "../../src/lib/api";
-import { EXPLANATIONS } from "./explanations";
 
 /**
  * The journey page's heading. A journey with a label is named by it, with its
@@ -8,7 +7,9 @@ import { EXPLANATIONS } from "./explanations";
  * without is named by its entity, as search shows it. A label of only white
  * space names nothing and counts as none.
  *
- * Followed by what a journey is, for a reader who arrived from a link.
+ * What a journey is, for a reader who arrived from a link, is in the page's
+ * "About this view" disclosure (`AboutJourneyView`), so the status line comes
+ * straight after the heading.
  */
 export function JourneyHeading({
   journey
@@ -17,17 +18,12 @@ export function JourneyHeading({
 }): ReactElement {
   const entity = `${journey.entity.type}: ${journey.entity.id ?? "—"}`;
   const label = journey.label?.trim() ?? "";
-  return (
+  return label === "" ? (
+    <h1 className="mono">{entity}</h1>
+  ) : (
     <>
-      {label === "" ? (
-        <h1 className="mono">{entity}</h1>
-      ) : (
-        <>
-          <h1 className="journey-label">{label}</h1>
-          <p className="mono muted journey-entity">{entity}</p>
-        </>
-      )}
-      <p className="muted">{EXPLANATIONS.journey}</p>
+      <h1 className="journey-label">{label}</h1>
+      <p className="mono muted journey-entity">{entity}</p>
     </>
   );
 }

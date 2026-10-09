@@ -24,7 +24,8 @@ describe("AliasList", () => {
     expect(masked.querySelector("[title]")?.getAttribute("title")).toContain(
       "not marked displayable"
     );
-    expect(screen.getByText(/another identifier for the same record/)).toBeTruthy();
+    // One compact line: the definition lives in "About this view".
+    expect(screen.queryByText(/another identifier for the same record/)).toBeNull();
   });
 
   it("shows a dash for a value that could not be decrypted", () => {

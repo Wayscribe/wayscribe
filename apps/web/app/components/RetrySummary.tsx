@@ -27,14 +27,62 @@ export function RetrySummary({
   );
   if (groups.length === 0 && unlinked.length === 0) return null;
 
+  const explanation = (
+    <p className="muted">
+      Attempts are linked only when the recorder supplied one explicit retry identity. Observed
+      retry delay is elapsed evidence between attempts; Requested Retry-After is shown separately on
+      the event that recorded it.
+    </p>
+  );
+  const unlinkedLine = `${String(unlinked.length)} retry ${unlinked.length === 1 ? "attempt" : "attempts"} recorded, not linkable`;
+  const unlinkedGroup =
+    unlinked.length === 0 ? null : (
+      <div role="group" aria-label="Unlinked recorded attempts" className="retry-group">
+        <p>No retry identity was recorded, so these attempts cannot be safely linked.</p>
+        <ul>
+          {unlinked.map((event) => (
+            <li key={event.id}>
+              <a
+                href={eventHref(journeyId, event.id, selectionQuery)}
+                onClick={(click) => {
+                  selectInPlace(click, event.id, onSelect);
+                }}
+              >
+                {event.service} · {event.name} · attempt {event.timingContext?.attempt}
+              </a>
+              <span
+                className={event.hasError || event.operation === "failed" ? "failed" : undefined}
+              >
+                {event.hasError || event.operation === "failed" ? "failed" : "succeeded"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+
+  // Nothing could be linked: the attempts are still listed, but collapsed
+  // behind one line, since all they can say is that they cannot be linked.
+  // A native disclosure, so it opens without JavaScript too.
+  if (groups.length === 0) {
+    return (
+      <section className="retry-summary" aria-labelledby="recorded-attempts-heading">
+        <details>
+          <summary>
+            <h2 id="recorded-attempts-heading">Recorded attempts</h2>
+            <span className="muted retry-summary-line">{unlinkedLine}</span>
+          </summary>
+          {explanation}
+          {unlinkedGroup}
+        </details>
+      </section>
+    );
+  }
+
   return (
     <section className="retry-summary" aria-labelledby="recorded-attempts-heading">
       <h2 id="recorded-attempts-heading">Recorded attempts</h2>
-      <p className="muted">
-        Attempts are linked only when the recorder supplied one explicit retry identity. Observed
-        retry delay is elapsed evidence between attempts; Requested Retry-After is shown separately
-        on the event that recorded it.
-      </p>
+      {explanation}
       {groups.map((group) => (
         <div
           key={JSON.stringify([group.service, group.name, group.retryGroup])}
@@ -84,29 +132,11 @@ export function RetrySummary({
           ))}
         </div>
       ))}
-      {unlinked.length === 0 ? null : (
-        <div role="group" aria-label="Unlinked recorded attempts" className="retry-group">
-          <p>No retry identity was recorded, so these attempts cannot be safely linked.</p>
-          <ul>
-            {unlinked.map((event) => (
-              <li key={event.id}>
-                <a
-                  href={eventHref(journeyId, event.id, selectionQuery)}
-                  onClick={(click) => {
-                    selectInPlace(click, event.id, onSelect);
-                  }}
-                >
-                  {event.service} · {event.name} · attempt {event.timingContext?.attempt}
-                </a>
-                <span
-                  className={event.hasError || event.operation === "failed" ? "failed" : undefined}
-                >
-                  {event.hasError || event.operation === "failed" ? "failed" : "succeeded"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {unlinkedGroup === null ? null : (
+        <details className="retry-group">
+          <summary>{unlinkedLine}</summary>
+          {unlinkedGroup}
+        </details>
       )}
     </section>
   );

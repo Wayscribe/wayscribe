@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EventDetailData, EventListItem, EventsPageResponse } from "../../src/lib/api";
 import { type Fetched, eventsUrl, fetchJson } from "../../src/lib/api-client";
 import { statusText } from "../../src/lib/failed-step";
@@ -14,14 +14,29 @@ import {
   neighbour,
   type TimelineFilters
 } from "../../src/lib/timeline";
-import { presentTimelineTiming } from "../../src/lib/timing-presentation";
-import { type DetailNotice, EventDetail } from "./EventDetail";
+import {
+  formatDuration,
+  journeyClockCondition,
+  journeyClockNotice,
+  journeySpan,
+  presentTimelineTiming
+} from "../../src/lib/timing-presentation";
+import { EventDetail } from "./EventDetail";
 import { FilterBar } from "./FilterBar";
 import { TimelineList } from "./TimelineList";
 import { RetrySummary } from "./RetrySummary";
 
 export interface JourneyTimelineProps {
   journeyId: string;
+  /** The journey's first and last recorded event starts, for the span on the status line. */
+  startedAt: string;
+  lastEventAt: string;
+  /**
+   * Rendered between the status line and the filters: the page's aliases,
+   * its "About this view" disclosure and the delete link. The status line is
+   * drawn here because polling keeps it current, and it has to come first.
+   */
+  children?: ReactNode;
   initialStatus: string;
   /**
    * The step that failed the journey, from `failedStepOf`, or null (ADR-063).
@@ -135,6 +150,9 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
 
   const visible = useMemo(() => applyFilters(events, filters), [events, filters]);
   const timing = useMemo(() => presentTimelineTiming(events), [events]);
+  // Decided once for the journey, so a caveat every row shares is said once.
+  const clock = useMemo(() => journeyClockCondition(events, timing), [events, timing]);
+  const clockNotice = journeyClockNotice(clock);
   // From the merged list, not a server prop: a journey whose first page fell on
   // one day can cross midnight on the second.
   const multiDay = useMemo(() => spansDays(events.map((event) => event.eventTimestamp)), [events]);
@@ -143,15 +161,31 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
     [props.knownServices, events]
   );
 
+  /**
+   * Selects an event and fetches its detail.
+   *
+   * `history` says what happens to the address: a click pushes an entry, so
+   * Back returns to the step before; the arrow keys and a filter's relocation
+   * replace it, so walking the list does not bury the previous page under one
+   * entry per row; and a Back or Forward that already moved the address leaves
+   * it alone.
+   */
   const select = useCallback(
-    async (id: string) => {
+    async (id: string, history: "push" | "replace" | "none" = "replace") => {
       wanted.current = id;
       setSelectedId(id);
-      // Built from the address the reader is on, so `?from=search` and anything
-      // else already there survives the selection moving.
-      const url = new URL(window.location.href);
-      url.searchParams.set("event", id);
-      window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+      if (history !== "none") {
+        // Built from the address the reader is on, so `?from=search` and
+        // anything else already there survives the selection moving.
+        const url = new URL(window.location.href);
+        url.searchParams.set("event", id);
+        const address = `${url.pathname}${url.search}`;
+        if (history === "push") {
+          if (url.href !== window.location.href) window.history.pushState(null, "", address);
+        } else {
+          window.history.replaceState(null, "", address);
+        }
+      }
       setDetailState("loading");
       const result = await fetchJson<EventDetailData>(`/api/events/${encodeURIComponent(id)}`);
       if (wanted.current !== id) return;
@@ -185,6 +219,36 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
       !visible.some((event) => event.id === selectedId);
     if (selectedId === null || loadedButHidden) void select(first.id);
   }, [visible, events, selectedId, select]);
+
+  // Back and Forward move the address, not this component's state: read the
+  // selection back out of `?event=`. An entry without one is the page as it
+  // first arrived, whose selection the server chose.
+  const initialSelectedId = useRef(props.initialSelectedId);
+  useEffect(() => {
+    const onPopState = () => {
+      const id =
+        new URL(window.location.href).searchParams.get("event") ?? initialSelectedId.current;
+      if (id !== null && id !== wanted.current) void select(id, "none");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, [select]);
+
+  // A navigation that renders this page again with another `?event=` (a link
+  // back from the replay screen, say) brings new props to a component that is
+  // already mounted, and state seeded from props would ignore them.
+  const seededFrom = useRef(props.initialSelectedId);
+  useEffect(() => {
+    if (props.initialSelectedId === seededFrom.current) return;
+    seededFrom.current = props.initialSelectedId;
+    initialSelectedId.current = props.initialSelectedId;
+    wanted.current = props.initialSelectedId;
+    setSelectedId(props.initialSelectedId);
+    setDetail(props.initialDetail);
+    setDetailState("idle");
+  }, [props.initialSelectedId, props.initialDetail]);
 
   const onArrow = (direction: "up" | "down") => {
     const id = neighbour(visible, selectedId, direction);
@@ -296,12 +360,11 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   // journey that has recorded nothing yet: that one keeps its own wording.
   const noMatches = visible.length === 0 && events.length > 0;
 
-  const detailNotice: DetailNotice | null =
-    detailState === "loading"
-      ? { text: "Loading…", tone: "muted" }
-      : detailState === "error"
-        ? { text: detailError, tone: "error" }
-        : null;
+  // While a selection loads, or after it failed to, the panel shows the newly
+  // selected step from the timeline's own data and never the previous step's
+  // payloads: a stale panel under a new address reads as the wrong answer.
+  const pending = detailState !== "idle";
+  const pendingItem = pending ? events.find((event) => event.id === selectedId) : undefined;
 
   const count = describeCount({
     visible: visible.length,
@@ -310,11 +373,28 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
     complete: cursor === null
   });
 
+  // The server's last event, or a later one polling has since brought.
+  const lastStart = events.reduce(
+    (latest, event) =>
+      Date.parse(event.eventTimestamp) > Date.parse(latest) ? event.eventTimestamp : latest,
+    props.lastEventAt
+  );
+  const span = journeySpan(props.startedAt, lastStart);
+
   return (
     <>
-      <p className="muted wrap" aria-live="polite">
-        {statusText(status, failedStep)} · {count} · {services.join(", ")}
+      <p
+        className={status === "failed" ? "journey-status failed" : "journey-status"}
+        aria-live="polite"
+      >
+        <span className="journey-status-summary">{statusText(status, failedStep)}</span>
+        <span className="journey-status-extra">
+          {" "}
+          · {count} · {services.join(", ")} · span{" "}
+          {span === null ? "unknown" : formatDuration(span)} · times UTC
+        </span>
       </p>
+      {props.children}
       <FilterBar
         services={services}
         filters={filters}
@@ -325,15 +405,11 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
         onLive={onLive}
         notice={pollNotice}
       />
-      <RetrySummary
-        journeyId={journeyId}
-        events={events}
-        complete={cursor === null}
-        selectionQuery={props.selectionQuery}
-        onSelect={(id) => {
-          void select(id);
-        }}
-      />
+      {clockNotice === null ? null : (
+        <p className="clock-notice" role="note">
+          <span className="clock-notice-label">⚠ Clock</span> {clockNotice}
+        </p>
+      )}
       <div className="journey">
         <div>
           {/* The list stays mounted with no options rather than unmounting:
@@ -343,10 +419,11 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
             journeyId={journeyId}
             events={visible}
             timing={timing}
+            clock={clock}
             selectedId={selectedId}
             multiDay={multiDay}
             onSelect={(id) => {
-              void select(id);
+              void select(id, "push");
             }}
             onArrow={onArrow}
           />
@@ -369,26 +446,84 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
           )}
           {loadError === null ? null : <p className="error">{loadError}</p>}
         </div>
-        <div className="detail">
+        <div
+          className="detail"
+          aria-busy={!noMatches && detailState === "loading" ? "true" : undefined}
+        >
           {/* The selection and its detail stay in state while a filter hides
               them, so loosening the filter costs no request. */}
           {noMatches ? (
             <p className="muted">{NO_MATCHES}</p>
+          ) : pending && selectedId !== null ? (
+            <PendingDetail
+              id={selectedId}
+              item={pendingItem}
+              state={detailState === "error" ? "error" : "loading"}
+              error={detailError}
+            />
           ) : detail === null ? (
-            // No heading to sit under, so a notice goes first. Reached when a
-            // bad `?event=` left the server with no detail and the reader
-            // then selects a row.
-            <>
-              {detailNotice === null ? null : (
-                <p className={detailNotice.tone}>{detailNotice.text}</p>
-              )}
-              <p className="muted">This journey has no events yet.</p>
-            </>
+            <p className="muted">This journey has no events yet.</p>
           ) : (
-            <EventDetail event={detail} notice={detailNotice} canReplay={props.canReplay} />
+            <EventDetail event={detail} canReplay={props.canReplay} />
           )}
         </div>
       </div>
+      {/* Below the timeline: what the attempts add is secondary to the steps
+          themselves, and when they cannot be linked it is one collapsed line. */}
+      <RetrySummary
+        journeyId={journeyId}
+        events={events}
+        complete={cursor === null}
+        selectionQuery={props.selectionQuery}
+        onSelect={(id) => {
+          void select(id, "push");
+        }}
+      />
     </>
+  );
+}
+
+/**
+ * The panel for a step whose detail is on its way, or failed to arrive: its
+ * name, operation and service from the timeline row, which the reader has
+ * just clicked and so already trusts, and a loading line or the error. An
+ * event the list has not loaded (Back to a deep link on a later page) is
+ * named by its id.
+ */
+function PendingDetail({
+  id,
+  item,
+  state,
+  error
+}: {
+  id: string;
+  item: EventListItem | undefined;
+  state: "loading" | "error";
+  error: string;
+}) {
+  const failed = item !== undefined && (item.hasError || item.operation === "failed");
+  return (
+    <section className="detail-pending">
+      {item === undefined ? (
+        <h2 className="mono">{id}</h2>
+      ) : (
+        <>
+          <h2>{item.name === "" ? item.operation : item.name}</h2>
+          <p className="muted wrap">
+            <span className={failed ? "failed" : undefined}>{item.operation}</span> · {item.service}
+            {item.durationMs === null ? "" : ` · ${String(item.durationMs)} ms`}
+          </p>
+        </>
+      )}
+      {state === "loading" ? (
+        <p className="muted loading" role="status">
+          Loading…
+        </p>
+      ) : (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
