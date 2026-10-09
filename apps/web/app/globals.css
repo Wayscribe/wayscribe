@@ -172,6 +172,15 @@ button {
 .results li > a {
   overflow-wrap: anywhere;
 }
+/* On a phone the result link is the first thing a visitor taps; give it a
+   44px target like the journeys list cards. */
+@media (max-width: 40rem) {
+  .results li > a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
 .status {
   font-size: 0.75rem;
   text-transform: uppercase;
