@@ -14,6 +14,68 @@ changes far less often.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-09
+
+The `api`, `web` and `demo` images, `@wayscribe/node`, the Python package
+`wayscribe` and the Go module `wayscribe.dev/go` (tag `packages/sdk-go/v0.2.4`)
+are 0.2.4. The event protocol, the stored data and the SDKs' behavior do not
+change; this release is the web interface and the public demo. Nothing changes
+for a deployment that upgrades without touching its settings.
+
+### Added
+
+- **The public demo has a way in.** In anonymous read-only mode the Search page
+  leads with a link to the pinned sample record, a line saying what it shows,
+  and a link to recent failures, all plain links that work without
+  JavaScript. Time, custom range and environment fold behind a Filters
+  disclosure, as do the Journeys filters, opening only when the URL already
+  narrows the view. The footer shows a quiet "Wayscribe" and version line, with
+  the full web and API version and commit in a disclosure.
+- **Demo journeys fail in five shapes.** Failed journeys in the generated
+  history, and those the live loop sends, now end as dead-letter (still the
+  commonest), schema-rejected, timeout, transform-failed or persist-failed,
+  each with its own length and last step, so the failures list no longer shows
+  one journey cloned. `POST /trigger {"shape": ...}` sends one on demand
+  (docs/DEMO_SCENARIO.md section 13).
+
+### Changed
+
+- **What changed pairs renamed fields and leads with lost values.** A removed
+  and an added field under the same parent are shown as one renamed row when
+  their names or values match, and a value that became null or missing is
+  flagged as lost. Rows are ordered lost, changed, added or removed, then
+  renamed; collapsing never hides a lost row, and each row names its kind in
+  words. The stored diff is unchanged.
+- **The journey page is easier to read.** The header is the back link, the
+  heading, a status line with count, services, recorded span and "times UTC",
+  then a compact "Also known as" line. Definitions move into an "About this
+  view" disclosure linked to the glossary. A clock caveat or late-arrival badge
+  that every step shares becomes one notice above the timeline. Step names are
+  shown whole. Recorded attempts move below the timeline, and attempts that
+  cannot be linked collapse behind one summary line. Selecting a step shows
+  its name at once with a loading line, never the previous step's payloads,
+  and the browser's back and forward buttons move between selected steps.
+- **No host evidence is a neutral note, not a warning.** The Node SDK never
+  records a hostname, so every journey it recorded carried a warning that host
+  evidence was missing. When no event records a host, About this view now says
+  so in one sentence; differing hosts, partial host evidence and late receipt
+  still warn (ADR-071).
+- The demo's pinned journey is recorded from the moment the backfill sends it,
+  so it is no longer shown as received late. Its content is unchanged.
+
+### Fixed
+
+- **Phone layouts.** At phone width, What changed shows each change as a card
+  instead of breaking field names mid-word, and the Journeys list shows each
+  journey as a card whose link is full width and 44 px tall; the link was
+  previously squeezed to 3 px wide, so a journey could not be opened from the
+  list on a phone. Search result links are also 44 px tall. Desktop layouts
+  are unchanged.
+- The demo deploy smoke check matched markup the diff table no longer renders;
+  it is now tested against the rendered diff and also requires the lost-value
+  label.
+- The demo VM setup script refuses any system but Ubuntu 24.04.
+
 ## [0.2.3] - 2026-10-08
 
 The `api` and `web` images, `@wayscribe/node`, the Python package `wayscribe`

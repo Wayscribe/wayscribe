@@ -15,9 +15,9 @@ community edition.
 
 The core loop works end to end and is tested: instrument a service, search a
 record, read its timeline across services, see the field that changed, replay
-the step against a development destination. The 0.2.3 preview is published:
-`@wayscribe/node@0.2.3`, the `v0.2.3` API and web images, the Go module
-`wayscribe.dev/go` v0.2.3 and the Python package `wayscribe` 0.2.3. 0.2.0
+the step against a development destination. The 0.2.4 preview is published:
+`@wayscribe/node@0.2.4`, the `v0.2.4` API and web images, the Go module
+`wayscribe.dev/go` v0.2.4 and the Python package `wayscribe` 0.2.4. 0.2.0
 shipped the SDKs only; its images were never published. The 0.1.0
 preview came first, with signed multi-platform images; on its protected tag,
 the release pipeline passed every required job. Counted on 2026-09-20: 3,422 unit tests, 979 integration tests on each of PostgreSQL 15,
