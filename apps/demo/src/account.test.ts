@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { accountFrom, TEST_ACCOUNT } from "./account.js";
+import { accountFrom, TEST_ACCOUNT, triggerAccount } from "./account.js";
+import { UNMAPPED_STATUS } from "./failures.js";
 
 describe("accountFrom", () => {
   it("sends the reference account when the trigger carries no body", () => {
@@ -38,5 +39,21 @@ describe("accountFrom", () => {
       Phone: TEST_ACCOUNT.Phone,
       Status__c: TEST_ACCOUNT.Status__c
     });
+  });
+});
+
+describe("triggerAccount", () => {
+  it("is accountFrom when no known shape is named, so the reference trigger is unchanged", () => {
+    expect(triggerAccount(undefined)).toEqual(TEST_ACCOUNT);
+    expect(triggerAccount({ shape: "no-such-shape" })).toEqual(TEST_ACCOUNT);
+  });
+
+  it("shapes the account to fail the way it is asked", () => {
+    expect(triggerAccount({ Id: "0018Z00002SCH", shape: "schema-rejected" }).Status__c).toBe(
+      UNMAPPED_STATUS
+    );
+    expect(triggerAccount({ shape: "persist-failed" })).not.toHaveProperty("Name");
+    // A shape other than the defect carries Phone__c, so only its own fault shows.
+    expect(triggerAccount({ shape: "timeout" }).Phone__c).toBe(TEST_ACCOUNT.Phone);
   });
 });

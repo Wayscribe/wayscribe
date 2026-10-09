@@ -2,6 +2,21 @@ import { createHash } from "node:crypto";
 import { normalizeSearchValue } from "@wayscribe/payload-security";
 import { PROTOCOL_VERSION } from "@wayscribe/protocol";
 import { TEST_ACCOUNT, type SalesforceAccount } from "./account.js";
+import {
+  accountFor,
+  DEAD_LETTER_MESSAGES,
+  DEAD_LETTER_QUEUE,
+  DELIVERY_TIMEOUT_MS,
+  failureShape,
+  invalidStatus,
+  MAX_DELIVERIES,
+  PERSIST_FAILURE,
+  PHONE_REQUIRED,
+  TIMEOUT_ERROR,
+  timeoutBackoffSeconds,
+  type FailureShape
+} from "./failures.js";
+import { deliveryFailure } from "./delivery.js";
 import { transformAccount } from "./transform.js";
 
 /**
@@ -11,9 +26,8 @@ import { transformAccount } from "./transform.js";
  * come from them. These are the same journeys written straight to the ingestion
  * API with past timestamps: the same services, step names and payloads, and the
  * real, deliberately broken `transformAccount`, so the diff a visitor reads is
- * the one the live stack would record. Failed history journeys also break in
- * ways the live loop does not produce (FAILURE_SHAPES), so the failed list is
- * not one journey repeated.
+ * the one the live stack would record. Failed journeys take one of the shapes in
+ * failures.ts, the same definition the live loop, worker and target use.
  */
 
 export const PINNED_PHONE = "+1 555 0100";
@@ -77,49 +91,6 @@ const LAST_NAMES = [
 ];
 const AREA_CODES = ["212", "312", "415", "512", "617", "919"];
 const ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-/**
- * How a failed history journey fails. Each is a way a Salesforce-to-target sync
- * really breaks, with its own length and last step:
- *
- * - `dead-letter`: the demo's own defect. The transform drops the phone, the
- *   target answers 422 on every attempt, and the queue redrives the message to
- *   the dead-letter queue. The pinned journey's shape.
- * - `schema-rejected`: a Salesforce picklist value the target's enum does not
- *   know. The target answers 422 on a field it marks permanent, so the worker
- *   does not retry and the journey ends at the delivery.
- * - `timeout`: the target never answers. Every attempt times out, the backoff
- *   doubles, and the message dead-letters after four attempts, about a minute.
- * - `transform-failed`: the webhook arrives without `Status__c` (field-level
- *   security hides it), and the real `transformAccount` throws on it.
- * - `persist-failed`: the webhook arrives without `Name`, and the insert breaks
- *   the customer table's `name not null` constraint.
- */
-export const FAILURE_SHAPES = [
-  "dead-letter",
-  "schema-rejected",
-  "timeout",
-  "transform-failed",
-  "persist-failed"
-] as const;
-export type FailureShape = (typeof FAILURE_SHAPES)[number];
-
-/** Cumulative odds of each shape among failed journeys; the defect stays the commonest. */
-const FAILURE_WEIGHTS: readonly (readonly [FailureShape, number])[] = [
-  ["dead-letter", 0.4],
-  ["schema-rejected", 0.6],
-  ["timeout", 0.75],
-  ["transform-failed", 0.9],
-  ["persist-failed", 1]
-];
-
-export function failureShape(random: () => number): FailureShape {
-  const draw = random();
-  return FAILURE_WEIGHTS.find(([, upTo]) => draw < upTo)?.[0] ?? "dead-letter";
-}
-
-/** The picklist value the target's `status` enum refuses (`schema-rejected`). */
-export const UNMAPPED_STATUS = "Former Customer";
 
 export interface HistoryCustomer {
   account: SalesforceAccount;
@@ -235,36 +206,17 @@ export function generateHistory(options: HistoryOptions): HistoryCustomer[] {
   return customers.sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
 }
 
-/**
- * The account the webhook carried. Only `dead-letter` lacks `Phone__c`, the
- * field the broken transform reads; every other failure is something else
- * going wrong with a phone that would have arrived. A field the webhook did not
- * carry is left out rather than set to null, as JSON would deliver it.
- */
-function accountFor(base: SalesforceAccount, failure: FailureShape | undefined): SalesforceAccount {
-  const withPhone = { ...base, Phone__c: base.Phone };
-  switch (failure) {
-    case undefined:
-      return withPhone;
-    case "dead-letter":
-      return base;
-    case "schema-rejected":
-      return { ...withPhone, Status__c: UNMAPPED_STATUS };
-    case "timeout":
-      return withPhone;
-    case "transform-failed": {
-      const { Status__c: _hidden, ...rest } = withPhone;
-      return rest as SalesforceAccount;
-    }
-    case "persist-failed": {
-      const { Name: _missing, ...rest } = withPhone;
-      return rest as SalesforceAccount;
-    }
-  }
+export interface LoopRun {
+  account: SalesforceAccount;
+  /** How this run's journey will fail; absent when it should complete. */
+  failure?: FailureShape;
 }
 
-/** One loop run's account: a new id each millisecond, failing at `failureRate`. */
-export function loopAccount(now: Date, random: () => number, failureRate = 0.2): SalesforceAccount {
+/**
+ * One loop run's account: a new id each millisecond, failing at `failureRate`
+ * in the same shapes, at the same odds, as the history.
+ */
+export function loopRun(now: Date, random: () => number, failureRate = 0.2): LoopRun {
   const phone = phoneNumber(random);
   const base = {
     Id: `001LP${now.getTime().toString(36).toUpperCase()}`,
@@ -272,7 +224,11 @@ export function loopAccount(now: Date, random: () => number, failureRate = 0.2):
     Phone: phone,
     Status__c: "Active"
   };
-  return random() < failureRate ? base : { ...base, Phone__c: phone };
+  const failure = random() < failureRate ? failureShape(random) : undefined;
+  return {
+    account: accountFor(base, failure),
+    ...(failure === undefined ? {} : { failure })
+  };
 }
 
 const hash = (value: string): string =>
@@ -350,13 +306,7 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
         fields: {
           input: transformed,
           durationMs: 6,
-          error: {
-            message:
-              'null value in column "name" of relation "customers" violates not-null constraint',
-            type: "DatabaseError",
-            code: "23502"
-          },
-          metadata: { table: "customers", column: "name" }
+          error: { ...PERSIST_FAILURE }
         }
       }
     ];
@@ -367,10 +317,7 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
     customer: transformed,
     internalCustomerId: Number(customer.internalCustomerId)
   };
-  const rejected = {
-    status: 422,
-    body: { error: { code: "phone_required", message: "A phone number is required." } }
-  };
+  const rejected = { status: 422, body: { error: { ...PHONE_REQUIRED } } };
   const steps: Step[] = [
     received,
     transformStep,
@@ -415,7 +362,10 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
 
   if (failure === "schema-rejected") {
     // A permanent validation error: retrying the same payload cannot change
-    // the answer, so the worker stops at the first attempt.
+    // the answer, so the worker stops at the first attempt and records the
+    // target's own reason, as `deliveryFailure` does live.
+    const refused = { status: 422, body: { error: invalidStatus(transformed.status) } };
+    const verdict = deliveryFailure(refused);
     steps.push({
       offsetMs: 290,
       service: "demo-worker",
@@ -423,38 +373,21 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
       name: "deliver-customer-to-target",
       fields: {
         input: transformed,
-        output: {
-          status: 422,
-          body: {
-            error: {
-              code: "invalid_property_value",
-              message: `Property "status" has the value "${transformed.status}", which is not one of: active, prospect.`
-            }
-          }
-        },
+        output: refused,
         durationMs: 23,
-        error: {
-          message: "deliver-customer-to-target reported a failed result.",
-          code: "result_failed"
-        },
-        metadata: {
-          messageId,
-          attempt: 1,
-          httpStatusCode: 422,
-          targetHost: "demo-target",
-          retryable: false
-        }
+        ...(typeof verdict === "object" ? { error: verdict } : {})
       }
     });
     return steps;
   }
 
   if (failure === "timeout") {
-    // An 8-second client timeout per attempt, backing off 4, 8 and 16 seconds.
-    const timedOut = { message: "The operation was aborted due to timeout", type: "TimeoutError" };
-    const attempts = [290, 12_290, 28_290, 52_290];
-    attempts.forEach((offsetMs, index) => {
-      const first = index === 0;
+    // Each attempt waits out the worker's timeout, then the worker holds the
+    // message back for a doubling backoff; the queue dead-letters it after
+    // its last delivery.
+    let offsetMs = 290;
+    for (let attempt = 1; attempt <= MAX_DELIVERIES; attempt += 1) {
+      const first = attempt === 1;
       steps.push({
         offsetMs,
         service: "demo-worker",
@@ -462,23 +395,21 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
         name: first ? "deliver-customer-to-target" : "retry-customer-delivery",
         fields: {
           input: transformed,
-          durationMs: 8_000,
-          metadata: { attempt: index + 1, targetHost: "demo-target" },
-          error: timedOut
+          durationMs: DELIVERY_TIMEOUT_MS,
+          ...(first ? {} : { metadata: { attempt } }),
+          error: { ...TIMEOUT_ERROR }
         }
       });
-    });
+      offsetMs += DELIVERY_TIMEOUT_MS + timeoutBackoffSeconds(attempt) * 1_000;
+    }
     steps.push({
-      offsetMs: 60_400,
+      offsetMs: offsetMs + 100,
       service: "demo-worker",
       operation: "failed",
       name: "move-message-to-dead-letter",
       fields: {
-        error: {
-          message:
-            "Delivery timed out on every attempt; the message moved to the dead-letter queue."
-        },
-        metadata: { queue: "customer-updates-dlq", messageId, deliveryCount: attempts.length }
+        error: { message: DEAD_LETTER_MESSAGES.timeout },
+        metadata: { queue: DEAD_LETTER_QUEUE, messageId }
       }
     });
     return steps;
@@ -493,7 +424,7 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
         name: "deliver-customer-to-target",
         fields: {
           input: transformed,
-          output: { status: 201, body: { id: account.Id } },
+          output: { status: 201, body: { id: `contact_${account.Id}` } },
           durationMs: 21
         }
       },
@@ -557,9 +488,9 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
       name: "move-message-to-dead-letter",
       fields: {
         error: {
-          message: "Delivery failed on every attempt; the message moved to the dead-letter queue."
+          message: DEAD_LETTER_MESSAGES.rejected
         },
-        metadata: { queue: "customer-updates-dlq", messageId }
+        metadata: { queue: DEAD_LETTER_QUEUE, messageId }
       }
     }
   );

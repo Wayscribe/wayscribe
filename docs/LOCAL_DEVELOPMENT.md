@@ -81,8 +81,17 @@ timeline covers `demo-integration` and `demo-worker` only.
 
 `pnpm test:demo` asserts the whole reference journey against a **running** stack:
 the ten events and their order, the phone diff, the target's 422, the retries,
-and the dead-letter state. Bring the stack up first: unlike `pnpm test` and
+and the dead-letter state. It then triggers one journey of each other failure
+shape (`DEMO_SCENARIO.md` section 13) and checks how each ends; the timeout one
+takes about fifty seconds. Bring the stack up first: unlike `pnpm test` and
 `pnpm test:integration`, it starts nothing itself.
+
+To produce one of those journeys by hand, name its shape in the trigger body:
+
+```bash
+curl -s -X POST localhost:3100/trigger -H 'content-type: application/json' \
+  -d '{"Id":"0018Z00002SCH","shape":"schema-rejected"}'
+```
 
 ### Running the browser suite
 

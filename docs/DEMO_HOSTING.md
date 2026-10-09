@@ -17,7 +17,8 @@ One Hetzner CX22 VM (2 vCPU, 4 GB, Ubuntu 24.04) runs, with Docker Compose:
   JSON access log kept 7 days;
 - `demo-history`, which once per reset writes the pinned failed journey for `+1 555 0100`
   and about 300 journeys over the past five days;
-- `demo-source` in loop mode, one new customer a minute, about a fifth of them failing;
+- `demo-source` in loop mode, one new customer a minute, about a fifth of them failing, in
+  the failure shapes and at the odds the history uses (`DEMO_SCENARIO.md` section 13);
 - `visit-notifier`, which reads Caddy's log and posts one ntfy message per new visitor.
 
 The web app runs with `WEB_ANONYMOUS_READ_ONLY=true` and holds only `READ_TOKEN`, so every
