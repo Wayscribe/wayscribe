@@ -14,6 +14,14 @@ changes far less often.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-10
+
+The `api`, `web` and `demo` images, `@wayscribe/node`, the Python package
+`wayscribe` and the Go module `wayscribe.dev/go` (tag `packages/sdk-go/v0.2.5`)
+are 0.2.5. The event protocol, the stored data and the SDKs' behavior do not
+change; this release fixes link previews of the public demo. Nothing changes
+for a deployment that upgrades without touching its settings.
+
 ### Fixed
 
 - **A shared demo link unfurls with a card.** The demo's robots.txt disallowed
