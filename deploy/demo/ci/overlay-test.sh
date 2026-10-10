@@ -95,9 +95,17 @@ case "${headers}" in
 esac
 robots=$(curl --silent --show-error --user-agent wayscribe-smoke/1 "http://${HOST}/robots.txt")
 case "${robots}" in
-  *"Disallow: /"*) ;;
-  *) fail "robots.txt does not disallow everything" ;;
+  *"User-agent: *"*"Disallow: /"*) ;;
+  *) fail "robots.txt does not disallow everyone else" ;;
 esac
+# ...except the link-preview fetchers, which honour robots.txt: disallowed,
+# a shared demo link unfurls as a bare URL with no card.
+for bot in LinkedInBot facebookexternalhit Twitterbot Slackbot Discordbot; do
+  case "${robots}" in
+    *"User-agent: ${bot}"*"Allow: /"*"User-agent: *"*) ;;
+    *) fail "robots.txt does not let ${bot} fetch link previews" ;;
+  esac
+done
 
 # 3. A browser visit reaches the notifier, which runs on Node 22.12 and, with
 #    ntfy unreachable, logs and drops the message.
