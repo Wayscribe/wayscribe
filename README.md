@@ -224,7 +224,7 @@ For a common stack, start from a [recipe](docs/recipes/README.md).
 Install the released SDK by exact version:
 
 ```bash
-npm install @wayscribe/node@0.2.4
+npm install @wayscribe/node@0.2.5
 ```
 
 To use source changes that have not been released, pack the SDK from a clone,
@@ -234,7 +234,7 @@ commit the tarball to your application, and depend on it by path:
 pnpm install
 pnpm --silent --filter @wayscribe/node run pack:release /path/to/your-app/vendor/
 cd /path/to/your-app
-npm install ./vendor/wayscribe-node-0.2.4.tgz   # records "file:vendor/…tgz"
+npm install ./vendor/wayscribe-node-0.2.5.tgz   # records "file:vendor/…tgz"
 ```
 
 A tarball is a built copy that travels with your application. A path into the
@@ -428,7 +428,7 @@ wrong the first time and say so.
 
 ## Status
 
-**The 0.2.4 preview is published.**
+**The 0.2.5 preview is published.**
 
 Ingestion, search, journey timelines, field-level diffs, the Node SDK,
 cross-process propagation, retention, the demo, development replay, and a
@@ -438,10 +438,10 @@ redaction preview, and database backup helpers. 0.2.1 redacts card-number names
 by default and warns OTLP senders about secret-looking names stored as sent.
 0.2.2 updated the API's dependencies for security advisories and corrected the
 SDK documentation. 0.2.3 added an anonymous read-only mode for public demos and
-the deployment tooling for one. 0.2.4 makes the journey page and What changed
+the deployment tooling for one. 0.2.5 makes the journey page and What changed
 easier to read, works on phones, and gives the public demo varied failures.
-`@wayscribe/node@0.2.4`, the `api:v0.2.4` and `web:v0.2.4` images, the Go module `wayscribe.dev/go` v0.2.4 and the Python
-package `wayscribe` 0.2.4 are public. The 0.2.0 images were never published because of a registry
+`@wayscribe/node@0.2.5`, the `api:v0.2.5` and `web:v0.2.5` images, the Go module `wayscribe.dev/go` v0.2.5 and the Python
+package `wayscribe` 0.2.5 are public. The 0.2.0 images were never published because of a registry
 incompatibility, so the first images after 0.1.0 are `v0.2.1`.
 [CHANGELOG.md](CHANGELOG.md) lists what changed.
 
@@ -481,12 +481,12 @@ The native [Python SDK](packages/sdk-python/README.md) is also implemented and
 locally verified on Python 3.11 through 3.14. All 35 applicable SDK fixtures pass
 through the real dry-run API from the recorder's captured request bytes, and a
 clean installed wheel records a loopback delivery outside the checkout. It is
-published on PyPI as [`wayscribe`](https://pypi.org/project/wayscribe/) 0.2.4
+published on PyPI as [`wayscribe`](https://pypi.org/project/wayscribe/) 0.2.5
 (`pip install wayscribe`), with a publish attestation on each file; the Leadline
 pilot is still a separate open gate.
 
 The native [Go SDK](packages/sdk-go/README.md) is published as the module
-`wayscribe.dev/go` v0.2.4 (`go get wayscribe.dev/go@v0.2.4`, Go 1.22 or newer),
+`wayscribe.dev/go` v0.2.5 (`go get wayscribe.dev/go@v0.2.5`, Go 1.22 or newer),
 with standard-library-only runtime and test dependencies. Its 35 applicable
 fixtures pass from public-recorder request bytes through the real dry-run API,
 and the external [Go worker example](examples/go-worker/README.md) proves a
@@ -518,9 +518,9 @@ ones and not a credential in an unfamiliar shape (ADR-046). The
 The source quick start above remains useful for the broken demo and for
 contributors. The released installation below needs no checkout.
 
-## Install 0.2.4 without a checkout
+## Install 0.2.5 without a checkout
 
-These commands download Compose files from the immutable `v0.2.4` tag and pull
+These commands download Compose files from the immutable `v0.2.5` tag and pull
 the released images. They need no source checkout.
 
 [`infrastructure/compose.published.yaml`](infrastructure/compose.published.yaml)
@@ -529,9 +529,9 @@ pulls the images and migrates on first boot.
 Start with the release and two secrets:
 
 ```bash
-curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.4/infrastructure/compose.published.yaml
+curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.5/infrastructure/compose.published.yaml
 export COMPOSE_FILE=compose.published.yaml
-export WAYSCRIBE_VERSION=v0.2.4
+export WAYSCRIBE_VERSION=v0.2.5
 export ENCRYPTION_KEY=$(openssl rand -hex 32)
 export ADMIN_TOKEN=$(openssl rand -hex 32)
 ```
@@ -557,7 +557,7 @@ instead. It runs PostgreSQL alongside, publishes it on `127.0.0.1:5432` (stop a
 local PostgreSQL on that port first), and sets `DATABASE_URL` for you:
 
 ```bash
-curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.4/infrastructure/compose.bundled.yaml
+curl -O https://gitlab.com/jojithedev/wayscribe/-/raw/v0.2.5/infrastructure/compose.bundled.yaml
 export COMPOSE_FILE=compose.published.yaml:compose.bundled.yaml
 docker compose up -d
 ```
