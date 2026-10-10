@@ -44,6 +44,8 @@ services:
       # Caddy sets X-Forwarded-For to the client address, discarding any the
       # client sent.
       TRUSTED_PROXY_COUNT: "1"
+      # What link previews resolve og:image against.
+      WEB_PUBLIC_URL: https://demo.wayscribe.dev
 
   postgres:
     ports: !reset []

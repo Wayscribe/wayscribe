@@ -14,6 +14,16 @@ changes far less often.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A shared demo link unfurls with a card.** The demo's robots.txt disallowed
+  every user agent, and LinkedIn, Facebook, X, Slack and Discord honour it, so
+  a link to demo.wayscribe.dev showed no preview at all. Those five fetchers
+  are now allowed; search engines are still disallowed and the page still
+  carries `X-Robots-Tag: noindex`. The web app also states Open Graph and
+  Twitter card tags with a 1200x630 image, resolved against the new optional
+  `WEB_PUBLIC_URL` setting, which the demo sets.
+
 ## [0.2.4] - 2026-10-09
 
 The `api`, `web` and `demo` images, `@wayscribe/node`, the Python package

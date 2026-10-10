@@ -1,10 +1,12 @@
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { siteMetadata } from "../src/lib/site-metadata";
 import "./globals.css";
 
-export const metadata = {
-  title: "Wayscribe",
-  description: "Record-level debugging for distributed workflows"
-};
+// At request time, so WEB_PUBLIC_URL is the container's, not the build's.
+export function generateMetadata(): Metadata {
+  return siteMetadata();
+}
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

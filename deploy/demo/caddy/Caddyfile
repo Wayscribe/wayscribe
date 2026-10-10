@@ -15,8 +15,19 @@
 		-Server
 	}
 
+	# Search engines stay out. The link-preview fetchers are let in: they honour
+	# robots.txt, so without this a shared demo link unfurls with no card. They
+	# read the page's Open Graph tags and image, and the noindex header above
+	# still keeps the page out of any index.
 	handle /robots.txt {
 		respond <<ROBOTS
+			User-agent: LinkedInBot
+			User-agent: facebookexternalhit
+			User-agent: Twitterbot
+			User-agent: Slackbot
+			User-agent: Discordbot
+			Allow: /
+
 			User-agent: *
 			Disallow: /
 			ROBOTS 200
