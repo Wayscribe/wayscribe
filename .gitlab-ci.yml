@@ -1,5 +1,8 @@
 default:
   image: node:24-alpine
+  # Which runner takes a job: RUNNER_TAG, below. Jobs that hold a credential
+  # set their own tags (GITLAB_HOSTED) and ignore it.
+  tags: ["$RUNNER_TAG"]
   before_script:
     - corepack enable
     # GitLab can only cache paths inside the project directory, so the pnpm store
@@ -16,6 +19,10 @@ default:
       - .pnpm-store
 
 variables:
+  # GitLab's hosted runners by default. Set the project variable RUNNER_TAG to
+  # `self-hosted` to send every other job to the project's own runner
+  # (docs/CI_RUNNER.md), and delete it to fall back.
+  RUNNER_TAG: saas-linux-small-amd64
   # Not PNPM_HOME: that is the global binary directory, not the content store.
   PNPM_STORE_DIR: "$CI_PROJECT_DIR/.pnpm-store"
   # The web package's scripts set this too; here it also covers any job that
@@ -830,6 +837,9 @@ release-verify:
 
 publish-images:
   stage: release
+  # Holds a signing, publishing or deploy credential: always on GitLab's hosted
+  # runners, never on the self-hosted one that runs branch code (docs/CI_RUNNER.md).
+  tags: [saas-linux-small-amd64]
   image: docker:27-cli
   services:
     - docker:dind
@@ -921,6 +931,7 @@ publish-images-rehearsal:
 # `v*` must stay a protected tag or this job fails at its first line.
 deploy-demo:
   stage: release
+  tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   image: alpine:3.22
   # The tag's own overlay test too: a demo the overlay job failed would reach
   # the VM only to fail its smoke check there, after the reset took the demo down.
@@ -963,6 +974,7 @@ deploy-demo:
 # anywhere with DRY_RUN=1.
 publish-sdk:
   stage: release
+  tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   needs: ["release-verify"]
   <<: *release-rules
   when: manual
@@ -1021,6 +1033,7 @@ sdk-publish-dry-run:
 
 publish-python-testpypi:
   <<: *python-release
+  tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   environment: testpypi
   id_tokens:
     TESTPYPI_ID_TOKEN:
@@ -1032,6 +1045,7 @@ publish-python-testpypi:
 
 publish-python:
   <<: *python-release
+  tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   environment: pypi
   id_tokens:
     PYPI_ID_TOKEN:
@@ -1081,6 +1095,7 @@ python-publish-dry-run:
 
 mirror-to-github:
   stage: mirror
+  tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   image: alpine:3
   variables:
     # GitLab CI clones shallow by default. Pushing that produces a mirror with
@@ -1104,6 +1119,7 @@ mirror-to-github:
 # they feed watchers, notifications, and third-party release trackers.
 github-release:
   stage: mirror
+  tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   image: alpine:3
   needs: ["mirror-to-github"]
   before_script:
