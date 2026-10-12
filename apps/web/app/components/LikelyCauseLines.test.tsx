@@ -149,8 +149,9 @@ describe("LikelyCauseLines", () => {
   });
 
   // deploy/demo/smoke-check.sh matches the server's HTML, where React puts a
-  // comment marker between adjacent text nodes ("Likely cause:" and {" "}), so
-  // the pattern carries it. Pinned against this render, not the source text.
+  // comment marker between adjacent text nodes, so the label is one node. Each
+  // double-quoted likely-cause pattern in the script is checked against this
+  // render, as DiffTable.test.tsx checks the single-quoted diff patterns.
   it("renders on the server the markup the demo's smoke check matches", () => {
     const html = renderToString(
       <LikelyCauseLines
@@ -160,8 +161,11 @@ describe("LikelyCauseLines", () => {
         describeEvent={describeEvent}
       />
     );
-    expect(html).toContain("Likely cause:<!-- --> <code>phone</code>");
     const smoke = readFileSync(join(__dirname, "../../../../deploy/demo/smoke-check.sh"), "utf8");
-    expect(smoke).toContain('*"Likely cause:<!-- --> <code>phone</code>"*');
+    const patterns = [...smoke.matchAll(/^\s*\*"(Likely cause:[^"]*)"\*\)/gm)].map(
+      (m) => m[1] ?? ""
+    );
+    expect(patterns.length).toBeGreaterThan(0);
+    for (const pattern of patterns) expect(html, pattern).toContain(pattern);
   });
 });

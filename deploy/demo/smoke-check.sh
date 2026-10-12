@@ -67,12 +67,12 @@ case "${journey}" in
 esac
 
 # ADR-072: the journey header names the transform as the likely cause of the
-# dead-letter. React separates "Likely cause:" from the next text node with a
-# comment marker; LikelyCauseLines.test.tsx checks this pattern against a
-# server render. Double quotes on purpose: DiffTable.test.tsx expects every
-# single-quoted pattern in this file to be diff markup.
+# dead-letter. LikelyCauseLines.test.tsx checks every double-quoted
+# "Likely cause:" pattern here against a server render. Double quotes on
+# purpose: DiffTable.test.tsx expects every single-quoted pattern in this file
+# to be diff markup.
 case "${journey}" in
-  *"Likely cause:<!-- --> <code>phone</code>"*) ;;
+  *"Likely cause: <code>phone</code>"*) ;;
   *) fail "the pinned journey names no likely cause for phone" ;;
 esac
 
