@@ -67,9 +67,9 @@ interface PairedDiff {
  * earlier failed event that named some: the reporter. The candidates are the
  * events before the reporter that are not failed and have a stored diff; a
  * failed step is where a field was refused, not where it changed. A paired
- * change matches a field when its path on either side equals the field or is
- * an ancestor of it, comparing keys as `normalizeKey` does and indexes
- * literally. `removed`, `changed` and `renamed-changed` count; a rename that
+ * change matches a field when its path equals the field or is an ancestor of
+ * it, comparing keys as `normalizeKey` does and indexes literally, so an error
+ * may name a renamed field by either its input or its output key. `removed`, `changed` and `renamed-changed` count; a rename that
  * kept the value, an added field and a whole-payload replacement (path `""`)
  * do not. The nearest match is the cause, the rest are `alsoChangedAt`.
  *
@@ -120,11 +120,11 @@ function causeOf(
     const diff = pairedAt(index);
     if (diff === null) continue;
     // `pairChanges` puts lost values first, so the most damaging match wins.
-    const row = diff.rows.find(
-      (one) =>
-        COUNTED.has(one.kind) &&
-        (covers(one.path, target) || (one.from !== null && covers(one.from, target)))
-    );
+    // Only the output-side path is checked. A counted rename (`renamed-changed`)
+    // is always a by-name pair: a by-value pair has equal values, so it is a
+    // plain `renamed`. A by-name pair shares its parent and its keys normalize
+    // equal, so its input-side path has the same segments as `path`.
+    const row = diff.rows.find((one) => COUNTED.has(one.kind) && covers(one.path, target));
     if (row === undefined) {
       // Unknown, not unchanged: only a nearer one than the cause matters.
       if (diff.truncated && matches.length === 0) incomplete = true;

@@ -213,6 +213,17 @@ describe("findLikelyCauses", () => {
     expect(causes.get("evt_deliver")?.map((cause) => cause.eventId)).toEqual(["evt_transform"]);
   });
 
+  it("matches a renamed field named by its input-side key", () => {
+    // A counted rename is a by-name pair, so its input key normalizes to its
+    // output key: an error that names Salesforce's `Phone` finds `phone`.
+    const causes = findLikelyCauses([
+      received,
+      transformed,
+      failure("evt_deliver", "deliver-customer-to-target", ["Phone"])
+    ]);
+    expect(causes.get("evt_deliver")).toEqual([{ ...PHONE_LOST_AT_TRANSFORM, field: "Phone" }]);
+  });
+
   it("does not count a rename that kept the value", () => {
     const causes = findLikelyCauses([
       step("evt_transform", "transform-salesforce-account", ACCOUNT, CUSTOMER),
