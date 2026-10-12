@@ -203,6 +203,25 @@ describe("findLikelyCauses", () => {
     );
   });
 
+  it("looks only before the reporter, not before the failure that inherits its fields", () => {
+    // After the 422, an operator patches the phone back in and the message is
+    // requeued; it still dead-letters. The patch changed `phone`, but after the
+    // error that named it: the field was lost before the reporter.
+    const causes = findLikelyCauses([
+      received,
+      transformed,
+      failure("evt_deliver", "deliver-customer-to-target", ["phone"], PHONE_LOST, REJECTED),
+      step("evt_patch", "patch-customer-phone", PHONE_LOST, CUSTOMER),
+      failure("evt_dead_letter", "move-message-to-dead-letter")
+    ]);
+    expect(causes).toEqual(
+      new Map([
+        ["evt_deliver", [PHONE_LOST_AT_TRANSFORM]],
+        ["evt_dead_letter", [PHONE_LOST_AT_TRANSFORM]]
+      ])
+    );
+  });
+
   it("gives a failure before any reporting failure nothing", () => {
     const causes = findLikelyCauses([
       transformed,
@@ -249,6 +268,41 @@ describe("findLikelyCauses", () => {
       failure("evt_deliver", "deliver-customer-to-target", ["phone"])
     ]);
     expect(causes.get("evt_deliver")).toEqual([]);
+  });
+
+  it("does not let a key that normalizes to nothing match a whole-payload replacement", () => {
+    const causes = findLikelyCauses([
+      step("evt_persist", "persist-customer", CUSTOMER, 4711),
+      failure("evt_deliver", "deliver-customer-to-target", ["__c"])
+    ]);
+    expect(causes.get("evt_deliver")).toEqual([]);
+  });
+
+  it("prefers the lost value when one step changed two keys that normalize alike", () => {
+    // The org has both the standard `Phone` and a custom `Phone__c`. A dedupe
+    // step reformats `Phone` and drops `Phone__c`: the drop is the damage.
+    const withCustomPhone = { ...ACCOUNT, Phone__c: "+1 919 555 1234" };
+    const deduped = { ...ACCOUNT, Phone: "+19195551234" };
+    const causes = findLikelyCauses([
+      step("evt_dedupe", "dedupe-phone-fields", withCustomPhone, deduped),
+      failure("evt_deliver", "deliver-account-to-erp", ["phone"])
+    ]);
+    expect(causes.get("evt_deliver")).toEqual([
+      {
+        field: "phone",
+        reportedBy: "evt_deliver",
+        eventId: "evt_dedupe",
+        step: "dedupe-phone-fields",
+        change: {
+          kind: "removed",
+          lost: true,
+          path: "Phone__c",
+          before: "+1 919 555 1234",
+          after: undefined
+        },
+        alsoChangedAt: []
+      }
+    ]);
   });
 
   it("marks a cause incomplete when a nearer step's diff was cut short", () => {
