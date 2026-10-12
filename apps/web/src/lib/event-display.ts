@@ -1,5 +1,6 @@
 import type { DiffChange, EventDetailData, EventListItem, RowBuild } from "./api";
 import { pairChanges, type DisplayKind, type PairedChange } from "./diff-pairing";
+import { likelyCausesForDisplay } from "./likely-cause-display";
 import { bounded, metadataEntries, runtimeFormat } from "./metadata";
 import { readRecordedHost, readTimingContext } from "./timing-context";
 
@@ -49,6 +50,7 @@ export type ApiEventDetail = Omit<
   | "statedAliases"
   | "timingContext"
   | "recordedHost"
+  | "likelyCauses"
 > & {
   inputPayload: unknown;
   outputPayload: unknown;
@@ -61,6 +63,8 @@ export type ApiEventDetail = Omit<
   aliases?: unknown;
   timingContext?: unknown;
   recordedHost?: unknown;
+  /** A failed event's causes (ADR-072); absent for any other event and from an older API. */
+  likelyCauses?: unknown;
 };
 
 /** Markers the SDK stores in place of a payload it could not capture. */
@@ -78,6 +82,7 @@ export function eventForDisplay(raw: ApiEventDetail): EventDetailData {
     aliases,
     timingContext,
     recordedHost,
+    likelyCauses,
     ...event
   } = raw;
   return {
@@ -100,7 +105,8 @@ export function eventForDisplay(raw: ApiEventDetail): EventDetailData {
     },
     statedAliases: statedAliases(aliases),
     timingContext: readTimingContext(timingContext),
-    recordedHost: readRecordedHost(recordedHost)
+    recordedHost: readRecordedHost(recordedHost),
+    likelyCauses: likelyCausesForDisplay(likelyCauses)
   };
 }
 
@@ -177,6 +183,8 @@ export type ApiEventRow = Omit<EventListItem, "build" | "timingContext" | "recor
   deploymentMetadata?: unknown;
   timingContext?: unknown;
   recordedHost?: unknown;
+  /** A failed row's causes (ADR-072). The timeline shows none, so they are dropped. */
+  likelyCauses?: unknown;
 };
 
 /**
@@ -186,7 +194,9 @@ export type ApiEventRow = Omit<EventListItem, "build" | "timingContext" | "recor
  * both read rows through, for the reason `eventForDisplay` gives.
  */
 export function rowForDisplay(raw: ApiEventRow): EventListItem {
-  const { deploymentMetadata, timingContext, recordedHost, ...row } = raw;
+  // Rows show no cause (the detail and the header do), and only text may
+  // cross to the browser, so the raw causes stop here.
+  const { deploymentMetadata, timingContext, recordedHost, likelyCauses: _causes, ...row } = raw;
   return {
     ...row,
     build: buildOf(deploymentMetadata),

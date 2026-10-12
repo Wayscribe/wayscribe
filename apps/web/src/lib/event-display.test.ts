@@ -430,3 +430,77 @@ describe("rowForDisplay", () => {
     expect(Array.from(build?.label ?? "")).toHaveLength(MAX_METADATA_TEXT + 1);
   });
 });
+
+describe("likely causes on events and rows (ADR-072)", () => {
+  const CAUSE = {
+    field: "phone",
+    reportedBy: "evt_retry_3",
+    eventId: "evt_transform",
+    step: "transform-salesforce-account",
+    change: {
+      kind: "renamed-changed",
+      lost: true,
+      path: "phone",
+      from: "Phone",
+      before: "+1 919 555 1234",
+      after: null
+    },
+    alsoChangedAt: []
+  };
+
+  it("turns an event's causes into text", () => {
+    const shown = eventForDisplay({
+      id: "evt_dead_letter",
+      journeyId: "jrn_1",
+      operation: "failed",
+      name: "move-message-to-dead-letter",
+      service: "demo-worker",
+      eventTimestamp: "2026-10-12T10:00:09.400Z",
+      receivedAt: "2026-10-12T10:00:09.500Z",
+      durationMs: null,
+      hasInput: false,
+      hasOutput: false,
+      hasError: true,
+      traceId: null,
+      messageId: null,
+      inputPayload: null,
+      outputPayload: null,
+      payloadDiff: null,
+      error: { message: "dead-lettered" },
+      likelyCauses: [CAUSE]
+    });
+    expect(shown.likelyCauses).toEqual([
+      {
+        field: "phone",
+        changedPath: null,
+        reportedBy: "evt_retry_3",
+        eventId: "evt_transform",
+        step: "transform-salesforce-account",
+        verb: "lost",
+        before: "+1 919 555 1234",
+        after: "null",
+        alsoChangedAt: [],
+        incomplete: false
+      }
+    ]);
+    // The API's cause object is read, never changed: one may be shared between failures.
+    expect(CAUSE.change.after).toBeNull();
+  });
+
+  it("drops causes from a timeline row, which shows none", () => {
+    const row = rowForDisplay({
+      id: "evt_dead_letter",
+      operation: "failed",
+      name: "move-message-to-dead-letter",
+      service: "demo-worker",
+      eventTimestamp: "2026-10-12T10:00:09.400Z",
+      receivedAt: "2026-10-12T10:00:09.500Z",
+      durationMs: null,
+      hasInput: false,
+      hasOutput: false,
+      hasError: true,
+      likelyCauses: [CAUSE]
+    });
+    expect(row).not.toHaveProperty("likelyCauses");
+  });
+});

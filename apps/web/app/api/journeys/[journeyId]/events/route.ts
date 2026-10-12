@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { type EventsPageResponse, getJourney, listEvents } from "../../../../../src/lib/api";
 import { failedStepOf } from "../../../../../src/lib/failed-step";
+import { likelyCausesForDisplay } from "../../../../../src/lib/likely-cause-display";
 import { apiFailure, jsonError } from "../../../../../src/lib/route-errors";
 import { requestSession } from "../../../../../src/lib/request-session";
 
@@ -36,7 +37,9 @@ export async function GET(
       journeyEventCount: journey.eventCount,
       // Beside the status, so live mode's summary line learns both on one
       // poll (ADR-063). Text or null, whatever the API sent.
-      journeyFailedStep: failedStepOf(journey)
+      journeyFailedStep: failedStepOf(journey),
+      // ADR-072: the failed step's likely causes, as text, on the same poll.
+      journeyLikelyCauses: likelyCausesForDisplay(journey.likelyCauses)
     };
     // Same reasoning as `cache: "no-store"` in src/lib/api.ts: a debugging tool
     // showing another operator's stale journey is worse than one that is

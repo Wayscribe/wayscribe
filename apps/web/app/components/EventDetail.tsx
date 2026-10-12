@@ -4,6 +4,7 @@ import { DiffTable } from "./DiffTable";
 import { EventAliases } from "./EventAliases";
 import { EventMetadata } from "./EventMetadata";
 import { EXPLANATIONS } from "./explanations";
+import { LikelyCauseLines } from "./LikelyCauseLines";
 import { OperationalContext } from "./OperationalContext";
 
 /** A line about the event being shown: that its replacement is loading, or failed to. */
@@ -13,16 +14,22 @@ export interface DetailNotice {
   tone: "muted" | "error";
 }
 
+/** A step the panel cannot name, when it is shown without a timeline. */
+const UNNAMED = (): null => null;
+
 export function EventDetail({
   event,
   notice = null,
-  canReplay = true
+  canReplay = true,
+  describeEvent = UNNAMED
 }: {
   event: EventDetailData;
   /** Rendered under the heading and its meta line, where the eye already is. */
   notice?: DetailNotice | null;
   /** False for a reader: replay is an admin's act (ADR-070). */
   canReplay?: boolean;
+  /** Names a loaded step for a likely-cause line (ADR-072); the timeline passes it. */
+  describeEvent?: (eventId: string) => string | null;
 }) {
   return (
     <section>
@@ -75,6 +82,13 @@ export function EventDetail({
           <pre className="mono block">{event.errorText}</pre>
         </>
       )}
+
+      <LikelyCauseLines
+        causes={event.likelyCauses ?? []}
+        journeyId={event.journeyId}
+        failedEventId={event.id}
+        describeEvent={describeEvent}
+      />
 
       <EventAliases event={event} />
 

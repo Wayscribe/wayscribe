@@ -7,6 +7,7 @@ import {
   type DisplayedChange,
   type StatedAlias
 } from "./event-display";
+import type { DisplayedLikelyCause } from "./likely-cause-display";
 import type { EventMetadataLists } from "./metadata";
 
 export interface SearchItem {
@@ -45,6 +46,11 @@ export interface JourneyDetail {
   label?: string | null;
   /** As on `SearchItem`: the step that failed the journey. An older API omits it. */
   failedStep?: string | null;
+  /**
+   * The failed step's likely causes (ADR-072) as the API sent them: read on
+   * the server only, through `likelyCausesForDisplay`. An older API omits it.
+   */
+  likelyCauses?: unknown;
   /**
    * `displayValue` is masked unless `displayable` is true. An API that
    * predates the flag omits it, and its values are masked.
@@ -139,6 +145,8 @@ export interface EventDetailData extends EventListItem {
    * not send them.
    */
   statedAliases: StatedAlias[] | null;
+  /** A failed event's likely causes (ADR-072), as text. Absent or `[]` when none. */
+  likelyCauses?: DisplayedLikelyCause[];
 }
 
 export interface ProjectSummary {
@@ -301,6 +309,8 @@ export interface EventsPageResponse extends EventsPage {
   journeyEventCount: number;
   /** The step that failed the journey, or null (ADR-063); from `failedStepOf`. */
   journeyFailedStep: string | null;
+  /** The failed step's likely causes (ADR-072), as text, beside the status. */
+  journeyLikelyCauses?: DisplayedLikelyCause[];
 }
 
 /**

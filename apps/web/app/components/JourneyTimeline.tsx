@@ -3,6 +3,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EventDetailData, EventListItem, EventsPageResponse } from "../../src/lib/api";
 import { type Fetched, eventsUrl, fetchJson } from "../../src/lib/api-client";
+import type { DisplayedLikelyCause } from "../../src/lib/likely-cause-display";
 import { statusText } from "../../src/lib/failed-step";
 import { spansDays } from "../../src/lib/time";
 import {
@@ -23,6 +24,7 @@ import {
 } from "../../src/lib/timing-presentation";
 import { EventDetail } from "./EventDetail";
 import { HostlessJourneyContext } from "./JourneyClockContext";
+import { LikelyCauseLines } from "./LikelyCauseLines";
 import { FilterBar } from "./FilterBar";
 import { TimelineList } from "./TimelineList";
 import { RetrySummary } from "./RetrySummary";
@@ -44,6 +46,11 @@ export interface JourneyTimelineProps {
    * Each poll brings it again beside the status.
    */
   initialFailedStep: string | null;
+  /**
+   * The likely causes of the event that failed the journey (ADR-072), as text
+   * from `likelyCausesForDisplay`. Each poll brings them again.
+   */
+  initialLikelyCauses?: DisplayedLikelyCause[];
   initialEvents: EventListItem[];
   initialCursor: string | null;
   initialSelectedId: string | null;
@@ -105,6 +112,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const [cursor, setCursor] = useState(props.initialCursor);
   const [status, setStatus] = useState(props.initialStatus);
   const [failedStep, setFailedStep] = useState(props.initialFailedStep);
+  const [likelyCauses, setLikelyCauses] = useState(props.initialLikelyCauses ?? []);
   const [total, setTotal] = useState(props.totalEvents);
   const [filters, setFilters] = useState<TimelineFilters>(NO_FILTERS);
   const [selectedId, setSelectedId] = useState(props.initialSelectedId);
@@ -161,6 +169,19 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
   const services = useMemo(
     () => [...new Set([...props.knownServices, ...distinctServices(events)])],
     [props.knownServices, events]
+  );
+
+  /** A loaded step as a likely-cause line names it: its name, and its attempt past the first. */
+  const describeEvent = useCallback(
+    (eventId: string): string | null => {
+      const row = events.find((event) => event.id === eventId);
+      if (row === undefined) return null;
+      const attempt = row.timingContext?.attempt;
+      return attempt === undefined || attempt === 1
+        ? row.name
+        : `${row.name} attempt ${String(attempt)}`;
+    },
+    [events]
   );
 
   /**
@@ -276,6 +297,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
     if (page.nextCursor !== null) pollFrom.current = page.nextCursor;
     setStatus(page.journeyStatus);
     setFailedStep(page.journeyFailedStep);
+    setLikelyCauses(page.journeyLikelyCauses ?? []);
     setTotal(page.journeyEventCount);
     return added;
   }, []);
@@ -396,6 +418,17 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
           {span === null ? "unknown" : formatDuration(span)} · times UTC
         </span>
       </p>
+      {/* ADR-072: the failed step's likely cause, straight under its status. */}
+      {status === "failed" && likelyCauses.length > 0 ? (
+        <div className="journey-likely-cause">
+          <LikelyCauseLines
+            causes={likelyCauses}
+            journeyId={journeyId}
+            failedEventId={null}
+            describeEvent={describeEvent}
+          />
+        </div>
+      ) : null}
       <HostlessJourneyContext.Provider value={clock.hostless}>
         {props.children}
       </HostlessJourneyContext.Provider>
@@ -468,7 +501,7 @@ export function JourneyTimeline(props: JourneyTimelineProps) {
           ) : detail === null ? (
             <p className="muted">This journey has no events yet.</p>
           ) : (
-            <EventDetail event={detail} canReplay={props.canReplay} />
+            <EventDetail event={detail} canReplay={props.canReplay} describeEvent={describeEvent} />
           )}
         </div>
       </div>

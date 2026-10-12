@@ -353,6 +353,57 @@ describe("JourneyTimeline", () => {
     );
   });
 
+  // ADR-072: the failed step's likely cause, under the summary line.
+  it("shows the failed step's likely cause under the summary line", () => {
+    mount({
+      initialStatus: "failed",
+      initialFailedStep: "step-evt_4",
+      initialLikelyCauses: [
+        {
+          field: "phone",
+          changedPath: null,
+          reportedBy: "evt_3",
+          eventId: "evt_2",
+          step: "step-evt_2",
+          verb: "lost",
+          before: "+1 919 555 1234",
+          after: "null",
+          alsoChangedAt: [],
+          incomplete: false
+        }
+      ]
+    });
+    expect(document.querySelector(".journey-likely-cause")?.textContent).toBe(
+      "Likely cause: phone lost at step-evt_2 (was +1 919 555 1234), reported by step-evt_3"
+    );
+    // The summary line itself is unchanged.
+    expect(summaryLine().textContent).toBe(
+      "failed at step-evt_4 · 4 events · webhook-api, sync-worker · span 3 s · times UTC"
+    );
+  });
+
+  it("shows no likely cause line for a journey that is not failed", () => {
+    mount({
+      initialStatus: "completed",
+      initialFailedStep: null,
+      initialLikelyCauses: [
+        {
+          field: "phone",
+          changedPath: null,
+          reportedBy: "evt_3",
+          eventId: "evt_2",
+          step: "step-evt_2",
+          verb: "lost",
+          before: "+1 919 555 1234",
+          after: "null",
+          alsoChangedAt: [],
+          incomplete: false
+        }
+      ]
+    });
+    expect(document.querySelector(".journey-likely-cause")).toBeNull();
+  });
+
   it("says only the status when there is no failed step", () => {
     mount({ initialStatus: "failed", initialFailedStep: null });
     expect(summaryLine().textContent).toBe(
