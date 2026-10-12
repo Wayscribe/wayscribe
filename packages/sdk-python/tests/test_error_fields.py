@@ -64,6 +64,10 @@ class ErrorFieldsTests(unittest.TestCase):
             ["😀" * 200] + LINES[:19],
         )
 
+    def test_entries_that_repair_to_empty_are_dropped(self):
+        self.assertIsNone(error_fields(["\x00"]))
+        self.assertEqual(error_fields(["\x00phone", "\x00"]), ["phone"])
+
     def test_anything_but_a_list_or_tuple_is_ignored(self):
         for value in ("phone", {"phone": True}, 7, None, {"phone"}):
             with self.subTest(value=value):
@@ -150,6 +154,28 @@ class RecordingPathTests(unittest.TestCase):
                 "message": "A phone number is required.",
                 "fields": ["phone"],
             },
+        )
+
+    def test_a_raising_is_failure_mapping_drops_only_fields(self):
+        class Raising(dict):
+            def __contains__(self, key):
+                raise RuntimeError("host bug")
+
+            def get(self, key, default=None):
+                if key == "fields":
+                    raise RuntimeError("host bug")
+                return super().get(key, default)
+
+        result = {"status": 422}
+        self.journey.deliver(
+            "send",
+            {},
+            lambda: result,
+            is_failure=lambda r: Raising(code="phone_required", message="rejected"),
+        )
+        self.assertEqual(
+            self.events()[0]["error"],
+            {"code": "phone_required", "message": "rejected"},
         )
 
 

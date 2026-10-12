@@ -656,7 +656,11 @@ def _failure(verdict, name):
             "code": code if type(code) is str and code else "result_failed",
         }
         # ADR-072: capture_error keeps only what the server accepts.
-        if "fields" in verdict:
-            failure["fields"] = verdict.get("fields")
+        # Its own guard: a mapping that raises here costs only the fields.
+        try:
+            if "fields" in verdict:
+                failure["fields"] = verdict.get("fields")
+        except Exception:
+            pass
         return failure
     return {"message": generic, "code": "result_failed"}

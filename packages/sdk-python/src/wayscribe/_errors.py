@@ -213,9 +213,13 @@ def error_fields(value: object) -> list[str] | None:
         return None
     kept: list[str] = []
     for entry in value:
-        if type(entry) is not str or entry == "":
+        if type(entry) is not str:
             continue
-        kept.append(repair_text(entry)[:MAX_ERROR_FIELD_LENGTH])
+        # Repair first: a NUL-only entry is empty once repaired.
+        text = repair_text(entry)[:MAX_ERROR_FIELD_LENGTH]
+        if text == "":
+            continue
+        kept.append(text)
         if len(kept) == MAX_ERROR_FIELDS:
             break
     return kept or None
