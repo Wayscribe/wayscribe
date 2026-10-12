@@ -142,6 +142,56 @@ describe("ingestion stores labels, last steps and plain-text copies", () => {
     return rows as AliasColumns[];
   };
 
+  it("stores an error's fields as sent (ADR-072)", async () => {
+    const fields = ["phone", "BillingAddress.PostalCode", "Opportunity_Lines__c[0].Unit_Price__c"];
+    await batch([
+      envelope({
+        id: "evt_error_fields",
+        journeyId: "jrn_error_fields",
+        operation: "delivered",
+        name: "deliver-customer-to-target",
+        error: { message: "A phone number is required.", code: "phone_required", fields }
+      })
+    ]);
+    const row: unknown = await db("journey_events")
+      .where({ id: "evt_error_fields" })
+      .first("error");
+    expect(row).toEqual({
+      error: { message: "A phone number is required.", code: "phone_required", fields }
+    });
+  });
+
+  it.each([
+    ["an empty list", []],
+    ["an empty path", ["phone", ""]],
+    [
+      "twenty-one paths",
+      Array.from({ length: 21 }, (_, index) => `Opportunity_Lines__c[${String(index)}].Quantity__c`)
+    ],
+    ["a path of 201 characters", ["x".repeat(201)]],
+    ["a string", "phone"],
+    ["a number", [42]]
+  ])("refuses fields that are %s with the standard schema error", async (label, fields) => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/events",
+      headers: { authorization: `Bearer ${apiKey}` },
+      payload: envelope({
+        id: `evt_bad_fields_${label.replace(/\W+/g, "_")}`,
+        journeyId: "jrn_bad_fields",
+        error: { message: "The target refused the customer.", fields }
+      }) as object
+    });
+    expect(response.statusCode, response.body).toBe(400);
+    expect(response.json()).toEqual({
+      error: {
+        code: "invalid_event",
+        message: "The event did not match protocol version 0.1.",
+        requestId: expect.any(String)
+      }
+    });
+  });
+
   it("keeps the label of the newest event, whatever order a batch holds them in", async () => {
     await batch([
       envelope({
