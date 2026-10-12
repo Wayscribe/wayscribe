@@ -121,9 +121,12 @@ export { type ReadScope } from "./repositories/read-scope.js";
 export {
   findEventDetail,
   listJourneyEvents,
+  listJourneyFailureFacts,
+  listJourneyPayloadDiffs,
   type EventDetail,
   type EventListItem,
-  type EventPage
+  type EventPage,
+  type JourneyFailureFact
 } from "./repositories/event-reads.js";
 export {
   findJourneyDetail,

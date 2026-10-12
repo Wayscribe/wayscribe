@@ -25,6 +25,12 @@ export interface JourneyDetail {
    * for a failed journey whose failure predates migration 021.
    */
   failedStep: string | null;
+  /**
+   * The id of the event `failedStep` names, under the same rule, and null
+   * whenever `failedStep` is (ADR-072). Not presented: the journey read
+   * answers that event's likely causes instead.
+   */
+  failedStepEventId: string | null;
   eventCount: number;
   startedAt: Date;
   completedAt: Date | null;
@@ -66,6 +72,7 @@ export async function findJourneyDetail(
     // journey stays out of failed; ADR-063's corrections say what it does not
     // hide during a rolling deploy.
     db.raw(`case when status = 'failed' then failed_step end as "failedStep"`),
+    db.raw(`case when status = 'failed' then failed_step_event_id end as "failedStepEventId"`),
     "event_count as eventCount",
     "started_at as startedAt",
     "completed_at as completedAt",

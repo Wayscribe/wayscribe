@@ -248,3 +248,52 @@ async function statedAliases(
     .orderBy("alias_type");
   return rows as JourneyAlias[];
 }
+
+/** One event as the likely-cause search reads it (ADR-072): no payload, no message. */
+export interface JourneyFailureFact {
+  id: string;
+  name: string;
+  /** It carries an error, or its operation is `failed`: what fails a journey. */
+  failed: boolean;
+  /** The stored `error.fields`, unchecked, or null. */
+  errorFields: unknown;
+}
+
+/**
+ * Up to `limit` of a journey's events, in timeline order, with only what says
+ * whether one failed and which fields it named. The search reads this first,
+ * and the diffs only when some failure named a field.
+ */
+export async function listJourneyFailureFacts(
+  db: Knex,
+  scope: ReadScope,
+  journeyId: string,
+  limit: number
+): Promise<JourneyFailureFact[]> {
+  const rows: unknown = await scoped(db("journey_events"), scope)
+    .where({ journey_id: journeyId })
+    .select(
+      "id",
+      "name",
+      db.raw(`(error is not null or operation = 'failed') as "failed"`),
+      db.raw(`error -> 'fields' as "errorFields"`)
+    )
+    .orderBy([{ column: "event_timestamp" }, { column: "received_at" }, { column: "id" }])
+    .limit(limit);
+  return rows as JourneyFailureFact[];
+}
+
+/** Every stored diff of a journey, by event id. Read only for a journey under the cap. */
+export async function listJourneyPayloadDiffs(
+  db: Knex,
+  scope: ReadScope,
+  journeyId: string
+): Promise<Map<string, unknown>> {
+  const rows: unknown = await scoped(db("journey_events"), scope)
+    .where({ journey_id: journeyId })
+    .whereNotNull("payload_diff")
+    .select("id", "payload_diff as payloadDiff");
+  return new Map(
+    (rows as { id: string; payloadDiff: unknown }[]).map((row) => [row.id, row.payloadDiff])
+  );
+}

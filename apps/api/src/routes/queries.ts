@@ -10,6 +10,8 @@ import {
 import { searchTokens, type Keyring } from "@wayscribe/payload-security";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { databaseApiKeys, logVerifierReplaceFailure } from "../auth.js";
+import { isFailedEvent, journeyLikelyCauses } from "../journeys/journey-causes.js";
+import type { LikelyCause } from "../journeys/likely-cause.js";
 import {
   principalEnvironmentId,
   principalProjectId,
@@ -184,7 +186,16 @@ export function registerQueryRoutes(
       return reply.code(404).send(errorBody("not_found", "Journey not found.", request.id));
     }
 
-    return reply.send({ data: presentJourneyDetail(keyring, detail, warnUnknownKey) });
+    // ADR-072: over the whole journey, for the event that failed it.
+    const likelyCauses =
+      detail.failedStepEventId === null
+        ? []
+        : ((await journeyLikelyCauses(app.db, readScope(principal), journeyId)).get(
+            detail.failedStepEventId
+          ) ?? []);
+    return reply.send({
+      data: { ...presentJourneyDetail(keyring, detail, warnUnknownKey), likelyCauses }
+    });
   });
 
   app.get("/v1/journeys/:journeyId/events", async (request, reply) => {
@@ -217,9 +228,18 @@ export function registerQueryRoutes(
         cursorParam(request.query)
       );
 
+      // From the whole journey (ADR-072): a page without the step that
+      // changed a field still names it. Not read for a page with no failure.
+      const causes = page.items.some(isFailedEvent)
+        ? await journeyLikelyCauses(app.db, readScope(principal), journeyId)
+        : new Map<string, LikelyCause[]>();
+
       return await reply.send({
         data: {
-          items: page.items.map(presentEventListItem),
+          items: page.items.map((item) => ({
+            ...presentEventListItem(item),
+            ...(isFailedEvent(item) ? { likelyCauses: causes.get(item.id) ?? [] } : {})
+          })),
           nextCursor: page.nextCursor
         }
       });
@@ -241,7 +261,18 @@ export function registerQueryRoutes(
       return reply.code(404).send(errorBody("not_found", "Event not found.", request.id));
     }
 
-    return reply.send({ data: presentEvent(keyring, detail, warnUnknownKey) });
+    // ADR-072: a failed event's likely causes, from its whole journey.
+    const likelyCauses = isFailedEvent(detail)
+      ? ((await journeyLikelyCauses(app.db, readScope(principal), detail.journeyId)).get(
+          detail.id
+        ) ?? [])
+      : undefined;
+    return reply.send({
+      data: {
+        ...presentEvent(keyring, detail, warnUnknownKey),
+        ...(likelyCauses === undefined ? {} : { likelyCauses })
+      }
+    });
   });
 }
 
