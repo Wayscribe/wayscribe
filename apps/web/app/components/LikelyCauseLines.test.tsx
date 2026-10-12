@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DisplayedLikelyCause } from "../../src/lib/likely-cause-display";
 import { LikelyCauseLines } from "./LikelyCauseLines";
@@ -143,5 +146,22 @@ describe("LikelyCauseLines", () => {
       />
     );
     expect(container.innerHTML).toBe("");
+  });
+
+  // deploy/demo/smoke-check.sh matches the server's HTML, where React puts a
+  // comment marker between adjacent text nodes ("Likely cause:" and {" "}), so
+  // the pattern carries it. Pinned against this render, not the source text.
+  it("renders on the server the markup the demo's smoke check matches", () => {
+    const html = renderToString(
+      <LikelyCauseLines
+        causes={[LOST]}
+        journeyId="jrn_demo_pinned_5550100"
+        failedEventId={null}
+        describeEvent={describeEvent}
+      />
+    );
+    expect(html).toContain("Likely cause:<!-- --> <code>phone</code>");
+    const smoke = readFileSync(join(__dirname, "../../../../deploy/demo/smoke-check.sh"), "utf8");
+    expect(smoke).toContain('*"Likely cause:<!-- --> <code>phone</code>"*');
   });
 });
