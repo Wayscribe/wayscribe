@@ -52,11 +52,15 @@ type Value struct {
 func Payload(v any) Value        { return Value{v, true} }
 func (v Value) Get() (any, bool) { return v.value, v.present }
 
+// ErrorInfo is an event's error. Fields names the paths the failing system
+// rejected (ADR-072); only non-empty paths are sent, at most 20, each cut to
+// 200 runes, and none when nothing is left.
 type ErrorInfo struct {
-	Type    string `json:"type,omitempty"`
-	Message string `json:"message"`
-	Code    string `json:"code,omitempty"`
-	Stack   string `json:"stack,omitempty"`
+	Type    string   `json:"type,omitempty"`
+	Message string   `json:"message"`
+	Code    string   `json:"code,omitempty"`
+	Stack   string   `json:"stack,omitempty"`
+	Fields  []string `json:"fields,omitempty"`
 }
 type Event struct {
 	metadataCapture                                          *captured
@@ -76,7 +80,13 @@ type Event struct {
 type JourneyOptions struct{ JourneyID, Label string }
 type LabelOptions struct{ Label string }
 type IdentifyOptions struct{ DisplayableAliases []string }
-type FailureReason struct{ Message, Code string }
+
+// FailureReason is what IsFailure returns for a failed result. Fields names
+// the paths the failing system rejected (ADR-072).
+type FailureReason struct {
+	Message, Code string
+	Fields        []string
+}
 type Options[I, T any] struct {
 	Attempt            int
 	Metadata           map[string]any

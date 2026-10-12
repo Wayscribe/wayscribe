@@ -1,6 +1,7 @@
 package wayscribe
 
 import (
+	"errors"
 	"reflect"
 	"regexp"
 	"strings"
@@ -70,8 +71,53 @@ func hostError(err error) (out *ErrorInfo) {
 		}
 		out.Type = t.Name()
 		out.Message = err.Error()
+		out.Fields = fieldsOf(err)
 	}
 	return out
+}
+
+// maxErrorFields and maxErrorFieldRunes are the protocol's limits on an
+// error's fields (ADR-072).
+const (
+	maxErrorFields     = 20
+	maxErrorFieldRunes = 200
+)
+
+// fieldsReporter is the convention a host error follows to name the paths
+// the failing system rejected, as Code-like conventions do in the other SDKs.
+type fieldsReporter interface{ Fields() []string }
+
+// fieldsOf reads Fields() from err or anything it wraps. A panicking Fields()
+// costs the fields only: the message and type are already read.
+func fieldsOf(err error) (fields []string) {
+	defer func() {
+		if recover() != nil {
+			fields = nil
+		}
+	}()
+	var reporter fieldsReporter
+	if errors.As(err, &reporter) {
+		return errorFields(reporter.Fields())
+	}
+	return nil
+}
+
+// errorFields repairs each path the way message text is repaired, then keeps
+// the non-empty ones, cut to 200 runes, at most 20, or nil when none is left.
+// Names, not values, so nothing is masked.
+func errorFields(fields []string) []string {
+	var kept []string
+	for _, field := range fields {
+		field = repairText(field)
+		if field == "" {
+			continue
+		}
+		kept = append(kept, prefixRunes(field, maxErrorFieldRunes))
+		if len(kept) == maxErrorFields {
+			break
+		}
+	}
+	return kept
 }
 func captureError(e ErrorInfo, d *diagnostics) map[string]any {
 	message := maskText(e.Message)
@@ -90,6 +136,9 @@ func captureError(e ErrorInfo, d *diagnostics) map[string]any {
 	}
 	if e.Stack != "" {
 		out["stack"] = prefixRunes(maskText(e.Stack), 16384)
+	}
+	if fields := errorFields(e.Fields); len(fields) > 0 {
+		out["fields"] = fields
 	}
 	publicWarning(message, "errorMessage", d)
 	return out
