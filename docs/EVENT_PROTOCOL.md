@@ -393,7 +393,7 @@ text before storage (SECURITY.md section 4, ADR-046).
 An error may name the fields the failing system rejected, as `fields`: a list of 1 to 20
 paths, each 1 to 200 characters, in the path syntax a stored diff writes. Object keys are
 joined with `.` and array indexes are in brackets (`address.postalCode`, `lines[0].sku`).
-Write a path as the failing system names it (`phone`, not `Phone__c`): the server compares
+Write a path as the failing system names it, such as `phone`; the server compares
 keys the way it pairs renamed fields, ignoring case, a trailing `__c`, `_` and `-`. A
 malformed `fields` refuses the event with `invalid_event`, like any other schema violation.
 Fields are names, not values, and are not masked.

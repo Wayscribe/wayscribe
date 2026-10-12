@@ -26,7 +26,7 @@ changes far less often.
   web app shows it under the error and under the journey's status line, `wayscribe journey`
   and `wayscribe event` print it, and the Node, Python and Go SDKs read `fields` from the
   error the host throws or records. The demo's target names the field in its 422s, so its
-  dead-letter now reads "Likely cause: phone lost at transform-salesforce-account"
+  dead-letter now reads "Likely cause: phone lost at transform-salesforce-account ..."
   (ADR-072).
 
 ## [0.2.5] - 2026-10-10

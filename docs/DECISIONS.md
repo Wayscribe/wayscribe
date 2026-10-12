@@ -4716,10 +4716,10 @@ two. Tracing tools cannot make the link because they hold no payloads; Wayscribe
    default depth `diffPayloads` stops at), so a field costs one lookup per segment per
    candidate.
 4. A journey over 1,000 events (`MAX_JOURNEY_EVENTS_FOR_CAUSES`) gets no causes, rather
-   than an answer from part of it; the demo's journeys hold 2 to 10. A truncated diff
-   nearer than the cause sets `incomplete`. The causes are a debugging aid: when computing
+   than an answer from part of it; the demo's failing journeys hold 2 to 10 events. A
+   truncated diff nearer than the cause sets `incomplete`. The causes are a debugging aid: when computing
    them throws, the read still succeeds with `likelyCauses: []` and the API logs a warning
-   that names the journey and the error's class, never its message.
+   that names the journey and the error's name, never its message.
 5. The web app shows "Likely cause: `phone` lost at **transform-salesforce-account**" under
    the error and under the journey's status line, with the step linked; About this view
    defines it; `wayscribe journey` and `wayscribe event` print the same line. When the
@@ -4730,7 +4730,7 @@ two. Tracing tools cannot make the link because they hold no payloads; Wayscribe
    cause", never "Cause".
 
 **Consequences.** The demo's target names the field in its 422s, so its dead-letter reads
-"Likely cause: phone lost at transform-salesforce-account", reported by the last delivery
+"Likely cause: phone lost at transform-salesforce-account ...", reported by the last delivery
 attempt. Its `schema-rejected` journey links `status` to the transform, which lowercases it
 ("Former Customer" to "former customer"); its `timeout` journey, whose errors name no field,
 links nothing. A read of a journey with a failure reads the first 1,001 events' failure facts,
