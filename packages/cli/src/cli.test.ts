@@ -286,6 +286,61 @@ describe("the command line", () => {
       ]);
     });
 
+    it("puts the line under the last failing step of that name, not an earlier attempt", async () => {
+      const attempts = [
+        row("evt_transform", "transformed", "transform-salesforce-account", "0"),
+        row("evt_attempt_1", "delivered", "deliver-customer-to-target", "2", {
+          hasError: true,
+          likelyCauses: [CAUSE]
+        }),
+        row("evt_attempt_2", "delivered", "deliver-customer-to-target", "4", {
+          hasError: true,
+          likelyCauses: [CAUSE]
+        })
+      ];
+      respond = (path) =>
+        path.startsWith("/v1/journeys/jrn_1/events")
+          ? { status: 200, body: { data: { items: attempts, nextCursor: null } } }
+          : {
+              status: 200,
+              body: {
+                data: {
+                  ...JOURNEY,
+                  eventCount: 3,
+                  failedStep: "deliver-customer-to-target",
+                  likelyCauses: [CAUSE]
+                }
+              }
+            };
+      const { out, io } = capture(env());
+      expect(await run(["journey", "jrn_1"], io)).toBe(0);
+      const lines = out.join("\n").split("\n");
+      const steps = lines.flatMap((line, index) =>
+        line.includes("deliver-customer-to-target") && !line.includes("Likely cause:")
+          ? [index]
+          : []
+      );
+      expect(steps).toHaveLength(2);
+      const cause = lines.findIndex((line) => line.includes("Likely cause:"));
+      expect(cause).toBe((steps[1] ?? -1) + 1);
+      expect(lines.filter((line) => line.includes("Likely cause:"))).toHaveLength(1);
+    });
+
+    it("bounds a long value as the web app does", async () => {
+      const long = {
+        ...CAUSE,
+        reportedBy: "evt_dead_letter",
+        change: { ...CAUSE.change, before: "9".repeat(400) },
+        alsoChangedAt: []
+      };
+      respond = () => ({ status: 200, body: { data: failedEvent([long]) } });
+      const { out, io } = capture(env());
+      expect(await run(["event", "evt_dead_letter"], io)).toBe(0);
+      expect(out.join("\n").split("\n")).toContain(
+        `  Likely cause: phone lost at transform-salesforce-account (was ${"9".repeat(300)}…)`
+      );
+    });
+
     it("prints no likely-cause line when a failure has none", async () => {
       respond = () => ({ status: 200, body: { data: failedEvent([]) } });
       const { out, io } = capture(env());

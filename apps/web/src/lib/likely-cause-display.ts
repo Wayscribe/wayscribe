@@ -32,8 +32,6 @@ export interface DisplayedLikelyCause {
 }
 
 const KINDS: ReadonlySet<unknown> = new Set(["removed", "changed", "renamed-changed"]);
-/** A path's segments: `[3]` for an index, a key otherwise, as the API matches them. */
-const SEGMENT = /\[\d+\]|[^.[\]]+/g;
 
 /**
  * The API's `likelyCauses` as text. An entry it cannot read is left out
@@ -80,12 +78,16 @@ export function likelyCausesForDisplay(value: unknown): DisplayedLikelyCause[] {
   });
 }
 
+// isBelow: begin
+/** A path's segments: `[3]` for an index, a key otherwise, as the API matches them. */
+const SEGMENT = /\[\d+\]|[^.[\]]+/g;
+
 /**
  * Whether `path` lies strictly below `field`, comparing keys as the API's
  * matching does (`normalizeKey`, indexes literally): `address.postalCode`
  * below `address`, but not `status` below `Status__c`, which is the field.
  */
-function isBelow(path: string, field: string): boolean {
+export function isBelow(path: string, field: string): boolean {
   const changed = segments(path);
   const reported = segments(field);
   return (
@@ -100,6 +102,7 @@ function segments(path: string): string[] {
     segment.startsWith("[") ? segment : normalizeKey(segment)
   );
 }
+// isBelow: end
 
 function earlierSteps(value: unknown): { eventId: string; step: string }[] {
   if (!Array.isArray(value)) return [];

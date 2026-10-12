@@ -7,6 +7,7 @@ import type {
   LikelyCause,
   Project
 } from "./client.js";
+import { bounded, isBelow } from "./cause-paths.js";
 
 /**
  * Terminal output, aligned by hand.
@@ -235,43 +236,9 @@ export function formatLikelyCauses(
   return lines;
 }
 
-/** A path's segments: `[3]` for an index, a key otherwise, as the API matches them. */
-const SEGMENT = /\[\d+\]|[^.[\]]+/g;
-
-/**
- * Whether `path` lies strictly below `field`, comparing keys as the API's
- * matching does (normalized keys, indexes literally): `address.postalCode`
- * below `address`, but not `status` below `Status__c`, which is the field.
- * The same test as the web app's `likelyCausesForDisplay`.
- */
-function isBelow(path: string, field: string): boolean {
-  const changed = segments(path);
-  const reported = segments(field);
-  return (
-    reported.length > 0 &&
-    changed.length > reported.length &&
-    reported.every((segment, index) => segment === changed[index])
-  );
-}
-
-function segments(path: string): string[] {
-  return (path.match(SEGMENT) ?? []).map((segment) =>
-    segment.startsWith("[") ? segment : normalizeKey(segment)
-  );
-}
-
-/**
- * `normalizeKey` from `@wayscribe/payload-diff`, which this published package
- * does not depend on: lowercase, drop a trailing Salesforce `__c`, drop `_`
- * and `-`.
- */
-function normalizeKey(key: string): string {
-  return key.toLowerCase().replace(/__c$/, "").replace(/[_-]/g, "");
-}
-
-/** A string as it is, anything else as `render` shows a diff value. */
+/** A string as it is up to the web's bound, anything else as `render` shows a diff value. */
 function causeValue(value: unknown): string {
-  return typeof value === "string" ? value : render(value);
+  return typeof value === "string" ? bounded(value) : render(value);
 }
 
 export function formatDiff(changes: DiffChange[] | undefined, style: Style): string {

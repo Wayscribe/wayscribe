@@ -11,6 +11,7 @@ import {
   normalizeKey as webNormalizeKey,
   pairChanges as webPairChanges
 } from "../apps/web/src/lib/diff-pairing.js";
+import { normalizeKey as cliNormalizeKey } from "../packages/cli/src/cause-paths.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -77,9 +78,10 @@ describe("pairChanges", () => {
   }
 
   it.each(["Phone", "PHONE", "Status__c", "First_Name__c", "x-request-id", "my__cfield"])(
-    "normalizes %s the same in both",
+    "normalizes %s the same in the API, the web app and the CLI",
     (key) => {
       expect(webNormalizeKey(key)).toBe(apiNormalizeKey(key));
+      expect(cliNormalizeKey(key)).toBe(apiNormalizeKey(key));
     }
   );
 
@@ -92,6 +94,29 @@ describe("pairChanges", () => {
     };
     expect(block("apps/web/src/lib/diff-pairing.ts")).toBe(
       block("packages/payload-diff/src/pairing.ts")
+    );
+  });
+});
+
+/**
+ * The likely-cause line names the changed path when it lies below the
+ * reported field (ADR-072). The web app and the CLI decide that with their own
+ * copies of one test, since the CLI is published and depends on neither; a
+ * difference would make `wayscribe journey` and the page read differently.
+ * Only the text is compared: the web module's extensionless imports keep it
+ * out of the root typecheck, and one text over one `normalizeKey` (above) is
+ * one behaviour.
+ */
+describe("isBelow", () => {
+  it("is the same text in both copies", () => {
+    const block = (relative: string): string => {
+      const text = readFileSync(`${root}${relative}`, "utf8");
+      const found = /\/\/ isBelow: begin\n([\s\S]*?)\/\/ isBelow: end\n/.exec(text);
+      expect(found, `${relative} has no marked isBelow block`).not.toBeNull();
+      return found?.[1] ?? "";
+    };
+    expect(block("packages/cli/src/cause-paths.ts")).toBe(
+      block("apps/web/src/lib/likely-cause-display.ts")
     );
   });
 });
