@@ -305,6 +305,157 @@ describe("findLikelyCauses", () => {
     ]);
   });
 
+  it("matches a change below a compound field the error named", () => {
+    // Salesforce reports the compound `Address` for a bad postal code inside it.
+    const noPostalCode = { ...CUSTOMER, address: { ...CUSTOMER.address, postalCode: null } };
+    const causes = findLikelyCauses([
+      step("evt_transform", "transform-salesforce-account", ACCOUNT, CUSTOMER),
+      step("evt_geocode", "geocode-billing-address", CUSTOMER, noPostalCode),
+      failure("evt_deliver", "deliver-customer-to-target", ["Address"])
+    ]);
+    expect(causes.get("evt_deliver")).toEqual([
+      {
+        field: "Address",
+        reportedBy: "evt_deliver",
+        eventId: "evt_geocode",
+        step: "geocode-billing-address",
+        change: {
+          kind: "changed",
+          lost: true,
+          path: "address.postalCode",
+          before: "27601",
+          after: null
+        },
+        alsoChangedAt: []
+      }
+    ]);
+  });
+
+  it("prefers the field itself over a change below it within one step", () => {
+    // A merge folds a legacy `Address` block into `address`: it drops the block
+    // and loses the postal code. Both are lost; the named field itself wins.
+    const legacyAddress = { street: "PO Box 12", city: "Raleigh", state: "NC" };
+    const merged = { ...CUSTOMER, address: { ...CUSTOMER.address, postalCode: null } };
+    const causes = findLikelyCauses([
+      step("evt_merge", "merge-legacy-address", { ...CUSTOMER, Address: legacyAddress }, merged),
+      failure("evt_deliver", "deliver-customer-to-target", ["address"])
+    ]);
+    expect(causes.get("evt_deliver")).toEqual([
+      {
+        field: "address",
+        reportedBy: "evt_deliver",
+        eventId: "evt_merge",
+        step: "merge-legacy-address",
+        change: {
+          kind: "removed",
+          lost: true,
+          path: "Address",
+          before: legacyAddress,
+          after: undefined
+        },
+        alsoChangedAt: []
+      }
+    ]);
+  });
+
+  it("still prefers a lost value below the field over a change to the field itself", () => {
+    // The merge reshapes the legacy one-line `Address` into an object, keeping
+    // its data, and loses the postal code under `address`: the loss wins.
+    const reshaped = { street: "PO Box 12", city: "Raleigh", state: "NC" };
+    const merged = {
+      ...CUSTOMER,
+      address: { ...CUSTOMER.address, postalCode: null },
+      Address: reshaped
+    };
+    const causes = findLikelyCauses([
+      step(
+        "evt_merge",
+        "merge-legacy-address",
+        { ...CUSTOMER, Address: "PO Box 12, Raleigh NC" },
+        merged
+      ),
+      failure("evt_deliver", "deliver-customer-to-target", ["address"])
+    ]);
+    expect(causes.get("evt_deliver")).toEqual([
+      {
+        field: "address",
+        reportedBy: "evt_deliver",
+        eventId: "evt_merge",
+        step: "merge-legacy-address",
+        change: {
+          kind: "changed",
+          lost: true,
+          path: "address.postalCode",
+          before: "27601",
+          after: null
+        },
+        alsoChangedAt: []
+      }
+    ]);
+  });
+
+  it("never matches a field that normalizes to nothing, even a key that normalizes alike", () => {
+    // A mapper that builds `${apiName}__c` from an empty name writes a `__c` key.
+    const causes = findLikelyCauses([
+      step("evt_map", "map-custom-fields", { ...ACCOUNT, __c: "Gold" }, ACCOUNT),
+      failure("evt_deliver", "deliver-account-to-erp", ["__c"])
+    ]);
+    expect(causes.get("evt_deliver")).toEqual([]);
+  });
+
+  it("chooses a nearer step that changed only a field below over a farther exact change", () => {
+    const unverified = { ...CUSTOMER, address: null };
+    const noPostalCode = { ...CUSTOMER, address: { ...CUSTOMER.address, postalCode: null } };
+    const causes = findLikelyCauses([
+      step("evt_verify", "verify-billing-address", unverified, CUSTOMER),
+      step("evt_geocode", "geocode-billing-address", CUSTOMER, noPostalCode),
+      failure("evt_deliver", "deliver-customer-to-target", ["address"])
+    ]);
+    expect(causes.get("evt_deliver")).toEqual([
+      {
+        field: "address",
+        reportedBy: "evt_deliver",
+        eventId: "evt_geocode",
+        step: "geocode-billing-address",
+        change: {
+          kind: "changed",
+          lost: true,
+          path: "address.postalCode",
+          before: "27601",
+          after: null
+        },
+        alsoChangedAt: [{ eventId: "evt_verify", step: "verify-billing-address" }]
+      }
+    ]);
+  });
+
+  it("matches a change inside an array element below the field, comparing indexes literally", () => {
+    const unmapped = {
+      ...CUSTOMER,
+      lines: [{ ...CUSTOMER.lines[0], sku: null }, CUSTOMER.lines[1]]
+    };
+    const causes = findLikelyCauses([
+      step("evt_map", "map-product-codes", CUSTOMER, unmapped),
+      failure("evt_deliver", "deliver-customer-to-target", ["lines[1]", "lines"])
+    ]);
+    expect(causes.get("evt_deliver")).toEqual([
+      {
+        field: "lines",
+        reportedBy: "evt_deliver",
+        eventId: "evt_map",
+        step: "map-product-codes",
+        change: {
+          kind: "changed",
+          lost: true,
+          path: "lines[0].sku",
+          before: "SKU-100",
+          after: null
+        },
+        alsoChangedAt: []
+      }
+    ]);
+  });
+
   it("marks a cause incomplete when a nearer step's diff was cut short", () => {
     const sync: CauseEvent = {
       id: "evt_sync",

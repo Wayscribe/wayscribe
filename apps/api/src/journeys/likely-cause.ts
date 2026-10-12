@@ -61,8 +61,13 @@ const SEGMENT = /\[\d+\]|[^.[\]]+/g;
 interface IndexedDiff {
   rows: PairedChange[];
   byPath: Map<string, number>;
+  /** Each proper prefix of a counted row's path to the first row below it. */
+  below: Map<string, number>;
   truncated: boolean;
 }
+
+/** Prefixes indexed per changed path: a field deeper than this finds nothing below it. */
+const MAX_PREFIX_DEPTH = 32;
 
 /**
  * The likely causes of each failed event of one journey, keyed by its id.
@@ -73,12 +78,15 @@ interface IndexedDiff {
  * earlier failed event that named some: the reporter. The candidates are the
  * events before the reporter that are not failed and have a stored diff; a
  * failed step is where a field was refused, not where it changed. A paired
- * change matches a field when its path equals the field or is an ancestor of
- * it, comparing keys as `normalizeKey` does and indexes literally, so an error
- * may name a renamed field by either its input or its output key. `removed`,
- * `changed` and `renamed-changed` count; a rename that kept the value, an
- * added field and a whole-payload replacement (path `""`) do not. The nearest
- * match is the cause, the rest are `alsoChangedAt`.
+ * change matches a field when its path equals the field, is an ancestor of it,
+ * or is below it (a compound field, a parent parameter, a JSON Schema
+ * instancePath), comparing keys as `normalizeKey` does and indexes literally,
+ * so an error may name a renamed field by either its input or its output key.
+ * `removed`, `changed` and `renamed-changed` count; a rename that kept the
+ * value, an added field and a whole-payload replacement (path `""`) do not.
+ * The nearest matching step is the cause, the rest are `alsoChangedAt`; within
+ * one step a lost value wins, then the field or an ancestor over a change
+ * below it, then `pairChanges`' order.
  *
  * A failed event before any reporter has no entry. A journey over
  * `MAX_JOURNEY_EVENTS_FOR_CAUSES` gets an empty map.
@@ -121,7 +129,9 @@ function causeOf(
 ): LikelyCause[] {
   const reporter = events[reporterIndex];
   const target = segments(field);
-  if (reporter === undefined || target.length === 0) return [];
+  const key = target.join(".");
+  // A field that normalizes to nothing (`__c`) names no field.
+  if (reporter === undefined || key === "") return [];
   // The field and each ancestor of it, as `byPath` keys.
   const covering = target.map((_, end) => target.slice(0, end + 1).join("."));
 
@@ -137,7 +147,7 @@ function causeOf(
       const at = diff.byPath.get(path);
       if (at !== undefined && (first === undefined || at < first)) first = at;
     }
-    const row = first === undefined ? undefined : diff.rows[first];
+    const row = pick(diff.rows, first, diff.below.get(key));
     if (row === undefined) {
       // Unknown, not unchanged: only a nearer one than the cause matters.
       if (diff.truncated && matches.length === 0) incomplete = true;
@@ -169,6 +179,22 @@ function causeOf(
   ];
 }
 
+/**
+ * One step's matching row: a lost value first, then the field or an ancestor
+ * of it over a change below it, then `pairChanges`' order.
+ */
+function pick(
+  rows: readonly PairedChange[],
+  covering: number | undefined,
+  below: number | undefined
+): PairedChange | undefined {
+  const atOrAbove = covering === undefined ? undefined : rows[covering];
+  const under = below === undefined ? undefined : rows[below];
+  if (atOrAbove === undefined) return under;
+  if (under !== undefined && under.lost && !atOrAbove.lost) return under;
+  return atOrAbove;
+}
+
 /** A list's distinct non-empty strings, or null when there are none. */
 function reportedFields(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
@@ -192,6 +218,7 @@ function indexDiff(value: unknown): IndexedDiff | null {
   );
   const rows = pairChanges(valid);
   const byPath = new Map<string, number>();
+  const below = new Map<string, number>();
   rows.forEach((row, index) => {
     // Only the output-side path is indexed. A counted rename
     // (`renamed-changed`) is always a by-name pair: a by-value pair has equal
@@ -204,8 +231,13 @@ function indexDiff(value: unknown): IndexedDiff | null {
     if (own.length === 0) return;
     const key = own.join(".");
     if (!byPath.has(key)) byPath.set(key, index);
+    // Each proper prefix, so a field above the change is one lookup.
+    for (let end = 1; end < Math.min(own.length, MAX_PREFIX_DEPTH + 1); end += 1) {
+      const prefix = own.slice(0, end).join(".");
+      if (!below.has(prefix)) below.set(prefix, index);
+    }
   });
-  return { rows, byPath, truncated: truncated === true };
+  return { rows, byPath, below, truncated: truncated === true };
 }
 
 /** A path's segments, keys normalized; none contains a `.`, so `.` joins them unambiguously. */
