@@ -198,7 +198,46 @@ def public_warning(value: str, field: str, diagnostics: Diagnostics) -> None:
             )
 
 
-def capture_error(error: object, diagnostics: Diagnostics) -> dict[str, str]:
+MAX_ERROR_FIELDS = 20
+MAX_ERROR_FIELD_LENGTH = 200
+
+
+def error_fields(value: object) -> list[str] | None:
+    """The paths an error names (ADR-072), kept to what the server accepts.
+
+    Read only from a list or a tuple, and only its strings: an empty one is
+    dropped, a long one is cut to 200 code points, and the list stops at 20.
+    Names, not values, so nothing is masked. None when nothing is left.
+    """
+    if not isinstance(value, (list, tuple)):
+        return None
+    kept: list[str] = []
+    for entry in value:
+        if type(entry) is not str or entry == "":
+            continue
+        kept.append(repair_text(entry)[:MAX_ERROR_FIELD_LENGTH])
+        if len(kept) == MAX_ERROR_FIELDS:
+            break
+    return kept or None
+
+
+def _fields_of(error: object, diagnostics: Diagnostics) -> list[str] | None:
+    """An exception's `fields` attribute or a mapping's `fields` key, read in a
+    boundary of its own so a property that raises costs only the fields."""
+    try:
+        if isinstance(error, BaseException):
+            value = getattr(error, "fields", None)
+        elif isinstance(error, Mapping):
+            value = error.get("fields")
+        else:
+            return None
+        return error_fields(value)
+    except Exception:
+        diagnostics.emit("capture_error", "unexpected_error", {"field": "error.fields"})
+        return None
+
+
+def capture_error(error: object, diagnostics: Diagnostics) -> dict[str, object]:
     try:
         if isinstance(error, BaseException):
             message = str(error)
@@ -223,7 +262,7 @@ def capture_error(error: object, diagnostics: Diagnostics) -> dict[str, str]:
         if type(message) is not str:
             message = "[UNCAPTURABLE]"
         masked = mask_text(message)
-        out = {
+        out: dict[str, object] = {
             "message": (
                 masked if len(masked) <= 4096 else masked[:4085] + "[TRUNCATED]"
             )
@@ -236,6 +275,9 @@ def capture_error(error: object, diagnostics: Diagnostics) -> dict[str, str]:
         ):
             if type(value) is str:
                 out[key] = mask_text(value)[:limit]
+        fields = _fields_of(error, diagnostics)
+        if fields is not None:
+            out["fields"] = fields
         public_warning(out["message"], "error", diagnostics)
         return out
     except Exception:
