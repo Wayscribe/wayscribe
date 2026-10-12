@@ -154,6 +154,146 @@ describe("the command line", () => {
     expect(text).toContain("salesforceAccountId=SF\u202699");
   });
 
+  describe("likely causes (ADR-072)", () => {
+    const CAUSE = {
+      field: "phone",
+      reportedBy: "evt_deliver",
+      eventId: "evt_transform",
+      step: "transform-salesforce-account",
+      change: {
+        kind: "renamed-changed",
+        lost: true,
+        path: "phone",
+        from: "Phone",
+        before: "+1 919 555 1234",
+        after: null
+      },
+      alsoChangedAt: [{ eventId: "evt_normalize", step: "normalize-phone" }]
+    };
+    const row = (
+      id: string,
+      operation: string,
+      name: string,
+      at: string,
+      extra: Record<string, unknown> = {}
+    ): Record<string, unknown> => ({
+      id,
+      operation,
+      name,
+      service: "sync-worker",
+      eventTimestamp: `2026-08-06T10:00:0${at}.000Z`,
+      durationMs: null,
+      hasInput: false,
+      hasOutput: false,
+      hasError: false,
+      ...extra
+    });
+    const TIMELINE = [
+      row("evt_transform", "transformed", "transform-salesforce-account", "0"),
+      row("evt_deliver", "delivered", "deliver-customer-to-target", "2", {
+        hasError: true,
+        likelyCauses: [CAUSE]
+      }),
+      row("evt_dead_letter", "failed", "move-message-to-dead-letter", "5", {
+        hasError: true,
+        likelyCauses: [CAUSE]
+      })
+    ];
+    const failedEvent = (causes: unknown[]): unknown => ({
+      ...row("evt_dead_letter", "failed", "move-message-to-dead-letter", "5", {
+        hasError: true,
+        likelyCauses: causes
+      }),
+      journeyId: "jrn_1",
+      error: { message: "The target refused the customer." }
+    });
+
+    it("prints the journey's likely cause under the step that failed it, and nowhere else", async () => {
+      respond = (path) =>
+        path.startsWith("/v1/journeys/jrn_1/events")
+          ? { status: 200, body: { data: { items: TIMELINE, nextCursor: null } } }
+          : {
+              status: 200,
+              body: {
+                data: {
+                  ...JOURNEY,
+                  eventCount: 3,
+                  failedStep: "move-message-to-dead-letter",
+                  likelyCauses: [CAUSE]
+                }
+              }
+            };
+      const { out, io } = capture(env());
+      expect(await run(["journey", "jrn_1"], io)).toBe(0);
+      const lines = out.join("\n").split("\n");
+      const failed = lines.findIndex((line) => line.includes("move-message-to-dead-letter"));
+      expect(lines.slice(failed + 1, failed + 3)).toEqual([
+        "  Likely cause: phone lost at transform-salesforce-account (was +1 919 555 1234), reported by deliver-customer-to-target",
+        "  Also changed earlier at: normalize-phone"
+      ]);
+      expect(lines.filter((line) => line.includes("Likely cause:"))).toHaveLength(1);
+    });
+
+    it("prints a failed event's likely cause", async () => {
+      respond = () => ({ status: 200, body: { data: failedEvent([CAUSE]) } });
+      const { out, io } = capture(env());
+      expect(await run(["event", "evt_dead_letter"], io)).toBe(0);
+      const lines = out.join("\n").split("\n");
+      expect(lines).toContain(
+        "  Likely cause: phone lost at transform-salesforce-account (was +1 919 555 1234), reported by evt_deliver"
+      );
+      expect(lines).toContain("  Also changed earlier at: normalize-phone");
+    });
+
+    it("names the changed path and the field it sits in when the change is below the field", async () => {
+      const below = {
+        ...CAUSE,
+        field: "Address",
+        reportedBy: "evt_dead_letter",
+        change: {
+          kind: "changed",
+          lost: false,
+          path: "address.postal_code",
+          before: "27601",
+          after: "2760"
+        },
+        alsoChangedAt: []
+      };
+      // The field itself, matched across a rename: not below it.
+      const atField = {
+        ...CAUSE,
+        field: "Status__c",
+        reportedBy: "evt_dead_letter",
+        change: {
+          kind: "renamed-changed",
+          lost: false,
+          path: "status",
+          from: "Status__c",
+          before: "Former Customer",
+          after: "former customer"
+        },
+        alsoChangedAt: [],
+        incomplete: true
+      };
+      respond = () => ({ status: 200, body: { data: failedEvent([below, atField]) } });
+      const { out, io } = capture(env());
+      expect(await run(["event", "evt_dead_letter"], io)).toBe(0);
+      const lines = out.join("\n").split("\n");
+      expect(lines.filter((line) => line.startsWith("  "))).toEqual([
+        "  Likely cause: address.postal_code (in Address) changed at transform-salesforce-account (was 27601, now 2760)",
+        "  Likely cause: Status__c changed at transform-salesforce-account (was Former Customer, now former customer)",
+        "  Some earlier steps' changes were too large to check."
+      ]);
+    });
+
+    it("prints no likely-cause line when a failure has none", async () => {
+      respond = () => ({ status: 200, body: { data: failedEvent([]) } });
+      const { out, io } = capture(env());
+      expect(await run(["event", "evt_dead_letter"], io)).toBe(0);
+      expect(out.join("\n")).not.toContain("Likely cause");
+    });
+  });
+
   it("follows cursors so a long timeline is not silently truncated", async () => {
     let page = 0;
     respond = (path) => {

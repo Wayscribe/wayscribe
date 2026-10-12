@@ -4,6 +4,7 @@ import type {
   EventSummary,
   JourneyDetail,
   JourneySummary,
+  LikelyCause,
   Project
 } from "./client.js";
 
@@ -126,6 +127,16 @@ export function formatJourney(
   }
 
   const spansDays = new Set(events.map((e) => e.eventTimestamp.slice(0, 10))).size > 1;
+  // ADR-072: the journey's likely cause goes under the step that failed it,
+  // the last failing event of that name, as the API chose it.
+  const failedRow =
+    journey.status === "failed" && typeof journey.failedStep === "string"
+      ? events.findLast(
+          (e) => (e.hasError || e.operation === "failed") && e.name === journey.failedStep
+        )
+      : undefined;
+  const nameOf = (eventId: string): string | null =>
+    events.find((e) => e.id === eventId)?.name ?? null;
   const opWidth = Math.max(...events.map((e) => e.operation.length), 9);
   const nameWidth = Math.max(...events.map((e) => e.name.length), 4);
 
@@ -138,6 +149,9 @@ export function formatJourney(
     lines.push(
       `${style.dim(when)}${flag} ${cell(event.operation, opWidth, operationColour(event.operation, style))}  ${pad(event.name, nameWidth)}  ${style.dim(event.service)}${duration}`
     );
+    if (event === failedRow) {
+      lines.push(...formatLikelyCauses(journey.likelyCauses, null, nameOf, style));
+    }
   }
 
   lines.push("");
@@ -158,6 +172,7 @@ export function formatEvent(event: EventDetail, showDiff: boolean, style: Style)
     lines.push("");
     lines.push(style.red(`error  ${event.error.message}`));
   }
+  lines.push(...formatLikelyCauses(event.likelyCauses, event.id, () => null, style));
 
   if (showDiff) {
     lines.push("");
@@ -175,6 +190,88 @@ export function formatEvent(event: EventDetail, showDiff: boolean, style: Style)
     lines.push(JSON.stringify(payload, null, 2));
   }
   return lines.join("\n");
+}
+
+/**
+ * The likely-cause lines (ADR-072), indented under a failed step: the same
+ * sentence the web app shows. When the changed path lies below the reported
+ * field, the line names that path, whose values it gives, and the field it
+ * sits in. The reporter is named when it is not the failure itself, by step
+ * name where the timeline has it, else by id. A cause is never changed.
+ */
+export function formatLikelyCauses(
+  causes: readonly LikelyCause[] | undefined,
+  failedEventId: string | null,
+  nameOf: (eventId: string) => string | null,
+  style: Style
+): string[] {
+  const lines: string[] = [];
+  for (const cause of causes ?? []) {
+    const { change } = cause;
+    const verb = change.lost ? "lost" : change.kind === "removed" ? "removed" : "changed";
+    const subject = isBelow(change.path, cause.field)
+      ? `${change.path} (in ${cause.field})`
+      : cause.field;
+    const values =
+      verb === "changed"
+        ? ` (was ${causeValue(change.before)}, now ${causeValue(change.after)})`
+        : ` (was ${causeValue(change.before)})`;
+    const reporter =
+      cause.reportedBy === failedEventId
+        ? ""
+        : `, reported by ${nameOf(cause.reportedBy) ?? cause.reportedBy}`;
+    lines.push(
+      `  ${style.bold("Likely cause:")} ${subject} ${verb} at ${cause.step}${values}${reporter}`
+    );
+    if (cause.alsoChangedAt.length > 0) {
+      lines.push(
+        style.dim(`  Also changed earlier at: ${cause.alsoChangedAt.map((s) => s.step).join(", ")}`)
+      );
+    }
+    if (cause.incomplete === true) {
+      lines.push(style.dim("  Some earlier steps' changes were too large to check."));
+    }
+  }
+  return lines;
+}
+
+/** A path's segments: `[3]` for an index, a key otherwise, as the API matches them. */
+const SEGMENT = /\[\d+\]|[^.[\]]+/g;
+
+/**
+ * Whether `path` lies strictly below `field`, comparing keys as the API's
+ * matching does (normalized keys, indexes literally): `address.postalCode`
+ * below `address`, but not `status` below `Status__c`, which is the field.
+ * The same test as the web app's `likelyCausesForDisplay`.
+ */
+function isBelow(path: string, field: string): boolean {
+  const changed = segments(path);
+  const reported = segments(field);
+  return (
+    reported.length > 0 &&
+    changed.length > reported.length &&
+    reported.every((segment, index) => segment === changed[index])
+  );
+}
+
+function segments(path: string): string[] {
+  return (path.match(SEGMENT) ?? []).map((segment) =>
+    segment.startsWith("[") ? segment : normalizeKey(segment)
+  );
+}
+
+/**
+ * `normalizeKey` from `@wayscribe/payload-diff`, which this published package
+ * does not depend on: lowercase, drop a trailing Salesforce `__c`, drop `_`
+ * and `-`.
+ */
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/__c$/, "").replace(/[_-]/g, "");
+}
+
+/** A string as it is, anything else as `render` shows a diff value. */
+function causeValue(value: unknown): string {
+  return typeof value === "string" ? value : render(value);
 }
 
 export function formatDiff(changes: DiffChange[] | undefined, style: Style): string {
