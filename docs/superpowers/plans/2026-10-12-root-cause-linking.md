@@ -44,6 +44,8 @@ Each follows the code as it is and keeps the spec's intent. Items 1 to 4 change 
 
 Jorge decided both open questions on 2026-10-12: case-only changes count as a likely cause (Deviation 3), and the web keeps its own copy of pairing held to the package's by a sync test (Deviation 8, Task 6).
 
+Jorge also decided on 2026-10-12 that a field matches counted changes below it, not only at it or above it: Salesforce reports a compound field (`BillingAddress` for a bad postal code), Stripe a parent parameter, and JSON Schema validators (ajv) a missing required property at the parent `instancePath` (`/address`), so teams will send `fields: ["address"]`. The nearest matching step still wins, even when its match is only below the field. Within one step a lost value comes first, then the field or an ancestor over a change below it, then pairing order. `change.path` is the specific changed path and `field` stays as reported. Each diff indexes every proper prefix of its counted paths (to depth 32) once, so the search stays one lookup per segment. `findLikelyCauses` implements it in commit 8d70660; the Task 7 code above predates it, and ADR-072 in Task 13 records it.
+
 ## Found in the code while planning (not changed by this plan)
 
 - **Timeline pages can repeat a row.** `listJourneyEvents` encodes `received_at` in its cursor with `toISOString()` (milliseconds), while `journey_events.received_at` defaults to `now()` (microseconds). The next page's `(event_timestamp, received_at, id) > (...)` then includes the previous page's last row whenever its arrival time has sub-millisecond digits. Seen while checking Task 8's paging test against PostgreSQL 17: page 2 repeated page 1's last event. The web app hides it (`mergeEvents` dedupes by id); `wayscribe journey` (which follows every cursor) and API callers do not. Task 8's test is written so it does not depend on page boundaries. Worth its own issue.
@@ -5270,12 +5272,15 @@ two. Tracing tools cannot make the link because they hold no payloads; Wayscribe
    own, or else those of the most recent earlier failed event that named some, which is
    reported as `reportedBy`. The candidates are the events before the reporter that are not
    failed and have a stored diff, paired with `pairChanges`, whose canonical copy is now in
-   `@wayscribe/payload-diff`. A change matches a field when its path on either side equals
-   the field or is an ancestor of it, comparing keys as pairing normalizes them and array
-   indexes literally. `removed`, `changed` and `renamed-changed` count; a rename that kept
-   the value, an added field, and a whole-payload replacement at the empty path do not. The
-   nearest match is the likely cause and the others are listed in `alsoChangedAt`, nearest
-   first.
+   `@wayscribe/payload-diff`. A change matches a field when its path equals the field, is an
+   ancestor of it, or is below it, comparing keys as pairing normalizes them and array
+   indexes literally: an error naming `address` matches a lost `address.postalCode`, as
+   Salesforce compound fields, Stripe parent parameters and JSON Schema parent
+   `instancePath`s report it. `removed`, `changed` and `renamed-changed` count; a rename
+   that kept the value, an added field, and a whole-payload replacement at the empty path do
+   not. The nearest matching step is the likely cause and the others are listed in
+   `alsoChangedAt`, nearest first; within one step a lost value wins, then the field or an
+   ancestor over a change below it.
 4. A journey over 1,000 events gets no causes; the demo's journeys hold 2 to 10. A truncated
    diff nearer than the cause sets `incomplete`.
 5. The web app shows "Likely cause: `phone` lost at **transform-salesforce-account**" under
@@ -5297,7 +5302,9 @@ events arrive out of order and in batches, and a stored link goes stale when the
 Computing it in the web app alone: the CLI and API callers would never see it. Counting failed
 steps as candidates: a failed delivery's diff compares a request with an error response, and
 in the demo it removes `phone` on every attempt. Counting the empty path: persisting a customer
-and answering its id would be the likely cause of every field. Excluding case-only changes:
+and answering its id would be the likely cause of every field. Matching only the field and
+its ancestors: it fails silently on compound-field, nested-parameter and JSON Schema
+parent-path errors, which name a field above the one that changed. Excluding case-only changes:
 case changes are a real integration bug class (case-sensitive picklists and enums), the line
 shows the value before and after so the reader judges, and each exclusion invites the next
 (whitespace, number and date formatting). Importing the pairing code into the web app from

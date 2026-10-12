@@ -102,9 +102,18 @@ For each failed event F:
    paired with `pairChanges`.
 3. **Match.** A paired change matches field `f` when, comparing path segments after
    `normalizeKey` (array index segments compared literally):
-   - the change's path on either side equals `f`, or
-   - the change's path on either side is an ancestor of `f` (removing `address` loses
-     `address.postalCode`).
+   - the change's path equals `f`, or
+   - the change's path is an ancestor of `f` (removing `address` loses
+     `address.postalCode`), or
+   - the change's path is below `f` (an error naming `address` matches a lost
+     `address.postalCode`: Salesforce reports compound fields, Stripe parent parameters,
+     and JSON Schema validators a missing property at the parent `instancePath`; decided by
+     Jorge, 2026-10-12).
+
+   A change at the empty path never matches, and neither does a field that normalizes to
+   nothing. Within one step a lost value wins, then the field or an ancestor over a change
+   below it, then pairing order. A counted rename's input-side path normalizes to its
+   output-side path, so the output side alone is compared.
 4. **Counting kinds.** `removed`, `changed` and `renamed-changed` count (`PairedChange.kind`;
    `lost` is a flag on these, not a kind, and is shown when set). A pure `renamed` (value
    unchanged) and `added` do not.
