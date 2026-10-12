@@ -5,3 +5,4 @@ export {
   type DiffOptions,
   type DiffResult
 } from "./diff.js";
+export { normalizeKey, pairChanges, type DisplayKind, type PairedChange } from "./pairing.js";
