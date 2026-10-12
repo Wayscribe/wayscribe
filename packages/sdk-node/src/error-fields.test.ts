@@ -28,6 +28,12 @@ describe("errorFields", () => {
     expect(errorFields(["", 42, null, { path: "phone" }, ["phone"], "phone"])).toEqual(["phone"]);
   });
 
+  it("repairs each path like message text: NUL removed, a lone surrogate replaced", () => {
+    expect(errorFields(["\u0000"])).toBeUndefined();
+    expect(errorFields(["ph\u0000one"])).toEqual(["phone"]);
+    expect(errorFields(["a\ud800b", "\u0000", "ok"])).toEqual(["a\ufffdb", "ok"]);
+  });
+
   it("cuts the list to twenty and each path to two hundred code points", () => {
     const kept = errorFields(["😀".repeat(250), ...LINES]);
     expect(kept).toEqual(["😀".repeat(200), ...LINES.slice(0, 19)]);
