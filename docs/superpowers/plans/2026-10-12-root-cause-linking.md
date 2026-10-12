@@ -25,25 +25,24 @@
 
 ## Deviations from spec
 
-Each follows the code as it is and keeps the spec's intent. Items 1 to 4 change behavior the spec describes; Jorge should read them before Task 7.
+Each follows the code as it is and keeps the spec's intent. Items 1 to 4 change behavior the spec describes. Items 3 and 8 were decided by Jorge on 2026-10-12.
 
 1. **Failed events are not candidates.** The spec's candidates are "every event before the reporter that has a stored diff". In the demo every delivery attempt records the customer as input and the 422 response as output, so each attempt's stored diff removes `phone` (the input's `phone: null`). Under the spec's rule the dead-letter's likely cause would be delivery attempt 2, not the transform. A failed step is where a field was refused, not where it changed, so `findLikelyCauses` skips failed events (an error, or the operation `failed`, the same test `deriveStatus` in `packages/database/src/repositories/journeys.ts` uses) as candidates.
 2. **A change at the empty path never matches.** `diffPayloads` writes a whole-payload replacement at path `""` (`persist-customer` takes the customer and answers its id, a number). An empty path is technically an ancestor of every field; counting it would make `persist-customer` the likely cause of every field in the demo. A path must have at least one segment to match.
-3. **The `schema-rejected` demo journey gets a link.** The spec says the transform renames `Status__c` to `status` "with the value intact". It does not: `transformAccount` in `apps/demo/src/transform.ts` lowercases it, so "Former Customer" becomes "former customer", a `renamed-changed` change, which the spec's rule counts. Following the rule, the journey links `status` to `transform-salesforce-account` (changed, was "Former Customer", now "former customer"). Task 12 asserts that link, and the honest negative case in the live demo is the `timeout` journey, whose errors name no field. See Open question 1.
+3. **The `schema-rejected` demo journey gets a link; case-only changes count (decided by Jorge, 2026-10-12).** The spec says the transform renames `Status__c` to `status` "with the value intact". It does not: `transformAccount` in `apps/demo/src/transform.ts` lowercases it, so "Former Customer" becomes "former customer", a `renamed-changed` change, which the spec's rule counts. Jorge kept the rule as written: case changes are a real integration bug class (case-sensitive picklists and enums), the line shows before and after so the reader judges, and excluding them starts a slippery slope (whitespace, number and date formatting). The journey links `status` to `transform-salesforce-account` (changed, was "Former Customer", now "former customer"); Task 12 asserts that link, ADR-072 records the rejected exclusion, and the negative case in the live demo is the `timeout` journey, whose errors name no field.
 4. **`GET /v1/events/:eventId` also returns `likelyCauses`** for a failed event. The spec lists the journey and timeline reads only, but the web's event detail panel (`EventDetail.tsx`) and `wayscribe event <id>` both read the event endpoint, so without it neither could show the line for an event that is not on a loaded timeline page.
 5. **The SDKs also read `fields` from an `isFailure` reason** (Node `isFailure`, Python `is_failure`, Go `FailureReason.Fields`) and Node from an error passed to `record()`. The demo's `phone_required` 422 is a returned result classified by `isFailure: deliveryFailure`, not a throw, so reading only thrown errors would never record it.
 6. **The demo's 422 bodies are defined in `apps/demo/src/failures.ts`** (`PHONE_REQUIRED`, `invalidStatus`), which `contacts.ts` and `history.ts` both use. `fields` is added there once; `contacts.ts` does not change.
 7. **The journey read needs the failing event's id.** `findJourneyDetail` exposes `failedStep` (a name). It gains `failedStepEventId` from the existing `failed_step_event_id` column (migration 021), under the same `status = 'failed'` guard. It is not presented; the route uses it to pick the causes.
-8. **The web app gains its first workspace dependency.** The spec moves pairing into `@wayscribe/payload-diff` and has the web import it. The web app was deliberately workspace-free (`apps/web/src/lib/config.ts`, `journey-filters.ts`, `tests/web-bounds.test.ts`, `tests/throttle-key-parity.test.ts` say so) and its Dockerfile builds `--filter @wayscribe/web` alone. This plan follows the spec, builds with `--filter "@wayscribe/web..."`, adds `transpilePackages`, and corrects those four comments. See Open question 2.
+8. **The web app does not import from `@wayscribe/payload-diff` (decided by Jorge, 2026-10-12).** The spec moves pairing into the package and has the web import it. Instead, `packages/payload-diff/src/pairing.ts` is the canonical copy, which the API uses, and the web keeps its copy at `apps/web/src/lib/diff-pairing.ts`; `tests/diff-pairing-parity.test.ts` fails CI if the two differ in text or behaviour. That is the repository's existing convention for code both sides need (`tests/throttle-key-parity.test.ts`). The reason: workspace packages have broken the images before (`pnpm deploy --legacy` symlinks, production-install pruning), and the web app's image stays free of that risk. The web's `package.json`, `next.config.ts` and Dockerfile do not change.
 9. **Go has no "non-list" or "non-string entries".** `ErrorInfo.Fields` and `Fields()` are `[]string`; the Go tests cover empty strings, over 20 entries, over 200 runes, nothing surviving, a wrapped error, and a panicking `Fields()`.
 10. **The pinned demo journey's digest changes.** `apps/demo/src/history.test.ts` pins the pinned journey's bytes with two SHA-256 digests (ADR-071). Adding `fields` changes those bytes. Task 11 keeps both digests by comparing them against the envelopes with `fields` deleted in place (every other key keeps its order), and asserts where `fields` now appears.
 11. **Reporter wording.** The spec's example says "reported by the 422 on delivery attempt 3". The web names the reporting step from the loaded timeline: its name, plus "attempt N" when its timing context has an attempt above 1 ("reported by retry-customer-delivery attempt 3"), or "an earlier failed step" when it is not loaded. The CLI names it from the timeline, or by id for `wayscribe event`.
 12. **OTLP.** The spec says there is no OTLP ingest; `apps/api/src/otlp` and API_SPEC's "Optional OTLP logs" exist. Nothing here changes them; an OTLP error never carries `fields`.
 
-## Open questions for Jorge (decide before executing the named task)
+## Decisions taken
 
-1. **Task 7 / Task 12: is a case-only change a likely cause?** As written, `schema-rejected` links `status` to the transform because it lowercased the value. The alternatives are to accept it (this plan's default: the line shows "was Former Customer, now former customer", which points at the source value), to make the transform pass `Status__c` through unchanged so the demo has the negative case the spec wanted, or to change the rule. Changing the rule is a spec change.
-2. **Task 6: web workspace dependency.** The repository's convention for code the web shares is a restated copy held to one behavior by a parity test (`tests/throttle-key-parity.test.ts`). If Jorge prefers that, Task 6 becomes: move pairing into `@wayscribe/payload-diff` for the API, keep `apps/web/src/lib/diff-pairing.ts`, and add `tests/diff-pairing-parity.test.ts` running both over the moved test vectors. Tasks 7 to 13 are unaffected either way.
+Jorge decided both open questions on 2026-10-12: case-only changes count as a likely cause (Deviation 3), and the web keeps its own copy of pairing held to the package's by a sync test (Deviation 8, Task 6).
 
 ## Found in the code while planning (not changed by this plan)
 
@@ -52,7 +51,7 @@ Each follows the code as it is and keeps the spec's intent. Items 1 to 4 change 
 
 ## How this plan was checked
 
-Every code step was applied to a scratch copy of this branch and run before the plan was committed: the Task 1 protocol suite (346 tests), the Node SDK suite (839, including the 17 new), the Python file (7) and full Python suite, the Go module (`go test ./...` and `go vet`, without `-race`) and `gofmt -l`, `findLikelyCauses` (16), the API and database integration suites on PostgreSQL 17 (1,175 tests, all passing once Task 8 Step 7 was added; `mixed-language` needs a built Python wheel and was not run), the web (736), CLI (97) and demo (40) unit suites, `pnpm typecheck`, `pnpm lint`, the full `pnpm test` (4,190), and `pnpm --filter "@wayscribe/web..." build`. Not run while planning: the Docker image builds, `scripts/sdk-node-versions.sh 22.12.0`, `pnpm test:demo` and Playwright, which need the full stack.
+Every code step was applied to a scratch copy of this branch and run before the plan was committed: the Task 1 protocol suite (346 tests), the Node SDK suite (839, including the 17 new), the Python file (7) and full Python suite, the Go module (`go test ./...` and `go vet`, without `-race`) and `gofmt -l`, `findLikelyCauses` (16), the API and database integration suites on PostgreSQL 17 (1,175 tests, all passing once Task 8 Step 7 was added; `mixed-language` needs a built Python wheel and was not run), the web (736), CLI (97) and demo (40) unit suites, `pnpm typecheck`, `pnpm lint`, the full `pnpm test` (4,190), and the web build. After Jorge's decisions, Task 6 was rewritten and checked again the same way: the sync test (12, and failing when one character of the package copy's block changes), both copies' pairing tests, `findLikelyCauses` against the package copy, the web suite (760 with the sync test), the full `pnpm test`, `pnpm typecheck` (root `tsc -b` included), `pnpm lint` and `pnpm --filter @wayscribe/web build`. Not run while planning: the Docker image builds, `scripts/sdk-node-versions.sh 22.12.0`, `pnpm test:demo` and Playwright, which need the full stack.
 
 ## File Structure
 
@@ -75,15 +74,12 @@ Every code step was applied to a scratch copy of this branch and run before the 
 | `packages/sdk-go/errors.go` | Modify | `errorFields`, `fieldsOf`; `hostError` and `captureError` |
 | `packages/sdk-go/wrappers.go` | Modify | `IsFailure` reason carries `Fields` |
 | `packages/sdk-go/errors_fields_test.go` | Create | Go SDK `fields` tests |
-| `packages/payload-diff/src/pairing.ts` | Move from `apps/web/src/lib/diff-pairing.ts` | `pairChanges`, `normalizeKey`, `PairedChange`, `DisplayKind` |
-| `packages/payload-diff/src/pairing.test.ts` | Move from `apps/web/src/lib/diff-pairing.test.ts` | Pairing tests, unchanged behavior |
+| `packages/payload-diff/src/pairing.ts` | Create (a copy of the web's) | The canonical `pairChanges`, `normalizeKey`, `PairedChange`, `DisplayKind`, which the API uses |
+| `packages/payload-diff/src/pairing.test.ts` | Create (a copy of the web's) | The pairing tests, run against the package |
 | `packages/payload-diff/src/index.ts` | Modify | Export the pairing API |
-| `apps/web/package.json`, `pnpm-lock.yaml` | Modify | Depend on `@wayscribe/payload-diff` |
-| `apps/web/next.config.ts` | Modify | `transpilePackages: ["@wayscribe/payload-diff"]` |
-| `apps/web/Dockerfile` | Modify | Build the web app and its workspace dependencies |
-| `apps/web/src/lib/event-display.ts` | Modify | Import pairing from the package; causes as text; rows drop causes |
-| `apps/web/src/lib/config.ts`, `apps/web/src/lib/journey-filters.ts`, `tests/web-bounds.test.ts`, `tests/throttle-key-parity.test.ts` | Modify | Comments no longer claim the web depends on no workspace package |
-| `tests/next-telemetry.test.ts` | Modify | Finds the Dockerfile stage that runs Next by the new `--filter "@wayscribe/web..."` |
+| `apps/web/src/lib/diff-pairing.ts` | Modify | Imports nothing; the shared code sits in a marked `pairChanges` block |
+| `tests/diff-pairing-parity.test.ts` | Create | Holds the two copies to one text and one behaviour |
+| `apps/web/src/lib/event-display.ts` | Modify | Causes as text; rows drop causes |
 | `apps/api/src/journeys/likely-cause.ts` | Create | Pure `findLikelyCauses`, `LikelyCause`, the 1,000-event cap |
 | `apps/api/src/journeys/likely-cause.test.ts` | Create | Salesforce-shaped unit tests with exact outputs |
 | `packages/database/src/repositories/event-reads.ts` | Modify | `listJourneyFailureFacts`, `listJourneyPayloadDiffs` |
@@ -1491,58 +1487,161 @@ git commit -m "feat(sdk-go): record error fields from Fields() and FailureReason
 
 ---
 
-### Task 6: Move pairing into `@wayscribe/payload-diff`
+### Task 6: Share pairing with the API: a canonical copy in `@wayscribe/payload-diff`, the web's copy held to it
 
 **Files:**
-- Move: `apps/web/src/lib/diff-pairing.ts` to `packages/payload-diff/src/pairing.ts`
-- Move: `apps/web/src/lib/diff-pairing.test.ts` to `packages/payload-diff/src/pairing.test.ts`
+- Create: `tests/diff-pairing-parity.test.ts`
+- Modify: `apps/web/src/lib/diff-pairing.ts` (imports nothing; the shared code between `// pairChanges: begin` and `// pairChanges: end`)
+- Create: `packages/payload-diff/src/pairing.ts` (the canonical copy, which the API imports)
+- Create: `packages/payload-diff/src/pairing.test.ts` (the web's pairing tests, run against the package)
 - Modify: `packages/payload-diff/src/index.ts`
-- Modify: `apps/web/src/lib/event-display.ts` (line 2, the only importer)
-- Modify: `apps/web/package.json`, `pnpm-lock.yaml`, `apps/web/next.config.ts`, `apps/web/Dockerfile`
-- Modify (comments only): `apps/web/src/lib/config.ts`, `apps/web/src/lib/journey-filters.ts`, `tests/web-bounds.test.ts`, `tests/throttle-key-parity.test.ts`
-- Modify: `tests/next-telemetry.test.ts` (it locates the Next build by the old filter text)
 
-Behavior is unchanged; the moved tests are the proof. Read Open question 2 first.
+The web app keeps depending on no workspace package (Deviation 8). The repository's convention for code both sides need is a copy in each, with a test in `tests/` that holds the copies to one text and one behaviour: `tests/throttle-key-parity.test.ts` does it for `throttleKey` with marked blocks and shared vectors, and this task does the same for `pairChanges`. `apps/web/src/lib/event-display.ts`, `apps/web/package.json`, `next.config.ts` and the web Dockerfile do not change. Behaviour is unchanged.
 
-- [ ] **Step 1: Move the tests and point them at the new module**
+- [ ] **Step 1: Write the failing sync test**
 
-```bash
-git mv apps/web/src/lib/diff-pairing.test.ts packages/payload-diff/src/pairing.test.ts
-sed -i.bak \
-  -e 's#import type { DiffChange } from "./api";#import type { Change } from "./diff.js";#' \
-  -e 's#from "./diff-pairing";#from "./pairing.js";#' \
-  -e 's/DiffChange/Change/g' \
-  packages/payload-diff/src/pairing.test.ts && rm packages/payload-diff/src/pairing.test.ts.bak
-```
-
-The first three lines of the file now read:
+Create `tests/diff-pairing-parity.test.ts`:
 
 ```ts
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { Change } from "./diff.js";
-import { normalizeKey, pairChanges, type PairedChange } from "./pairing.js";
+import {
+  diffPayloads,
+  normalizeKey as apiNormalizeKey,
+  pairChanges as apiPairChanges,
+  type Change
+} from "../packages/payload-diff/src/index.js";
+import {
+  normalizeKey as webNormalizeKey,
+  pairChanges as webPairChanges
+} from "../apps/web/src/lib/diff-pairing.js";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+
+/**
+ * One pairing, in the diff table and in the likely cause (ADR-072).
+ *
+ * The API finds a failure's likely cause with `pairChanges` from
+ * `@wayscribe/payload-diff`, and the web app pairs the diff it displays with
+ * its own copy, because it depends on no workspace package: a workspace
+ * package in the web image has broken it before. So the code exists twice, and
+ * this test holds the copies to one behaviour and one text. A rename paired in
+ * one and not the other would show a reader a diff that disagrees with the
+ * likely cause printed above it.
+ */
+const ACCOUNT = {
+  Id: "0018Z00002ABC",
+  Name: "Acme Field Services",
+  Phone: "+1 919 555 1234",
+  Status__c: "Former Customer",
+  BillingAddress: { city: "Raleigh", postalCode: "27601" },
+  Opportunity_Lines__c: [{ Product_Code__c: "SKU-100", Unit_Price__c: 49.5 }]
+};
+const CUSTOMER = {
+  externalId: "0018Z00002ABC",
+  name: "Acme Field Services",
+  phone: null,
+  status: "former customer",
+  address: { city: "Raleigh", postalCode: "27601" },
+  lines: [{ sku: "SKU-100", unitPrice: 49.5 }]
+};
+
+const VECTORS: [name: string, changes: Change[]][] = [
+  ["a Salesforce account mapped to a customer", diffPayloads(ACCOUNT, CUSTOMER).changes],
+  [
+    "two removed keys that normalize alike, left unpaired",
+    [
+      { path: "Phone", kind: "removed", before: "+1 919 555 1234" },
+      { path: "Phone__c", kind: "removed", before: "+1 919 555 1234" },
+      { path: "phone", kind: "added", after: "+1 919 555 1234" }
+    ]
+  ],
+  [
+    "keys paired only within their parent",
+    [
+      { path: "BillingAddress.PostalCode", kind: "removed", before: "27601" },
+      { path: "address.postalCode", kind: "added", after: "27601" }
+    ]
+  ],
+  [
+    "array elements, which never pair",
+    [
+      { path: "lines[2]", kind: "removed", before: "SKU-300" },
+      { path: "lines[3]", kind: "added", after: "SKU-300" }
+    ]
+  ],
+  ["no changes at all", []]
+];
+
+describe("pairChanges", () => {
+  for (const [name, changes] of VECTORS) {
+    it(`pairs ${name} the same in the API and the web app`, () => {
+      expect(webPairChanges(changes)).toEqual(apiPairChanges(changes));
+    });
+  }
+
+  it.each(["Phone", "PHONE", "Status__c", "First_Name__c", "x-request-id", "my__cfield"])(
+    "normalizes %s the same in both",
+    (key) => {
+      expect(webNormalizeKey(key)).toBe(apiNormalizeKey(key));
+    }
+  );
+
+  it("is the same text in both copies", () => {
+    const block = (relative: string): string => {
+      const text = readFileSync(`${root}${relative}`, "utf8");
+      const found = /\/\/ pairChanges: begin\n([\s\S]*?)\/\/ pairChanges: end\n/.exec(text);
+      expect(found, `${relative} has no marked pairChanges block`).not.toBeNull();
+      return found?.[1] ?? "";
+    };
+    expect(block("apps/web/src/lib/diff-pairing.ts")).toBe(
+      block("packages/payload-diff/src/pairing.ts")
+    );
+  });
+});
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [ ] **Step 2: Run it and watch it fail**
 
-Run: `pnpm exec vitest run packages/payload-diff/src/pairing.test.ts`
+Run: `pnpm exec vitest run tests/diff-pairing-parity.test.ts`
 
-Expected: FAIL with `Failed to load url ./pairing.js`.
+Expected: FAIL, all 12 cases. `@wayscribe/payload-diff` exports no pairing yet (`TypeError: pairChanges is not a function`, `TypeError: normalizeKey is not a function`), and the web copy has no marked block.
 
-- [ ] **Step 3: Move the module**
+- [ ] **Step 3: Make the web copy self-contained and mark the shared block**
+
+The root TypeScript project (`tsc -b`, `NodeNext`) type-checks the sync test and everything it imports, and it cannot resolve the web's extensionless `./api` import. So the web copy writes its one type out instead of importing it; `DiffChange` in `./api` is structurally the same, so every caller is unchanged.
 
 ```bash
-git mv apps/web/src/lib/diff-pairing.ts packages/payload-diff/src/pairing.ts
-sed -i.bak \
-  -e 's#import type { DiffChange } from "./api";#import type { Change } from "./diff.js";#' \
-  -e 's/DiffChange/Change/g' \
-  packages/payload-diff/src/pairing.ts && rm packages/payload-diff/src/pairing.ts.bak
+sed -i.bak -e 's/DiffChange/Change/g' apps/web/src/lib/diff-pairing.ts && rm apps/web/src/lib/diff-pairing.ts.bak
 ```
 
-In `packages/payload-diff/src/pairing.ts`, replace:
+In `apps/web/src/lib/diff-pairing.ts`, replace:
 
 ```ts
- * every expected rename around it. This pairs those rows back up and puts the
+import type { Change } from "./api";
+```
+
+with:
+
+```ts
+/** A diff change, as `DiffChange` in `./api`, written out so this file imports nothing. */
+interface Change {
+  path: string;
+  kind: "added" | "removed" | "changed";
+  before?: unknown;
+  after?: unknown;
+}
+
+// A copy of `packages/payload-diff/src/pairing.ts`, the one the API uses: the
+// web app depends on no workspace package. tests/diff-pairing-parity.test.ts
+// holds the two to one text and one behaviour (ADR-072).
+// pairChanges: begin
+```
+
+and replace:
+
+```ts
  * damage first. Display only: the stored diff and the API's answer keep their
  * three kinds.
 ```
@@ -1550,10 +1649,60 @@ In `packages/payload-diff/src/pairing.ts`, replace:
 with:
 
 ```ts
- * every expected rename around it. This pairs those rows back up and puts the
  * damage first. The stored diff and the API's diff answers keep their three
  * kinds: the web pairs to display a diff, and the API pairs only to find a
  * likely cause (ADR-072).
+```
+
+Then end the block: `printf '// pairChanges: end\n' >> apps/web/src/lib/diff-pairing.ts`. The file's last two lines are now the closing `}` of `pairChanges` and `// pairChanges: end`.
+
+- [ ] **Step 4: Create the canonical copy in the package**
+
+```bash
+cp apps/web/src/lib/diff-pairing.ts packages/payload-diff/src/pairing.ts
+cp apps/web/src/lib/diff-pairing.test.ts packages/payload-diff/src/pairing.test.ts
+sed -i.bak \
+  -e 's#import type { DiffChange } from "./api";#import type { Change } from "./diff.js";#' \
+  -e 's#from "./diff-pairing";#from "./pairing.js";#' \
+  -e 's/DiffChange/Change/g' \
+  packages/payload-diff/src/pairing.test.ts && rm packages/payload-diff/src/pairing.test.ts.bak
+```
+
+In `packages/payload-diff/src/pairing.ts`, replace everything above `// pairChanges: begin`, that is:
+
+```ts
+/** A diff change, as `DiffChange` in `./api`, written out so this file imports nothing. */
+interface Change {
+  path: string;
+  kind: "added" | "removed" | "changed";
+  before?: unknown;
+  after?: unknown;
+}
+
+// A copy of `packages/payload-diff/src/pairing.ts`, the one the API uses: the
+// web app depends on no workspace package. tests/diff-pairing-parity.test.ts
+// holds the two to one text and one behaviour (ADR-072).
+// pairChanges: begin
+```
+
+with:
+
+```ts
+import type { Change } from "./diff.js";
+
+// The copy the API uses. The web app keeps its own in
+// `apps/web/src/lib/diff-pairing.ts`, because it depends on no workspace
+// package; tests/diff-pairing-parity.test.ts holds the two to one text and one
+// behaviour (ADR-072).
+// pairChanges: begin
+```
+
+The first three lines of `packages/payload-diff/src/pairing.test.ts` now read:
+
+```ts
+import { describe, expect, it } from "vitest";
+import type { Change } from "./diff.js";
+import { normalizeKey, pairChanges, type PairedChange } from "./pairing.js";
 ```
 
 Replace the whole of `packages/payload-diff/src/index.ts` with:
@@ -1569,170 +1718,24 @@ export {
 export { normalizeKey, pairChanges, type DisplayKind, type PairedChange } from "./pairing.js";
 ```
 
-- [ ] **Step 4: Run the moved tests and watch them pass**
-
-Run: `pnpm exec vitest run packages/payload-diff && pnpm --filter @wayscribe/payload-diff typecheck`
-
-Expected: PASS (`diff.test.ts` and every `pairing.test.ts` case), no type errors.
-
-- [ ] **Step 5: Make the web import the package**
-
-In `apps/web/package.json`, replace:
-
-```json
-  "dependencies": {
-    "next": "^15.5.25",
-```
-
-with:
-
-```json
-  "dependencies": {
-    "@wayscribe/payload-diff": "workspace:*",
-    "next": "^15.5.25",
-```
-
-Run: `pnpm install`
-
-Expected: `pnpm-lock.yaml` gains `'@wayscribe/payload-diff': link:../../packages/payload-diff` under `apps/web`'s importer and nothing else.
-
-In `apps/web/src/lib/event-display.ts`, replace:
-
-```ts
-import { pairChanges, type DisplayKind, type PairedChange } from "./diff-pairing";
-```
-
-with:
-
-```ts
-import { pairChanges, type DisplayKind, type PairedChange } from "@wayscribe/payload-diff";
-```
-
-In `apps/web/next.config.ts`, replace:
-
-```ts
-  reactStrictMode: true,
-  output: "standalone",
-```
-
-with:
-
-```ts
-  reactStrictMode: true,
-  output: "standalone",
-  // The one workspace package the web app imports (ADR-072). Compiled by Next
-  // whichever entry it resolves: the TypeScript source under the `development`
-  // condition, or `dist` once `pnpm --filter "@wayscribe/web..." build` built it.
-  transpilePackages: ["@wayscribe/payload-diff"],
-```
-
-In `apps/web/Dockerfile`, replace:
-
-```dockerfile
-RUN pnpm --filter @wayscribe/web build
-```
-
-with:
-
-```dockerfile
-RUN pnpm --filter "@wayscribe/web..." build
-```
-
-`tests/next-telemetry.test.ts` finds the stage that runs Next by the old filter text. In it, replace:
-
-```ts
-    const runsNext = body.indexOf("@wayscribe/web build");
-```
-
-with:
-
-```ts
-    // `--filter "@wayscribe/web..."` since ADR-072: the web app and the one
-    // workspace package it imports.
-    const runsNext = body.search(/--filter "?@wayscribe\/web(\.\.\.)?"? build/);
-```
-
-- [ ] **Step 6: Correct the four comments that say the web app depends on no workspace package**
-
-In `apps/web/src/lib/config.ts`, replace:
-
-```ts
- * this app deliberately depends on no workspace package. Whitespace at the end
-```
-
-with:
-
-```ts
- * this app depends on no workspace package but `@wayscribe/payload-diff`
- * (ADR-072), and not on `packages/config`. Whitespace at the end
-```
-
-In `apps/web/src/lib/journey-filters.ts`, replace:
-
-```ts
- * Restated rather than imported: the web app depends on no workspace package,
- * and its image carries only its own dependencies.
-```
-
-with:
-
-```ts
- * Restated rather than imported: the web app's one workspace dependency is
- * `@wayscribe/payload-diff` (ADR-072), and its image carries only that and its
- * own dependencies.
-```
-
-In `tests/web-bounds.test.ts`, replace:
-
-```ts
- * because the web app depends on no workspace package. These are the numbers
-```
-
-with:
-
-```ts
- * because the web app takes only `@wayscribe/payload-diff` from the workspace
- * (ADR-072). These are the numbers
-```
-
-In `tests/throttle-key-parity.test.ts`, replace:
-
-```ts
- * `throttleKey`. The web app depends on no workspace package and the function
- * fits none of them, so it exists twice; this test holds the copies to one
-```
-
-with:
-
-```ts
- * `throttleKey`. The web app depends on one workspace package,
- * `@wayscribe/payload-diff` (ADR-072), and the function fits none of them, so
- * it exists twice; this test holds the copies to one
-```
-
-- [ ] **Step 7: Run the web's diff tests, typecheck and build**
+- [ ] **Step 5: Run the sync test, both copies' tests, typecheck and lint**
 
 Run:
 
 ```bash
-pnpm exec vitest run apps/web/src/lib/event-display.test.ts apps/web/app/components/DiffTable.test.tsx tests/web-bounds.test.ts tests/throttle-key-parity.test.ts tests/next-telemetry.test.ts
-pnpm --filter @wayscribe/web typecheck
-pnpm --filter "@wayscribe/web..." build
+pnpm exec vitest run tests/diff-pairing-parity.test.ts packages/payload-diff apps/web/src/lib
+pnpm typecheck
+pnpm exec eslint tests/diff-pairing-parity.test.ts packages/payload-diff/src apps/web/src/lib/diff-pairing.ts
+pnpm --filter @wayscribe/web build
 ```
 
-Expected: tests PASS; typecheck clean; the build runs `packages/payload-diff build` first, then prints `Compiled successfully` for the web app. Next bundles the package into its server output (it is in `transpilePackages`), so the standalone `node_modules` needs no copy of it.
+Expected: PASS (the sync test's 12 cases, the package's `diff.test.ts` and `pairing.test.ts`, and the web's own `diff-pairing.test.ts` and `event-display.test.ts` unchanged); `pnpm typecheck` exits 0, root `tsc -b` included; no lint findings; `Compiled successfully`. To see the sync test bite, change one character inside the package copy's marked block and rerun it: `is the same text in both copies` fails. Undo the change.
 
-- [ ] **Step 8: Build the web image the way CI does**
-
-Run: `docker build -f apps/web/Dockerfile -t scan/web:local . && scripts/verify-image-contents.sh scan/web:local web`
-
-Expected: the image builds, and every check prints as passing (`/app/apps/web/server.js present` among them).
-
-- [ ] **Step 9: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add packages/payload-diff/src apps/web/src/lib/event-display.ts apps/web/package.json pnpm-lock.yaml apps/web/next.config.ts apps/web/Dockerfile apps/web/src/lib/config.ts apps/web/src/lib/journey-filters.ts tests/web-bounds.test.ts tests/throttle-key-parity.test.ts tests/next-telemetry.test.ts
-git commit -m "refactor(payload-diff): move rename pairing out of the web app (#8)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add tests/diff-pairing-parity.test.ts apps/web/src/lib/diff-pairing.ts packages/payload-diff/src/pairing.ts packages/payload-diff/src/pairing.test.ts packages/payload-diff/src/index.ts
+git commit -m "refactor(payload-diff): share rename pairing with the API, the web copy held to it (#8)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -4111,7 +4114,7 @@ Expected: PASS, every web test including the new ones and `page.test.tsx`.
 
 - [ ] **Step 15: Typecheck, lint and build**
 
-Run: `pnpm --filter @wayscribe/web typecheck && pnpm exec eslint apps/web && pnpm --filter "@wayscribe/web..." build`
+Run: `pnpm --filter @wayscribe/web typecheck && pnpm exec eslint apps/web && pnpm --filter @wayscribe/web build`
 
 Expected: no type or lint errors; `Compiled successfully`.
 
@@ -4895,8 +4898,9 @@ In `apps/demo/src/demo.e2e.test.ts`, inside `describe("the reference journey", .
 Inside `describe("the other failure shapes", ...)`, after `it("records the transform's own error and the database's constraint", ...)`, add:
 
 ```ts
-  // Deviation 3 in the plan: the transform lowercases the status, which the
-  // rule counts as a change, so this journey is linked.
+  // Deviation 3 in the plan, decided by Jorge on 2026-10-12: the transform
+  // lowercases the status, and a case-only change counts, so this journey is
+  // linked.
   it("links schema-rejected's status to the transform that lowercased it (ADR-072)", async () => {
     const journey = journeys.get("schema-rejected");
     const transform = journey?.events.find(
@@ -5210,7 +5214,7 @@ Expected: every test in `demo.e2e.test.ts` passes, including the three new ones.
 
 - [ ] **Step 7: Run the browser suite (CI job `e2e`)**
 
-Play the manual `e2e` job on the merge request pipeline (Verification section). It builds with `pnpm build`, which now builds `@wayscribe/payload-diff` before the web app, seeds a key, and runs `pnpm test:e2e` twice, once with a second project.
+Play the manual `e2e` job on the merge request pipeline (Verification section). It builds with `pnpm build`, seeds a key, and runs `pnpm test:e2e` twice, once with a second project.
 
 Expected: `likely-cause.spec.ts` passes in both runs: 5 tests (detail and header, link, no-JavaScript, 375 px, 1440 px).
 
@@ -5265,7 +5269,7 @@ two. Tracing tools cannot make the link because they hold no payloads; Wayscribe
    for each failed event (an error, or the operation `failed`). The fields are the event's
    own, or else those of the most recent earlier failed event that named some, which is
    reported as `reportedBy`. The candidates are the events before the reporter that are not
-   failed and have a stored diff, paired with `pairChanges`, which moves from the web app to
+   failed and have a stored diff, paired with `pairChanges`, whose canonical copy is now in
    `@wayscribe/payload-diff`. A change matches a field when its path on either side equals
    the field or is an ancestor of it, comparing keys as pairing normalizes them and array
    indexes literally. `removed`, `changed` and `renamed-changed` count; a rename that kept
@@ -5284,15 +5288,21 @@ two. Tracing tools cannot make the link because they hold no payloads; Wayscribe
 attempt. Its `schema-rejected` journey links `status` to the transform, which lowercases it
 ("Former Customer" to "former customer"); its `timeout` journey, whose errors name no field,
 links nothing. A read of a journey with a failure reads the first 1,001 events' failure facts,
-and every stored diff only when one failure names a field. The web app now imports one
-workspace package, `@wayscribe/payload-diff`, and its image build compiles that package first.
+and every stored diff only when one failure names a field. The web app still depends on no
+workspace package: it keeps its own copy of the pairing code, and
+`tests/diff-pairing-parity.test.ts` fails when the two copies differ in text or behaviour.
 
 **Rejected.** Inferring the field from the message or the code. Computing the link at ingest:
 events arrive out of order and in batches, and a stored link goes stale when the rule changes.
 Computing it in the web app alone: the CLI and API callers would never see it. Counting failed
 steps as candidates: a failed delivery's diff compares a request with an error response, and
 in the demo it removes `phone` on every attempt. Counting the empty path: persisting a customer
-and answering its id would be the likely cause of every field.
+and answering its id would be the likely cause of every field. Excluding case-only changes:
+case changes are a real integration bug class (case-sensitive picklists and enums), the line
+shows the value before and after so the reader judges, and each exclusion invites the next
+(whitespace, number and date formatting). Importing the pairing code into the web app from
+the package: workspace packages have broken the images before (`pnpm deploy --legacy`
+symlinks, production-install pruning), and a copy held by a test avoids that risk.
 ```
 
 - [ ] **Step 2: Watch the count test fail**
@@ -5645,7 +5655,7 @@ pnpm build
 scripts/sdk-node-versions.sh 22.12.0
 ```
 
-Expected: every command exits 0. `pnpm install --frozen-lockfile` passing proves the lockfile change from Task 6 is committed; `pnpm build` proves `@wayscribe/payload-diff` builds before the web app; `sdk-node-versions.sh 22.12.0` proves the Node SDK and CLI on the oldest supported Node.
+Expected: every command exits 0. `pnpm test` includes `tests/diff-pairing-parity.test.ts`, which proves the two pairing copies agree; `sdk-node-versions.sh 22.12.0` proves the Node SDK and CLI on the oldest supported Node.
 
 - [ ] **2. The images build as CI builds them**
 
@@ -5687,7 +5697,7 @@ wait_for_job "${DEMO_JOB}"
 wait_for_job "${E2E_JOB}"
 ```
 
-Expected: `demo`, `e2e`, `demo-overlay` (which runs the smoke check against the pinned journey), `unit`, `sdk-node` (22.12.0 and 24), `sdk-python` (3.11 and 3.14), `sdk-go` (1.22.0 and 1.26.4), `database`, `build`, `typecheck`, `lint`, `format` and `container-scan` all `success`. `demo-overlay` must pass on two consecutive pipelines if this is the first pipeline that builds the web image with its new workspace dependency (a first run has no cache).
+Expected: `demo`, `e2e`, `demo-overlay` (which runs the smoke check against the pinned journey), `unit`, `sdk-node` (22.12.0 and 24), `sdk-python` (3.11 and 3.14), `sdk-go` (1.22.0 and 1.26.4), `database`, `build`, `typecheck`, `lint`, `format` and `container-scan` all `success`.
 
 - [ ] **4. The demo at phone width and desktop width, by eye**
 
