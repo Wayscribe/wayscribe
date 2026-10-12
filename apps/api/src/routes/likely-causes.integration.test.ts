@@ -3,11 +3,25 @@ import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
 import knex, { type Knex } from "knex";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import { MAX_JOURNEY_EVENTS_FOR_CAUSES } from "../journeys/likely-cause.js";
 
 const keyring = createKeyring("0123456789abcdef0123456789abcdef");
+const ADMIN_TOKEN = "admin-token-for-tests-0000000000";
+
+/** Set by one test to make the cause computation throw, as a defect in it would. */
+const fault = vi.hoisted(() => ({ throwing: false }));
+vi.mock("../journeys/journey-causes.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../journeys/journey-causes.js")>();
+  return {
+    ...original,
+    journeyLikelyCauses: (...args: Parameters<typeof original.journeyLikelyCauses>) => {
+      if (fault.throwing) throw new Error("a defect in the cause search");
+      return original.journeyLikelyCauses(...args);
+    }
+  };
+});
 
 const MINUTE = 60 * 1000;
 /** Relative to the real clock, a minute apart, so timeline order is send order. */
@@ -40,6 +54,7 @@ const JOURNEY = "jrn_likely_cause";
 const QUIET = "jrn_likely_cause_quiet";
 const AT_CAP = "jrn_likely_cause_at_cap";
 const OVER_CAP = "jrn_likely_cause_over_cap";
+const STAGING = "jrn_likely_cause_staging";
 
 const CAUSE = {
   field: "phone",
@@ -65,6 +80,9 @@ describe("likelyCauses on the journey reads", () => {
   let apiKey: string;
   /** A key for another project: it must learn nothing from `apiKey`'s journeys. */
   let otherKey: string;
+  /** A key for `apiKey`'s project in another environment: the same. */
+  let stagingKey: string;
+  let projectId: string;
 
   const envelope = (
     journeyId: string,
@@ -72,13 +90,14 @@ describe("likelyCauses on the journey reads", () => {
     timestamp: string,
     operation: string,
     name: string,
-    fields: Record<string, unknown> = {}
+    fields: Record<string, unknown> = {},
+    environment?: string
   ): Record<string, unknown> => ({
     protocolVersion: "0.1",
     event: {
       id,
       journeyId,
-      environment: "development",
+      environment: environment ?? "development",
       service: "demo-integration",
       entity: { type: "customer", id: `customer-${journeyId}` },
       operation,
@@ -101,7 +120,15 @@ describe("likelyCauses on the journey reads", () => {
       method: "POST",
       url: "/v1/events",
       headers: { authorization: `Bearer ${key}` },
-      payload: envelope(journeyId, id, minutesAgo(minutes), operation, name, fields)
+      payload: envelope(
+        journeyId,
+        id,
+        minutesAgo(minutes),
+        operation,
+        name,
+        fields,
+        key === stagingKey ? "staging" : undefined
+      )
     });
     expect(response.statusCode, response.body).toBe(202);
   };
@@ -195,17 +222,16 @@ describe("likelyCauses on the journey reads", () => {
   const rows = (data: Record<string, unknown>): Record<string, unknown>[] =>
     data["items"] as Record<string, unknown>[];
 
-  const keyFor = async (slug: string): Promise<string> => {
-    const projectId = await insertReturningId(db, "projects", { name: slug, slug });
+  const keyIn = async (project: string, environment: string): Promise<string> => {
     const environmentId = await insertReturningId(db, "environments", {
-      project_id: projectId,
-      name: "development"
+      project_id: project,
+      name: environment
     });
     const generated = issueApiKey(keyring);
     await db("api_keys").insert({
-      project_id: projectId,
+      project_id: project,
       environment_id: environmentId,
-      name: "development",
+      name: environment,
       key_prefix: generated.keyPrefix,
       key_hash: generated.verifier,
       key_hash_key_id: generated.keyHashKeyId
@@ -217,12 +243,17 @@ describe("likelyCauses on the journey reads", () => {
     container = await startPostgres();
     db = knex(createKnexConfig(container.getConnectionUri()));
     await db.migrate.latest();
-    apiKey = await keyFor("p");
-    otherKey = await keyFor("other");
+    projectId = await insertReturningId(db, "projects", { name: "P", slug: "p" });
+    apiKey = await keyIn(projectId, "development");
+    stagingKey = await keyIn(projectId, "staging");
+    otherKey = await keyIn(
+      await insertReturningId(db, "projects", { name: "Other", slug: "other" }),
+      "development"
+    );
     app = buildApp({
       db,
       keyring,
-      adminToken: "admin-token-for-tests-0000000000",
+      adminToken: ADMIN_TOKEN,
       logLevel: "silent"
     });
 
@@ -278,9 +309,28 @@ describe("likelyCauses on the journey reads", () => {
       }
     );
 
+    // The same project's staging environment: a failure naming `phone` in a
+    // journey of its own, where nothing changed `phone`.
+    await sendAs(
+      stagingKey,
+      STAGING,
+      "evt_lcs_deliver",
+      7,
+      "delivered",
+      "deliver-customer-to-target",
+      {
+        input: CUSTOMER,
+        error: { message: "The target refused the customer.", fields: ["phone"] }
+      }
+    );
+
     await sendLongJourney(AT_CAP, MAX_JOURNEY_EVENTS_FOR_CAUSES);
     await sendLongJourney(OVER_CAP, MAX_JOURNEY_EVENTS_FOR_CAUSES + 1);
   }, 120_000);
+
+  afterEach(() => {
+    fault.throwing = false;
+  });
 
   afterAll(async () => {
     await app.close();
@@ -352,6 +402,87 @@ describe("likelyCauses on the journey reads", () => {
     // And the other project's events stay 404 to it, causes and all.
     expect(await statusAs(otherKey, "/v1/events/evt_lc_dead_letter")).toBe(404);
     expect(await statusAs(otherKey, `/v1/journeys/${QUIET}`)).toBe(404);
+  });
+
+  it("reads only within the caller's environment", async () => {
+    // A journey belongs to one environment (409 otherwise), so the development
+    // journey and its events are not found by a staging key, causes and all.
+    for (const url of [
+      `/v1/journeys/${JOURNEY}`,
+      `/v1/journeys/${JOURNEY}/events`,
+      "/v1/events/evt_lc_dead_letter"
+    ]) {
+      expect(await statusAs(stagingKey, url)).toBe(404);
+    }
+    // Its own failure gets no cause from development's transform.
+    expect((await getAs(stagingKey, `/v1/journeys/${STAGING}`))["likelyCauses"]).toEqual([]);
+    const timeline = await getAs(stagingKey, `/v1/journeys/${STAGING}/events`);
+    expect(rows(timeline).map((row) => [row["id"], row["likelyCauses"]])).toEqual([
+      ["evt_lcs_deliver", []]
+    ]);
+    expect((await getAs(stagingKey, "/v1/events/evt_lcs_deliver"))["likelyCauses"]).toEqual([]);
+  });
+
+  it("keeps the cause search in the caller's environment even inside one journey", async () => {
+    // Defense in depth: the ingestion rule above is what keeps a journey in
+    // one environment, so plant the row it would refuse, a staging copy of a
+    // development failure. The staging key can read that event; the search
+    // must still see only staging's events, not development's transform.
+    const columns = (
+      await db("information_schema.columns")
+        .where({ table_name: "journey_events" })
+        .pluck<string[]>("column_name")
+    ).filter((column) => !["id", "environment_id"].includes(column));
+    const staging = await db("environments")
+      .where({ project_id: projectId, name: "staging" })
+      .first<{ id: string }>("id");
+    await db.raw(
+      `insert into journey_events (id, environment_id, ${columns.map((c) => `"${c}"`).join(", ")})
+       select 'evt_lc_planted', ?, ${columns.map((c) => `"${c}"`).join(", ")}
+       from journey_events where id = 'evt_lc_deliver'`,
+      [staging.id]
+    );
+    try {
+      expect((await getAs(stagingKey, "/v1/events/evt_lc_planted"))["likelyCauses"]).toEqual([]);
+    } finally {
+      await db("journey_events").where({ id: "evt_lc_planted" }).delete();
+    }
+  });
+
+  it("gives an admin, who reads every environment, the full cause", async () => {
+    const asAdmin = async (url: string): Promise<Record<string, unknown>> => {
+      const response = await app.inject({
+        method: "GET",
+        url,
+        headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "x-wayscribe-project-id": projectId }
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      return response.json<{ data: Record<string, unknown> }>().data;
+    };
+    expect((await asAdmin(`/v1/journeys/${JOURNEY}`))["likelyCauses"]).toEqual([CAUSE]);
+    const timeline = await asAdmin(`/v1/journeys/${JOURNEY}/events`);
+    expect(
+      rows(timeline).find((row) => row["id"] === "evt_lc_dead_letter")?.["likelyCauses"]
+    ).toEqual([CAUSE]);
+    expect((await asAdmin("/v1/events/evt_lc_dead_letter"))["likelyCauses"]).toEqual([CAUSE]);
+  });
+
+  it("answers the read without causes when computing them throws", async () => {
+    fault.throwing = true;
+    const journey = await get(`/v1/journeys/${JOURNEY}`);
+    expect(journey["failedStep"]).toBe("move-message-to-dead-letter");
+    expect(journey["likelyCauses"]).toEqual([]);
+    const timeline = await get(`/v1/journeys/${JOURNEY}/events?limit=100`);
+    expect(rows(timeline).map((row) => [row["id"], row["likelyCauses"]])).toEqual([
+      ["evt_lc_received", undefined],
+      ["evt_lc_transform", undefined],
+      ["evt_lc_persist", undefined],
+      ["evt_lc_deliver", []],
+      ["evt_lc_dead_letter", []]
+    ]);
+    const event = await get("/v1/events/evt_lc_dead_letter");
+    expect(event["id"]).toBe("evt_lc_dead_letter");
+    expect(event["likelyCauses"]).toEqual([]);
   });
 
   it("still links a journey of exactly the cap", async () => {

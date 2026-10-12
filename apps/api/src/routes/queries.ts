@@ -81,6 +81,28 @@ export function registerQueryRoutes(
   }
 
   /**
+   * A journey's likely causes (ADR-072), or none when computing them throws:
+   * they are a debugging aid, and never fail the read they ride on. The warning
+   * names the journey and the error's class only, never its message, which
+   * could quote a stored value.
+   */
+  async function causesOrNone(
+    request: FastifyRequest,
+    principal: Principal,
+    journeyId: string
+  ): Promise<Map<string, LikelyCause[]>> {
+    try {
+      return await journeyLikelyCauses(app.db, readScope(principal), journeyId);
+    } catch (error) {
+      request.log.warn(
+        { journeyId, errorType: error instanceof Error ? error.name : typeof error },
+        "likely causes could not be computed; answered without them"
+      );
+      return new Map();
+    }
+  }
+
+  /**
    * One identifier, resolved against every kind of identifier it could be.
    *
    * `since`, `until` and `environment` are optional and narrow the same
@@ -190,9 +212,7 @@ export function registerQueryRoutes(
     const likelyCauses =
       detail.failedStepEventId === null
         ? []
-        : ((await journeyLikelyCauses(app.db, readScope(principal), journeyId)).get(
-            detail.failedStepEventId
-          ) ?? []);
+        : ((await causesOrNone(request, principal, journeyId)).get(detail.failedStepEventId) ?? []);
     return reply.send({
       data: { ...presentJourneyDetail(keyring, detail, warnUnknownKey), likelyCauses }
     });
@@ -231,7 +251,7 @@ export function registerQueryRoutes(
       // From the whole journey (ADR-072): a page without the step that
       // changed a field still names it. Not read for a page with no failure.
       const causes = page.items.some(isFailedEvent)
-        ? await journeyLikelyCauses(app.db, readScope(principal), journeyId)
+        ? await causesOrNone(request, principal, journeyId)
         : new Map<string, LikelyCause[]>();
 
       return await reply.send({
@@ -263,9 +283,7 @@ export function registerQueryRoutes(
 
     // ADR-072: a failed event's likely causes, from its whole journey.
     const likelyCauses = isFailedEvent(detail)
-      ? ((await journeyLikelyCauses(app.db, readScope(principal), detail.journeyId)).get(
-          detail.id
-        ) ?? [])
+      ? ((await causesOrNone(request, principal, detail.journeyId)).get(detail.id) ?? [])
       : undefined;
     return reply.send({
       data: {
