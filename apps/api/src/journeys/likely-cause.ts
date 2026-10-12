@@ -53,8 +53,14 @@ const DIFF_KINDS: ReadonlySet<unknown> = new Set(["added", "removed", "changed"]
 /** A path's segments: `[3]` for an index, a key otherwise, as `diffPayloads` writes them. */
 const SEGMENT = /\[\d+\]|[^.[\]]+/g;
 
-interface PairedDiff {
+/**
+ * One candidate's diff, paired and indexed once per call: each counted row's
+ * path, as normalized segments joined by `.`, to the first such row in
+ * `pairChanges`' order (lost values first, so the most damaging match wins).
+ */
+interface IndexedDiff {
   rows: PairedChange[];
+  byPath: Map<string, number>;
   truncated: boolean;
 }
 
@@ -69,62 +75,69 @@ interface PairedDiff {
  * failed step is where a field was refused, not where it changed. A paired
  * change matches a field when its path equals the field or is an ancestor of
  * it, comparing keys as `normalizeKey` does and indexes literally, so an error
- * may name a renamed field by either its input or its output key. `removed`, `changed` and `renamed-changed` count; a rename that
- * kept the value, an added field and a whole-payload replacement (path `""`)
- * do not. The nearest match is the cause, the rest are `alsoChangedAt`.
+ * may name a renamed field by either its input or its output key. `removed`,
+ * `changed` and `renamed-changed` count; a rename that kept the value, an
+ * added field and a whole-payload replacement (path `""`) do not. The nearest
+ * match is the cause, the rest are `alsoChangedAt`.
  *
  * A failed event before any reporter has no entry. A journey over
  * `MAX_JOURNEY_EVENTS_FOR_CAUSES` gets an empty map.
+ *
+ * Cost: each diff is paired and indexed at most once, and each reporter's
+ * fields are searched once however many failures inherit them; a field costs
+ * one lookup per segment per candidate, not one comparison per change.
  */
 export function findLikelyCauses(events: readonly CauseEvent[]): Map<string, LikelyCause[]> {
   const causes = new Map<string, LikelyCause[]>();
   if (events.length > MAX_JOURNEY_EVENTS_FOR_CAUSES) return causes;
 
-  // Each diff is paired once, however many failures look back past it.
-  const paired = new Map<number, PairedDiff | null>();
-  const pairedAt = (index: number): PairedDiff | null => {
-    if (!paired.has(index)) paired.set(index, pairedDiff(events[index]?.diff));
-    return paired.get(index) ?? null;
+  const indexed = new Map<number, IndexedDiff | null>();
+  const indexedAt = (index: number): IndexedDiff | null => {
+    if (!indexed.has(index)) indexed.set(index, indexDiff(events[index]?.diff));
+    return indexed.get(index) ?? null;
   };
 
-  let reporter: { index: number; fields: string[] } | null = null;
+  let reporter: { index: number; causes: LikelyCause[] } | null = null;
   for (const [index, event] of events.entries()) {
     if (!event.failed) continue;
     const own = reportedFields(event.fields);
-    if (own !== null) reporter = { index, fields: own };
+    if (own !== null) {
+      reporter = {
+        index,
+        causes: own.flatMap((field) => causeOf(events, indexedAt, field, index))
+      };
+    }
     if (reporter === null) continue;
-    const reporterIndex = reporter.index;
-    causes.set(
-      event.id,
-      reporter.fields.flatMap((field) => causeOf(events, pairedAt, field, reporterIndex))
-    );
+    causes.set(event.id, [...reporter.causes]);
   }
   return causes;
 }
 
 function causeOf(
   events: readonly CauseEvent[],
-  pairedAt: (index: number) => PairedDiff | null,
+  indexedAt: (index: number) => IndexedDiff | null,
   field: string,
   reporterIndex: number
 ): LikelyCause[] {
   const reporter = events[reporterIndex];
   const target = segments(field);
   if (reporter === undefined || target.length === 0) return [];
+  // The field and each ancestor of it, as `byPath` keys.
+  const covering = target.map((_, end) => target.slice(0, end + 1).join("."));
 
   const matches: { event: CauseEvent; row: PairedChange }[] = [];
   let incomplete = false;
   for (let index = reporterIndex - 1; index >= 0; index -= 1) {
     const candidate = events[index];
     if (candidate === undefined || candidate.failed) continue;
-    const diff = pairedAt(index);
+    const diff = indexedAt(index);
     if (diff === null) continue;
-    // `pairChanges` puts lost values first, so the most damaging match wins.
-    // Only the output-side path is checked. A counted rename (`renamed-changed`)
-    // is always a by-name pair: a by-value pair has equal values, so it is a
-    // plain `renamed`. A by-name pair shares its parent and its keys normalize
-    // equal, so its input-side path has the same segments as `path`.
-    const row = diff.rows.find((one) => COUNTED.has(one.kind) && covers(one.path, target));
+    let first: number | undefined;
+    for (const path of covering) {
+      const at = diff.byPath.get(path);
+      if (at !== undefined && (first === undefined || at < first)) first = at;
+    }
+    const row = first === undefined ? undefined : diff.rows[first];
     if (row === undefined) {
       // Unknown, not unchanged: only a nearer one than the cause matters.
       if (diff.truncated && matches.length === 0) incomplete = true;
@@ -165,8 +178,8 @@ function reportedFields(value: unknown): string[] | null {
   return fields.length === 0 ? null : fields;
 }
 
-/** A stored diff, paired; null for anything that is not one. */
-function pairedDiff(value: unknown): PairedDiff | null {
+/** A stored diff, paired and indexed; null for anything that is not one. */
+function indexDiff(value: unknown): IndexedDiff | null {
   if (typeof value !== "object" || value === null) return null;
   const { changes, truncated } = value as { changes?: unknown; truncated?: unknown };
   if (!Array.isArray(changes)) return null;
@@ -177,21 +190,27 @@ function pairedDiff(value: unknown): PairedDiff | null {
       typeof (one as { path?: unknown }).path === "string" &&
       DIFF_KINDS.has((one as { kind?: unknown }).kind)
   );
-  return { rows: pairChanges(valid), truncated: truncated === true };
+  const rows = pairChanges(valid);
+  const byPath = new Map<string, number>();
+  rows.forEach((row, index) => {
+    // Only the output-side path is indexed. A counted rename
+    // (`renamed-changed`) is always a by-name pair: a by-value pair has equal
+    // values, so it is a plain `renamed`. A by-name pair shares its parent and
+    // its keys normalize equal, so its input-side path has the same segments.
+    if (!COUNTED.has(row.kind)) return;
+    const own = segments(row.path);
+    // The empty path, a whole-payload replacement, covers no field: not even one
+    // whose only key normalizes to nothing (`__c`), which would also join to "".
+    if (own.length === 0) return;
+    const key = own.join(".");
+    if (!byPath.has(key)) byPath.set(key, index);
+  });
+  return { rows, byPath, truncated: truncated === true };
 }
 
+/** A path's segments, keys normalized; none contains a `.`, so `.` joins them unambiguously. */
 function segments(path: string): string[] {
   return (path.match(SEGMENT) ?? []).map((segment) =>
     segment.startsWith("[") ? segment : normalizeKey(segment)
-  );
-}
-
-/** Whether `path` is the target or an ancestor of it. The empty path is neither. */
-function covers(path: string, target: readonly string[]): boolean {
-  const own = segments(path);
-  return (
-    own.length > 0 &&
-    own.length <= target.length &&
-    own.every((segment, index) => segment === target[index])
   );
 }
