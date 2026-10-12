@@ -503,6 +503,61 @@ describe("JourneyTimeline", () => {
     expect(summaryLine().textContent).toMatch(/^completed · 7 events/);
   });
 
+  // ADR-072: each poll brings the journey's likely causes again.
+  it("updates the likely cause line on the poll that brings it", async () => {
+    vi.useFakeTimers();
+    const cause = (field: string) => ({
+      field,
+      changedPath: null,
+      reportedBy: "evt_6",
+      eventId: "evt_2",
+      step: "step-evt_2",
+      verb: "lost" as const,
+      before: "x",
+      after: "null",
+      alsoChangedAt: [],
+      incomplete: false
+    });
+    const polls = [
+      page({
+        items: [event("evt_5"), event("evt_6")],
+        journeyStatus: "failed",
+        journeyEventCount: 6,
+        journeyFailedStep: "push-hubspot",
+        journeyLikelyCauses: [cause("phone")]
+      }),
+      page({
+        items: [event("evt_5"), event("evt_6")],
+        journeyStatus: "failed",
+        journeyEventCount: 6,
+        journeyFailedStep: "push-hubspot",
+        journeyLikelyCauses: [cause("email")]
+      })
+    ];
+    let served = 0;
+    fetchMock.mockImplementation(() => {
+      const next = polls[Math.min(served, polls.length - 1)];
+      served += 1;
+      return Promise.resolve(ok(next));
+    });
+    mount({ initialStatus: "active", initialFailedStep: null });
+    expect(document.querySelector(".journey-likely-cause")).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(document.querySelector(".journey-likely-cause")?.textContent).toMatch(
+      /^Likely cause: phone lost at step-evt_2/
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(document.querySelector(".journey-likely-cause")?.textContent).toMatch(
+      /^Likely cause: email lost at step-evt_2/
+    );
+  });
+
   // Whether a finished journey is still warm is decided on the server and
   // arrives as `initialLive`, so the clock arithmetic is tested in
   // `timeline.test.ts` against `isRecent`. This is the pass-through.

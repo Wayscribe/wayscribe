@@ -118,11 +118,13 @@ describe("likelyCausesForDisplay", () => {
       field: "lines",
       change: { kind: "removed", lost: false, path: "lines[0].sku", before: "X-1" }
     };
+    // Keys compare as the API matches them, so `Address` holds `address.postalCode`.
+    const belowOtherCase = { ...below, field: "Address" };
     expect(
-      likelyCausesForDisplay([below, sameFieldOtherSpelling, belowAnIndex]).map(
+      likelyCausesForDisplay([below, sameFieldOtherSpelling, belowAnIndex, belowOtherCase]).map(
         (cause) => cause.changedPath
       )
-    ).toEqual(["address.postalCode", null, "lines[0].sku"]);
+    ).toEqual(["address.postalCode", null, "lines[0].sku", "address.postalCode"]);
   });
 
   it("leaves out what it cannot read, and reads no inherited key", () => {

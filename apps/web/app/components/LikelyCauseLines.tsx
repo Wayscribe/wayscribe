@@ -28,8 +28,9 @@ export function LikelyCauseLines({
     `/journeys/${encodeURIComponent(journeyId)}?event=${encodeURIComponent(eventId)}`;
   return (
     <div className="likely-causes">
-      {causes.map((cause) => (
-        <div key={cause.field}>
+      {causes.map((cause, index) => (
+        // Fields are bounded, so two long ones can share their text: the index keeps keys distinct.
+        <div key={`${String(index)}:${cause.field}`}>
           <p className="likely-cause wrap">
             Likely cause:{" "}
             {cause.changedPath === null ? (
