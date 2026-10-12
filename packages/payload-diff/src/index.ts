@@ -1,4 +1,5 @@
 export {
+  DEFAULT_MAX_DEPTH,
   diffPayloads,
   type Change,
   type ChangeKind,

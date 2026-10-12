@@ -1,4 +1,10 @@
-import { normalizeKey, pairChanges, type Change, type PairedChange } from "@wayscribe/payload-diff";
+import {
+  DEFAULT_MAX_DEPTH,
+  normalizeKey,
+  pairChanges,
+  type Change,
+  type PairedChange
+} from "@wayscribe/payload-diff";
 
 /**
  * Past this many events a journey gets no likely causes (ADR-072): the
@@ -66,8 +72,12 @@ interface IndexedDiff {
   truncated: boolean;
 }
 
-/** Prefixes indexed per changed path: a field deeper than this finds nothing below it. */
-const MAX_PREFIX_DEPTH = 32;
+/**
+ * Prefixes indexed per changed path: a field deeper than this finds nothing
+ * below it. It is `diffPayloads`' default depth, which stored diffs are written
+ * with: their paths reach one segment more, so every proper prefix is indexed.
+ */
+const MAX_PREFIX_DEPTH = DEFAULT_MAX_DEPTH;
 
 /**
  * The likely causes of each failed event of one journey, keyed by its id.

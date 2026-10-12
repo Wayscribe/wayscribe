@@ -10,7 +10,12 @@ import {
   type LikelyCause
 } from "./likely-cause.js";
 
-/** Whether an event fails a journey: `deriveStatus`'s test, on a read row. */
+/**
+ * Whether an event fails a journey: `deriveStatus`'s test, on a read row. Keep
+ * it in step with `FAILED_EVENT_SQL` in
+ * `packages/database/src/repositories/event-reads.ts`, which applies the same
+ * test in SQL to the failure facts and to which diffs are read.
+ */
 export function isFailedEvent(event: { hasError: boolean; operation: string }): boolean {
   return event.hasError || event.operation === "failed";
 }

@@ -18,7 +18,8 @@ export interface DiffOptions {
 }
 
 const DEFAULT_MAX_CHANGES = 500;
-const DEFAULT_MAX_DEPTH = 32;
+/** How deep `diffPayloads` walks by default; the API's likely-cause index relies on it. */
+export const DEFAULT_MAX_DEPTH = 32;
 
 /**
  * Structural comparison of two JSON-compatible values.

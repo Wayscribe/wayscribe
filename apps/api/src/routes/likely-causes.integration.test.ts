@@ -1,4 +1,4 @@
-import { createKnexConfig, insertReturningId } from "@wayscribe/database";
+import { createKnexConfig, insertReturningId, listJourneyPayloadDiffs } from "@wayscribe/database";
 import { startPostgres, type TestDatabase } from "@wayscribe/database/testing";
 import { createKeyring, issueApiKey } from "@wayscribe/payload-security";
 import type { FastifyInstance } from "fastify";
@@ -371,6 +371,21 @@ describe("likelyCauses on the journey reads", () => {
     expect(journey["failedStep"]).toBe("move-message-to-dead-letter");
     expect(journey["likelyCauses"]).toEqual([CAUSE]);
     expect(journey).not.toHaveProperty("failedStepEventId");
+  });
+
+  it("reads no failed event's diff, and finds the same causes without it", async () => {
+    // The failed delivery stored a diff (CUSTOMER in, the 422 out).
+    const stored = await db("journey_events")
+      .where({ journey_id: JOURNEY, project_id: projectId })
+      .whereNotNull("payload_diff")
+      .pluck("id");
+    expect(stored).toContain("evt_lc_deliver");
+
+    const diffs = await listJourneyPayloadDiffs(db, { projectId }, JOURNEY);
+    expect([...diffs.keys()].sort()).toEqual(["evt_lc_persist", "evt_lc_transform"]);
+
+    const journey = await get(`/v1/journeys/${JOURNEY}`);
+    expect(journey["likelyCauses"]).toEqual([CAUSE]);
   });
 
   it("returns them on a failed event's read, and leaves them off any other", async () => {
