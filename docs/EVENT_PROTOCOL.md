@@ -390,6 +390,35 @@ Stack traces may contain sensitive values and file paths. The server stores
 other mode. `message`, and a stored `stack`, are masked for credential-shaped
 text before storage (SECURITY.md section 4, ADR-046).
 
+An error may name the fields the failing system rejected, as `fields`: a list of 1 to 20
+paths, each 1 to 200 characters, in the path syntax a stored diff writes. Object keys are
+joined with `.` and array indexes are in brackets (`address.postalCode`, `lines[0].sku`).
+Write a path as the failing system names it (`phone`, not `Phone__c`): the server compares
+keys the way it pairs renamed fields, ignoring case, a trailing `__c`, `_` and `-`. A
+malformed `fields` refuses the event with `invalid_event`, like any other schema violation.
+Fields are names, not values, and are not masked.
+
+```json
+{
+  "message": "A phone number is required.",
+  "code": "phone_required",
+  "fields": ["phone"]
+}
+```
+
+With `fields`, the API links a failed step to the nearest earlier step whose diff removed or
+changed that field, a field containing it, or a field inside it, and returns it as
+`likelyCauses` (API_SPEC sections 7 to 9, ADR-072). A field inside it counts because many
+systems name the parent of what they refused: a Salesforce compound field such as
+`BillingAddress`, a Stripe parent parameter, or a JSON Schema validator's parent
+`instancePath`. A failed step with no `fields` of its own uses those of the most recent
+earlier failure that named some, which is how a dead-letter is linked. Wayscribe never infers
+a field from the message or the code: an error without `fields` gets no link.
+
+The SDKs read `fields` from the error the host throws or records, keep only non-empty
+strings, cut the list to 20 and each path to 200 characters, and leave `fields` off when
+nothing is left.
+
 ## 9. Metadata
 
 `metadata` is for additional structured context. Its wire type stays arbitrary:

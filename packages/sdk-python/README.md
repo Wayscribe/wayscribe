@@ -202,6 +202,20 @@ nothing), `record(operation=..., name=..., **event_fields)`,
 with an explicit time zone. Omitted payloads are absent; explicit `None` is JSON
 null. Pass trace/span IDs explicitly; no OpenTelemetry installation is needed.
 
+An error may name the fields the failing system rejected: an exception's
+`fields` attribute, a mapping's `fields` key, or an `is_failure` mapping's
+`fields`, as a list or tuple of paths such as `phone` or `lines[0].sku`. Only
+non-empty strings are kept, at most 20 of at most 200 characters, and nothing is
+sent when none is left. Wayscribe then links the failure to the nearest earlier
+step that changed the field, or a field inside it (ADR-072):
+
+```python
+class TargetRejected(Exception):
+    def __init__(self, error):
+        super().__init__(error["message"])
+        self.fields = error.get("fields", [])
+```
+
 `transform`, `persist`, `publish`, `consume`, `deliver`, and `validate` each accept
 `(name, input, callback, **options)`. The callback takes no arguments and executes
 once. A synchronous result returns synchronously; an awaitable result returns an

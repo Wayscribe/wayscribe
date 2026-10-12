@@ -4667,3 +4667,88 @@ If the SDK ever sends a host, the condition stops applying without a change here
 that to its own decision). Dropping the host caveat entirely (it is true, and a negative gap
 is easier to misread without it). Keeping the warning and rewording it (a warning on every
 journey is noise however it is worded).
+
+## ADR-072: A failure that names a field links to the nearest earlier step that changed it
+
+**Status:** Accepted, 2026-10-12. Adds one optional protocol field, `error.fields`, and one
+read-time answer, `likelyCauses`, on the journey read, the timeline and the event read.
+Follows issue #8 and `docs/superpowers/specs/2026-10-12-root-cause-linking-design.md`. The
+protocol version stays `0.1`: an added optional field is a compatible change
+(EVENT_PROTOCOL.md section 11).
+
+**Context.** When a step fails because a field is missing or wrong, the journey already holds
+both halves of the explanation: the failure, and the earlier step whose diff lost or changed
+the field. In the demo the target answers 422 `phone_required`, the message is dead-lettered,
+and the reader had to open the transform step to see `Phone` paired with `phone` and its value
+gone. Nothing in a recorded error said which field it was about, so nothing could connect the
+two. Tracing tools cannot make the link because they hold no payloads; Wayscribe holds both.
+
+**Decision.**
+
+1. An error may carry `fields`: 1 to 20 paths of 1 to 200 characters, in the path syntax the
+   stored diff writes (`address.postalCode`, `lines[0].sku`), as the failing system names
+   them. Wayscribe never infers a field from a message or a code: a wrong link costs more
+   trust than a missing one.
+2. The SDKs read `fields` by convention, as they read `code`. Node reads `err.fields` on a
+   thrown error, an `isFailure` reason and an error passed to `record()`; Python reads an
+   exception's `fields` attribute, a mapping's `fields` key and an `is_failure` mapping's
+   `fields`; Go reads `Fields() []string` on an error or anything it wraps, and
+   `FailureReason.Fields`. Each keeps only a list's non-empty strings (Python also takes a
+   tuple), at most 20 of at most 200 characters, sends no `fields` when none is left, and
+   drops a value whose read throws or panics. Fields are names, so they are not masked.
+3. The API computes `likelyCauses` at read time over the whole journey, in timeline order,
+   for each failed event (an error, or the operation `failed`). The fields are the event's
+   own, or else those of the most recent earlier failed event that named some, which is
+   reported as `reportedBy`. The candidates are the events before the reporter that are not
+   failed and have a stored diff, paired with `pairChanges`, whose canonical copy is now in
+   `@wayscribe/payload-diff`. A change matches a field when its path equals the field, is an
+   ancestor of it, or is below it, comparing keys as pairing normalizes them and array
+   indexes literally: an error naming `address` matches a lost `address.postalCode`, which
+   is how Salesforce compound fields (`BillingAddress`), Stripe parent parameters and JSON
+   Schema validators such as ajv (a parent `instancePath`) report a fault. `removed`,
+   `changed` and `renamed-changed` count; a rename that kept the value, an added field, and
+   a whole-payload replacement at the empty path do not. The nearest matching step is the
+   likely cause, even when its match is only below the field, and the others are listed in
+   `alsoChangedAt`, nearest first. Within one step a lost value wins, then the field or an
+   ancestor over a change below it, then pairing order. `field` stays as the error reported
+   it and `change.path` is the specific path that changed. Each diff is paired once and
+   indexes every proper prefix of its counted paths, to a depth of 32 segments (the
+   default depth `diffPayloads` stops at), so a field costs one lookup per segment per
+   candidate.
+4. A journey over 1,000 events (`MAX_JOURNEY_EVENTS_FOR_CAUSES`) gets no causes, rather
+   than an answer from part of it; the demo's journeys hold 2 to 10. A truncated diff
+   nearer than the cause sets `incomplete`. The causes are a debugging aid: when computing
+   them throws, the read still succeeds with `likelyCauses: []` and the API logs a warning
+   that names the journey and the error's class, never its message.
+5. The web app shows "Likely cause: `phone` lost at **transform-salesforce-account**" under
+   the error and under the journey's status line, with the step linked; About this view
+   defines it; `wayscribe journey` and `wayscribe event` print the same line. When the
+   changed path is below the reported field, both write it as `address.postalCode (in
+   address)`. The web names a reporter other than the failure itself by its step, with
+   "attempt N" for a retry, or as "an earlier failed step" when the reporter is not loaded;
+   the CLI names it by step from the timeline, or by event id. The wording is "Likely
+   cause", never "Cause".
+
+**Consequences.** The demo's target names the field in its 422s, so its dead-letter reads
+"Likely cause: phone lost at transform-salesforce-account", reported by the last delivery
+attempt. Its `schema-rejected` journey links `status` to the transform, which lowercases it
+("Former Customer" to "former customer"); its `timeout` journey, whose errors name no field,
+links nothing. A read of a journey with a failure reads the first 1,001 events' failure facts,
+and every stored diff only when one failure names a field. The web app still depends on no
+workspace package: it keeps its own copy of the pairing code, and the CLI a small copy of
+`normalizeKey`, `isBelow` and `bounded` (`packages/cli/src/cause-paths.ts`);
+`tests/diff-pairing-parity.test.ts` fails when the copies differ in text or behaviour.
+
+**Rejected.** Inferring the field from the message or the code. Computing the link at ingest:
+events arrive out of order and in batches, and a stored link goes stale when the rule changes.
+Computing it in the web app alone: the CLI and API callers would never see it. Counting failed
+steps as candidates: a failed delivery's diff compares a request with an error response, and
+in the demo it removes `phone` on every attempt. Counting the empty path: persisting a customer
+and answering its id would be the likely cause of every field. Matching only the field and
+its ancestors: it fails silently on compound-field, nested-parameter and JSON Schema
+parent-path errors, which name a field above the one that changed. Excluding case-only changes:
+case changes are a real integration bug class (case-sensitive picklists and enums), the line
+shows the value before and after so the reader judges, and each exclusion invites the next
+(whitespace, number and date formatting). Importing the pairing code into the web app from
+the package: workspace packages have broken the images before (`pnpm deploy --legacy`
+symlinks, production-install pruning), and a copy held by a test avoids that risk.

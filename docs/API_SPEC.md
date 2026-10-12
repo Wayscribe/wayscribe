@@ -483,7 +483,24 @@ Response:
     "eventCount": 8,
     "startedAt": "2026-08-06T18:31:02.000Z",
     "completedAt": null,
-    "lastEventAt": "2026-08-06T18:34:38.000Z"
+    "lastEventAt": "2026-08-06T18:34:38.000Z",
+    "likelyCauses": [
+      {
+        "field": "phone",
+        "reportedBy": "evt_07",
+        "eventId": "evt_02",
+        "step": "map-hubspot",
+        "change": {
+          "kind": "renamed-changed",
+          "lost": true,
+          "path": "phone",
+          "from": "Phone",
+          "before": "+1 919 555 1234",
+          "after": null
+        },
+        "alsoChangedAt": []
+      }
+    ]
   }
 }
 ```
@@ -492,6 +509,10 @@ Response:
 after the newest event's timestamp, and null when it never has. It is never
 cleared, so it can be set on a journey whose `status` is `failed` or `active`:
 the two fields answer different questions, and section 6 has the rule.
+
+`likelyCauses` is section 8's, for the event that failed the journey, the one `failedStep`
+names. It is `[]` when the journey is not failed, when no failure names a field, and when no
+earlier step changed one.
 
 `label`, `lastStep` and `failedStep` are as in a search result (section 5).
 `journeyId` is an opaque string; EVENT_PROTOCOL.md section 4 describes the
@@ -551,7 +572,8 @@ Response:
 }
 ```
 
-Every item carries all thirteen fields. `receivedAt` is when the server received
+Every item carries all thirteen fields, and a failed item (`hasError`, or the operation
+`failed`) carries a fourteenth, `likelyCauses`. `receivedAt` is when the server received
 the event, as opposed to `eventTimestamp`, which is when the instrumented
 service says it happened; it is the second term of the ordering above, so a
 caller that reproduces the order needs it. `durationMs` is null when the event
@@ -569,6 +591,31 @@ stays zero. `recordedHost` is the bounded already-redacted `runtime.hostname`,
 or null when none is usable. Arbitrary custom metadata, runtime metadata, and
 payloads stay off timeline rows. Older API versions may omit both added fields.
 
+### Likely causes
+
+`likelyCauses` (ADR-072) links a failed event to the earlier step that most likely broke it,
+when its error names the fields it rejected (EVENT_PROTOCOL.md section 8). It is computed when
+read, over the whole journey, whatever page is asked for:
+
+| Key | Meaning |
+| --- | --- |
+| `field` | A field as the error named it. One entry per named field that matched. |
+| `reportedBy` | The event whose error named the field: this event, or for a failure that named none (a dead-letter), the most recent earlier failure that did. |
+| `eventId`, `step` | The likely cause: the nearest event before the reporter, not itself failed, whose stored diff removed or changed the field, a field containing it, or a field inside it. |
+| `change.kind` | `removed`, `changed` or `renamed-changed`. A rename that kept the value, an added field and a whole-payload replacement never count. |
+| `change.lost` | The input had a non-null value and the output has null or nothing. |
+| `change.path`, `change.from` | The specific path that changed, on the output side (the input path when removed), which may lie inside `field`; and the input-side path of a rename. |
+| `change.before`, `change.after` | The values as stored, so possibly masked. Absent for a side that does not have the field. |
+| `alsoChangedAt` | Every other earlier step that changed the field, `{ eventId, step }`, nearest first. |
+| `incomplete` | `true` when a step nearer than the cause had a diff too large to check. Absent otherwise. |
+
+Keys are compared the way renamed fields are paired (case, a trailing `__c`, `_` and `-` are
+ignored) and array indexes literally. An error naming `address` matches a change at
+`address`, at an ancestor of it, or below it, such as a lost `address.postalCode`. The nearest
+matching step wins; within one step, a lost value comes first, then a change at the field or
+an ancestor over one below it. A journey over 1,000 events gets `[]`. When the causes cannot
+be computed, the read still succeeds with `[]` and the server logs a warning.
+
 ## 9. Get event details
 
 ```http
@@ -584,7 +631,8 @@ describes it: its ids (`id`, `journeyId`, `parentEventId`, `traceId`, `spanId`,
 `payloadDiff`, `error`, the runtime, deployment and custom metadata, and
 `aliases`. It also returns the same `timingContext` and `recordedHost`
 interpretation as a timeline row while preserving the raw custom and runtime
-metadata. An API key reads events of its own environment only.
+metadata. An API key reads events of its own environment only. A failed event also carries
+`likelyCauses`, as section 8 describes, `[]` when it has none; any other event does not.
 
 `aliases` is what the event stated, which is what an `identified` event exists
 to record: each alias as section 7 shows it, `{ type, displayValue,
