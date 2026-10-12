@@ -31,7 +31,9 @@ export async function postCustomer(
   return { status: response.status, body: await response.json() };
 }
 
-function targetError(body: unknown): { code?: unknown; message?: unknown } | undefined {
+function targetError(
+  body: unknown
+): { code?: unknown; message?: unknown; fields?: unknown } | undefined {
   if (typeof body !== "object" || body === null) return undefined;
   const error = (body as { error?: unknown }).error;
   return typeof error === "object" && error !== null ? error : undefined;
@@ -45,20 +47,39 @@ export function isPermanentRejection(result: DeliveryResult): boolean {
 }
 
 /**
+ * The fields the target named in its error body (ADR-072): its non-empty
+ * strings, or undefined when it named none. The SDK bounds them again.
+ */
+export function rejectedFields(body: unknown): string[] | undefined {
+  const fields = targetError(body)?.fields;
+  if (!Array.isArray(fields)) return undefined;
+  const named = fields.filter(
+    (field): field is string => typeof field === "string" && field !== ""
+  );
+  return named.length === 0 ? undefined : named;
+}
+
+/** What `deliveryFailure` hands the SDK. */
+export type DeliveryVerdict =
+  boolean | { fields: string[] } | { message: string; code: string; fields?: string[] };
+
+/**
  * The `isFailure` verdict for a delivery. A permanent rejection is recorded
  * with the target's own message and code, so the timeline says why nothing
- * was retried; any other failure keeps the SDK's generic text.
+ * was retried; any other failure keeps the SDK's generic text. Either way the
+ * fields the target named ride along, so the failure can be linked to the
+ * step that changed them (ADR-072).
  */
-export function deliveryFailure(
-  result: DeliveryResult
-): boolean | { message: string; code: string } {
+export function deliveryFailure(result: DeliveryResult): DeliveryVerdict {
   if (result.status < 400) return false;
-  if (!isPermanentRejection(result)) return true;
+  const fields = rejectedFields(result.body);
+  if (!isPermanentRejection(result)) return fields === undefined ? true : { fields };
   const error = targetError(result.body);
   return {
     message:
       typeof error?.message === "string" ? error.message : "The target refused the customer.",
-    code: typeof error?.code === "string" ? error.code : "result_failed"
+    code: typeof error?.code === "string" ? error.code : "result_failed",
+    ...(fields === undefined ? {} : { fields })
   };
 }
 

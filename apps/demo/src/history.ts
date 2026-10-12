@@ -131,7 +131,7 @@ export interface HistoryEvent {
   durationMs?: number;
   input?: unknown;
   output?: unknown;
-  error?: { message: string; type?: string; code?: string };
+  error?: { message: string; type?: string; code?: string; fields?: string[] };
   metadata?: Record<string, unknown>;
 }
 
@@ -375,7 +375,7 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
         input: transformed,
         output: refused,
         durationMs: 23,
-        ...(typeof verdict === "object" ? { error: verdict } : {})
+        ...(typeof verdict === "object" && "message" in verdict ? { error: verdict } : {})
       }
     });
     return steps;
@@ -445,7 +445,8 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
         durationMs: 19,
         error: {
           message: "deliver-customer-to-target reported a failed result.",
-          code: "result_failed"
+          code: "result_failed",
+          fields: ["phone"]
         }
       }
     },
@@ -461,7 +462,8 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
         metadata: { attempt: 2 },
         error: {
           message: "retry-customer-delivery reported a failed result.",
-          code: "result_failed"
+          code: "result_failed",
+          fields: ["phone"]
         }
       }
     },
@@ -477,7 +479,8 @@ function stepsFor(customer: HistoryCustomer, extraAliases: Record<string, string
         metadata: { attempt: 3 },
         error: {
           message: "retry-customer-delivery reported a failed result.",
-          code: "result_failed"
+          code: "result_failed",
+          fields: ["phone"]
         }
       }
     },

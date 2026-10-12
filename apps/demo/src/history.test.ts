@@ -184,6 +184,22 @@ describe("historyEnvelopes", () => {
   });
 });
 
+/**
+ * The envelopes as they were before ADR-072, which added `fields` to the
+ * target's 422 bodies and to the errors recorded from them and changed
+ * nothing else. Deleted in place on a copy, so every other key keeps its order
+ * and the digests below still describe the same bytes.
+ */
+function beforeFields(envelopes: HistoryEnvelope[]): HistoryEnvelope[] {
+  const copy = structuredClone(envelopes);
+  for (const { event } of copy) {
+    if (event.error !== undefined) delete event.error.fields;
+    const output = event.output as { body?: { error?: { fields?: unknown } } } | undefined;
+    if (output?.body?.error !== undefined) delete output.body.error.fields;
+  }
+  return copy;
+}
+
 describe("pinnedEnvelopes", () => {
   it("is the failed journey for +1 555 0100, searchable by the phone, with the phone diff", () => {
     const events = eventsOf(pinnedEnvelopes(NOW, "development"));
@@ -233,14 +249,15 @@ describe("pinnedEnvelopes", () => {
     ]);
   });
 
-  it("is, apart from absolute times, the journey the docs, the site and the smoke check describe", () => {
+  it("is, apart from absolute times and ADR-072's fields, the journey the docs, the site and the smoke check describe", () => {
     // Everything but each event's absolute timestamp, which now follows the
-    // send time: ids, aliases, payloads, the transform event and the failure.
-    // A change here changes what the banner, DEMO_SCENARIO.md and the smoke
-    // check point at: update them together, then this digest.
+    // send time, and the `fields` ADR-072 added: ids, aliases, payloads, the
+    // transform event and the failure. A change here changes what the banner,
+    // DEMO_SCENARIO.md and the smoke check point at: update them together,
+    // then this digest.
     const content = (now: Date): string =>
       JSON.stringify(
-        pinnedEnvelopes(now, "development").map((envelope) => ({
+        beforeFields(pinnedEnvelopes(now, "development")).map((envelope) => ({
           ...envelope,
           event: {
             ...envelope.event,
@@ -257,9 +274,33 @@ describe("pinnedEnvelopes", () => {
     const halfAnHourEarlier = new Date(NOW.getTime() - 30 * 60 * 1000);
     expect(
       createHash("sha256")
-        .update(JSON.stringify(pinnedEnvelopes(halfAnHourEarlier, "development")))
+        .update(JSON.stringify(beforeFields(pinnedEnvelopes(halfAnHourEarlier, "development"))))
         .digest("hex")
     ).toBe("2a782328ec371be628fec8f6dc003140a10ba7760aa633edcb7a054b8f5562a0");
+  });
+
+  it("names the refused field on each 422 and on each delivery's error, and nowhere else (ADR-072)", () => {
+    const events = eventsOf(pinnedEnvelopes(NOW, "development"));
+    const deliveries = events.filter((event) =>
+      ["deliver-customer-to-target", "retry-customer-delivery"].includes(event.name)
+    );
+    expect(deliveries).toHaveLength(3);
+    for (const delivery of deliveries) {
+      expect(delivery.error).toEqual({
+        message: `${delivery.name} reported a failed result.`,
+        code: "result_failed",
+        fields: ["phone"]
+      });
+      expect(
+        (delivery.output as { body: { error: { fields: unknown } } }).body.error.fields
+      ).toEqual(["phone"]);
+    }
+    // The dead-letter names none: the API carries the last attempt's forward.
+    expect(events.at(-1)?.error?.fields).toBeUndefined();
+    // And beforeFields removed exactly these: nothing else has `fields`.
+    expect(JSON.stringify(beforeFields(pinnedEnvelopes(NOW, "development")))).not.toContain(
+      '"fields"'
+    );
   });
 });
 
