@@ -66,4 +66,14 @@ case "${journey}" in
   *) fail "the diff does not flag ${PINNED_PHONE} as a lost value" ;;
 esac
 
+# ADR-072: the journey header names the transform as the likely cause of the
+# dead-letter. LikelyCauseLines.test.tsx checks every double-quoted
+# "Likely cause:" pattern here against a server render. Double quotes on
+# purpose: DiffTable.test.tsx expects every single-quoted pattern in this file
+# to be diff markup.
+case "${journey}" in
+  *"Likely cause: <code>phone</code>"*) ;;
+  *) fail "the pinned journey names no likely cause for phone" ;;
+esac
+
 echo "smoke-check: ok ${BASE}"

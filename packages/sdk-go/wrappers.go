@@ -178,7 +178,7 @@ func wrap[I, T any](ctx context.Context, target Target, op Operation, name strin
 			} else if o.IsFailure != nil {
 				guarded(func() {
 					if reason := o.IsFailure(result); reason != nil {
-						failure = &ErrorInfo{Message: reason.Message, Code: reason.Code}
+						failure = &ErrorInfo{Message: reason.Message, Code: reason.Code, Fields: reason.Fields}
 						if failure.Message == "" {
 							failure.Message = "result_failed"
 						}

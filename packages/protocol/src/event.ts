@@ -35,7 +35,15 @@ export const errorSchema = z.object({
   type: z.string().max(256).optional(),
   message: z.string().min(1).max(4096),
   code: z.string().max(256).optional(),
-  stack: z.string().max(16_384).optional()
+  stack: z.string().max(16_384).optional(),
+  /**
+   * The paths the failing system named (ADR-072), in the syntax a stored diff
+   * writes: object keys joined with `.`, array indexes in brackets
+   * (`address.postalCode`, `lines[0].sku`). Names, not values, so they are not
+   * masked. The API links a failure to the nearest earlier step that changed
+   * one of them. Optional and added in 0.1, so the version does not change.
+   */
+  fields: z.array(z.string().min(1).max(200)).min(1).max(20).optional()
 });
 
 /**

@@ -46,6 +46,11 @@ export function AboutJourneyView({
         <dd>
           <JourneyTimingSummary startedAt={startedAt} lastEventAt={lastEventAt} />
         </dd>
+        <dt>Likely cause</dt>
+        <dd>
+          When an error names the field it rejected, the likely cause is the nearest earlier step
+          that changed that field.
+        </dd>
         <dt>Times</dt>
         <dd>All times UTC. A row&apos;s time shows the full timestamp on hover.</dd>
         <dt>

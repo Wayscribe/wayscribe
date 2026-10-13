@@ -142,6 +142,16 @@
         "stack": {
           "type": "string",
           "maxLength": 16384
+        },
+        "fields": {
+          "minItems": 1,
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
         }
       },
       "required": [

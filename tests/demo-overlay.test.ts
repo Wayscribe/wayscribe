@@ -158,6 +158,11 @@ describe("the public demo overlay", () => {
     const pins: [string, string, string][] = [
       ["What changed", "apps/web/app/components/EventDetail.tsx", "What changed"],
       [
+        "Likely cause: <code>phone</code>",
+        "apps/web/app/components/LikelyCauseLines.tsx",
+        '{"Likely cause: "}'
+      ],
+      [
         "Public demo. Read-only, sample data.",
         "apps/web/app/components/DemoBanner.tsx",
         "Public demo. Read-only, sample data."

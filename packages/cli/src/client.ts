@@ -27,6 +27,28 @@ export interface JourneySummary {
   lastEventAt: string;
 }
 
+/** The nearest earlier step that changed a field a failure named (ADR-072). */
+export interface LikelyCause {
+  /** As the error reported it. */
+  field: string;
+  /** The event whose error named the field: the failure itself, or an earlier one. */
+  reportedBy: string;
+  eventId: string;
+  step: string;
+  change: {
+    kind: "removed" | "changed" | "renamed-changed";
+    lost: boolean;
+    /** The changed path, which may lie below `field`. */
+    path: string;
+    from?: string;
+    /** As stored, so possibly masked; absent where the side had no value. */
+    before?: unknown;
+    after?: unknown;
+  };
+  alsoChangedAt: { eventId: string; step: string }[];
+  incomplete?: true;
+}
+
 export interface JourneyDetail extends JourneySummary {
   /**
    * `displayValue` arrives masked unless `displayable` is true, which only the
@@ -35,6 +57,10 @@ export interface JourneyDetail extends JourneySummary {
   aliases: { type: string; displayValue: string; displayable?: boolean }[];
   services: string[];
   completedAt: string | null;
+  /** The step that failed the journey; null or absent when it is not failed. */
+  failedStep?: string | null;
+  /** That step's likely causes; absent from an older API. */
+  likelyCauses?: LikelyCause[];
 }
 
 export interface EventSummary {
@@ -47,6 +73,8 @@ export interface EventSummary {
   hasInput: boolean;
   hasOutput: boolean;
   hasError: boolean;
+  /** On a failed event only (ADR-072). */
+  likelyCauses?: LikelyCause[];
 }
 
 export interface DiffChange {

@@ -651,8 +651,16 @@ def _failure(verdict, name):
         return {"message": verdict, "code": "result_failed"}
     if isinstance(verdict, Mapping):
         message, code = verdict.get("message"), verdict.get("code")
-        return {
+        failure = {
             "message": message if type(message) is str and message else generic,
             "code": code if type(code) is str and code else "result_failed",
         }
+        # ADR-072: capture_error keeps only what the server accepts.
+        # Its own guard: a mapping that raises here costs only the fields.
+        try:
+            if "fields" in verdict:
+                failure["fields"] = verdict.get("fields")
+        except Exception:
+            pass
+        return failure
     return {"message": generic, "code": "result_failed"}

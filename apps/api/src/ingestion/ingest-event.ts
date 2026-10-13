@@ -329,6 +329,10 @@ function refuse(httpStatus: number, code: string, message: string): Refused {
  * ALLOW_FULL_PAYLOAD_CAPTURE and the environment's own setting: it is the
  * largest carrier of credentials an error has, and the Node SDK never sends one.
  * Under full capture it is kept, masked like the message.
+ *
+ * `type`, `code` and `fields` are kept as given. `fields` (ADR-072) is a list
+ * of names, not values, and the read side compares it with diff paths, so
+ * masking it would only break the link it exists for.
  */
 function storedError(error: EventError | undefined, policy: CapturePolicy): EventError | undefined {
   if (error === undefined) return undefined;

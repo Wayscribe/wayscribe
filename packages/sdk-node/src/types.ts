@@ -33,7 +33,7 @@ export interface JourneyContext {
  * An error as `record()` takes it. The wrappers and `fail()` build one from
  * the thrown value: its `message`, its `name` as `type`, and a string `code`.
  *
- * Each field is read once, on its own, and only these four are sent: a field
+ * Each field is read once, on its own, and only these five are sent: a field
  * whose read throws is left off and reported as `capture_error`, and never
  * costs the step. A `message` that cannot be read, or is not a non-empty
  * string, is sent as `The error's message could not be read.`
@@ -51,6 +51,13 @@ export interface ErrorInput {
   type?: string | undefined;
   /** Cut to 256 characters. */
   code?: string | undefined;
+  /**
+   * The paths the failing system named, such as `phone` or `lines[0].sku`
+   * (ADR-072). Only a list's non-empty strings are sent, at most 20, each cut
+   * to 200 characters, and nothing when none is left. Not masked: they are
+   * names, not values.
+   */
+  fields?: readonly string[] | undefined;
   /**
    * Masked like `message` and cut to 16,384 characters. The SDK never sends
    * one of its own, and SDK-22 says not to: a stack is the largest part of an
@@ -194,6 +201,12 @@ export interface WrapOptions<T = unknown, I = unknown> {
 export interface FailureReason {
   message?: string | undefined;
   code?: string | undefined;
+  /**
+   * The paths the failing system named (ADR-072), kept as `ErrorInput.fields`
+   * keeps them. A reason with only `fields` keeps the generic message and
+   * `result_failed`.
+   */
+  fields?: readonly string[] | undefined;
 }
 
 export interface FailOptions {

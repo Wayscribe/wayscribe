@@ -24,7 +24,9 @@ const created = { status: 201, body: { id: "contact_0018Z00002ABC" } };
 describe("the worker's delivery decision", () => {
   it("retries phone_required, the demo's defect, and records the SDK's generic failure", () => {
     expect(isPermanentRejection(phoneRequired)).toBe(false);
-    expect(deliveryFailure(phoneRequired)).toBe(true);
+    // The SDK's generic message and `result_failed`, plus the field the
+    // target named (ADR-072).
+    expect(deliveryFailure(phoneRequired)).toEqual({ fields: ["phone"] });
     expect(nextAction({ kind: "result", result: phoneRequired }, 1)).toEqual({
       kind: "retry",
       visibilitySeconds: RETRY_DELAY_SECONDS,
@@ -70,6 +72,36 @@ describe("the worker's delivery decision", () => {
       kind: "retry",
       visibilitySeconds: RETRY_DELAY_SECONDS,
       reason: "rejected"
+    });
+  });
+
+  it("names the fields the target refused, so the failure links to the step that changed them (ADR-072)", () => {
+    expect(
+      contactResponse({
+        externalId: "0018Z00002ABC",
+        name: "Jorge Polanco",
+        phone: null,
+        status: "active"
+      }).body
+    ).toEqual({
+      error: {
+        code: "phone_required",
+        message: "A phone number is required.",
+        fields: ["phone"]
+      }
+    });
+    expect(deliveryFailure(unmappedStatus)).toEqual({
+      message: unmappedStatus.body.error.message,
+      code: "invalid_property_value",
+      fields: ["status"]
+    });
+    // Only non-empty strings are copied; with none left, the verdict is plain.
+    expect(
+      deliveryFailure({ status: 422, body: { error: { code: "phone_required", fields: ["", 7] } } })
+    ).toBe(true);
+    // A retryable 5xx keeps the fields it named.
+    expect(deliveryFailure({ status: 503, body: { error: { fields: ["phone"] } } })).toEqual({
+      fields: ["phone"]
     });
   });
 });

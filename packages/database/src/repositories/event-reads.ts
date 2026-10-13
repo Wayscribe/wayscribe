@@ -248,3 +248,65 @@ async function statedAliases(
     .orderBy("alias_type");
   return rows as JourneyAlias[];
 }
+
+/**
+ * Whether a `journey_events` row failed its journey: `deriveStatus`'s test in
+ * `journeys.ts`, as SQL. Keep it in step with `isFailedEvent` in
+ * `apps/api/src/journeys/journey-causes.ts`.
+ */
+const FAILED_EVENT_SQL = "(error is not null or operation = 'failed')";
+
+/** One event as the likely-cause search reads it (ADR-072): no payload, no message. */
+export interface JourneyFailureFact {
+  id: string;
+  name: string;
+  /** It carries an error, or its operation is `failed`: what fails a journey. */
+  failed: boolean;
+  /** The stored `error.fields`, unchecked, or null. */
+  errorFields: unknown;
+}
+
+/**
+ * Up to `limit` of a journey's events, in timeline order, with only what says
+ * whether one failed and which fields it named. The search reads this first,
+ * and the diffs only when some failure named a field.
+ */
+export async function listJourneyFailureFacts(
+  db: Knex,
+  scope: ReadScope,
+  journeyId: string,
+  limit: number
+): Promise<JourneyFailureFact[]> {
+  const rows: unknown = await scoped(db("journey_events"), scope)
+    .where({ journey_id: journeyId })
+    .select(
+      "id",
+      "name",
+      db.raw(`${FAILED_EVENT_SQL} as "failed"`),
+      db.raw(`error -> 'fields' as "errorFields"`)
+    )
+    .orderBy([{ column: "event_timestamp" }, { column: "received_at" }, { column: "id" }])
+    .limit(limit);
+  return rows as JourneyFailureFact[];
+}
+
+/**
+ * Every stored diff of a journey's events that did not fail, by event id. Read
+ * only for a journey under the cap. A failed event is never a likely-cause
+ * candidate, so its diff is left in the database; the search learns which
+ * events failed from `listJourneyFailureFacts`, not from this map.
+ */
+export async function listJourneyPayloadDiffs(
+  db: Knex,
+  scope: ReadScope,
+  journeyId: string
+): Promise<Map<string, unknown>> {
+  const rows: unknown = await scoped(db("journey_events"), scope)
+    .where({ journey_id: journeyId })
+    .whereNotNull("payload_diff")
+    .whereRaw(`not ${FAILED_EVENT_SQL}`)
+    .select("id", "payload_diff as payloadDiff");
+  return new Map(
+    (rows as { id: string; payloadDiff: unknown }[]).map((row) => [row.id, row.payloadDiff])
+  );
+}

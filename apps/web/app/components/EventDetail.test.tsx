@@ -321,3 +321,56 @@ describe("EventDetail replay link", () => {
     expect(screen.queryByRole("link", { name: /Replay this input/ })).toBeNull();
   });
 });
+
+describe("EventDetail's likely cause (ADR-072)", () => {
+  it("shows a failed event's likely cause under its error", () => {
+    render(
+      <EventDetail
+        event={event({
+          id: "evt_dead_letter",
+          name: "move-message-to-dead-letter",
+          operation: "failed",
+          hasError: true,
+          error: {
+            message: "The target refused the customer; the message moved to the dead-letter queue."
+          },
+          likelyCauses: [
+            {
+              field: "phone",
+              reportedBy: "evt_retry_3",
+              eventId: "evt_transform",
+              step: "transform-salesforce-account",
+              change: {
+                kind: "renamed-changed",
+                lost: true,
+                path: "phone",
+                from: "Phone",
+                before: "+1 919 555 1234",
+                after: null
+              },
+              alsoChangedAt: []
+            }
+          ]
+        })}
+        describeEvent={(id) => (id === "evt_retry_3" ? "retry-customer-delivery attempt 3" : null)}
+      />
+    );
+    const line = document.querySelector(".likely-cause");
+    if (line === null) throw new Error("no likely cause line");
+    expect(line.textContent).toBe(
+      "Likely cause: phone lost at transform-salesforce-account (was +1 919 555 1234), reported by retry-customer-delivery attempt 3"
+    );
+    expect(
+      screen.getByText("Error").compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("shows nothing for an event the API gave no causes", () => {
+    render(
+      <EventDetail
+        event={event({ operation: "failed", hasError: true, error: { message: "boom" } })}
+      />
+    );
+    expect(document.querySelector(".likely-causes")).toBeNull();
+  });
+});

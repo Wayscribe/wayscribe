@@ -181,3 +181,38 @@ describe("journeyEventSchema", () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe("error.fields (ADR-072)", () => {
+  const withFields = (fields: unknown): unknown => ({
+    ...minimalEvent,
+    operation: "delivered",
+    name: "deliver-customer-to-target",
+    error: { message: "A phone number is required.", code: "phone_required", fields }
+  });
+
+  it("accepts the paths the failing system named, as given", () => {
+    const fields = ["phone", "BillingAddress.PostalCode", "Opportunity_Lines__c[0].Unit_Price__c"];
+    const result = journeyEventSchema.safeParse(withFields(fields));
+    expect(result.success).toBe(true);
+    expect(result.data?.error?.fields).toEqual(fields);
+  });
+
+  it("accepts twenty paths of two hundred characters", () => {
+    const fields = Array.from({ length: 20 }, (_, index) => String(index).padEnd(200, "x"));
+    expect(journeyEventSchema.safeParse(withFields(fields)).success).toBe(true);
+  });
+
+  it.each([
+    ["an empty list", []],
+    ["an empty path", ["phone", ""]],
+    [
+      "twenty-one paths",
+      Array.from({ length: 21 }, (_, index) => `Opportunity_Lines__c[${String(index)}].Quantity__c`)
+    ],
+    ["a path of 201 characters", ["x".repeat(201)]],
+    ["a string rather than a list", "phone"],
+    ["a number in the list", ["phone", 42]]
+  ])("refuses %s", (_label, fields) => {
+    expect(journeyEventSchema.safeParse(withFields(fields)).success).toBe(false);
+  });
+});

@@ -353,6 +353,57 @@ describe("JourneyTimeline", () => {
     );
   });
 
+  // ADR-072: the failed step's likely cause, under the summary line.
+  it("shows the failed step's likely cause under the summary line", () => {
+    mount({
+      initialStatus: "failed",
+      initialFailedStep: "step-evt_4",
+      initialLikelyCauses: [
+        {
+          field: "phone",
+          changedPath: null,
+          reportedBy: "evt_3",
+          eventId: "evt_2",
+          step: "step-evt_2",
+          verb: "lost",
+          before: "+1 919 555 1234",
+          after: "null",
+          alsoChangedAt: [],
+          incomplete: false
+        }
+      ]
+    });
+    expect(document.querySelector(".journey-likely-cause")?.textContent).toBe(
+      "Likely cause: phone lost at step-evt_2 (was +1 919 555 1234), reported by step-evt_3"
+    );
+    // The summary line itself is unchanged.
+    expect(summaryLine().textContent).toBe(
+      "failed at step-evt_4 · 4 events · webhook-api, sync-worker · span 3 s · times UTC"
+    );
+  });
+
+  it("shows no likely cause line for a journey that is not failed", () => {
+    mount({
+      initialStatus: "completed",
+      initialFailedStep: null,
+      initialLikelyCauses: [
+        {
+          field: "phone",
+          changedPath: null,
+          reportedBy: "evt_3",
+          eventId: "evt_2",
+          step: "step-evt_2",
+          verb: "lost",
+          before: "+1 919 555 1234",
+          after: "null",
+          alsoChangedAt: [],
+          incomplete: false
+        }
+      ]
+    });
+    expect(document.querySelector(".journey-likely-cause")).toBeNull();
+  });
+
   it("says only the status when there is no failed step", () => {
     mount({ initialStatus: "failed", initialFailedStep: null });
     expect(summaryLine().textContent).toBe(
@@ -450,6 +501,61 @@ describe("JourneyTimeline", () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     expect(summaryLine().textContent).toMatch(/^completed · 7 events/);
+  });
+
+  // ADR-072: each poll brings the journey's likely causes again.
+  it("updates the likely cause line on the poll that brings it", async () => {
+    vi.useFakeTimers();
+    const cause = (field: string) => ({
+      field,
+      changedPath: null,
+      reportedBy: "evt_6",
+      eventId: "evt_2",
+      step: "step-evt_2",
+      verb: "lost" as const,
+      before: "x",
+      after: "null",
+      alsoChangedAt: [],
+      incomplete: false
+    });
+    const polls = [
+      page({
+        items: [event("evt_5"), event("evt_6")],
+        journeyStatus: "failed",
+        journeyEventCount: 6,
+        journeyFailedStep: "push-hubspot",
+        journeyLikelyCauses: [cause("phone")]
+      }),
+      page({
+        items: [event("evt_5"), event("evt_6")],
+        journeyStatus: "failed",
+        journeyEventCount: 6,
+        journeyFailedStep: "push-hubspot",
+        journeyLikelyCauses: [cause("email")]
+      })
+    ];
+    let served = 0;
+    fetchMock.mockImplementation(() => {
+      const next = polls[Math.min(served, polls.length - 1)];
+      served += 1;
+      return Promise.resolve(ok(next));
+    });
+    mount({ initialStatus: "active", initialFailedStep: null });
+    expect(document.querySelector(".journey-likely-cause")).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(document.querySelector(".journey-likely-cause")?.textContent).toMatch(
+      /^Likely cause: phone lost at step-evt_2/
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(document.querySelector(".journey-likely-cause")?.textContent).toMatch(
+      /^Likely cause: email lost at step-evt_2/
+    );
   });
 
   // Whether a finished journey is still warm is decided on the server and

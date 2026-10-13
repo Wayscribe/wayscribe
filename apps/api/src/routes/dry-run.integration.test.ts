@@ -375,7 +375,14 @@ describe("dry-run validation", () => {
       expect(receivedAt, "the read still returns receivedAt").toBeTypeOf("string");
       expect(stored.event).toEqual(expectedEvent);
       expect(stored.event.receivedAt).toBeUndefined();
-      expect(stored.journey).toEqual(readJourney.json().data);
+      // `likelyCauses` is computed when read (ADR-072), so a preview of what is
+      // stored has none.
+      const { likelyCauses, ...expectedJourney } = readJourney.json().data as Record<
+        string,
+        unknown
+      >;
+      expect(likelyCauses).toEqual([]);
+      expect(stored.journey).toEqual(expectedJourney);
       // Not vacuous: the preview really did carry the redacted payload and the
       // diff, which is the whole reason a conformance case can assert on it.
       expect(stored.event.inputPayload.authorization).toBe("[REDACTED]");

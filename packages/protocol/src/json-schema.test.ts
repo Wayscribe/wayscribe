@@ -191,6 +191,7 @@ describe("Zod and Ajv agree", () => {
       expect(names).toContain("id");
       expect(names).toContain("entity.id");
       expect(names).toContain("error.message");
+      expect(names).toContain("error.fields.<items>");
       expect(names).toContain("aliases.<propertyNames>");
       expect(names).toContain("displayableAliases.<items>");
       expect(names).toContain("journeyLabel");
@@ -245,15 +246,19 @@ describe("Zod and Ajv agree", () => {
       } else {
         // An object at each level of the path, holding what is required beside
         // the field: `runtime.sdk.commit` needs `name` and `version` next to it.
+        // A path ending in `<items>` is a list holding the one value:
+        // `error.fields` (ADR-072).
+        const listed = one.path.at(-1) === "<items>";
+        const keys = listed ? one.path.slice(0, -1) : one.path;
         let parent: Record<string, unknown> = event;
         const prefix: string[] = [];
-        for (const key of one.path.slice(0, -1)) {
+        for (const key of keys.slice(0, -1)) {
           prefix.push(key);
           const nested: Record<string, unknown> = { ...REQUIRED_BESIDE[prefix.join(".")] };
           parent[key] = nested;
           parent = nested;
         }
-        parent[one.path.at(-1) ?? ""] = value;
+        parent[keys.at(-1) ?? ""] = listed ? [value] : value;
       }
       return { protocolVersion: "0.1", event };
     }

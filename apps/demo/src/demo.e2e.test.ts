@@ -171,6 +171,37 @@ describe("the reference journey", () => {
     expect(output.body.error.code).toBe("phone_required");
   });
 
+  it("links the dead-letter and the journey to the transform that lost the phone (ADR-072)", async () => {
+    const transform = events.find((event) => event.name === "transform-salesforce-account");
+    const deliveries = events.filter((event) =>
+      ["deliver-customer-to-target", "retry-customer-delivery"].includes(event.name)
+    );
+    const lastAttempt = deliveries.at(-1);
+    const deadLetter = events.at(-1);
+    expect(deadLetter?.name).toBe("move-message-to-dead-letter");
+
+    const cause = {
+      field: "phone",
+      reportedBy: lastAttempt?.id,
+      eventId: transform?.id,
+      step: "transform-salesforce-account",
+      change: {
+        kind: "renamed-changed",
+        lost: true,
+        path: "phone",
+        from: "Phone",
+        before: "+1 919 555 1234",
+        after: null
+      },
+      alsoChangedAt: []
+    };
+    const page = await get(`/v1/journeys/${journeyId}/events?limit=100`);
+    const rows = page["items"] as (EventItem & { likelyCauses?: unknown })[];
+    expect(rows.find((row) => row.id === deadLetter?.id)?.likelyCauses).toEqual([cause]);
+    expect((await get(`/v1/journeys/${journeyId}`))["likelyCauses"]).toEqual([cause]);
+    expect((await get(`/v1/events/${deadLetter?.id ?? ""}`))["likelyCauses"]).toEqual([cause]);
+  });
+
   it("replays the recorded input against the corrected endpoint", async () => {
     // DEMO_SCENARIO.md section 11, steps 10 through 12. This is the second half
     // of the product: find where the value was lost, then check a fix against
@@ -329,5 +360,39 @@ describe("the other failure shapes", () => {
     const persist = await errorOf(journeys.get("persist-failed")?.events.at(-1));
     expect(persist["code"]).toBe("23502");
     expect(persist["message"]).toContain('null value in column "name"');
+  });
+
+  // Deviation 3 in the plan, decided by Jorge on 2026-10-12: the transform
+  // lowercases the status, and a case-only change counts, so this journey is
+  // linked.
+  it("links schema-rejected's status to the transform that lowercased it (ADR-072)", async () => {
+    const journey = journeys.get("schema-rejected");
+    const transform = journey?.events.find(
+      (event) => event.name === "transform-salesforce-account"
+    );
+    const delivery = journey?.events.at(-1);
+    expect((await errorOf(delivery))["fields"]).toEqual(["status"]);
+    expect((await get(`/v1/journeys/${journey?.journeyId ?? ""}`))["likelyCauses"]).toEqual([
+      {
+        field: "status",
+        reportedBy: delivery?.id,
+        eventId: transform?.id,
+        step: "transform-salesforce-account",
+        change: {
+          kind: "renamed-changed",
+          lost: false,
+          path: "status",
+          from: "Status__c",
+          before: "Former Customer",
+          after: "former customer"
+        },
+        alsoChangedAt: []
+      }
+    ]);
+  });
+
+  it("links nothing for a timeout, whose errors name no field", async () => {
+    const journey = journeys.get("timeout");
+    expect((await get(`/v1/journeys/${journey?.journeyId ?? ""}`))["likelyCauses"]).toEqual([]);
   });
 });

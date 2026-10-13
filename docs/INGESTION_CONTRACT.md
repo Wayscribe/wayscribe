@@ -436,8 +436,9 @@ processing:
   `unstorable_payload`, and only the database settles what `jsonb` normalizes.
 - **`stored`** is present on an accepted, non-duplicate result. It holds the
   event as `GET /v1/events/:eventId` returns it, **without `receivedAt`**, and
-  the journey as `GET /v1/journeys/:journeyId` returns it. It is omitted for a
-  duplicate and for a rejection.
+  the journey as `GET /v1/journeys/:journeyId` returns it. Neither holds
+  `likelyCauses`, which those reads compute and nothing stores (ADR-072). It is
+  omitted for a duplicate and for a rejection.
 - **Nothing is written**: no event, journey, alias, summary or audit row. The
   key's `last_used_at` is still updated and a verifier under a previous
   encryption key is still migrated, because both answer "is this key in use" and

@@ -70,7 +70,9 @@ describe("GET /api/journeys/[journeyId]/events", () => {
       journeyStatus: "failed",
       journeyEventCount: 0,
       // The journey came from an API older than ADR-063, which omits it.
-      journeyFailedStep: null
+      journeyFailedStep: null,
+      // And older than ADR-072.
+      journeyLikelyCauses: []
     });
     expect(listEventsMock).toHaveBeenCalledWith("jrn_1", "proj_1", "abc");
   });
@@ -109,5 +111,53 @@ describe("GET /api/journeys/[journeyId]/events", () => {
       ).resolves.toBeNull();
       await expect(answer({ status: "failed", failedStep: 7 })).resolves.toBeNull();
     });
+  });
+
+  // ADR-072: the failed step's likely causes ride along too, as text.
+  it("sends the journey's likely causes as text", async () => {
+    listEventsMock.mockResolvedValue({ items: [], nextCursor: null });
+    getJourneyMock.mockResolvedValue({
+      status: "failed",
+      eventCount: 10,
+      failedStep: "move-message-to-dead-letter",
+      likelyCauses: [
+        {
+          field: "phone",
+          reportedBy: "evt_retry_3",
+          eventId: "evt_transform",
+          step: "transform-salesforce-account",
+          change: {
+            kind: "renamed-changed",
+            lost: true,
+            path: "phone",
+            from: "Phone",
+            before: "+1 919 555 1234",
+            after: null
+          },
+          alsoChangedAt: []
+        }
+      ]
+    });
+    const cookie = signSession(ADMIN_TOKEN, {
+      projectId: "proj_1",
+      expiresAt: Date.now() + 60_000
+    });
+    const response = await GET(requestFor(cookie), {
+      params: Promise.resolve({ journeyId: "jrn_1" })
+    });
+    expect(((await response.json()) as Record<string, unknown>)["journeyLikelyCauses"]).toEqual([
+      {
+        field: "phone",
+        changedPath: null,
+        reportedBy: "evt_retry_3",
+        eventId: "evt_transform",
+        step: "transform-salesforce-account",
+        verb: "lost",
+        before: "+1 919 555 1234",
+        after: "null",
+        alsoChangedAt: [],
+        incomplete: false
+      }
+    ]);
   });
 });

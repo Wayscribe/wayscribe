@@ -97,16 +97,27 @@ export function accountFor(account: SalesforceAccount, failure?: FailureShape): 
   }
 }
 
-/** The target's error bodies. */
+/**
+ * The target's error bodies. Each names the field it refused in `fields`, as
+ * a real API's validation error does, so the recorded error can be linked to
+ * the step that changed that field (ADR-072). `fields` comes last, so the
+ * pinned journey's bytes are the old ones with it removed (history.test.ts).
+ */
 export const PHONE_REQUIRED = {
   code: "phone_required",
-  message: "A phone number is required."
+  message: "A phone number is required.",
+  fields: ["phone"]
 } as const;
 
-export function invalidStatus(status: string): { code: string; message: string } {
+export function invalidStatus(status: string): {
+  code: string;
+  message: string;
+  fields: string[];
+} {
   return {
     code: "invalid_property_value",
-    message: `Property "status" has the value "${status}", which is not one of: ${TARGET_STATUSES.join(", ")}.`
+    message: `Property "status" has the value "${status}", which is not one of: ${TARGET_STATUSES.join(", ")}.`,
+    fields: ["status"]
   };
 }
 

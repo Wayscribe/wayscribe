@@ -353,7 +353,11 @@ export async function updateJourneySummary(
   );
 }
 
-/** Null means this event does not affect status. */
+/**
+ * Null means this event does not affect status. The failed test is repeated as
+ * `FAILED_EVENT_SQL` in `event-reads.ts` and `isFailedEvent` in the API's
+ * `journeys/journey-causes.ts`; keep the three in step.
+ */
 function deriveStatus(facts: JourneyEventFacts): string | null {
   if (facts.hasError || facts.operation === "failed") return "failed";
   if (facts.operation === "completed") return "completed";

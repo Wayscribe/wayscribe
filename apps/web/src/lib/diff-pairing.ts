@@ -1,4 +1,15 @@
-import type { DiffChange } from "./api";
+/** A diff change, as `DiffChange` in `./api`, written out so this file imports nothing. */
+interface Change {
+  path: string;
+  kind: "added" | "removed" | "changed";
+  before?: unknown;
+  after?: unknown;
+}
+
+// A copy of `packages/payload-diff/src/pairing.ts`, the one the API uses: the
+// web app depends on no workspace package. tests/diff-pairing-parity.test.ts
+// holds the two to one text and one behaviour (ADR-072).
+// pairChanges: begin
 
 /**
  * Reads a structural diff the way a person debugging a transformation would.
@@ -8,8 +19,9 @@ import type { DiffChange } from "./api";
  * added. A step that renames every field turns into a column of unrelated
  * rows, and the one row that matters (a value that became null) looks like
  * every expected rename around it. This pairs those rows back up and puts the
- * damage first. Display only: the stored diff and the API's answer keep their
- * three kinds.
+ * damage first. The stored diff and the API's diff answers keep their
+ * three kinds: the web pairs to display a diff, and the API pairs only to find a
+ * likely cause (ADR-072).
  *
  * Pairing, within one parent object only:
  * 1. by name: a removed and an added key that normalize equal (`normalizeKey`);
@@ -49,7 +61,7 @@ export function normalizeKey(key: string): string {
 
 interface Side {
   index: number;
-  change: DiffChange;
+  change: Change;
   parent: string;
   key: string;
 }
@@ -106,7 +118,7 @@ function pairPass(
   for (const [r, a] of found) pairs.set(r, a);
 }
 
-export function pairChanges(changes: readonly DiffChange[]): PairedChange[] {
+export function pairChanges(changes: readonly Change[]): PairedChange[] {
   const removed: Side[] = [];
   const added: Side[] = [];
   changes.forEach((change, index) => {
@@ -166,3 +178,4 @@ export function pairChanges(changes: readonly DiffChange[]): PairedChange[] {
 
   return rows.sort((x, y) => rank(x.row) - rank(y.row) || x.order - y.order).map(({ row }) => row);
 }
+// pairChanges: end

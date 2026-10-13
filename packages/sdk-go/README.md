@@ -179,7 +179,7 @@ output/metadata projections run per journey on the result. Projection contexts
 are detached. Metadata projections override static keys; explicit `Attempt`
 wins over metadata. An attempt above one records `retried` with that attempt's
 own error. `IsFailure` runs once for a successful callback; a non-nil reason
-populates `error` with its `Message`/`Code` without changing the host return.
+populates `error` with its `Message`/`Code`/`Fields` without changing the host return.
 Callback errors, panics and classified failures retain the attempt's natural
 operation; attempts above one still use `retried`. Use `Journey.Fail` or
 `Group.Fail` for an explicit terminal `failed` event.
@@ -187,6 +187,24 @@ A projection panic captures `[UNCAPTURABLE]`; a metadata projection panic keeps
 static metadata, and a classifier panic preserves normal result interpretation.
 Metadata-only mode skips payload projections. Optional variadic options accept
 one object; additional objects are safely diagnosed and ignored.
+
+An error that implements `Fields() []string`, found with `errors.As`, names the
+fields the failing system rejected, as `FailureReason.Fields` does for a
+classified result: paths such as `phone` or `lines[0].sku`. Only non-empty
+paths are sent, at most 20 of at most 200 runes, and none when nothing is left;
+a panicking `Fields()` costs only the fields. Wayscribe then links the failure
+to the nearest earlier step that changed the field, or a field inside it
+(ADR-072):
+
+```go
+type TargetRejected struct {
+	Message string
+	Names   []string
+}
+
+func (e TargetRejected) Error() string    { return e.Message }
+func (e TargetRejected) Fields() []string { return e.Names }
+```
 
 `Journey(Entity, ...JourneyOptions)` creates a random ID unless `JourneyID` is
 supplied. Invalid explicit IDs are refused when recording. `Resume(Context,

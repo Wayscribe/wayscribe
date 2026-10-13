@@ -14,6 +14,21 @@ changes far less often.
 
 ## [Unreleased]
 
+### Added
+
+- **A failed step names its likely cause.** When an error names the fields it rejected, in
+  the new optional `error.fields` (up to 20 paths of up to 200 characters), the API answers
+  `likelyCauses`: the nearest earlier step whose diff removed or changed that field, a field
+  containing it or a field inside it, and any earlier ones, on the timeline's failed rows,
+  the journey read and the event read. A field inside counts because Salesforce compound
+  fields, Stripe parent parameters and JSON Schema validators name the parent of what they
+  refused. A dead-letter with no fields of its own uses those of the failure before it. The
+  web app shows it under the error and under the journey's status line, `wayscribe journey`
+  and `wayscribe event` print it, and the Node, Python and Go SDKs read `fields` from the
+  error the host throws or records. The demo's target names the field in its 422s, so its
+  dead-letter now reads "Likely cause: phone lost at transform-salesforce-account ..."
+  (ADR-072).
+
 ## [0.2.5] - 2026-10-10
 
 The `api`, `web` and `demo` images, `@wayscribe/node`, the Python package

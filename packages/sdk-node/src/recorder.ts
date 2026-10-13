@@ -11,6 +11,7 @@ import {
   type TruncationStats
 } from "@wayscribe/payload-security/redaction";
 import { fitsCodePoints } from "./code-points.js";
+import { errorFields } from "./error-fields.js";
 import {
   firstRequiredSettingWarning,
   resolveConfig,
@@ -534,13 +535,17 @@ function failureFrom(
     // The host's object, and its fields may be getters, or it may be a revoked
     // Proxy: each read goes through its own boundary, so a throw costs that
     // field and not the step the call is there to record.
-    const read = (field: "message" | "code"): unknown =>
+    const read = (field: "message" | "code" | "fields"): unknown =>
       safely(diagnostics, "capture_error", () => (verdict as Record<string, unknown>)[field]);
     const message = read("message");
     const code = read("code");
+    // ADR-072: the paths the result says were refused. Walking the host's
+    // list is the host's code too, so it has a boundary of its own.
+    const fields = safely(diagnostics, "capture_error", () => errorFields(read("fields")));
     return {
       message: isIdentifier(message) ? message : generic,
-      code: isIdentifier(code) ? code : "result_failed"
+      code: isIdentifier(code) ? code : "result_failed",
+      ...(fields === undefined ? {} : { fields })
     };
   }
   return { message: generic, code: "result_failed" };
@@ -1094,10 +1099,11 @@ export function createRecorder(config: RecorderConfig): Recorder {
    * The error is the host's object, so each field is read once, inside a
    * boundary of its own, as `failureFrom` reads a reason: a getter that
    * throws, or a revoked Proxy, costs that field and not the step, which it
-   * used to (F-041 review). Only the four fields the protocol has are sent,
-   * each a string: a message that cannot be read, or is not a non-empty
-   * string, becomes a fixed text rather than one the server would refuse, and
-   * any other field that is not a string is left off.
+   * used to (F-041 review). Only the five fields the protocol has are sent:
+   * a message that cannot be read, or is not a non-empty string, becomes a
+   * fixed text rather than one the server would refuse; `type`, `code` and
+   * `stack` are left off unless they are strings; and `fields` keeps only
+   * what `errorFields` keeps (ADR-072).
    */
   function maskedError(error: ErrorInput): ErrorInput {
     const read = (field: keyof ErrorInput): unknown =>
@@ -1110,6 +1116,7 @@ export function createRecorder(config: RecorderConfig): Recorder {
     const type = read("type");
     const code = read("code");
     const stack = read("stack");
+    const fields = safely(diagnostics, "capture_error", () => errorFields(read("fields")));
     const capped = (text: string): string =>
       fitsCodePoints(text, MAX_ERROR_FIELD_LENGTH) ? text : fit(text, MAX_ERROR_FIELD_LENGTH);
     const sent =
@@ -1126,7 +1133,8 @@ export function createRecorder(config: RecorderConfig): Recorder {
       ...(typeof code === "string" ? { code: capped(code) } : {}),
       ...(typeof stack === "string"
         ? { stack: boundedMaskedText(stack, MAX_ERROR_STACK_LENGTH) }
-        : {})
+        : {}),
+      ...(fields === undefined ? {} : { fields })
     };
   }
 
@@ -1369,10 +1377,16 @@ export function createRecorder(config: RecorderConfig): Recorder {
           name: unknown;
           code?: unknown;
         };
+        // ADR-072: read on its own, so a `fields` getter that throws costs
+        // the fields and not the message, the type and the code.
+        const fields = safely(diagnostics, "capture_error", () =>
+          errorFields((error as { fields?: unknown }).fields)
+        );
         return {
           message: String(message),
           type: String(name),
-          ...(typeof code === "string" ? { code } : {})
+          ...(typeof code === "string" ? { code } : {}),
+          ...(fields === undefined ? {} : { fields })
         };
       }
       return { message: String(error) };

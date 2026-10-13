@@ -1160,6 +1160,21 @@ When a wrapped callback throws, or you call `fail()` or `record()` with an
 error, the SDK records the error's `message`, `name` as `type`, and a string
 `code`. It sends no `stack`.
 
+An error may also name the fields the failing system rejected, as `fields`: a
+list of paths such as `phone` or `lines[0].sku`, written as that system names
+them. The SDK reads it from a thrown error, from an `isFailure` reason and from
+an error passed to `record()`, keeps only non-empty strings, at most 20 of at
+most 200 characters, and sends none when nothing is left. With it, Wayscribe
+links the failure to the nearest earlier step that changed the field, or a
+field inside it (ADR-072):
+
+```ts
+throw Object.assign(new Error(body.error.message), {
+  code: body.error.code,
+  fields: body.error.fields
+});
+```
+
 A message is free text, so name-based redaction cannot reach inside it, and
 error messages are where credentials tend to appear. Before the event is queued,
 the message is masked by shape:
