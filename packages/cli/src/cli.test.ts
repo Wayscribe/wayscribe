@@ -349,6 +349,167 @@ describe("the command line", () => {
     });
   });
 
+  describe("server strings with control characters", () => {
+    // An ESC sequence that clears the screen, a newline that breaks the
+    // indented layout, a C1 CSI and a right-to-left override.
+    const HOSTILE = "x\u001b[2J\ny\u009b\u202e";
+    const SHOWN = "x\\x1b[2J\\ny\\u{9b}\\u{202e}";
+    // What must never reach the terminal from a server string. Lines are
+    // checked one by one, so the joining newlines are not counted.
+    // eslint-disable-next-line no-control-regex -- matching control characters is the point
+    const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/;
+    const safeLines = (lines: string[]): string[] => {
+      const split = lines.join("\n").split("\n");
+      expect(split.filter((line) => UNSAFE.test(line))).toEqual([]);
+      return split;
+    };
+    const hostileEvent = {
+      id: `evt_${HOSTILE}`,
+      operation: "failed",
+      name: `step-${HOSTILE}`,
+      service: `svc-${HOSTILE}`,
+      eventTimestamp: "2026-08-06T10:00:05.000Z",
+      durationMs: null,
+      hasInput: true,
+      hasOutput: false,
+      hasError: true
+    };
+    const hostileCause = {
+      field: "phone",
+      reportedBy: hostileEvent.id,
+      eventId: "evt_transform",
+      step: HOSTILE,
+      change: { kind: "changed", lost: false, path: "phone", before: HOSTILE, after: HOSTILE },
+      alsoChangedAt: [{ eventId: "evt_other", step: HOSTILE }]
+    };
+
+    it("escapes them in an event's error, step name and likely-cause values", async () => {
+      respond = () => ({
+        status: 200,
+        body: {
+          data: {
+            ...hostileEvent,
+            journeyId: "jrn_1",
+            error: { message: HOSTILE, code: HOSTILE },
+            likelyCauses: [hostileCause],
+            inputPayload: { note: "a\u001bb", c1: "c\u009bd" }
+          }
+        }
+      });
+      const { out, io } = capture(env());
+      expect(await run(["event", "evt_1"], io)).toBe(0);
+      const lines = safeLines(out);
+      expect(lines[0]).toBe(`failed  step-${SHOWN}`);
+      expect(lines[1]).toContain(`evt_${SHOWN}  ·  svc-${SHOWN}  ·`);
+      expect(lines).toContain(`error  ${SHOWN}`);
+      expect(lines).toContain(
+        `  Likely cause: phone changed at ${SHOWN} (was ${SHOWN}, now ${SHOWN})`
+      );
+      expect(lines).toContain(`  Also changed earlier at: ${SHOWN}`);
+      // JSON already escaped the C0 character; it is not escaped twice.
+      expect(lines).toContain('  "note": "a\\u001bb",');
+      expect(lines).toContain('  "c1": "c\\u{9b}d"');
+    });
+
+    it("escapes them in a journey timeline, keeping one line per step", async () => {
+      respond = (path) =>
+        path.startsWith("/v1/journeys/")
+          ? path.includes("/events")
+            ? { status: 200, body: { data: { items: [hostileEvent], nextCursor: null } } }
+            : {
+                status: 200,
+                body: {
+                  data: {
+                    ...JOURNEY,
+                    journeyId: HOSTILE,
+                    entity: { type: HOSTILE, id: HOSTILE },
+                    aliases: [{ type: HOSTILE, displayValue: HOSTILE }],
+                    services: [HOSTILE],
+                    failedStep: hostileEvent.name,
+                    likelyCauses: [hostileCause]
+                  }
+                }
+              }
+          : { status: 404, body: {} };
+      const { out, io } = capture(env());
+      expect(await run(["journey", "jrn_1"], io)).toBe(0);
+      const lines = safeLines(out);
+      expect(lines[0]).toBe(`${SHOWN}:${SHOWN}`);
+      expect(lines[1]).toContain(`${SHOWN}  ·  failed  ·  1 events  ·  ${SHOWN}`);
+      expect(lines[2]).toBe(`also known as  ${SHOWN}=${SHOWN}`);
+      const steps = lines.filter(
+        (line) => line.includes(`step-${SHOWN}`) && !line.includes("Likely cause:")
+      );
+      expect(steps).toHaveLength(1);
+      expect(steps[0]).toContain(`svc-${SHOWN}`);
+      // The reporter is named by its step, matched on the raw id.
+      expect(lines).toContain(
+        `  Likely cause: phone changed at ${SHOWN} (was ${SHOWN}, now ${SHOWN}), reported by step-${SHOWN}`
+      );
+    });
+
+    it("escapes them in search results and the project list", async () => {
+      respond = (path) =>
+        path.startsWith("/v1/search")
+          ? {
+              status: 200,
+              body: {
+                data: {
+                  items: [
+                    {
+                      ...JOURNEY,
+                      journeyId: HOSTILE,
+                      entity: { type: "c", id: HOSTILE },
+                      status: HOSTILE
+                    }
+                  ]
+                }
+              }
+            }
+          : {
+              status: 200,
+              body: { data: { items: [{ id: HOSTILE, slug: HOSTILE, name: HOSTILE }] } }
+            };
+      const search = capture(env());
+      expect(await run(["search", "x"], search.io)).toBe(0);
+      const found = safeLines(search.out);
+      expect(found).toHaveLength(2);
+      expect(found[1]).toContain(SHOWN);
+
+      const projects = capture(env());
+      expect(await run(["projects"], projects.io)).toBe(0);
+      const listed = safeLines(projects.out);
+      expect(listed).toHaveLength(2);
+      expect(listed[1]).toBe(`${SHOWN}  ${SHOWN.padEnd(28)}${SHOWN}`);
+    });
+
+    it("escapes them in a diff and in an API error", async () => {
+      respond = (path) =>
+        path.startsWith("/v1/events/")
+          ? {
+              status: 200,
+              body: {
+                data: {
+                  ...hostileEvent,
+                  journeyId: "jrn_1",
+                  payloadDiff: {
+                    changes: [{ kind: "changed", path: HOSTILE, before: HOSTILE, after: "ok" }]
+                  }
+                }
+              }
+            }
+          : { status: 400, body: { error: { code: "bad_request", message: HOSTILE } } };
+      const diff = capture(env());
+      expect(await run(["event", "evt_1", "--diff"], diff.io)).toBe(0);
+      const lines = safeLines(diff.out);
+      expect(lines.some((line) => line.startsWith(`${SHOWN}  `))).toBe(true);
+
+      const failed = capture(env());
+      expect(await run(["search", "x"], failed.io)).toBe(1);
+      expect(safeLines(failed.err).join("\n")).toContain(SHOWN);
+    });
+  });
+
   it("follows cursors so a long timeline is not silently truncated", async () => {
     let page = 0;
     respond = (path) => {
