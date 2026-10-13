@@ -8,7 +8,7 @@ import type {
   Project
 } from "./client.js";
 import { bounded, isBelow } from "./cause-paths.js";
-import { terminalSafe as safe } from "./terminal-safe.js";
+import { jsonSafe, terminalSafe as safe, terminalSafeWithin } from "./terminal-safe.js";
 
 /**
  * Terminal output, aligned by hand.
@@ -95,11 +95,11 @@ export function formatSearch(journeys: JourneySummary[], style: Style): string {
     `${pad("JOURNEY", 44)}${pad("ENTITY", 26)}${pad("STATUS", 10)}${pad("EVENTS", 8)}STARTED`
   );
   const rows = journeys.map((j) => {
-    // Cut first, escape second, so the cut never splits an escape.
-    const entity = `${j.entity.type}:${j.entity.id}`;
+    // Bounded by the width shown, cut between escapes, never inside one.
+    const entity = terminalSafeWithin(`${j.entity.type}:${j.entity.id}`, 24);
     return (
       pad(safe(j.journeyId), 44) +
-      pad(safe(entity.length > 24 ? `${entity.slice(0, 23)}…` : entity), 26) +
+      pad(entity, 26) +
       cell(safe(j.status), 10, statusColour(j.status, style)) +
       pad(String(j.eventCount), 8) +
       style.dim(`${DATE.format(new Date(j.startedAt))} ${TIME.format(new Date(j.startedAt))}`)
@@ -195,9 +195,9 @@ export function formatEvent(event: EventDetail, showDiff: boolean, style: Style)
     if (payload === undefined) continue;
     lines.push("");
     lines.push(style.dim(label));
-    // JSON has escaped C0 already; `safe` adds DEL, C1 and bidi, which it
-    // leaves. Line by line, because the newlines JSON adds are its layout.
-    lines.push(...JSON.stringify(payload, null, 2).split("\n").map(safe));
+    // JSON has escaped C0 already; `jsonSafe` adds DEL, C1 and bidi as
+    // `\uXXXX`, so the printed payload stays valid JSON.
+    lines.push(jsonSafe(JSON.stringify(payload, null, 2)));
   }
   return lines.join("\n");
 }

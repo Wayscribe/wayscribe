@@ -14,6 +14,7 @@ import {
   styleFor,
   type Style
 } from "./format.js";
+import { jsonSafe } from "./terminal-safe.js";
 
 const USAGE = `wayscribe — read journeys from a Wayscribe installation
 
@@ -93,7 +94,7 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     const config = resolveConfig(parsed.values, io.env);
     const client = new Client(config);
     const emit = (value: unknown, text: string): void => {
-      io.out(config.json ? JSON.stringify(value, null, 2) : text);
+      io.out(config.json ? jsonSafe(JSON.stringify(value, null, 2)) : text);
     };
 
     switch (command) {
