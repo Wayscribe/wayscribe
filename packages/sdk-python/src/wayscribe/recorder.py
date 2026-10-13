@@ -406,7 +406,7 @@ class _Operations:
                         if inspect.isawaitable(verdict):
                             _close_coroutine(verdict)
                             raise ValueError()
-                        error = _failure(verdict, name)
+                        error = _failure(verdict, name, recorder._diagnostics)
                     except Exception:
                         recorder._diagnostics.increment("capture_errors")
                         recorder._diagnostics.emit("capture_error", "unexpected_error")
@@ -643,7 +643,7 @@ def _projection(callback, value, context):
     return projected
 
 
-def _failure(verdict, name):
+def _failure(verdict, name, diagnostics):
     if not verdict:
         return UNSET
     generic = f"{name} reported a failed result."
@@ -656,11 +656,14 @@ def _failure(verdict, name):
             "code": code if type(code) is str and code else "result_failed",
         }
         # ADR-072: capture_error keeps only what the server accepts.
-        # Its own guard: a mapping that raises here costs only the fields.
+        # Its own guard: a mapping that raises here costs only the fields,
+        # and reports it as _fields_of and the Node SDK's failureFrom do.
         try:
             if "fields" in verdict:
                 failure["fields"] = verdict.get("fields")
         except Exception:
-            pass
+            diagnostics.emit(
+                "capture_error", "unexpected_error", {"field": "error.fields"}
+            )
         return failure
     return {"message": generic, "code": "result_failed"}
