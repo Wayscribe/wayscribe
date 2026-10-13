@@ -14,6 +14,15 @@ changes far less often.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-13
+
+The `api`, `web` and `demo` images, `@wayscribe/node`, the Python package
+`wayscribe` and the Go module `wayscribe.dev/go` (tag `packages/sdk-go/v0.2.6`)
+are 0.2.6. This release is root-cause linking (#8, ADR-072). The event protocol
+gains one optional field, `error.fields`, and its version stays `0.1`; the
+stored data needs no migration. Nothing changes for a deployment that upgrades
+without touching its settings.
+
 ### Added
 
 - **A failed step names its likely cause.** When an error names the fields it rejected, in
