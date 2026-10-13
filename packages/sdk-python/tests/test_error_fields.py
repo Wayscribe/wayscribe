@@ -94,6 +94,7 @@ class ErrorFieldsTests(unittest.TestCase):
             _failure(
                 {"code": "phone_required", "fields": ["phone"]},
                 "deliver-customer-to-target",
+                setup()[1],
             ),
             {
                 "message": "deliver-customer-to-target reported a failed result.",
@@ -102,18 +103,80 @@ class ErrorFieldsTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            _failure({"code": "phone_required"}, "deliver-customer-to-target"),
+            _failure(
+                {"code": "phone_required"},
+                "deliver-customer-to-target",
+                setup()[1],
+            ),
             {
                 "message": "deliver-customer-to-target reported a failed result.",
                 "code": "phone_required",
             },
         )
 
+    def test_a_raising_fields_read_on_an_is_failure_mapping_is_diagnosed(self):
+        # Parity with the Node SDK's failureFrom: the read costs the fields,
+        # keeps the message and the code, and leaves a capture_error report.
+        for raising in ("contains", "get"):
+            with self.subTest(raising=raising):
+                _, d, reports = setup()
+                verdict = RaisingFields(
+                    raising, code="phone_required", message="rejected"
+                )
+                self.assertEqual(
+                    _failure(verdict, "send", d),
+                    {"message": "rejected", "code": "phone_required"},
+                )
+                self.assertEqual(
+                    [(r["kind"], r["code"], r["detail"]) for r in reports],
+                    [
+                        (
+                            "capture_error",
+                            "unexpected_error",
+                            {"field": "error.fields"},
+                        )
+                    ],
+                )
+
+    def test_a_raising_diagnostic_sink_never_escapes_failure(self):
+        def sink(report):
+            raise RuntimeError("sink bug")
+
+        from wayscribe._diagnostics import Diagnostics
+
+        d = Diagnostics(on_diagnostic=sink)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                _failure(RaisingFields("get", code="c", message="m"), "send", d),
+                {"message": "m", "code": "c"},
+            )
+
+
+class RaisingFields(dict):
+    """A host mapping whose `fields` read raises, by membership or by get."""
+
+    def __init__(self, raising, **items):
+        super().__init__(**items)
+        self.raising = raising
+
+    def __contains__(self, key):
+        if self.raising == "contains" and key == "fields":
+            raise RuntimeError("host bug: secret-payload-value")
+        return key == "fields" or super().__contains__(key)
+
+    def get(self, key, default=None):
+        if key == "fields":
+            raise RuntimeError("host bug: secret-payload-value")
+        return super().get(key, default)
+
 
 class RecordingPathTests(unittest.TestCase):
     def setUp(self):
         self.server = self.enterContext(Collector())
-        self.recorder = self.server.recorder(flush_interval_ms=60000)
+        self.reports = []
+        self.recorder = self.server.recorder(
+            flush_interval_ms=60000, on_diagnostic=self.reports.append
+        )
         self.addCleanup(self.recorder.shutdown)
         self.journey = self.recorder.journey({"type": "customer", "id": "42"})
 
@@ -177,6 +240,53 @@ class RecordingPathTests(unittest.TestCase):
             self.events()[0]["error"],
             {"code": "phone_required", "message": "rejected"},
         )
+        self.assertFieldsDiagnosed()
+
+    def test_a_raising_fields_get_on_an_is_failure_mapping_records_and_diagnoses(
+        self,
+    ):
+        result = {"status": 422}
+        self.assertIs(
+            self.journey.deliver(
+                "send",
+                {},
+                lambda: result,
+                is_failure=lambda r: RaisingFields(
+                    "get", code="phone_required", message="rejected"
+                ),
+            ),
+            result,
+        )
+        self.assertEqual(
+            self.events()[0]["error"],
+            {"code": "phone_required", "message": "rejected"},
+        )
+        self.assertFieldsDiagnosed()
+
+    def test_a_raising_fields_attribute_on_a_thrown_exception_is_diagnosed(self):
+        def fails():
+            raise ExplodingFields("A phone number is required.")
+
+        with self.assertRaises(ExplodingFields):
+            self.journey.deliver("send", {}, fails)
+        self.assertEqual(
+            self.events()[0]["error"],
+            {"message": "A phone number is required.", "type": "ExplodingFields"},
+        )
+        self.assertFieldsDiagnosed()
+
+    def assertFieldsDiagnosed(self):
+        found = [
+            r
+            for r in self.reports
+            if r["kind"] == "capture_error"
+            and r["detail"] == {"field": "error.fields"}
+        ]
+        self.assertEqual(len(found), 1, self.reports)
+        self.assertEqual(found[0]["code"], "unexpected_error")
+        # A diagnostic never carries a payload value, nor the host's error text.
+        self.assertNotIn("secret-payload-value", repr(self.reports))
+        self.assertNotIn("host bug", repr(self.reports))
 
 
 if __name__ == "__main__":
