@@ -349,6 +349,272 @@ describe("the command line", () => {
     });
   });
 
+  describe("server strings with control characters", () => {
+    // An ESC sequence that clears the screen, a newline that breaks the
+    // indented layout, a C1 CSI and a right-to-left override.
+    const HOSTILE = "x\u001b[2J\ny\u009b\u202e";
+    const SHOWN = "x\\x1b[2J\\ny\\u{9b}\\u{202e}";
+    // What must never reach the terminal from a server string. Lines are
+    // checked one by one, so the joining newlines are not counted.
+    // eslint-disable-next-line no-control-regex -- matching control characters is the point
+    const UNSAFE = /[\u0000-\u001f\u007f-\u009f\p{Bidi_Control}]/u;
+    const safeLines = (lines: string[]): string[] => {
+      const split = lines.join("\n").split("\n");
+      expect(split.filter((line) => UNSAFE.test(line))).toEqual([]);
+      return split;
+    };
+    const hostileEvent = {
+      id: `evt_${HOSTILE}`,
+      operation: "failed",
+      name: `step-${HOSTILE}`,
+      service: `svc-${HOSTILE}`,
+      eventTimestamp: "2026-08-06T10:00:05.000Z",
+      durationMs: null,
+      hasInput: true,
+      hasOutput: false,
+      hasError: true
+    };
+    const hostileCause = {
+      field: "phone",
+      reportedBy: hostileEvent.id,
+      eventId: "evt_transform",
+      step: HOSTILE,
+      change: { kind: "changed", lost: false, path: "phone", before: HOSTILE, after: HOSTILE },
+      alsoChangedAt: [{ eventId: "evt_other", step: HOSTILE }]
+    };
+
+    it("escapes them in an event's error, step name and likely-cause values", async () => {
+      respond = () => ({
+        status: 200,
+        body: {
+          data: {
+            ...hostileEvent,
+            journeyId: "jrn_1",
+            error: { message: HOSTILE, code: HOSTILE },
+            likelyCauses: [hostileCause],
+            inputPayload: { note: "a\u001bb", c1: "c\u009bd" }
+          }
+        }
+      });
+      const { out, io } = capture(env());
+      expect(await run(["event", "evt_1"], io)).toBe(0);
+      const lines = safeLines(out);
+      expect(lines[0]).toBe(`failed  step-${SHOWN}`);
+      expect(lines[1]).toContain(`evt_${SHOWN}  ·  svc-${SHOWN}  ·`);
+      expect(lines).toContain(`error  ${SHOWN}`);
+      expect(lines).toContain(
+        `  Likely cause: phone changed at ${SHOWN} (was ${SHOWN}, now ${SHOWN})`
+      );
+      expect(lines).toContain(`  Also changed earlier at: ${SHOWN}`);
+      // JSON already escaped the C0 character; it is not escaped twice.
+      expect(lines).toContain('  "note": "a\\u001bb",');
+      expect(lines).toContain('  "c1": "c\\u009bd"');
+    });
+
+    it("escapes them in a journey timeline, keeping one line per step", async () => {
+      respond = (path) =>
+        path.startsWith("/v1/journeys/")
+          ? path.includes("/events")
+            ? { status: 200, body: { data: { items: [hostileEvent], nextCursor: null } } }
+            : {
+                status: 200,
+                body: {
+                  data: {
+                    ...JOURNEY,
+                    journeyId: HOSTILE,
+                    entity: { type: HOSTILE, id: HOSTILE },
+                    aliases: [{ type: HOSTILE, displayValue: HOSTILE }],
+                    services: [HOSTILE],
+                    failedStep: hostileEvent.name,
+                    likelyCauses: [hostileCause]
+                  }
+                }
+              }
+          : { status: 404, body: {} };
+      const { out, io } = capture(env());
+      expect(await run(["journey", "jrn_1"], io)).toBe(0);
+      const lines = safeLines(out);
+      expect(lines[0]).toBe(`${SHOWN}:${SHOWN}`);
+      expect(lines[1]).toContain(`${SHOWN}  ·  failed  ·  1 events  ·  ${SHOWN}`);
+      expect(lines[2]).toBe(`also known as  ${SHOWN}=${SHOWN}`);
+      const steps = lines.filter(
+        (line) => line.includes(`step-${SHOWN}`) && !line.includes("Likely cause:")
+      );
+      expect(steps).toHaveLength(1);
+      expect(steps[0]).toContain(`svc-${SHOWN}`);
+      // The reporter is named by its step, matched on the raw id.
+      expect(lines).toContain(
+        `  Likely cause: phone changed at ${SHOWN} (was ${SHOWN}, now ${SHOWN}), reported by step-${SHOWN}`
+      );
+    });
+
+    it("escapes them in search results and the project list", async () => {
+      respond = (path) =>
+        path.startsWith("/v1/search")
+          ? {
+              status: 200,
+              body: {
+                data: {
+                  items: [
+                    {
+                      ...JOURNEY,
+                      journeyId: HOSTILE,
+                      entity: { type: "c", id: HOSTILE },
+                      status: HOSTILE
+                    }
+                  ]
+                }
+              }
+            }
+          : {
+              status: 200,
+              body: { data: { items: [{ id: HOSTILE, slug: HOSTILE, name: HOSTILE }] } }
+            };
+      const search = capture(env());
+      expect(await run(["search", "x"], search.io)).toBe(0);
+      const found = safeLines(search.out);
+      expect(found).toHaveLength(2);
+      expect(found[1]).toContain(SHOWN);
+
+      const projects = capture(env());
+      expect(await run(["projects"], projects.io)).toBe(0);
+      const listed = safeLines(projects.out);
+      expect(listed).toHaveLength(2);
+      expect(listed[1]).toBe(`${SHOWN}  ${SHOWN.padEnd(28)}${SHOWN}`);
+    });
+
+    it("escapes them in a diff and in an API error", async () => {
+      respond = (path) =>
+        path.startsWith("/v1/events/")
+          ? {
+              status: 200,
+              body: {
+                data: {
+                  ...hostileEvent,
+                  journeyId: "jrn_1",
+                  payloadDiff: {
+                    changes: [{ kind: "changed", path: HOSTILE, before: HOSTILE, after: "ok" }]
+                  }
+                }
+              }
+            }
+          : { status: 400, body: { error: { code: "bad_request", message: HOSTILE } } };
+      const diff = capture(env());
+      expect(await run(["event", "evt_1", "--diff"], diff.io)).toBe(0);
+      const lines = safeLines(diff.out);
+      expect(lines.some((line) => line.startsWith(`${SHOWN}  `))).toBe(true);
+
+      const failed = capture(env());
+      expect(await run(["search", "x"], failed.io)).toBe(1);
+      expect(safeLines(failed.err).join("\n")).toContain(SHOWN);
+    });
+
+    it("emits --json that parses to the same value, with no raw C1 or bidi characters", async () => {
+      const data = {
+        ...hostileEvent,
+        journeyId: "jrn_1",
+        name: "a\u007fb\u009bc\u202ed\u061ce\u200ef\u2066g",
+        "k\u200f": "東京 🚀"
+      };
+      respond = () => ({ status: 200, body: { data } });
+      const { out, io } = capture(env());
+      expect(await run(["event", "evt_1", "--json"], io)).toBe(0);
+      safeLines(out);
+      expect(out.join("\n")).toContain('"a\\u007fb\\u009bc\\u202ed\\u061ce\\u200ef\\u2066g"');
+      expect(JSON.parse(out.join("\n"))).toEqual(data);
+    });
+
+    it("escapes a journey's status and its steps' operations, and aligns by what is shown", async () => {
+      const steps = [
+        {
+          ...hostileEvent,
+          operation: "o\u001b\u001b\u001b\u001b",
+          name: "n\u001b\u001b\u001b",
+          service: "svc-a"
+        },
+        { ...hostileEvent, id: "evt_2", operation: "plain", name: "named", service: "svc-b" }
+      ];
+      respond = (path) =>
+        path.includes("/events")
+          ? { status: 200, body: { data: { items: steps, nextCursor: null } } }
+          : { status: 200, body: { data: { ...JOURNEY, status: HOSTILE } } };
+      const { out, io } = capture(env());
+      expect(await run(["journey", "jrn_1"], io)).toBe(0);
+      const lines = safeLines(out);
+      expect(lines[1]).toContain(`jrn_1  ·  ${SHOWN}  ·  2 events`);
+      const first = lines.find((line) => line.includes("svc-a")) ?? "";
+      const second = lines.find((line) => line.includes("svc-b")) ?? "";
+      expect(first).toContain("o\\x1b\\x1b\\x1b\\x1b");
+      expect(first.indexOf("n\\x1b")).toBe(second.indexOf("named"));
+      expect(first.indexOf("svc-a")).toBe(second.indexOf("svc-b"));
+    });
+
+    it("escapes a likely cause's field, and the path below it", async () => {
+      const field = `a${HOSTILE}`;
+      const below = {
+        ...hostileCause,
+        field,
+        change: { ...hostileCause.change, path: `${field}.zip` }
+      };
+      const atField = { ...hostileCause, field: HOSTILE };
+      respond = () => ({
+        status: 200,
+        body: { data: { ...hostileEvent, journeyId: "jrn_1", likelyCauses: [below, atField] } }
+      });
+      const { out, io } = capture(env());
+      expect(await run(["event", "evt_1"], io)).toBe(0);
+      const lines = safeLines(out);
+      expect(lines).toContain(
+        `  Likely cause: a${SHOWN}.zip (in a${SHOWN}) changed at ${SHOWN} (was ${SHOWN}, now ${SHOWN})`
+      );
+      expect(lines).toContain(
+        `  Likely cause: ${SHOWN} changed at ${SHOWN} (was ${SHOWN}, now ${SHOWN})`
+      );
+    });
+
+    it("aligns a diff by the escaped width of its paths", async () => {
+      respond = () => ({
+        status: 200,
+        body: {
+          data: {
+            ...hostileEvent,
+            journeyId: "jrn_1",
+            payloadDiff: {
+              changes: [
+                { kind: "changed", path: "p\u001b\u001b\u001b", before: "v1", after: "w1" },
+                { kind: "changed", path: "plain-path", before: "v2", after: "w2" }
+              ]
+            }
+          }
+        }
+      });
+      const { out, io } = capture(env());
+      expect(await run(["event", "evt_1", "--diff"], io)).toBe(0);
+      const lines = safeLines(out);
+      const rows = lines.filter((line) => line.includes('"v'));
+      expect(rows).toHaveLength(2);
+      expect(rows[0]?.indexOf('"v1"')).toBe(rows[1]?.indexOf('"v2"'));
+    });
+
+    it("bounds a search entity by its escaped width without cutting an escape", async () => {
+      respond = () => ({
+        status: 200,
+        body: {
+          data: {
+            items: [
+              { ...JOURNEY, journeyId: "jrn_1", entity: { type: "c", id: "\u001b".repeat(10) } }
+            ]
+          }
+        }
+      });
+      const { out, io } = capture(env());
+      expect(await run(["search", "x"], io)).toBe(0);
+      const row = safeLines(out)[1] ?? "";
+      expect(row.slice(44, 70)).toBe(`c:${"\\x1b".repeat(5)}…`.padEnd(26));
+      expect(row.slice(70, 80)).toBe("failed    ");
+    });
+  });
+
   it("follows cursors so a long timeline is not silently truncated", async () => {
     let page = 0;
     respond = (path) => {

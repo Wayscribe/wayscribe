@@ -8,12 +8,17 @@ import type {
   Project
 } from "./client.js";
 import { bounded, isBelow } from "./cause-paths.js";
+import { jsonSafe, terminalSafe as safe, terminalSafeWithin } from "./terminal-safe.js";
 
 /**
  * Terminal output, aligned by hand.
  *
  * No dependency and no colour library: colour is four escape codes, and the
  * decision that actually matters is whether to emit them at all.
+ *
+ * Every string the server supplies goes through `safe` before it is padded
+ * or printed, so its control characters show as escapes rather than act on
+ * the terminal, and widths count what is actually shown.
  */
 const TIME = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
@@ -75,9 +80,10 @@ export function formatProjects(projects: Project[], style: Style): string {
   if (projects.length === 0) {
     return "No projects yet.\nCreate one with: project:create <slug> <name>  (see docs/OPERATIONS.md)";
   }
-  const width = Math.max(...projects.map((p) => p.slug.length), 4);
+  const shown = projects.map((p) => ({ slug: safe(p.slug), name: safe(p.name), id: safe(p.id) }));
+  const width = Math.max(...shown.map((p) => p.slug.length), 4);
   const header = style.dim(`${pad("SLUG", width)}  ${pad("NAME", 28)}ID`);
-  const rows = projects.map((p) => `${pad(p.slug, width)}  ${pad(p.name, 28)}${style.dim(p.id)}`);
+  const rows = shown.map((p) => `${pad(p.slug, width)}  ${pad(p.name, 28)}${style.dim(p.id)}`);
   return [header, ...rows].join("\n");
 }
 
@@ -89,11 +95,12 @@ export function formatSearch(journeys: JourneySummary[], style: Style): string {
     `${pad("JOURNEY", 44)}${pad("ENTITY", 26)}${pad("STATUS", 10)}${pad("EVENTS", 8)}STARTED`
   );
   const rows = journeys.map((j) => {
-    const entity = `${j.entity.type}:${j.entity.id}`;
+    // Bounded by the width shown, cut between escapes, never inside one.
+    const entity = terminalSafeWithin(`${j.entity.type}:${j.entity.id}`, 24);
     return (
-      pad(j.journeyId, 44) +
-      pad(entity.length > 24 ? `${entity.slice(0, 23)}…` : entity, 26) +
-      cell(j.status, 10, statusColour(j.status, style)) +
+      pad(safe(j.journeyId), 44) +
+      pad(entity, 26) +
+      cell(safe(j.status), 10, statusColour(j.status, style)) +
       pad(String(j.eventCount), 8) +
       style.dim(`${DATE.format(new Date(j.startedAt))} ${TIME.format(new Date(j.startedAt))}`)
     );
@@ -107,16 +114,16 @@ export function formatJourney(
   style: Style
 ): string {
   const lines: string[] = [];
-  lines.push(style.bold(`${journey.entity.type}:${journey.entity.id}`));
+  lines.push(style.bold(safe(`${journey.entity.type}:${journey.entity.id}`)));
   lines.push(
     style.dim(
-      `${journey.journeyId}  ·  ${statusColour(journey.status, style)(journey.status)}  ·  ${String(events.length)} events  ·  ${journey.services.join(", ")}`
+      `${safe(journey.journeyId)}  ·  ${statusColour(journey.status, style)(safe(journey.status))}  ·  ${String(events.length)} events  ·  ${safe(journey.services.join(", "))}`
     )
   );
   if (journey.aliases.length > 0) {
     lines.push(
       style.dim(
-        `also known as  ${journey.aliases.map((a) => `${a.type}=${a.displayValue}`).join("  ")}`
+        `also known as  ${journey.aliases.map((a) => safe(`${a.type}=${a.displayValue}`)).join("  ")}`
       )
     );
   }
@@ -138,8 +145,8 @@ export function formatJourney(
       : undefined;
   const nameOf = (eventId: string): string | null =>
     events.find((e) => e.id === eventId)?.name ?? null;
-  const opWidth = Math.max(...events.map((e) => e.operation.length), 9);
-  const nameWidth = Math.max(...events.map((e) => e.name.length), 4);
+  const opWidth = Math.max(...events.map((e) => safe(e.operation).length), 9);
+  const nameWidth = Math.max(...events.map((e) => safe(e.name).length), 4);
 
   for (const event of events) {
     const when = spansDays
@@ -148,7 +155,7 @@ export function formatJourney(
     const duration = event.durationMs === null ? "" : style.dim(` ${String(event.durationMs)}ms`);
     const flag = event.hasError ? style.red(" !") : "  ";
     lines.push(
-      `${style.dim(when)}${flag} ${cell(event.operation, opWidth, operationColour(event.operation, style))}  ${pad(event.name, nameWidth)}  ${style.dim(event.service)}${duration}`
+      `${style.dim(when)}${flag} ${cell(safe(event.operation), opWidth, operationColour(event.operation, style))}  ${pad(safe(event.name), nameWidth)}  ${style.dim(safe(event.service))}${duration}`
     );
     if (event === failedRow) {
       lines.push(...formatLikelyCauses(journey.likelyCauses, null, nameOf, style));
@@ -162,16 +169,16 @@ export function formatJourney(
 
 export function formatEvent(event: EventDetail, showDiff: boolean, style: Style): string {
   const lines: string[] = [];
-  lines.push(style.bold(`${event.operation}  ${event.name}`));
+  lines.push(style.bold(safe(`${event.operation}  ${event.name}`)));
   lines.push(
     style.dim(
-      `${event.id}  ·  ${event.service}  ·  ${DATE.format(new Date(event.eventTimestamp))} ${TIME.format(new Date(event.eventTimestamp))} UTC`
+      `${safe(event.id)}  ·  ${safe(event.service)}  ·  ${DATE.format(new Date(event.eventTimestamp))} ${TIME.format(new Date(event.eventTimestamp))} UTC`
     )
   );
 
   if (event.error !== undefined && event.error !== null) {
     lines.push("");
-    lines.push(style.red(`error  ${event.error.message}`));
+    lines.push(style.red(`error  ${safe(event.error.message)}`));
   }
   lines.push(...formatLikelyCauses(event.likelyCauses, event.id, () => null, style));
 
@@ -188,7 +195,9 @@ export function formatEvent(event: EventDetail, showDiff: boolean, style: Style)
     if (payload === undefined) continue;
     lines.push("");
     lines.push(style.dim(label));
-    lines.push(JSON.stringify(payload, null, 2));
+    // JSON has escaped C0 already; `jsonSafe` adds DEL, C1 and bidi as
+    // `\uXXXX`, so the printed payload stays valid JSON.
+    lines.push(jsonSafe(JSON.stringify(payload, null, 2)));
   }
   return lines.join("\n");
 }
@@ -211,8 +220,8 @@ export function formatLikelyCauses(
     const { change } = cause;
     const verb = change.lost ? "lost" : change.kind === "removed" ? "removed" : "changed";
     const subject = isBelow(change.path, cause.field)
-      ? `${change.path} (in ${cause.field})`
-      : cause.field;
+      ? `${safe(change.path)} (in ${safe(cause.field)})`
+      : safe(cause.field);
     const values =
       verb === "changed"
         ? ` (was ${causeValue(change.before)}, now ${causeValue(change.after)})`
@@ -220,13 +229,15 @@ export function formatLikelyCauses(
     const reporter =
       cause.reportedBy === failedEventId
         ? ""
-        : `, reported by ${nameOf(cause.reportedBy) ?? cause.reportedBy}`;
+        : `, reported by ${safe(nameOf(cause.reportedBy) ?? cause.reportedBy)}`;
     lines.push(
-      `  ${style.bold("Likely cause:")} ${subject} ${verb} at ${cause.step}${values}${reporter}`
+      `  ${style.bold("Likely cause:")} ${subject} ${verb} at ${safe(cause.step)}${values}${reporter}`
     );
     if (cause.alsoChangedAt.length > 0) {
       lines.push(
-        style.dim(`  Also changed earlier at: ${cause.alsoChangedAt.map((s) => s.step).join(", ")}`)
+        style.dim(
+          `  Also changed earlier at: ${safe(cause.alsoChangedAt.map((s) => s.step).join(", "))}`
+        )
       );
     }
     if (cause.incomplete === true) {
@@ -236,9 +247,13 @@ export function formatLikelyCauses(
   return lines;
 }
 
-/** A string as it is up to the web's bound, anything else as `render` shows a diff value. */
+/**
+ * A string as it is up to the web's bound, anything else as `render` shows a
+ * diff value. Bounded first, as the web counts the raw value's code points,
+ * then escaped, so the bound never cuts an escape in half.
+ */
 function causeValue(value: unknown): string {
-  return typeof value === "string" ? bounded(value) : render(value);
+  return typeof value === "string" ? safe(bounded(value)) : render(value);
 }
 
 export function formatDiff(changes: DiffChange[] | undefined, style: Style): string {
@@ -249,12 +264,12 @@ export function formatDiff(changes: DiffChange[] | undefined, style: Style): str
     return "No fields changed between input and output.";
   }
 
-  const width = Math.max(...changes.map((c) => c.path.length), 5);
+  const width = Math.max(...changes.map((c) => safe(c.path).length), 5);
   const lines = [style.dim(`${pad("FIELD", width)}  BEFORE  →  AFTER`)];
   for (const change of changes) {
     const before = change.kind === "added" ? style.dim("—") : style.red(render(change.before));
     const after = change.kind === "removed" ? style.dim("—") : style.green(render(change.after));
-    lines.push(`${pad(change.path, width)}  ${before}  →  ${after}`);
+    lines.push(`${pad(safe(change.path), width)}  ${before}  →  ${after}`);
   }
   return lines.join("\n");
 }
@@ -262,7 +277,7 @@ export function formatDiff(changes: DiffChange[] | undefined, style: Style): str
 function render(value: unknown): string {
   if (value === undefined) return "—";
   const text = JSON.stringify(value);
-  return text.length > 60 ? `${text.slice(0, 59)}…` : text;
+  return safe(text.length > 60 ? `${text.slice(0, 59)}…` : text);
 }
 
 /** The colour a status wears, as a function so padding can happen first. */

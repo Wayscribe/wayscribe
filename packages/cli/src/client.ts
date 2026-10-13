@@ -1,4 +1,5 @@
 import type { CliConfig } from "./config.js";
+import { terminalSafe } from "./terminal-safe.js";
 
 /**
  * A failure the user can act on.
@@ -183,7 +184,9 @@ export class Client {
 
 /** The API's message, plus what to do about it when that is not obvious. */
 function explain(status: number, code: string | undefined, message: string | undefined): string {
-  const said = message ?? `Request failed with ${String(status)}.`;
+  // The API's own words are server text: escaped, unlike the advice below.
+  const said =
+    message === undefined ? `Request failed with ${String(status)}.` : terminalSafe(message);
 
   if (code === "unauthorized") {
     return `${said}\nCheck WAYSCRIBE_TOKEN — it is the same value the web interface asks for.`;
