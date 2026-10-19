@@ -31,6 +31,7 @@
     "db:seed": "pnpm --filter @wayscribe/database run seed",
     "db:seed-demo": "pnpm --filter @wayscribe/database run seed-demo",
     "test:e2e": "playwright test",
+    "test:live": "playwright test --config playwright.live.config.ts",
     "test:demo": "vitest run --config vitest.demo.config.ts",
     "demo:trigger": "node scripts/demo-trigger.mjs",
     "project:create": "pnpm --filter @wayscribe/database run \"project:create\" --",
