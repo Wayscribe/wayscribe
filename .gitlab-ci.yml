@@ -44,23 +44,25 @@ stages:
   - pages
   - release
 
-# One pipeline per push (ADR-073). While a merge request is open its pipeline
-# runs and the branch pipeline does not; without one, the branch pipeline
-# runs. A schedule comes first, so an open merge request can never drop it, and
-# a pipeline started from the UI runs wherever it is started.
+# One pipeline per push (ADR-073). While a merge request is open, only a push
+# defers to its pipeline and the branch pipeline does not run; without one, the
+# branch pipeline runs. Every other source (a schedule, a run from the UI, a
+# run through the API) is created wherever it is started. The schedule rule
+# stays first to say so, though the push-only rule below would not drop it.
 # tests/ci-rules.test.ts evaluates these rules and every job's.
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-    - if: $CI_PIPELINE_SOURCE == "web"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
       when: never
     - if: $CI_COMMIT_BRANCH
     - if: $CI_COMMIT_TAG
 
 # The daily live-demo schedule sets LIVE_DEMO_CHECK=1, and its pipeline holds
-# live-demo alone: every other job's rules start with this one.
+# live-demo alone: every job that can run in a branch, merge request or
+# schedule pipeline starts its rules with this one. The tag-only release jobs
+# and github-release do not need it, since a schedule is never a tag pipeline.
 .skip-on-live-demo-check: &skip-on-live-demo-check
   if: $LIVE_DEMO_CHECK == "1"
   when: never

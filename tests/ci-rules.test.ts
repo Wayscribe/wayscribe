@@ -102,7 +102,7 @@ function assertReadable(label: string, rules: readonly Rule[] | undefined, found
 
 /** One pipeline GitLab could create. */
 interface Pipeline {
-  source: "push" | "merge_request_event" | "schedule" | "web";
+  source: "push" | "merge_request_event" | "schedule" | "web" | "api";
   /** The branch pushed, or the merge request's source branch. */
   branch?: string;
   tag?: string;
@@ -401,6 +401,9 @@ const VARIANTS: readonly Pipeline[] = [
   { source: "web", branch: "feature", openMergeRequest: true },
   { source: "web", branch: "feature" },
   { source: "web", branch: "main" },
+  // A run through the API (`glab ci run -b <branch>`).
+  { source: "api", branch: "feature", openMergeRequest: true },
+  { source: "api", branch: "feature" },
   tag("v0.2.7"),
   tag("v0.3.0-rc.1"),
   tag("phase-5"),
@@ -514,6 +517,11 @@ describe("one pipeline per push", () => {
 });
 
 describe("schedules and runs from the UI", () => {
+  it("creates a run through the API on a branch that has a merge request open", () => {
+    expect(created({ source: "api", branch: "feature", openMergeRequest: true })).toBe(true);
+    expect(created({ source: "api", branch: "feature" })).toBe(true);
+  });
+
   it("are created even on a branch that has a merge request open", () => {
     expect(created({ source: "schedule", branch: "feature", openMergeRequest: true })).toBe(true);
     expect(created({ source: "web", branch: "feature", openMergeRequest: true })).toBe(true);
