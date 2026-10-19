@@ -1088,6 +1088,48 @@ deploy-demo:
   after_script:
     - rm -f "$HOME/.ssh/demo_deploy"
 
+# The public demo from outside, in a browser (ADR-073): no sideways scroll at
+# 375 and 1440 px, journey links a tap target on a phone, the pinned journey's
+# lost value and likely cause, and the release in the footer. Read-only GETs
+# against https://demo.wayscribe.dev (playwright.live.config.ts); `pnpm
+# test:e2e` never reaches it. Daily on the schedule that sets LIVE_DEMO_CHECK=1,
+# whose pipeline holds this job alone; after deploy-demo on a release tag; and
+# by hand anywhere else. EXPECTED_VERSION defaults to the newest release tag
+# in this pipeline's history; set it when playing the job to check another.
+#
+# A failure posts one line to NTFY_TOPIC_URL (protected and masked, so main,
+# v* and scheduled pipelines see it). Without it the after_script prints a
+# warning; it never fails the job a second time.
+live-demo:
+  stage: release
+  tags: [saas-linux-small-amd64] # NTFY_TOPIC_URL: GitLab-hosted, as the other jobs holding a protected variable
+  image: mcr.microsoft.com/playwright:v1.63.0-noble
+  timeout: 15m
+  variables:
+    GIT_DEPTH: 0
+  needs:
+    - job: deploy-demo
+      optional: true
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $LIVE_DEMO_CHECK == "1"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: never
+    - when: manual
+      allow_failure: true
+  script:
+    - git fetch --tags --force --quiet origin
+    - EXPECTED_VERSION="${EXPECTED_VERSION:-$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*')}"
+    - export EXPECTED_VERSION
+    - 'echo "live-demo: expecting ${EXPECTED_VERSION} at https://demo.wayscribe.dev"'
+    - pnpm test:live
+  after_script:
+    - node scripts/live-demo-alert.mjs
+
 # npm trusted publishing with provenance. There is no npm credential in this
 # project: GitLab mints NPM_ID_TOKEN for this job alone, npm exchanges it for a
 # publish token that expires almost immediately, and SIGSTORE_ID_TOKEN signs the
