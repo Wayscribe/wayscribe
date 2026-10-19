@@ -815,4 +815,21 @@ describe("live-demo", () => {
     expect(script).toContain("pnpm test:live");
     expect((live.after_script ?? []).join("\n")).toContain("node scripts/live-demo-alert.mjs");
   });
+
+  it("stops its script before the job timeout so after_script still runs and alerts", () => {
+    const live = job("live-demo");
+    const minutes = (value: unknown): number => {
+      const match = /^(\d+)m$/.exec(String(value));
+      return match ? Number(match[1]) : Number.NaN;
+    };
+    const script = minutes(live.variables?.["RUNNER_SCRIPT_TIMEOUT"]);
+    const after = minutes(live.variables?.["RUNNER_AFTER_SCRIPT_TIMEOUT"]);
+    expect(script).toBeGreaterThan(0);
+    expect(after).toBeGreaterThan(0);
+    expect(script + after).toBeLessThan(minutes((live as { timeout?: unknown }).timeout));
+  });
+
+  it("shares the demo resource group with deploy-demo", () => {
+    expect((job("live-demo") as { resource_group?: string }).resource_group).toBe("demo");
+  });
 });

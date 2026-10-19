@@ -1100,13 +1100,23 @@ deploy-demo:
 # A failure posts one line to NTFY_TOPIC_URL (protected and masked, so main,
 # v* and scheduled pipelines see it). Without it the after_script prints a
 # warning; it never fails the job a second time.
+#
+# It runs after deploy-demo even when the deploy failed or was canceled, and
+# then alerts: the only alert a failed deploy gets. The daily check expects the
+# newest release tag, so between pushing a tag and playing deploy-demo it goes
+# red on purpose.
 live-demo:
   stage: release
   tags: [saas-linux-small-amd64] # NTFY_TOPIC_URL: GitLab-hosted, as the other jobs holding a protected variable
   image: mcr.microsoft.com/playwright:v1.63.0-noble
+  resource_group: demo
   timeout: 15m
   variables:
     GIT_DEPTH: 0
+    # GitLab skips after_script when the job times out, so cap the script
+    # first: a hung demo must still reach the ntfy post.
+    RUNNER_SCRIPT_TIMEOUT: 12m
+    RUNNER_AFTER_SCRIPT_TIMEOUT: 1m
   needs:
     - job: deploy-demo
       optional: true

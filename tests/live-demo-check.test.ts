@@ -134,6 +134,9 @@ describe("the live check and the end-to-end suite", () => {
       'SMOKE_USER_AGENT_PREFIX = "wayscribe-smoke/"'
     );
     expect(live).toContain('userAgent: "wayscribe-smoke/live-demo"');
+    // Worst case must fit under the job's RUNNER_SCRIPT_TIMEOUT (12m) with install.
+    expect(live).toContain("timeout: 30_000");
+    expect(live).toContain("globalTimeout: 8 * 60_000");
   });
 
   it("only reads: the live spec sends no request but a page load", () => {

@@ -8,7 +8,10 @@ import { defineConfig } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./apps/web/e2e-live",
-  timeout: 60_000,
+  // A demo that accepts connections and never answers must fail inside the CI
+  // job's RUNNER_SCRIPT_TIMEOUT (12m): 30 s a test, one retry, 8 min in all.
+  timeout: 30_000,
+  globalTimeout: 8 * 60_000,
   workers: 1,
   // One retry rides out a dropped request; a demo that is down stays red.
   retries: 1,
