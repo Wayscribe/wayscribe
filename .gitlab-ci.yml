@@ -731,12 +731,20 @@ sbom:
 # demo is: two image builds and a stack. Not on other tags (phase-*,
 # usable-v0, pre-releases), which are not releases.
 .upgrade-changes: &upgrade-changes
+  - apps/api/**/*
+  - packages/config/**/*
   - packages/database/**/*
+  - packages/payload-diff/**/*
   - packages/payload-security/**/*
-  - apps/api/Dockerfile
+  - packages/protocol/**/*
+  - packages/sdk-node/**/*
   - deploy/**/*
   - infrastructure/**/*
   - scripts/upgrade-test*
+  - .dockerignore
+  - package.json
+  - pnpm-lock.yaml
+  - pnpm-workspace.yaml
   - .gitlab-ci.yml
 
 upgrade-test:
@@ -783,15 +791,22 @@ upgrade-test:
 # Docker Compose rather than a process, and it builds and boots eight containers,
 # so it is path-scoped for the reason the browser job is (ADR-073): automatic and
 # blocking on main, on schedules and on a merge request that changes the demo,
-# its stack or anything its images build from, and manual otherwise.
+# its stack or anything its images build from, and manual otherwise. Unlike the
+# spec's table it leaves out deploy/demo (that is demo-overlay's) and the SDK and
+# CLI packages, which no image builds from.
 .demo-changes: &demo-changes
   - apps/demo/**/*
   - apps/api/**/*
   - apps/web/**/*
-  - packages/**/*
-  - deploy/demo/**/*
+  - packages/config/**/*
+  - packages/database/**/*
+  - packages/payload-diff/**/*
+  - packages/payload-security/**/*
+  - packages/protocol/**/*
+  - packages/sdk-node/**/*
   - infrastructure/**/*
   - .env.example
+  - .dockerignore
   - package.json
   - pnpm-lock.yaml
   - pnpm-workspace.yaml

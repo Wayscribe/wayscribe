@@ -633,7 +633,6 @@ describe("the browser and stack jobs", () => {
       "apps/api/src/server.ts",
       "apps/api/Dockerfile",
       "apps/web/app/page.tsx",
-      "deploy/demo/smoke-check.sh",
       "infrastructure/compose.yaml",
       "infrastructure/compose.demo.yaml",
       "infrastructure/compose.ci.yaml",
@@ -661,6 +660,51 @@ describe("the browser and stack jobs", () => {
     expect(files.filter((file) => !blocks(outcome("upgrade-test", mergeRequest([file]))))).toEqual(
       []
     );
+  });
+
+  it("covers what the demo and upgrade-test images build from, and .dockerignore", () => {
+    const demo = [...workspaceDependencies(["apps/demo", "apps/api", "apps/web"])];
+    const upgrade = workspaceDependencies(["apps/api"]);
+    const wanted = {
+      demo: [
+        ...asFiles(demo),
+        "apps/demo/src/history.ts",
+        "apps/api/src/server.ts",
+        ".dockerignore"
+      ],
+      "upgrade-test": [
+        ...asFiles(upgrade),
+        "apps/api/src/server.ts",
+        "apps/api/package.json",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        ".dockerignore"
+      ]
+    };
+    for (const [name, files] of Object.entries(wanted)) {
+      expect(
+        files.filter((file) => !blocks(outcome(name, mergeRequest([file])))),
+        name
+      ).toEqual([]);
+    }
+  });
+
+  it("leaves e2e, demo and upgrade-test by hand on a merge request touching only the SDKs, the CLI or docs", () => {
+    const only = [
+      ["packages/sdk-python/src/wayscribe/client.py"],
+      ["packages/sdk-go/client.go"],
+      ["packages/cli/package.json", "packages/cli/README.md"],
+      ["docs/OPERATIONS.md", "README.md"]
+    ];
+    for (const files of only) {
+      for (const name of STACK_JOBS) {
+        expect(outcome(name, mergeRequest(files)), `${name} for ${files.join(", ")}`).toEqual({
+          when: "manual",
+          allowFailure: true
+        });
+      }
+    }
   });
 
   it("runs upgrade-test on a vX.Y.Z tag only, not on another tag", () => {
