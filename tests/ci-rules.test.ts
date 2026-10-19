@@ -18,8 +18,10 @@ import { read, root } from "./docs-helpers.js";
  *
  * The reader below supports the rule syntax this file uses (`if` with `==`,
  * `!=`, `=~`, `!~`, `&&`, `||`, parentheses and `null`; `changes` as a list or
- * `paths`) and throws on anything else, so new syntax cannot be misread
- * silently.
+ * `paths`; `when` of on_success, manual, always or never; `allow_failure`) and
+ * throws on anything else (other rule keys such as `exists` or `start_in`,
+ * `when: delayed`, job-level `only` and `except`, brace patterns), so new
+ * syntax cannot be misread silently.
  */
 
 interface Rule {
@@ -44,7 +46,19 @@ interface Job {
 const ci = parse(read(".gitlab-ci.yml"), { merge: true }) as Record<string, unknown> & {
   workflow?: { rules: Rule[] };
 };
-const KEYWORDS = new Set(["default", "variables", "stages", "workflow", "include"]);
+const KEYWORDS = new Set([
+  "default",
+  "variables",
+  "stages",
+  "workflow",
+  "include",
+  // Legacy global keywords, which GitLab still reads as defaults.
+  "image",
+  "services",
+  "cache",
+  "before_script",
+  "after_script"
+]);
 const jobs = Object.fromEntries(
   Object.entries(ci).filter(([name]) => !KEYWORDS.has(name) && !name.startsWith("."))
 ) as Record<string, Job>;
@@ -54,6 +68,37 @@ const job = (name: string): Job => {
   if (found === undefined) throw new Error(`.gitlab-ci.yml has no ${name} job`);
   return found;
 };
+
+const RULE_KEYS = new Set(["if", "changes", "when", "allow_failure"]);
+const WHEN_VALUES = new Set(["on_success", "manual", "always", "never"]);
+
+/** Throws on any rule or job syntax the reader would otherwise misread. */
+function assertReadable(label: string, rules: readonly Rule[] | undefined, found?: Job): void {
+  if (found !== undefined) {
+    const record = found as Record<string, unknown>;
+    for (const key of ["only", "except"]) {
+      if (key in record) throw new Error(`${label} uses ${key}, which the reader does not model`);
+    }
+    if (found.when !== undefined && !WHEN_VALUES.has(found.when)) {
+      throw new Error(`${label} has when: ${found.when}, which the reader does not model`);
+    }
+  }
+  for (const rule of rules ?? []) {
+    for (const key of Object.keys(rule)) {
+      if (!RULE_KEYS.has(key)) throw new Error(`${label} has a rule with ${key}, not modelled`);
+    }
+    if (rule.when !== undefined && !WHEN_VALUES.has(rule.when)) {
+      throw new Error(`${label} has a rule with when: ${rule.when}, not modelled`);
+    }
+    if (typeof rule.changes === "object" && !Array.isArray(rule.changes)) {
+      for (const key of Object.keys(rule.changes)) {
+        if (key !== "paths" && key !== "compare_to") {
+          throw new Error(`${label} has changes with ${key}, not modelled`);
+        }
+      }
+    }
+  }
+}
 
 /** One pipeline GitLab could create. */
 interface Pipeline {
@@ -178,17 +223,24 @@ function evaluate(expression: string, variables: Record<string, string>): boolea
   return result;
 }
 
-/** A `changes:` pattern, as GitLab's fnmatch reads it: `*` stays within a directory. */
+/**
+ * A `changes:` pattern, as GitLab's fnmatch reads it (Ruby's File.fnmatch with
+ * FNM_PATHNAME, FNM_DOTMATCH and FNM_EXTGLOB): `*` stays within a directory,
+ * `**` followed by a slash, at the start of a pattern or after a slash, matches
+ * zero or more directories, and any other `**` (a trailing `apps/web/**`)
+ * is only `*`, so it does not recurse.
+ */
 function globToRegExp(glob: string): RegExp {
+  if (/[{[]/.test(glob)) throw new Error(`pattern ${glob} uses a syntax the reader does not model`);
   let source = "";
   for (let index = 0; index < glob.length; index++) {
     const character = glob.charAt(index);
     if (character === "*" && glob.charAt(index + 1) === "*") {
-      if (glob.charAt(index + 2) === "/") {
+      if (glob.charAt(index + 2) === "/" && (index === 0 || glob.charAt(index - 1) === "/")) {
         source += "(?:.*/)?";
         index += 2;
       } else {
-        source += ".*";
+        source += "[^/]*";
         index += 1;
       }
     } else if (character === "*") source += "[^/]*";
@@ -215,6 +267,7 @@ const NEVER: Outcome = { when: "never", allowFailure: false };
 /** Whether `name` is in the pipeline, and how. */
 function outcome(name: string, pipeline: Pipeline): Outcome {
   const found = job(name);
+  assertReadable(name, found.rules, found);
   if (found.rules === undefined) {
     // No rules is GitLab's `only: [branches, tags]`, which leaves merge request pipelines out.
     if (pipeline.source === "merge_request_event") return NEVER;
@@ -237,6 +290,7 @@ function outcome(name: string, pipeline: Pipeline): Outcome {
 
 function created(pipeline: Pipeline): boolean {
   const rules = ci.workflow?.rules;
+  assertReadable("workflow", rules);
   if (rules !== undefined) {
     const variables = variablesOf(pipeline);
     const first = rules.find(
@@ -250,6 +304,14 @@ function created(pipeline: Pipeline): boolean {
 
 const needNames = (name: string): string[] =>
   (job(name).needs ?? []).map((need) => (typeof need === "string" ? need : need.job));
+
+/** The jobs a created pipeline holds, as names. */
+const jobsIn = (pipeline: Pipeline): string[] =>
+  created(pipeline)
+    ? Object.keys(jobs).filter((name) => outcome(name, pipeline).when !== "never")
+    : [];
+
+const blocks = (result: Outcome): boolean => result.when === "on_success" && !result.allowFailure;
 
 /** Every workspace package `starts` depends on, directly or not, as directories. */
 function workspaceDependencies(starts: readonly string[]): string[] {
@@ -324,6 +386,28 @@ const NOT_IN_MERGE_REQUESTS: readonly string[] = [
 
 const STACK_JOBS = ["e2e", "demo", "upgrade-test"] as const;
 
+/** The pipelines the tests that sweep every variant build. */
+const VARIANTS: readonly Pipeline[] = [
+  ...CHANGES.flatMap((files) => [
+    feature(files),
+    { ...feature(files), openMergeRequest: true },
+    mergeRequest(files),
+    main(files)
+  ]),
+  schedule(),
+  schedule({ LIVE_DEMO_CHECK: "1" }),
+  // A schedule or a run from the UI on a branch that has a merge request open.
+  { source: "schedule", branch: "feature", openMergeRequest: true },
+  { source: "web", branch: "feature", openMergeRequest: true },
+  { source: "web", branch: "feature" },
+  { source: "web", branch: "main" },
+  tag("v0.2.7"),
+  tag("v0.3.0-rc.1"),
+  tag("phase-5"),
+  tag("packages/sdk-python/v0.2.7"),
+  tag("packages/sdk-python/v0.2.7a1")
+];
+
 describe("the rule reader", () => {
   it("evaluates the expressions this file uses", () => {
     const variables = { A: "x", B: "1", EMPTY: "" };
@@ -345,6 +429,13 @@ describe("the rule reader", () => {
     expect(globToRegExp("apps/web/**/*").test("apps/web/page.tsx")).toBe(true);
     expect(globToRegExp("apps/web/**/*").test("apps/web/app/a/page.tsx")).toBe(true);
     expect(globToRegExp("apps/web/**/*").test("apps/webapp/page.tsx")).toBe(false);
+    // A trailing bare ** is only *: it does not recurse, while **/* does.
+    expect(globToRegExp("apps/web/**").test("apps/web/x.ts")).toBe(true);
+    expect(globToRegExp("apps/web/**").test("apps/web/a/b.ts")).toBe(false);
+    expect(globToRegExp("apps/web/**/*").test("apps/web/x.ts")).toBe(true);
+    expect(globToRegExp("apps/web/**/*").test("apps/web/a/b.ts")).toBe(true);
+    expect(globToRegExp("**/*.ts").test("x.ts")).toBe(true);
+    expect(globToRegExp("**/*.ts").test("a/b/x.ts")).toBe(true);
     expect(
       globToRegExp("infrastructure/compose.*.yaml").test("infrastructure/compose.demo.yaml")
     ).toBe(true);
@@ -354,17 +445,51 @@ describe("the rule reader", () => {
   });
 
   it("reads every rule in the file", () => {
-    const pipelines = [
-      ...CHANGES.flatMap((files) => [feature(files), mergeRequest(files), main(files)]),
-      schedule(),
-      schedule({ LIVE_DEMO_CHECK: "1" }),
-      tag("v0.2.7"),
-      tag("packages/sdk-python/v0.2.7")
-    ];
-    for (const pipeline of pipelines) {
+    for (const pipeline of VARIANTS) {
       for (const name of Object.keys(jobs)) expect(() => outcome(name, pipeline)).not.toThrow();
       expect(() => created(pipeline)).not.toThrow();
     }
+    // outcome() stops at the first matching rule, so read every rule once more.
+    for (const [name, found] of Object.entries(jobs)) {
+      expect(() => {
+        assertReadable(name, found.rules, found);
+      }).not.toThrow();
+      for (const rule of found.rules ?? []) {
+        const paths = Array.isArray(rule.changes) ? rule.changes : rule.changes?.paths;
+        for (const pattern of paths ?? []) expect(() => globToRegExp(pattern)).not.toThrow();
+      }
+    }
+    expect(() => {
+      assertReadable("workflow", ci.workflow?.rules);
+    }).not.toThrow();
+  });
+
+  it("refuses rule and job syntax it does not model", () => {
+    expect(() => {
+      assertReadable("x", [{ exists: ["a"] } as Rule]);
+    }).toThrow();
+    expect(() => {
+      assertReadable("x", [{ if: "$A", start_in: "1h" } as Rule]);
+    }).toThrow();
+    expect(() => {
+      assertReadable("x", [{ when: "delayed" }]);
+    }).toThrow();
+    expect(() => {
+      assertReadable("x", [{ changes: { paths: ["a"], x: 1 } as never }]);
+    }).toThrow();
+    expect(() => {
+      assertReadable("x", undefined, { only: ["branches"] } as Job);
+    }).toThrow();
+    expect(() => {
+      assertReadable("x", undefined, { except: ["tags"] } as Job);
+    }).toThrow();
+    expect(() => {
+      assertReadable("x", undefined, { when: "delayed" });
+    }).toThrow();
+    expect(() => globToRegExp("apps/{web,api}/**/*")).toThrow();
+    expect(() => {
+      assertReadable("x", [{ if: "$A", changes: ["a"], when: "manual", allow_failure: true }]);
+    }).not.toThrow();
   });
 });
 
@@ -385,6 +510,31 @@ describe("one pipeline per push", () => {
     expect(created(tag("v0.2.7"))).toBe(true);
     expect(created(schedule())).toBe(true);
     expect(created(schedule({ LIVE_DEMO_CHECK: "1" }))).toBe(true);
+  });
+});
+
+describe("schedules and runs from the UI", () => {
+  it("are created even on a branch that has a merge request open", () => {
+    expect(created({ source: "schedule", branch: "feature", openMergeRequest: true })).toBe(true);
+    expect(created({ source: "web", branch: "feature", openMergeRequest: true })).toBe(true);
+    expect(created({ source: "web", branch: "feature" })).toBe(true);
+    expect(created({ source: "web", branch: "main" })).toBe(true);
+  });
+});
+
+describe("needs", () => {
+  it("name only jobs the same pipeline creates, unless optional", () => {
+    const broken = VARIANTS.flatMap((pipeline) => {
+      const present = new Set(jobsIn(pipeline));
+      return [...present].flatMap((name) =>
+        (job(name).needs ?? [])
+          .filter((need) => typeof need === "string" || need.optional !== true)
+          .map((need) => (typeof need === "string" ? need : need.job))
+          .filter((target) => !present.has(target))
+          .map((target) => `${name} needs ${target} (${JSON.stringify(pipeline)})`)
+      );
+    });
+    expect(broken).toEqual([]);
   });
 });
 
@@ -463,9 +613,7 @@ describe("the browser and stack jobs", () => {
       ".gitlab-ci.yml",
       ...asFiles(dependencies)
     ];
-    expect(
-      files.filter((file) => outcome("e2e", mergeRequest([file])).when !== "on_success")
-    ).toEqual([]);
+    expect(files.filter((file) => !blocks(outcome("e2e", mergeRequest([file]))))).toEqual([]);
   });
 
   it("runs demo on a merge request that changes the demo, its stack, or anything its images build from", () => {
@@ -486,9 +634,7 @@ describe("the browser and stack jobs", () => {
       ".gitlab-ci.yml",
       ...asFiles(dependencies)
     ];
-    expect(
-      files.filter((file) => outcome("demo", mergeRequest([file])).when !== "on_success")
-    ).toEqual([]);
+    expect(files.filter((file) => !blocks(outcome("demo", mergeRequest([file]))))).toEqual([]);
   });
 
   it("runs upgrade-test on a merge request that changes stored data, deployment or the test itself", () => {
@@ -504,9 +650,19 @@ describe("the browser and stack jobs", () => {
       "scripts/upgrade-test.compose.yaml",
       ".gitlab-ci.yml"
     ];
-    expect(
-      files.filter((file) => outcome("upgrade-test", mergeRequest([file])).when !== "on_success")
-    ).toEqual([]);
+    expect(files.filter((file) => !blocks(outcome("upgrade-test", mergeRequest([file]))))).toEqual(
+      []
+    );
+  });
+
+  it("runs upgrade-test on a vX.Y.Z tag only, not on another tag", () => {
+    expect(outcome("upgrade-test", tag("v0.2.7"))).toEqual({
+      when: "on_success",
+      allowFailure: false
+    });
+    for (const other of ["v0.3.0-rc.1", "phase-5", "usable-v0"]) {
+      expect(outcome("upgrade-test", tag(other)).when, other).toBe("never");
+    }
   });
 
   it("keeps e2e and demo by hand on a tag, as before", () => {
