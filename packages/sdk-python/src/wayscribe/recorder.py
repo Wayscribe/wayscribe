@@ -650,7 +650,18 @@ def _failure(verdict, name, diagnostics):
     if type(verdict) is str:
         return {"message": verdict, "code": "result_failed"}
     if isinstance(verdict, Mapping):
-        message, code = verdict.get("message"), verdict.get("code")
+        # The host's mapping: each read has its own guard, as Node's
+        # failureFrom does, so a raise costs that field and not the verdict.
+        def read(field):
+            try:
+                return verdict.get(field)
+            except Exception:
+                diagnostics.emit(
+                    "capture_error", "unexpected_error", {"field": f"error.{field}"}
+                )
+                return None
+
+        message, code = read("message"), read("code")
         failure = {
             "message": message if type(message) is str and message else generic,
             "code": code if type(code) is str and code else "result_failed",

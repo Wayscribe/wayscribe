@@ -138,6 +138,46 @@ class ErrorFieldsTests(unittest.TestCase):
                     ],
                 )
 
+    def test_a_raising_message_or_code_read_costs_only_that_field(self):
+        # Parity with the Node SDK's failureFrom: each read has its own guard.
+        generic = "send reported a failed result."
+        cases = [
+            ({"message"}, {"message": generic, "code": "phone_required"}, ["error.message"]),
+            ({"code"}, {"message": "rejected", "code": "result_failed"}, ["error.code"]),
+            (
+                {"message", "code"},
+                {"message": generic, "code": "result_failed"},
+                ["error.message", "error.code"],
+            ),
+        ]
+        for raising, expected, fields in cases:
+            with self.subTest(raising=sorted(raising)):
+                _, d, reports = setup()
+                verdict = RaisingReads(
+                    raising, code="phone_required", message="rejected"
+                )
+                self.assertEqual(_failure(verdict, "send", d), expected)
+                self.assertEqual(
+                    [(r["kind"], r["code"], r["detail"]) for r in reports],
+                    [("capture_error", "unexpected_error", {"field": f}) for f in fields],
+                )
+                self.assertNotIn("secret-payload-value", repr(reports))
+
+    def test_a_raising_message_read_keeps_a_working_fields_read(self):
+        _, d, reports = setup()
+        verdict = RaisingReads(
+            {"message"}, code="phone_required", message="rejected", fields=["phone"]
+        )
+        self.assertEqual(
+            _failure(verdict, "send", d),
+            {
+                "message": "send reported a failed result.",
+                "code": "phone_required",
+                "fields": ["phone"],
+            },
+        )
+        self.assertEqual([r["detail"] for r in reports], [{"field": "error.message"}])
+
     def test_a_raising_diagnostic_sink_never_escapes_failure(self):
         def sink(report):
             raise RuntimeError("sink bug")
@@ -166,6 +206,19 @@ class RaisingFields(dict):
 
     def get(self, key, default=None):
         if key == "fields":
+            raise RuntimeError("host bug: secret-payload-value")
+        return super().get(key, default)
+
+
+class RaisingReads(dict):
+    """A host mapping whose read of the named keys raises."""
+
+    def __init__(self, raising, **items):
+        super().__init__(**items)
+        self.raising = raising
+
+    def get(self, key, default=None):
+        if key in self.raising:
             raise RuntimeError("host bug: secret-payload-value")
         return super().get(key, default)
 
