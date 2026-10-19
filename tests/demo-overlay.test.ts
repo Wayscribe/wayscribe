@@ -234,9 +234,10 @@ describe("the demo's CI jobs", () => {
     // It gates deploy-demo only: in the release stage, started with the pipeline.
     expect(overlay.stage).toBe("release");
     expect(overlay.needs).toEqual([]);
-    expect(overlay.rules?.[0]).toEqual({ if: releaseTag });
-    expect(overlay.rules?.[1]).toEqual({ if: '$CI_PIPELINE_SOURCE == "schedule"', when: "never" });
-    expect(overlay.rules?.[2]?.changes).toContain("deploy/demo/**/*");
+    expect(overlay.rules?.[0]).toEqual({ if: '$LIVE_DEMO_CHECK == "1"', when: "never" });
+    expect(overlay.rules?.[1]).toEqual({ if: releaseTag });
+    expect(overlay.rules?.[2]).toEqual({ if: '$CI_PIPELINE_SOURCE == "schedule"', when: "never" });
+    expect(overlay.rules?.[3]?.changes).toContain("deploy/demo/**/*");
     expect(script("demo-overlay")).toBe("sh deploy/demo/ci/overlay-test.sh");
     // The overlay test's project name is the one the compose files declare.
     expect((overlay.after_script ?? []).join("\n")).toContain("docker compose -p wayscribe down");
