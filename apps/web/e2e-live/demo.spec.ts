@@ -41,7 +41,9 @@ for (const width of [375, 1440]) {
 
     test("the pinned journey shows the lost phone and its likely cause", async ({ page }) => {
       await open(page, PINNED_TRANSFORM);
-      await expect(page.locator(".diff tbody tr.lost").first()).toContainText("value lost");
+      await expect(page.locator(".diff tbody tr.lost", { hasText: "Phone → phone" })).toContainText(
+        "value lost"
+      );
       await expect(page.locator(".journey-likely-cause")).toContainText("Likely cause: phone");
     });
   });
@@ -65,16 +67,16 @@ test.describe("on a phone", () => {
 });
 
 test("the footer names the release the pipeline expects", async ({ page }) => {
-  const expected = process.env["EXPECTED_VERSION"];
+  const expected = process.env["EXPECTED_VERSION"] ?? "";
   expect(expected, "set EXPECTED_VERSION to the release tag, such as v0.2.6").toMatch(
     /^v\d+\.\d+\.\d+$/
   );
   await open(page, "/journeys");
   const summary = page.locator("footer.site-footer summary");
-  await expect(summary).toHaveText(`Wayscribe ${expected ?? ""}`);
+  await expect(summary).toHaveText(`Wayscribe ${expected}`);
   // The title holds both sides, so a partial upgrade (one container newer
   // than the other) fails too.
   const title = (await summary.getAttribute("title")) ?? "";
-  expect(title).toContain(`Web ${expected ?? ""}, `);
-  expect(title).toContain(`API ${expected ?? ""}, `);
+  expect(title).toContain(`Web ${expected}, `);
+  expect(title).toContain(`API ${expected}, `);
 });

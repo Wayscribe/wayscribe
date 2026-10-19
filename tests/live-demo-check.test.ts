@@ -32,6 +32,8 @@ describe("the live check and the end-to-end suite", () => {
     const spec = read("apps/web/e2e-live/demo.spec.ts");
     expect(spec).not.toMatch(/\b(request|fetch)\s*[.(]/);
     expect(spec).not.toMatch(/method:/);
-    expect(spec).not.toMatch(/\.(click|fill|press|check|selectOption)\(/);
+    expect(spec).not.toMatch(
+      /\.(click|dblclick|tap|fill|press|pressSequentially|type|check|uncheck|selectOption|setInputFiles|dispatchEvent)\(|\.submit\(/
+    );
   });
 });
