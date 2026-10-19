@@ -910,11 +910,10 @@ demo-overlay:
   after_script:
     - docker compose -p wayscribe down --volumes --remove-orphans
 
-# Everything below runs only on a release tag. A release is the one moment the
-# suites that need the whole stack are worth waiting for, so the browser and demo
-# jobs above are joined here by publishing that is deliberately manual: pushing
-# an image and publishing a package are outward-facing acts, and a pipeline
-# should not perform them because a tag was pushed by accident.
+# Everything below runs only on a release tag. Pushing a `v*` tag is the
+# decision to release (ADR-073), so publishing runs on its own once its gates
+# pass: release-verify, upgrade-test and demo-overlay are what catch a bad tag.
+# Deploying the public demo stays a manual job.
 #
 # A release tag is vMAJOR.MINOR.PATCH exactly. The repository also carries
 # phase-* and usable-v0 tags, and none of them may publish. Pre-releases do not
@@ -978,9 +977,9 @@ publish-images:
     DOCKER_TLS_CERTDIR: ""
   # The upgrade test as well as the acceptance suite: a release that cannot
   # read what the previous one wrote is not published.
-  needs: ["release-verify", "upgrade-test"]
+  # And the overlay test: a demo image the overlay failed is not published.
+  needs: ["release-verify", "upgrade-test", "demo-overlay"]
   <<: *release-rules
-  when: manual
   # Keyless signing. GitLab issues this job an OIDC token for the sigstore
   # audience, cosign exchanges it with Fulcio for a short-lived certificate that
   # names this project's pipeline and tag, and there is no signing key to store.
@@ -1050,7 +1049,8 @@ publish-images-rehearsal:
       "apps/demo/Dockerfile=$CI_REGISTRY_IMAGE/rehearsal/demo"
 
 # Deploy a release to demo.wayscribe.dev (docs/DEMO_HOSTING.md). Manual, on a
-# protected v* tag only, after its images are published. The key is in a
+# protected v* tag only, playable as soon as its images are published (they
+# are not published unless demo-overlay passed). The key is in a
 # protected, masked variable (base64, because a multi-line key cannot be
 # masked), and on the VM it can run one command: the deploy script, which
 # takes the tag, verifies the images with cosign, resets the demo and runs the
@@ -1064,9 +1064,7 @@ deploy-demo:
   stage: release
   tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   image: alpine:3.22
-  # The tag's own overlay test too: a demo the overlay job failed would reach
-  # the VM only to fail its smoke check there, after the reset took the demo down.
-  needs: ["publish-images", "demo-overlay"]
+  needs: ["publish-images"]
   <<: *release-rules
   when: manual
   resource_group: demo
@@ -1160,7 +1158,6 @@ publish-sdk:
   tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   needs: ["release-verify"]
   <<: *release-rules
-  when: manual
   id_tokens:
     NPM_ID_TOKEN:
       aud: "npm:registry.npmjs.org"
@@ -1204,18 +1201,19 @@ sdk-publish-dry-run:
 # be a protected tag before the first release.
 #
 # In the release stage with no `needs`, so every earlier stage of the tag's
-# pipeline has passed before either job can be started.
+# pipeline has passed before either job starts. publish-python runs on its own
+# for a final version (ADR-073); the TestPyPI rehearsal stays manual.
 .python-release: &python-release
   stage: release
   image: python:3.11-slim
   before_script: []
   cache: []
-  when: manual
   rules:
     - if: $CI_COMMIT_TAG =~ /^packages\/sdk-python\/v\d+\.\d+\.\d+((a|b|rc)\d+)?$/
 
 publish-python-testpypi:
   <<: *python-release
+  when: manual
   tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   environment: testpypi
   id_tokens:
@@ -1228,6 +1226,13 @@ publish-python-testpypi:
 
 publish-python:
   <<: *python-release
+  # On its own for a final version (ADR-073). A pre-release tag may be a
+  # TestPyPI rehearsal, so PyPI stays a decision played by hand.
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^packages\/sdk-python\/v\d+\.\d+\.\d+$/
+    - if: $CI_COMMIT_TAG =~ /^packages\/sdk-python\/v\d+\.\d+\.\d+(a|b|rc)\d+$/
+      when: manual
+      allow_failure: true
   tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   environment: pypi
   id_tokens:
