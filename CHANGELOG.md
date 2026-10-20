@@ -14,6 +14,31 @@ changes far less often.
 
 ## [Unreleased]
 
+### Changed
+
+- **CI runs one pipeline per push, and the stack suites run where their code
+  changed (ADR-073).** `e2e`, `demo` and `upgrade-test` run on their own on
+  `main`, on the weekly scan schedule and on a merge request that changes their paths, and are
+  manual otherwise. A daily `live-demo` job checks demo.wayscribe.dev in a
+  browser and posts to ntfy on failure.
+- **A protected release tag publishes on its own.** `publish-images` and
+  `publish-sdk` run once `release-verify`, `upgrade-test` and `demo-overlay`
+  pass, and `publish-python` runs on a final Python tag. `deploy-demo` stays
+  manual. An existing image tag is never overwritten, and `latest` moves only
+  for the highest final version.
+
+### Fixed
+
+- **Python SDK: a raising `fields` read in an `is_failure` mapping records a
+  `capture_error` diagnostic** instead of losing the fields silently, as the
+  Node SDK already did (!8).
+- **CLI: server strings print with control characters escaped.** Escape, C1
+  and bidi controls and newlines in names, messages and likely-cause values no
+  longer rewrite, hide or reorder terminal output, and `--json` output writes
+  DEL, C1 and bidi controls as `\uXXXX` so it stays valid JSON (!9).
+- **Python SDK: a raising message or code read in an `is_failure` mapping keeps
+  the failure** (!10).
+
 ## [0.2.6] - 2026-10-13
 
 The `api`, `web` and `demo` images, `@wayscribe/node`, the Python package

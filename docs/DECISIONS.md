@@ -4752,3 +4752,84 @@ shows the value before and after so the reader judges, and each exclusion invite
 (whitespace, number and date formatting). Importing the pairing code into the web app from
 the package: workspace packages have broken the images before (`pnpm deploy --legacy`
 symlinks, production-install pruning), and a copy held by a test avoids that risk.
+
+## ADR-073: Browser and stack suites run where their code changed, and a release tag publishes
+
+**Status:** Accepted, 2026-10-19. Follows issue #10 and
+`docs/superpowers/specs/2026-10-19-ci-layout-design.md`. Changes where `e2e`, `demo` and
+`upgrade-test` run (ADR-041 recorded them as manual), how pipelines are chosen, and the
+release flow ADR-069 describes for the demo.
+
+**Context.** Four gaps each let something through. `e2e`, `demo` and `upgrade-test` were
+manual on merge request and main pipelines, so the 3 px journeys link on phones (live until
+0.2.4) and a broken smoke check pattern merged because nobody played them. Every push to a
+branch with an open merge request made two pipelines, and the merge request's held one job,
+so a green merge request pipeline said almost nothing; on 2026-10-19 MR !10 merged on that
+green while the branch pipeline was still running. On a tag, `deploy-demo` showed as skipped
+until the manual `publish-images` was played. And nothing in GitLab looked at
+demo.wayscribe.dev from outside: the smoke check reads HTML and cannot see layout or the
+released version.
+
+**Decision.**
+
+1. One pipeline per push. A `workflow: rules` block drops a `push` pipeline on a branch with
+   an open merge request, so the merge request pipeline is the one that runs; without a merge
+   request the branch pipeline runs. `main`, tags, schedules, and pipelines created through
+   the API, a trigger or the UI are created wherever they are started. Every job's rules were
+   reviewed against it: a job without rules never runs in a merge request pipeline, so the
+   jobs that run everywhere say so, and the jobs that excluded merge requests because the
+   branch pipeline covered them (`site`, `video`) no longer do.
+2. `e2e`, `demo` and `upgrade-test` are path-scoped. On a merge request each runs on its own
+   when its paths change and is manual otherwise, with its failure allowed so an unplayed job
+   cannot block the merge. On `main` and on the weekly scan schedule (not the live check's) all three always run. Where they run on
+   their own they block. The paths are the transitive workspace dependencies of the web app
+   and the API plus their manifests for `e2e`; the six packages the images build from
+   (`config`, `database`, `payload-diff`, `payload-security`, `protocol`, `sdk-node`), the
+   manifests and `.dockerignore` for `demo`, without `deploy/demo`, which `demo-overlay`
+   owns; and `apps/api`, the same six packages, the manifests and `.dockerignore` for
+   `upgrade-test`. A merge request that touches only the SDKs, the CLI or the documents
+   leaves all three manual. The reason they were manual still holds: a red pipeline on every
+   push for a suite needing the whole stack trains people to ignore it. Path scoping keeps
+   that reason, so a suite that runs when its code changed is red when red means something.
+3. The public demo is checked from outside, in a browser (`apps/web/e2e-live`,
+   `pnpm test:live`): no sideways scroll at 375 and 1440 px, journey links a tap target on a
+   phone, the pinned journey's lost value and likely cause, and the release in the footer.
+   The `live-demo` job runs it daily on a schedule that sets `LIVE_DEMO_CHECK=1` (a pipeline
+   holding that job alone) and after `deploy-demo` on a release tag. It runs on the hosted
+   runners because it holds the protected `NTFY_TOPIC_URL`, with a script timeout of 12
+   minutes and an after-script timeout of 1 minute so the alert is posted even when the demo
+   hangs. A failure fails the pipeline and posts one line to ntfy. `pnpm test:e2e` never
+   reaches production.
+4. A pushed protected `vX.Y.Z` tag is the decision to release. `publish-images` and
+   `publish-sdk` both need `release-verify`, `upgrade-test` and `demo-overlay`, and run on
+   their own once those pass. `publish-python` runs on its own on a final protected
+   `packages/sdk-python/v*` tag and stays manual on an `a`, `b` or `rc` tag.
+   `publish-python-testpypi` stays manual, so a TestPyPI rehearsal now happens on a
+   pre-release tag before the final tag. `github-release` moved to the release stage and
+   waits, as an optional dependency, for `publish-images` and `publish-sdk`, so a failed
+   publish leaves no GitHub Release. Every release rule requires the tag to be protected.
+   `scripts/publish-image.sh` refuses to overwrite an existing image tag and moves `latest`
+   only for the highest final version, after fetching every tag, so a re-run or an older
+   release cannot move what operators pulled. `deploy-demo` stays manual and needs only
+   `publish-images`.
+
+`tests/ci-rules.test.ts` evaluates the rules the way GitLab does and holds all four: one
+pipeline per push, every job a branch runs also in its merge request pipeline, the path lists
+covering every workspace package the apps build from, and the release order.
+
+**Consequences.** A merge to main runs about 15 to 20 more minutes of hosted runner time
+(measured on 2026-10-19: `e2e` 3.4 to 4.6, `demo` 6.0 to 10.4, `upgrade-test` 3.9 to 4.7).
+A path list can go stale; the test fails when a workspace dependency of the web app or the
+API is missing from `e2e`'s. A tag pushed by mistake now publishes; `v*` stays a protected
+tag that only Maintainers can create. What is proven only at the 0.2.7 release: the tag
+path (that `publish-images` and `publish-sdk` start on their own and wait for the three
+gates, that `github-release` waits for them, that `deploy-demo` is playable once the images
+exist, that `live-demo` follows it and posts to ntfy), the `changes:` rules against a real
+target branch, and `latest` moving for the first time under the new policy. The unit tests
+and GitLab's linter show the rules are well formed, not that a tag pipeline behaves.
+
+**Rejected.** Running the suites on every push (the reason they were manual). Keeping them
+manual (it let two regressions merge). Keeping publishing manual behind a tag (a second
+decision after the first, which left `deploy-demo` skipped and the release half done).
+Running the live check in the existing weekly scan schedule (a broken demo would go unseen
+for up to a week).

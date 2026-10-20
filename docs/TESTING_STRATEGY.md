@@ -227,7 +227,21 @@ Recommended:
 5. unit tests
 6. database integration tests
 7. build
-8. browser and E2E tests on protected branches or release workflow
+8. browser and E2E tests (`e2e`), the demo acceptance suite (`demo`) and the upgrade test
+   (`upgrade-test`): always on `main` and on the weekly scan schedule; on a merge request, automatically
+   when their paths change and manual otherwise (ADR-073)
+
+One pipeline runs per push: the merge request pipeline while one is open, the branch
+pipeline otherwise. A suite that needs the whole stack does not run on every push, because a
+red pipeline on every push for such a suite trains people to ignore it; it runs when its code
+changed, which is when red means something. A merge request that touches only the SDKs, the
+CLI or the documents leaves all three manual. Where a suite runs on its own it blocks.
+`tests/ci-rules.test.ts` holds these rules, including that `e2e`'s paths cover every
+workspace package the web app and the API build from.
+
+The public demo has a live check of its own, `pnpm test:live` (`apps/web/e2e-live`,
+`playwright.live.config.ts`), which `pnpm test:e2e` never runs. The `live-demo` job runs it
+daily and after every demo deploy, and a failure posts to ntfy (DEMO_HOSTING.md).
 
 ## 9. Release gate
 

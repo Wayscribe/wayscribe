@@ -1695,9 +1695,9 @@ published against a dependency that has not changed, and a base-image CVE
 appears without anybody committing anything. A push-only gate reports
 yesterday's answer indefinitely.
 
-`container-scan` is deliberately not on every push: it builds two images, and
-the same reasoning that keeps `demo` and `e2e` manual applies. It runs on the
-default branch, on tags, and on the schedule.
+`container-scan` is deliberately not on every push: it builds three images, and
+a base-image CVE has no path for it to be scoped to, as `demo` and `e2e` are
+(ADR-073). It runs on the default branch, on tags, and on the weekly scan schedule.
 
 ### When one of them fails
 
@@ -1720,8 +1720,10 @@ is a smaller attack surface as well as a clean scan.
 
 ### Publishing the SDK to npm
 
-`@wayscribe/node` is published by the manual `publish-sdk` job on a
-`vMAJOR.MINOR.PATCH` tag, with npm trusted publishing and provenance. No npm
+`@wayscribe/node` is published by the `publish-sdk` job on a protected
+`vMAJOR.MINOR.PATCH` tag, with npm trusted publishing and provenance. The job
+runs on its own once `release-verify`, `upgrade-test` and `demo-overlay` pass:
+pushing the tag is the decision to release (ADR-073). No npm
 token exists anywhere in the project: the job's GitLab OIDC token, with the
 audience `npm:registry.npmjs.org`, is exchanged by npm for a short-lived publish
 token, and a second token with the audience `sigstore` signs the provenance
@@ -1771,10 +1773,13 @@ project that depends on it, or read the provenance panel on the package page.
 
 ### Publishing the Python SDK to PyPI
 
-`wayscribe` is published by two manual jobs on a
+`wayscribe` is published by two jobs on a protected
 `packages/sdk-python/v<version>` tag, where the version is the one in
 `packages/sdk-python/pyproject.toml` (PEP 440, so `0.1.0a1` or `0.2.0`):
-`publish-python-testpypi` uploads to TestPyPI and `publish-python` to PyPI. As
+`publish-python-testpypi`, which is manual, uploads to TestPyPI, and
+`publish-python` uploads to PyPI. On a final version `publish-python` runs on its
+own once the pipeline's earlier stages pass (ADR-073); on a pre-release (`a`,
+`b` or `rc`) it stays manual. As
 with npm, no PyPI token exists anywhere in the project. The job's GitLab OIDC
 token (audience `pypi`, or `testpypi`) is exchanged by twine for a short-lived
 upload token, and a second token with the audience `sigstore` signs the PEP 740
@@ -1790,7 +1795,9 @@ attestations that PyPI shows beside each file (ADR-067).
 3. Protect `packages/sdk-python/v*` tags, as `v*` is. Anyone who can create one
    can run the jobs.
 
-Rehearse on TestPyPI first, then install from it in a clean container:
+Rehearse on TestPyPI first, on a pre-release tag (`aN`, `bN` or `rcN`) pushed before
+the final tag, because the final tag publishes to PyPI on its own and
+`publish-python-testpypi` stays manual. Then install from TestPyPI in a clean container:
 `pip install --index-url https://test.pypi.org/simple/ wayscribe==<version>`
 (add `--pre` for an alpha). To check a release anywhere without uploading, run
 `DRY_RUN=1 scripts/publish-python.sh packages/sdk-python/v<version>`, which
@@ -1815,7 +1822,13 @@ digests and public SBOM downloads are in the release records for
 The job pushes each image by digest with no tag, attaches the SBOMs to that
 digest, signs it, verifies the signature and attestations as below, and only
 then points the version tag and `latest` at it. A release whose signing failed
-has no version tag, so an unsigned image cannot be pulled by its version.
+has no version tag, so an unsigned image cannot be pulled by its version. The job
+refuses to overwrite a version tag that already exists in the registry
+(`scripts/image-tag-policy.sh free`), so a re-run of a published tag's pipeline
+does not move what operators pulled, and it moves `latest` only for the highest
+final `vX.Y.Z`, after fetching every tag. If a publish fails after tagging some
+images, a retry is refused by that check: delete the partial tags in the
+registry, or cut a patch release.
 
 The version tag is the git tag, `v` included: release `0.1.0` publishes
 `api:v0.1.0` and `web:v0.1.0`. `WAYSCRIBE_VERSION` in

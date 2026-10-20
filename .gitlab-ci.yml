@@ -44,18 +44,51 @@ stages:
   - pages
   - release
 
+# One pipeline per push (ADR-073). While a merge request is open, only a push
+# defers to its pipeline and the branch pipeline does not run; without one, the
+# branch pipeline runs. Every other source (a schedule, a run from the UI, a
+# run through the API) is created wherever it is started. The schedule rule
+# stays first to say so, though the push-only rule below would not drop it.
+# tests/ci-rules.test.ts evaluates these rules and every job's.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# The daily live-demo schedule sets LIVE_DEMO_CHECK=1, and its pipeline holds
+# live-demo alone: every job that can run in a branch, merge request or
+# schedule pipeline starts its rules with this one. The tag-only release jobs
+# and github-release do not need it, since a schedule is never a tag pipeline.
+.skip-on-live-demo-check: &skip-on-live-demo-check
+  if: $LIVE_DEMO_CHECK == "1"
+  when: never
+
+# A job without `rules` never runs in a merge request pipeline (GitLab's
+# default is branches and tags), so the jobs that run in every pipeline say so.
+.every-pipeline: &every-pipeline
+  rules:
+    - *skip-on-live-demo-check
+    - when: on_success
+
 format:
   stage: verify
+  <<: *every-pipeline
   script:
     - pnpm format:check
 
 lint:
   stage: verify
+  <<: *every-pipeline
   script:
     - pnpm lint
 
 typecheck:
   stage: verify
+  <<: *every-pipeline
   script:
     - pnpm typecheck
 
@@ -81,6 +114,7 @@ typecheck:
 # its own Secret, which is the whole reason that distinction is written down.
 helm:
   stage: verify
+  <<: *every-pipeline
   image:
     name: alpine/helm:3.16.3
     entrypoint: [""]
@@ -169,6 +203,7 @@ helm:
 
 audit:
   stage: security
+  <<: *every-pipeline
   script:
     - pnpm audit --audit-level=high
   allow_failure: false
@@ -189,6 +224,7 @@ audit:
 # (`gitleaks detect --config=.gitleaks.toml`).
 secrets:
   stage: security
+  <<: *every-pipeline
   image:
     name: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
     entrypoint: [""]
@@ -213,11 +249,13 @@ secrets:
 # somebody choosing it.
 debt:
   stage: verify
+  <<: *every-pipeline
   script:
     - npx --yes debtwatch@0.1.4 check
 
 unit:
   stage: test
+  <<: *every-pipeline
   script:
     - pnpm test
 
@@ -239,6 +277,7 @@ unit:
 # against each other by tests/supported-versions.test.ts.
 sdk-node:
   stage: test
+  <<: *every-pipeline
   image: node:24
   timeout: 15m
   parallel:
@@ -252,6 +291,7 @@ sdk-node:
 # The official images carry gcc, which -race needs.
 sdk-go:
   stage: test
+  <<: *every-pipeline
   image: golang:${SDK_GO_VERSION}
   before_script: []
   cache: []
@@ -270,6 +310,7 @@ sdk-go:
 # an interpreter older than 3.11.
 sdk-python:
   stage: test
+  <<: *every-pipeline
   image: python:${SDK_PYTHON_VERSION}-slim
   before_script: []
   cache: []
@@ -285,6 +326,7 @@ sdk-python:
 # need Node and Go together.
 examples-go:
   stage: test
+  <<: *every-pipeline
   image: node:24
   script:
     - scripts/install-go.sh 1.26.4
@@ -299,6 +341,7 @@ examples-go:
 # database job (otlp.integration.test.ts posts the committed file).
 examples-otlp-collector:
   stage: test
+  <<: *every-pipeline
   image: alpine:3.22
   before_script: []
   cache: []
@@ -317,6 +360,7 @@ examples-otlp-collector:
 # The Java example must compile against the OpenTelemetry release its pom pins.
 examples-otlp-java:
   stage: test
+  <<: *every-pipeline
   image: maven:3.9-eclipse-temurin-21
   before_script: []
   variables:
@@ -337,11 +381,18 @@ examples-otlp-java:
 # server that started is not that version.
 database:
   stage: integration
+  <<: *every-pipeline
   # Full node image, not Alpine: Testcontainers needs a Docker client, and this
   # job talks to a docker-in-docker service.
   image: node:24
   services:
-    - docker:dind
+    # 1460 matches the hosted runners' network; dind's inner default is 1500.
+    # Added while builds under dind hung on the Alpine CDN (2026-10-20). The
+    # hang cleared by itself the same day, so this is a precaution, not a
+    # proven fix.
+    - &dind-service
+      name: docker:dind
+      command: ["--mtu=1460"]
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -367,6 +418,7 @@ database:
 
 build:
   stage: build
+  <<: *every-pipeline
   script:
     - pnpm build
 
@@ -380,9 +432,9 @@ build:
 # reading the built pages, offline. The audit is the site's counterpart of the
 # `audit` job, which reads the root lockfile only.
 #
-# Not in merge request pipelines, which hold sdk-publish-dry-run alone, and not
-# in tag pipelines: a release tag publishes the product, and the site has no
-# part in that.
+# In merge request and branch pipelines that change these files, and on main;
+# not in tag pipelines: a release tag publishes the product, and the site has
+# no part in that.
 #
 # Its stage comes after `mirror`, so a site failure never holds back
 # mirror-to-github, which waits for every stage before its own. `needs: []`
@@ -420,8 +472,7 @@ site:
     - pnpm config set store-dir "$PNPM_STORE_DIR"
     - pnpm --dir site install --frozen-lockfile
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      when: never
+    - *skip-on-live-demo-check
     - if: $CI_COMMIT_TAG
       when: never
     - changes: *site-changes
@@ -455,8 +506,7 @@ video:
     - pnpm config set store-dir "$PNPM_STORE_DIR"
     - pnpm --dir video install --frozen-lockfile
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      when: never
+    - *skip-on-live-demo-check
     - if: $CI_COMMIT_TAG
       when: never
     - changes: *video-changes
@@ -482,8 +532,7 @@ pages:
   cache: {}
   dependencies: ["site"]
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      when: never
+    - *skip-on-live-demo-check
     - if: $CI_COMMIT_TAG
       when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -495,13 +544,32 @@ pages:
     paths:
       - public
 
-# Browser coverage. TESTING_STRATEGY.md section 8 puts these on protected branches
-# or the release workflow rather than every push, and this job builds and boots two
-# applications — a red pipeline on every commit for a suite needing the whole stack
-# trains people to ignore it.
+# Browser coverage. This job builds and boots two applications, and a red
+# pipeline on every commit for a suite needing the whole stack trains people to
+# ignore it, so it is path-scoped rather than on every push (ADR-073,
+# TESTING_STRATEGY.md section 8): automatic and blocking on main, on schedules
+# and on a merge request that changes the code it covers, and manual otherwise.
+# The paths are every workspace package apps/web and apps/api build from;
+# tests/ci-rules.test.ts fails when one is missing.
 #
 # The image tag must track the @playwright/test version in package.json; a mismatch
 # between the browser image and the client is a common and confusing failure.
+.e2e-changes: &e2e-changes
+  - apps/web/**/*
+  - apps/api/**/*
+  - packages/config/**/*
+  - packages/database/**/*
+  - packages/payload-diff/**/*
+  - packages/payload-security/**/*
+  - packages/protocol/**/*
+  - packages/sdk-node/**/*
+  - playwright.config.ts
+  - package.json
+  - pnpm-lock.yaml
+  - pnpm-workspace.yaml
+  - tsconfig.base.json
+  - .gitlab-ci.yml
+
 e2e:
   stage: browser
   image: mcr.microsoft.com/playwright:v1.63.0-noble
@@ -520,8 +588,18 @@ e2e:
     # its server with neither, so it died at startup and wait-on waited forever.
     APP_URL: http://localhost:3000
     REPLAY_ALLOWED_HOSTS: localhost
-  when: manual
-  allow_failure: true
+  rules:
+    - *skip-on-live-demo-check
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: *e2e-changes
+    # Unplayed, it must not block the merge: a manual rule blocks by default.
+    - when: manual
+      allow_failure: true
   script:
     - pnpm db:migrate
     - pnpm build
@@ -539,10 +617,6 @@ e2e:
     - pnpm project:create e2e-second "E2E second project"
     - pnpm test:e2e
 
-# The demo is the product acceptance test (DEMO_SCENARIO.md section 1). It needs
-# Docker Compose rather than a process, and it builds and boots eight containers,
-# so it runs manually for the same reason the browser job does: a red pipeline on
-# every push for a suite needing the whole stack trains people to ignore it.
 # What we actually ship. The images are built here rather than reusing the
 # release build, because an unscanned image that only exists at release time is
 # an image nobody scanned.
@@ -552,19 +626,20 @@ e2e:
 # CVEs that were not ours — they are removed in both Dockerfiles rather than
 # ignored.
 #
-# Not on every push: this builds two images, and the same reasoning that made
-# `demo` and `e2e` manual applies. It runs on the default branch, on tags, and
-# on a schedule — the schedule being the one that matters, because a base-image
+# Not on every push: this builds three images, and a base-image CVE has no
+# path to scope it by, as `demo` and `e2e` are. It runs on the default branch,
+# on tags, and on a schedule — the schedule being the one that matters, because a base-image
 # CVE is published without anybody committing anything.
 container-scan:
   stage: security
   rules:
+    - *skip-on-live-demo-check
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
   image: docker:27-cli
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -624,12 +699,13 @@ container-scan:
 sbom:
   stage: security
   rules:
+    - *skip-on-live-demo-check
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
   image: docker:27-cli
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -655,17 +731,35 @@ sbom:
 # the key rotation merge), records journeys through it, swaps the image over the
 # same volume, and compares every read.
 #
-# Automatic on release tags, where publish-images needs it, and on the schedule.
-# Manual on branch pipelines, for the reason demo is: two image builds and a
-# stack per push. Not offered on merge request pipelines at all, and not on
-# other tags (phase-*, usable-v0, pre-releases), which are not releases.
+# Automatic on release tags, where publish-images needs it, on main and on
+# schedules, and on a merge request that changes what stores or reads data, how
+# it is deployed, or the test itself (ADR-073). Manual otherwise, for the reason
+# demo is: two image builds and a stack. Not on other tags (phase-*,
+# usable-v0, pre-releases), which are not releases.
+.upgrade-changes: &upgrade-changes
+  - apps/api/**/*
+  - packages/config/**/*
+  - packages/database/**/*
+  - packages/payload-diff/**/*
+  - packages/payload-security/**/*
+  - packages/protocol/**/*
+  - packages/sdk-node/**/*
+  - deploy/**/*
+  - infrastructure/**/*
+  - scripts/upgrade-test*
+  - .dockerignore
+  - package.json
+  - pnpm-lock.yaml
+  - pnpm-workspace.yaml
+  - .gitlab-ci.yml
+
 upgrade-test:
   stage: demo
   # The demo job's pattern: Node 24 with the Docker CLI added. The script uses
   # Node built-ins only, so there is no pnpm install.
   image: node:24-alpine
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -686,13 +780,45 @@ upgrade-test:
     # add a worktree to a repository it considers unsafe.
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
   rules:
+    - *skip-on-live-demo-check
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    - if: $CI_COMMIT_TAG
+      when: never
     - if: $CI_PIPELINE_SOURCE == "schedule"
-    - if: $CI_COMMIT_BRANCH
-      when: manual
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: *upgrade-changes
+    - when: manual
       allow_failure: true
   script:
     - node scripts/upgrade-test.mjs
+
+# The demo is the product acceptance test (DEMO_SCENARIO.md section 1). It needs
+# Docker Compose rather than a process, and it builds and boots eight containers,
+# so it is path-scoped for the reason the browser job is (ADR-073): automatic and
+# blocking on main, on schedules and on a merge request that changes the demo,
+# its stack or anything its images build from, and manual otherwise. Unlike the
+# spec's table it leaves out deploy/demo (that is demo-overlay's) and the SDK and
+# CLI packages, which no image builds from.
+.demo-changes: &demo-changes
+  - apps/demo/**/*
+  - apps/api/**/*
+  - apps/web/**/*
+  - packages/config/**/*
+  - packages/database/**/*
+  - packages/payload-diff/**/*
+  - packages/payload-security/**/*
+  - packages/protocol/**/*
+  - packages/sdk-node/**/*
+  - infrastructure/**/*
+  - .env.example
+  - .dockerignore
+  - package.json
+  - pnpm-lock.yaml
+  - pnpm-workspace.yaml
+  - tsconfig.base.json
+  - vitest.demo.config.ts
+  - .gitlab-ci.yml
 
 demo:
   stage: demo
@@ -702,7 +828,7 @@ demo:
   # this job never reached Compose.
   image: node:24-alpine
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -712,13 +838,25 @@ demo:
     WAYSCRIBE_API_URL: http://docker:8080
     DEMO_SOURCE_URL: http://docker:3100
     WEB_URL: http://docker:3000
+  # Builds and boots eight containers; a hang in a build fails the job in 30
+  # minutes rather than at the project default.
+  timeout: 30m
   before_script:
     - apk add --no-cache docker-cli docker-cli-compose
     - corepack enable
     - pnpm config set store-dir "$PNPM_STORE_DIR"
     - pnpm install --frozen-lockfile
-  when: manual
-  allow_failure: true
+  rules:
+    - *skip-on-live-demo-check
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: *demo-changes
+    - when: manual
+      allow_failure: true
   script:
     # Follow the README's configuration step too: a value in this file once
     # made the web image listen on the API port, which an env-free run missed.
@@ -749,7 +887,7 @@ demo-overlay:
   needs: []
   image: node:24-alpine
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -761,18 +899,19 @@ demo-overlay:
   before_script:
     - apk add --no-cache docker-cli docker-cli-buildx docker-cli-compose curl openssl
   rules:
+    - *skip-on-live-demo-check
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
     # Scheduled pipelines run on a branch; the overlay has nothing to learn there.
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    - if: $CI_COMMIT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH
       changes:
         - deploy/demo/**/*
         - apps/demo/**/*
         - apps/web/**/*
         - apps/api/src/**/*
         - infrastructure/compose.*.yaml
-    - if: $CI_COMMIT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH
       when: manual
       allow_failure: true
   script:
@@ -780,11 +919,10 @@ demo-overlay:
   after_script:
     - docker compose -p wayscribe down --volumes --remove-orphans
 
-# Everything below runs only on a release tag. A release is the one moment the
-# suites that need the whole stack are worth waiting for, so the browser and demo
-# jobs above are joined here by publishing that is deliberately manual: pushing
-# an image and publishing a package are outward-facing acts, and a pipeline
-# should not perform them because a tag was pushed by accident.
+# Everything below runs only on a release tag. Pushing a `v*` tag is the
+# decision to release (ADR-073), so publishing runs on its own once its gates
+# pass: release-verify, upgrade-test and demo-overlay are what catch a bad tag.
+# Deploying the public demo stays a manual job.
 #
 # A release tag is vMAJOR.MINOR.PATCH exactly. The repository also carries
 # phase-* and usable-v0 tags, and none of them may publish. Pre-releases do not
@@ -797,7 +935,8 @@ demo-overlay:
 
 .release-rules: &release-rules
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    # Protected too: a tag whose protection was removed publishes nothing.
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $CI_COMMIT_REF_PROTECTED == "true"
 
 # The gate. Both acceptance suites, unskippable, before anything is published.
 release-verify:
@@ -808,7 +947,7 @@ release-verify:
   # this job never reached Compose.
   image: node:24-alpine
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -842,15 +981,18 @@ publish-images:
   tags: [saas-linux-small-amd64]
   image: docker:27-cli
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
+    # The full history, and before_script fetches every tag (not only those
+    # reachable from this commit), so :latest follows the highest final version.
+    GIT_DEPTH: 0
   # The upgrade test as well as the acceptance suite: a release that cannot
   # read what the previous one wrote is not published.
-  needs: ["release-verify", "upgrade-test"]
+  # And the overlay test: a demo image the overlay failed is not published.
+  needs: ["release-verify", "upgrade-test", "demo-overlay"]
   <<: *release-rules
-  when: manual
   # Keyless signing. GitLab issues this job an OIDC token for the sigstore
   # audience, cosign exchanges it with Fulcio for a short-lived certificate that
   # names this project's pipeline and tag, and there is no signing key to store.
@@ -859,7 +1001,8 @@ publish-images:
     SIGSTORE_ID_TOKEN:
       aud: sigstore
   before_script:
-    - apk add --no-cache jq
+    - apk add --no-cache jq git
+    - git fetch --tags --force --quiet origin
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     # buildx for multi-arch: the images are built on x86 runners and a great
     # many developers are on arm64 laptops.
@@ -898,12 +1041,13 @@ publish-images-rehearsal:
   stage: release
   image: docker:27-cli
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
   rules:
-    - if: $CI_COMMIT_BRANCH
+    - *skip-on-live-demo-check
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH
       when: manual
       allow_failure: true
   needs: []
@@ -919,7 +1063,8 @@ publish-images-rehearsal:
       "apps/demo/Dockerfile=$CI_REGISTRY_IMAGE/rehearsal/demo"
 
 # Deploy a release to demo.wayscribe.dev (docs/DEMO_HOSTING.md). Manual, on a
-# protected v* tag only, after its images are published. The key is in a
+# protected v* tag only, playable as soon as its images are published (they
+# are not published unless demo-overlay passed). The key is in a
 # protected, masked variable (base64, because a multi-line key cannot be
 # masked), and on the VM it can run one command: the deploy script, which
 # takes the tag, verifies the images with cosign, resets the demo and runs the
@@ -933,9 +1078,7 @@ deploy-demo:
   stage: release
   tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   image: alpine:3.22
-  # The tag's own overlay test too: a demo the overlay job failed would reach
-  # the VM only to fail its smoke check there, after the reset took the demo down.
-  needs: ["publish-images", "demo-overlay"]
+  needs: ["publish-images"]
   <<: *release-rules
   when: manual
   resource_group: demo
@@ -957,6 +1100,62 @@ deploy-demo:
   after_script:
     - rm -f "$HOME/.ssh/demo_deploy"
 
+# The public demo from outside, in a browser (ADR-073): no sideways scroll at
+# 375 and 1440 px, journey links a tap target on a phone, the pinned journey's
+# lost value and likely cause, and the release in the footer. Read-only GETs
+# against https://demo.wayscribe.dev (playwright.live.config.ts); `pnpm
+# test:e2e` never reaches it. Daily on the schedule that sets LIVE_DEMO_CHECK=1,
+# whose pipeline holds this job alone; after deploy-demo on a release tag; and
+# by hand on branch and merge request pipelines. EXPECTED_VERSION defaults to the newest release tag
+# in this pipeline's history; set it when playing the job to check another.
+#
+# A failure posts one line to NTFY_TOPIC_URL (protected and masked, so main,
+# protected v* tags and scheduled pipelines see it). Without it the after_script prints a
+# warning; it never fails the job a second time.
+#
+# Until deploy-demo is played, live-demo shows as skipped; playing it brings
+# live-demo back. Once played, live-demo runs whether the deploy passed,
+# failed or was canceled: deploy-demo is manual, so its failure is allowed,
+# and GitLab counts an allowed failure or cancellation as passed for `needs`.
+# A deploy that did not land leaves the old release, or no demo, so the check
+# fails and alerts: the only alert a failed deploy gets. The daily check
+# expects the newest release tag, so between pushing a tag and playing
+# deploy-demo it goes red on purpose.
+live-demo:
+  stage: release
+  tags: [saas-linux-small-amd64] # NTFY_TOPIC_URL: GitLab-hosted, as the other jobs holding a protected variable
+  image: mcr.microsoft.com/playwright:v1.63.0-noble
+  resource_group: demo
+  timeout: 15m
+  variables:
+    GIT_DEPTH: 0
+    # GitLab skips after_script when the job times out, so cap the script
+    # first: a hung demo must still reach the ntfy post.
+    RUNNER_SCRIPT_TIMEOUT: 12m
+    RUNNER_AFTER_SCRIPT_TIMEOUT: 1m
+  needs:
+    - job: deploy-demo
+      optional: true
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $CI_COMMIT_REF_PROTECTED == "true"
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $LIVE_DEMO_CHECK == "1"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: never
+    - when: manual
+      allow_failure: true
+  script:
+    - git fetch --tags --force --quiet origin
+    - EXPECTED_VERSION="${EXPECTED_VERSION:-$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*')}"
+    - export EXPECTED_VERSION
+    - 'echo "live-demo: expecting ${EXPECTED_VERSION} at https://demo.wayscribe.dev"'
+    - pnpm test:live
+  after_script:
+    - node scripts/live-demo-alert.mjs
+
 # npm trusted publishing with provenance. There is no npm credential in this
 # project: GitLab mints NPM_ID_TOKEN for this job alone, npm exchanges it for a
 # publish token that expires almost immediately, and SIGSTORE_ID_TOKEN signs the
@@ -975,9 +1174,10 @@ deploy-demo:
 publish-sdk:
   stage: release
   tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
-  needs: ["release-verify"]
+  # The same gates as publish-images: one tag is one release, and a failed
+  # overlay or upgrade test must not burn an npm version.
+  needs: ["release-verify", "upgrade-test", "demo-overlay"]
   <<: *release-rules
-  when: manual
   id_tokens:
     NPM_ID_TOKEN:
       aud: "npm:registry.npmjs.org"
@@ -992,16 +1192,16 @@ publish-sdk:
 # tag it passes is the package's own version, which is what a release tag must
 # match.
 #
-# Also on a merge request that touches the script, the package, or this file,
-# so a change that breaks publishing is seen before it merges rather than on
-# main. This project has no workflow rules, so that runs as a merge request
-# pipeline holding this job alone, beside the usual branch pipeline.
+# Also on a merge request or branch that touches the script, the package, or
+# this file, so a change that breaks publishing is seen before it merges rather
+# than on main.
 sdk-publish-dry-run:
   stage: build
   rules:
+    - *skip-on-live-demo-check
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH
       changes:
         - scripts/publish-sdk.sh
         - packages/sdk-node/**/*
@@ -1021,18 +1221,19 @@ sdk-publish-dry-run:
 # be a protected tag before the first release.
 #
 # In the release stage with no `needs`, so every earlier stage of the tag's
-# pipeline has passed before either job can be started.
+# pipeline has passed before either job starts. publish-python runs on its own
+# for a final version (ADR-073); the TestPyPI rehearsal stays manual.
 .python-release: &python-release
   stage: release
   image: python:3.11-slim
   before_script: []
   cache: []
-  when: manual
   rules:
-    - if: $CI_COMMIT_TAG =~ /^packages\/sdk-python\/v\d+\.\d+\.\d+((a|b|rc)\d+)?$/
+    - if: $CI_COMMIT_TAG =~ /^packages\/sdk-python\/v\d+\.\d+\.\d+((a|b|rc)\d+)?$/ && $CI_COMMIT_REF_PROTECTED == "true"
 
 publish-python-testpypi:
   <<: *python-release
+  when: manual
   tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   environment: testpypi
   id_tokens:
@@ -1045,6 +1246,13 @@ publish-python-testpypi:
 
 publish-python:
   <<: *python-release
+  # On its own for a final version (ADR-073). A pre-release tag may be a
+  # TestPyPI rehearsal, so PyPI stays a decision played by hand.
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^packages\/sdk-python\/v\d+\.\d+\.\d+$/ && $CI_COMMIT_REF_PROTECTED == "true"
+    - if: $CI_COMMIT_TAG =~ /^packages\/sdk-python\/v\d+\.\d+\.\d+(a|b|rc)\d+$/ && $CI_COMMIT_REF_PROTECTED == "true"
+      when: manual
+      allow_failure: true
   tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   environment: pypi
   id_tokens:
@@ -1056,16 +1264,18 @@ publish-python:
     - INDEX=pypi scripts/publish-python.sh "$CI_COMMIT_TAG"
 
 # The Python counterpart of sdk-publish-dry-run: builds and checks the release
-# files on main and on a merge request that touches them, uploading nothing.
+# files on main and on a merge request or branch that touches them, uploading
+# nothing.
 python-publish-dry-run:
   stage: build
   image: python:3.11-slim
   before_script: []
   cache: []
   rules:
+    - *skip-on-live-demo-check
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH
       changes:
         - scripts/publish-python.sh
         - packages/sdk-python/**/*
@@ -1086,6 +1296,7 @@ python-publish-dry-run:
 
 .mirror-rules: &mirror-rules
   rules:
+    - *skip-on-live-demo-check
     # Not configured yet: the job does not exist rather than failing every
     # pipeline on main until someone sets it up.
     - if: '$GITHUB_TOKEN == null || $GITHUB_TOKEN == ""'
@@ -1118,10 +1329,16 @@ mirror-to-github:
 # GitHub Releases are one of the few real discovery surfaces a mirror buys you:
 # they feed watchers, notifications, and third-party release trackers.
 github-release:
-  stage: mirror
+  # The release stage, after publish-images and publish-sdk it waits for.
+  stage: release
   tags: [saas-linux-small-amd64] # a credential: GitLab-hosted, as publish-images
   image: alpine:3
-  needs: ["mirror-to-github"]
+  # After the publishing, so a failed publish leaves no GitHub Release. A
+  # pre-release tag publishes neither, hence optional.
+  needs:
+    - "mirror-to-github"
+    - { job: publish-images, optional: true }
+    - { job: publish-sdk, optional: true }
   before_script:
     - apk add --no-cache curl jq
   rules:
@@ -1129,7 +1346,7 @@ github-release:
       when: never
     # Releases and pre-releases (the notes below mark a suffixed tag as a
     # pre-release), never phase-* or usable-v0.
-    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/ && $CI_COMMIT_REF_PROTECTED == "true"
   script:
     # The matching CHANGELOG section, when there is one. A release whose notes
     # read "see the changelog" is a release nobody reads.
