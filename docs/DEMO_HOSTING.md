@@ -113,7 +113,7 @@ signs `api`, `web` and `demo` on its own. `deploy-demo` is a manual job that nee
 resource group, so two deploys never overlap. It connects as `wayscribe-deploy`,
 which runs `/usr/local/sbin/wayscribe-demo-deploy <tag>`; that checks out the tag, records
 `WAYSCRIBE_VERSION`, and runs the reset. The job then runs the smoke check from outside and
-fails if it fails, and `live-demo` runs after it.
+fails if it fails. `live-demo` runs after it whether it passed, failed or was canceled, and stays skipped until it is played.
 
 `demo-overlay` also runs on merge request and branch pipelines that change `deploy/demo/**`,
 `apps/demo/**`, `apps/web/**`, `apps/api/src/**` or `infrastructure/compose.*.yaml`, and is

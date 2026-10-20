@@ -228,7 +228,7 @@ Recommended:
 6. database integration tests
 7. build
 8. browser and E2E tests (`e2e`), the demo acceptance suite (`demo`) and the upgrade test
-   (`upgrade-test`): always on `main` and on schedules; on a merge request, automatically
+   (`upgrade-test`): always on `main` and on the weekly scan schedule; on a merge request, automatically
    when their paths change and manual otherwise (ADR-073)
 
 One pipeline runs per push: the merge request pipeline while one is open, the branch

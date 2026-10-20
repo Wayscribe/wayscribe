@@ -4781,7 +4781,7 @@ released version.
    branch pipeline covered them (`site`, `video`) no longer do.
 2. `e2e`, `demo` and `upgrade-test` are path-scoped. On a merge request each runs on its own
    when its paths change and is manual otherwise, with its failure allowed so an unplayed job
-   cannot block the merge. On `main` and on schedules all three always run. Where they run on
+   cannot block the merge. On `main` and on the weekly scan schedule (not the live check's) all three always run. Where they run on
    their own they block. The paths are the transitive workspace dependencies of the web app
    and the API plus their manifests for `e2e`; the six packages the images build from
    (`config`, `database`, `payload-diff`, `payload-security`, `protocol`, `sdk-node`), the

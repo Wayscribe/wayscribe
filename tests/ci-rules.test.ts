@@ -797,7 +797,13 @@ describe("a release", () => {
       ...tag(name),
       variables: { CI_COMMIT_REF_PROTECTED: "false" }
     });
-    for (const name of ["publish-images", "publish-sdk", "deploy-demo", "github-release"]) {
+    for (const name of [
+      "publish-images",
+      "publish-sdk",
+      "deploy-demo",
+      "live-demo",
+      "github-release"
+    ]) {
       expect(outcome(name, unprotected("v0.2.7")).when, name).toBe("never");
     }
     expect(outcome("github-release", unprotected("v0.3.0-rc.1")).when).toBe("never");

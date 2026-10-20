@@ -27,7 +27,7 @@ GitLab mints for them (Sigstore, npm, PyPI) never touch that VM.
 
 The split does not narrow which jobs see the protected variables
 (`GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `DEMO_DEPLOY_SSH_KEY_B64`,
-`DEMO_SSH_KNOWN_HOSTS`, `NTFY_TOPIC_URL`). Every job in a `main`, tag or
+`DEMO_SSH_KNOWN_HOSTS`, `NTFY_TOPIC_URL`). Every job in a `main`, protected tag or
 scheduled pipeline sees them, wherever it runs; merge request pipelines do
 not. That was already true on GitLab's runners. Scoping them to environments
 would narrow it; that has not been done yet.
@@ -36,7 +36,7 @@ would narrow it; that has not been done yet.
 
 Since ADR-073 a push makes one pipeline: the merge request pipeline while one is
 open, the branch pipeline otherwise. `e2e`, `demo` and `upgrade-test` run on
-their own on `main`, on schedules, and on a merge request that changes their
+their own on `main`, on the weekly scan schedule, and on a merge request that changes their
 paths, and are manual otherwise. On a protected `vX.Y.Z` tag `publish-images`
 and `publish-sdk` run on their own after `release-verify`, `upgrade-test` and
 `demo-overlay`; `github-release` waits for both; `deploy-demo` is manual and

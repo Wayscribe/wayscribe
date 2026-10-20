@@ -1697,7 +1697,7 @@ yesterday's answer indefinitely.
 
 `container-scan` is deliberately not on every push: it builds three images, and
 a base-image CVE has no path for it to be scoped to, as `demo` and `e2e` are
-(ADR-073). It runs on the default branch, on tags, and on the schedule.
+(ADR-073). It runs on the default branch, on tags, and on the weekly scan schedule.
 
 ### When one of them fails
 
@@ -1826,7 +1826,9 @@ has no version tag, so an unsigned image cannot be pulled by its version. The jo
 refuses to overwrite a version tag that already exists in the registry
 (`scripts/image-tag-policy.sh free`), so a re-run of a published tag's pipeline
 does not move what operators pulled, and it moves `latest` only for the highest
-final `vX.Y.Z`, after fetching every tag.
+final `vX.Y.Z`, after fetching every tag. If a publish fails after tagging some
+images, a retry is refused by that check: delete the partial tags in the
+registry, or cut a patch release.
 
 The version tag is the git tag, `v` included: release `0.1.0` publishes
 `api:v0.1.0` and `web:v0.1.0`. `WAYSCRIBE_VERSION` in
