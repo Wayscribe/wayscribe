@@ -386,7 +386,12 @@ database:
   # job talks to a docker-in-docker service.
   image: node:24
   services:
-    - docker:dind
+    # Nested containers under dind hung on the Alpine CDN with dind's default
+    # MTU of 1500 on GitLab's hosted runners (2026-10-20); 1460 matches the
+    # runner's network.
+    - &dind-service
+      name: docker:dind
+      command: ["--mtu=1460"]
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -633,7 +638,7 @@ container-scan:
     - if: $CI_COMMIT_TAG
   image: docker:27-cli
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -699,7 +704,7 @@ sbom:
     - if: $CI_COMMIT_TAG
   image: docker:27-cli
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -753,7 +758,7 @@ upgrade-test:
   # Node built-ins only, so there is no pnpm install.
   image: node:24-alpine
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -822,7 +827,7 @@ demo:
   # this job never reached Compose.
   image: node:24-alpine
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -832,6 +837,9 @@ demo:
     WAYSCRIBE_API_URL: http://docker:8080
     DEMO_SOURCE_URL: http://docker:3100
     WEB_URL: http://docker:3000
+  # Builds and boots eight containers; a hang in a build fails the job in 30
+  # minutes rather than at the project default.
+  timeout: 30m
   before_script:
     - apk add --no-cache docker-cli docker-cli-compose
     - corepack enable
@@ -878,7 +886,7 @@ demo-overlay:
   needs: []
   image: node:24-alpine
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -938,7 +946,7 @@ release-verify:
   # this job never reached Compose.
   image: node:24-alpine
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -972,7 +980,7 @@ publish-images:
   tags: [saas-linux-small-amd64]
   image: docker:27-cli
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -1032,7 +1040,7 @@ publish-images-rehearsal:
   stage: release
   image: docker:27-cli
   services:
-    - docker:dind
+    - *dind-service
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""

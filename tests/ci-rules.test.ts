@@ -42,6 +42,8 @@ interface Job {
   before_script?: string[];
   after_script?: string[];
   variables?: Record<string, string | number>;
+  services?: (string | { name?: string; command?: string[] })[];
+  timeout?: string;
 }
 
 const ci = parse(read(".gitlab-ci.yml"), { merge: true }) as Record<string, unknown> & {
@@ -710,6 +712,24 @@ describe("the browser and stack jobs", () => {
           allowFailure: true
         });
       }
+    }
+  });
+
+  it("starts every docker:dind service with the runner's MTU, and bounds demo and upgrade-test", () => {
+    const offenders = Object.entries(jobs)
+      .filter(([, found]) =>
+        (found.services ?? []).some((service) =>
+          typeof service === "string"
+            ? service.startsWith("docker:dind")
+            : service.name?.startsWith("docker:dind") === true &&
+              !(service.command ?? []).includes("--mtu=1460")
+        )
+      )
+      .map(([name]) => name);
+    expect(offenders).toEqual([]);
+    for (const name of ["demo", "upgrade-test"]) {
+      const minutes = /^(\d+)m$/.exec(job(name).timeout ?? "")?.[1];
+      expect(Number(minutes ?? Infinity), `${name} timeout`).toBeLessThanOrEqual(30);
     }
   });
 
