@@ -470,7 +470,7 @@ button[aria-busy="true"] {
   }
   .journey-table .col-shown {
     order: 1;
-    flex: 0 0 3px;
+    flex: 0 0 100%;
   }
   .journey-table .col-shown > a {
     min-height: 2.75rem;
