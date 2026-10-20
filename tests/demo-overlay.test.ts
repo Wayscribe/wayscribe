@@ -212,7 +212,7 @@ describe("the demo's CI jobs", () => {
 
   it("deploys only by hand, on a release tag, after the images are published", () => {
     const deploy = job("deploy-demo");
-    expect(deploy.rules).toEqual([{ if: releaseTag }]);
+    expect(deploy.rules).toEqual([{ if: `${releaseTag} && $CI_COMMIT_REF_PROTECTED == "true"` }]);
     expect(deploy.when).toBe("manual");
     // Playable once the images exist; publish-images itself waits for the
     // overlay test, so a demo the overlay failed never reaches the VM (ADR-073).

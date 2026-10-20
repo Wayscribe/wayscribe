@@ -143,6 +143,8 @@ function variablesOf(pipeline: Pipeline): Record<string, string> {
     ...PROJECT_VARIABLES,
     CI_DEFAULT_BRANCH: "main",
     CI_PIPELINE_SOURCE: pipeline.source,
+    // Release tags are protected (SECURITY.md); a test of an unprotected one overrides this.
+    CI_COMMIT_REF_PROTECTED: "true",
     ...pipeline.variables
   };
   if (pipeline.tag !== undefined) variables["CI_COMMIT_TAG"] = pipeline.tag;
@@ -759,6 +761,41 @@ describe("a release", () => {
     expect(needNames("publish-images").sort()).toEqual(
       ["demo-overlay", "release-verify", "upgrade-test"].sort()
     );
+  });
+
+  it("holds every automatic publish on a vX.Y.Z tag behind the same gates", () => {
+    // One tag is one release: a failed overlay or upgrade must not burn an npm version.
+    const gates = ["demo-overlay", "release-verify", "upgrade-test"];
+    for (const name of ["publish-images", "publish-sdk"]) {
+      expect(needNames(name).sort(), name).toEqual(gates);
+    }
+  });
+
+  it("creates the GitHub Release only after publishing, when there was publishing", () => {
+    const needs = job("github-release").needs ?? [];
+    expect(needs).toContain("mirror-to-github");
+    // Pre-release tags publish neither, so these two are optional.
+    for (const name of ["publish-images", "publish-sdk"]) {
+      expect(needs, name).toContainEqual({ job: name, optional: true });
+    }
+    expect(outcome("github-release", tag("v0.3.0-rc.1")).when).toBe("on_success");
+  });
+
+  it("publishes nothing from an unprotected tag", () => {
+    const unprotected = (name: string): Pipeline => ({
+      ...tag(name),
+      variables: { CI_COMMIT_REF_PROTECTED: "false" }
+    });
+    for (const name of ["publish-images", "publish-sdk", "deploy-demo"]) {
+      expect(outcome(name, unprotected("v0.2.7")).when, name).toBe("never");
+    }
+    for (const name of ["publish-python", "publish-python-testpypi"]) {
+      for (const version of ["v0.2.7", "v0.2.7a1"]) {
+        expect(outcome(name, unprotected(`packages/sdk-python/${version}`)).when, name).toBe(
+          "never"
+        );
+      }
+    }
   });
 
   it("keeps deploy-demo manual, waiting only for the published images", () => {

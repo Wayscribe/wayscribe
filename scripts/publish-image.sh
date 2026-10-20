@@ -13,6 +13,9 @@
 #          apps/api/Dockerfile=registry.gitlab.com/jojithedev/wayscribe/api \
 #          apps/web/Dockerfile=registry.gitlab.com/jojithedev/wayscribe/web
 #
+# A tag that already exists in the registry is refused, and :latest moves only
+# for the highest final version (scripts/image-tag-policy.sh).
+#
 # DRY_RUN=1 does everything except the cosign calls, which it prints: the builds,
 # the pushes by digest, the SBOMs, and the tags. Point it at a throwaway registry
 # to rehearse a release (docs/OPERATIONS.md §11).
@@ -36,6 +39,16 @@ HERE=$(dirname "$0")
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
+
+# A published version is immutable. A re-run of a tag pipeline would otherwise
+# rebuild every image and move :TAG to the new digests, under operators who
+# already pulled and verified the old ones. Refuse before building anything. The
+# rehearsal (DRY_RUN=1) targets a throwaway registry and may be re-run.
+if [ "${DRY_RUN:-}" != 1 ]; then
+  for IMAGE in "$@"; do
+    "$HERE/image-tag-policy.sh" free "${IMAGE#*=}" "$TAG"
+  done
+fi
 
 # Phase 1: push by digest, attest, sign, verify. Nothing is tagged.
 for IMAGE in "$@"; do
@@ -87,13 +100,27 @@ done
 while read -r REFERENCE; do
   REPOSITORY=${REFERENCE%@*}
   DIGEST=${REFERENCE#*@}
-  docker buildx imagetools create --tag "$REPOSITORY:$TAG" --tag "$REPOSITORY:latest" "$REFERENCE"
-  for NAME in "$TAG" latest; do
+  # Again, since phase 1 took minutes: a concurrent run may have tagged it.
+  if [ "${DRY_RUN:-}" != 1 ]; then
+    "$HERE/image-tag-policy.sh" free "$REPOSITORY" "$TAG"
+  fi
+  # :latest follows only the highest final version. A re-published older
+  # version or a pre-release leaves it where it is. The rehearsal always moves
+  # it, on its throwaway registry.
+  NAMES="$TAG"
+  if [ "${DRY_RUN:-}" = 1 ] || "$HERE/image-tag-policy.sh" moves-latest "$TAG"; then
+    NAMES="$TAG latest"
+  fi
+  TAG_ARGS=""
+  for NAME in $NAMES; do TAG_ARGS="$TAG_ARGS --tag $REPOSITORY:$NAME"; done
+  # shellcheck disable=SC2086
+  docker buildx imagetools create $TAG_ARGS "$REFERENCE"
+  for NAME in $NAMES; do
     TAGGED=$(docker buildx imagetools inspect "$REPOSITORY:$NAME" --format '{{json .Manifest}}' | jq -r '.digest')
     if [ "$TAGGED" != "$DIGEST" ]; then
       echo "publish-image.sh: $REPOSITORY:$NAME is $TAGGED, not the signed $DIGEST" >&2
       exit 1
     fi
   done
-  echo "Tagged $REPOSITORY:$TAG and :latest at $DIGEST"
+  echo "Tagged $REPOSITORY:$(echo "$NAMES" | sed 's/ /, :/g') at $DIGEST"
 done < "$WORK/verified"
