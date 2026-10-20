@@ -386,9 +386,10 @@ database:
   # job talks to a docker-in-docker service.
   image: node:24
   services:
-    # Nested containers under dind hung on the Alpine CDN with dind's default
-    # MTU of 1500 on GitLab's hosted runners (2026-10-20); 1460 matches the
-    # runner's network.
+    # 1460 matches the hosted runners' network; dind's inner default is 1500.
+    # Added while builds under dind hung on the Alpine CDN (2026-10-20). The
+    # hang cleared by itself the same day, so this is a precaution, not a
+    # proven fix.
     - &dind-service
       name: docker:dind
       command: ["--mtu=1460"]
