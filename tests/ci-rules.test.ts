@@ -39,6 +39,7 @@ interface Job {
   allow_failure?: boolean;
   needs?: Need[];
   script?: string[];
+  before_script?: string[];
   after_script?: string[];
   variables?: Record<string, string | number>;
 }
@@ -143,8 +144,11 @@ function variablesOf(pipeline: Pipeline): Record<string, string> {
     ...PROJECT_VARIABLES,
     CI_DEFAULT_BRANCH: "main",
     CI_PIPELINE_SOURCE: pipeline.source,
-    // Release tags are protected (SECURITY.md); a test of an unprotected one overrides this.
-    CI_COMMIT_REF_PROTECTED: "true",
+    // Release tags and main are protected (SECURITY.md); a merge request pipeline and a
+    // feature branch are not. A test of an unprotected tag overrides this.
+    CI_COMMIT_REF_PROTECTED: String(
+      pipeline.tag !== undefined || (pipeline.source === "push" && pipeline.branch === "main")
+    ),
     ...pipeline.variables
   };
   if (pipeline.tag !== undefined) variables["CI_COMMIT_TAG"] = pipeline.tag;
@@ -781,14 +785,22 @@ describe("a release", () => {
     expect(outcome("github-release", tag("v0.3.0-rc.1")).when).toBe("on_success");
   });
 
+  it("fetches every tag before publish-images decides where :latest points", () => {
+    // GIT_DEPTH 0 fetches only the tags reachable from the commit; a higher tag on
+    // another line (v0.3.0 while releasing a v0.2.8 maintenance tag) needs the fetch.
+    const before = job("publish-images").before_script ?? [];
+    expect(before).toContain("git fetch --tags --force --quiet origin");
+  });
+
   it("publishes nothing from an unprotected tag", () => {
     const unprotected = (name: string): Pipeline => ({
       ...tag(name),
       variables: { CI_COMMIT_REF_PROTECTED: "false" }
     });
-    for (const name of ["publish-images", "publish-sdk", "deploy-demo"]) {
+    for (const name of ["publish-images", "publish-sdk", "deploy-demo", "github-release"]) {
       expect(outcome(name, unprotected("v0.2.7")).when, name).toBe("never");
     }
+    expect(outcome("github-release", unprotected("v0.3.0-rc.1")).when).toBe("never");
     for (const name of ["publish-python", "publish-python-testpypi"]) {
       for (const version of ["v0.2.7", "v0.2.7a1"]) {
         expect(outcome(name, unprotected(`packages/sdk-python/${version}`)).when, name).toBe(
