@@ -55,6 +55,10 @@ esac
 `
   );
   chmodSync(docker, 0o755);
+  // The unit image has no jq; the script only asks it for the one digest.
+  const jq = join(bin, "jq");
+  writeFileSync(jq, "#!/bin/sh\necho sha256:abc\n");
+  chmodSync(jq, 0o755);
 });
 afterAll((): void => {
   rmSync(bin, { recursive: true, force: true });
@@ -89,61 +93,21 @@ describe("image-tag-policy.sh free", () => {
 });
 
 describe("image-tag-policy.sh moves-latest", () => {
-  it("sees a higher tag on another line of history, as git lists it", () => {
-    // v0.3.0 is not an ancestor of the v0.2.8 maintenance commit; git still lists it.
-    const repo = mkdtempSync(join(tmpdir(), "policy-repo-"));
+  it("reads the tags git holds when RELEASE_TAGS is unset, including a higher one on another line", () => {
+    // A stub git, so the test needs no git (the unit image has none). Real git lists
+    // every tag it holds whatever the checked-out commit descends from; the publish job
+    // fetches them all (see ci-rules) and this proves the script reads that list.
+    const git = join(bin, "git");
+    writeFileSync(
+      git,
+      '#!/bin/sh\n[ "$*" = "tag --list v[0-9]*" ] && printf "v0.2.7\\nv0.2.8\\nv0.3.0\\n"\n'
+    );
+    chmodSync(git, 0o755);
     try {
-      const git = (...args: string[]): void => {
-        const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
-        expect(result.status, args.join(" ")).toBe(0);
-      };
-      git("init", "-q", "-b", "main");
-      git(
-        "-c",
-        "user.name=t",
-        "-c",
-        "user.email=t@t",
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        "base"
-      );
-      git("tag", "v0.2.7");
-      git("checkout", "-q", "-b", "maintenance");
-      git(
-        "-c",
-        "user.name=t",
-        "-c",
-        "user.email=t@t",
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        "fix"
-      );
-      git("tag", "v0.2.8");
-      git("checkout", "-q", "main");
-      git(
-        "-c",
-        "user.name=t",
-        "-c",
-        "user.email=t@t",
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        "next"
-      );
-      git("tag", "v0.3.0");
-      git("checkout", "-q", "maintenance");
-      const result = spawnSync("sh", [policy, "moves-latest", "v0.2.8"], {
-        cwd: repo,
-        encoding: "utf8"
-      });
-      expect(result.status).toBe(1);
+      expect(run(["moves-latest", "v0.2.8"]).status).toBe(1);
+      expect(run(["moves-latest", "v0.3.0"]).status).toBe(0);
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      rmSync(git);
     }
   });
 
