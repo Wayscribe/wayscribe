@@ -40,12 +40,14 @@ Generated on the VM by `deploy/demo/host/setup.sh` into `/etc/wayscribe-demo/env
 (root-only, mode 0600) and never committed or printed: `ENCRYPTION_KEY`, `ADMIN_TOKEN` (for
 the CLI and `doctor` on the box; the web app does not hold it), `READ_TOKEN`,
 `DEMO_API_KEY`, and the two ntfy topic names. They are separate from the GitLab CI
-variables, which hold only the deploy key and the VM's host key:
+variables, which hold the deploy key, the VM's host key and the alert topic for the live
+check:
 
 | Variable | Type | Notes |
 | --- | --- | --- |
 | `DEMO_DEPLOY_SSH_KEY_B64` | Variable, protected, masked | The private deploy key as single-line base64 (a multi-line key cannot be masked). |
 | `DEMO_SSH_KNOWN_HOSTS` | Variable, protected, not masked | The VM's host key line, verified out of band. |
+| `NTFY_TOPIC_URL` | Variable, protected, masked | `https://ntfy.sh/` followed by the alert topic, for `live-demo` failures. |
 
 A protected variable reaches a tag pipeline only when the tag is protected, so `v*` must
 remain a protected tag or `deploy-demo` fails at its first line.
@@ -82,18 +84,40 @@ opens the pinned journey's transform step, checking for the diff. It sends
 deploy holds the lock. It cannot notice the VM itself going away; an external HTTP monitor
 does that (optional step J6).
 
+## Live check
+
+The smoke check reads HTML, so it cannot see layout or which release is running. The
+`live-demo` CI job opens the demo in a browser (`apps/web/e2e-live/demo.spec.ts`, ADR-073)
+and checks, with read-only page loads, that the home page, the journeys list and the pinned
+journey do not scroll sideways at 375 and 1440 px, that every journey link is a tap target
+on a phone, that the pinned journey shows the lost phone and its likely cause, and that the
+footer names the newest `vX.Y.Z` tag. It sends `User-Agent: wayscribe-smoke/live-demo`,
+which the visit notifier ignores.
+
+It runs daily from a pipeline schedule (step J7), whose pipeline holds this job alone, and
+after `deploy-demo` on a release tag. It runs on GitLab's hosted runners because it holds
+the protected `NTFY_TOPIC_URL`, and in the `demo` resource group. Its script is capped at
+12 minutes and its after-script at 1 minute, so the alert is posted even when the demo
+hangs. A failure fails the pipeline and posts one line with the pipeline's URL to
+`NTFY_TOPIC_URL`; without that variable the job warns and posts nothing. The daily check
+expects the newest release tag, so between pushing a tag and playing `deploy-demo` it
+fails on purpose. From a checkout, `EXPECTED_VERSION=vX.Y.Z pnpm test:live` runs the same
+check, and `LIVE_URL` points it at another deployment.
+
 ## Deploy and rollback
 
-On a `vX.Y.Z` tag the `demo-overlay` CI job runs the overlay test, `publish-images` publishes
-and signs `api`, `web` and `demo`, and `deploy-demo` appears as a manual job. It needs both
-`publish-images` and `demo-overlay`, and runs in the `demo` resource group, so two deploys
-never overlap. Play it after `publish-images` finishes. It connects as `wayscribe-deploy`,
+On a protected `vX.Y.Z` tag the `demo-overlay` CI job runs the overlay test, and
+`publish-images`, which waits for it, `release-verify` and `upgrade-test`, publishes and
+signs `api`, `web` and `demo` on its own. `deploy-demo` is a manual job that needs only
+`publish-images`, so it can be played as soon as the images exist, and runs in the `demo`
+resource group, so two deploys never overlap. It connects as `wayscribe-deploy`,
 which runs `/usr/local/sbin/wayscribe-demo-deploy <tag>`; that checks out the tag, records
 `WAYSCRIBE_VERSION`, and runs the reset. The job then runs the smoke check from outside and
-fails if it fails.
+fails if it fails, and `live-demo` runs after it.
 
-`demo-overlay` also runs on branch pipelines that change `deploy/demo/**`, `apps/demo/**`,
-`apps/web/**`, `apps/api/src/**` or `infrastructure/compose.*.yaml`, and is otherwise manual.
+`demo-overlay` also runs on merge request and branch pipelines that change `deploy/demo/**`,
+`apps/demo/**`, `apps/web/**`, `apps/api/src/**` or `infrastructure/compose.*.yaml`, and is
+otherwise manual.
 
 **Rollback** is the same job played on the previous tag's pipeline. Every deploy is a reset,
 so a database a newer release migrated never meets an older one. Play `deploy-demo` on every
@@ -123,8 +147,8 @@ dropped; Caddy is never slowed.
 ## Rebuild from nothing
 
 1. Jorge: steps J1 and J2 below.
-2. Jorge: tag `vX.Y.Z`, a release that contains this work, play `publish-images` on its
-   pipeline, and wait for it to finish. `setup.sh` pulls and verifies that tag's images, so
+2. Jorge: tag `vX.Y.Z`, a release that contains this work, and wait for its pipeline's
+   `publish-images` job to finish. `setup.sh` pulls and verifies that tag's images, so
    the tag must exist first. On a first deploy there is no earlier tag to use.
 3. Jorge: step J3 (generate the deploy key, then run `setup.sh` with that tag). On the VM as
    root: `git clone --depth 1 --branch <tag> https://gitlab.com/jojithedev/wayscribe.git /opt/wayscribe`
@@ -164,3 +188,9 @@ These need Jorge's accounts. Nothing automated performs them.
 - **J6 (optional). External monitor.** Point a free HTTP keyword monitor at
   `https://demo.wayscribe.dev/`, looking for "Public demo. Read-only, sample data.", with
   user agent `wayscribe-smoke/1`, to hear about the VM itself going down.
+- **J7. Live check.** In GitLab (Settings, CI/CD, Variables), add `NTFY_TOPIC_URL` =
+  `https://ntfy.sh/` followed by the alert topic name from step J5 (type Variable,
+  **protected and masked**). Then under Build, Pipeline schedules, create a schedule:
+  description `Daily live demo check`, interval pattern `30 4 * * *`, cron timezone
+  `UTC`, target branch `main`, variable `LIVE_DEMO_CHECK` = `1`, active. 04:30 UTC is after
+  the 04:00 reset. Leave the weekly scan schedule without `LIVE_DEMO_CHECK`.

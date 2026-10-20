@@ -9,7 +9,8 @@ Hetzner VM with GitLab Runner's Docker executor. The minutes ran out during the
 
 - **Every job that holds a credential stays on GitLab's hosted runners:**
   `publish-images`, `publish-sdk`, `publish-python`, `publish-python-testpypi`,
-  `deploy-demo`, `mirror-to-github` and `github-release`. They set
+  `deploy-demo`, `live-demo` (it holds the protected `NTFY_TOPIC_URL`),
+  `mirror-to-github` and `github-release`. They set
   `tags: [saas-linux-small-amd64]` in `.gitlab-ci.yml`. They are short, so they
   cost few minutes.
 - **Every other job goes where `RUNNER_TAG` says.** The `default:` block sets
@@ -26,9 +27,23 @@ GitLab mints for them (Sigstore, npm, PyPI) never touch that VM.
 
 The split does not narrow which jobs see the protected variables
 (`GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `DEMO_DEPLOY_SSH_KEY_B64`,
-`DEMO_SSH_KNOWN_HOSTS`). Every job in a `main` or tag pipeline sees them,
-wherever it runs. That was already true on GitLab's runners. Scoping them to
-environments would narrow it; that has not been done yet.
+`DEMO_SSH_KNOWN_HOSTS`, `NTFY_TOPIC_URL`). Every job in a `main`, tag or
+scheduled pipeline sees them, wherever it runs; merge request pipelines do
+not. That was already true on GitLab's runners. Scoping them to environments
+would narrow it; that has not been done yet.
+
+## What runs when
+
+Since ADR-073 a push makes one pipeline: the merge request pipeline while one is
+open, the branch pipeline otherwise. `e2e`, `demo` and `upgrade-test` run on
+their own on `main`, on schedules, and on a merge request that changes their
+paths, and are manual otherwise. On a protected `vX.Y.Z` tag `publish-images`
+and `publish-sdk` run on their own after `release-verify`, `upgrade-test` and
+`demo-overlay`; `github-release` waits for both; `deploy-demo` is manual and
+playable once the images exist, and `live-demo` runs after it. The daily
+schedule with `LIVE_DEMO_CHECK=1` runs `live-demo` alone. Measured on
+2026-10-19 on the hosted runners: `e2e` 3.4 to 4.6 minutes, `demo` 6.0 to 10.4,
+`upgrade-test` 3.9 to 4.7, `demo-overlay` 6.4 to 7.6, `publish-images` 16 to 35.
 
 ## Setting it up
 

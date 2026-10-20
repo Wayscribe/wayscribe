@@ -86,3 +86,14 @@ On a tag, `publish-images`, `publish-sdk`, `publish-python` and the GitHub relea
 - #9 failure alerts in the product.
 - Moving these jobs to the project runner (a `RUNNER_TAG` change, already supported).
 - The timeline cursor repeat noted in the root-cause handoff.
+
+## Changed during implementation
+
+The sections above record the design as approved. Review and the first runs changed these points; ADR-073 and the plan hold the final form.
+
+- `github-release` never had `when: manual`. It moved to the release stage and waits, with optional `needs`, for `publish-images` and `publish-sdk`, so a failed publish leaves no GitHub Release.
+- The `demo` table has no `deploy/demo` (that is `demo-overlay`'s) and lists the six workspace dependencies (`config`, `database`, `payload-diff`, `payload-security`, `protocol`, `sdk-node`), the manifests and `.dockerignore`. `upgrade-test` also covers `apps/api`, those six packages, the manifests and `.dockerignore`. A merge request touching only the SDKs, the CLI or the documents leaves `e2e`, `demo` and `upgrade-test` manual.
+- `live-demo` runs on the hosted runner (`saas-linux-small-amd64`), not `$RUNNER_TAG`, because it holds the protected `NTFY_TOPIC_URL`. It has `RUNNER_SCRIPT_TIMEOUT` 12m and `RUNNER_AFTER_SCRIPT_TIMEOUT` 1m so the alert fires on a hang, and the `demo` resource group.
+- `publish-sdk` gates on `release-verify`, `upgrade-test` and `demo-overlay`, like `publish-images`. `publish-python` runs on its own only on a final protected `packages/sdk-python/v*` tag and is manual on `a`, `b` and `rc` tags, so a TestPyPI rehearsal happens on a pre-release tag before the final tag. Every release rule requires `$CI_COMMIT_REF_PROTECTED == "true"`.
+- `scripts/publish-image.sh` refuses to overwrite an existing image tag and moves `latest` only for the highest final `vX.Y.Z`.
+- The workflow's `never` rule applies only to `push` pipelines on a branch with an open merge request; API, trigger, schedule and UI pipelines are created anywhere.
