@@ -31,7 +31,7 @@
     "conformance:manifest": "node scripts/write-manifest.mjs"
   },
   "dependencies": {
-    "zod": "^4.6.4"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "ajv": "^8.20.0"
