@@ -42,5 +42,9 @@ overrides:
   fast-uri@>=4.0.0 <4.1.5: "^4.1.5"
   # GHSA-68fv-2mgg-jv7q: event-loop DoS. Reached through vite > postcss (development only).
   source-map-js@>=1.0.0 <1.2.2: "^1.2.2"
+  # GHSA-587h-7wmj-h5pm: launch-editor file existence check. Reached through
+  # vitest, which takes vite as an auto-installed peer that `pnpm update` does
+  # not refresh (development only).
+  vite@>=7.0.0 <7.3.7: "^7.3.7"
   # GHSA-w5hq-g745-h8pq: buffer bounds check. Reached through testcontainers > dockerode (development only).
   uuid@<11.1.1: "^11.1.1"

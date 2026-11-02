@@ -39,6 +39,17 @@ changes far less often.
 - **Python SDK: a raising message or code read in an `is_failure` mapping keeps
   the failure** (!10).
 
+### Security
+
+- The `web` image ships `next` 15.5.28 (GHSA-2464-fhr4-w9xw, critical, and
+  GHSA-p3m5-59mp-jv5r), and the `api` image ships `undici` 8.12.3
+  (GHSA-xjj6-f33q-929c, GHSA-4w7w-5xrc-9h26, GHSA-2m5v-pch6-74hx,
+  GHSA-qrxm-fqhp-jwvm). `zod` moves to 4.6.7 (GHSA-mrhx-c7xc-m3w5). In
+  development only, `vitest`, `jsdom` and `testcontainers` pick up patched
+  `vite` 7.3.7 (GHSA-587h-7wmj-h5pm, through an override) and `undici` 7.30.1
+  and 8.12.3. The site moves to `astro` 7.4.4 and `@astrojs/starlight` 0.42.8
+  for patched `vite`, `zod` and `undici`.
+
 ## [0.2.6] - 2026-10-13
 
 The `api`, `web` and `demo` images, `@wayscribe/node`, the Python package
